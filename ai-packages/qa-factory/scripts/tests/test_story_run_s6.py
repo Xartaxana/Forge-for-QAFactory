@@ -520,10 +520,8 @@ def t261_the_real_controller_refuses_a_completion_over_an_undispatched_case_and_
     root = harness.temp_dir("qa-t261-controller-")
     try:
         c = F.s6_story(root)
-        # X7-6: the controller's acceptance gate (controller.py, `validate` op=accept) comes BEFORE the derived-scope gate, so the consumer's
-        # accept record for this dispatch is written first (the way the analyst's `stage_done.py --acceptance` leaves it); only then is the
-        # cover refusal this premise is about reached. The record is for this one dispatch; the later closing calls below stand on it too.
-        F.BASE.record_stage_acceptance(root, "S6", "S6-auto")
+        # X7-6: the controller's acceptance gate comes BEFORE the derived-scope gate; the helper `F.runner` writes the consumer's record
+        # for its own dispatch when `complete` is true, so the cover refusal this premise is about is reached.
         refused = F.runner(c, root, "S6-auto", "automation", ["TC-1"], True)
         check_in("a completion over a derived manual case nobody dispatched is refused by the controller (C4's premise)",
                  "manual-agent case TC-2 has no accepted S6 dispatch", refused)
@@ -679,10 +677,9 @@ def t289_manual_block_goes_through_the_real_prepare_and_a_refusal_is_a_text() ->
         driver, launched, moves, enter = rig()
         enter()
         # X7-6 group (K-RES): the last block is launched awaiting the consumer's acceptance (`s6_awaits`, run_manual_block); S6 is completed by
-        # the accepted dispatches over the consumer's accept record (controller.py `validate` op=accept), written for that dispatch first
+        # the accepted dispatches over the consumer's accept record (controller.py `validate` op=accept); `F.runner` writes that record
         check_eq("K-RES: the LAST block closes the stage (awaiting acceptance) and is the third manual dispatch",
                  [(e["scope"], seen(e["complete"])) for e in launched], [(manual[4:], AWAITS)])
-        F.BASE.record_stage_acceptance(ctl_root, "S6", "S6-qa-runner-4")
         check_eq("setup: the last block is accepted, closing S6", F.runner(c, ctl_root, "S6-qa-runner-4", "manual", manual[4:], True), "")
         check_eq("K-RES: S6 is completed by the accepted dispatches", c.state()["stages"]["S6"]["status"], "completed")
         # a block the CONTROLLER refuses (6 cases > the limit of five) is the driver's Refusal with the controller's words
@@ -2303,10 +2300,11 @@ def hf2_11b_the_tool_takes_only_a_running_dispatch() -> None:
 
 
 def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
-    """K3 + invariant (i): stale RUNS -> the runner as today, launched with `complete=False` when stale live checks are owed, no
-    probe before it (a probe is never next to code with no run on its current bytes); on its return (`auto_done`) the proofs, the
-    reduction and the close at `s6.reprobed`; once per life of S6; the second life (no mark of ours) probes only when every run
-    stands. MUTATIONS: `the probe before the runs` -> the first check; `complete=True with stale probes` -> the complete check."""
+    """K3 + invariant (i): stale RUNS -> the runner as today, launched with the awaits word (a consumer is bound to S6, so the runner
+    window gets it whether or not proofs are owed, story_run.py stage_S6; the stage is not closed by it), no probe before it (a probe is
+    never next to code with no run on its current bytes); on its return (`auto_done`) the proofs, the reduction and the close at
+    `s6.reprobed`; once per life of S6; the second life (no mark of ours) probes only when every run stands.
+    MUTATION: `the probe before the runs` -> the first check."""
     task = "QA-9"
     two = {"test_a": ("stale", "", D1_SAME), "test_b": ("result", "failed", "")}
     answer = {"test_a": row(("stale", WHY_RUN), stale_probe(REPLAY_A)), "test_b": row(("fresh", ""), stale_probe(REPLAY_B))}
@@ -2317,8 +2315,8 @@ def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
         driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=RUNNING_S6)
         with D1Evidence(d1_answer(two)), Staleness(answer):
             driver.stage_S6()
-        # X7-6: with a consumer `s6_awaits(True)` is sent even when the proofs are owed (story_run.py stage_S6: `owed` included) - the runner
-        # still does not close the stage; the proofs and the close come in `s6_reentry` after the consumer's record
+        # X7-6: with a consumer `s6_awaits(True)` is sent even when the proofs are owed (story_run.py stage_S6: `owed` ignored) - the runner
+        # still does not close the stage; the proofs and the close come in `s6_reentry` (this scenario writes no consumer record)
         eq("K3 stale runs: the runner is dispatched, whole scope, and NOT closing the stage (awaiting acceptance); no probe, no close before it",
            ([(e["role"], e["scope"], seen(e["complete"])) for e in launched], moves, sites), ([("qa-runner", ["TC-1", "TC-2"], AWAITS)], [], []))
         check_in("K3 and it is told what stands and what to run, as today", f"Results that stand: test_b; run only: test_a ({D1_SAME}).",

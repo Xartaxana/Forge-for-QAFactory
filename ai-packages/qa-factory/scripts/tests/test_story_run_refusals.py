@@ -3448,8 +3448,10 @@ def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
                  (no_rows.startswith("the case critic sent work back for repair; S4 was kept open"), any(ch.isdigit() for ch in no_rows.split(";")[0])), (True, False))
         check_not_in("T18: and is timeless (no 'round k of cap', no present tense)", " is kept", got.reason)
         check_eq("T18: approve -> None (the critic closes S4)", rule(digest.replace("concerns", "approve")), None)
-        check_eq("X2-7: the record of the critic's form was written first, once per finish",
-                 set(written), {("S4", "S4-qa-case-critic-1")})
+        # the finishes above: 3 calls of `rule` and the `no_rows` one - each writes the record exactly once (all entries are the same pair, so
+        # an order is not observable here)
+        check_eq("X2-7: the record of the critic's form was written once per finish (4 finishes)",
+                 written, [("S4", "S4-qa-case-critic-1")] * 4)
         # the last round: a stage with NO acceptor keeps the old None; a stage WITH one hands a sent-back stage to the seam (X2-7 point 7)
         real_acceptor, real_exhausted = driver.stage_acceptor, driver.stage_review_exhausted
         driver.stage_acceptor = lambda s: ""
