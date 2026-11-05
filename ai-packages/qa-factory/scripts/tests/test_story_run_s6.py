@@ -48,6 +48,16 @@ from story_run_common import (  # noqa: E402
 )
 import no_move as NM  # noqa: E402
 
+# X7-6: S6 has `acceptance_by: qa-failure-analyst` (references/stages.json), so a runner window that WOULD close S6 is launched with
+# the open-work word instead (`Driver.s6_awaits`, story_run.py): the runner's own finish never closes S6, the consumer's accept record does.
+# `AWAITS` is that word as a pin sees it; `seen` reads a launched `complete` flag as the word (an OpenWork) or as it was (True/False).
+AWAITS = "stage_awaits_acceptance"
+
+
+def seen(complete):
+    import story_run
+    return complete.unresolved if isinstance(complete, story_run.OpenWork) else complete
+
 
 def s5_critic_finish_passes_window() -> None:
     """t-079 (FR-5/FR-48): the last window's critic closes S5 only over a window record; code builds it
@@ -127,8 +137,9 @@ def d1_s6_freshness() -> None:
             driver.stage_S6()
         eq("D1(i) finalize exits non-zero: only the reduction was tried - no receipt, no close",
            [m[0] for m in moves], ["finalize"])
-        eq("D1(i) finalize fails: the runner is dispatched as today, whole scope, closing S6",
-           [(e["stage"], e["role"], e["scope"], e["complete"]) for e in launched], [("S6", "qa-runner", ["TC-1", "TC-2"], True)])
+        # X7-6 group (the D1 runner windows below): the window that closes S6 is launched awaiting the consumer's acceptance (`s6_awaits`)
+        eq("D1(i) finalize fails: the runner is dispatched as today, whole scope, closing S6 (awaiting the consumer's acceptance)",
+           [(e["stage"], e["role"], e["scope"], seen(e["complete"])) for e in launched], [("S6", "qa-runner", ["TC-1", "TC-2"], AWAITS)])
         check_in("D1(i) finalize fails: with the note naming the exit",
                  "The factory could not decide freshness (finalize_task exit 1): decide per instance.", d1_extras(launched))
         (task_root / "work" / "run-blocks" / "x.json").unlink()
@@ -149,7 +160,7 @@ def d1_s6_freshness() -> None:
             # cases only cannot close S6 - the controller completes S6 over its derived scope by ACCEPTED
             # dispatches (`_s6_completion_problems`) - so narrowing waits for Lead's decision.
             eq(f"D1(ii) {label}: the dispatch scope is the automation scope, and closes S6 (no manual half)",
-               (launched[0]["scope"], launched[0]["complete"]), (["TC-1", "TC-2"], True))
+               (launched[0]["scope"], seen(launched[0]["complete"])), (["TC-1", "TC-2"], AWAITS))
         driver, launched, moves, started = d1_driver(root, env, task)
         with D1Evidence(d1_answer({"test_a": ("stale", "", D1_SAME), "test_b": ("missing", "", "none")})):
             driver.stage_S6()
@@ -176,8 +187,8 @@ def d1_s6_freshness() -> None:
                ([("S6", "qa-runner")], []))
             check_in(f"D1(iii) {label}: with the note and its reason", "The factory could not decide freshness (" + why, d1_extras(launched))
             check_in(f"D1(iii) {label}: and the instruction to decide per instance", "): decide per instance.", d1_extras(launched))
-            eq(f"D1(iii) {label}: the whole automation scope, closing S6", (launched[0]["scope"], launched[0]["complete"]),
-               (["TC-1", "TC-2"], True))
+            eq(f"D1(iii) {label}: the whole automation scope, closing S6", (launched[0]["scope"], seen(launched[0]["complete"])),
+               (["TC-1", "TC-2"], AWAITS))
 
         # a manual half is still to run: the receipt would close the WHOLE stage, so the runner goes as today
         driver, launched, moves, started = d1_driver(root, env, task, manual=("TC-9",))
@@ -329,6 +340,21 @@ def manual_rig(root, env, task, cases, refused=(), world=None, auto_dispatches=(
     return driver, world, launched, moves
 
 
+def consumer_accepts(task_root, dispatches) -> None:
+    """X7-6: the consumer's (qa-failure-analyst's) `accept` record for the S6 author's LAST accepted dispatch in `dispatches`, written to
+    the task's pipeline.json the way `stage_done.py --acceptance` records it (the real writer is proved in test_stage_acceptance_consumer).
+    The manual half closes (`manual_close` -> `s6_need_record`, story_run.py) only over this record; with no author dispatch it is not owed."""
+    import acceptance
+    stage_def = acceptance.stage_def_of("S6")
+    author = acceptance.stage_author_dispatch({"dispatches": dispatches}, stage_def)
+    path = Path(task_root) / "pipeline.json"
+    pipeline = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    pipeline.setdefault("acceptance", {})["S6"] = [{
+        "stage": "S6", "role": stage_def["roles"][0], "acceptor": stage_def["acceptance_by"], "reviewed_dispatch": author, "verdict": "accept",
+        "failure_class": None, "quote": "", "witness_paths": [], "at": "t"}]
+    path.write_text(json.dumps(pipeline), encoding="utf-8")
+
+
 def enter_manual(driver, world, cases, accept=True):
     """One entry: `run_manual_block` with the controller replaced; the new dispatch is ACCEPTED afterwards when asked to
     be (the runner finished). (the printed text, the dispatch id registered or "")."""
@@ -383,12 +409,15 @@ def t261_k2_the_blocks_of_five_and_the_refused_are_not_dispatched() -> None:
                  f"work/evidence/manual/{ready[0]}/request.json", " ".join(launched[0]["extra"]))
         # entry 2: the second block (two cases) - still not closing: the refused cases are outside any dispatch's cover
         text, second = enter_manual(driver, world, scope)
-        check_eq("entry 2: one more dispatch, the two left, `--not-complete` because four were refused",
-                 [(e["scope"], e["complete"]) for e in launched[1:]], [(ready[5:], False)])
+        # X7-6 group (K2): under a consumer the LAST block is launched awaiting the consumer's acceptance (`s6_awaits`, run_manual_block), refused
+        # cases or not - a refused case is then closed by `manual_close`, which needs the consumer's record (written below before entry 3)
+        check_eq("entry 2: one more dispatch, the two left, not closing the stage (awaiting acceptance) though four were refused",
+                 [(e["scope"], seen(e["complete"])) for e in launched[1:]], [(ready[5:], AWAITS)])
         check_eq("entry 2: and the four lines are said again (each entry is a fresh reading of the plan)",
                  len([ln for ln in text.splitlines() if "not checked by hand" in ln]), 4)
         check_eq("no finalize and no receipt yet", moves, [])
-        # entry 3: nothing left to dispatch: the manual half closes with no runner
+        # entry 3: nothing left to dispatch: the manual half closes with no runner, over the consumer's accept record
+        consumer_accepts(task_root, world.dispatches)
         text, third = enter_manual(driver, world, scope)
         check_eq("entry 3: no new dispatch and no role call", (third, len(launched)), ("", 2))
         check_eq("entry 3: the reduction FIRST, then the code-only receipt, then the close",
@@ -402,13 +431,13 @@ def t261_k2_the_blocks_of_five_and_the_refused_are_not_dispatched() -> None:
         check_eq("no refused case appears in any dispatch scope",
                  [c for e in launched for c in e["scope"] if c in bad], [])
         # 5 -> one block that closes the stage; 6 -> [5] then [1] that closes it; 11 -> [5] [5] [1]
-        for n, flags in ((5, [True]), (6, [False, True]), (11, [False, False, True])):
+        for n, flags in ((5, [AWAITS]), (6, [False, AWAITS]), (11, [False, False, AWAITS])):
             driver, world, launched, moves = manual_rig(root, env, task, [])
             cases = names(n)
             for _ in flags:
                 enter_manual(driver, world, cases)
             check_eq(f"{n} prepared cases, none refused: the blocks' `complete` flags (only the LAST block closes S6)",
-                     [e["complete"] for e in launched], flags)
+                     [seen(e["complete"]) for e in launched], flags)
             check_eq(f"{n} prepared cases: the dispatches' scopes are the blocks, in order",
                      [len(e["scope"]) for e in launched], {5: [5], 6: [5, 1], 11: [5, 5, 1]}[n])
             check_eq(f"{n} prepared cases: nothing is closed by code (the last runner closes it)", moves, [])
@@ -463,13 +492,15 @@ def t261_resume_after_a_crash_between_blocks_and_the_recovery_rule() -> None:
             d.stage_scope = lambda stage, kind="": {"scope": list(scope)}
             return d.completion_for("S6", "qa-runner", record)
         last = {"execution_kind": "manual", "manual_case_ids": cases[10:], "scope": cases[10:]}
-        check_eq("recovery: the LAST block (nothing else left) closes the stage", completion(last, cases, done=[cases[:5], cases[5:10]]), True)
+        # X7-6 group (recovery): `completion_for` answers a finish that would close S6 with the open-work word (`s6_awaits`, story_run.py)
+        check_eq("recovery: the LAST block (nothing else left) closes the stage (awaiting the consumer's acceptance)",
+                 seen(completion(last, cases, done=[cases[:5], cases[5:10]])), AWAITS)
         check_eq("recovery: a block with another still to go does not", completion(dict(last, manual_case_ids=cases[5:10], scope=cases[5:10]), cases, done=[cases[:5]]), False)
         check_eq("recovery: the last block does not close the stage while a case was refused (the controller would refuse it)",
                  completion(last, cases, refused=[cases[0]], done=[cases[1:5], cases[5:10]]), False)
         auto = {"execution_kind": "automation", "scope": ["QA-9_TC_900"]}
         check_eq("recovery: the AUTOMATION runner does not close S6 while a manual half is left", completion(auto, cases), False)
-        check_eq("recovery: ...and does when there is none", completion(auto, []), True)
+        check_eq("recovery: ...and does when there is none (awaiting the consumer's acceptance)", seen(completion(auto, [])), AWAITS)
         d, w, _l, _m = manual_rig(root, env, task, cases)
         d.stage_scope = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("controller down"))
         check_eq("recovery: a scope that cannot be read closes nothing (a doubt never closes a stage)",
@@ -489,6 +520,10 @@ def t261_the_real_controller_refuses_a_completion_over_an_undispatched_case_and_
     root = harness.temp_dir("qa-t261-controller-")
     try:
         c = F.s6_story(root)
+        # X7-6: the controller's acceptance gate (controller.py, `validate` op=accept) comes BEFORE the derived-scope gate, so the consumer's
+        # accept record for this dispatch is written first (the way the analyst's `stage_done.py --acceptance` leaves it); only then is the
+        # cover refusal this premise is about reached. The record is for this one dispatch; the later closing calls below stand on it too.
+        F.BASE.record_stage_acceptance(root, "S6", "S6-auto")
         refused = F.runner(c, root, "S6-auto", "automation", ["TC-1"], True)
         check_in("a completion over a derived manual case nobody dispatched is refused by the controller (C4's premise)",
                  "manual-agent case TC-2 has no accepted S6 dispatch", refused)
@@ -643,8 +678,11 @@ def t289_manual_block_goes_through_the_real_prepare_and_a_refusal_is_a_text() ->
         check_eq("setup: the second block is accepted", F.runner(c, ctl_root, "S6-qa-runner-3", "manual", manual[2:4], False), "")
         driver, launched, moves, enter = rig()
         enter()
-        check_eq("K-RES: the LAST block closes the stage and is the third manual dispatch",
-                 [(e["scope"], e["complete"]) for e in launched], [(manual[4:], True)])
+        # X7-6 group (K-RES): the last block is launched awaiting the consumer's acceptance (`s6_awaits`, run_manual_block); S6 is completed by
+        # the accepted dispatches over the consumer's accept record (controller.py `validate` op=accept), written for that dispatch first
+        check_eq("K-RES: the LAST block closes the stage (awaiting acceptance) and is the third manual dispatch",
+                 [(e["scope"], seen(e["complete"])) for e in launched], [(manual[4:], AWAITS)])
+        F.BASE.record_stage_acceptance(ctl_root, "S6", "S6-qa-runner-4")
         check_eq("setup: the last block is accepted, closing S6", F.runner(c, ctl_root, "S6-qa-runner-4", "manual", manual[4:], True), "")
         check_eq("K-RES: S6 is completed by the accepted dispatches", c.state()["stages"]["S6"]["status"], "completed")
         # a block the CONTROLLER refuses (6 cases > the limit of five) is the driver's Refusal with the controller's words
@@ -703,13 +741,13 @@ def t289_the_automation_half_with_a_manual_half_pending_finishes_not_complete() 
     root, task_root, env = d2_seed(task, environment="Local", pending=False)
     try:
         d1_write_blocks(task_root)
-        for manual, flag in ((("TC-9",), False), ((), True)):
+        for manual, flag in ((("TC-9",), False), ((), AWAITS)):      # X7-6: the window that closes S6 awaits the consumer's acceptance
             driver, launched, moves, started = d1_driver(root, env, task, manual=manual)
             two = {"test_a": ("stale", "", D1_SAME), "test_b": ("missing", "", "none")}
             with D1Evidence(d1_answer(two)):
                 driver.stage_S6()
             check_eq(f"manual half {'pending' if manual else 'absent'}: the automation runner gets complete={flag}",
-                     [e["complete"] for e in launched], [flag])
+                     [seen(e["complete"]) for e in launched], [flag])
             check_eq(f"manual half {'pending' if manual else 'absent'}: the next entry is the manual block (or nothing)",
                      started, [])
         calls = []
@@ -1087,8 +1125,10 @@ def t292_k19_the_answers_have_an_executor() -> None:
                 check(f"K19 `{token}`: and the journal has the answer", any(f"S6 ({token}): " in str(e.get("notes")) for e in s0_journal(fresh_root)))
                 # the next entry: the http case only, not complete; one line per screen case with the words; request.json says so
                 text, new, person = t292_enter(driver, world, cases)
-                eq(f"K19 `{token}`: the next entry raises nothing and dispatches only the http case, not closing the stage",
-                   (person, [(e["scope"], e["complete"]) for e in launched]), (None, [(["QA-9_TC_003"], False)]))
+                # X7-6 group (K19): the last block under a consumer is launched awaiting its acceptance (`s6_awaits`, run_manual_block), the left-out
+                # screen cases or not; the entry after it closes the manual half over the consumer's accept record (`manual_close`)
+                eq(f"K19 `{token}`: the next entry raises nothing and dispatches only the http case, awaiting the consumer's acceptance",
+                   (person, [(e["scope"], seen(e["complete"])) for e in launched]), (None, [(["QA-9_TC_003"], AWAITS)]))
                 for case in screens:
                     line = next((ln for ln in text.splitlines() if ln.startswith(f"S6: {case}: not checked by hand")), "")
                     check_in(f"K19 `{token}`: a `not checked by hand` line for {case} carries the person's words", f"the person said: \"{words}\"", line)
@@ -1097,6 +1137,7 @@ def t292_k19_the_answers_have_an_executor() -> None:
                     check_in(f"K19 `{token}`: ... with a door", "put the stand's test account in the project's settings", refused["refused"]["door"])
                 # the one after: nothing left to dispatch: the manual half closes code-only, naming the screen cases
                 moves.clear()
+                consumer_accepts(fresh_task_root, world.dispatches)
                 text, new, person = t292_enter(driver, world, cases)
                 eq(f"K19 `{token}`: the following entry closes the manual half (finalize, code_only, stage_done), no role", ([m[0] for m in moves], len(launched)), (["finalize", "code_only", "stage_done"], 1))
                 check_in(f"K19 `{token}`: and names the screen cases as not checked", ", ".join(screens), moves[1][2])
@@ -2276,8 +2317,10 @@ def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
         driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=RUNNING_S6)
         with D1Evidence(d1_answer(two)), Staleness(answer):
             driver.stage_S6()
-        eq("K3 stale runs: the runner is dispatched, whole scope, and NOT closing the stage; no probe, no close before it",
-           ([(e["role"], e["scope"], e["complete"]) for e in launched], moves, sites), ([("qa-runner", ["TC-1", "TC-2"], False)], [], []))
+        # X7-6: with a consumer `s6_awaits(True)` is sent even when the proofs are owed (story_run.py stage_S6: `owed` included) - the runner
+        # still does not close the stage; the proofs and the close come in `s6_reentry` after the consumer's record
+        eq("K3 stale runs: the runner is dispatched, whole scope, and NOT closing the stage (awaiting acceptance); no probe, no close before it",
+           ([(e["role"], e["scope"], seen(e["complete"])) for e in launched], moves, sites), ([("qa-runner", ["TC-1", "TC-2"], AWAITS)], [], []))
         check_in("K3 and it is told what stands and what to run, as today", f"Results that stand: test_b; run only: test_a ({D1_SAME}).",
                  d1_extras(launched))
         eq("K3 the close the runner no longer makes is OWED: the mark is set (before the runner; the dispatch id is filled after it)",
@@ -2366,7 +2409,7 @@ def hf2_11b_without_a_stand_nothing_is_run_or_proved() -> None:
         check_in("K4 stale runs: the runner is told how many are left for a run elsewhere",
                  "2 tests changed after their run are left for a run elsewhere", d1_extras(launched))
         eq("K4 ...is not told to leave the stage open, and no probe was launched",
-           ([e["complete"] for e in launched], probes, "s6_probe_after" in driver.state), ([True], [], False))
+           ([seen(e["complete"]) for e in launched], probes, "s6_probe_after" in driver.state), ([AWAITS], [], False))
 
         # P11 negative control: the same pipeline WITHOUT the word is not "no stand"; a confirmed stand never is
         d2_pipeline(task_root, stage_overrides=[])
@@ -2404,7 +2447,7 @@ def hf2_11b_nothing_stale_is_byte_identical() -> None:
         with D1Evidence(d1_answer({"test_a": ("stale", "", D1_SAME), "test_b": ("result", "failed", "")})), Staleness({}):
             driver.stage_S6()
         eq("K5 stale runs, no live check: the runner as today (closing the stage), no mark",
-           ([(e["scope"], e["complete"]) for e in launched], "s6_probe_after" in driver.state), ([(["TC-1", "TC-2"], True)], False))
+           ([(e["scope"], seen(e["complete"])) for e in launched], "s6_probe_after" in driver.state), ([(["TC-1", "TC-2"], AWAITS)], False))
         check_in("K5 ...with today's line", f"Results that stand: test_b; run only: test_a ({D1_SAME}).", d1_extras(launched))
         check_not_in("K5 ...and no word of the new lines", "left for a run elsewhere", d1_extras(launched))
     finally:
