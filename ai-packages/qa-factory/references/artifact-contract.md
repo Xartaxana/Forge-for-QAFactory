@@ -29,8 +29,6 @@ writes them (`artifact-contract-plan.md`, `artifact-contract-results.md`).
       evidence/  proposals/  bug-drafts/
 ```
 
-`work/s5-plan.json` is written by `s5_plan.py --init` for qa-automator; its fields are in the brief.
-
 Names are fixed. A role that invents a filename produces an artifact nobody reads. `records/` is
 committed, `state/` is ignored; an older project keeps them in `state/`.
 
@@ -47,6 +45,11 @@ project-level files (`records/journal.jsonl`, `factory-backlog.md`, `obligations
 belongs in the project's `.gitignore`. The one exception is a **story interrupted mid-way**:
 then `work/` is committed too, along with `pipeline.json`. Code reads an artifact through `contract.artifact()`, which looks
 under `work/` first and falls back to the flat path.
+
+<!-- roles: qa-automator -->
+### The S5 plan
+
+`work/s5-plan.json` is written by `s5_plan.py --init` for qa-automator; its fields are in the brief.
 
 <!-- roles: qa-case-designer, qa-case-critic -->
 ## `test-cases/<area>/<case id>.md`
