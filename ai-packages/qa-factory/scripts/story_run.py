@@ -15212,8 +15212,10 @@ class Driver:
                 if record.get("execution_kind") == "manual":
                     mine = [str(c) for c in record.get("manual_case_ids") or record.get("scope") or []]
                     plan = self.manual_plan(scope, skip=mine)
-                    # X7-6: with a consumer the last block stops AWAITING the acceptance (as the live `run_manual_block` does)
-                    return self.s6_awaits(not plan["blocks"] and not plan["refused"])
+                    # X7-6: with a consumer the last block stops AWAITING the acceptance whatever was refused (a refused case is then
+                    # closed by `manual_close`), the rule of the live `run_manual_block`; an earlier block answers False. With no
+                    # consumer `s6_awaits` passes the value through, so a refused case still keeps the old False (the controller refuses).
+                    return self.s6_awaits(not plan["blocks"] and (bool(self.s6_consumer()) or not plan["refused"]))
                 return self.s6_awaits(not scope)
             except Exception:
                 return False       # a doubt never closes a stage

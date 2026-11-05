@@ -496,8 +496,10 @@ def t261_resume_after_a_crash_between_blocks_and_the_recovery_rule() -> None:
         check_eq("recovery: the LAST block (nothing else left) closes the stage (awaiting the consumer's acceptance)",
                  seen(completion(last, cases, done=[cases[:5], cases[5:10]])), AWAITS)
         check_eq("recovery: a block with another still to go does not", completion(dict(last, manual_case_ids=cases[5:10], scope=cases[5:10]), cases, done=[cases[:5]]), False)
-        check_eq("recovery: the last block does not close the stage while a case was refused (the controller would refuse it)",
-                 completion(last, cases, refused=[cases[0]], done=[cases[1:5], cases[5:10]]), False)
+        # the same word as the live road (`run_manual_block`, `complete = self.s6_awaits(True)` for the last block, refused or held cases or not):
+        # the refused case is closed later by `manual_close`, which needs the consumer's record; a plain False left that road a dead end
+        check_eq("recovery: the last block awaits the acceptance although a case was refused (as the live road)",
+                 seen(completion(last, cases, refused=[cases[0]], done=[cases[1:5], cases[5:10]])), AWAITS)
         auto = {"execution_kind": "automation", "scope": ["QA-9_TC_900"]}
         check_eq("recovery: the AUTOMATION runner does not close S6 while a manual half is left", completion(auto, cases), False)
         check_eq("recovery: ...and does when there is none (awaiting the consumer's acceptance)", seen(completion(auto, [])), AWAITS)
