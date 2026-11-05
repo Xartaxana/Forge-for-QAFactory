@@ -39,11 +39,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0        # the attribution gate diffs against the merge base
           ref: ${{ inputs.ref || github.sha }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: deps
@@ -93,7 +93,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: python tools/install_parity.py --check
       - run: python -m pytest tools/ -q
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: forge-metrics
@@ -105,7 +105,7 @@ jobs:
     outputs:
       package: ${{ steps.f.outputs.package }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.sha }}
@@ -126,11 +126,11 @@ jobs:
       run:
         working-directory: ai-packages/qa-factory
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.sha }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -q pytest

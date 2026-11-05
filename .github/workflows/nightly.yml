@@ -36,7 +36,7 @@ jobs:
     outputs:
       run: ${{ steps.c.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 50
           ref: ${{ inputs.ref || 'main' }}
@@ -59,11 +59,11 @@ jobs:
       NODE_INDEX: ${{ matrix.shard }}
       NODE_TOTAL: ${{ strategy.job-total }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || 'main' }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -q pytest
@@ -81,7 +81,7 @@ jobs:
           python -B scripts/selftest.py --jobs 4 --shard "$NODE_INDEX/$NODE_TOTAL" > "$OUT/selftest-shard-$NODE_INDEX-of-$NODE_TOTAL.txt" 2>&1 || rc=1
           tail -n 25 "$OUT/selftest-shard-$NODE_INDEX-of-$NODE_TOTAL.txt"
           exit $rc
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: package-full-shard-${{ matrix.shard }}
@@ -94,11 +94,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || 'main' }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -q pytest
@@ -114,7 +114,7 @@ jobs:
           python -B scripts/install_smoke.py > "$OUT/install_smoke.txt" 2>&1 || rc=1
           tail -n 25 "$OUT/install_smoke.txt"
           exit $rc
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: install-smoke-ci-out
@@ -128,14 +128,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
           ref: ${{ inputs.ref || 'main' }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: package-full-shard-*
           path: ci-out
@@ -146,7 +146,7 @@ jobs:
           cat ci-out/selftest-shard-*.txt > ci-out/selftest.txt
           cd ai-packages/qa-factory
           python -B scripts/selftest.py --slow-tests --from "$GITHUB_WORKSPACE/ci-out/selftest.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: package-full-report
@@ -160,10 +160,10 @@ jobs:
     timeout-minutes: 180
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: |
@@ -191,7 +191,7 @@ jobs:
           python tools/crap_report.py --coverage ci-out/crap/coverage.json --coverage-hashes ci-out/crap/coverage-files.sha256 --require-coverage --json > ci-out/crap/crap-report.json
           head -n 25 ci-out/crap/crap-report.md
           rm -rf ci-out/crap/data
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: crap-report

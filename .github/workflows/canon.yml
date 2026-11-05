@@ -46,10 +46,10 @@ jobs:
     env:
       CREATED_AT: ${{ needs.start.outputs.created_at }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python tools/canon_clock.py --created-at "$CREATED_AT" --message "$(git log -1 --format=%B)"
