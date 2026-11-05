@@ -1,0 +1,41 @@
+#!/bin/sh
+# The hook's exit code must reflect the FIRST failing check, not the
+# last command in the file (a review blocker: without set -e a
+# journal_validator failure is masked by a passing escape_check).
+set -e
+# Routing-journal validator: the staged logs/routing-log.jsonl doesn't
+# break append-only / typed fields / the role-vs-tier acceptance matrix.
+python tools/journal_validator.py
+# Escape-allowlist: CLAUDE.md's permanent escape/concession clauses stay
+# hash-pinned to their authorizing decision-log section. NOTE: this
+# toolkit ships no tools/escape_allowlist.json by default (see
+# tools/escape_allowlist.template.json) -- a deployment that has not set
+# one up yet will see this step fail closed until it copies the template
+# and fills in real entries (see that file's own instructions).
+python tools/escape_check.py
+# Enforcement-chain probe: a staged change touching the chain itself
+# (.githooks/*, .claude/settings.json, tools/wiring_check.py, or any
+# tools/*.py the two source files above reference as a hook command)
+# is verified against the chain's own OBSERVER (tools/wiring_check.py)
+# before the commit lands -- fail-closed when that observer itself
+# reports a problem or cannot even run.
+python tools/enforcement_probe.py
+# Factory rules index: docs/FACTORY_RULES_INDEX.md (loaded into every
+# session through CLAUDE.md) is regenerated from
+# ai-packages/qa-factory/design/factory-rules.md; a rules change without
+# a regenerated index does not land.
+python tools/factory_rules_index.py --check
+# Architecture index: docs/ARCHITECTURE_INDEX.md (the AR-n ids the commit-msg gate checks against; <= 3 KB)
+# is regenerated from ai-packages/qa-factory/design/architecture.md; a change to the invariants without a
+# regenerated index does not land.
+python tools/architecture_index.py --check
+# AGENTS.md (the Codex copy of CLAUDE.md + its imports, hooks and roles) is
+# generated; a change to any source without a regenerated file does not land.
+python tools/agents_md.py --check
+# Forge attribution (WARN only): new backlog rows / package files / journal events without a
+# feature are printed so the developer sees them at commit time; --warn never blocks, and
+# `|| true` keeps even a crash of the check from blocking a commit (the traceback still prints).
+# The piles board (plans/PILES.md) is generated: a commit that stages plans/piles/** or plans/BACKLOG.md
+# must carry a regenerated board (D-0036, F0-2; the same pattern as agents_md --check).
+python tools/piles.py board --check --if-staged
+python tools/forge_metrics.py --check --base HEAD --warn || true

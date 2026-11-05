@@ -1,0 +1,902 @@
+"""wiring_check.py -- generalized host-wiring checker.
+
+Read-only auditor of whether the kit's enforcement chain is actually
+wired into a host repo, independent of what any single mechanism's own
+SessionStart output claims. Patterns are drawn from a sibling
+deployment's wiring channel in tools/session_context.py (its
+git_hooks_channel/harness_channel functions) -- this module is a
+standalone, more general reimplementation, not an import of that file:
+it is meant to run against ANY host repo this kit is installed into,
+not just this one, and deliberately carries no dependency on
+tools/session_context.py so the two can evolve independently. The
+converse dependency direction IS used: tools/session_context.py imports
+this module for its single summary WIRING line (see that file's
+`wiring_summary_line`).
+
+Division of labor with tools/session_context.py (avoids double-reporting
+the same fact two different ways): this module is READ-ONLY -- it never
+writes to git config or anywhere else. The one WRITE action in this
+area (self-healing an unset core.hooksPath) lives in
+tools/session_context.py's `hooks_path_autofix_line`, which runs once
+per SessionStart, before this module's checks would otherwise flag the
+same gap. Running `python tools/wiring_check.py --check` right after a
+SessionStart that just autofixed hooksPath will therefore usually find
+it already resolved.
+
+CHECKS (each returns a list of issue strings; empty = that check is
+clean):
+
+ (1) check_git_hooks_path -- core.hooksPath resolves to <root>/.githooks, or (from a git
+     worktree) to the main checkout's .githooks of the same repository (B-470).
+ (2) check_required_hooks -- pre-commit and commit-msg are both present
+     as files AND tracked in the git INDEX with mode 100755 (read via
+     `git ls-files -s`, the INDEX, not the filesystem: a hook committed
+     as mode 100644 is silently skipped by git on a Linux clone --
+     Windows/NTFS carries no meaningful exec bit at all, so this cannot
+     be observed via os.stat() -- a finding from a live incident).
+     Two independent sub-facts
+     per hook, both reportable: untracked (missing from the index
+     entirely -- a fresh clone gets NO gate at all, worse than
+     non-executable) vs tracked-but-wrong-mode.
+ (3) check_harness_hooks -- every hook command named in
+     .claude/settings.json, in EITHER legal form ("python
+     tools/<file>.py" or 'python "$CLAUDE_PROJECT_DIR/tools/<file>.py"'
+     -- see _HOOK_COMMAND_RE), points to a file that EXISTS. Existence
+     only, deliberately no import check (unlike a sibling deployment's
+     harness_channel): this module runs against arbitrary host repos,
+     and importing arbitrary host code as a side effect of a read-only
+     auditor is out of scope.
+ (4) check_adoption_ledger -- if <root>/ADOPTION_LEDGER.md exists (the
+     host's filled-in copy of ADOPTION_LEDGER.template.md, not the
+     template itself), every row whose Status cell is exactly "adopt"
+     AND whose "Kit mechanism" cell names the git-hooks or
+     harness-hooks machinery checks (1)-(3) above already cover is
+     cross-checked against the issues those checks found (an
+     "adopt" row with an open issue on the wiring it claims is a WARN).
+     Deliberately NARROW: reconciling an arbitrary ledger row ("Skills",
+     "PROCESS docs", ...) against a concrete live fact is not
+     well-defined for most rows in the template -- only rows naming
+     git-hooks/harness-hooks machinery are reconciled; every other row
+     is left alone rather than guessed at (silence there is not a false
+     claim). No ADOPTION_LEDGER.md at all is not an error -- most hosts
+     running this tool will not carry one yet. A ledger that exists but
+     fails to read/parse degrades to ONE WARN naming the failure
+     (fail-open: a corrupt ledger must not blank out the git/harness
+     issues the checks above it already found).
+ (5) check_untracked_enforcement_files -- a file present on disk under
+     .githooks/ that git does not track AT ALL (beyond the two required,
+     named hooks check (2) already covers by name) is a WARN: it was
+     never `git add`-ed, so it is invisible to a fresh clone and does
+     nothing there regardless of its content or permissions.
+ (6) check_skills_casing -- every file tracked under .claude/skills/
+     (via `git ls-files`) whose basename matches "skill.md"
+     case-insensitively but is not spelled exactly "SKILL.md" is a WARN:
+     on a case-insensitive filesystem, `git add` on a case-only rename
+     silently no-ops, so a skill can be authored with the wrong casing
+     and never actually land in the index under its real name. A
+     CONTENT check (unlike check_git_hooks_path): it runs in BOTH
+     --mode installed and --mode source, since it reads the kit's own
+     committed tree, not live installation state. An untracked skill
+     file is invisible to this check by construction (git ls-files only
+     ever sees tracked paths) -- a documented limit, not a bug.
+ (7) check_install_parity_notices (K12, decision (д)=2 + B2 fix) -- a SEPARATE,
+     NON-BLOCKING "notices" class, not an "issue": the adoption ledger
+     records a "Kit snapshot revision" but carries no matching
+     "Install parity: ..." record for it. Never affects "ok"/exit code
+     -- printed in the WIRING summary line
+     (tools/session_context.py's wiring_summary_line) and invisible to
+     tools/enforcement_probe.py (which reads only the subprocess exit
+     code, never this module's stdout text).
+
+Every check function is self-contained and fails OPEN: a subprocess
+call that cannot even run (git missing, timeout) or a file that cannot
+be read becomes ONE issue string describing the failure, never an
+uncaught exception -- check_wiring() itself has no try/except of its
+own because every check it aggregates has already turned its own
+failure modes into strings.
+
+FORM (spec-required): a CLI (`python tools/wiring_check.py --check`,
+exit 0 when clean / 1 when any issue was found, a human-readable
+report on stdout) plus the importable `check_wiring(root) -> dict`
+function -- the CLI is a thin wrapper around exactly that function,
+so the two forms can never disagree.
+
+CLI ROOT/MODE FLAGS (the installed-vs-source root-confusion finding): the CLI grew
+--host-root/--kit-root/--mode on top of the single implicit
+`repo_root()` guess, because that guess collapses two different
+things a caller might mean by "the root to check":
+
+  - an INSTALLED host repo (has its own configured core.hooksPath,
+    its own .githooks/.claude) -- the only case check_git_hooks_path
+    was ever meaningful for;
+  - the KIT'S OWN SOURCE TREE (e.g. this repo's toolkit/ directory,
+    reviewed from an enclosing repo one level up) -- which is NOT a
+    self-contained git repo with its own hooksPath wiring; its git
+    config is whatever the ENCLOSING repo happens to have configured,
+    which has no reason to point at <kit-root>/.githooks. Running the
+    old single-root CLI against a kit source tree therefore produced
+    a spurious "core.hooksPath does not resolve to ..." finding that
+    looks identical to a real wiring defect.
+
+--mode installed (default, byte-identical to the pre-existing
+behavior on a real installed host -- DoD (a)) checks --host-root
+(default: the old `repo_root()` guess) with every check above.
+--mode source checks --kit-root (default: same guess) but SKIPS
+check_git_hooks_path -- the one check above that is genuinely about
+live installation state rather than the kit tree's own committed
+content -- printing which check(s) it skipped instead of silently
+omitting the finding. Every other check (hook files present +
+git-INDEX modes, harness settings.json referencing real files,
+untracked .githooks/ cruft, adoption-ledger reconciliation) is
+unaffected by install-vs-source and keeps running in BOTH modes: they
+read the kit's own committed tree, which is exactly what a source
+review wants checked. In --mode installed, a --host-root that has
+NEITHER .githooks NOR .claude is flagged loudly as a probable wrong
+invocation (most likely: someone ran the installed-mode default from
+inside a kit source checkout) before the normal report, with a
+forced-nonzero exit -- a caller diagnosis error, not a clean/dirty
+wiring verdict. --kit-root is meaningless in --mode installed (and
+--host-root is meaningless in --mode source); passing the
+mode-inapplicable flag is not an error, but prints one warning line
+naming which flag was ignored, so a caller doesn't silently believe
+an unused flag took effect.
+
+CLI MESSAGE ENCODING (fixed after a review of the root-confusion finding above): every
+string this module prints is plain ASCII -- no em-dash (U+2014, only
+`--`), no non-ASCII punctuation, no other-language text. A prior
+version's two new diagnostic strings used Cyrillic and an em-dash;
+under a narrow console codepage (verified: PYTHONIOENCODING=cp437 --
+neither Cyrillic byte encodes; PYTHONIOENCODING=cp866 -- the
+Cyrillic bytes DO encode there, but the em-dash does not) `print()`
+raised UnicodeEncodeError before a single check result could be
+shown, crashing the whole run on --mode source under cp437 and on
+the wrong-root diagnostic under cp866. This module runs on arbitrary
+host machines with unknown console codepages, and it is not a
+mechanism this repo's own dogfooding session controls the codepage
+of -- so every printed string here follows the ASCII-only invariant
+already used by tools/session_context.py's own printed lines, not
+this repo's own CLAUDE.md/journal convention.
+
+EXTERNAL-VALUE SANITIZATION (2026-08-10 fix, found by a parallel-branch
+probe): the ASCII invariant above covers strings this module's OWN
+code writes; it does not by itself cover an external value
+interpolated RAW into an issue string -- a git config value
+(core.hooksPath), a JSON hook command or a filename extracted from
+it, a tracked git path, an on-disk filename, an ADOPTION_LEDGER.md
+row, or a --host-root/--kit-root CLI argument can each carry
+non-ASCII bytes the host repo or its operator chose, entirely outside
+this module's control. Every interpolation site of that kind now
+routes the value through `_ascii_safe()` (`str.encode("ascii",
+"backslashreplace")`, no quoting) or, where the message already used
+Python's `!r` formatting, through the `ascii()` builtin (`repr()`
+plus the same escaping). Both are the IDENTITY transform on
+already-ASCII input -- existing ASCII-only issue strings are
+unchanged byte-for-byte -- so only genuinely non-ASCII input is
+rendered as readable `\\xNN`/`\\uNNNN` escapes instead of raw bytes
+that could crash `print()` under a narrow console codepage, the same
+failure class the CLI MESSAGE ENCODING fix above addressed for this
+module's own literals.
+
+ARGPARSE CONTRACT CHANGE (also from that review): the previous
+hand-rolled arg handling ignored argv entirely (`_ = sys.argv[1:]`),
+so an unrecognized flag was silently a no-op. Now that argument
+parsing does real work (--host-root/--kit-root/--mode), an
+unrecognized flag is an argparse error: prints usage to stderr and
+exits 2, same as any other Python CLI built on argparse. No caller of
+this script is known to depend on the old silent-ignore behavior for
+any flag other than --check (checked at the review that raised this
+point) -- --check itself is still accepted and still a no-op.
+
+GIT SUBPROCESS ENCODING + QUOTEPATH (the external-value sanitization
+pass, 2026-08-10): every git
+call in this module goes through the one shared `_run_git()` helper --
+see that function's own docstring for the two fixes it now applies
+(explicit `encoding="utf-8", errors="replace"` instead of a bare
+`text=True`, and `-c core.quotepath=false` on every invocation) and why
+each was needed. Class-wide effect on the checks above: check (1)
+(`check_git_hooks_path`) no longer mojibakes a non-ASCII
+`core.hooksPath` value under a non-UTF-8 console locale;
+check (6) (`check_skills_casing`) now actually SEES a non-ASCII tracked
+skill path instead of silently missing it (git's default quotepath
+octal-escaping broke this module's line-based basename parsing); check
+(5) (`check_untracked_enforcement_files`) no longer FALSELY reports a
+correctly-tracked non-ASCII-named `.githooks/` file as untracked for
+the same quotepath reason. check (2) (`check_required_hooks`, also an
+`ls-files -s` parser) gets the same quotepath protection for free
+through the shared helper, though no live incident is known for it
+today (the two required hook names are ASCII).
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+_GITHOOKS_DIRNAME = ".githooks"
+_REQUIRED_GITHOOKS = ("pre-commit", "commit-msg", "pre-merge-commit")
+_SETTINGS_RELPATH = Path(".claude") / "settings.json"
+_ADOPTION_LEDGER_NAME = "ADOPTION_LEDGER.md"
+
+# The two command shapes a hook line in .claude/settings.json is legal
+# in (command hygiene point 2's canonical flat form, plus a
+# $CLAUDE_PROJECT_DIR-qualified form some hosts' harness invocations
+# use): (1) "python tools/<file>.py" -- no extra flags, forward
+# slashes; (2) 'python "$CLAUDE_PROJECT_DIR/tools/<file>.py"' -- double
+# quotes, the literal $CLAUDE_PROJECT_DIR prefix, forward slashes.
+# Anything else -- a different interpreter, extra arguments, single
+# quotes, an unqualified $CLAUDE_PROJECT_DIR with no surrounding
+# quotes, backslashes inside form (2), a path outside tools/ -- is
+# reported as an honest "unparsed hook command" issue rather than
+# guessed at; the parser does not widen beyond these two forms.
+# `[^/\\]+` (not `[\w ]+`) deliberately allows spaces in the filename so
+# a path-with-spaces command is still recognized and checked, not
+# silently misparsed.
+#
+# Group 1 is the optional opening double-quote marker (form selector,
+# not the filename); the two conditional branches `(?(1)...)` tie the
+# quote to its matching prefix/suffix so a quote can appear only paired
+# with the $CLAUDE_PROJECT_DIR/ prefix and vice versa -- group 2 is the
+# filename, captured by the SAME group regardless of which of the two
+# forms matched.
+_HOOK_COMMAND_RE = re.compile(
+    r'^python (")?(?(1)\$CLAUDE_PROJECT_DIR/tools/|tools/)([^/\\]+\.py)(?(1)"|)$'
+)
+
+
+def _ascii_safe(value) -> str:
+    """Renders `value` (via `str()`) as plain ASCII, escaping any
+    non-ASCII character to a readable `\\xNN`/`\\uNNNN` form instead of
+    passing it through raw -- see the module docstring's EXTERNAL-VALUE
+    SANITIZATION section. Identity on already-ASCII input (regression
+    pin: test_ascii_safe_is_identity_on_ascii_input): apply this
+    unconditionally at every issue-string site that interpolates a
+    value this module did not itself author (git output, JSON/ledger
+    file content, on-disk filenames, CLI path arguments) with no risk
+    of changing already-ASCII output. Not a replacement for `!r`
+    formatting -- callers that were using `!r` for quoting use the
+    `ascii()` builtin instead (repr() plus the same escaping), since
+    wrapping this function's unquoted output in `!r` would double-
+    escape any backslash the escaping itself introduced."""
+    return str(value).encode("ascii", "backslashreplace").decode("ascii")
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _run_git(args: list, root: Path):
+    """Runs a git subcommand with a short timeout, capturing output as
+    text. Returns None (never raises) on ANY failure to even launch the
+    process (git missing from PATH, a timeout, a permissions error) --
+    callers treat None as "could not determine this fact", distinct
+    from a clean non-zero exit (which git itself can produce for benign
+    reasons, e.g. an unset config key).
+
+    TWO fixes on top of the plain `text=True` capture this used to do
+    (the external-value sanitization pass, repro confirmed on this
+    host: locale.getpreferredencoding() == cp1251):
+
+    (1) ENCODING: `text=True` alone lets Python pick
+    `locale.getpreferredencoding(False)` to decode git's stdout/stderr.
+    git itself always writes UTF-8 on this platform; on a non-UTF-8
+    console locale (cp1251 here) that decode step silently MOJIBAKEs any
+    non-ASCII byte sequence -- no exception, no None, just corrupted text
+    reaching every caller (e.g. a Cyrillic `core.hooksPath` value
+    round-tripped as garbage before `check_git_hooks_path` ever compares
+    it). `encoding="utf-8", errors="replace"` decodes git's actual output
+    encoding directly, independent of the console locale; `errors="replace"`
+    keeps the existing fail-open contract for the pathological case of
+    genuinely non-UTF-8 bytes (never raises UnicodeDecodeError into the
+    `except Exception: return None` branch, which would otherwise let a
+    decode failure masquerade as "git unavailable" -- every caller already
+    turns a None `_run_git` result into its own named issue string, so
+    this closes the class without adding a new reporting branch here).
+
+    (2) QUOTEPATH: every call now runs with `-c core.quotepath=false`
+    (a per-invocation override, does not touch the host repo's own
+    config). git's DEFAULT (quotepath=true) renders any tracked path
+    containing a non-ASCII byte as a double-quoted, octal-escaped
+    literal (e.g. `"\\320\\276...\\320\\261/skill.md"`) in `ls-files`
+    output -- this module's line-based parsing (`Path(line).name` etc.)
+    does not recognize that shape, so a non-ASCII tracked path was
+    invisible to check_skills_casing (a real mis-casing went unreported)
+    and could make check_untracked_enforcement_files FALSELY report a
+    correctly-tracked non-ASCII-named file as untracked (the on-disk
+    name, from pathlib, never matches the octal-quoted tracked name).
+    `-c core.quotepath=false` (not `-z`/NUL-terminated parsing) is the
+    fix: it is a single flag on the one shared subprocess wrapper every
+    check already routes through, so it fixes the class in one place
+    instead of rewriting the line-splitting logic of every caller that
+    parses `ls-files` output for `-z`'s NUL-terminated framing; `-c` as
+    a per-invocation config override has been supported by git since
+    1.7.2 (2010), long predating any git in active use today, so no
+    version gating is needed. NUL bytes in paths are not a concern this
+    flag choice has to handle (git rejects them outright; not a
+    real-world path byte)."""
+    try:
+        return subprocess.run(
+            ["git", "-c", "core.quotepath=false", *args],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+        )
+    except Exception:
+        return None
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """Resolved (8.3 short names expanded where the path exists), case-folded comparison."""
+    return os.path.normcase(str(a.resolve())) == os.path.normcase(str(b.resolve()))
+
+
+def _main_checkout_githooks(root: Path):
+    """(path, reason): the `.githooks` of the MAIN checkout of the repository `root` belongs to, found as
+    `<git-common-dir>/../.githooks` -- a git worktree shares its config with the main checkout, so a
+    `core.hooksPath` that points at the main checkout's `.githooks` is the same repository's hooks, not a
+    foreign one (B-470). `rev-parse --git-common-dir` is relative to the cwd (root) when git prints a relative
+    path (`.git` in the main checkout); it is resolved against root. (None, why) when the form cannot be
+    established: git failing, a common dir not named `.git` (a bare or separate git dir has no checkout
+    beside it), or no such `.githooks` directory -- the caller then accepts only `<root>/.githooks`, as before
+    this form existed."""
+    result = _run_git(["rev-parse", "--git-common-dir"], root)
+    if result is None:
+        return None, "git rev-parse --git-common-dir failed to run (git unavailable?)"
+    raw = (result.stdout or "").strip()
+    if result.returncode != 0 or not raw:
+        return None, f"git rev-parse --git-common-dir exited {result.returncode}"
+    common = Path(raw)
+    if not common.is_absolute():
+        common = root / common
+    try:
+        common = common.resolve()
+    except OSError:
+        return None, "git common dir does not resolve"
+    if common.name != ".git":
+        return None, f"git common dir {_ascii_safe(common)} is not a .git directory of a checkout"
+    main_hooks = common.parent / _GITHOOKS_DIRNAME
+    if not main_hooks.is_dir():
+        return None, f"no .githooks directory at {_ascii_safe(main_hooks)}"
+    return main_hooks, ""
+
+
+def check_git_hooks_path(root: Path) -> list:
+    """(1) core.hooksPath resolves to <root>/.githooks, OR -- from a git worktree -- to the main checkout's
+    `.githooks` of the SAME repository (`<git-common-dir>/../.githooks`, `_main_checkout_githooks`).
+    Anything else (another repository's `.githooks`, a user-global hooks dir, a path that does not exist) is
+    refused, the message naming both accepted forms. READ-ONLY -- no
+    autofix here (see module docstring: the one write action lives in
+    tools/session_context.py, run once at SessionStart, before this
+    check would otherwise flag the same gap)."""
+    expected = (root / _GITHOOKS_DIRNAME).resolve()
+    result = _run_git(["config", "core.hooksPath"], root)
+    if result is None:
+        return ["git config core.hooksPath failed to run (git unavailable?)"]
+
+    raw = (result.stdout or "").strip()
+    if result.returncode != 0 or not raw:
+        return ["core.hooksPath not set"]
+
+    configured = Path(raw)
+    if not configured.is_absolute():
+        configured = root / configured
+    try:
+        configured_resolved = configured.resolve()
+    except OSError:
+        configured_resolved = configured
+    if _same_path(configured_resolved, expected):
+        return []
+    main_hooks, why = _main_checkout_githooks(root)
+    if main_hooks is not None and _same_path(configured_resolved, main_hooks):
+        return []
+    accepted = (
+        f" nor to {_ascii_safe(main_hooks)} (the main checkout's .githooks of this repository)"
+        if main_hooks is not None
+        else f" (the main checkout's .githooks is not an accepted form here: {why})"
+    )
+    return [
+        f"core.hooksPath={ascii(raw)} does not resolve to {_ascii_safe(expected)}{accepted}"
+    ]
+
+
+def check_required_hooks(root: Path) -> list:
+    """(2) pre-commit/commit-msg present as files AND tracked in the git
+    INDEX with mode 100755 -- see the module docstring for why the
+    index (not the filesystem) is the source of truth here."""
+    issues = []
+    for name in _REQUIRED_GITHOOKS:
+        if not (root / _GITHOOKS_DIRNAME / name).is_file():
+            issues.append(f"hook file missing: {_GITHOOKS_DIRNAME}/{name}")
+
+    result = _run_git(["ls-files", "-s", "--", _GITHOOKS_DIRNAME], root)
+    if result is None or result.returncode != 0:
+        issues.append("git ls-files -s failed -- cannot verify hook exec bits")
+        return issues
+
+    modes = {}
+    for line in (result.stdout or "").splitlines():
+        meta, sep, path_part = line.partition("\t")
+        if not sep:
+            continue
+        fields = meta.split()
+        if not fields:
+            continue
+        modes[Path(path_part).name] = fields[0]
+
+    for name in _REQUIRED_GITHOOKS:
+        if name not in modes:
+            issues.append(f"hook {name} untracked in git index -- clones get no gate")
+        elif modes[name] != "100755":
+            issues.append(
+                f"hook {name} committed non-executable ({modes[name]}) --"
+                " Linux clones get a silently dead gate"
+            )
+    return issues
+
+
+def _parse_hook_commands(settings) -> list:
+    """Walks every hooks section of a parsed .claude/settings.json,
+    collecting each hook's raw command string. Tolerant of any
+    malformed shape -- a piece that isn't a dict/list where expected is
+    simply skipped, never raised on."""
+    commands = []
+    hooks_root = settings.get("hooks") if isinstance(settings, dict) else None
+    if not isinstance(hooks_root, dict):
+        return commands
+    for matchers in hooks_root.values():
+        if not isinstance(matchers, list):
+            continue
+        for matcher in matchers:
+            if not isinstance(matcher, dict):
+                continue
+            entries = matcher.get("hooks")
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                command = entry.get("command")
+                if isinstance(command, str) and command:
+                    commands.append(command)
+    return commands
+
+
+def check_harness_hooks(root: Path) -> list:
+    """(3) every hook command in .claude/settings.json, in EITHER legal
+    form ("python tools/<file>.py" or 'python
+    "$CLAUDE_PROJECT_DIR/tools/<file>.py"' -- see _HOOK_COMMAND_RE),
+    names a file that exists. Existence-only, see module docstring for
+    why no import check is done here."""
+    settings_path = root / _SETTINGS_RELPATH
+    try:
+        text = settings_path.read_text(encoding="utf-8")
+    except Exception as e:
+        # Broad catch, deliberately not just OSError: a settings.json
+        # saved with invalid UTF-8 bytes raises UnicodeDecodeError (a
+        # ValueError subclass, not an OSError) -- must fail open the
+        # same as a permissions/missing-file error, not escape uncaught.
+        return [f"{_ascii_safe(settings_path)} not readable ({type(e).__name__})"]
+
+    try:
+        settings = json.loads(text)
+    except Exception as e:
+        return [f"{_ascii_safe(settings_path)} not valid JSON ({type(e).__name__})"]
+
+    issues = []
+    seen = set()
+    for command in _parse_hook_commands(settings):
+        m = _HOOK_COMMAND_RE.match(command.strip())
+        if not m:
+            issues.append(f"unparsed hook command: {_ascii_safe(command.strip())}")
+            continue
+        filename = m.group(2)
+        if filename in seen:
+            continue
+        seen.add(filename)
+        if not (root / "tools" / filename).is_file():
+            issues.append(f"hook file not found: tools/{_ascii_safe(filename)}")
+    return issues
+
+
+_SKILLS_DIRNAME = Path(".claude") / "skills"
+
+
+def check_skills_casing(root: Path) -> list:
+    """(6) every tracked file under .claude/skills/ whose basename
+    equals "skill.md" case-INsensitively but is NOT spelled exactly
+    "SKILL.md" is one ASCII issue string. Fact and cost this closes: on
+    a case-INsensitive filesystem (the common case on Windows/macOS),
+    `git add` on a path that differs from an already-tracked path only
+    by case is a silent no-op -- a skill authored as "Skill.md" or
+    "skill.md" can sit on disk, look correct locally, and never
+    actually reach the git index under its real name, while a
+    differently-cased entry already tracked (or simply the filesystem
+    itself) hides the mismatch. Read via `git ls-files -- .claude/skills/`
+    (the same _run_git idiom every other check here uses, timeout=5) --
+    an UNTRACKED skill file is invisible to this check by construction
+    (documented limit, same class as check_untracked_enforcement_files
+    above being scoped to .githooks/ only). Not a git repo / git
+    missing / a non-zero exit / a timeout all fail OPEN to exactly ONE
+    issue string naming the wiring as unverifiable -- never raises."""
+    result = _run_git(["ls-files", "--", str(_SKILLS_DIRNAME).replace("\\", "/")], root)
+    if result is None or result.returncode != 0:
+        return ["git ls-files failed -- cannot verify .claude/skills/ SKILL.md casing"]
+
+    issues = []
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        basename = Path(line).name
+        if basename.lower() == "skill.md" and basename != "SKILL.md":
+            issues.append(
+                f"skill file '{_ascii_safe(line)}' has non-canonical casing (expected exactly "
+                "'SKILL.md' -- a case-insensitive filesystem silently no-ops "
+                "'git add' on a case-only rename)"
+            )
+    return issues
+
+
+def check_untracked_enforcement_files(root: Path) -> list:
+    """(5) a file present on disk under .githooks/ that git does not
+    track at all -- never `git add`-ed, invisible to a fresh clone. No
+    .githooks/ directory at all is not itself an issue here (that gap
+    is check_required_hooks's/check_git_hooks_path's job to report)."""
+    githooks_dir = root / _GITHOOKS_DIRNAME
+    if not githooks_dir.is_dir():
+        return []
+
+    try:
+        on_disk = {p.name for p in githooks_dir.iterdir() if p.is_file()}
+    except OSError:
+        return []
+
+    result = _run_git(["ls-files", "--", _GITHOOKS_DIRNAME], root)
+    if result is None or result.returncode != 0:
+        return ["git ls-files failed -- cannot verify untracked files under .githooks"]
+
+    tracked = {Path(line).name for line in (result.stdout or "").splitlines() if line.strip()}
+    untracked = sorted(on_disk - tracked)
+    return [
+        f"untracked enforcement file: {_GITHOOKS_DIRNAME}/{_ascii_safe(name)}"
+        for name in untracked
+    ]
+
+
+# See module docstring, check (4): deliberately narrow keyword sets --
+# only ledger rows naming machinery checks (1)-(3) above already cover
+# are reconciled; every other row is left alone.
+_GIT_HOOKS_ROW_KEYWORDS = (".githooks", "hookspath", "commit-msg", "pre-commit", "mechanism gate")
+_HARNESS_HOOKS_ROW_KEYWORDS = ("settings.json", "sessionstart", "session_context.py")
+
+_LEDGER_ROW_RE = re.compile(r"^\|(.+?)\|(.+?)\|(.+?)\|\s*$")
+
+
+def _parse_ledger_adopt_rows(text: str) -> list:
+    """Parses ADOPTION_LEDGER.md's pipe-table rows, returns the "Kit
+    mechanism" cell text of every row whose Status cell is exactly
+    "adopt" (case-insensitive, trimmed). The header row's Status cell
+    literally reads "Status" and the separator row is all dashes --
+    neither matches "adopt", so both are skipped without special-casing
+    them. A line that doesn't match the 3-cell pipe pattern (prose,
+    section headers, a malformed row) is silently skipped, not raised
+    on -- this function has no try/except of its own, callers decide
+    whether a total parse failure (e.g. the read itself failing) is
+    fail-open."""
+    rows = []
+    for line in text.splitlines():
+        m = _LEDGER_ROW_RE.match(line.strip())
+        if not m:
+            continue
+        mechanism, status, _basis = m.groups()
+        if status.strip().lower() == "adopt":
+            rows.append(mechanism.strip())
+    return rows
+
+
+def check_adoption_ledger(root: Path, git_issues: list, harness_issues: list) -> list:
+    """(check 4): see module docstring for the full rationale and its
+    deliberately narrow scope. git_issues/harness_issues are the
+    already-computed outputs of the checks above (passed in rather than
+    recomputed) so the whole reconciliation reads one consistent
+    snapshot of the wiring state, not a second, possibly-different git
+    invocation."""
+    ledger_path = root / _ADOPTION_LEDGER_NAME
+    if not ledger_path.is_file():
+        return []
+
+    try:
+        text = ledger_path.read_text(encoding="utf-8")
+    except Exception as e:
+        # Broad catch, deliberately not just OSError -- same rationale
+        # as check_harness_hooks: an invalid-UTF-8 ledger file must
+        # still fail open to a WARN, not raise UnicodeDecodeError past
+        # check_wiring()'s "never raises" contract.
+        return [f"{_ADOPTION_LEDGER_NAME} not readable ({type(e).__name__})"]
+
+    try:
+        adopt_rows = _parse_ledger_adopt_rows(text)
+    except Exception as e:
+        return [f"{_ADOPTION_LEDGER_NAME} not parseable ({type(e).__name__})"]
+
+    issues = []
+    has_git_issue = bool(git_issues)
+    has_harness_issue = bool(harness_issues)
+    for mechanism in adopt_rows:
+        low = mechanism.lower()
+        safe_mechanism = _ascii_safe(mechanism)
+        if has_git_issue and any(k in low for k in _GIT_HOOKS_ROW_KEYWORDS):
+            issues.append(
+                f"adoption ledger row '{safe_mechanism}' is 'adopt' but git-hooks wiring has an open issue"
+            )
+        if has_harness_issue and any(k in low for k in _HARNESS_HOOKS_ROW_KEYWORDS):
+            issues.append(
+                f"adoption ledger row '{safe_mechanism}' is 'adopt' but harness-hooks wiring has an open issue"
+            )
+    return issues
+
+
+# --- NOTICES (K12, spec decision D=2 + B2 fix) ---------------------
+#
+# A SEPARATE, NON-BLOCKING class from "issues" above: notices never
+# affect check_wiring()'s "ok" verdict or this module's exit code --
+# printed in the WIRING summary line at SessionStart (see
+# tools/session_context.py's wiring_summary_line), invisible to
+# tools/enforcement_probe.py (which reads only ok/issues -- a pin test
+# is mandatory for this invariant, per the spec's own B2 decision).
+#
+# What it checks: the adoption ledger records a "Kit snapshot
+# revision" (a filled-in, non-placeholder value) but carries no
+# matching "Install parity: ..." record for it -- the class of gap
+# ec4e6f0 was (files landed, the parity trail that proves it never
+# ran). This is READ-ONLY and does not itself run
+# tools/install_parity.py --check (that is a separate, heavier CLI
+# call -- this notice only checks whether the RECORD exists, the same
+# division of labor as spec decision E: "the tool is read-only, an
+# upgrade step writes the record, not the tool").
+
+_KIT_SNAPSHOT_REVISION_RE = re.compile(
+    r"Kit snapshot revision:\s*`?([^`\n]*)`?", re.IGNORECASE
+)
+_INSTALL_PARITY_RECORD_RE = re.compile(r"Install parity:", re.IGNORECASE)
+
+
+def _ledger_revision_value(text: str) -> str:
+    """Returns the trimmed value after "Kit snapshot revision:" (with
+    or without a backtick wrapper), or "" if the line is absent. A
+    placeholder value (the template's own unfilled
+    "<commit/tag of the toolkit snapshot...>" text, recognizable by
+    its leading "<") reads the SAME as absent -- an unfilled template
+    line is not a recorded revision."""
+    m = _KIT_SNAPSHOT_REVISION_RE.search(text)
+    if not m:
+        return ""
+    value = m.group(1).strip()
+    if not value or value.startswith("<"):
+        return ""
+    return value
+
+
+def check_install_parity_notices(root: Path) -> list:
+    """(6, notices-only): the adoption ledger has a recorded "Kit
+    snapshot revision" but no "Install parity: ..." record anywhere in
+    the ledger text -- a WARN notice, never an issue (see the section
+    docstring above for the class this closes and why it stays
+    non-blocking). No ledger at all, or a ledger with no recorded
+    revision yet (a fresh/pre-onboarding install, or the template's
+    own unfilled placeholder), is SILENT -- nothing to check against
+    yet, not a gap. A ledger that fails to read degrades to ONE
+    notice naming the failure (fail-open, the same discipline
+    check_adoption_ledger already applies to issues)."""
+    ledger_path = root / _ADOPTION_LEDGER_NAME
+    if not ledger_path.is_file():
+        return []
+
+    try:
+        text = ledger_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return [f"{_ADOPTION_LEDGER_NAME} not readable for install-parity check ({type(e).__name__})"]
+
+    revision = _ledger_revision_value(text)
+    if not revision:
+        return []
+
+    if _INSTALL_PARITY_RECORD_RE.search(text):
+        return []
+
+    safe_revision = _ascii_safe(revision)
+    return [
+        f"adoption ledger records kit snapshot revision '{safe_revision}' but no "
+        "'Install parity: ...' record for it -- run tools/install_parity.py "
+        "--check and record the result (command hygiene point 6 class: a "
+        "revision with no matching parity record is indistinguishable from "
+        "one that was never actually verified)"
+    ]
+
+
+# Names check_wiring's `skip` parameter recognizes -- exactly the
+# check functions defined above, by their own function names, so a
+# caller of check_wiring() and someone reading this module's source
+# are looking at the same vocabulary. An unrecognized name in `skip`
+# is silently a no-op (nothing in check_wiring's own five-line body
+# matches an unknown key) by the same "fail open, no raise" contract
+# the individual check_* functions already follow -- see the
+# discussion in the module docstring's CLI section for why an unknown
+# --mode-adjacent name here is a warning at the CLI layer instead of
+# an exception at this layer, which is the importable function other
+# callers besides the CLI also use directly.
+_KNOWN_CHECK_NAMES = frozenset(
+    {
+        "check_git_hooks_path",
+        "check_required_hooks",
+        "check_harness_hooks",
+        "check_untracked_enforcement_files",
+        "check_adoption_ledger",
+        "check_skills_casing",
+        "check_install_parity_notices",
+    }
+)
+
+
+def check_wiring(root: Path = None, skip: frozenset = frozenset()) -> dict:
+    """Runs every check above and aggregates them into
+    {"ok": bool, "issues": [str, ...], "notices": [str, ...]}. Never
+    raises: each check function already fails open (a subprocess/file/
+    parse error becomes an issue/notice string, not an exception) --
+    this is a thin aggregator with no I/O of its own beyond what the
+    checks already perform. "notices" is a SEPARATE,
+    NON-BLOCKING class -- it never participates in "ok" (regression
+    pin: test_notices_never_affect_ok_verdict) and is invisible to
+    tools/enforcement_probe.py, which reads only "ok"/"issues" (a pin
+    test on that module is mandatory, per the spec's own B2 decision).
+
+    `skip` -- a set of check function names (see _KNOWN_CHECK_NAMES)
+    to OMIT from this run, each contributing an empty issue list in
+    place of actually running. Default empty set: the aggregation is
+    byte-identical to before this parameter existed (regression pin:
+    test_check_wiring_default_skip_is_byte_identical_to_before).
+    Exists so a caller auditing a kit's own SOURCE tree (--mode source,
+    per the installed-vs-source root-confusion finding) can skip
+    exactly the checks that are genuinely about live installation
+    state, through the SAME aggregation this
+    function already performs -- rather than a second, hand-inlined
+    copy of this function's five lines that a future new check would
+    silently not know to skip."""
+    root = Path(root) if root else repo_root()
+    git_hooks_issues = [] if "check_git_hooks_path" in skip else check_git_hooks_path(root)
+    required_hooks_issues = [] if "check_required_hooks" in skip else check_required_hooks(root)
+    git_issues = git_hooks_issues + required_hooks_issues
+    harness_issues = [] if "check_harness_hooks" in skip else check_harness_hooks(root)
+    untracked_issues = (
+        [] if "check_untracked_enforcement_files" in skip else check_untracked_enforcement_files(root)
+    )
+    skills_casing_issues = [] if "check_skills_casing" in skip else check_skills_casing(root)
+    ledger_issues = (
+        []
+        if "check_adoption_ledger" in skip
+        else check_adoption_ledger(root, git_issues, harness_issues)
+    )
+    notices = (
+        []
+        if "check_install_parity_notices" in skip
+        else check_install_parity_notices(root)
+    )
+    issues = git_issues + harness_issues + untracked_issues + skills_casing_issues + ledger_issues
+    return {"ok": not issues, "issues": issues, "notices": notices}
+
+
+# Checks that are genuinely about a LIVE installation's state (a real
+# git config value someone had to run `git config core.hooksPath ...`
+# to set) rather than about the kit's own committed tree content --
+# see the module docstring's "CLI ROOT/MODE FLAGS" section for why
+# only this one check qualifies. This is BOTH the skip set passed to
+# check_wiring() and (via its keys) the printed skip message -- one
+# dict, so the message and the actual skip decision cannot drift
+# apart, and so a future check added to check_wiring() that ALSO
+# turns out to be host-install-only is skipped here by adding its
+# name to this one dict, not by re-deriving a second, separate list.
+_SOURCE_MODE_SKIP = {"check_git_hooks_path": "core.hooksPath wiring"}
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="wiring_check.py",
+        description="Read-only auditor of the kit's enforcement-chain wiring.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="documented invocation flag; has no effect on behavior (there is only one report form).",
+    )
+    parser.add_argument(
+        "--host-root",
+        default=None,
+        metavar="PATH",
+        help="root of the INSTALLED host repo to audit in --mode installed "
+        "(default: this script's own repo_root() guess -- unchanged from "
+        "the pre-existing single-root behavior).",
+    )
+    parser.add_argument(
+        "--kit-root",
+        default=None,
+        metavar="PATH",
+        help="root of the kit's SOURCE tree to audit in --mode source "
+        "(default: the same repo_root() guess as --host-root's default).",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("installed", "source"),
+        default="installed",
+        help="'installed' (default): audit an installed host repo -- today's "
+        "behavior, unchanged. 'source': audit the kit's own source tree, "
+        "skipping the checks that only make sense against a live install.",
+    )
+    return parser
+
+
+def main(argv=None) -> int:
+    """CLI form: `python tools/wiring_check.py --check`, now with
+    --host-root/--kit-root/--mode (see module docstring). Both modes
+    still route through check_wiring()/the individual check_* functions
+    directly -- no separate reporting logic -- so the CLI and the
+    importable functions can never disagree on what counts as an
+    issue, only on which root and which subset of checks apply."""
+    args = _build_arg_parser().parse_args(sys.argv[1:] if argv is None else argv)
+    default_root = repo_root()
+    host_root = Path(args.host_root).resolve() if args.host_root else default_root
+    kit_root = Path(args.kit_root).resolve() if args.kit_root else default_root
+
+    bad_root = False
+    if args.mode == "source":
+        if args.host_root is not None:
+            print("warning: --host-root is ignored in --mode source (only --kit-root is used)")
+        root = kit_root
+        skip_names = sorted(_SOURCE_MODE_SKIP)
+        skip_label = ", ".join(f"{name} ({_SOURCE_MODE_SKIP[name]})" for name in skip_names)
+        print(f"source mode: skipping host-only checks: {skip_label}")
+        result = check_wiring(root, skip=frozenset(_SOURCE_MODE_SKIP))
+    else:
+        if args.kit_root is not None:
+            print("warning: --kit-root is ignored in --mode installed (only --host-root is used)")
+        root = host_root
+        if not (root / _GITHOOKS_DIRNAME).is_dir() and not (root / ".claude").is_dir():
+            bad_root = True
+            print(
+                f"host-root {_ascii_safe(root)} does not look like an installed host "
+                "(no .githooks and no .claude) -- likely run from the wrong "
+                "root; use --mode source to check kit source instead"
+            )
+        result = check_wiring(root)
+
+    if result["ok"]:
+        print("WIRING: OK")
+        exit_code = 0
+    else:
+        print(f"WIRING: {len(result['issues'])} issue(s)")
+        for issue in result["issues"]:
+            print(f"  - {issue}")
+        exit_code = 1
+
+    # notices: a SEPARATE, non-blocking class -- never
+    # changes exit_code, printed after issues (or after "WIRING: OK")
+    # regardless of which branch above fired.
+    notices = result.get("notices") or []
+    if notices:
+        print(f"WIRING NOTICES: {len(notices)} notice(s), does not affect exit code")
+        for notice in notices:
+            print(f"  * {notice}")
+
+    if bad_root:
+        # Caller-diagnosis error, not a clean/dirty wiring verdict: never
+        # let a coincidentally-clean check_wiring() result mask it.
+        exit_code = 1
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

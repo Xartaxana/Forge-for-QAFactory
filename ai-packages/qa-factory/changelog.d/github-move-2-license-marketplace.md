@@ -1,0 +1,2 @@
+- QA Factory is licensed under Apache License 2.0; the full text is in `LICENSE`, and every plugin manifest names `Apache-2.0` with the author `Xartaxana`.
+- The marketplace is `qafactory`: install with `claude plugin marketplace add Xartaxana/QAFactory` and `claude plugin install qa-factory@qafactory`. An installation from an earlier marketplace is removed first: `claude plugin list` shows its id, `claude plugin uninstall <that id>` removes it (UPGRADE.md).

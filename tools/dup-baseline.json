@@ -1,0 +1,647 @@
+{
+  "generated_by": "python tools/dup_ratchet.py --update (dup_report fingerprints; identity = scope + fingerprint, no path of a copy and no line)",
+  "basis": {
+    "normalisation": 1,
+    "python": "3.12",
+    "min_statements": 5,
+    "window": 6,
+    "strict": false,
+    "with_imports": false
+  },
+  "scopes": {
+    "scripts": {
+      "paths": [
+        "ai-packages/qa-factory/scripts/*.py"
+      ],
+      "exclude": []
+    },
+    "tools": {
+      "paths": [
+        "tools/*.py"
+      ],
+      "exclude": [
+        "tools/test_*.py"
+      ]
+    }
+  },
+  "total": 29,
+  "rows": [
+    {
+      "scope": "scripts",
+      "fingerprint": "3b59c762046bc3138d634d0ee54bc5a4aae7c393",
+      "kind": "fragment",
+      "statements": 9,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/manifest_view.py",
+          "main"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/retro_numbers.py",
+          "main"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "40a7454043b3741e1689a44d80e73eadb00319f1",
+      "kind": "fragment",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/external_writes.py",
+          "selftest"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/external_writes.py",
+          "selftest"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "72886e90d665fa0cec0766a42973d126c7228f05",
+      "kind": "fragment",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/config_contract.py",
+          "migration_plan"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/s5_precheck.py",
+          "run"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "dae7177b439e64357f58ac4cedf88268b8b77afb",
+      "kind": "fragment",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/judge_results.py",
+          "main"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/story_run.py",
+          "main"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "db9a06a6ea71f041561a35a5eb29302876a8a151",
+      "kind": "fragment",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/report_facts.py",
+          "main"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/traceability.py",
+          "main"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "f8b5e00478b343c3dadd90bd378a50659340c4ab",
+      "kind": "fragment",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/cost_capture.py",
+          "_pid_alive"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/dispatch_liveness.py",
+          "process_alive"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "fc7e3c15b41848f9c3d8d8d3f9bf68da8ed46230",
+      "kind": "fragment",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/config_contract.py",
+          "migration_plan"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/manifest_from_tests.py",
+          "build"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "28b74962c2a6654292470d4d005de34fa715342a",
+      "kind": "function",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/diff_scope.py",
+          "_dotted"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/execution_fingerprint.py",
+          "_dotted"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "2ed208c96121367b01cb44ccd77da5fed5514c34",
+      "kind": "function",
+      "statements": 7,
+      "copies": 3,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/judge_cases.py",
+          "main"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/judge_plan.py",
+          "main"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/judge_requirements.py",
+          "main"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "3e9917b457dc85d9015be154f4d6e3503d7225f7",
+      "kind": "function",
+      "statements": 5,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/refusal_registry.py",
+          "report"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/role_permissions.py",
+          "report"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "ac58ec8e227088fd8cfee19ce88e3e06e239c891",
+      "kind": "function",
+      "statements": 7,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/factory_dashboard.py",
+          "_has_factory_activity"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/metrics_projection.py",
+          "_has_factory_activity"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "bef9f5b2986684d770a03e9fdab6511322b2052c",
+      "kind": "function",
+      "statements": 5,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/contract.py",
+          "manual_human_evidence"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/contract.py",
+          "run_impossible"
+        ]
+      ]
+    },
+    {
+      "scope": "scripts",
+      "fingerprint": "e7c08e1d2cf78e46e330ce5bdb2118f9739cc91b",
+      "kind": "function",
+      "statements": 5,
+      "copies": 2,
+      "members": [
+        [
+          "ai-packages/qa-factory/scripts/guard_app_under_test.py",
+          "main"
+        ],
+        [
+          "ai-packages/qa-factory/scripts/guard_secrets.py",
+          "main"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "7b7dfc46de727f3fd5ecc285e477755ed47948be",
+      "kind": "fragment",
+      "statements": 12,
+      "copies": 2,
+      "members": [
+        [
+          "tools/dod_gate.py",
+          "evaluate"
+        ],
+        [
+          "tools/main_gate.py",
+          "evaluate"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "7e36c458bc75dcf50cda64d42d2a4db63905cb9c",
+      "kind": "fragment",
+      "statements": 17,
+      "copies": 2,
+      "members": [
+        [
+          "tools/dod_gate.py",
+          "main"
+        ],
+        [
+          "tools/main_gate.py",
+          "main"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "9f64d8d30163385765561c97947d5eac11c1569b",
+      "kind": "fragment",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "tools/warn_density.py",
+          "process_corpus"
+        ],
+        [
+          "tools/warn_density.py",
+          "process_corpus"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "a4b4668cd49022e53fffd68706e4e680647eb6eb",
+      "kind": "fragment",
+      "statements": 9,
+      "copies": 2,
+      "members": [
+        [
+          "tools/dispatch_gate.py",
+          "freshness_warn"
+        ],
+        [
+          "tools/dispatch_gate.py",
+          "role_type_warn"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "be6caf20cc86259eb91bb49f80f0c336dbfab255",
+      "kind": "fragment",
+      "statements": 12,
+      "copies": 3,
+      "members": [
+        [
+          "tools/dispatch_gate.py",
+          "dod_quoted_warn"
+        ],
+        [
+          "tools/dispatch_gate.py",
+          "manifest_quoted_warn"
+        ],
+        [
+          "tools/dispatch_gate.py",
+          "write_quoted_warn"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "e9cf3fb5c12f375e60508673a3a0bff8d92d9af9",
+      "kind": "fragment",
+      "statements": 10,
+      "copies": 2,
+      "members": [
+        [
+          "tools/warn_density.py",
+          "process_corpus"
+        ],
+        [
+          "tools/warn_density.py",
+          "process_corpus"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "1e1bfb493a0cbc18c592fef12fe03b9a6d9d892e",
+      "kind": "function",
+      "statements": 8,
+      "copies": 4,
+      "members": [
+        [
+          "tools/claim_control_gate.py",
+          "_safe_scan"
+        ],
+        [
+          "tools/dispatch_gate.py",
+          "_safe_scan"
+        ],
+        [
+          "tools/mechanism_gate.py",
+          "_safe_scan"
+        ],
+        [
+          "tools/negative_lint.py",
+          "_safe_scan"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "41bce0658e8f66a7beef855f1ce97f01ec106b2e",
+      "kind": "function",
+      "statements": 6,
+      "copies": 3,
+      "members": [
+        [
+          "tools/dod_gate.py",
+          "_is_doc_only_file"
+        ],
+        [
+          "tools/journal_echo.py",
+          "_is_doc_only_edit_path"
+        ],
+        [
+          "tools/main_gate.py",
+          "_is_doc_only_file"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "4d01aabb9917f648b7f8a5cbed6a45ee191563e8",
+      "kind": "function",
+      "statements": 22,
+      "copies": 14,
+      "members": [
+        [
+          "tools/claim_control_gate.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/critic_snapshot.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/critic_verdict_check.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/dispatch_gate.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/dod_gate.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/dod_track.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/hygiene_gate.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/journal_echo.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/main_gate.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/negative_lint.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/owns_gate.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/search_control_gate.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/session_context.py",
+          "_read_stdin_bytes_deadline"
+        ],
+        [
+          "tools/tier_echo.py",
+          "_read_stdin_bytes_deadline"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "59d8b7aac0ff70ccea9a16cfbe5d0d1115b95e25",
+      "kind": "function",
+      "statements": 5,
+      "copies": 2,
+      "members": [
+        [
+          "tools/claim_control_gate.py",
+          "_session_id"
+        ],
+        [
+          "tools/search_control_gate.py",
+          "_session_id"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "6427dc7e2ed873b343a40cbf01db4a665fcbbded",
+      "kind": "function",
+      "statements": 17,
+      "copies": 2,
+      "members": [
+        [
+          "tools/journal_echo.py",
+          "_load_witness_edits"
+        ],
+        [
+          "tools/journal_echo.py",
+          "_load_witness_runs"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "8b70fa14a0ba04921bc94fd5fa2dba30c77f5256",
+      "kind": "function",
+      "statements": 11,
+      "copies": 2,
+      "members": [
+        [
+          "tools/claim_control_gate.py",
+          "_classify"
+        ],
+        [
+          "tools/negative_lint.py",
+          "_classify"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "8e5cfc32a12b43c5b791b71dd0ba554a8f7f7c91",
+      "kind": "function",
+      "statements": 14,
+      "copies": 2,
+      "members": [
+        [
+          "tools/journal_echo.py",
+          "_write_stdout_deadline"
+        ],
+        [
+          "tools/session_context.py",
+          "_write_stdout_deadline"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "a55a00980e96549087bb7b0e8c94a32ef015ec86",
+      "kind": "function",
+      "statements": 6,
+      "copies": 14,
+      "members": [
+        [
+          "tools/claim_control_gate.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/critic_snapshot.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/critic_verdict_check.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/dispatch_gate.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/dod_gate.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/dod_track.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/hygiene_gate.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/journal_echo.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/main_gate.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/negative_lint.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/owns_gate.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/search_control_gate.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/session_context.py",
+          "_stdin_deadline_seconds"
+        ],
+        [
+          "tools/tier_echo.py",
+          "_stdin_deadline_seconds"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "c0857a243b9f6a70e0df815f8efe20fc63a1da19",
+      "kind": "function",
+      "statements": 6,
+      "copies": 2,
+      "members": [
+        [
+          "tools/journal_echo.py",
+          "_stdout_deadline_seconds"
+        ],
+        [
+          "tools/session_context.py",
+          "_stdout_deadline_seconds"
+        ]
+      ]
+    },
+    {
+      "scope": "tools",
+      "fingerprint": "e8135d085d06544272b5492ea7cb4ff44a3e0fb8",
+      "kind": "function",
+      "statements": 11,
+      "copies": 4,
+      "members": [
+        [
+          "tools/claim_control_gate.py",
+          "_region_at"
+        ],
+        [
+          "tools/dispatch_gate.py",
+          "_region_at"
+        ],
+        [
+          "tools/mechanism_gate.py",
+          "_region_at"
+        ],
+        [
+          "tools/negative_lint.py",
+          "_region_at"
+        ]
+      ]
+    }
+  ]
+}

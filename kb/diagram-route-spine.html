@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>QA Factory Pipeline Spine</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#ffffff; --ink:#1f2328; --muted:#5b6470; --line:#d6d2c8; --card:#ffffff;
+  --code:#1f7a5c; --code-bg:#e3f2ea; --role:#2c5f9e; --role-bg:#e3ecf7; --orch:#5a5f6b; --orch-bg:#e9eaee;
+  --person:#a86a00; --person-bg:#fbeecf; --stop:#b03a2e; --stop-bg:#f8e1dd; --fix:#6b3fa0; --fix-bg:#ece3f7;
+  --accent:#a86a00; --hl:#fff1c9;
+}
+*{box-sizing:border-box}
+html,body{background:#ffffff;margin:0;padding:0}
+body{color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,sans-serif;font-size:15px;line-height:1.5}
+.page{width:1400px;background:#ffffff;margin:0 auto;padding:32px 40px 48px}
+h1{font-size:24px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px}
+p{max-width:100ch;margin:6px 0}
+.sub{color:var(--muted)}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:.92em}
+code{background:var(--orch-bg);padding:1px 5px;border-radius:4px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:14px 0 6px;font-size:13px}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;border:1px solid transparent}
+.t-code{background:var(--code-bg);color:var(--code)} .t-role{background:var(--role-bg);color:var(--role)} .t-orch{background:var(--orch-bg);color:var(--orch)} .t-person{background:var(--person-bg);color:var(--person)} .t-stop{background:var(--stop-bg);color:var(--stop)} .t-fix{background:var(--fix-bg);color:var(--fix)}
+figure{margin:18px 0 0}
+.spine{overflow:visible}
+.spine svg{width:1320px;height:auto;display:block;color:var(--ink);background:#ffffff}
+figcaption{color:var(--muted);font-size:13px;margin-top:6px;max-width:120ch}
+.node rect{fill:var(--card);stroke:currentColor;stroke-width:1.2}
+.node.gate rect{fill:var(--person-bg);stroke:var(--person)}
+.node.code rect{fill:var(--code-bg);stroke:var(--code)}
+.node text{font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:12px;fill:currentColor}
+.node text.id{font-weight:600;font-size:13px}
+.edge{stroke:currentColor;stroke-width:1.3;fill:none}
+.edge.loop{stroke-dasharray:4 3;opacity:.75}
+.elabel{font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:10.5px;fill:var(--muted)}
+.stopmark{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.2}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>QA Factory Pipeline Spine</h1>
+<p class="sub">The S0&#8211;S9 stage line with the two gates. Version 0.10.2, state as of 26.10.2026.</p>
+
+<div class="legend">
+  <span><span class="tag t-code">code</span> a script decides, deterministically</span>
+  <span><span class="tag t-role">role</span> an agent role decides, in its own window</span>
+  <span><span class="tag t-orch">orchestrator</span> qa-story decides, by rule</span>
+  <span><span class="tag t-person">person</span> you decide; the factory waits with no deadline</span>
+  <span><span class="tag t-fix">factory repairs itself</span> before you are asked</span>
+  <span><span class="tag t-stop">stop</span> a stop with a question; "go on" counts as an answer too</span>
+</div>
+
+<figure class="spine">
+<svg viewBox="0 0 1180 300" role="img" aria-label="S0-S9 stage line with two gates, a stop on S1, repair loops on S4, S5 and S7, a return to gate A when the code changes, and stops on a person's word">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+    <marker id="arr-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker>
+  </defs>
+  <!-- main line y=150; boxes 92 wide, 54 tall; step 108 -->
+  <g id="edges">
+    <line class="edge" id="e-s0-s1" x1="102" y1="150" x2="118" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s1-s2" x1="210" y1="150" x2="226" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s2-s3" x1="318" y1="150" x2="334" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s3-s4" x1="426" y1="150" x2="442" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s4-ga" x1="534" y1="150" x2="550" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-ga-s5" x1="618" y1="150" x2="634" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s5-s6" x1="726" y1="150" x2="742" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s6-s7" x1="834" y1="150" x2="850" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s7-s8" x1="942" y1="150" x2="958" y2="150" marker-end="url(#arr)"/>
+    <line class="edge" id="e-s8-gb" x1="1050" y1="150" x2="1066" y2="150" marker-end="url(#arr)"/>
+    <path class="edge" id="e-gb-s9" d="M1100 182 C1100 218 960 218 944 218" marker-end="url(#arr)"/>
+    <!-- loops -->
+    <path class="edge loop" id="e-s4-loop" d="M470 122 C470 92 520 92 520 122" marker-end="url(#arr)"/>
+    <text class="elabel" x="495" y="88" text-anchor="middle">repair limit = a question with its price</text>
+    <path class="edge loop" id="e-s5-loop" d="M662 122 C662 92 712 92 712 122" marker-end="url(#arr)"/>
+    <text class="elabel" x="687" y="88" text-anchor="middle">repair limit = a question with its price</text>
+    <path class="edge loop" id="e-s7-loop" d="M878 122 C878 92 928 92 928 122" marker-end="url(#arr)"/>
+    <text class="elabel" x="903" y="88" text-anchor="middle">repair limit = a question with its price</text>
+    <path class="edge loop" id="e-code-changed" d="M680 178 C680 250 590 250 584 180" marker-end="url(#arr)"/>
+    <text class="elabel" x="640" y="256" text-anchor="middle">code changed after gate A → invalidate / semantic_reopen</text>
+    <path class="edge loop" id="e-preparatory" d="M600 122 C640 40 900 40 896 122" marker-end="url(#arr)"/>
+    <text class="elabel" x="748" y="52" text-anchor="middle">no MR yet: preparatory — S5/S6 skipped with receipts, S7/S8 projected</text>
+    <path class="edge loop" id="e-s8-s6" d="M1004 178 C1004 286 800 286 796 180" marker-end="url(#arr)"/>
+    <text class="elabel" x="900" y="296" text-anchor="middle">"fix now" decided at gate B → repeat S6/S7</text>
+  </g>
+  <g id="nodes">
+    <g class="node code" id="n-s0"><rect x="10" y="123" width="92" height="54" rx="8"/><text class="id" x="56" y="145" text-anchor="middle">S0</text><text x="56" y="162" text-anchor="middle">start, preflight</text></g>
+    <g class="node" id="n-s1"><rect x="118" y="123" width="92" height="54" rx="8"/><text class="id" x="164" y="145" text-anchor="middle">S1</text><text x="164" y="162" text-anchor="middle">context · scout</text></g>
+    <g class="node" id="n-s2"><rect x="226" y="123" width="92" height="54" rx="8"/><text class="id" x="272" y="145" text-anchor="middle">S2</text><text x="272" y="162" text-anchor="middle">understand, size</text></g>
+    <g class="node" id="n-s3"><rect x="334" y="123" width="92" height="54" rx="8"/><text class="id" x="380" y="145" text-anchor="middle">S3</text><text x="380" y="162" text-anchor="middle">plan · strategist</text></g>
+    <g class="node" id="n-s4"><rect x="442" y="123" width="92" height="54" rx="8"/><text class="id" x="488" y="145" text-anchor="middle">S4</text><text x="488" y="162" text-anchor="middle">cases + critic</text></g>
+    <g class="node gate" id="n-ga"><rect x="550" y="118" width="68" height="64" rx="10"/><text class="id" x="584" y="146" text-anchor="middle">Gate A</text><text x="584" y="164" text-anchor="middle">plan, cases</text></g>
+    <g class="node" id="n-s5"><rect x="634" y="123" width="92" height="54" rx="8"/><text class="id" x="680" y="145" text-anchor="middle">S5</text><text x="680" y="162" text-anchor="middle">tests + critic</text></g>
+    <g class="node" id="n-s6"><rect x="742" y="123" width="92" height="54" rx="8"/><text class="id" x="788" y="145" text-anchor="middle">S6</text><text x="788" y="162" text-anchor="middle">run · runner</text></g>
+    <g class="node" id="n-s7"><rect x="850" y="123" width="92" height="54" rx="8"/><text class="id" x="896" y="145" text-anchor="middle">S7</text><text x="896" y="162" text-anchor="middle">triage · analyst</text></g>
+    <g class="node" id="n-s8"><rect x="958" y="123" width="92" height="54" rx="8"/><text class="id" x="1004" y="145" text-anchor="middle">S8</text><text x="1004" y="162" text-anchor="middle">results · scribe</text></g>
+    <g class="node gate" id="n-gb"><rect x="1066" y="118" width="68" height="64" rx="10"/><text class="id" x="1100" y="146" text-anchor="middle">Gate B</text><text x="1100" y="164" text-anchor="middle">delivery</text></g>
+    <g class="node" id="n-s9"><rect x="850" y="200" width="92" height="44" rx="8" transform="translate(0,-4)"/><text class="id" x="896" y="212" text-anchor="middle">S9</text><text x="896" y="228" text-anchor="middle">retro · analyst</text></g>
+    <!-- S1 stop marker -->
+    <g id="m-s1stop"><rect class="stopmark" x="106" y="196" width="116" height="20" rx="10"/><text x="164" y="210" text-anchor="middle" style="font-size:10.5px;fill:#b03a2e;font-family:IBM Plex Sans,sans-serif">stop: sources + env</text></g>
+    <line class="edge" x1="164" y1="177" x2="164" y2="195" stroke-dasharray="2 2"/>
+  </g>
+</svg>
+<figcaption>Gates are the planned questions; one open blocking question also stops S2&#8211;S4; S1 and a halt as before. Dashed lines are conditional routes.</figcaption>
+</figure>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "judge_prompt_pin": {
+    "source": "gateway/shadow_eval.py",
+    "symbol": "JUDGE_SYSTEM_PROMPT",
+    "sha256": "179b700690a76bfad799123b1e70dc7d9d59d9a845886682acf77e63e56ae9e1",
+    "evidence": "computed via 'python tools/escape_check.py --hash-judge-prompt' against this toolkit's shipped gateway/shadow_eval.py (2026-07-24 port batch); re-verify against your own judge-calibration protocol before relying on it for real acceptance"
+  },
+  "judge_role_pin": {
+    "role_file": ".claude/agents/judge.md",
+    "credential_source": "gateway/shadow_eval.py",
+    "credential_symbol": "JUDGE_SYSTEM_PROMPT",
+    "acceptance_source": "tools/judge_client.py",
+    "acceptance_symbol": "JUDGE_INSTRUCTION",
+    "expected_model": "sonnet",
+    "evidence": "pins this toolkit's shipped .claude/agents/judge.md to its two source constants byte-for-byte; verified by the shipped test battery (test_escape_check.py, judge_role_pin cases incl. the green path against the real role file); re-verify against your own judge-calibration protocol before relying on the judge for real acceptance"
+  },
+  "entries": []
+}

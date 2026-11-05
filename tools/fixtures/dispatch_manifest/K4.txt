@@ -1,0 +1,11 @@
+Recon for B-155 in C:\proj (read-only, change nothing): how can `ai-packages/qa-factory/scripts/tests/test_story_run.py` (about 5.5-8 minutes a run, the slowest test file of the package, rerun many times a day by builders) be made fast to run in part?
+
+Questions - answer each with file:line evidence:
+1. Structure: how many test classes/functions, how they are grouped (by stage S0..S9? by topic?), total line count; is it unittest or pytest style; how is it invoked by `scripts/selftest.py` and what per-file timeout table exists there (TEST_TIMEOUTS).
+2. Where the time goes, by reading the code (you cannot run it): what each test typically does that is slow - subprocess launches of `story_run.py` / other scripts (count the subprocess call sites and which helper wraps them), temp project trees built per test vs shared, sleeps/timeouts/polling, fake `claude` stubs. Name the 5 heaviest-looking groups and why.
+3. Shared fixtures: helper functions/classes and module-level setup the tests depend on; which tests share state and so cannot be moved apart or run in parallel; which are self-contained.
+4. Natural split lines: propose a split into 4-8 files by stage or topic such that a change to one part of `story_run.py` maps to one file - list for each proposed file the test names (or name patterns) and an approximate share of the tests; say what common helper module they would import.
+5. Who references the file by name: grep the whole repo (package scripts, selftest.py, plans/builder-rules.md, PROJECT.md, docs/, tools/, .githooks/, experiments/) for `test_story_run` - every hit with a one-line note, because a split must update them.
+6. Parallelism: does anything already run test files in parallel (selftest workers?), and is there anything in these tests that would break under parallel execution (fixed ports, fixed temp paths, shared files under the repo).
+
+Completeness criterion: every question answered or explicitly "not found" with where you looked (a negative needs a positive control of the same search form). Return a digest <= 600 words with a trail (files read, searches run); no file dumps.

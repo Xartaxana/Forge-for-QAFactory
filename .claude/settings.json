@@ -1,0 +1,133 @@
+{
+  "model": "claude-fable-5-1",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/session_context.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/agent_budget.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/dispatch_gate.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/hygiene_gate.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/claim_control_gate.py"
+          },
+          {
+            "type": "command",
+            "command": "python tools/handoff_gate.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/dod_track.py"
+          },
+          {
+            "type": "command",
+            "command": "python tools/journal_echo.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Grep|Glob|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/search_control_gate.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/negative_lint.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/dod_gate.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/main_gate.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/compact_snapshot.py"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "qa-factory@qafactory": false,
+    "backlog@forge-mods": true,
+    "cost-band@forge-mods": true,
+    "cost-band@inline": false
+  },
+  "extraKnownMarketplaces": {
+    "forge-mods": {
+      "source": {
+        "source": "directory",
+        "path": "./tools/claude-mods"
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "backlog",
+  "version": "0.2.0",
+  "description": "Панель «Бэклог» форджа: кучки → пачки (цвет — приоритет) → узлы, по кнопке «обновить»",
+  "license": "UNLICENSED",
+  "types": "./types/index.d.ts"
+}

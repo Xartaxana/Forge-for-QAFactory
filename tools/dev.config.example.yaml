@@ -1,0 +1,30 @@
+# Per-developer settings. Copy this file to tools/dev.config.yaml (git-ignored) and edit it; read by
+# tools/dev_config.py. No path is guessed: a key that is not set is None and whatever needs it says so; a missing
+# file gives one WARN line, and a key missing from a file that exists gets its own WARN line. Only
+# `github_token_env` has a default (GITHUB_TOKEN), and only when there is no file at all.
+#
+# Another file can be read without touching this one: set the environment variable QA_DEV_CONFIG to its path
+# (empty = unset; a path that is not a file is refused), or call dev_config.load(path=...) from a test.
+# Without either, this file is read.
+#
+# The file is one `key: value` per line, nothing nested. Write Windows paths as they are: plain, or in single
+# or double quotes (quotes are only stripped, nothing inside them is an escape). `#` starts a comment.
+# Older files keep working: `public_skills_root` is read as `release_repo_root` (with one WARN), and
+# `gitlab_token_env` is still read for the GitLab backend.
+
+# Who you are: lowercase letters, digits and '-', starting with a letter (2 to 24 characters; `main` is
+# reserved). It becomes a file name (the per-developer journal, branch names pile/<slug>/batch-N). Replace
+# `dev1` with your own slug: there is no default for it.
+developer: dev1
+
+# The folder that holds the project copies the runs use. Not checked when the file is read; the scripts check it
+# when they use it.
+stand_copy_root: ../stand
+
+# The checkout of the release repository the package is copied into.
+release_repo_root: ../QAFactory
+
+# The NAME of the environment variable that holds your GitHub access token. Never write the token itself
+# here: this file names the variable, the value stays in your environment. Capitals, digits and '_', starting
+# with a capital letter, at most 64 characters; anything else (a pasted token included) is refused.
+github_token_env: GITHUB_TOKEN

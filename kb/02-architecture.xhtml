@@ -1,0 +1,325 @@
+<ac:structured-macro ac:name="toc"/>
+
+<h1>QA Factory — Architecture</h1>
+
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>This page describes QA Factory version 0.10.2. Everything below is checkable in the plugin package — <code>skills/qa-story/SKILL.md</code> and its <code>phases/</code>, <code>agents/*.md</code>, <code>references/</code>, <code>hooks/hooks.json</code> and the scripts under <code>scripts/</code>. Where a rule is enforced by code, the script that enforces it is named.</p></ac:rich-text-body></ac:structured-macro>
+
+<h2>The factory in layers</h2>
+
+<p>The factory is one Claude Code plugin with layers that do different jobs. <strong>People</strong> decide. <strong>The qa-story session</strong> (headless: the driver, written in code) moves one ticket through ten stages and runs each of the twelve roles in its own session. <strong>Scripts and hooks</strong> check every transition, run the commands, keep the facts and build the projections. A fresh <strong>conductor</strong> is called only when the factory has no move of its own. A role never decides whether it may proceed, and a person is never asked what code can compute.</p>
+
+<p><ac:image ac:width="1200"><ri:attachment ri:filename="diagram-three-layers.png"><ri:page ri:content-title="Universal QA Factory — Test Project 1 Pilot" ri:space-key="TP1" /></ri:attachment></ac:image></p>
+
+<h2>Layer 1 — people</h2>
+
+<p>Gate A and gate B are the planned decisions. The factory puts a question to a person at seven kinds of boundary: the review of the story's sources (<code>s1_review</code>), a gap in those sources (<code>s1_gap</code>), gate A, gate B, a halt (a concrete blocker with what is needed and from whom), the one closing question of the retro, and a question the conductor raises. Every one is a closed question: each answer is followed by what it costs the factory, what it costs you and what it does to the story. A text that breaks the rules of <code>references/human-questions.md</code> is still shown, and recorded as the factory's own defect.</p>
+
+<h3>The two gates</h3>
+
+<table><tbody>
+<tr><th>&#160;</th><th>Gate A — after S4, before S5</th><th>Gate B — after S8</th></tr>
+<tr><td>What is shown</td><td>Paths to <code>understanding.md</code> and <code>test-plan.md</code> first, then the brief built by code: the plan row by row, the pinned cases, the critic's verdict, open questions, and the result of the gate's rehearsal</td><td>The <strong>checks ledger first</strong> — every plan row and every test in exactly one state — then the delivery verdict, one of three words with its reasons, then a summary under 2 KB</td></tr>
+<tr><td>What the person decides</td><td>Is the understanding right; is the size right; is the plan approved or edited row by row; what to do with every requirement that has no counterpart in the code. Each Then of each case is bound to a test or to a recorded reason; the factory does not ask you for the level the plan hinted at</td><td>Which bug drafts to file, whether to open the MR, whether to publish cases, what stays open</td></tr>
+<tr><td>In a chat session: the word that approves</td><td colspan="2">To approve a gate, answer with the word <code>approve</code>; words that ask for a change are not recorded as an approval. Words that ask for a change send the stage back to the role that wrote it, with your words, and the gate is asked again.</td></tr>
+<tr><td>In a run without a chat (the driver): the word that approves</td><td>Approval is its own word: write <code>approve</code> on the first line. Then answer by name what is listed under it. The driver records it with your words</td><td>The same: <code>approve</code> on the first line, with the bug numbers and stand-gap lines under it</td></tr>
+<tr><td>In a run without a chat (the driver): any other words</td><td colspan="2">Any other words are never recorded as an approval: the conductor offers rework, approve, retry or stop, each with its price. <code>rework</code> sends a stage back to its role with your words, the stages after it run again, and the gate comes back naming the words worked on</td></tr>
+<tr><td>Rehearsed first</td><td><code>gate_preflight.py --task &lt;T&gt; --gate A</code></td><td><code>gate_preflight.py --task &lt;T&gt; --gate B</code></td></tr>
+</tbody></table>
+
+<p>Both gates share one protocol: <strong>one message</strong>, paths first, approval asked as its own item, the words recorded whole, and every block a person's word has already passed repeated back to them. The factory waits with no deadline. Delivery has three outcomes: ready to ship, ready once you finish the checks left with you, and not ready to ship as is. The outcomes and what each opens are on the overview page.</p>
+
+<h3>The S1 source review</h3>
+
+<p><code>qa-scout</code> returns a table of the sources it found, with the factory's decision on each; you agree, name a ticket to flip, or say what to do about a source that is unavailable, and your words go to the scout. Every kind of gap after that is one closed question: <code>not needed</code>, <code>skip all like these</code> (it covers every later gap of that kind), a route, or the content pasted in. What the factory's own probe established it cannot reach (no route, no tool, too large) is a gap line in the report, never a question, and gate A says so with the door to try again.</p>
+
+<h3>When a story stops</h3>
+
+<table><tbody>
+<tr><th>Condition</th><th>What you are asked</th></tr>
+<tr><td>Readiness (ticket adapter, test repository, version control, config) is missing at S0</td><td><code>retry</code> / <code>go on</code> / <code>stop</code></td></tr>
+<tr><td>S1 finds no implementation</td><td>Change the source, say where it lives, go on ungrounded, or <code>stop</code></td></tr>
+<tr><td>A role cannot go on without a decision (a halt, for example the requirements tester)</td><td>Your own words, or <code>stop</code></td></tr>
+<tr><td>One open question that blocks at S2, S3 or S4, whatever the number of open questions (at S4 the stop comes after the case designer and before the critic); at S2 or S3 also too many open questions (the threshold is data)</td><td>One question with all of them: your answers, <code>go on</code> or <code>stop</code>. Your answers are recorded by code at once and laid over the plan, and the role that wrote what still follows the other reading is sent back; a question you keep open until the report (<code>Q1: until the report</code>) is not asked again. A <code>go on</code> passes a blocker only on the text you were shown</td></tr>
+<tr><td>The stand does not answer at the entry of S5 or S6</td><td>One question for both stages: <code>retry</code>, another stand by name, or <code>go on</code> (tests are written, none run on a stand)</td></tr>
+<tr><td>A window's repair limit is spent at S5</td><td>One priced question: another round (exactly one), debt, fixed, or stop; debt is written to <code>work/review-debts.json</code> and shown in the report</td></tr>
+<tr><td>A test's repair limit is spent at S7</td><td>One priced question: another round, debt or stop</td></tr>
+<tr><td>The ticket changed since the last check (older than six hours, on a resumed story and before gate B)</td><td>The new text, the old text, or <code>stop</code></td></tr>
+<tr><td>A <code>stage_guard</code> denial or a <code>STORY BUDGET</code> line</td><td>Shown to you verbatim; the conductor never routes around it</td></tr>
+</tbody></table>
+
+<h3>A person's word passes any block</h3>
+
+<p>A check stops a <em>silent</em> pass, never an informed one. Your word passes any block, and the pass is recorded with your words, the block it passed and who said it. A pass over a block the factory owns is also filed as a finding about the factory. A ban is never a dead end: it names its door, and your word is one.</p>
+
+<p>You write words; you read no script. A person's words travel in a file and are kept whole. The factory or the conductor puts them under <code>state/words/</code> in the story's folder and hands the file to the command that records them (<code>--words-file</code>), so a multi-line answer is never cut. The conductor records only what you named, every item and nothing you did not say. Audit A24 exists so that no refusal on the dispatch path ships without a registered way for a person's recorded word to pass it.</p>
+
+<h2>Layer 2 — the driver and the roles</h2>
+
+<p>Besides the interactive session, a story can run without a chat: the driver <code>story_run.py</code> runs it headless, writes each question to a file in the story's folder and waits for your answer. It is described in <code>design/driver.md</code> and has no orchestrator model: each role is its own headless session in the project root (<code>claude -p --agent qa-factory:&lt;role&gt;</code> on Claude); a refusal meets a table of known refusals first and then the conductor; a gate, a halt, the S1 source review and the retro question are written to <code>state/driver-question.md</code> and the driver exits with <code>3</code>; your words come back with <code>--answer &lt;file&gt;</code>. The host is a flag, <code>--host claude</code> or <code>--host codex</code>: the loop, the files and the journals are the same, and only the command that starts a role differs. Two journals record the run: <code>state/driver-runs.jsonl</code> (every model call: role, session, turns, cost) and <code>state/conductor.jsonl</code> (every refusal and who handled it). Nothing decides in the driver: roles and scripts do. The interactive <code>qa-story</code> session has the same stages and gates; there the session itself dispatches the roles and asks you in the chat.</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[python "${CLAUDE_PLUGIN_ROOT}/scripts/story_run.py" --task <TICKET> [--host claude|codex] [--env <name>] [--mr <url|id>] [--answer <file>]]]></ac:plain-text-body></ac:structured-macro>
+
+<table><tbody>
+<tr><th>The driver exits with</th><th>What it means</th></tr>
+<tr><td><code>3</code></td><td>A question for you. It is written to <code>state/driver-question.md</code> in the story's folder; put your words in a file and run the same command again with <code>--answer &lt;file&gt;</code></td></tr>
+<tr><td><code>0</code></td><td>The end of the story</td></tr>
+<tr><td><code>4</code></td><td>The conductor gave up</td></tr>
+<tr><td><code>5</code></td><td>An infrastructure failure: repeat the same command</td></tr>
+</tbody></table>
+
+<p>Every role's last word is <strong>a form, not a report</strong>: the driver checks the handover form the way the exit gate does, and asks the role once, by resuming it, when the form is missing. Roles are named by <code>references/stages.json</code>, the machine-readable authority that <code>stage_guard.py</code>, <code>exit_gate.py</code> and <code>inject_context.py</code> read.</p>
+
+<p>Beside it sits <code>controller.py</code>, the lifecycle writer: <code>prepare</code>, <code>initialize</code>, <code>dispatch</code>, <code>accept</code>, <code>checkpoint</code>, <code>rework</code>, <code>revise_plan</code>, <code>invalidate</code>, <code>gate-decision</code>, <code>stage-scope</code>, <code>release</code>, <code>recover</code> and the read-only <code>next</code>. Every mutation carries an <code>idempotency_key</code> and an <code>expected_revision</code>. <code>next</code> returns exactly one action — <code>wait_existing_job</code>, <code>resolve_return</code>, <code>resume_checkpoint</code>, <code>relaunch</code>, <code>await_gate</code>, <code>prepare_stage</code> or <code>complete</code>. A dispatch nobody is doing is <em>proved</em>, not guessed: <code>dispatch_liveness</code> answers <code>alive</code>, <code>abandoned</code>, <code>never_started</code>, <code>returned</code> or <code>unknown</code> from proof, and nothing is closed under <code>unknown</code>.</p>
+
+<p><ac:image ac:width="1200"><ri:attachment ri:filename="diagram-pipeline-s0-s9.png"><ri:page ri:content-title="Universal QA Factory — Test Project 1 Pilot" ri:space-key="TP1" /></ri:attachment></ac:image></p>
+
+<h3>The ten stages</h3>
+
+<p><code>references/stages.json</code> is the authority. Paths below are relative to <code>qa-factory/artifacts/&lt;TICKET&gt;/</code> unless marked <code>project:</code> (relative to <code>qa-factory/</code>).</p>
+
+<table><tbody>
+<tr><th>#</th><th>Stage</th><th>Role(s)</th><th>Reads</th><th>Writes (required outputs in bold)</th></tr>
+<tr><td>S0</td><td>Start and preflight</td><td>code only</td><td><code>project:config.json</code></td><td><strong><code>pipeline.json</code></strong>, <code>project:state/readiness.json</code></td></tr>
+<tr><td>S1</td><td>Context and grounding</td><td><code>qa-scout</code></td><td><code>pipeline.json</code></td><td><strong><code>work/context-manifest.json</code></strong>, <strong><code>work/context-bundle.json</code></strong>, <code>work/impl-diff.txt</code></td></tr>
+<tr><td>S2</td><td>Understanding and size</td><td><code>qa-requirements-tester</code></td><td><code>work/context-bundle.json</code></td><td><strong><code>work/requirements-register.md</code></strong>, <strong><code>work/requirements-readiness.json</code></strong>, <strong><code>understanding.md</code></strong></td></tr>
+<tr><td>S3</td><td>Plan</td><td><code>qa-test-strategist</code></td><td>register, context bundle, <code>project:strategy/test-strategy.md</code></td><td><strong><code>test-plan.md</code></strong>, <strong><code>work/test-plan.json</code></strong>, <code>work/grounding.yaml</code></td></tr>
+<tr><td>S4</td><td>Cases</td><td><code>qa-case-designer</code>, then <code>qa-case-critic</code></td><td><code>test-plan.md</code>, <code>work/test-plan.json</code>, the register</td><td><strong><code>work/test-cases/</code></strong> (or the project's <code>cases_root</code>), <code>state/story-case-links.json</code></td></tr>
+<tr><td>S5</td><td>Automation</td><td><code>qa-automator</code>, then <code>qa-code-critic</code></td><td><code>state/story-case-links.json</code>, <code>test-plan.md</code>, context bundle</td><td><strong><code>work/automation-manifest.json</code></strong>, <code>work/evidence/</code></td></tr>
+<tr><td>S6</td><td>Run</td><td>code (<code>run_suite.py</code>) + <code>qa-runner</code></td><td>automation manifest, case links</td><td><strong><code>work/run-report.json</code></strong>, <code>work/evidence/</code></td></tr>
+<tr><td>S7</td><td>Triage</td><td><code>qa-failure-analyst</code> (+ <code>qa-automator</code> fixes)</td><td>run report, manifest, evidence</td><td><strong><code>work/triage.json</code></strong>, <code>work/bug-drafts/</code></td></tr>
+<tr><td>S8</td><td>Results</td><td><code>qa-doc-scribe</code>, then gate B, then <code>qa-bug-reporter</code></td><td>ledger, triage, run report, plan</td><td><strong><code>work/ledger.json</code></strong>, <strong><code>work/ledger.md</code></strong>, <strong><code>test-report.md</code></strong>, <code>work/proposals/</code>, <code>project:bugs/</code>, <code>project:obligations.md</code></td></tr>
+<tr><td>S9</td><td>Closure and retro</td><td><code>qa-retro-analyst</code></td><td><code>pipeline.json</code>, <code>project:records/journal.jsonl</code>, <code>project:state/cost/</code></td><td><strong><code>retro.md</code></strong>, <code>project:obligations.md</code>, <code>project:factory-backlog.md</code></td></tr>
+</tbody></table>
+
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>When the story has an implementation diff, S3 runs in two windows: in the first the test planner writes no plan, it fills <code>work/grounding.yaml</code> (labels, requirements, risks, code areas, claims) over the grounding table and the blast radius that code builds (<code>grounding_table.py</code>, <code>blast_radius.py</code>); code checks that table for completeness (every changed hunk is labelled) at the end of the first window; in the second window it writes the plan. Still planned: a check that the plan answers every risk and area of the table, and the lines that show the person the refactoring share and the requirement coverage before the first test.</p></ac:rich-text-body></ac:structured-macro>
+
+<p>Gate A sits between S4 and S5 (<code>gate_before: "A"</code> on S5); gate B sits between S8 and S9. A stage's role cannot be dispatched while a stage in its <code>requires</code> list is not <code>done</code>, and a stage recorded <code>done</code> whose <code>required_outputs</code> are missing on disk is not done: it is set back to <code>pending</code> and re-run.</p>
+
+<h3>The twelve roles</h3>
+
+<table><tbody>
+<tr><th>Role</th><th>Stage</th><th>What it reads</th><th>What it writes</th><th>Witness</th></tr>
+<tr><td><code>qa-scout</code></td><td>S1</td><td>Ticket and its comments, parent, named tickets, subtasks with status, the MR/diff cascade, existing coverage</td><td>Grounded context manifest and bundle with sourced observables, bounded diff</td><td><code>work/context-manifest.json</code></td></tr>
+<tr><td><code>qa-requirements-tester</code></td><td>S2</td><td>Context bundle first, manifest only for referenced detail; prior estimation-ledger lines</td><td>Requirements register with an observable-in-code column, contradiction matrix, sizing against precedent, <code>understanding.md</code></td><td><code>work/requirements-readiness.json</code></td></tr>
+<tr><td><code>qa-test-strategist</code></td><td>S3</td><td>Register, readiness, <code>understanding.md</code>, context bundle</td><td>Risk-based plan with a disposition and reason on every row, budget against the size cap, recommended-regression list, gate-A plan brief</td><td><code>test-plan.md</code></td></tr>
+<tr><td><code>qa-case-designer</code></td><td>S4</td><td>Plan, register, context manifest, the project's existing case store</td><td>Atomic Given-When-Then cases; extend, dedupe or new against existing coverage</td><td><code>work/test-cases/</code></td></tr>
+<tr><td><code>qa-case-critic</code></td><td>S4</td><td>Pinned case snapshots, plan, register, <code>understanding.md</code>, context manifest</td><td>An eight-dimension review including a seeded-defect check, with a roll-call over the plan</td><td><code>state/story-case-links.json</code></td></tr>
+<tr><td><code>qa-automator</code></td><td>S5 (+ S7 fixes)</td><td>Approved <code>automate</code> cases, the manifest's <code>test_path</code>, framework rules; at S7 the triage verdict</td><td>Test code by the embedding ladder, manifest fragments through <code>manifest_put.py</code>, execution receipts</td><td><code>work/automation-manifest.json</code></td></tr>
+<tr><td><code>qa-code-critic</code></td><td>S5</td><td>Approved obligations, pinned case links, scoped manifest, the actual test code, the author's receipts</td><td>A findings file, one isolated batch red probe per new or changed test (a red test that its <code>contradicts_requirement</code> row explains takes no probe), and the <code>Automated</code> transition on the case</td><td><code>work/automation-manifest.json</code></td></tr>
+<tr><td><code>qa-runner</code></td><td>S6</td><td>Manifest, plan, cases, context manifest, environment contract</td><td>Remaining <code>manual-agent</code> work and only instances whose evidence went stale</td><td><code>work/run-report.json</code></td></tr>
+<tr><td><code>qa-failure-analyst</code></td><td>S7</td><td>Run report, manifest view of the failing case, the plan row's oracle, project FAQ</td><td>A verdict per failure from the closed vocabulary; <code>FLAKY</code> only after three isolated reruns with a named mechanism; <code>APP_BUG</code> drafts</td><td><code>work/triage.json</code></td></tr>
+<tr><td><code>qa-doc-scribe</code></td><td>S8</td><td>Plan, manifest summary, run report, triage, bug drafts</td><td>The single human test report over the code-computed ledger and delivery verdict</td><td><code>test-report.md</code></td></tr>
+<tr><td><code>qa-bug-reporter</code></td><td>S8, after gate B</td><td>Chosen bug drafts, the gate-B decision, existing <code>bugs/</code> for dedup</td><td><code>bugs/BUG-n.md</code> with a grammar oracle and damage class, debt files for quarantined tests, tracker <em>proposals</em></td><td><code>project:bugs/</code></td></tr>
+<tr><td><code>qa-retro-analyst</code></td><td>S9</td><td><code>work/retro-numbers.md</code>/<code>.json</code> only — never the journal or the cost files</td><td><code>retro.md</code> prose over numbers code computed, knowledge folded into strategy files, the closing question verbatim, rows into the ledgers</td><td><code>retro.md</code></td></tr>
+</tbody></table>
+
+<ac:structured-macro ac:name="note"><ac:rich-text-body><p>Two clarifications where older drawings of the pipeline disagree with the code. <strong>S4's critic</strong> is dispatched only for the plan rows whose validated <code>design_review_required</code> is true — mandatory for <code>verification_depth: critical</code>, <code>impact: unknown</code>, <code>oracle_unknown</code> or <code>source_conflict</code>, and the strategist may set it on more rows (<code>planning_contract.py</code>). <strong>S9</strong> always dispatches <code>qa-retro-analyst</code> over numbers <code>retro_numbers.py</code> already computed; a reduced <code>numbers</code> mode or a <code>skip</code> happens only on the person's explicit words.</p></ac:rich-text-body></ac:structured-macro>
+
+<h2>The conductor</h2>
+
+<p>The conductor is a fresh model call, a <code>claude -p</code> with a new context, that the driver makes when the factory has no move of its own: a factory script refused something the driver's own table does not know, your words match none of the answers a question offered, or you answered and your words must be recorded. Every call starts from the refusal, the story's state and the files the refusal names; nothing carries over. It makes at most 20 turns in a call, and the driver calls it at most three times per boundary before asking you.</p>
+
+<p>The conductor finds the way on: it offers every move that lets the work continue, with what each costs and what it does to the story, runs the one you choose with the factory's own commands, and records a finding. The conductor reworks nothing itself: a broken artifact goes back to the role that wrote it. Its answer is a closed set of options, each followed by three price lines (the factory, you, the story); the price words are data in <code>references/conductor-actions.json</code>. When its answer cannot be used, the driver shows the standing options <code>retry</code>, <code>go on</code> and <code>stop</code>.</p>
+
+<table><tbody>
+<tr><th>Word</th><th>Move</th><th>What it does</th></tr>
+<tr><td><code>rework</code></td><td>Rework a stage</td><td>The role that did the stage's accepted work does it again, with your words as its instruction; the stages after it run again</td></tr>
+<tr><td><code>approve</code></td><td>Approve a gate</td><td>The driver records the gate decision with the words of your answer, only when that gate has no current approval</td></tr>
+<tr><td><code>restart</code></td><td>Release and restart</td><td>Frees a dispatch nobody is doing so the driver starts it again; the new session gets your words</td></tr>
+<tr><td><code>go on</code></td><td>Go on as is</td><td>Goes on without it; your words are recorded as the reason the story carries. It is closed at a gate</td></tr>
+<tr><td><code>prepare the stand</code></td><td>Prepare the stand</td><td>The factory starts the stand with the command the project names for it and checks that it answers; offered only when the stand remedy is authorized for the story</td></tr>
+<tr><td><code>retry</code></td><td>Person does it</td><td>You do the work outside the factory, then the factory looks again; it never reruns a role</td></tr>
+<tr><td><code>stop</code></td><td>Stop here</td><td>Stops the story</td></tr>
+</tbody></table>
+
+<p>Three more moves carry no word of yours: the words go to the role that asked, a fact of the story is set, and a source you left out before the run is read after all, on your own words only.</p>
+
+<p>The conductor never records a gate decision, never edits application code, tests, cases or reports, and never writes to a tracker. It never opens or pushes a merge request unless the delivery prompt names it authorized by the gate B decision, and then the MR is a Draft. It never edits the plugin's files, never fabricates evidence (a missing fact is a question), never edits <code>pipeline.json</code>, <code>controller.json</code>, <code>journal.jsonl</code> or <code>events.jsonl</code> by hand, never runs the test suite or starts a role's session itself.</p>
+
+<h2>Layer 3 — code</h2>
+
+<h3>Guards and hooks</h3>
+
+<p>Nothing here is a role's discretion; it fires on the matching tool call.</p>
+<ul>
+<li><strong><code>guard_pre_tool.py</code></strong> — one PreToolUse process for the app boundary (P-00 protected application paths), secret patterns, quiet runs, a read of a raw run log over 8 KB, and a read of any file over 30,000 bytes whole. All fail-closed: an unparsed event blocks the call.</li>
+<li><strong><code>stage_guard.py</code></strong> — seven rules over <code>stages.json</code> and <code>pipeline.json</code>: (1) order, (2) gate A recorded before any stage past S3, (3) the automation manifest free of <code>unresolved[]</code> entries without a closed-list reason before S6–S8 or a test-code commit, (4) delivery gated on the verdict word <code>yes</code> or <code>after_checks</code>, or a recorded <code>deliver_with_risks</code>, (5) a factory <code>git commit</code> names its own pathspec, (6) <code>SendMessage</code> reopens only a dispatch id this story recorded, (7) <code>git stash push -u</code> names its paths so the story's own untracked artifacts cannot go into the stash. A person's recorded word passes rules 1 and 2. The guard is <strong>fail-open</strong> outside a factory story: no <code>pipeline.json</code> means "this is not a factory story".</li>
+<li><strong><code>validate_artifacts.py</code></strong> — PostToolUse on every artifact <code>Write</code>/<code>Edit</code>: the artifact against its schema, and the regex list in <code>references/detectors.json</code>.</li>
+<li><strong><code>exit_gate.py</code></strong> — SubagentStop: a role cannot hand off while its <code>required_outputs</code> or its witness artifact are missing, and a stage's extra detectors are re-run on a clean handoff.</li>
+</ul>
+
+<h3>Event store and controller projections</h3>
+
+<p><code>state/events.jsonl</code> is the append-only authority; <code>state/controller.json</code> and <code>pipeline.json</code> are projections of it, and nobody edits them by hand. <code>--operation recover</code> repairs a torn last line, rebuilds the projections and closes a settled dispatch through a journalled <code>state_repair</code>; corruption mid-journal blocks writes instead of guessing. The project's journal is <code>qa-factory/records/journal.jsonl</code>. It is the human-readable append-only record of <code>delegated</code>, <code>accepted</code>, <code>rejected</code>, <code>gate</code>, <code>escalated</code>, <code>deliver_with_risks</code> and <code>external_write</code>.</p>
+
+<h3>Runner, evidence, manifest and ledger</h3>
+
+<p>Every factory run goes through <code>run_suite.py</code> — never <code>pytest</code> directly, by the driver or by any role — with typed requests; reuse requires matching test, helper, dependency, source, runtime and environment fingerprints (<code>execution_fingerprint.py</code>), and stale or missing freshness is <code>unverified</code>, never green. The red probe runs in a disjoint copy of the tree prepared by <code>red_sandbox.py</code>. <code>work/evidence/</code> holds raw logs, junit XML and screenshots, never retellings. <code>work/automation-manifest.json</code> is written through <code>manifest_put.py</code> or derived from the tests' own markers; <code>s5_precheck.py</code> is the automator's exit detector and its findings go back to the author before the critic sees the work.</p>
+
+<p><code>ledger.py</code> generates the checks ledger by code, never a role: every plan row and every test lands in exactly one state. What the person reads is <code>traceability.py</code> — one row per requirement × case × Then group, with the test, its level and a result from a closed human list (<code>pass · bug · wait · blocked · not run · unreachable · deferred · not planned</code>). A test gets <code>pass</code> only from a green result row of its own, recorded for the code that is on disk now: with no row it reads <code>not run</code>, and a green run of a test that was changed since is not a pass. A Then that waits behind another case's red check in the same test reads <code>blocked</code>, never a pass.<code>check_delivery.py</code> aggregates the checks into one verdict word of three: <code>yes</code>, <code>after_checks</code> or <code>no</code>. The verdict is decided from typed records, never from the text of a reason, and a kind the factory does not know counts as not ready. The records and their kinds are data in <code>references/delivery-verdict-kinds.json</code>. The factory's own bookkeeping is owned by <code>factory</code>, never by <code>product</code>.</p>
+
+<p><code>external_writes.py</code> is the only thing that writes to a tracker or a TMS: a role writes its local file plus a proposal, and this script executes only the exact authorized action, case descriptions after gate A, results, bugs, delivery and retirement after gate B.</p>
+
+<h3>Visibility and costs</h3>
+
+<p><code>cost_capture.py</code> tails the host's transcripts and rewrites <code>state/cost/&lt;session&gt;.json</code>. A story has one price on every page, computed by one function (<code>task_price.py</code>) from two independent records; how it is computed, and how far to trust it, is on the dashboard page. <code>factory_dashboard.py</code> and <code>metrics_projection.py</code> are local, code-only projections over accepted events; rendering never invokes a model, a product test, a scheduler or an external connector, and missing evidence stays missing rather than becoming a successful observation.</p>
+
+<h2>Where the factory lives — three places</h2>
+
+<table><tbody>
+<tr><th>Place</th><th>What is there</th><th>Changed by</th></tr>
+<tr><td><strong>Plugin source</strong> — <code>ai-packages/qa-factory/</code> in the forge repository</td><td>The whole package: skills and phase files, <code>agents/</code>, <code>references/</code> (including the generated <code>references/slices/</code>), <code>hooks/</code>, <code>scripts/</code>, <code>evals/</code></td><td><strong>A fix goes here and only here</strong>, with <code>python scripts/selftest.py</code> before it lands</td></tr>
+<tr><td><strong>Installed plugin cache</strong> — the host's plugin cache, which hooks and skills address as <code>${CLAUDE_PLUGIN_ROOT}</code></td><td>A copy of the source at one installed version; this is what actually runs</td><td>Only by an install cycle. A plain re-install over the same version does not pick up a change: <code>claude plugin uninstall</code>, <code>claude plugin marketplace update</code>, <code>claude plugin install</code></td></tr>
+<tr><td><strong>Project state</strong> — <code>&lt;project&gt;/qa-factory/</code></td><td><code>config.json</code>, <code>strategy/</code>, <code>bugs/</code>, <code>obligations.md</code>, <code>factory-backlog.md</code>, <code>records/</code>, <code>state/</code> and <code>artifacts/&lt;TICKET&gt;/</code></td><td>Onboarding, the story pipeline and the person. It is the project's, and it survives uninstalling the plugin</td></tr>
+</tbody></table>
+
+<ac:structured-macro ac:name="warning"><ac:rich-text-body><p>Editing the installed cache is the one thing that looks like a fix and is not: the next install overwrites it, the repository never learns about it, and the factory then behaves differently on two machines. A project no longer carries its own copy of hooks, roles or skills at all — hooks are registered once, globally, by the plugin manifest — so the only durable place for a change is the source. When a marketplace source is a <em>local directory</em>, the install copies the directory as it lies on disk: <code>.gitignore</code> is a git rule, not a copy rule. Run <code>python scripts/selftest.py --hygiene</code> in the clone before installing, and <code>python scripts/install_smoke.py</code> from the installed copy afterwards.</p></ac:rich-text-body></ac:structured-macro>
+
+<p>An archive made by qa-collect says whether the installed package was modified, by comparing it with the fingerprint the release carries. The archive's manifest reads <code>package_modified: yes</code> only when a named file differs from the release file of the same version, <code>no</code> when the package equals it, and <code>unknown</code> whenever there is a doubt, for example when the installation has no release file. Editor and cache leftovers are listed apart and never count as a modification.</p>
+
+<h2>The hook map</h2>
+
+<p>From <code>hooks/hooks.json</code>. Every command runs through the launcher <code>hooks/run-py.cmd</code>, and <code>telemetry_hook.py</code> wraps most of the hooks to record a sanitized, fail-silent duration span.</p>
+
+<table><tbody>
+<tr><th>Event</th><th>Matcher</th><th>Script</th><th>What it does</th></tr>
+<tr><td>PreToolUse</td><td><code>Write|Edit|NotebookEdit</code></td><td><code>guard_pre_tool.py</code></td><td>Blocks a write into a protected application path and any file or content matching a secret pattern</td></tr>
+<tr><td>PreToolUse</td><td><code>Bash|PowerShell</code></td><td><code>guard_pre_tool.py</code></td><td>The same boundary and secret checks on commands, the quiet-runs check, and the stage-guard rules for commit, stash, delivery and runner shapes</td></tr>
+<tr><td>PreToolUse</td><td><code>Read</code></td><td><code>guard_pre_tool.py</code></td><td>Refuses reading a raw run log heavier than 8 KB (smaller ones read freely), counts tool calls per dispatch by the host's <code>agent_id</code> (the session's own window separately), and refuses reading a file over 30,000 bytes whole</td></tr>
+<tr><td>PreToolUse</td><td><code>Grep|Glob</code></td><td><code>guard_pre_tool.py</code></td><td>The same guard on searches</td></tr>
+<tr><td>PreToolUse</td><td><code>Agent|Task|SendMessage</code></td><td><code>inject_context.py</code></td><td>Runs <code>stage_guard.check()</code> first (a denial also appends to <code>state/dispatch-denials.jsonl</code>), then injects the role's rule layers</td></tr>
+<tr><td>PostToolUse</td><td>every tool</td><td><code>cost_capture.py --debounced</code> (async)</td><td>Incremental usage capture</td></tr>
+<tr><td>PostToolUse</td><td><code>Write|Edit</code></td><td><code>validate_artifacts.py</code></td><td>Validates the artifact just written against its schema and the detector list</td></tr>
+<tr><td>PostToolUse</td><td><code>Bash|PowerShell</code></td><td><code>host_probe.py --hook</code></td><td>Records host-origin receipts, so hook trust is observed rather than assumed</td></tr>
+<tr><td>SubagentStop</td><td>every role</td><td><code>exit_gate.py</code>, <code>subagent_journal.py</code>, <code>cost_capture.py</code></td><td>The handoff exit gate; the journalled moment of handoff; agent usage</td></tr>
+<tr><td>Stop</td><td>—</td><td><code>activity_capture.py</code>, <code>cost_capture.py</code></td><td>Closes the activity and captures the response's usage. The cost capture here is asynchronous, so the host's turn does not wait for it, and the dashboard is rendered once per Stop, after the capture. The debounced capture of the other events and <code>validate_artifacts.py</code> never render it</td></tr>
+<tr><td>PreCompact</td><td>—</td><td><code>precompact_guard.py</code></td><td>Knowledge does not live in the chat: the carriers must be fresh before the context is compacted</td></tr>
+<tr><td>SessionStart</td><td><code>startup|resume|clear|compact</code></td><td><code>session_env.py</code></td><td>Writes the session id into the environment file so a later command can read its own session identity</td></tr>
+<tr><td>SessionStart</td><td><code>compact</code></td><td><code>postcompact_reload.py</code></td><td>After a compaction, reminds the session to re-read the skill, the current phase file and <code>pipeline.json</code>, and resets the turn counter</td></tr>
+</tbody></table>
+
+<h2>How a role gets its knowledge</h2>
+
+<p>A role is defined by its charter, <code>agents/&lt;role&gt;.md</code>: frontmatter (<code>name</code> equal to the file name, a <code>description</code> ending in "Dispatched by qa-story at S&lt;n&gt;.", <code>tools</code>, and <code>disallowedTools</code> containing both <code>Agent</code> and <code>Task</code> — roles do not spawn subagents) and six sections: Role, Inputs, Procedure, Outputs, Witness, Refusals. Audit A19 checks all of that, and that no role pins a model.</p>
+
+<p>On top of the charter, <code>inject_context.py</code> delivers the rule layer at dispatch time. The map is <code>references/inject-map.json</code>:</p>
+
+<ul>
+<li><strong>Common</strong> to every role: <code>references/tester-manifesto.md</code> and <code>references/common-rules.md</code>.</li>
+<li><strong>Per role</strong>: its own slices plus the project files it needs. A <code>plugin:</code> path resolves against the installed plugin; a <code>project:</code> path resolves inside the project.</li>
+</ul>
+
+<p><strong>Slices.</strong> A reference stays one file per subject, so one fact has one owner (audit A21). What a role receives is a <em>slice</em> of it: the lead plus only the sections marked <code>&lt;!-- roles: qa-automator, qa-code-critic --&gt;</code> on the line directly above the heading. <code>contract_slices.py --write</code> renders <code>references/slices/&lt;role&gt;/&lt;subject&gt;.md</code> and the results are committed; <code>--check</code> keeps them honest (a stale slice is a red build), <code>--report</code> prints per-role injected bytes.</p>
+
+<p><strong>The caps.</strong> Audit <strong>A22</strong> caps what one role is injected before its charter and its first tool call at <strong>42,000 bytes</strong>. Audit <strong>A25</strong> is the cap that binds: the whole weight one role is handed before its first tool call (charter, common injection, its slices and the brief) against one number, 58,000 bytes in the script today. Audit <strong>A9</strong> is the other half — every file the map names must exist, and every <code>qa-*</code> role must be in the map, or the injection is silently dead.</p>
+
+<h2>The artifacts of one story</h2>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">text</ac:parameter><ac:plain-text-body><![CDATA[<project>/qa-factory/
+  config.json  obligations.md  factory-backlog.md
+  strategy/*.md            bugs/BUG-n.md
+  records/journal.jsonl    records/coverage-map.md  records/estimation-ledger.jsonl
+  state/cost/ telemetry/ host-receipts/ turns/ readiness.json factory-dashboard.html    (machine-local, ignored)
+  artifacts/<TICKET>/
+    understanding.md  test-plan.md
+    test-report.md  retro.md
+    pipeline.json
+    state/story-case-links.json  state/case-versions/<CASE>/<VERSION>.md
+    state/driver-question.md  state/driver-runs.jsonl  state/conductor.jsonl
+    state/words/                      (a person's words, kept whole, one file each)
+    work/
+      ticket-snapshot.json  context-manifest.json  context-bundle.json  impl-diff.txt
+      requirements-register.md  requirements-readiness.json  test-plan.json
+      ticket-freshness.json  review-debts.json
+      test-cases/<area>/TC-NNN.md
+      automation-manifest.json  run-report.json  triage.json
+      ledger.json  ledger.md  traceability.json  delivery-summary.md
+      evidence/  proposals/  bug-drafts/]]></ac:plain-text-body></ac:structured-macro>
+
+<p>Names are fixed; a role that invents a filename produces an artifact nobody reads. <strong>Four documents are written for a person</strong> and sit at the top of the story's folder: <code>understanding.md</code> and <code>test-plan.md</code> at gate A, <code>test-report.md</code> and <code>retro.md</code> at the end. Everything else is one role handing facts to the next and lives under <code>work/</code>.</p>
+
+<p><code>pipeline.json</code> stays at the top level: the state machine, addressed by a fixed path by the driver, the stage guard, the doctor and the dashboard. A closed story commits the four documents, the test code and the project-level files; <code>work/</code> is not committed and <code>work/evidence/</code> belongs in the project's <code>.gitignore</code>. The one exception is a story interrupted mid-way: then <code>work/</code> and <code>pipeline.json</code> are committed too, so the run can be resumed days later. On a project with a <code>cases_root</code> the cases live in the project's own case library rather than in <code>work/test-cases/</code>.</p>
+
+<p><code>references/artifact-registry.json</code> is the logical id / path / producer / consumer / retention registry for these files; <code>references/record-schemas.json</code> supplies the machine record shapes.</p>
+
+<h2>The traceability chain</h2>
+
+<p>What the factory promises at gate B is one unbroken chain per requirement, and <code>check_traceability.py</code> walks it by code:</p>
+
+<ol>
+<li><strong>Requirement</strong> — <code>R-n</code> in <code>work/requirements-register.md</code>, with its source and its observable-in-code column. Requirements come from every source: the description, comments, attachments, linked tickets, the diff and acceptance criteria where the ticket has them. The factory works by requirements, not by a checklist, so a ticket with none still has its requirements checked.</li>
+<li><strong>Plan row</strong> — one or more rows of <code>test-plan.md</code> whose R column names it, each carrying risk, <code>verification_depth</code>, disposition and <code>design_review_required</code>.</li>
+<li><strong>Case version</strong> — the case whose <code>Requirements: R-1, R-2</code> and <code>Plan row: TS-n</code> lines name them, pinned by <code>case_versions.py</code> into <code>state/story-case-links.json</code> and <code>state/case-versions/</code>.</li>
+<li><strong>Test instance</strong> — one test is <code>&lt;function&gt;[&lt;parameter&gt;]</code>, for example <code>test_per_partition[missing-assistant]</code>. An instance names no case: the cases it proves are <code>covers: [TC-003, TC-004]</code> plus its pinned case-version links. The mapping is N:M — one case may take several instances, one consolidated instance may prove several cases — and each Then clause is bound to a test and an assertion line in <code>then_bindings[]</code>.</li>
+<li><strong>Attempt</strong> — an immutable run block, reduced by <code>finalize_task.py</code> into <code>run-report.json</code>.</li>
+<li><strong>Review and proof</strong> — the code critic's findings file plus a red-probe receipt for every changed instance, except a red instance whose <code>contradicts_requirement</code> row explains it: that one closes its window with the row, and no probe is asked of it.</li>
+<li><strong>Decision</strong> — a terminal outcome for each requirement: an executed automated test, an executed <code>manual-agent</code> case, a <code>manual-human</code> case with an evidence package, or an explicit <code>pending_implementation</code> / <code>deferred_by_decision</code>. There is no "probably covered".</li>
+<li><strong>Delivery</strong> — the ledger row, the delivery verdict, and only then the MR, the bugs and the authorized external writes.</li>
+</ol>
+
+<p>A requirement whose chain breaks anywhere is reported with the link that broke and becomes a "not verified" ledger row. The one way a broken chain becomes terminal is a person: a decision recorded with your words reads here as <code>deferred_by_decision</code>, with the gap still named beside your own words. Without that record, gate B recomputes a gap gate A already accepted and sends the whole pipeline round to ask the same question.</p>
+
+<p>Code is never an oracle: an expected value comes from the requirements, and where they are silent the factory asks you, showing how it was before the change and how it is now. Until you answer, the expectation stays open and is reported as a gap, neither a green nor a red result.</p>
+
+<h2>The audit rules</h2>
+
+<p><code>python scripts/audit_factory.py</code> is the executable half of calibration, and <code>/qa-factory:qa-doctor</code> runs it, except A26 and A27, which the package's own tests run. An empty result is printed explicitly ("no violations") — silence is indistinguishable from not running. The factory-owned checks (A1, A2, A9, A11, A12, A14, A19, A21, A22, A24, A25, A27) run against the plugin's own shipped files; the rest run against one project's state.</p>
+
+<table><tbody>
+<tr><th>Rule</th><th>What it refuses</th></tr>
+<tr><td>A1 hook liveness</td><td>A <code>scripts/*.py</code> that no hook names, no live script imports and no declared CLI entry uses — dead code shipped as if it ran</td></tr>
+<tr><td>A2 role/tools parity</td><td>Write verbs in a charter without <code>Write</code>/<code>Edit</code>; <code>Write</code>/<code>Edit</code> with no write signal in the contract; a role whose <code>disallowedTools</code> does not close the <code>Agent</code>/<code>Task</code> boundary</td></tr>
+<tr><td>A3 case/bug schemas</td><td>Any existing case or bug that the artifact validator's rules reject</td></tr>
+<tr><td>A4 state machine</td><td><code>status: Automated</code> without <code>red_probe</code>/<code>automated_by</code>; a <code>red_lock</code> with no bug file</td></tr>
+<tr><td>A5 seal</td><td>A task artifact edited after the last acceptance or handoff for it, unless a gate decision seals the edit</td></tr>
+<tr><td>A6 journal</td><td>A malformed <code>journal.jsonl</code> line; a <code>rejected</code> event with no <code>failure_class</code></td></tr>
+<tr><td>A7 journal completeness</td><td>A task with artifacts and no journal events at all — journal silence</td></tr>
+<tr><td>A9 injection map</td><td>A file <code>inject-map.json</code> names and does not exist; a <code>qa-*</code> role missing from the map; a stale generated slice</td></tr>
+<tr><td>A11 artifact schema sync</td><td>A key the validator requires that the artifact contract does not document; a declared writer with no charter in <code>agents/</code></td></tr>
+<tr><td>A12 skill size</td><td>A <code>SKILL.md</code> over 19,000 characters, or a referenced <code>phases/*.md</code> that does not exist</td></tr>
+<tr><td>A13 deferred decisions</td><td>A <code>[DEFERRED:</code> marker with no open DD row; a DD row with an empty <code>asked</code> column (a skipped question filed as a deferral); a required interview topic left empty with no deferral row at all</td></tr>
+<tr><td>A14 definition drift</td><td>Shipped files that differ from the release file of the same version, judged by the one recipe <code>release_fingerprint.compare()</code>. Only <code>no</code> (the package equals the release) is "no violations"; <code>yes</code> and <code>unknown</code>, for example when there is no release file, are information lines, never a violation</td></tr>
+<tr><td>A15 estimation loop</td><td>A completed S9 without exactly one active estimate row bound to the current retro bytes and task revision</td></tr>
+<tr><td>A16 registry hygiene</td><td>Duplicate ids in <code>obligations.md</code> / <code>factory-backlog.md</code>; an oversized essence on a row created after the cutoff</td></tr>
+<tr><td>A17 detector re-run</td><td>A quoted detector output taken as an acceptance — the audit re-runs <code>check_coverage.py</code> and judges by the real exit code</td></tr>
+<tr><td>A18 result projection</td><td>A completed S6/S8 without current reducer sources or a typed no-execution receipt; a completed S8 with no <code>test-report.md</code></td></tr>
+<tr><td>A19 agents contract</td><td>A charter whose <code>name</code>, stage suffix, <code>tools</code>, <code>disallowedTools</code> or six sections do not hold; a <code>model</code> key. A charter over 9,000 bytes is a note, not a violation</td></tr>
+<tr><td>A20 portable paths</td><td>Any machine-local path in what the factory writes — a config path field, a command template, a generated strategy document</td></tr>
+<tr><td>A21 one owner per fact</td><td>A section heading present in both <code>strategy/test-strategy.md</code> and <code>strategy/framework-rules.md</code></td></tr>
+<tr><td>A22 injection weight</td><td>More than 42,000 bytes injected into one role before its charter and its first tool call</td></tr>
+<tr><td>A24 refusal registry</td><td>A refusal on the dispatch path with no registered way for a person's recorded word to pass it, and no test that proves it</td></tr>
+<tr><td>A25 dispatch budget</td><td>A role handed more than the one cap for charter, common injection, slices and brief together</td></tr>
+<tr><td>A26 gate registry</td><td>A gate that judges whether a run, test, stand or proof is valid, with no row in the registry (FR-59). Run by the package's self-test, never by the doctor</td></tr>
+<tr><td>A27 no move outside the seam</td><td>A driver site that builds a question for a person or a stop outside the one function that answers "the factory has no move" (<code>Driver.no_move</code>), or that runs a factory script and drops the result. A check of the package's own source: run by its tests and by <code>audit_factory.py --no-move</code>, not by the doctor</td></tr>
+</tbody></table>
+
+<p>There is no A8, A10 or A23: A8 (model-routing drift) and A10 (a per-session settings copy) were dropped when the factory became a plugin.</p>
+
+<h2>Design principles</h2>
+
+<table><tbody>
+<tr><th>Principle</th><th>How it shows up in the build</th></tr>
+<tr><td><strong>The factory calls the conductor for a problem, never to run a command.</strong></td><td>In any state it has no move for, the factory calls the conductor, which offers options with their price and consequences and runs the one you choose. It never hands you a command to run by hand and never passes silently. Audit A27 finds a state without a move outside the one function that answers it.</td></tr>
+<tr><td><strong>A check stops a silent pass, never an informed one.</strong></td><td>Every refusal on the dispatch path is registered in <code>refusal_registry.py</code> with the way a person's recorded word passes it and the test that proves it; audit A24 fails a refusal without one. A ban always has a door.</td></tr>
+<tr><td><strong>A person's word passes any block, and the session (headless: the driver) or the conductor records it.</strong></td><td>A role never records a person's word. What is recorded is your own words, only what you named, read back at the next gate; a pass over a block the factory owns is also filed as a finding.</td></tr>
+<tr><td><strong>The person is asked only what a person decides; otherwise they hear one sentence.</strong></td><td>An inconsistency in the factory's own state is repaired (<code>--operation recover</code>) and stated in one line with <code>owner: factory</code>, never handed over as something to fix. What a role said to another role, a guard's refusal that was worked through, a state repair — none of it is theirs to read.</td></tr>
+<tr><td><strong>A gate is the last stop before its next stage.</strong></td><td><code>gate_preflight.py</code> rehearses the decision the controller will record before anyone is asked. A <code>factory_fixable</code> finding is repaired before the gate is shown; a finding that is the person's goes into the gate message. After the answer, nothing is asked or refused that could have been computed before it.</td></tr>
+<tr><td><strong>A stand is a fact with a fix, not a paragraph.</strong></td><td>A stand gap travels as a card with the exact fix by name (names only, never a value) and four answers, written <code>&lt;case id&gt;: change</code>, <code>myself</code>, <code>run</code> or <code>accept</code>.</td></tr>
+<tr><td><strong>The factory never hands a person its own defect.</strong></td><td>A defect of the factory is stated plainly with <code>owner: factory</code> and recorded as a finding, not turned into a task for the person who hit it. A fail-closed refusal that fires twice on different calls stops the story with a diagnosis the factory owns.</td></tr>
+<tr><td><strong>Three delivery outcomes, not two.</strong></td><td>The verdict is <code>yes</code>, <code>after_checks</code> or <code>no</code>. The report's “Left with you” names every item left to a person, how to check it, and the regression scope the plan recommends; a missing item blocks the report, not the verdict.</td></tr>
+<tr><td><strong>Code is never an oracle.</strong></td><td>A test whose expectation was taken from the implementation can only pass. The expected value comes from the requirements; where they are silent the factory asks you, showing how it was before the change and how it is now.</td></tr>
+<tr><td><strong>The factory works by requirements.</strong></td><td>Acceptance criteria are one source of requirements, beside the description, comments, attachments, linked tickets and the diff; a ticket may have none.</td></tr>
+<tr><td><strong>The factory's roles run on Sonnet or Terra, never on Haiku.</strong></td><td>A fix that holds only on a stronger model is not a fix.</td></tr>
+<tr><td><strong>Everything in the repository is English.</strong></td><td>Every file, message, question and dispatch is English whatever the ticket's or the conversation's language; <code>scripts/selftest.py</code> runs an English-only package check before a change lands.</td></tr>
+</tbody></table>
+
+<h2>What the factory never does</h2>
+
+<ul>
+<li><strong>Never deploys anything.</strong> You say where an environment is reachable; the factory never brings one up.</li>
+<li><strong>Never writes to a tracker or a TMS directly.</strong> A role writes a local file plus a proposal; <code>external_writes.py</code> executes only the exact authorized action after the matching gate.</li>
+<li><strong>Never launches product-test commands outside the authorized runner.</strong> Automated execution goes through typed <code>run_suite.py</code> requests; manual captures use validated immutable blocks.</li>
+<li><strong>Never runs regression.</strong> It is recommended to the person, with reason, priority, prerequisites and commands — and the person runs it on their own stand.</li>
+<li><strong>Never modifies application code.</strong> It files bugs; <code>guard_pre_tool.py</code> blocks the write. The one exception is a stand-gap card answered <code>change</code>: the factory makes the change that card shows, on your word.</li>
+<li><strong>Never edits its own plugin.</strong> A defect of the factory is a finding about the factory, not a plugin edit made in a story.</li>
+</ul>

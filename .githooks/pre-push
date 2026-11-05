@@ -1,0 +1,25 @@
+#!/bin/sh
+# pre-push: the old forge history must never reach GitHub (move of the forge, F-14).
+# Refuses a push whose URL contains github.com when a root commit of the OLD repository is an ancestor of what is
+# pushed. The new repository has two fresh commits and no such ancestor, so its pushes pass. Not a CI step; POSIX sh.
+OLD_ROOTS="b1787e00d2ecbd540ed5253539e2333cfa27eb81 ad9901f08c7cbe550f61618ceb8a17e1c6f91552"
+# The URL is lower-cased before the match (HTTPS://GitHub.com/... is github.com too). Limit: an SSH host alias that
+# hides github.com behind another name is not recognised; push from the exported folder, where no old root exists.
+url=$(printf '%s' "$2" | tr 'A-Z' 'a-z')
+case "$url" in
+  *github.com*) ;;
+  *) exit 0 ;;
+esac
+zero=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref remote_sha || [ -n "$local_ref" ]; do
+  [ "$local_sha" = "$zero" ] && continue
+  for root in $OLD_ROOTS; do
+    if git merge-base --is-ancestor "$root" "$local_sha" 2>/dev/null; then
+      echo "pre-push: refused. $local_ref carries the old repository history (root commit $root) and the URL contains github.com." >&2
+      echo "pre-push: expected: a push to GitHub only from the new repository built by docs/migration/cutover_export.py (two commits, no old history)." >&2
+      echo "pre-push: door: push from the folder that tool printed the command for; to push elsewhere, use a URL without github.com." >&2
+      exit 1
+    fi
+  done
+done
+exit 0

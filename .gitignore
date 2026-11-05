@@ -1,0 +1,22 @@
+# Live data of this deployment -- never commit
+gateway/*.db
+gateway/*.log
+.env
+gateway/.env
+__pycache__/
+*.pyc
+.pytest_cache/
+# Runtime sample written by the search_control_gate hook
+logs/posttooluse-schema-sample.json
+# Sidecars of the agent_budget hook (per-transcript offsets and counts, B-462)
+.claude/agent_budget/
+tools/dev.config.yaml
+# Runtime state of the Task|Agent hooks: the gate's written verdict (and the temp files of its atomic write), the owns registry, the claim markers (t-796)
+logs/dispatch_verdict.json*
+logs/owns_registry.jsonl
+.claude/dispatch_claims/
+# Session-local hook state (DoD tracker, search ledger): a worktree commit carried them into main twice (564780b9, pile run-honesty/1)
+.claude/dod_track/
+logs/.search-ledger/
+# Migration bundle (GM2-2 / F-13): rebuilt last before the cutover, never committed
+*.bundle

@@ -1,0 +1,106 @@
+# delegation.config.yaml — Supervised Delegation binding point.
+#
+# This is the ONE file where function names (the policy vocabulary:
+# lead / critic / builder / scout — see CLAUDE.md) are bound to actual
+# models (a property of your deployment, not of the policy). CLAUDE.md
+# and the role profiles under .claude/agents/ never hardcode a model
+# name for a function; onboarding writes the binding here, once.
+# Changing a binding below does not change any rule.
+
+# contour: which deployment shape you are running.
+#   subscription — Claude Code subscription only (policy + agents + journal)
+#   api-keys     — API keys from one or more providers (adds gateway/)
+#   both         — subscription for coordination, API keys for extra workers
+contour: subscription   # subscription | api-keys | both
+
+roles:
+  # Coordination tier: decomposition, specs, acceptance, mechanisms.
+  # Subscription default binds to the strongest model you have access to.
+  lead:
+    subscription:
+      model: claude-fable-5-1
+    api:
+      provider:        # e.g. anthropic, groq, gemini
+      model:           # e.g. claude-opus-4-8, llama-3.3-70b-versatile
+      api_key_env:     # e.g. ANTHROPIC_API_KEY
+
+  # OPTIONAL: a rung ABOVE lead, summoned only by the operator's own
+  # word for the hardest cases (never routed to automatically). Absent
+  # key = no reserve rung — this is true before AND after you bind
+  # one; leaving it commented out changes nothing else in this file.
+  # Resolved by the shipped gate's role ladder (tools/mechanism_gate.py):
+  # that ladder is what turns this key into an actual rung above lead,
+  # not this file by itself. `designer` deliberately has NO row here
+  # (see the onboarding skill's binding step) — it auto-binds to the
+  # critic-tier model in the role file's own frontmatter instead of a
+  # config row; reserve is the opposite case, a rung with no role
+  # profile of its own to bind, so it lives here and only here.
+  # To CHANGE which model sits at lead (a rebinding, not a first bind):
+  # rewalk the onboarding skill's binding step for `lead`, re-run that
+  # step's exam gate against the new model, and record the swap as its
+  # own decision-log line, same as any other binding change — this
+  # key does not change automatically when `lead` above changes.
+  # reserve:
+  #   subscription:
+  #     model: claude-fable-5
+  #   api:
+  #     provider:
+  #     model:
+  #     api_key_env:
+
+  # Mandatory acceptance gate for builder-class diffs (CLAUDE.md rule 3).
+  critic:
+    subscription:
+      model: claude-opus-5-5
+    api:
+      provider:
+      model:
+      api_key_env:
+
+  # Implementation from a written spec (CLAUDE.md rule 2).
+  builder:
+    subscription:
+      model: claude-sonnet-5-5
+    api:
+      provider:
+      model:
+      api_key_env:
+
+  # Recon: repo search, file reading, context gathering (CLAUDE.md rule 1).
+  scout:
+    subscription:
+      model: claude-sonnet-5-5
+    api:
+      provider:
+      model:
+      api_key_env:
+
+  # api-contour only — Shadow Evaluation judge (a supervised worker,
+  # not a rules-level function; see CLAUDE.md's function/grade split).
+  judge:
+    scope: api-keys-only
+    api:
+      provider:
+      model:
+      api_key_env:
+
+  # api-contour only — the local Ledger/Guard analyst worker.
+  analyst:
+    scope: api-keys-only
+    api:
+      provider:
+      model:
+      api_key_env:
+
+# Entrance exams (see the onboarding skill, once installed under
+# .claude/skills/onboarding/). Every bound model is examined before it
+# starts carrying real traffic in its role.
+exam:
+  mandatory: true
+  override_allowed: true
+  # A failed exam does not block use outright: the operator can
+  # override it with an explicit word ("keep it anyway"). The override
+  # itself is never silent — it produces an operator-facing warning
+  # plus a decision-log entry (DECISIONS.md) recording the override
+  # (model, score), so a later calibration pass can see it.
+  on_failure: "warning + decision-log entry (operator override recorded)"

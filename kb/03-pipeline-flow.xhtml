@@ -1,0 +1,578 @@
+<ac:structured-macro ac:name="toc" />
+
+<h1>QA Factory &#8212; Pipeline flow and decision points</h1>
+<p>Where a story can go differently, stage by stage: who decides, what the factory can do there, and what you can answer. Every chapter opens with a fork schema. State as of 26.10.2026.</p>
+<p><ac:image ac:width="1200"><ri:attachment ri:filename="diagram-route-spine.png"><ri:page ri:content-title="Universal QA Factory — Test Project 1 Pilot" ri:space-key="TP1" /></ri:attachment></ac:image></p>
+
+<h2>How to read this page</h2>
+<p>This page describes QA Factory version 0.10.2. You run a story by typing <code>/qa-factory:qa-story</code> with a ticket; the session takes it through S0&#8211;S9, dispatching the roles, and asks you in the chat only what a person decides. The examples on this page come from the reference run of TP1-13797 on 13.10.2026.</p>
+<p>The examples on this page come from a run without a chat; in an interactive session the same stages and gates reach you in the chat. A run without a chat is described on the page <strong>QA Factory &#8212; Architecture</strong>.</p>
+<table>
+<tbody>
+<tr><th>Decider</th><th>Who or what</th></tr>
+<tr><td><strong>code</strong></td><td>the factory's scripts</td></tr>
+<tr><td><strong>role</strong></td><td>a role, in its own session</td></tr>
+<tr><td><strong>conductor</strong></td><td>called only when the factory has no move of its own; it offers the moves</td></tr>
+<tr><td><strong>you</strong></td><td>the person who knows the product and the story</td></tr>
+</tbody>
+</table>
+<p>A closed question says what the factory decided, why it cannot derive the answer, and asks one question with a closed set of answers. Every question the factory asks you is a closed question: each answer is followed by what it costs the factory, what it costs you, and what it does to the story. The words of those price lines are fixed.</p>
+<table>
+<tbody>
+<tr><th>Line</th><th>The fixed words</th></tr>
+<tr><td><strong>the factory:</strong></td><td>nothing runs &#183; a record only &#183; a factory command runs &#183; one more working session of a role &#183; stages run again</td></tr>
+<tr><td><strong>you:</strong></td><td>nothing more &#183; this answer only &#183; work of yours outside the factory &#183; checks left with you</td></tr>
+<tr><td><strong>the story:</strong></td><td>delivery waits &#183; unchanged &#183; not known</td></tr>
+</tbody>
+</table>
+<p>When the factory has no move of its own, its conductor offers you every move that lets the work continue, each with its price; in an interactive session the session itself plays the conductor. Your word passes any block, and the pass is recorded with your words. A pass over a factory-owned block is also filed as a finding. A ban is never a dead end: it names its door, and your word is one.</p>
+<h3>A real question: gate B</h3>
+<p>Asked after an answer that was not an approval:</p>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[The tests for this story are written, run and reviewed, and the report is ready for the delivery check. Your answer was not an approval, so nothing is recorded as approved and nothing has run. Three cases (saved filter read-back, invalid expression rejected at save, matching payload starts one execution) could not run because the test launcher on this machine lacks the project's SDK. Which of these should happen? To pick one, write its word.
+
+## What each answer costs and does
+
+(a) `approve` — You approve the results as shown, with no change. The factory records your approval and applies your answers on the stand-gap cases.
+the factory: a record only; no agent works.
+you: this answer only.
+the story: the three cases that never reached the stand, the by-hand check of TC_009, the two unanswered product questions, and the story size being over the cap; those items are listed as open in the report; ready after your checks
+
+(b) `rework` — You say what to change, such as a test that checks too little. The role that made the stage does it again with your words, and this check is asked again afterwards.
+the factory: one more working session of the role that did the stage, and its review; the stages after it run again.
+you: this answer only: write what should change.
+the story: the changed part, until it has run again; the open items stay until they are resolved; delivery waits until this is done
+
+(c) `retry` — You fix the test launcher yourself (install the project's SDK in the environment the tests run with), then tell me to look again.
+the factory: nothing runs now; the check is shown again afterwards.
+you: work of yours outside the factory: setting up the launcher environment.
+the story: the three cases stay unrun until you have done it and they run; the three stand gaps, until they run; waits for you
+
+(d) `stop` — Stop the story here.
+the factory: nothing runs.
+you: nothing more.
+the story: everything not yet run on the stand; the story stops at the results check with its open items; not ready]]></ac:plain-text-body></ac:structured-macro>
+<h3>A real question: the source review</h3>
+<p>Asked at S1, after the scout had collected the sources:</p>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[These are the sources I found for `TP1-13797` and what I decided about each.
+
+| Source | Why it is here | Factory decision | Reason | Open points |
+|---|---|---|---|---|
+| TP1-13797 | task | kept | explicit required source | materials not inspected; external material not collected or inspected yet |
+| TP1-13288 | referenced | not assessed | mentioned source requires assessment | not read yet |
+| TP1-8384 | referenced | not assessed | mentioned source requires assessment | not read yet |
+
+Kept sources will be read in full — comments, attachments, linked material. Left-out ones are not downloaded.
+The stand is `localhost`.
+
+## What each answer costs and does
+
+(a) agree with the table: the kept sources are read in full
+the factory: one more working session of the scout, and its review where the stage has one
+you: this answer only
+the story: the delivery verdict stays as the report has it
+
+(b) name a ticket to flip, or to ask about
+the factory: one more working session of the scout, and its review where the stage has one
+you: this answer only
+the story: the delivery verdict stays as the report has it
+
+(c) for anything unavailable: get me access, or tell me to go on without it
+the factory: one more working session of the scout, and its review where the stage has one
+you: work of yours outside the factory: restore the access, or say to go on without it
+the story: delivery waits until this is done]]></ac:plain-text-body></ac:structured-macro>
+
+<h2>At any stage</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  Step[A stage step] -->|a refusal the factory knows| Fix[Repaired by code]
+  Step -->|a refusal with no known move| Cond{Conductor}
+  Ask{Your answer} -->|one of the offered words| Move[The factory runs that move]
+  Ask -->|other words, in a run without a chat: the driver| Cond
+  Cond -->|a move it may take itself| Step
+  Cond -->|options with prices| Ask
+  Step -->|a role needs a decision| Halt{your words / stop}
+  Halt -->|your words| Step]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> A refusal the factory knows is repaired by code; one it has no move for goes to the conductor. The conductor offers every move whose precondition holds, with prices, runs the one you choose with the factory's own commands, and records a finding. It reworks nothing itself.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>When the factory has no move of its own, its conductor offers you every move that lets the work continue, each with its price; in an interactive session the session itself plays the conductor.</li>
+<li>A problem the factory cannot repair itself reaches you as a question with options and their prices.</li>
+<li>The conductor never edits application code, tests, cases or reports, and never writes to a tracker. It opens a merge request only when gate B authorizes it, and then as a Draft.</li>
+<li>You answer in the chat, in your own words; the factory keeps your words whole in a file.</li>
+<li>If the next stage will not fit the session, the factory asks you for <code>/compact</code> or a fresh <code>/qa-factory:qa-story</code> with the same ticket, and nothing you already answered is asked again.</li>
+<li>A text that breaks the question rules is still shown, and recorded as the factory's defect.</li>
+<li>Three moves carry no token: <code>resume_with_words</code>, <code>story_fact</code> and <code>revoke_exclusion</code>.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>In a run without a chat (the driver), the conductor offers a rework (<code>rework_stage</code>)</td><td><code>rework</code></td><td>factory: the stages run again; you: this answer only; story: delivery waits</td></tr>
+<tr><td>In a run without a chat (the driver), a gate answer was not the approval word (<code>approve_gate</code>)</td><td><code>approve</code></td><td>factory: a record only; you: nothing more; story: unchanged</td></tr>
+<tr><td>A question was about one dispatch (<code>resume_with_words</code>)</td><td>your words</td><td>factory: one more working session of the role; you: this answer only; story: delivery waits</td></tr>
+<tr><td>A dispatch nobody is doing (<code>release_and_restart</code>)</td><td><code>restart</code></td><td>factory: one more working session of the role; you: this answer only; story: delivery waits</td></tr>
+<tr><td>A block a person's word passes (<code>go_on_as_is</code>)</td><td><code>go on</code></td><td>factory: a record only; you: nothing more; story: not known</td></tr>
+<tr><td>A stand does not answer and the stand remedy is authorized (<code>stand_prepare</code>)</td><td><code>prepare the stand</code></td><td>factory: a factory command runs; you: nothing more; story: delivery waits</td></tr>
+<tr><td>You left a source out before the run (<code>revoke_exclusion</code>)</td><td>your own words</td><td>factory: a record only; you: this answer only; story: unchanged</td></tr>
+<tr><td>Always (<code>person_does</code>)</td><td><code>retry</code></td><td>factory: nothing runs; you: work of yours outside the factory; story: delivery waits. It never reruns a role.</td></tr>
+<tr><td>Always (<code>stop_here</code>)</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+<tr><td>A halt: a role cannot go on without a decision</td><td>your own words, or <code>stop</code></td><td>factory: one more working session of the role; you: this answer only; story: not known</td></tr>
+<tr><td>In a run without a chat, a role keeps meeting the same refusal</td><td><code>round</code>, <code>fresh</code>, <code>go on</code> or <code>stop</code></td><td>round: one more working session of the role; fresh: the stages run again; go on: a factory command runs; stop: nothing runs</td></tr>
+<tr><td>A resumed story whose last ticket check is older than 6 hours, with changed requirements</td><td><code>new text</code>, <code>old text</code> or <code>stop</code></td><td>new text: the requirements and the plan run again; old text: continue with a known gap shown at gate B</td></tr>
+<tr><td>In a run without a chat, two active copies of the factory at the start</td><td><code>retry</code>, <code>go on</code> or <code>stop</code></td><td>look again, record your words, or hold the story</td></tr>
+</tbody>
+</table>
+
+<h2>S0 &#8212; Start and preflight</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  Start([Story started for a ticket]) -->|more than one of mr, branch, commit given| Flags{mr / branch / commit / stop}
+  Flags -->|one is kept| List
+  Start -->|one place or none| List[List of sources not to read]
+  List -->|read before any fetch| Ticket[Ticket read by API, or your file or paste]
+  Ticket -->|the read fails| ReadQ{not needed / retry / paste / stop}
+  ReadQ -->|retry or paste| Ticket
+  Ticket -->|criteria section found, nothing read from it| CritQ{paste / go on / stop}
+  Ticket -->|no criteria section| Warn[Warning line, shown at gate A]
+  Warn -->|goes on| Stand
+  CritQ -->|go on| Stand
+  Ticket -->|read| Stand{Stand settled?}
+  Stand -->|cannot be settled| StandQ{a stand name / go on / stop}
+  Stand -->|selected, or not answering: checked later| Ready[Readiness check]
+  StandQ -->|a name or go on| Ready
+  Ready -->|something required missing| ReadyQ{retry / go on / stop}
+  ReadyQ -->|go on| S1([S1])
+  Ready -->|ready| S1]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> S0 has no role: code reads the ticket, settles the stand and checks that the project is ready. The ticket is read by API, or from your file or paste; no model reads it, and an LLM agent is not a data source. The outputs are <code>pipeline.json</code> and <code>readiness.json</code>. QA Factory v0 covers functional testing only.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>It reads the list of sources not to read before any fetch, with its own questions.</li>
+<li>With more than one of merge request, branch and commit given, it asks which one to keep.</li>
+<li>A ticket with no criteria section does not stop the story; the requirements are read from the description. The warning line shown at gate A names the headings looked for and says the requirements are read from the description, comments, attachments and linked tickets.</li>
+<li>A criteria section from which nothing was read does stop the story: the factory's reader failed, not your ticket.</li>
+<li>A stand that does not answer does not stop S0: the stand is checked before anything runs on it.</li>
+<li>Every S0 question also takes stop as a whole answer.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>More than one of merge request, branch and commit is given</td><td><code>mr</code>, <code>branch</code> or <code>commit</code></td><td>factory: a record only; you: nothing more; story: unchanged</td></tr>
+<tr><td>The ticket cannot be read</td><td><code>not needed</code></td><td>factory: a record only; you: nothing more; story: not known</td></tr>
+<tr><td>The ticket cannot be read</td><td><code>retry</code></td><td>factory: a factory command runs; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>The ticket cannot be read, or a criteria section was not read</td><td><code>paste</code></td><td>factory: a factory command runs; you: work of yours outside the factory; story: unchanged</td></tr>
+<tr><td>A criteria section was found and nothing was read from it</td><td><code>go on</code></td><td>factory: a record only; you: nothing more; story: not known</td></tr>
+<tr><td>The stand cannot be settled</td><td>a stand name</td><td>factory: a record only; you: nothing more; story: unchanged</td></tr>
+<tr><td>The stand cannot be settled, or something required is missing</td><td><code>go on</code></td><td>factory: a record only; you: nothing more; story: not known</td></tr>
+<tr><td>Something required (ticket adapter, test repo, version control, config) is missing</td><td><code>retry</code></td><td>factory: a factory command runs; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>Any S0 question</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+</tbody>
+</table>
+
+<h2>S1 &#8212; Context and grounding</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  Scout[Scout collects ticket, comments, links, parent and the change] -->|sources decided| Review{agree / flip / unavailable}
+  Review -->|flip or unavailable: your words| Scout
+  Review -->|agree| Read[Kept sources read in full]
+  Read -->|unreachable, the factory's own probe says why| Gap[Gap in the report, no question]
+  Read -->|unreachable for another reason| GapQ{not needed / skip all like these / a route / the content}
+  GapQ -->|not needed or skip all like these| Read
+  GapQ -->|a route| Scout
+  GapQ -->|the content in a fence| Read
+  Scout -->|no implementation found| NoDiff{change / lives / ungrounded / stop}
+  NoDiff -->|change, lives or ungrounded| Scout
+  Read -->|bundle valid| S2([S2])]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The scout (<code>qa-scout</code>) writes the context manifest, the context bundle and the implementation diff. The scout shows you the sources it found and what it decided about each, and asks you to agree with the table. Kept sources are read in full. On the reference run there was one source review, three gap questions and one conductor question.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>A source the factory established it cannot reach is a gap in the report, not a question. Gate A shows it under &#8220;Not reachable by the factory &#8212; recorded without asking you&#8221;, with the door to try again.</li>
+<li>Any other gap is one question that lists only the points still asked; a long list is cut and the whole list goes to the details file.</li>
+<li>One answer about a kind of gap covers every later source of that kind in the story.</li>
+<li>A source you left out before the run is read only on your own words.</li>
+<li>When no implementation is found, you choose: give the change, name where it already lives, go on with the requirements only, or stop.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>Source review</td><td><code>agree</code></td><td>factory: one more working session of the scout; you: this answer only; story: unchanged</td></tr>
+<tr><td>Source review</td><td><code>flip</code>: name a ticket to flip or to ask about</td><td>factory: one more working session of the scout; you: this answer only; story: unchanged</td></tr>
+<tr><td>Source review</td><td><code>unavailable</code>: get access, or go on without it</td><td>factory: one more working session of the scout; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>A gap the factory cannot judge itself</td><td><code>not needed</code></td><td>factory: a factory command runs; you: nothing more; story: not known</td></tr>
+<tr><td>The same, when a cause is asked</td><td><code>skip all like these</code></td><td>factory: a factory command runs; you: nothing more; story: not known, for every material of these kinds</td></tr>
+<tr><td>The same</td><td>a route to the source</td><td>factory: one more working session of the scout; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>The same</td><td>the content, pasted in a fence</td><td>factory: a factory command runs; you: work of yours outside the factory; story: unchanged</td></tr>
+<tr><td>No implementation found</td><td><code>change</code></td><td>factory: one more working session of the scout; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>No implementation found</td><td><code>lives</code></td><td>factory: one more working session of the scout; you: work of yours outside the factory; story: not known</td></tr>
+<tr><td>No implementation found</td><td><code>ungrounded</code></td><td>factory: one more working session of the scout; you: nothing more; story: not known, tests for behaviour no code shows are written expected-red</td></tr>
+<tr><td>No implementation found</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+</tbody>
+</table>
+
+<h2>S2 &#8212; Understanding and size</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  In([S1 bundle]) -->|requirements tester| Reg[Register, readiness, understanding]
+  Reg -->|a decision only you can make| Halt{your words / stop}
+  Halt -->|your words| Reg
+  Reg -->|too many open questions| Many{answers / go on / stop}
+  Many -->|answers| Reg
+  Many -->|go on: questions stay open| S3([S3])
+  Reg -->|ready| S3]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The requirements tester writes the register of requirements from every source, not only from acceptance criteria. Acceptance criteria are one source among others, and a task may have none. The outputs are the register, its readiness record and <code>understanding.md</code>; the size is computed by <code>sizing.py</code>. On the reference run S2 stopped with four questions.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>Where the requirements are silent, the question shows you how it was before the change and how it is now.</li>
+<li>An expectation nobody confirmed stays open and is reported as a gap, neither green nor red.</li>
+<li>When too many questions are open, the stage stops with all of them in one question: answer them, go on with them open, or stop. One open question that blocks stops the stage at its handoff whatever the number of open questions; your answers are recorded by code at once and laid over the plan.</li>
+<li>A question you want to keep open until the report is answered with the line <code>Q1: until the report</code> (the question's own id); it is not asked again and the plan keeps its unanswered branch.</li>
+<li>A role that cannot go on without a decision halts and asks for your own words.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>A halt</td><td>your own words</td><td>factory: one more working session of the role; you: this answer only; story: not known</td></tr>
+<tr><td>Too many open questions</td><td>the answers, one line each</td><td>factory: one more working session of the role; you: this answer only; story: unchanged</td></tr>
+<tr><td>Too many open questions</td><td><code>go on</code></td><td>factory: a factory command runs; you: nothing more; story: not known, the questions left open</td></tr>
+<tr><td>A question you want kept for the report</td><td><code>Q1: until the report</code></td><td>factory: a record only; you: nothing more; story: not known, the question stays open until the report</td></tr>
+<tr><td>A halt, or too many open questions</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+</tbody>
+</table>
+
+<h2>S3 &#8212; Plan</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  In([Register, bundle, project strategy]) -->|test strategist| Plan[test-plan.md and work/test-plan.json]
+  Plan -->|the plan check refuses| Plan
+  Plan -->|too many open questions| Many{answers / go on / stop}
+  Many -->|answers or go on| Plan
+  Plan -->|valid| S4([S4])]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The test strategist writes one test plan for the story: test-plan.md for you and work/test-plan.json for code. It works from the requirements register, the context bundle and the project strategy. On the reference run the plan stage asked no question.</p>
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>When the story has an implementation diff, S3 runs in two windows. In the first the test strategist writes no plan: it fills <code>work/grounding.yaml</code> over the grounding table and the blast radius that code builds (<code>grounding_table.py</code>, <code>blast_radius.py</code>); code checks that table for completeness (every changed hunk is labelled) at the end of the first window; in the second window it writes the plan. Off the diff, S3 is one window. Still planned: a check that the plan answers every risk and area of the table, and the lines that show you the refactoring share and the requirement coverage before the first test; until they ship, nothing is asked between the two windows.</p></ac:rich-text-body></ac:structured-macro>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>A plan check (<code>planning_contract.py</code>) runs again on the role's output; a refused artifact goes back to its role.</li>
+<li>The stop for too many open questions applies here too, and so does the stop for one open question that blocks. Your answers are recorded by code at once and laid over the plan; a question you keep open with <code>Q1: until the report</code> is not asked again.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>Too many open questions</td><td>the answers, one line each</td><td>factory: one more working session of the role; you: this answer only; story: unchanged</td></tr>
+<tr><td>Too many open questions</td><td><code>go on</code></td><td>factory: a factory command runs; you: nothing more; story: not known, the questions left open</td></tr>
+<tr><td>Too many open questions</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+<tr><td>A question you want kept for the report</td><td><code>Q1: until the report</code></td><td>factory: a record only; you: nothing more; story: not known, the question stays open until the report</td></tr>
+</tbody>
+</table>
+
+<h2>S4 &#8212; Cases</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  In([Plan]) -->|case designer| Cases[Cases written and pinned]
+  Cases -->|an open blocking question| Blk{answers / go on / stop}
+  Blk -->|answers or go on| Crit
+  Cases -->|case critic, no blocking question open| Crit{Critic verdict}
+  Crit -->|not approved| Cases
+  Crit -->|approved| Reh[Gate A rehearsal]
+  Reh -->|the factory's own to repair| Fix[Repaired before the gate]
+  Fix -->|repaired| Reh
+  Reh -->|ready, with what it could not repair listed| GA([Gate A])
+  Cases -.->|a refusal with no move| Cond[Conductor road, see At any stage]]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The case designer writes the cases and the case critic reviews them; cases the critic does not approve go back to the designer. The detector for the critic is <code>critic_rollcall.py</code>. A rehearsal of gate A follows.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>Before gate A is shown, the factory repairs what is its own to repair, and lists what it could not.</li>
+<li>One open question that blocks stops the stage after the case designer's handoff and before the critic starts, whatever the number of open questions: you answer it first, or pass it with <code>go on</code>. A question you keep open until the report is not asked again.</li>
+<li>A problem the factory cannot repair itself reaches you as a question with options and their prices. On the reference run that happened once.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>One open question that blocks</td><td>your answer, or <code>go on</code></td><td>factory: a record only; you: this answer only; story: unchanged, the critic starts after it. <code>go on</code> passes the question only on the text you were shown: a changed text, or a new blocker, stops again</td></tr>
+<tr><td>A problem the factory cannot repair</td><td>&#8212;</td><td>it reaches you as a question with options and their prices: see At any stage</td></tr>
+</tbody>
+</table>
+
+<h2>Gate A &#8212; plan and cases</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  P([Gate A package]) -->|shown to you| A{Your answer}
+  A -->|approve, card lines below| Lines[Card lines read]
+  Lines -->|every line readable| Rec[Decision recorded with your words]
+  Lines -->|a line cannot be read, in a run without a chat| Cond
+  A -->|other words, in a run without a chat| Cond{rework / approve / retry / stop}
+  Cond -->|rework| Back[That stage and the stages after it run again]
+  Back -->|gate shown again on your words| P
+  Cond -->|approve| Rec
+  Cond -->|retry: you change it yourself| P
+  Rec -->|scope approved| S5([S5])]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> Gate A comes after S4. To approve a gate, answer with the word <code>approve</code>; words that ask for a change are not recorded as an approval. Then answer every item under &#8220;After your approval&#8221; by name. The card answers under the word are read and kept whole in the decision.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>In a run without a chat, a line that cannot be read keeps the decision from being recorded and goes to the conductor once.</li>
+<li>Words that ask for a change send the stage back to the role that wrote it, with your words, and the gate is asked again.</li>
+<li>A stand-gap card is answered on a line of its own as the case id, a colon and one word: <code>change</code>, <code>myself</code>, <code>run</code> or <code>accept</code>.</li>
+<li>On the reference run the approval went through <code>retry</code>, then <code>approve</code>.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>Plan and cases are right as they stand</td><td><code>approve</code></td><td>factory: a record only; you: nothing more; story: unchanged, your words are kept with the approval</td></tr>
+<tr><td>In a run without a chat, you want a change</td><td><code>rework</code>, with your words</td><td>factory: the stages after the named stage run again; you: this answer only; story: delivery waits</td></tr>
+<tr><td>In a run without a chat, you change it yourself</td><td><code>retry</code></td><td>factory: nothing runs; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>In a run without a chat, you stop here</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+<tr><td>A stand-gap card</td><td><code>&lt;case id&gt;: change</code></td><td>the factory makes the change shown on the card, on your word</td></tr>
+<tr><td>The same card</td><td><code>&lt;case id&gt;: myself</code></td><td>you make that change yourself</td></tr>
+<tr><td>The same card</td><td><code>&lt;case id&gt;: run</code></td><td>you run the test yourself, where the missing piece exists</td></tr>
+<tr><td>The same card</td><td><code>&lt;case id&gt;: accept</code></td><td>it stays blocked and is reported as not run</td></tr>
+<tr><td>A case you accept as blocked</td><td><code>&lt;case id&gt;: accept as blocked</code></td><td>S5 reports exactly those cases as not executed</td></tr>
+<tr><td>A rehearsal item</td><td><code>&lt;item id&gt;: accept</code>, with your reason</td><td>your word passes the item, and the pass records your reason</td></tr>
+</tbody>
+</table>
+
+<h2>S5 &#8212; Automation</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  GA([Gate A decision]) -->|stand not confirmed| StandQ{retry / a stand name / go on}
+  StandQ -->|retry or a name| GA
+  StandQ -->|go on: tests written, none run on a stand| Win
+  GA -->|stand confirmed| Win[Next window: automator writes and runs its tests]
+  Win -->|precheck refuses| Win
+  Win -->|code critic| Crit{Critic}
+  Crit -->|rejected, limit not spent| Win
+  Crit -->|rejected, limit spent| Lim{round / debt / fixed / stop}
+  Lim -->|round| Win
+  Lim -->|fixed: you changed the tests| Crit
+  Lim -->|debt| Debt[Window closed as debt, Review gaps in the report]
+  Crit -->|approved| Acc[Window accepted]
+  Crit -->|approved, a red test that its manifest row says the requirement contradicts: no probe, no word of yours| Acc
+  Acc -->|more windows| Win
+  Acc -->|last window| S6([S6])
+  Debt -->|next window or S6| S6]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> Gate A comes before S5. The automator writes the tests window by window, and the code critic reviews each window. The outputs are the automation manifest and the evidence; the detector is <code>s5_precheck.py</code>.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>If no stand is confirmed for the story, the factory asks you before anything runs on a stand. One word covers S5 and S6.</li>
+<li>When a repair limit is spent, the factory shows you what is still unresolved and waits for your decision.</li>
+<li>In a run without a chat, a spent window limit is put to you as priced answers: one more round, <code>debt</code>, <code>fixed</code> or <code>stop</code>; a round your word buys is exactly one. When nobody can repair the rejection, the answers depend on the cause: <code>review</code>, <code>debt</code> or <code>stop</code>; <code>fixed</code>, <code>debt</code> or <code>stop</code>; <code>debt</code> or <code>stop</code>.</li>
+<li>A window closed as debt is listed in the report under Review gaps with what the critic asked. The debt is kept in <code>work/review-debts.json</code>.</li><li>A red test that the requirement contradicts closes its window with its own manifest row, with no word of yours: when the <code>contradicts_requirement</code> row names the failed instance (the case, the instance or partition, the Then) and the critic approved it, code records the gap <code>contradicts_requirement:&lt;instance&gt;</code>, no probe is asked of the red test, and S7 triages the red. A green test with such a row still owes its probe, and a red test that no row explains is told the one road that closes it: send the row through <code>manifest_put.py</code>.</li>
+<li>One test that covers several cases may stop at one case's red assert. The Thens behind that assert are recorded as <code>blocked_by_check</code> and read &#8220;not proven&#8221;, never a pass, in the ledger and in the report; a case whose own run failed reads as failed with its own verdict.</li>
+<li>On the reference run the conductor offered <code>restart</code>, <code>go on</code> and <code>stop</code>; code executed the <code>restart</code>.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>No stand is confirmed</td><td><code>retry</code></td><td>you bring the stand up or fix what stops it; the factory checks it again</td></tr>
+<tr><td>No stand is confirmed</td><td>the name of another stand</td><td>the factory checks that stand</td></tr>
+<tr><td>No stand is confirmed</td><td><code>go on</code></td><td>the tests are written but none is run on a stand; the story carries a line saying it was your decision</td></tr>
+<tr><td>A window's repair limit is spent</td><td><code>round</code></td><td>factory: one more working session of the role; you: this answer only; story: delivery waits</td></tr>
+<tr><td>A window's repair limit is spent</td><td><code>fixed</code></td><td>factory: one more working session of the role; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>A window's repair limit is spent, or nobody can repair</td><td><code>debt</code></td><td>factory: a record only; you: nothing more; story: not ready</td></tr>
+<tr><td>Nobody can repair, the critic may look again</td><td><code>review</code></td><td>factory: one more working session of the critic; you: this answer only; story: delivery waits</td></tr>
+<tr><td>Any of these questions</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+</tbody>
+</table>
+
+<h2>S6 &#8212; Run</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  In([S5 closed]) -->|nothing to run| S7([S7])
+  In -->|stand not confirmed and no word yet| StandQ{retry / a stand name / go on}
+  StandQ -->|a name or go on| Fresh
+  In -->|stand confirmed| Fresh{Fresh result for each test?}
+  Fresh -->|yes| Reuse[Reused, not run again]
+  Fresh -->|missing or stale| Run[Runner runs it]
+  Reuse -->|reduced by code| Rep[run-report.json]
+  Run -->|reduced by code| Rep
+  Rep -->|to triage| S7]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The runner runs only what has no fresh result; a fresh result from S5 is reused. A green run of other code is not fresh: when the test, or a fixture or helper it uses, changed after the run, the test goes back to the runner, and a stale live check of a changed test is proved again by code before S6 closes (when no S6 dispatch is open, the digest says &#8220;re-probe skipped&#8221;). The role is <code>qa-runner</code>. Code reduces the runs into <code>work/run-report.json</code>; automated rows are never written by hand. On the reference run S6 to S8 passed without a question.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>The factory has no planned question here unless no stand is confirmed for the story.</li>
+<li>A word about the stand given at S5 covers S6 too.</li>
+<li>A stage with nothing to run never asks.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>No stand is confirmed and no word was given at S5</td><td><code>retry</code>, a stand name or <code>go on</code></td><td>the same three answers as at S5</td></tr>
+</tbody>
+</table>
+
+<h2>S7 &#8212; Triage</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  In([run-report]) -->|nothing to triage| Close[S7 closed by code]
+  In -->|failures| An[Failure analyst: one verdict per failure]
+  An -->|APP_BUG| Draft[Bug draft, no bug filed]
+  An -->|TEST_BUG, TEST_BUG:collection or FLAKY| Rep[Repair round]
+  An -->|ENV_ISSUE, APP_CHANGED or CASE_DEFECT| NoRep[No repair]
+  Rep -->|fixed| Close
+  Rep -->|limit spent| Lim{round / debt / stop}
+  Lim -->|round| Rep
+  Lim -->|debt| Left[Listed under Runs left failing]
+  An -->|still no verdict after a second triage| Ask([You are asked, the failure named])
+  Close -->|to S8| S8([S8])]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The failure analyst gives every failure one verdict from a closed list: APP_BUG, TEST_BUG, TEST_BUG:collection, ENV_ISSUE, FLAKY, APP_CHANGED or CASE_DEFECT. It writes <code>work/triage.json</code> and the bug drafts. With nothing to triage, code closes S7 itself.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>A TEST_BUG, a TEST_BUG:collection or a FLAKY failure is repaired; APP_BUG, ENV_ISSUE, APP_CHANGED and CASE_DEFECT are not.</li>
+<li>An APP_BUG gives a draft; no bug file is created at this stage.</li>
+<li>When a repair limit is spent, the factory shows you what is still unresolved and waits for your decision. In a run without a chat that is a priced question: one more round, <code>debt</code> or <code>stop</code>, and there is no <code>fixed</code> here. A test left in debt is listed in the report under &#8220;Runs left failing&#8221;.</li>
+<li>The factory does not pay for a third triage: if a failure still has no verdict, it asks you.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>A test's repair limit is spent</td><td><code>round</code></td><td>factory: one more working session of the role; you: this answer only; story: delivery waits</td></tr>
+<tr><td>A test's repair limit is spent</td><td><code>debt</code></td><td>factory: a record only; you: nothing more; story: not ready</td></tr>
+<tr><td>You kept S7 open by your word and the repairs have ended</td><td><code>close</code></td><td>factory: a factory command runs; you: this answer only; story: not known</td></tr>
+<tr><td>Either question</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+<tr><td>A failure still has no verdict after a second triage</td><td>the question names the failure</td><td>the factory does not pay for a third triage</td></tr>
+</tbody>
+</table>
+
+<h2>S8 &#8212; Results</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  In([Triage]) -->|code| Led[Ledger, delivery verdict, traceability]
+  Led -->|doc scribe| Rep[test-report.md, from the decision down]
+  Rep -->|the report check refuses| Rep
+  Rep -->|gate B rehearsal| Reh{Rehearsal}
+  Reh -->|the factory's own to repair| Fix[Repaired before the gate]
+  Fix -->|repaired| Reh
+  Reh -->|ready| GB([Gate B])]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The ledger, the delivery verdict and the traceability table are computed by code; the scribe writes the report from the decision down. Two roles work here: the doc scribe (<code>qa-doc-scribe</code>) and the bug reporter (<code>qa-bug-reporter</code>), which is gated by delivery. The detector is <code>check_coverage.py</code>.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>The report says which tests the code critic rejected, under Review gaps.</li>
+<li>Left with you closes with the regression list from the plan approved at gate A.</li>
+<li>A missing &#8220;Left with you&#8221; item blocks the report; the scribe rewrites it.</li>
+<li>S8 has no planned question; what is yours to decide there is asked at gate B.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>No planned question</td><td>&#8212;</td><td>what is yours to decide is asked at gate B</td></tr>
+</tbody>
+</table>
+
+<h2>Gate B &#8212; the delivery decision</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  F[Ticket freshness check: when a gate answer arrives, and in a run without a chat also before gate B is asked] -->|requirements changed| TC{new text / old text / stop}
+  TC -->|new text| Again[Requirements and plan run again]
+  TC -->|old text: a known gap shown here| B
+  F -->|unchanged| B{Your answer}
+  B -->|approve, bug numbers and stand-gap lines below| Rec[Decision recorded with your words]
+  B -->|other words, in a run without a chat| Cond{rework / approve / retry / stop}
+  Cond -->|rework| Back[That stage and the stages after it run again]
+  Back -->|gate shown again on your words| B
+  Cond -->|approve| Rec
+  Cond -->|retry| B
+  Rec -->|verdict recomputed by code| Del([Delivery])]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> Gate B is approved by the same word, <code>approve</code>. Under the word, your bug numbers and stand-gap lines are read and kept whole in the decision. A real gate B question is shown in &#8220;How to read this page&#8221;.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>When a story resumes or a gate answer arrives and the ticket was last checked more than six hours ago, the factory reads the ticket again, and a changed ticket sends the understanding and the plan back to be redone. You choose the new text, the old text or <code>stop</code>.</li>
+<li>Words that ask for a change send the stage back to its role with your words, and the stages after it run again. The gate is then asked again.</li>
+<li>In a run without a chat, other words go to the conductor, which offers <code>rework</code>, <code>approve</code>, <code>retry</code> and <code>stop</code> with prices.</li>
+<li>The verdict is recomputed after gate B, before the bug reporter and the merge request.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>The report is right as it stands</td><td><code>approve</code></td><td>factory: a record only; you: nothing more; story: the delivery verdict stays as the report has it, your words are kept with the approval</td></tr>
+<tr><td>In a run without a chat, you want a change</td><td><code>rework</code>, with your words</td><td>factory: the stages after the named stage run again; you: this answer only; story: delivery waits</td></tr>
+<tr><td>In a run without a chat, you change it yourself</td><td><code>retry</code></td><td>factory: nothing runs; you: work of yours outside the factory; story: delivery waits</td></tr>
+<tr><td>In a run without a chat, you stop here</td><td><code>stop</code></td><td>factory: nothing runs; you: nothing more; story: not ready</td></tr>
+<tr><td>The requirements changed since the last check</td><td><code>new text</code></td><td>factory: the requirements and the plan run again; you: nothing more; story: delivery waits</td></tr>
+<tr><td>The requirements changed since the last check</td><td><code>old text</code></td><td>factory: a record only; you: nothing more; story: not known, the change stays a known gap shown here</td></tr>
+<tr><td>A stand-gap line, <code>&lt;case id&gt;: &lt;word&gt;</code></td><td><code>change</code>, <code>myself</code>, <code>run</code> or <code>accept</code></td><td>the same four words as at gate A</td></tr>
+<tr><td>A stand-gap line</td><td><code>accept always</code></td><td>the same as accept for this story, and the project's environment record keeps it until what it was recorded for changes or you take it back</td></tr>
+<tr><td>A gap the environment record covers</td><td><code>ask again</code></td><td>the environment record forgets this answer, and the gap is asked again at every gate</td></tr>
+</tbody>
+</table>
+
+<h2>Delivery &#8212; the three outcomes</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  Rec([Gate B decision]) -->|verdict from typed records| V{delivery_ready}
+  V -->|yes: ready to ship| MR[Draft MR, if your decision allows it]
+  V -->|after_checks: ready once you finish the checks left with you| MR
+  V -->|no: not ready to ship as is| Hold[Guard stays closed; deliver anyway only with your reason]
+  Rec -.->|bugs you chose| Bugs[Bug reporter, gated by your decision]
+  MR -->|then| S9([S9])
+  Hold -->|then| S9]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> Delivery has three outcomes: ready to ship, ready once you finish the checks left with you, and not ready to ship as is. The verdict is decided from typed records, never from the text of a reason, and a kind the factory does not know counts as not ready.</p>
+<table>
+<tbody>
+<tr><th>Verdict</th><th>The report says</th></tr>
+<tr><td><code>yes</code></td><td>Verdict: ready to ship.</td></tr>
+<tr><td><code>after_checks</code></td><td>Verdict: ready once you finish the checks left with you.</td></tr>
+<tr><td><code>no</code></td><td>Verdict: not ready to ship as is.</td></tr>
+</tbody>
+</table>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>Ready once you finish the checks left with you means the factory found no bug and no gap, but part of the testing is left with you.</li>
+<li>It covers a handed test, a manual-human case, an accepted stand gap, a deferral you worded, a test the code critic could not verify, an unconfirmed expectation, a Then that waits behind another case's red check in the same test and a test that was changed after its run. A failure outranks a hand-off.</li>
+<li>&#8220;Left with you&#8221; names each item with how to check it, and the regression scope.</li>
+<li>A merge request is only ever opened as a draft, and only when the gate B decision authorizes it. The guard opens on <code>yes</code> and <code>after_checks</code>; the conductor never writes to a tracker.</li>
+<li>In the reference run the gate B options named this outcome, but the recorded verdict was not ready to ship as is, because one requirement was not proven. The option line read &#8220;ready after your checks&#8221;; the report said <code>delivery_ready: no</code>.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td><code>after_checks</code></td><td>you finish the checks listed under &#8220;Left with you&#8221;</td><td>work of yours outside the factory, with the regression scope the factory gives you</td></tr>
+<tr><td><code>no</code></td><td>deliver anyway, with a reason</td><td>the reason is recorded</td></tr>
+</tbody>
+</table>
+
+<h2>S9 &#8212; Closure and retro</h2>
+<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[flowchart TD
+  In([After delivery]) -->|retro mode full: the default| Q{Closing question}
+  Q -->|your answer| Retro[Retro analyst writes retro.md]
+  In -->|numbers or skip: only by your words| Short[Numbers only, or no retro]
+  Retro -->|done| End([Story closed])
+  Short -->|done| End]]></ac:plain-text-body></ac:structured-macro>
+<p><strong>What happens here.</strong> The retro analyst writes the retro from the story's journal and cost records. The output is <code>retro.md</code>. S9 has one closing question for you. On the reference run the retro question was answered and the story closed.</p>
+<p><strong>What the factory can do.</strong></p>
+<ul>
+<li>The retro is full unless you ask for numbers only or skip by name. Silence or anything else stays full.</li>
+</ul>
+<p><strong>Your options.</strong></p>
+<table>
+<tbody>
+<tr><th>When</th><th>Your answer</th><th>What it does</th></tr>
+<tr><td>The closing question</td><td><code>numbers</code></td><td>numbers only</td></tr>
+<tr><td>The closing question</td><td><code>skip</code></td><td>no retro</td></tr>
+<tr><td>The closing question</td><td>anything else, or silence</td><td>the full retro</td></tr>
+</tbody>
+</table>
+
+<h2>What happens if...</h2>
+<p>An index of the scenarios of the earlier version of this page, and the chapters that carry each now.</p>
+<table>
+<tbody>
+<tr><th>Scenario</th><th>Where it is described now</th></tr>
+<tr><td>Requirements contradict each other</td><td>not carried by this page</td></tr>
+<tr><td>Requirements are incomplete</td><td>S2</td></tr>
+<tr><td>Requirements contradict the code</td><td>S2, S7</td></tr>
+<tr><td>You did not answer a question</td><td>At any stage</td></tr>
+<tr><td>A bug you cannot reproduce by hand</td><td>S7</td></tr>
+<tr><td>Environment (stand) is unavailable</td><td>S0, S5, S6, Gate A, Gate B</td></tr>
+<tr><td>The MR is not written yet, cases prepared ahead</td><td>S1</td></tr>
+<tr><td>The case critic does not pass it a second time</td><td>S4</td></tr>
+<tr><td>The code critic does not pass it a second time</td><td>S5, S8</td></tr>
+<tr><td>A role died or a dispatch is stuck</td><td>At any stage</td></tr>
+<tr><td>The story's budget ran out</td><td>not carried by this page</td></tr>
+<tr><td>A test is flaky</td><td>S7</td></tr>
+<tr><td>The tracker is read-only</td><td>not carried by this page</td></tr>
+<tr><td>The code changed after gate A</td><td>not carried by this page</td></tr>
+<tr><td>The story is too big</td><td>S2 (the size is computed by <code>sizing.py</code>)</td></tr>
+</tbody>
+</table>
+
+<h2>Not on this page</h2>
+<ul>
+<li>Onboarding a project, the doctor and the collector: see the page <strong>QA Factory &#8212; Onboarding and Doctor</strong>.</li>
+<li>Money and the dashboard: see the page <strong>QA Factory &#8212; Dashboard and metrics</strong>.</li>
+<li>Running a story without a chat: see the page <strong>QA Factory &#8212; Architecture</strong>.</li></ul>

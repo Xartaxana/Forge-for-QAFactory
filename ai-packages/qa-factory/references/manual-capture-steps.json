@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "probe_wait_ms": 500,
+  "note": "Read by scripts/manual_capture.py. The CLOSED lists of what a manual-agent capture may do (FR-13): the step words of a `ui --steps-file` with their argument counts, the phases of a capture and the old words records written before the rename still carry (`phase_aliases`: the ONE source of the phase words - manual_capture.py, manual_evidence.py and grammar.py all read it), the HTTP methods, the headers that are never stored, and the default login recipe. A project replaces the recipe in qa-factory/config.json under `manual_capture.login.<ui|http>` (a present key replaces that kind whole, an absent one keeps this default, `null` means that kind needs no login); it never edits this file. The HTTP login is taken from the project's record in this order (manual_capture.http_login_source): its own `manual_capture.login.http`; else `environment.access` of kind `local_login` with a `url` (the address it records, the token read by name from the answer); else, only when the project records no access at all, this default. `environment.access.kind` `none` means no login by code and nothing is sent; `harness_command`, `bearer_env`, `oidc_password` or an unknown kind with no `manual_capture.login.http` refuse before any request, naming the key to record. `login.http` without `body` logs in with the body field names of `environment.access.user_field` / `secret_field`, else the pairs of references/login-body-fields.json in order; a project recipe with its own `body` is sent as written. `login.ui.landed` says how code proves the login landed: the URL contains none of `url_not`, and the cookie `session_cookie` exists, or, with no cookie named, the username field is gone. One step per line of the steps file, tokens split as a shell would (quote a selector or text that holds a space); blank lines and lines starting with # are ignored. A step word is handled by code, so a new word is a code change with its own test, not a data edit.",
+  "phases": ["pre_action", "post_action", "supporting"],
+  "phase_aliases": {"before": "pre_action", "after": "post_action"},
+  "steps": {
+    "goto": {"args": "<url>", "arity": [1, 1], "does": "open a full URL on a stand host named in config environments[]; the first goto of the file names the stand of the session"},
+    "click": {"args": "<selector>", "arity": [1, 1], "does": "click the element"},
+    "fill": {"args": "<selector> <text>", "arity": [2, 2], "does": "type the text into the field; never a credential - an account goes in with `fill-account`"},
+    "fill-account": {"args": "<selector> <actor> user|secret", "arity": [3, 3], "does": "type the account's name (user) or password (secret) into the field; the actor is a form of `--as` (default, a role, env:USER_KEY/SECRET_KEY, created:<name>) and the value is read by code, never written in the steps file; the screen is not saved from the first such step until the page leaves the sign-in address"},
+    "type": {"args": "<selector> <text> [<delay_ms>]", "arity": [2, 3], "default_delay_ms": 200, "max_delay_ms": 2000, "max_chars": 200, "settle_ms": 1500, "does": "focus the field once, then key the text one character at a time with the pause between characters, and record the field's value and whether it still has focus after each character, then once more after `settle_ms`; use it when a field's value goes to the server or redraws the page (`fill` sets the whole value at once and hides a lost character or a lost focus); a text longer than max_chars is `fill`"},
+    "press": {"args": "<selector> <key>", "arity": [2, 2], "keys": ["Backspace", "Delete", "Enter", "Tab", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Control+A", "Meta+A", "Control+V"], "does": "focus the field and press one key from `keys` (or one printable character); records the field's value and its focus, and whether it had focus before the step"},
+    "paste": {"args": "<selector> <text>", "arity": [2, 2], "does": "focus the field and insert the text at once (an `input` event, not a `paste` event); records the field's value and its focus"},
+    "fail_request": {"args": "<url_glob> <status|timeout>", "arity": [2, 2], "status_min": 400, "status_max": 599, "max_logged": 50, "does": "from now on every browser request of the page that matches the glob gets the status (an empty JSON body) or is dropped as timed out; it does not reach the stand; a glob with a host must name a stand host; a request sent by the page's server is not seen"},
+    "restore_request": {"args": "<url_glob>", "arity": [1, 1], "does": "stop failing the requests of the glob; the record of what was failed stays for the session"},
+    "drag": {"args": "<selector> <dx> <dy>", "arity": [3, 3], "does": "press on the element, move the mouse by dx, dy pixels (whole numbers), release"},
+    "wait": {"args": "<ms> | <selector>", "arity": [1, 1], "does": "a whole number is milliseconds; anything else waits for the selector to appear"},
+    "read": {"args": "<selector> [attr=<name> | style=<prop> | state=<name> | text]", "arity": [1, 2], "does": "store the value (text by default) in a log file and in the step line; this is how a viewport transform or a status text is read; an attribute the element lacks reads as read_absent_marker, an empty one as nothing; state= is true or false for one of read_states"},
+    "capture": {"args": "<pre_action|post_action|supporting> [label]", "arity": [1, 2], "does": "take a screenshot now; the label names the file and is what the capture proves: `capture post_action completion` is the one line that proves the completion condition was reached"}
+  },
+  "app_steps": {
+    "launch": {"args": "", "arity": [0, 0], "does": "bring the app under test to the front of the device"},
+    "click": {"args": "<selector>", "arity": [1, 1], "does": "tap the element"},
+    "fill": {"args": "<selector> <text>", "arity": [2, 2], "does": "clear the field and type the text into it; never a credential - an account goes in with `fill-account`"},
+    "fill-account": {"args": "<selector> <actor> user|secret", "arity": [3, 3], "does": "type the account's name (user) or password (secret) into the field; the value is read by code, never written in the steps file; the screen is not saved from the first such step until the sign-in screen is gone (config manual_capture.login.app.sign_in_selector names an element only the sign-in screen has)"},
+    "drag": {"args": "<selector> <dx> <dy>", "arity": [3, 3], "does": "press on the element, move by dx, dy pixels (whole numbers), release"},
+    "wait": {"args": "<ms> | <selector>", "arity": [1, 1], "does": "a whole number is milliseconds; anything else waits for the element to appear"},
+    "read": {"args": "<selector> [attr=<name> | text]", "arity": [1, 2], "does": "store the element's text (by default) or one attribute in a log file and in the step line; an attribute the element lacks reads as read_absent_marker"},
+    "back": {"args": "", "arity": [0, 0], "does": "press the device's back"},
+    "source": {"args": "[label]", "arity": [0, 1], "does": "store the screen's element tree (XML) as a state file, hidden from the session's accounts and scanned for secrets; a quote of a Then may come from it"},
+    "log": {"args": "[label]", "arity": [0, 1], "does": "store the tail of the device's log as a log file (a surface whose row has no log refuses it)"},
+    "capture": {"args": "<pre_action|post_action|supporting> [label]", "arity": [1, 2], "does": "take a screenshot of the device now; the label names the file and is what the capture proves"}
+  },
+  "read_states": ["disabled", "enabled", "checked", "visible", "editable"],
+  "read_absent_marker": "<absent>",
+  "capture_surfaces": {
+    "note": "Which test profile of the project a capture is about (manual_capture.capture_profile), closed variety so data (FR-13). `capabilities`: a profile that lists one of these words fits the surface; `level`: a profile whose id equals it fits too, and it is the plan level (contract.PLAN_LEVELS) whose runtime_probes entry an older config keeps by that word. `--profile <id>` always wins and must be a profile of config.json. `table_free`: a project whose every capability is such a word, and that names no `surface`, never reads references/surfaces.json (scripts/surfaces.py `declared_surfaces`).",
+    "ui": {"capabilities": ["web"], "level": "e2e-ui", "table_free": true},
+    "http": {"capabilities": ["api"], "level": "api", "table_free": true},
+    "app": {"capabilities": ["native"], "level": "", "limitation": "network of the device is not confined to the stand"}
+  },
+  "capture_words": {
+    "profile_unknown": "--profile {asked!r} is not a profile of config.json. Expected one of: {names}",
+    "profile_several": "several test profiles fit this {surface} capture ({names}): name one with --profile",
+    "profile_none": "no test profile of config.json fits this {surface} capture. Expected --profile <id> naming one of profiles[], or a profile in profiles[] whose capabilities list {capabilities}",
+    "browser_door": "Playwright cannot be imported here ({why}). Install it for the Python that runs the factory (python -m pip install playwright, then python -m playwright install chromium), then capture again.",
+    "failure_host": "`fail_request` pattern {glob} names the host {host}, which is not a configured stand. Expected a pattern with no host (`**/api/x`) or one on a stand host: {hosts}",
+    "failure_unmet": "no request matched {globs} in this session, so this page has not met the failure. Load or repeat the action that sends the request (goto, click, wait) while the failure is on, or correct the pattern in a new attempt. The request may be sent by the page's server, where a browser route cannot see it: then this level cannot make the failure, and the check needs another level.",
+    "failure_idle": "fail_request {glob} matched no request in this session: the page never met the failure",
+    "requests_none": "no request to a stand host was seen in this call: the log lists the browser's own requests only (a request sent by the page's server is not seen), so zero here is not 'the page sends none' - record a `coverage_gap` if the cells depend on it",
+    "harness_none": "no test profile that fits a `ui` capture has a command that runs `pytest`, so no other interpreter that has Playwright can be derived from config.json. {door}",
+    "harness_unstarted": "the harness interpreter could not be started ({head}: {error}). It is the command up to `pytest` of the test profile that fits a `ui` capture, run in {folder}. {door}"
+  },
+  "stand_lease": {"wait_s": 120, "does": "a `ui`, `http` or `app` call waits this many seconds for a stand another job holds, then answers `stand_busy` (exit 3); a project overrides it with `run.manual_stand_wait_s`. Short on purpose: a role's shell call is ended by its host long before the suites' `run.stand_wait_s`"},
+  "requests_seen": {"max_logged": 50, "unlogged": "the requests this page sent are not logged by this capture backend (a device has no browser requests): the cells of the exploration charter come from the code only, so a request the code scan missed is a gap - record it as a `coverage_gap`, never read it as 'the page sent none'", "does": "at the end of a `ui` call the browser requests of the page to a stand host are stored as `requests-seen.txt` in the attempt: `METHOD address` (no query), one line per distinct pair with `xN` for a repeat, at most `max_logged` lines and a `... and K more` line; a line that matches a secret pattern is counted, not kept"},
+  "http_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+  "redact_headers": ["authorization", "cookie", "set-cookie"],
+  "login": {
+    "ui": {
+      "path": "/",
+      "local_storage": {},
+      "expand": {"text": "more options"},
+      "username": {"role": "textbox", "name": "Email address"},
+      "password": {"role": "textbox", "name": "Password"},
+      "submit": {"role": "button", "name": "Sign in to your account"},
+      "landed": {"url_not": ["/auth/sign-in", "openid-connect"], "session_cookie": null}
+    },
+    "http": {
+      "path": "/v1/local-auth/login",
+      "token_field": "access_token"
+    },
+    "ui_fit_wait_s": 5,
+    "words": {
+      "default_unconfirmed_status": [404, 405],
+      "source_project": "recipe from your config",
+      "source_access": "environment.access",
+      "source_factory_default": "the factory's default recipe, which this project never confirmed",
+      "not_known_line": "login by code: this project's sign-in is not an HTTP request the factory knows (environment.access.kind {kind}); nothing was sent",
+      "not_known_door": "record manual_capture.login.http in config.json (path and token_field), or null if this kind of capture needs no login; a screen case signs in with fill-account steps",
+      "default_unconfirmed": "login by code at {url} did not give a token ({status}). The address is the factory's default recipe, which this project never confirmed, so the stand has not judged the account: record manual_capture.login.http in config.json (path and token_field), or record the sign-in as environment.access of kind local_login with its url; say so in your findings",
+      "none_said": "environment.access.kind is none: no login by code"
+    }
+  }
+}

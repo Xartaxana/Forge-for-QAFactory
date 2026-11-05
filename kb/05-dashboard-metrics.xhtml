@@ -1,0 +1,467 @@
+<ac:structured-macro ac:name="toc"/>
+
+<h1>QA Factory — Dashboard and metrics</h1>
+
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>This page describes QA Factory version <strong>0.10.2</strong>. The dashboard is one static HTML file per project, written by code. No agent ever authors it, and opening it recalculates nothing. Amounts on the dashboard are estimates, not invoices (section 8), and this page quotes no amount: the attached reference dashboard shows real figures.</p></ac:rich-text-body></ac:structured-macro>
+
+<h2>1. What it is and where it lives</h2>
+
+<p>Every onboarded project gets exactly one file:</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">text</ac:parameter><ac:plain-text-body><![CDATA[<project>/qa-factory/state/factory-dashboard.html]]></ac:plain-text-body></ac:structured-macro>
+
+<p>It is a self-contained page — markup, styles and a few lines of tab-switching script in one file. Open it in a browser from disk; nothing is served, nothing is fetched, no model is called. The renderer is <code>scripts/factory_dashboard.py</code>, whose own docstring states the boundary: <em>"Rendering never invokes models, product tests, schedulers or external connectors."</em></p>
+
+<table><tbody>
+<tr><th>Question</th><th>Answer</th></tr>
+<tr><td>Who writes it?</td><td>Code only. <code>factory_dashboard.py</code> reads the project's recorded files and overwrites the HTML. No role, no agent and no human edits it.</td></tr>
+<tr><td>When is it rebuilt?</td><td>On factory <em>events</em>, through one chokepoint (<code>dashboard_refresh.refresh_project</code>): controller mutations, the cost capture at a Stop (once per Stop, after the capture), bug snapshot import, project decisions, environment preparation, S9 closure, and any <code>qa-doctor</code> run. Writing or editing an artifact (<code>validate_artifacts.py</code>) and the debounced cost capture after a tool call do not draw it.</td></tr>
+<tr><td>What if a refresh fails?</td><td>The refresh runs after the story's writer lock is released, so drawing the page never stalls a dispatch. A refresh that failed is recorded in <code>qa-factory/state/dashboard-deferred.json</code> until the next refresh succeeds. The run that hit it says so.</td></tr>
+<tr><td>Is there a schedule or a metrics agent?</td><td>No. Both were removed. "No metrics agent or timer runs" is the contract (<code>references/metrics-contract.md</code>).</td></tr>
+<tr><td>Can I rebuild it by hand?</td><td>Yes — see the commands below.</td></tr>
+<tr><td>Does opening the file re-evaluate anything?</td><td>No. The header prints when the metrics were last checked; date-dependent changes are re-evaluated at the next factory event.</td></tr>
+</tbody></table>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[# rebuild for the current project
+python "${CLAUDE_PLUGIN_ROOT}/scripts/factory_dashboard.py"
+
+# rebuild for a named project root, including archived stories
+python "${CLAUDE_PLUGIN_ROOT}/scripts/factory_dashboard.py" --root <project> --include-archive
+
+# a comparison page for one story, written outside the project, changing nothing in it
+python "${CLAUDE_PLUGIN_ROOT}/scripts/factory_dashboard.py" --task <TICKET> --out <file> --read-only]]></ac:plain-text-body></ac:structured-macro>
+
+<p>The flags are <code>--root</code>, <code>--include-archive</code>, <code>--task</code> (repeatable: show only that task; sections with no task key stay whole and say so), <code>--out</code> (write the page elsewhere) and <code>--read-only</code> (change nothing under the root; it needs an <code>--out</code> outside the root). A page filtered by <code>--task</code> or written read-only must name its <code>--out</code>, so it never replaces the whole page every session reads. Archived stories are hidden by default; the Testing tab says how many are hidden and how to bring them back.</p>
+
+<ac:structured-macro ac:name="note"><ac:rich-text-body><p>One environment variable suppresses the rebuild everywhere at once: <code>QA_FACTORY_SKIP_DASHBOARD_REFRESH=1</code>. The red probe in S5 sets it for its whole batch, so the factory does not redraw its own dashboard underneath a running test.</p></ac:rich-text-body></ac:structured-macro>
+
+<h2>2. The page shell: header, banner, three tabs</h2>
+
+<p>Above the tabs, in order:</p>
+
+<ul>
+<li><strong>Title and meta lines</strong> — the page title, a package-version label, the generation timestamp, and one line stating when the metrics were last checked plus how many rules were not evaluated. That last line also repeats the rule: <em>refresh on factory events or doctor; reopening this file does not recalculate</em>.</li>
+<li><strong>Metric warnings banner</strong> — the active and awaiting-verification signals, with evidence links that jump to the right tab and open the right detail. Rendered by <code>dashboard_widgets.signals_html</code>. Empty when there is nothing to say. See section 7.</li>
+<li><strong>Deferred decisions ready for review: N</strong> — one line when the factory's own deferred decisions (DD rows in <code>factory-backlog.md</code>) have reached their recorded trigger. The table itself is on the Factory tab; no tables live above the tabs.</li>
+</ul>
+
+<p>Then three pill tabs: <strong>Testing</strong>, <strong>Cost</strong>, <strong>Factory</strong>. Each tab ends with an expandable <em>"All metric values, formulas, samples and sources"</em> block containing the full catalogue rows for that tab's metric packages — value, state, sample size, formula, sources, reporting window, formula version and evidence links.</p>
+
+<ac:structured-macro ac:name="note"><ac:rich-text-body><p>The version label in the header is read from the installed package manifest, not typed into the renderer. A dashboard file only says what it was rendered by; what this installed host has exercised is <code>qa-doctor</code>'s job.</p></ac:rich-text-body></ac:structured-macro>
+
+<h2>3. Testing tab &#8212; widget by widget</h2>
+
+<p>The tab shows the story as a person reads it: the case's title is the visible name and the pytest node id appears on hover; the level comes from the run profile, the case's plan row or the longest <code>run.levels</code> path glob (&#8220;level not recorded&#8221; only when all three are absent); triage is joined by <code>instance_id</code>; superseded and STALE rows never enter. The dashboard shows the delivery verdict as one of three words: <code>yes</code>, <code>after_checks</code> or <code>no</code>. The reference board the owner approved is attached to this page as a self-contained HTML file: <ac:link><ri:attachment ri:filename="dashboard-after-15045.html"/><ac:plain-text-link-body><![CDATA[dashboard-after-15045.html]]></ac:plain-text-link-body></ac:link> (built with the product’s own renderers on the real numbers of the pilot story; open it in a browser).</p>
+
+<table><tbody>
+<tr><th>Widget / section</th><th>What it shows</th><th>From what</th><th>Question it answers</th></tr>
+<tr><td><strong>Remaining checks: N</strong> (alert strip, first)</td><td>Open obligations with id, essence, trigger and status; count, oldest age in days, and how many are ready to perform</td><td><code>obligations.md</code>, written at S8/S9</td><td>What did previous stories leave for me to finish?</td></tr>
+<tr><td><strong>Test traffic light</strong> (donut)</td><td><em>Executed instances only</em>: green / yellow (blocked by the stand) / red (bugs), and a legend line &#8220;not run: n handed &#183; n manual &#183; n unreachable &#183; n deferred&#8221;</td><td>Current run report joined to the manifest and triage</td><td>Is this project green right now, and what was never run?</td></tr>
+<tr><td><strong>Test pyramid</strong></td><td>Tiers top-down: Human checks, Functional testing (agent), then code levels from tip to base. Tier width = how many tests that level holds; colours = their state. Empty tiers are omitted</td><td>Level of each instance (run profile &#8594; plan row &#8594; path glob)</td><td>Is the shape of my suite sane, or is everything at one level?</td></tr>
+<tr><td><strong>Remaining checks</strong> (bars)</td><td>Open obligations by type, split &#8220;Waiting for condition&#8221; vs &#8220;Ready to perform&#8221;</td><td><code>obligations.md</code> status column</td><td>Of the leftovers, which can actually be done today?</td></tr>
+<tr><td><strong>Scalar metric cards</strong></td><td>One card per available scalar testing/automation metric &#8212; value and status; the current pass rate is green over executed instances</td><td>Metric projection</td><td>The headline numbers, with their honesty label attached.</td></tr>
+<tr><td><strong>Quality and outcomes</strong></td><td>Charts for the bug metrics: bug snapshot by severity/status (T07), area defect weight (T08), bug flow (T10), repeated status cycles (T14), open bug age (T09). A07 &#8220;Run duration and volume&#8221; and A08 &#8220;Test health&#8221; stay computed in the catalogue but are not drawn (the first rested on run blocks whose end was recorded before their start, the second duplicates the Factory tab)</td><td>Bug records</td><td>Where is the damage concentrated, and how old is it?</td></tr>
+<tr><td><strong>Trends</strong></td><td>Sparkline cards over daily snapshots; a series is drawn only from consecutive complete observations, anything shorter is listed under &#8220;History not yet sufficient&#8221;</td><td><code>state/metrics-history.json</code></td><td>Is it getting better or worse &#8212; and do I even have enough history to say?</td></tr>
+<tr><td><strong>Tests by task</strong> &#8212; the story expand</td><td>Summary line: <code>&lt;task&gt; &#8212; N instances &#183; failures n, triaged n/n &#183; delivery_ready: &lt;word&gt; &#183; MR: &lt;your words&gt; &#183; bugs: n</code>, where the word is <code>yes</code>, <code>after_checks</code> or <code>no</code> and a story that is <code>after_checks</code> also counts what is left with you. Inside: the story's own traffic light and pyramid, <strong>Left with the person</strong> (from <code>work/traceability.json</code>), <strong>Bugs of this story</strong> (severity, cases &#183; R, where), then the level groups with the columns <em>case &#183; what we verify &#183; level &#183; result &#183; triage &#183; basis / tail</em>, <strong>Blocked by the stand</strong> (ENV_ISSUE, functionality NOT verified, whether a decision is recorded), one <strong>With the person</strong> group (planned manual checks and tests handed at S5, both <code>wait</code>, with &#8220;why with you&#8221; and &#8220;what to do&#8221;), <strong>Not run by design</strong> (unreachable, deferred). A level stays collapsed only when everything inside is green</td><td>Run report, manifest, triage, case registry, bug files, traceability</td><td>What exactly is green, red, blocked or mine to finish in this story?</td></tr>
+<tr><td><strong>Delivery, blockers and lifecycle</strong> (collapsed)</td><td>Task lifecycle, delivery blockers by owner (product &#183; person &#183; factory), behaviour coverage grouped by gap</td><td><code>work/delivery-summary.json</code>, controller</td><td>Who owns what is still open?</td></tr>
+</tbody></table>
+
+
+<h2>4. Cost tab &#8212; widget by widget</h2>
+
+<table><tbody>
+<tr><th>Widget / section</th><th>What it shows</th><th>Question it answers</th></tr>
+<tr><td><strong>Factory finding &#8212; cost incomplete</strong> (alert, first, conditional)</td><td>One alert per task whose usage never arrived from some roles or whose sessions are provisional: the roles by name, the session counts, &#8220;the figure is a floor; reconciliation is not possible&#8221;, owner: factory. Counted as a <code>local-urgent</code> finding on the Factory tab (render-time only)</td><td>Can I trust this task's figure &#8212; and whose problem is it when I cannot?</td></tr>
+<tr><td><strong>Headline cards</strong></td><td>Factory spend (known subtotal, a floor when incomplete, with a line saying whether the tariffs are confirmed), the current story's price with its status in words (section 8), tokens, orchestrator token share, human wait, and a sum check &#8212; &#10003;, &#10007; or ? with the reason</td><td>What did this project cost, and can I trust the figure?</td></tr>
+<tr><td><strong>By task</strong></td><td>One cumulative row per story across its sessions: sessions, time, tokens, the price (one figure, or &#8220;from &#8230; to &#8230;&#8221; while the two records differ) and a <em>completeness</em> column (&#8220;incomplete &#8212; n roles without usage, n sessions provisional&#8221; &#183; &#8220;+ unpriced usage&#8221; &#183; &#8220;reconciled &#10003;&#8221;). Doctor, onboarding and unclassified are their own rows; the total is &#8220;All stories and activities&#8221;</td><td>What did this story cost?</td></tr>
+<tr><td><strong>Sessions of parent directories &#8212; not this project</strong></td><td>Sessions whose transcript lives in a parent directory of the project (factory development, run analysis) but were written into this project's cost folder: their count, tokens and dollars &#8212; shown, never summed into the project's total or the check-sum</td><td>Which money on this disk is not mine?</td></tr>
+<tr><td><strong>By agent</strong></td><td>The same dollars bucketed by orchestrator and by role: dispatches, turns (a marathon over the 80-turn cap flagged with its maximum), tokens, cost</td><td>Which role ate the budget?</td></tr>
+<tr><td><strong>By model</strong></td><td>Per exact model id: calls, pricing coverage (complete / partial / no exact price), known subtotal &#8212; this project's sessions only</td><td>Which model is expensive, and which one has no price yet?</td></tr>
+<tr><td><strong>By day</strong></td><td>Last 21 UTC days: sessions, cost &#8212; this project's sessions only; a provisional day says so</td><td>When was the money spent?</td></tr>
+<tr><td><strong>Top tools</strong></td><td>The most-called tools with a bar, this project's sessions only</td><td>What is the session actually doing all day?</td></tr>
+<tr><td><strong>External consumers</strong></td><td>Calls to external agents with their invocation, task, receipt and remote cost; their money is part of the story's price (section 8)</td><td>What did the calls outside the factory cost?</td></tr>
+<tr><td><strong>Token composition</strong> (hot cache share)</td><td>How the tokens split between cache reads, cache writes and fresh input</td><td>Is the context reused, or rewritten?</td></tr>
+<tr><td><strong>Estimates at a glance</strong></td><td>&#8220;$-band hit rate&#8221; (a donut: closed stories inside / above / below their size's Hyperfactory $-band) and &#8220;$-band vs fact (median)&#8221; (a dumbbell per size: the band and the median fact, green inside, red outside). They fill from the known subtotal, marked as a floor, when the exact price is incomplete; a story whose price is a range has no single figure and stays out of both widgets</td><td>Does a size's forecast hold in money?</td></tr>
+<tr><td><strong>Precedents</strong></td><td>One row per closed story: size forecast &#8594; fact, scenarios range &#8594; fact, cost forecast &#8594; fact, days, re-estimation (from <code>size_initial</code> / <code>size_final</code> / <code>size_reason</code>), drivers, obligations</td><td>How did the last stories of this size go?</td></tr>
+<tr><td><strong>Revision matrix</strong> &#183; <strong>Divergence causes (Pareto)</strong></td><td>Size revisions between forecast and fact; the drivers of divergence with their counts</td><td>Why do estimates miss here?</td></tr>
+</tbody></table>
+
+<h2>5. Factory tab &#8212; widget by widget</h2>
+
+<table><tbody>
+<tr><th>Widget / section</th><th>What it shows</th><th>Question it answers</th></tr>
+<tr><td><strong>Findings about the factory and deferred decisions</strong> (donut)</td><td>Open items by scope: local-urgent (red), local-calibration (amber), upstream-candidate (blue), plus deferred decisions (purple); the render-time cost findings count as local-urgent. Unavailable &#8212; not &#8220;no findings&#8221; &#8212; when factory-backlog.md is missing</td><td>How much debt does the factory itself carry here?</td></tr>
+<tr><td><strong>Age of the open ones</strong></td><td>Weeks since creation, oldest on top, bars labelled by FB-N / DD-N id</td><td>What has been rotting the longest?</td></tr>
+<tr><td><strong>Next actions</strong></td><td>Recorded next action per blocked task plus every ripe deferred decision, or an explicit &#8220;no recorded blocker or triggered decision&#8221;</td><td>What should I do next?</td></tr>
+<tr><td><strong>Findings about the factory</strong> (blue border)</td><td>Open FB rows with id, essence, scope, created date and age, plus the count of fixed ones</td><td>What is broken in the factory rather than in the product?</td></tr>
+<tr><td><strong>Deferred decisions of the factory</strong> (purple border)</td><td>The full DD table with marker file and trigger; opens automatically when any decision is ripe; &#8220;No open deferred decisions&#8221; otherwise</td><td>Which onboarding/gate questions are now due?</td></tr>
+<tr><td><strong>Factory health</strong> (cards)</td><td>Marathon dispatches (&gt;80 turns, the top three named); gate blocks as <em>unique findings</em> with how many are still open and how many events were one finding re-blocked; unsafe completions; dispatches ended incomplete with their reasons; orchestrator share; repair rounds with their cost; <strong>retries</strong> &#8212; <code>n of N dispatches (p %)</code> with the split by cause from the closed list (<code>turn_budget &#183; awaiting_person &#183; environment &#183; factory_defect &#183; checkpoint &#183; subagent_silent &#183; no_digest_at_exit &#183; compaction &#183; unaccepted_result &#183; host_error:&lt;code&gt; &#183; person_word &#183; unknown</code>); rejected handoffs by reason when any; then one line &#8220;manifest bookkeeping: n issues &#8212; owner: factory&#8221; pointing at the findings table. The former &#8220;Quality and outcomes&#8221; block of this tab is gone: every number lives in exactly one card. Cards keep one width; a long text wraps inside</td><td>Is the pipeline healthy, or is it fighting itself?</td></tr>
+<tr><td><strong>Host mechanism receipts</strong> (collapsed)</td><td>Which factory mechanisms this installed host has actually exercised</td><td>Is this host really doing what the manifest claims?</td></tr>
+<tr><td><strong>Trends</strong></td><td>F02 rate, F03 gate blocks and unsafe completions, F04, F05 retries, F08 token and cost share as separate series</td><td>Is the factory's own overhead growing?</td></tr>
+</tbody></table>
+
+<p>Three counts on this tab are deliberately independent and must not be added up or read as each other: rejected handoffs (F02), gate blocks and unsafe completions (F03), and retries (F05). A gate block on its own is the mechanism working; blocks piling up unresolved is the problem. A retry without a cause is not a metric: the controller stamps <code>retry_reason</code> on every resumed dispatch (and <code>retry_words</code> when a person asked for the repeat), older stories are classified from the parent's checkpoint wording, and a share above 10 % or one cause three times raises a yellow row in the banner &#8212; &#8220;the factory does work twice: &lt;cause&gt;&#8221; &#8212; as a finding about the factory or an incident of the host, never as the person's work. A human check with no owner reads &#8220;Nobody assigned, no trigger recorded &#8212; assign an owner or record the condition&#8221;, never three negations.</p>
+
+<h2>6. The metric packages</h2>
+
+<p>The catalogue holds 48 metrics in four packages: testing, automation, factory, and cost and estimates. It is the file <code>references/metrics/catalogue.json</code>. Each package has a prose pack under <code>references/metrics/</code> and a heading on the dashboard's formulas block. Every value carries a formula version, source references, an observation timestamp, a sample size and a status.</p>
+
+<h3>6.1 Testing (T01–T14) — "Testing quality"</h3>
+<p><em>What it measures:</em> whether the behaviour that was promised has actually been proved, and what the defects look like. <em>Why it exists:</em> a run report says what ran; this package says what is <em>verified</em>, which is not the same thing.</p>
+<table><tbody>
+<tr><th>ID</th><th>Meaning in one line</th></tr>
+<tr><td>T01 Behavior verified</td><td>Share of approved obligations for the current task whose completion is actually evidenced.</td></tr>
+<tr><td>T02 Critical behavior verified</td><td>T01 restricted to P0/P1 plan priority, with the priority breakdown.</td></tr>
+<tr><td>T03 Test outcomes</td><td>Unique current instances per pass / fail / error / blocked / skipped / not_run / stale / ambiguous, by task, level, repo and owner.</td></tr>
+<tr><td>T04 Test pyramid</td><td>The same instances counted by recorded level, with separate unknown and manual lanes.</td></tr>
+<tr><td>T05 Manual proof completeness</td><td>Share of approved manual-agent cases whose accepted outcome carries all required evidence.</td></tr>
+<tr><td>T06 Open obligations and regression</td><td>Remaining checks by kind, status and age; recommended-regression checks listed explicitly as "not run by factory".</td></tr>
+<tr><td>T07 Bug snapshot</td><td>Unique bugs by severity and status, with draft/published badges and a visible scope label.</td></tr>
+<tr><td>T08 Area defect weight</td><td>Weighted sum per area (blocker 8 / critical 5 / major 3 / minor 1 unless configured) — a weighted count, not a density.</td></tr>
+<tr><td>T09 Bug age</td><td>Days open per bug, ordered by severity then descending age.</td></tr>
+<tr><td>T10 Bug flow</td><td>Bugs created in the window and bugs entering a terminal closed state in the window.</td></tr>
+<tr><td>T11 Rejected-bug cohort rate</td><td>Share of the window's created bugs whose current disposition is Rejected, with a cohort-as-of label.</td></tr>
+<tr><td>T12 Reopen rate</td><td>Share of bugs with a Fixed → Reopened transition in the window.</td></tr>
+<tr><td>T13 Time to first fix</td><td>Median days from creation to first Fixed, grouped by priority and area.</td></tr>
+<tr><td>T14 Repeated status cycles</td><td>Bugs with two or more verified reopen transitions in the available complete history.</td></tr>
+</tbody></table>
+
+<h3>6.2 Automation (A01–A10) — "Automated-test quality"</h3>
+<p><em>What it measures:</em> how the automated suite behaves as an instrument — does it pass first time, is it flaky, is it re-running work it already proved. <em>Why it exists:</em> an all-green suite that is green by accident, or green because nothing actually ran, is worse than a red one.</p>
+<table><tbody>
+<tr><th>ID</th><th>Meaning in one line</th></tr>
+<tr><td>A01 First-attempt pass rate</td><td>Share of instances whose first conclusive attempt in a task+fingerprint passed.</td></tr>
+<tr><td>A02 Current pass rate</td><td>Share of approved selected automated instances currently passing — a snapshot, not a quality certificate.</td></tr>
+<tr><td>A03 Flaky evidence rate</td><td>Share of identities that produced both a pass and a fail under an unchanged code/test/runtime/data contract.</td></tr>
+<tr><td>A04 Retry rescue</td><td>Identities that failed then passed under the <em>same</em> fingerprint — a fix that changes the fingerprint is a repair, not a rescue.</td></tr>
+<tr><td>A05 Unexplained failure rate</td><td>Share of conclusive failures not linked to a valid red-lock bug.</td></tr>
+<tr><td>A06 Automation risk coverage</td><td>Share of P0/P1 obligations with accepted sufficient automated assertion links — a design metric, separate from the executed T02.</td></tr>
+<tr><td>A07 Run duration and volume</td><td>Job count, total execution seconds, median job seconds, unique instances, and new / updated / reused tests.</td></tr>
+<tr><td>A08 Test health</td><td>Quarantined cases, active red locks, open DEBT and debt past its explicit SLA date.</td></tr>
+<tr><td>A09 Duplicate execution</td><td>Local attempts that re-executed an already-current passing instance with no invalidation — observed, never authorised.</td></tr>
+<tr><td>A10 Reused evidence</td><td>Selected instances satisfied by an imported or earlier fresh receipt with no new local launch.</td></tr>
+</tbody></table>
+
+<h3>6.3 Factory (F01–F09) — "Factory quality"</h3>
+<p><em>What it measures:</em> the pipeline's own behaviour — how often roles hand back rejected work, how often gates block, how long dispatches run, how much of the spend is the orchestrator rather than the work. <em>Why it exists:</em> the factory is also a system under test; if it degrades, the numbers on the other two tabs degrade with it.</p>
+<table><tbody>
+<tr><th>ID</th><th>Meaning in one line</th></tr>
+<tr><td>F01 Findings and DD</td><td>Open and closed findings and deferred decisions by scope, with age in days and weeks; due flags only from explicit typed triggers.</td></tr>
+<tr><td>F02 Rejects by role</td><td>Unique rejected handoffs grouped by role and reason, plus the rejection rate over accepted + rejected in the window.</td></tr>
+<tr><td>F03 Blocked/unsafe handoffs</td><td>Separate counts of gate-block events and unsafe-completion events.</td></tr>
+<tr><td>F04 Long dispatches</td><td>Dispatches with more than 80 recorded model requests, with actual counts and the maximum; orchestrator sessions listed separately.</td></tr>
+<tr><td>F05 Retries</td><td>Dispatches carrying an explicit <code>parent_retry</code> link as a share of all dispatches, split by <code>retry_reason</code> (the parent's recorded cause; classified on the fly for older stories).</td></tr>
+<tr><td>F06 Blockers and lifecycle</td><td>Active blocked / paused / halted tasks with stage, next action, exact reason and current revision.</td></tr>
+<tr><td>F07 Projection/evidence health</td><td>Stale projections and missing proof/version links found by the validator, with revision and diagnostic.</td></tr>
+<tr><td>F08 Orchestrator shares</td><td>Orchestrator token share and orchestrator cost share, as two distinct labels and trends.</td></tr>
+<tr><td>F09 Orchestrator share over the limit</td><td>Stories whose orchestrator cost share exceeds <code>retro.orchestrator_share_max</code> (default <strong>0.35</strong>), each with its share, the limit and the per-stage split of the orchestrator's own priced requests. A story with no orchestrator receipts, or one whose spend is only a floor, is missing from the list &#8212; never a zero share.</td></tr>
+</tbody></table>
+
+<h3>6.4 Cost and estimates (C01–C15) — "Cost and estimates"</h3>
+<p><em>What it measures:</em> tokens and estimated dollars by every grouping that matters, the time humans and machines spent, and how well the size scale predicted the cost. <em>Why it exists:</em> the team needs a defensible answer to "what did this story cost" and "will the next one cost the same".</p>
+<table><tbody>
+<tr><th>ID</th><th>Meaning in one line</th></tr>
+<tr><td>C01 Tokens</td><td>Mutually exclusive token categories grouped by activity/task, role, exact model and UTC request day.</td></tr>
+<tr><td>C02 Estimated USD</td><td>The same groupings valued at the applicable rate per million tokens.</td></tr>
+<tr><td>C03 Reconciliation</td><td>Activity sum, role sum and model sum compared against the same request-set total, to a USD tolerance of 0.000001 before rounding.</td></tr>
+<tr><td>C04 Human wait</td><td>Time from a finished assistant response to the next human input, each gap capped at <code>cost.human_wait_cap_s</code> (default 1800 s).</td></tr>
+<tr><td>C05 Activity time</td><td>Sum of adjacent request gaps capped at 120 s inside one uninterrupted activity segment; a capped-wall total is in the details. Not exact machine time.</td></tr>
+<tr><td>C06 Requests/tools/rework</td><td>Requests and tool calls by role and type, plus rework USD from dispatches explicitly linked by <code>parent_retry</code> or a repair purpose.</td></tr>
+<tr><td>C07 Time to first test</td><td>Seconds from the verified S0 start to the earliest real behavioural execution, excluding red probes, build and collection.</td></tr>
+<tr><td>C08 Tokenomics band hit</td><td>Share of completed, fully priced tasks whose cost landed inside their size's $-band.</td></tr>
+<tr><td>C09 Band vs actual</td><td>Per size: the preserved band and the median complete task USD, with n.</td></tr>
+<tr><td>C10 Cost drift</td><td>Median relative distance of actual cost from the upper band, in percent.</td></tr>
+<tr><td>C11 MMRE and PRED(25)</td><td>Two upper-band benchmark numbers — labelled a benchmark, never an individual forecast.</td></tr>
+<tr><td>C12 Estimate revisions</td><td>Counts of (initial size, final size) pairs per completed task, final revision only.</td></tr>
+<tr><td>C13 Divergence drivers</td><td>Completed tasks per recorded driver label; a task may carry several, so shares can exceed 100 %.</td></tr>
+<tr><td>C14 Automation time benefit</td><td>Modelled manual hours avoided minus verified authoring and maintenance hours — a modelled benefit, not a measured saving.</td></tr>
+<tr><td>C15 Monetary ROI</td><td>Documented counterfactual USD against the complete actual total, including model, infrastructure and human cost.</td></tr>
+</tbody></table>
+
+<h3>6.5 When a metric reads "not available" — and why that is honest</h3>
+
+<p>Every metric carries one of these statuses, and the dashboard prints it next to the value with the sample size:</p>
+
+<table><tbody>
+<tr><th>Status</th><th>What it means</th></tr>
+<tr><td><code>available</code></td><td>Computed from complete inputs.</td></tr>
+<tr><td><code>partial</code></td><td>The numerator is incomplete against a complete denominator — the value is an explicit <em>lower bound</em>.</td></tr>
+<tr><td><code>no_data</code></td><td>The denominator is complete and empty. Genuinely nothing to measure yet.</td></tr>
+<tr><td><code>unavailable</code></td><td>The denominator itself is unknown, or a required input does not exist.</td></tr>
+<tr><td><code>stale</code></td><td>The inputs exist but the projection behind them has not been refreshed.</td></tr>
+<tr><td><code>not_applicable</code></td><td>The metric cannot apply to this population (for example imported-only results for C07).</td></tr>
+<tr><td><code>demo</code></td><td>An illustrative shape shown before any real record exists; never enters totals or alerts.</td></tr>
+</tbody></table>
+
+<p>The governing rule is this. <strong>Missing inputs never imply zero, success or a monetary saving.</strong> Two metrics are permanently unavailable in a fresh install, by design rather than by neglect:</p>
+
+<ul>
+<li><strong>C14 Automation time benefit</strong> — unavailable until an <em>approved manual baseline</em> and verified authoring/maintenance effort exist. The factory will not turn "the gap between two timestamps" into "hours a human saved".</li>
+<li><strong>C15 Monetary ROI</strong> — unavailable until a documented counterfactual plus labour and infrastructure inputs exist. It also refuses to monetise found bugs with arbitrary severity weights.</li>
+</ul>
+
+<p>Three bug metrics (T12 reopen rate, T13 time to first fix, T14 repeated cycles) stay unavailable until the tracker snapshot carries <em>complete</em> transition history over the window. A partial export produces "unknown", never a count-based guess — and an empty partial export is not a project-wide zero. None of these is a permanent removal: each becomes a real graphical widget the moment its required input exists.</p>
+
+<ac:structured-macro ac:name="tip"><ac:rich-text-body><p>Read "unavailable" as <em>"I refuse to make this up"</em>. A dashboard that shows 0 % reopen rate because it has no history is lying; one that shows "unavailable: complete Fixed → Reopened history" tells you exactly what to go and fix.</p></ac:rich-text-body></ac:structured-macro>
+
+<h2>7. Signals and the warning banner</h2>
+
+<p>After projecting the metrics, the renderer immediately evaluates warning rules (<code>scripts/metric_signals.py</code>) and writes two files: <code>state/metrics-history.json</code> (one snapshot per UTC date; a re-render replaces that day's point, it never manufactures a new sample) and <code>state/metric-signals.json</code> (the signal receipt).</p>
+
+<h3>7.1 The two built-in rules</h3>
+
+<table><tbody>
+<tr><th>Rule</th><th>Fires when</th><th>Threshold / config key</th><th>Not evaluated when</th></tr>
+<tr><td><code>hot-cache-v1</code></td><td>Hot cache share — <code>cache_read / (cache_read + cache_write_5m + cache_write_1h + input)</code> — falls below the threshold. Evaluated once <strong>per session</strong> and once <strong>per story</strong>, never as a project-wide average, so one cold session cannot hide inside a healthy mean</td><td><code>metrics.hot_cache_min_percent</code> in <code>config.json</code>, default <strong>90</strong></td><td>A session or story under <code>MIN_HOT_CACHE_TOKENS</code> = 200 000 tokens; non-story buckets (Doctor, Onboarding, Environment-maintenance, Unclassified); any story whose token composition is incomplete</td></tr>
+<tr><td><code>legacy-estimate-v1</code></td><td>The three latest completed, fully priced precedents of one size are all above (or all below) the cost band — the size scale has drifted</td><td>Built in: three consecutive observations; recovery needs three in-range ones</td><td>Fewer than three precedents, or any of the three not fully priced. An incomplete precedent cannot resolve an existing signal</td></tr>
+</tbody></table>
+
+<h3>7.2 Project rules</h3>
+
+<p>Everything else is project policy — there is no universal reject-rate threshold silently copied from a demo. Rules live under <code>metrics.signal_policy</code> in <code>config.json</code> and an explicit <code>version</code> is mandatory:</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">json</ac:parameter><ac:plain-text-body><![CDATA[{
+  "metrics": {
+    "signal_policy": {
+      "version": "project-agreed-v1",
+      "rules": [{
+        "id": "rejected-handoffs",
+        "metric": "F02",
+        "field": "rate",
+        "mode": "trend",
+        "direction": "above",
+        "threshold": 10,
+        "recovery_threshold": 2,
+        "min_sample": 20,
+        "recovery_samples": 2,
+        "owner": "orchestrator",
+        "title": "Rejected handoffs increased",
+        "next_action": "Review role/reason breakdown and linked handoffs"
+      }]
+    }
+  }
+}]]></ac:plain-text-body></ac:structured-macro>
+
+<p><code>absolute</code> compares the current value. <code>trend</code> requires complete, non-overlapping windows of comparable duration, scope and formula version — overlapping rolling windows cannot trigger one. For percentage metrics, a trend threshold is a difference in percentage points. Missing history, partial metrics or an insufficient sample produce <code>not_evaluated</code>, which the header counts.</p>
+
+<h3>7.3 The other banners and markers you will see</h3>
+
+<table><tbody>
+<tr><th>Banner / marker</th><th>Where</th><th>What it means</th></tr>
+<tr><td><strong>Incomplete attribution</strong> — an <code>incomplete</code> chip next to a task row, tooltip naming the roles</td><td>Cost / By task</td><td>A dispatch was found but ended with zero recorded usage. The row is a lower bound, not a cheap story.</td></tr>
+<tr><td><strong>Stale cost files</strong></td><td>Cost</td><td>A session could not be recomputed because its transcript is gone; the figures are the last capture.</td></tr>
+<tr><td><strong>Incomplete external cost</strong></td><td>Cost</td><td>An external consumer's receipt has not arrived; the total is incomplete.</td></tr>
+<tr><td><strong>Unpriced model</strong> — "no exact price" in the pricing column, and "estimated known subtotal" instead of "estimated total USD" on the headline card</td><td>Cost / By model and cards</td><td>A model is not in <code>references/model-rates.json</code> and has no override. A price is never invented.</td></tr>
+<tr><td><strong>Sum reconciliation ✗ / ?</strong></td><td>Cost / cards, and the "reconciled" column</td><td>✗ = the sums provably disagree; ? = prices or usage are incomplete, so the check cannot be made.</td></tr>
+<tr><td><strong>Estimate-scale warnings</strong> — "The scale underestimates M: 4 tasks in a row above the range"</td><td>Cost / Estimates block</td><td>The same drift the <code>legacy-estimate-v1</code> rule watches, stated in words above the estimate widgets.</td></tr>
+<tr><td><strong>Orchestrator share over the limit</strong> (F09)</td><td>Factory tab banner, in the retro's own words</td><td>The story's orchestrator cost share is above <code>retro.orchestrator_share_max</code> (default 0.35). The banner carries the share, the limit and the per-stage split from that story's cost receipts. It is a finding about the factory's own work &#8212; never a cost line the person is asked to repair.</td></tr>
+<tr><td><strong>Ripe deferred factory decisions</strong></td><td>Above the tabs</td><td>Recorded decision triggers have come due.</td></tr>
+<tr><td><strong>Projection stale / Case-version proof gaps</strong></td><td>Testing / evidence details</td><td>The projection or the case-version proof links need refreshing — a renderer problem, explicitly distinct from a product problem.</td></tr>
+</tbody></table>
+
+<h3>7.4 Signal lifecycle</h3>
+
+<p>A signal is <code>active</code>, <code>verifying</code> or <code>resolved</code>. After a human decision, record the reference:</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[python scripts/metric_signals.py --root <project> --ack <signal-id> --decision-ref <recorded-human-decision>]]></ac:plain-text-body></ac:structured-macro>
+
+<p>That moves the signal to <code>verifying</code>; it never declares recovery. Worsening reactivates the warning; only fresh healthy observations meeting the recovery policy resolve it. Repeating an observation, or changing unrelated source files, confirms nothing. Removing a policy does not silence an unresolved warning — it stays visible as not evaluated.</p>
+
+<h2>8. A story's price: one figure from two records</h2>
+
+<p>A story has one price on every page: the dashboard, the retro and the budget ceiling read the same function. That function is <code>scripts/task_price.py</code>, and nothing else prices a story, so two pages cannot show two prices for it.</p>
+
+<h3>8.1 The two records</h3>
+
+<p>The price is computed from two independent records, the token usage in the factory's cost files and what the command line itself charged for each session, and the two are checked against each other session by session.</p>
+
+<table><tbody>
+<tr><th>Record</th><th>Where it comes from</th></tr>
+<tr><td><strong>A &#8212; the cost files</strong></td><td>The token usage of each session, from <code>state/cost/&lt;session&gt;.json</code>, written by the factory's own parser and re-priced when it is read, at the catalogue's list price</td></tr>
+<tr><td><strong>B &#8212; what the command line charged</strong></td><td>The charge the command line itself reported for the session, as the driver's journal recorded it</td></tr>
+</tbody></table>
+
+<p>A story run in an interactive session has only the first record, so its price is marked <code>not_cross_checked</code>. Record B is the driver's journal, and a story that does not run through the driver has no second record to compare with.</p>
+
+<p>What the two share is only the API's per-request usage. Agreement proves that the parser found every request once, that the same sessions were meant, and that the list price is the one the command line used. It is not an invoice: on a subscription both records are list-price proxies.</p>
+
+<h3>8.2 The check, and the four statuses</h3>
+
+<p>The check is made per session, never on the sums, so a shortfall on one session cannot be cancelled by an excess on another. A session agrees when its two figures are within a tolerance set below the cost of the cheapest real request, so one request missed on either side always shows. The price carries one of four statuses:</p>
+
+<table><tbody>
+<tr><th>Status</th><th>What it means</th><th>What is printed</th></tr>
+<tr><td><code>agrees</code></td><td>Every session has a record, at least one session could be compared, and none differs</td><td>One figure</td></tr>
+<tr><td><code>differs</code></td><td>At least one compared session differs between the two records</td><td>A range, &#8220;from &#8230; to &#8230;&#8221;, with a finding that names the largest gap and says it is a defect of the factory's measurement, not a fact about the story</td></tr>
+<tr><td><code>not_cross_checked</code></td><td>No session had both records, so nothing could be compared</td><td>One figure from the one record each session has, marked as not cross-checked</td></tr>
+<tr><td><code>incomplete</code></td><td>No session has a record, or a session is in neither record, or a call of the driver's journal names no session, or the rows by agent do not add up to the total, or the forms of external-agent calls cannot be read</td><td>The figure that is known, with the reason</td></tr>
+</tbody></table>
+
+<p>When the two records disagree, the price is printed as a range from the lower to the higher figure, never as one number. Only while the status is <code>differs</code> do the two ends differ; the dashboard prints the range as &#8220;from &#8230; to &#8230;&#8221; and keeps a range-priced story out of the $-band widgets. A price whose records are incomplete says so, and the figure shown is only a floor. The real figure can only be higher. A range never hides a defect behind one confident number, and a missing record is never a zero.</p>
+
+<h3>8.3 What the price includes</h3>
+
+<p>The price of a story includes the work of its roles, of the conductor and the calls to external agents. Where the forms of an external agent's calls cannot be read, the price says that calls may be missing and is <code>incomplete</code>, never <code>agrees</code>. The price of a story, the retro's table by agent and the Cost tab's rows by agent are one pair of figures, split by agent, and the rows add up to the story's price.</p>
+
+<h3>8.4 Where the numbers come from</h3>
+
+<p><code>scripts/cost_capture.py</code> runs as a lifecycle hook. The host writes the token usage of every API call into the session transcript and into sibling subagent transcripts; capture tails those records and idempotently rewrites one file per session:</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">text</ac:parameter><ac:plain-text-body><![CDATA[<project>/qa-factory/state/cost/<session_id>.json]]></ac:plain-text-body></ac:structured-macro>
+
+<p>Nothing is sampled, estimated from prose, or asked of a model. Every dollar on the Cost tab traces back to a recorded request in one of those files.</p>
+
+<h3>8.5 Sessions, activities and tasks — three different words</h3>
+
+<table><tbody>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td><strong>Session</strong></td><td>One working session with the host. One cost file. It may touch several stories, or none.</td></tr>
+<tr><td><strong>Activity</strong></td><td>An explicitly opened and closed interval with a type: <code>story</code>, <code>doctor</code>, <code>onboarding</code>, <code>environment-maintenance</code> or <code>unclassified</code>. Boundaries are recorded, never inferred from what the prompt said.</td></tr>
+<tr><td><strong>Task attribution</strong></td><td>Every API call is attributed to the task of the last artifact-write marker before it. This marker <em>persists</em> while the story waits for a human.</td></tr>
+</tbody></table>
+
+<p><strong>Sticky attribution is the important one.</strong> Activity attribution closes its interval when the story halts for a person; task attribution does not. The conversation during a halt is still that story's cost. That is why <strong>story cost is read from <code>by_task</code>, never from <code>by_activity</code></strong> — and why the dashboard has no "By activity" table. The stickiness also covers the gap between two segments of the same story and the tail after its last one.</p>
+
+<h3>8.6 Subagent (role) spend</h3>
+
+<p><code>by_task[task]</code> <strong>includes</strong> the usage of every role the task dispatched. The money a story cost is the money it cost including its roles, not just the main chain. The <code>orchestrator</code> entry stays the main chain only, which is what makes an orchestrator-versus-roles share computable at all. A role whose prompt carries the ticket but wrote no marker is bound to that ticket by the prompt.</p>
+
+<h3>8.7 "By task" and "By agent" are built from one ledger</h3>
+
+<p>Both tables are built from the same request ledger and filtered to the same population (factory sessions), so their totals match by construction rather than by luck. Both sum individual request valuations, and each table also prints a "Sum of sessions (check)" row so you can see the check rather than take it on faith. The check is a sum of the ledger; the agreement of the two price records (8.2) is a separate proof.</p>
+
+<h3>8.8 "Non-factory sessions" and "Unclassified"</h3>
+
+<table><tbody>
+<tr><th>Row</th><th>What it is</th></tr>
+<tr><td><strong>Sessions of parent directories &#8212; not this project</strong></td><td>Sessions whose transcript lives in a parent directory of the project (factory development, run analysis, ad-hoc work) but were captured into this project's <code>state/cost/</code>. They are their own section with count, tokens and cost and are never summed into the project's totals or the check-sum. A session belongs to the project only when its transcript's project directory is this project.</td></tr>
+<tr><td><strong>Unclassified</strong></td><td>Factory usage inside a real factory session that no marker could attribute to a story or a named activity — typically the preamble before the first marker. It is a real row with real money in it, kept separate rather than smeared over the stories.</td></tr>
+<tr><td><strong>Doctor / Onboarding / Environment-maintenance</strong></td><td>Named non-story activities, each its own row. They never merge into a story's cost.</td></tr>
+</tbody></table>
+
+<h3>8.9 Rates, and why the amounts are estimates</h3>
+
+<ul>
+<li>The price uses the project's own rates where it sets them: a rate in <code>cost.rate_overrides</code> is the person's correction, so it is the price, while the check between the two records still compares at list price.</li>
+<li>Rates resolve from <code>cost.rate_overrides</code> in the project's <code>config.json</code> first, then from the bundled exact-id catalogue <code>references/model-rates.json</code> (provider, exact model id, aliases, validity dates, source URL, verification date, and per-million rates for input, output, cache read, cache write 5m and cache write 1h).</li>
+<li>If a model has no exact rate, <strong>no price is invented</strong> — not from a family name, not from a similar model. Tokens are still counted honestly, <code>total_cost_usd</code> stays <code>null</code>, and <code>priced_subtotal_usd</code> reports the amount that <em>is</em> certain. The headline card relabels itself to "estimated known subtotal" and the By-model row says "no exact price".</li>
+<li><code>cost.rate_confirmation</code> records whether the project has confirmed its tariffs. Until it does, the card says the tariffs are a public reference or override and unconfirmed.</li>
+<li><strong>The amounts are estimates at API list prices for the tokens observed; they are not an invoice.</strong> They are not your subscription charge, and not what any provider will bill. They exist to compare stories with each other and with the size bands — use them as a ruler, never as an accounting figure.</li>
+</ul>
+
+<h3>8.10 Recapture of stale cost files</h3>
+
+<p>Before the dashboard reads <code>state/cost/</code>, it recomputes any cost file that is in an old format or whose activity was backfilled after the original capture (<code>cost_capture.recapture_stale</code>). It honours the same skip variable, so a red probe never triggers it. When a file cannot be recomputed because its transcript is gone, the file keeps its last capture and the session is named in the <strong>Stale cost files</strong> alert.</p>
+
+<p>The pass reads only this project's transcripts. A cost file whose transcript slug says the session was opened in a parent or unrelated directory (the factory's own development, run from one level up) is left as it is and reported <code>skipped: parent directory - not recaptured</code>; the pass the dashboard build triggers also skips a transcript larger than <code>cost.recapture_max_mb</code> (default 64 MB) or changed in the last five minutes, because a render must not wait for files that large or still being written. An explicit <code>cost_capture.py --recapture --session &lt;id&gt;</code> still recomputes anything. The hook capture no longer writes a parent-directory session into this project's <code>state/cost/</code>; files already there stay and are shown apart (8.8).</p>
+
+<h2>9. Budgets</h2>
+
+<table><tbody>
+<tr><th>Budget</th><th>Scope</th><th>Configuration</th><th>Behaviour</th></tr>
+<tr><td><strong>Story budget</strong><br/><code>scripts/story_budget.py</code></td><td>One story, in money or tokens</td><td><code>budget.story_usd</code>, <code>budget.story_tokens</code>, <code>budget.warn_at</code> (default <code>[0.5, 0.8]</code>). <code>null</code> = no ceiling, and a project that sets nothing keeps exactly its previous behaviour</td><td>Warns <strong>once</strong> at each threshold — 50 % and 80 % by default — then <strong>stops at 100 %</strong> and asks. The stop is a real exit code (<code>3</code>) so the caller must act, not a line on stderr nobody reads. The warning thresholds and an already-passed ceiling stay exit 0</td></tr>
+<tr><td><strong>Window budget</strong><br/><code>scripts/window_budget.py</code></td><td>One orchestrator context window</td><td><code>turns.window</code> (120), <code>turns.stage_default</code> (35); per-stage costs are measured from this story's own history where available</td><td>Predictive, not retrospective. Asked only at a <strong>stage boundary</strong>, right after a stage is recorded done and no dispatch is open: will what is left of this window cover the next stage? If yes it says nothing. Two points are forbidden outright — after S4 and after S8 — because a gate follows in the same window, and the gate question must come before any restart</td></tr>
+<tr><td><strong>Turn budget</strong><br/><code>scripts/turn_budget.py</code></td><td>One dispatch's tool calls</td><td><code>turns.soft</code> (60), <code>turns.repeat</code> (30)</td><td>A <strong>notice, never a refusal</strong>: it states the number at 60 turns and every 30 after, and the work continues. Cost inside a window grows roughly with the square of its turns, so the useful moment to speak is the middle; and a hard cap on the orchestrator's own long-running session would strand a run rather than shorten it</td></tr>
+<tr><td><strong>Role budgets</strong><br/><code>scripts/runtime_policy.py</code></td><td>One role dispatch</td><td><code>DEFAULT_LIMITS</code>: automator 1200 s / 39 requests, critic 600 s / 15 requests, runner 1200 s / 40 requests, retro 420 s / 14 requests / 8000 output tokens, discovery 12 batches per repo and 24 per stage / 900 s / 12 000 output tokens, repair cycles 2, design repair cycles 2</td><td>Bound one dispatch. Discovery-shaped roles do not block — with one exception: the S9 retro has a blocking ceiling, because its arithmetic is now done by code and it has no reason to walk the journals itself</td></tr>
+</tbody></table>
+
+<p>A person's word passes any of these. The story-budget stop prints the exact call that records it:</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[python scripts/waiver.py --task <TICKET> --stage <S> \
+  --block "story budget" --words-file <file>]]></ac:plain-text-body></ac:structured-macro>
+
+<p>From then on the check reports <code>overridden</code> with those words and the story continues. A ceiling that cannot be computed never stops the work; a marker that cannot be written costs a repeated warning, never a story.</p>
+
+<h2>10. S9 retro numbers</h2>
+
+<p>Arithmetic is the cheapest thing a machine does and the most expensive thing a model does — so <strong>every number of the retro is computed by <code>scripts/retro_numbers.py</code></strong> and the analyst receives a finished table. The story's spend there is the same price as on the dashboard (section 8), never a second calculation.</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[python scripts/retro_numbers.py --task <TICKET> \
+  --output <TASK_ROOT>/work/retro-numbers.md \
+  --json-output <TASK_ROOT>/work/retro-numbers.json
+
+# the figures-only mode also renders retro.md itself
+python scripts/retro_numbers.py --task <TICKET> --write-retro --feedback "<verbatim>"]]></ac:plain-text-body></ac:structured-macro>
+
+<h3>10.1 What code computes</h3>
+
+<table><tbody>
+<tr><th>Number</th><th>Detail</th></tr>
+<tr><td>Story spend</td><td>The story's price (one figure, or a range while the two records differ) and its tokens, including role usage, plus the orchestrator's share as a percentage. Above <code>retro.orchestrator_share_max</code> (default 0.35) that share becomes a finding (F09) with the per-stage split, worded identically here and in the Factory tab's banner</td></tr>
+<tr><td>Per stage</td><td>Dispatches, requests, tokens, cost, machine time — one row per stage plus an orchestrator row. A stage whose <code>finished</code> precedes its <code>started</code> is a <strong>clock anomaly</strong>, not a duration clamped to zero: the row prints the stage and both stamps in place of the time it cannot have, and <code>stage_guard.py --stories</code> carries the same <code>CLOCK ANOMALY</code> line on that story</td></tr>
+<tr><td>Per role</td><td>Dispatches, requests, tokens, cost</td></tr>
+<tr><td>Three most expensive dispatches</td><td>Role, stage, round, cost, requests, tokens</td></tr>
+<tr><td>Rework</td><td>Number of repair rounds, which ones, and what they cost. An unpriced repair round stays unknown — it never collapses to zero, which would read as "rework was free"</td></tr>
+<tr><td>The conductor</td><td>Its sessions by stage, each priced by the driver's own record on the same rates as the story's price; the conductor's share of the story is a line of the retro. Choosing a role and handing it something to redo is the conductor's work; the redo itself is spent by the role</td></tr>
+<tr><td>Friction with the factory's own code</td><td>The share of the story's turns and money that went into friction with the factory's own code. The section prints even when nothing could be measured, as <em>unknown</em>: a retro that is silent about friction would read as no friction</td></tr>
+<tr><td>Rejects, gate blocks, compacts</td><td>From the journal, with reject families; the stated norm for gate blocks is zero</td></tr>
+<tr><td>Halts and human wait</td><td>How many halts, how long they waited, and the in-session human wait</td></tr>
+<tr><td>Time to the first test</td><td>From the verified S0 start to the first run — "the stretch before anything ran"</td></tr>
+<tr><td>Estimate vs actual</td><td>Size forecast, requirement count, plan rows, cases pinned, runs and how many were redundant</td></tr>
+<tr><td>Test-execution volume</td><td>The run metrics, see section 11</td></tr>
+</tbody></table>
+
+<p>The retro shows what the conductor cost, the work it handed back to roles, and how much of the story's turns and money went into friction with the factory's own code. A conductor is called only when the factory has no move of its own, so a high conductor share is a finding about the factory, never a cost line for the person to repair.</p>
+
+<ac:structured-macro ac:name="warning"><ac:rich-text-body><p><strong>Incomplete beats flattering.</strong> When a role's usage reads zero, the file says <code>incomplete</code>, names the roles, calls the story spend a <em>floor</em> and <strong>refuses to publish an orchestrator share at all</strong>: the honest answer there is "unknown", never "the orchestrator spent everything".</p></ac:rich-text-body></ac:structured-macro>
+
+<h3>10.2 What the analyst adds</h3>
+
+<p>At <code>retro_mode: full</code> — the default, and what silence means — <code>qa-retro-analyst</code> is dispatched over the finished numbers and is told explicitly <em>not</em> to open the journal or the cost files. It writes only what no table can produce:</p>
+
+<ul>
+<li>the prose reading of the numbers;</li>
+<li>the knowledge fold — gate answers into the project FAQ, terms into the glossary, stand and data quirks into the project profile, recurring traps into whichever single strategy document owns that kind of fact (code and run traps to the framework rules, planning traps to the test strategy — never both);</li>
+<li>the <code>obligations.md</code> rows this run leaves behind, the only carrier between stories;</li>
+<li>the <code>estimation-ledger.jsonl</code> precedent line that feeds the Cost tab's estimate widgets;</li>
+<li>the <code>factory-backlog.md</code> entries, including the human's feedback row;</li>
+<li>the human's one optional closing question, recorded verbatim — "skip", silence or a non-answer is recorded as declined, never paraphrased into an opinion.</li>
+</ul>
+
+<p>Two other modes exist, and only on the person's own words: <code>numbers</code> (the table alone, written by code, no dispatch and no prose) and <code>skip</code> (nothing, with their words recorded). Nothing is archived at S9 — hiding a story from the dashboard is the human's word to <code>qa-doctor</code>, never a role's conclusion.</p>
+
+<h2>11. Run metrics</h2>
+
+<p>The retro carries two execution-volume numbers, computed by <code>retro_numbers.run_block_metrics</code> from <code>work/run-blocks/*.json</code>:</p>
+
+<table><tbody>
+<tr><th>Number</th><th>Definition</th><th>Why it exists</th></tr>
+<tr><td><strong>Test-execution jobs per S5 window</strong></td><td>Run-execution jobs bucketed by the window recorded on the controller's own dispatch record — the same field the coverage contract trusts for S5 acceptance, never parsed out of a dispatch id string. Imported results and jobs with no recognised purpose are excluded</td><td>Without this number nobody could see that a single window was launching the suite again and again</td></tr>
+<tr><td><strong>Share of executions of unchanged green tests</strong></td><td>Executions sorted by start time; an execution counts as redundant when that instance last passed under the <em>same</em> input fingerprint and the purpose was <code>initial</code> or <code>repair_verify</code>. A failure clears the instance's remembered green, so a repair's verification is not counted as waste. Reported as a count and a percentage</td><td>Re-running a green test that no repair had touched is money and wall-clock time spent proving something already proved</td></tr>
+</tbody></table>
+
+<p>The retro line reads, for example: <em>"Test-execution jobs: n (window 1: n, window 2: n) · n test executions, of which n re-ran an already-green, unchanged test (p %)."</em> Diagnostic and flaky-diagnostic runs are counted as jobs but are never counted as redundant — deliberately repeating a test to diagnose it is the point of that run.</p>
+
+<h2>12. What the dashboard does not show, and does not claim</h2>
+
+<table><tbody>
+<tr><th>It does not…</th><th>Because</th></tr>
+<tr><td>Run anything</td><td>Rendering invokes no model, no test runner, no scheduler and no external connector. No rerun, no tracker fetch and no model call is ever triggered just to populate a chart</td></tr>
+<tr><td>Recalculate when you open it</td><td>It is a static file. The header states the last evaluation; date-dependent changes are re-evaluated at the next factory event</td></tr>
+<tr><td>Show a bill</td><td>Amounts are estimates at API list prices for observed tokens, explicitly not subscription charges and not an invoice</td></tr>
+<tr><td>Guess a price</td><td>An unlisted model leaves the total <code>null</code> and shows the certain subtotal next to it, rather than a family rate that would be wrong</td></tr>
+<tr><td>Show one number where the records disagree</td><td>While the two records of a story's price differ, the price is a range &#8220;from &#8230; to &#8230;&#8221; with the finding that names the gap. One wrong figure is never printed as exact</td></tr>
+<tr><td>Turn missing data into zero</td><td>A complete empty denominator is <code>no_data</code>; an unknown denominator is <code>unavailable</code>. Zero is valid only with complete evidence</td></tr>
+<tr><td>Claim a saving or an ROI</td><td>C14 and C15 stay unavailable until an approved manual baseline and documented counterfactual/labour/infrastructure inputs exist. Found bugs are never monetised by severity weight</td></tr>
+<tr><td>Show "By activity" money</td><td>Story cost is read by task, which keeps the conversation during a halt with its story; an activity table would disagree with "By task" by exactly that</td></tr>
+<tr><td>Launch regression</td><td>Recommended-regression checks are listed explicitly as "not run by factory". Regression remains a recommendation for a person to execute</td></tr>
+<tr><td>Treat a missing report as a pass</td><td>A missing report is <code>not_run</code>/unknown. Missing evidence is never a green result, and a broken run is never converted into a test failure</td></tr>
+<tr><td>Replace case rows with prose</td><td>Never "8 accepted results" in place of the list. Every row keeps its id, full name, individual status and evidence or specific reason</td></tr>
+<tr><td>Prove host parity</td><td>A package version describes what was built, not what this installed host has exercised. That is <code>qa-doctor</code>'s job, and the "Host mechanism receipts" block on the Factory tab</td></tr>
+<tr><td>Fabricate history</td><td>Series start with observed data. Gaps break the line; nothing is interpolated or back-filled. Demo shapes are badged and never enter totals or alerts</td></tr>
+</tbody></table>
+
+<h2>13. How to read it in two minutes</h2>
+
+<ol>
+<li><strong>The line under the title.</strong> When was this generated? If it is old, the project has had no factory events since — the numbers are not wrong, they are just not new.</li>
+<li><strong>The banner above the tabs.</strong> Any metric warning? Any deferred decisions ready for review? If both are empty, nothing is asking for you.</li>
+<li><strong>Testing → Remaining checks.</strong> The count, the oldest age, and how many are ready to perform. That is your actual to-do list.</li>
+<li><strong>Testing → Test traffic light.</strong> Red or yellow? Open the story in "Tests by task": its bugs, its "Left with the person" list and the non-green level groups are already open, each red row carries its triage verdict, and the autotest id is one hover away.</li>
+<li><strong>Testing → Trends.</strong> Glance at first-attempt pass rate and flaky evidence rate. If they say "History not yet sufficient", that is honest, not broken.</li>
+<li><strong>Cost → the cards.</strong> Does the spend card say "factory spend, this project" or "known subtotal (floor)"? Is the sum check ✓, ✗ or ?. Anything but ✓ means read the alerts before quoting the figure.</li>
+<li><strong>Cost → the price of your story.</strong> Find its row in By task or its story card and read the price the way section 8 says: one figure when the two records agree, a range &#8220;from &#8230; to &#8230;&#8221; when they differ, and a floor when the price is incomplete. A range is not a mistake to round away; it is a finding about the factory's measurement. Read the completeness column — "incomplete" means the amount is a floor, and the alert at the top of the tab names the roles whose usage never arrived. Money in "Sessions of parent directories" is not yours and is not summed.</li>
+<li><strong>Cost → Hot cache share.</strong> Below 90 %? Something is rewriting the context instead of reusing it, and the banner will already be saying so.</li>
+<li><strong>Factory → Next actions.</strong> One list, one decision. If it says "no recorded blocker or triggered decision", the factory has nothing to ask you.</li>
+<li><strong>When a number looks wrong,</strong> open "All metric values, formulas, samples and sources" on that tab and read the metric's own status, sample size, formula and evidence links before arguing with it.</li>
+</ol>

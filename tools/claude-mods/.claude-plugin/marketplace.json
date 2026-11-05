@@ -1,0 +1,9 @@
+{
+  "name": "forge-mods",
+  "description": "Моды Claude Code форджа фабрики: строка расходов и панель бэклога над полем ввода",
+  "owner": { "name": "yml-text-factory" },
+  "plugins": [
+    { "name": "cost-band", "source": "./cost-band", "description": "Строка над полем ввода: модель, токены и цена сессии и сабагентов, доля кэша, время до остывания кэша" },
+    { "name": "backlog", "source": "./backlog", "description": "Панель «Бэклог»: кучки → пачки (цвет — приоритет) → узлы; строка счёта с кнопками «Открыть» и /compact" }
+  ]
+}

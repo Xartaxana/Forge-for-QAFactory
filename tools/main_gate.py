@@ -1,0 +1,440 @@
+"""main_gate.py -- Stop hook that blocks the MAIN thread's own turn
+from ending with the same invariant tools/dod_gate.py applies to a
+SubagentStop: "no green verification run after the last edit". This
+exists because SubagentStop structurally never sees the coordinator's
+own session -- it only fires when a SUBAGENT stops -- so a
+coordinator that edits a deliverable itself after the last
+critic/DoD cycle was, before this hook, invisible to every other gate
+in this file set.
+
+Contract (Stop hook stdin JSON): base fields (session_id, cwd) plus
+hook_event_name="Stop", stop_hook_active. Unlike SubagentStop, a
+"Stop" event does not carry agent_id/agent_type as event-specific
+fields; on the main thread, the base agent_id field (shared with every
+other hook, see tools/dod_track.py) is also unset -- this is exactly
+what lets tools/dod_track.py tell a main-thread record apart from a
+subagent's own (see _is_main_entry below).
+
+"Blocked" uses the same protocol as every other hook in this set: exit
+code 2 with a message on stderr.
+
+Checks in main():
+ (a) main-thread edits happened (dod_track edits/runs with agent_id
+     absent/None -- see tools/dod_track.py) AND there is no GREEN
+     main-only run after the last main-only edit -> BLOCK. The same
+     "2 consecutive blocks" safety valve as dod_gate.py -- a third
+     consecutive block in one cycle is skipped, with an honest note
+     in the track's gate_log (key "gate":"main" tells main_gate.py's
+     log entries apart from dod_gate.py's in the shared list).
+ (b) logs/routing-log.jsonl EXISTS and is empty (0 non-blank lines)
+     WHILE the main-only dod_track is non-empty (at least one
+     main-only edit/run) -> an ADDITIONAL warning line folded INTO the
+     SAME block message as (a). Read literally: the warning lives
+     INSIDE (a)'s block message, not as an independent path -- if (a)
+     finds no violation (a green run after the last main-only edit
+     exists), check (b) produces no separate output or exit code of
+     its own, since there is no block message for it to be appended
+     to.
+
+This hook does not call any journal-format validator itself -- check
+(b) is not about whether the journal is VALID, only about whether the
+file on disk is empty; format validation is a separate concern
+(tools/journal_validator.py, run at commit time).
+
+Fail-open: unparseable JSON or a missing session_id -> exit 0, no
+side effects, same as the rest of this file set.
+
+Own counter: this hook keeps its OWN "main_gate_state.consecutive_blocks"
+counter in the track file, deliberately separate from dod_gate.py's
+"gate_state.consecutive_blocks" -- session_id is shared between the
+main thread and every one of its subagents, so a shared counter would
+let a Stop-block and a SubagentStop-block interfere with each other's
+safety valve.
+"""
+
+import json
+import os
+import sys
+import threading
+from datetime import datetime
+from pathlib import Path
+
+
+def _now_iso() -> str:
+    # Same format as tools/dod_track.py._now_iso() -- local clock,
+    # microseconds, no timezone -- used ONLY for the new gate_log fields
+    # below (a gate_log entry with no ts/agent_id cannot be attributed to
+    # a time or a worker during later forensic review).
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
+
+BLOCK_MESSAGE = (
+    "Stop blocked: there is no green verification run after the "
+    "coordinator's last edit. Run your DoD check (pytest / your "
+    "verification command) and stop on green."
+)
+
+EMPTY_JOURNAL_WARNING = (
+    " WARNING: logs/routing-log.jsonl exists and is empty, even though "
+    "the main-thread track is non-empty -- this session's routing has "
+    "not been logged."
+)
+
+SAFETY_SKIP_MESSAGE = (
+    "main_gate: safety valve triggered -- 2 consecutive blocks already "
+    "happened in this session, the stop is allowed WITHOUT a green run "
+    "(recorded in the track; this is not a substitute for verification)."
+)
+
+CONSECUTIVE_BLOCK_LIMIT = 2
+
+JOURNAL_REL_PATH = Path("logs") / "routing-log.jsonl"
+
+
+def _journal_file(cwd) -> "Path | None":
+    """The journal file check (b) looks at (t-581): the file this clone WRITES to, from
+    journal_keys.current_path (the history before the per-developer switch, logs/journal/<slug>.jsonl
+    after it). None -- no usable developer slug after the switch: the check stays silent (SessionStart
+    has already said so). Without journal_keys importable: the history, as before."""
+    base = Path(cwd or ".")
+    try:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import journal_keys
+        rel, _why = journal_keys.current_path(base)
+    except Exception:
+        return base / JOURNAL_REL_PATH
+    return None if rel is None else base / rel
+
+
+def _track_path(cwd: str, session_id: str) -> Path:
+    return Path(cwd or ".") / ".claude" / "dod_track" / f"{session_id}.json"
+
+
+def _default_track() -> dict:
+    return {"edits": [], "runs": [], "main_gate_state": {"consecutive_blocks": 0}}
+
+
+def _load_track(path: Path) -> dict:
+    if not path.exists():
+        return _default_track()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return _default_track()
+    if not isinstance(data, dict):
+        return _default_track()
+    data.setdefault("edits", [])
+    data.setdefault("runs", [])
+    data.setdefault("main_gate_state", {"consecutive_blocks": 0})
+    data["main_gate_state"].setdefault("consecutive_blocks", 0)
+    return data
+
+
+def _save_track(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _is_main_entry(entry: dict) -> bool:
+    """agent_id absent/None/empty -> a main-thread record (see
+    tools/dod_track.py._extract_agent_id -- the same "empty" treatment)."""
+    return not entry.get("agent_id")
+
+
+# Same doc-only rule and the same fail-closed treatment of an unknown
+# file_path as tools/dod_gate.py -- applied here to the MAIN-ONLY subset.
+DOC_ONLY_EXTENSIONS = {".md", ".json", ".jsonl"}
+
+# Known, code-less dotfiles WITHOUT a suffix (pathlib treats the
+# leading dot as part of the stem, not an extension separator --
+# Path(".gitignore").suffix == "") -- these used to fail-closed (NOT
+# doc-only) even though they carry no code at all. Final list chosen
+# against this template's OWN actual files: ".gitignore" is a REAL
+# dotfile at this template's root, routinely edited by the main
+# thread. ".gitattributes"/".editorconfig" are the same class (git/
+# editor config, never executable code, universally recognized) --
+# added by the same deliberate choice even though absent from this
+# template today, a cheap extension of the same principle, not a
+# guess. A project's own .env (if any) is deliberately NOT included --
+# secrets/behavior-affecting values are a different risk class, not
+# "code-less config" in this sense.
+DOC_ONLY_DOTFILES = {".gitignore", ".gitattributes", ".editorconfig"}
+
+
+def _is_doc_only_file(file_path) -> bool:
+    if not isinstance(file_path, str) or not file_path:
+        return False
+    path = Path(file_path)
+    if path.name.lower() in DOC_ONLY_DOTFILES:
+        return True
+    return path.suffix.lower() in DOC_ONLY_EXTENSIONS
+
+
+def _all_edits_doc_only(edits) -> bool:
+    if not edits:
+        return False
+    return all(_is_doc_only_file(e.get("file_path")) for e in edits)
+
+
+def evaluate(track: dict) -> tuple[bool, str]:
+    """Check (a), pure logic -- the same signature/semantics as
+    dod_gate.evaluate(), but on the MAIN-ONLY subset of edits/runs.
+
+    Ported fix (whole-or-nothing over edits AFTER the last green run,
+    not over the whole session history): the doc-only exemption used to
+    apply _all_edits_doc_only() to EVERY main-only edit in the track --
+    a single early code edit (e.g. to this very gate) permanently voided
+    the doc-only exemption for the rest of the session, even when a
+    green run followed it and every edit AFTER that green run was pure
+    doc-only (.md/.json/.jsonl). Order of checks now:
+      1. No green run at all -- there is no "after" anchor; doc-only is
+         checked over ALL main-only edits (same behavior as before in
+         this branch).
+      2. At least one green run -- last_green_ts is the boundary;
+         edits_after_green = edits with ts > last_green_ts (strictly
+         after). Empty -- every main-only edit happened before/at the
+         last green run, the invariant is already satisfied. Non-empty
+         -- doc-only is checked ONLY over this subset: all post-green
+         edits doc-only -> exemption fires; even one code edit among
+         them -> block (edits_after_green's ts is > last_green_ts by
+         construction, so no separate ts comparison is needed)."""
+    edits = [e for e in (track.get("edits") or []) if _is_main_entry(e)]
+    if not edits:
+        return False, "no-main-edits"
+
+    runs = [r for r in (track.get("runs") or []) if _is_main_entry(r)]
+    green_runs = [r for r in runs if r.get("outcome") == "green"]
+
+    if not green_runs:
+        if _all_edits_doc_only(edits):
+            return False, "doc-only-edits-exempt"
+        return True, "no-green-run"
+
+    last_green_ts = max(r["ts"] for r in green_runs)
+    edits_after_green = [e for e in edits if e["ts"] > last_green_ts]
+
+    if not edits_after_green:
+        return False, "green-after-last-edit"
+
+    if _all_edits_doc_only(edits_after_green):
+        return False, "doc-only-edits-exempt"
+
+    return True, "green-before-last-edit"
+
+
+def _journal_empty_warning_applies(cwd: str, track: dict) -> bool:
+    """Check (b): True iff logs/routing-log.jsonl EXISTS and is empty
+    (0 non-blank lines) WHILE the main-only dod_track is non-empty (at
+    least one main-only edit/run -- literally "non-empty track", not
+    "check (a) found a violation")."""
+    journal_path = _journal_file(cwd)
+    if journal_path is None or not journal_path.exists():
+        return False
+    try:
+        text = journal_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if text.strip():
+        return False  # journal is non-empty -- check (b) doesn't apply
+
+    main_edits = [e for e in (track.get("edits") or []) if _is_main_entry(e)]
+    main_runs = [r for r in (track.get("runs") or []) if _is_main_entry(r)]
+    return bool(main_edits or main_runs)
+
+
+def decide(track: dict, cwd: str = ".") -> tuple[int, str, dict]:
+    """Pure decision logic after the track is loaded -- the same style
+    as dod_gate.decide(). cwd is needed only for check (b) (reading
+    logs/routing-log.jsonl); track is already loaded by the caller.
+    Returns (exit_code, stderr_message, updated_track)."""
+    violation, reason = evaluate(track)
+    gate_state = track.setdefault("main_gate_state", {"consecutive_blocks": 0})
+    consecutive = gate_state.get("consecutive_blocks", 0)
+
+    if not violation:
+        if consecutive:
+            gate_state["consecutive_blocks"] = 0
+        return 0, "", track
+
+    warn = _journal_empty_warning_applies(cwd, track)
+
+    # gate_log entries now carry ts (_now_iso(), same format as
+    # dod_track.py) and agent_id -- this hook is Stop-only (main thread
+    # only), so agent_id is an honest None here, never guessed. Backward
+    # compat: nothing in this file parses gate_log entries back
+    # programmatically (append-only) -- an external reader must use
+    # .get() with a default (documented, not schema-guaranteed).
+    if consecutive >= CONSECUTIVE_BLOCK_LIMIT:
+        gate_state["consecutive_blocks"] = 0
+        # The safety valve above used to be invisible outside this file --
+        # the fact only lived in gate_log, which nothing reads on its own.
+        # A persistent fact in main_gate_state ITSELF (not just the
+        # append-only gate_log) is what a SessionStart-time reader can pick
+        # up on the next boot. It is NOT erased by a later successful run:
+        # the "not violation" branch above only touches "consecutive_blocks",
+        # never this key. It is a LIST ("unsafe_completions"), not a single
+        # overwritable dict -- an earlier version of this fix used one dict
+        # and a second valve trip in the same session silently overwrote the
+        # first occurrence; append only, never overwrite.
+        gate_state.setdefault("unsafe_completions", []).append(
+            {"ts": _now_iso(), "reason": reason}
+        )
+        track.setdefault("gate_log", []).append(
+            {
+                "action": "skipped_after_2_blocks",
+                "reason": reason,
+                "gate": "main",
+                "ts": _now_iso(),
+                "agent_id": None,
+            }
+        )
+        message = SAFETY_SKIP_MESSAGE + (EMPTY_JOURNAL_WARNING if warn else "")
+        return 0, message, track
+
+    gate_state["consecutive_blocks"] = consecutive + 1
+    track.setdefault("gate_log", []).append(
+        {
+            "action": "blocked",
+            "reason": reason,
+            "gate": "main",
+            "ts": _now_iso(),
+            "agent_id": None,
+        }
+    )
+    message = BLOCK_MESSAGE + (EMPTY_JOURNAL_WARNING if warn else "")
+    return 2, message, track
+
+
+def _reconfigure_stderr_utf8():
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+# --- stdin deadline (P4 class; a LOCAL copy, no shared module -- the
+# same helper toolkit/tools/owns_gate.py/dispatch_gate.py already carry)
+# ------------------------------------------------------------------
+
+_STDIN_DEADLINE_DEFAULT = 10.0
+_STDIN_DEADLINE_MAX = 600.0
+_STDIN_DEADLINE_ENV = "OSLLM_STDIN_TIMEOUT"
+
+
+def _stdin_deadline_seconds():
+    """Seconds to wait for stdin: env override, else the default.
+    Invalid, non-numeric, <=0, or > _STDIN_DEADLINE_MAX all fall back to
+    the default -- there is deliberately NO "0 = wait forever" mode (that
+    would resurrect the exact hang this helper exists to close)."""
+    try:
+        value = float(os.environ.get(_STDIN_DEADLINE_ENV, ""))
+    except (TypeError, ValueError):
+        return _STDIN_DEADLINE_DEFAULT
+    if not (0.0 < value <= _STDIN_DEADLINE_MAX):
+        return _STDIN_DEADLINE_DEFAULT
+    return value
+
+
+def _read_stdin_bytes_deadline():
+    """Returns (bytes, timed_out). Reads stdin to EOF, but no longer
+    than the deadline. Cross-platform by construction: select/poll do
+    not work on pipes on Windows, so a background daemon thread does
+    the actual blocking read and the deadline is enforced via
+    thread.join(timeout). A TTY returns b"" without reading anything.
+    Any read error degrades to b"" (fail-open)."""
+    stdin = getattr(sys, "stdin", None)
+    if stdin is None:
+        return b"", False
+    try:
+        if stdin.isatty():
+            return b"", False
+    except Exception:
+        pass
+    stream = getattr(stdin, "buffer", stdin)
+    box = {}
+
+    def _reader():
+        try:
+            box["data"] = stream.read()
+        except Exception:
+            box["data"] = b""
+
+    thread = threading.Thread(target=_reader, name="stdin-deadline", daemon=True)
+    thread.start()
+    thread.join(_stdin_deadline_seconds())
+    if thread.is_alive():
+        return b"", True
+    data = box.get("data") or b""
+    if not isinstance(data, bytes):
+        data = str(data).encode("utf-8", "replace")
+    return data, False
+
+
+_STDIN_DEADLINE_MSG = "stdin deadline exceeded -- fail-open, payload discarded"
+
+# A background reader thread may still be blocked deep in a platform
+# read syscall at normal interpreter shutdown, which can crash the
+# process ("Fatal Python error: _enter_buffered_busy") instead of
+# exiting cleanly. main() itself is UNCHANGED (still a plain
+# `return 0`, safe in-process); only the actual __main__ script-exit
+# path below escalates to os._exit().
+_STDIN_DEADLINE_STATE = {"hit": False}
+
+
+def main() -> int:
+    _reconfigure_stderr_utf8()
+
+    # P4: byte-safe read via the stdin-deadline helper (replaces the
+    # former direct sys.stdin.buffer.read() -- bounded by
+    # OSLLM_STDIN_TIMEOUT instead of blocking forever with no EOF).
+    raw_bytes, timed_out = _read_stdin_bytes_deadline()
+    if timed_out:
+        _STDIN_DEADLINE_STATE["hit"] = True
+        sys.stderr.write(f"{Path(__file__).name}: {_STDIN_DEADLINE_MSG}\n")
+        return 0
+    raw = raw_bytes.decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return 0
+
+    session_id = payload.get("session_id")
+    if not session_id:
+        return 0
+
+    cwd = payload.get("cwd") or "."
+    path = _track_path(cwd, session_id)
+    existed_before = path.exists()
+    track = _load_track(path)
+
+    exit_code, message, updated_track = decide(track, cwd)
+
+    # Same principle as dod_gate.py: don't create the track file out
+    # of nothing if it didn't exist before and there are no main-only
+    # edits at all (a session with zero coordinator edits -- a
+    # read-only turn).
+    if existed_before or updated_track.get("edits"):
+        _save_track(path, updated_track)
+
+    if message:
+        sys.stderr.write(message + "\n")
+
+    return exit_code
+
+
+if __name__ == "__main__":
+    _rc = main()
+    if _STDIN_DEADLINE_STATE["hit"]:
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        try:
+            sys.stderr.flush()
+        except Exception:
+            pass
+        os._exit(_rc)
+    sys.exit(_rc)

@@ -1,0 +1,193 @@
+{
+  "steps": {
+    "goto": {
+      "args": "<url>",
+      "arity": [
+        1,
+        1
+      ],
+      "does": "open a full URL on a stand host named in config environments[]; the first goto of the file names the stand of the session"
+    },
+    "click": {
+      "args": "<selector>",
+      "arity": [
+        1,
+        1
+      ],
+      "does": "click the element"
+    },
+    "fill": {
+      "args": "<selector> <text>",
+      "arity": [
+        2,
+        2
+      ],
+      "does": "type the text into the field; never a credential - an account goes in with `fill-account`"
+    },
+    "fill-account": {
+      "args": "<selector> <actor> user|secret",
+      "arity": [
+        3,
+        3
+      ],
+      "does": "type the account's name (user) or password (secret) into the field; the actor is a form of `--as` (default, a role, env:USER_KEY/SECRET_KEY, created:<name>) and the value is read by code, never written in the steps file; the screen is not saved from the first such step until the page leaves the sign-in address"
+    },
+    "type": {
+      "args": "<selector> <text> [<delay_ms>]",
+      "arity": [
+        2,
+        3
+      ],
+      "default_delay_ms": 200,
+      "max_delay_ms": 2000,
+      "max_chars": 200,
+      "settle_ms": 1500,
+      "does": "focus the field once, then key the text one character at a time with the pause between characters, and record the field's value and whether it still has focus after each character, then once more after `settle_ms`; use it when a field's value goes to the server or redraws the page (`fill` sets the whole value at once and hides a lost character or a lost focus); a text longer than max_chars is `fill`"
+    },
+    "press": {
+      "args": "<selector> <key>",
+      "arity": [
+        2,
+        2
+      ],
+      "keys": [
+        "Backspace",
+        "Delete",
+        "Enter",
+        "Tab",
+        "Escape",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+        "Control+A",
+        "Meta+A",
+        "Control+V"
+      ],
+      "does": "focus the field and press one key from `keys` (or one printable character); records the field's value and its focus, and whether it had focus before the step"
+    },
+    "paste": {
+      "args": "<selector> <text>",
+      "arity": [
+        2,
+        2
+      ],
+      "does": "focus the field and insert the text at once (an `input` event, not a `paste` event); records the field's value and its focus"
+    },
+    "fail_request": {
+      "args": "<url_glob> <status|timeout>",
+      "arity": [
+        2,
+        2
+      ],
+      "status_min": 400,
+      "status_max": 599,
+      "max_logged": 50,
+      "does": "from now on every browser request of the page that matches the glob gets the status (an empty JSON body) or is dropped as timed out; it does not reach the stand; a glob with a host must name a stand host; a request sent by the page's server is not seen"
+    },
+    "restore_request": {
+      "args": "<url_glob>",
+      "arity": [
+        1,
+        1
+      ],
+      "does": "stop failing the requests of the glob; the record of what was failed stays for the session"
+    },
+    "drag": {
+      "args": "<selector> <dx> <dy>",
+      "arity": [
+        3,
+        3
+      ],
+      "does": "press on the element, move the mouse by dx, dy pixels (whole numbers), release"
+    },
+    "wait": {
+      "args": "<ms> | <selector>",
+      "arity": [
+        1,
+        1
+      ],
+      "does": "a whole number is milliseconds; anything else waits for the selector to appear"
+    },
+    "read": {
+      "args": "<selector> [attr=<name> | style=<prop> | state=<name> | text]",
+      "arity": [
+        1,
+        2
+      ],
+      "does": "store the value (text by default) in a log file and in the step line; this is how a viewport transform or a status text is read; an attribute the element lacks reads as read_absent_marker, an empty one as nothing; state= is true or false for one of read_states"
+    },
+    "capture": {
+      "args": "<pre_action|post_action|supporting> [label]",
+      "arity": [
+        1,
+        2
+      ],
+      "does": "take a screenshot now; the label names the file and is what the capture proves: `capture post_action completion` is the one line that proves the completion condition was reached"
+    }
+  },
+  "login": {
+    "ui": {
+      "path": "/",
+      "local_storage": {},
+      "expand": {
+        "text": "more options"
+      },
+      "username": {
+        "role": "textbox",
+        "name": "Email address"
+      },
+      "password": {
+        "role": "textbox",
+        "name": "Password"
+      },
+      "submit": {
+        "role": "button",
+        "name": "Sign in to your account"
+      },
+      "landed": {
+        "url_not": [
+          "/auth/sign-in",
+          "openid-connect"
+        ],
+        "session_cookie": null
+      }
+    },
+    "http": {
+      "path": "/v1/local-auth/login",
+      "token_field": "access_token"
+    },
+    "ui_fit_wait_s": 5,
+    "words": {
+      "default_unconfirmed_status": [
+        404,
+        405
+      ],
+      "source_project": "recipe from your config",
+      "source_access": "environment.access",
+      "source_factory_default": "the factory's default recipe, which this project never confirmed",
+      "not_known_line": "login by code: this project's sign-in is not an HTTP request the factory knows (environment.access.kind {kind}); nothing was sent",
+      "not_known_door": "record manual_capture.login.http in config.json (path and token_field), or null if this kind of capture needs no login; a screen case signs in with fill-account steps",
+      "default_unconfirmed": "login by code at {url} did not give a token ({status}). The address is the factory's default recipe, which this project never confirmed, so the stand has not judged the account: record manual_capture.login.http in config.json (path and token_field), or record the sign-in as environment.access of kind local_login with its url; say so in your findings",
+      "none_said": "environment.access.kind is none: no login by code"
+    }
+  },
+  "role_commands": {
+    "manual_capture.py ui": {
+      "roles": [
+        "qa-runner"
+      ],
+      "input": "--task-root <T> --case <id> --steps-file <file> [--as <account>] [--session <actor>] [--attempt a<n>]: --session keeps that actor's browser profile between calls (calls of one --profile join one open attempt; leave --as out; the stand probe of gate A must have proved the sign-in), and `manual_capture.py session close --task-root <T> --case <id> [--attempt a<n>]` deletes the profiles - run it before `build`, which refuses a live profile. One step per line from the closed list in references/manual-capture-steps.json - goto <url>, click <selector>, fill <selector> <text>, fill-account <selector> <actor> user|secret, drag <selector> dx dy, wait <ms>|<selector>, read <selector> [attr=<name>|style=<prop>|text], capture <pre_action|post_action|supporting> [label]. The file holds at least one goto (the first goto names the session's stand), and every goto must be on a configured stand; `capture post_action completion` proves the completion condition; never type a credential in a step - the code signs in (`--as` names the account), or `fill-account` types the account the factory resolves (a steps file with `fill-account` makes no code login, so leave `--as` out).",
+      "verify": "the printed JSON lists every capture with its phase and every step with its outcome; exit 0 means every step ran, 1 a step failed or timed out, 3 the stand could not be identified, or the login by code did not land (`do_not_retry`, owner `user`: the account was refused - make no further capture of any kind in this block, put the case in env_blocked[] with the printed `login by code: ...` line and halt the block, never `build`; owner `factory`: the recipe did not fit the page - sign in ONCE through `fill-account` steps in a new attempt, then the same halt if that fails)."
+    },
+    "manual_capture.py http": {
+      "roles": [
+        "qa-runner"
+      ],
+      "input": "--task-root <T> --case <id> --method GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS --url <url on a configured stand> [--body-file <file>] [--header \"Name: value\"]... [--state-url <url>] [--phase pre_action|post_action|supporting] [--proves <word>]... [--as <account>] [--session <actor>: the request carries that session's cookies only in the same --profile's open attempt; without --profile it opens its own attempt and signs in again] [--attempt a<n>]. Without --phase the call is a post_action; `--proves completion` marks the completion condition reached; --state-url also saves a GET of that URL as the state; never put a credential in a header - the code signs in (`--as` names the account); to create a user, put `{generated_username}` and `{generated_password}` in the --body-file (only there): the factory fills them in and keeps the password out of every output.",
+      "verify": "the printed JSON lists the saved request_response (and state) with phase and hash; exit 0 means the call was answered, 1 it timed out, 3 the stand could not be identified (the case is env_blocked, no record)."
+    }
+  }
+}

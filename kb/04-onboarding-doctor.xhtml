@@ -1,0 +1,422 @@
+<ac:structured-macro ac:name="toc"/>
+
+<p>Three of the factory's skills never run a story. <code>qa-onboarding</code> teaches
+the factory one repository; <code>qa-doctor</code> tells you whether the installation, the
+project and every open story are in a state where work can go on; <code>qa-collect</code> packs the factory's records of your project into one file for its developers. You call each of them in your session: <code>/qa-factory:qa-onboarding</code>, <code>/qa-factory:qa-doctor</code>, <code>/qa-factory:qa-collect</code>. This page describes qa-onboarding, qa-doctor and qa-collect as they are in QA Factory version <strong>0.10.2</strong>.</p>
+
+<h1>qa-onboarding</h1>
+
+<h2>Purpose and when to run it</h2>
+
+<p>One-time setup, repeatable. It discovers the test setup, the application and test
+repositories, environments, conventions and adapters <strong>by reading real files</strong>,
+interviews the team only for the gaps discovery left open, and generates the project's
+configuration, strategy and profile only after an explicit “yes” at a summary gate.</p>
+
+<table><tbody>
+<tr><th>Run it</th><th>Why</th></tr>
+<tr><td>Once per project, before the first story</td><td><code>qa-story</code> requires a project that has been onboarded</td></tr>
+<tr><td>Again after a major change to tests, environments, profiles or conventions</td><td>Re-onboarding is a <strong>merge</strong>, not a fresh interrogation: every question offers the existing value as its default, human values and unknown adapter extension keys are preserved, and only approved fields are updated</td></tr>
+<tr><td>When the doctor says <code>config_schema</code> is not <code>ok</code></td><td>The schema moved; the doctor prints the <code>migration_hint</code> keys to migrate</td></tr>
+</tbody></table>
+
+<p>Run it from the project's folder: the repository root. Onboarding can run from the subfolder of a monorepo that holds the project. The factory finds its project by <code>qa-factory/config.json</code>, not by the top level of the repository, and when the two differ it says so in one line, asks nothing and goes on.</p>
+
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p><strong>Nothing outside reading happens before the summary gate.</strong> Nothing beyond reading the repository happens before the summary gate's explicit yes, except the run's own notes in <code>qa-factory/state/onboarding/</code>. No project files, no commits, no external calls until the person says “yes” in phase 3. Git ignores the notes folder from its first file.</p></ac:rich-text-body></ac:structured-macro>
+
+<p><strong>Resuming.</strong> Every phase writes what it found and what the person answered into those notes as it goes. After a compaction or in a new session, onboarding continues from its notes, and a topic you already answered is not asked again. The notes win over memory.</p>
+
+<h2>The phases, in order</h2>
+
+<table><tbody>
+<tr><th>#</th><th>Phase</th><th>Reads</th><th>Writes</th></tr>
+<tr><td>0</td><td>Preflight</td><td>The install smoke against a disposable sandbox project (<code>install_smoke.py</code>, which never touches the real project), <code>git rev-parse --show-toplevel</code>, <code>git status --porcelain</code>, the plugin, marketplace and project versions, an existing <code>qa-factory/config.json</code> or install record</td><td>Nothing. Announces the scope (functional testing only), shows one version line when the plugin, the marketplace and the project's records disagree, and asks one question only: resume, start over or stop when an unfinished onboarding exists; <em>re-onboard</em> or <em>stop</em> when a configuration already exists</td></tr>
+<tr><td>1</td><td>Discovery &#8212; read-only, <strong>no questions</strong></td><td>How the project reaches its stand (<code>project_inventory.py --access</code>: the login call sites, the key <em>names</em> each reads, and, kept apart, the names the code reads that the env file does not hold); framework and layers, run-command templates, CI, declared and inferred conventions, git-history conventions, existing cases and test-management entries, the application repository versus the test repository, candidate environments; <code>project_inventory.py --root &lt;project&gt;</code> is the single repository view</td><td>Working notes only: <em>confirmed facts</em> and <em>open gaps</em></td></tr>
+<tr><td>2</td><td>Interview &#8212; batches of at most four questions, only on the gaps</td><td>Nothing new; it asks</td><td>Working notes. A required fact asked and left unanswered becomes a <code>[DEFERRED: &#8230;]</code> marker plus a backlog row later</td></tr>
+<tr><td>2b</td><td>Second-pass discovery &#8212; read-only, no questions</td><td>Only the rows phase 1 could not reach, over the locations the interview named: application stack, architecture and data, the component inventory, environments</td><td>Phase 1's notes, extended. Each row ends as <strong>read</strong>, <strong>not read: no local checkout</strong>, or <strong>not read: nothing found</strong> &#8212; the three are never flattened into one. Skipped in one line when the interview named nothing new</td></tr>
+<tr><td>3</td><td>Summary gate &#8212; the only gate</td><td>The working notes; <code>config_contract.py --root &lt;project&gt; --migration-plan</code> for an existing config</td><td>On “yes”: the approval receipt in <code>qa-factory/records/onboarding-approvals.jsonl</code> via <code>config_contract.py --record-approval</code>. Free-form approval text is insufficient</td></tr>
+<tr><td>4</td><td>Generate</td><td>The approved proposal and <code>references/templates/config.json</code></td><td>Everything under <code>&lt;project&gt;/qa-factory/</code>, through <code>onboard_apply.py</code> in two halves with the role's own documents between them &#8212; see below</td></tr>
+</tbody></table>
+
+<p>Phase files are read <strong>on entering</strong> the phase. Phase 2 is not opened before
+phase 1 has actually inspected files (a question discovery could have answered is a defect),
+phase 3 is not reached while a source the interview just named is still unread, and phase 4
+does not run before an explicit “yes” is in the transcript.</p>
+
+<h2>Every question it may ask, and why</h2>
+
+<p>Which topics are required is not a matter of taste: <strong>a fact is required when code
+later complains about its absence</strong> &#8212; that is <code>readiness.py</code>'s capability
+list and the project inputs in <code>references/inject-map.json</code>. A topic that discovery found is shown at the summary gate as a found fact, not asked.</p>
+
+<table><tbody>
+<tr><th>#</th><th>Topic</th><th>Required?</th><th>Why it is asked</th></tr>
+<tr><td>1</td><td>Test repo versus application repositories &#8212; a name, a local path and a default branch per application repo</td><td>required</td><td>Without it there is no grounding by diff. Paths are asked and stored <strong>relative</strong> to the project root (audit A20 fails on an absolute one). Finding one application repository is not evidence that there is only one, so it is asked whether there are others. “There is no local checkout” is a legitimate answer, recorded as such</td></tr>
+<tr><td>1b</td><td>Where written test cases live (<code>cases_root</code>)</td><td>required</td><td>So new cases go into the project's own library instead of beside it. A team that keeps none is a real answer; the factory never picks a directory itself, and <code>cases_root</code> may not point inside <code>protected_app_paths</code></td></tr>
+<tr><td>1c</td><td>Tests that live inside the application code (<code>test_locations</code>)</td><td>asked when discovery suggests candidates</td><td>Each candidate is shown with its counts, and the team says whether tests live in other places under other names. Any name the team uses is accepted; what is listed is not application code for the write guard</td></tr>
+<tr><td>2</td><td>Environments and credentials &#8212; which stands exist, how each is brought up, credentials <strong>by role</strong>, what may safely be broken, which preparation actions are authorized</td><td>required</td><td>A stand with no reachable address is not an environment entry, and a placeholder URL is forbidden. Credentials are asked <strong>by name, never by value</strong>. The env file that carries the address, the account and the secrets is not a question: discovery proposes the names and shows them for correction. Two questions are asked by name, with options: <strong>which access scheme is the one</strong> (the harness's own login command is offered first when it exists; else a local login, a password grant at an identity provider, a bearer token from a variable, or no login) together with what an unauthenticated request answers by design (302 to the provider, 401, 200), and <strong>who needs each key the code reads but the env file does not hold</strong> (an area or profile, or nobody in this project). Only keys present in the file become <code>secret_keys</code>; the rest go to <code>integrations[]</code> with <code>required_by</code>, where a missing key blocks an area, never the stand. Secret values are never stored in <code>config.json</code>. This topic is its own batch</td></tr>
+<tr><td>2 (later)</td><td>The stand's build &#8212; does the stand run the story's build?</td><td>not asked at onboarding</td><td>Whether the stand runs the story's build is asked during the story, one question per profile, not at onboarding. When the factory cannot tell whether the stand runs the build under test, it asks in words and reads the closed answers itself (deployed / label / command / file). The answer is kept in <code>qa-factory/records/stand-identity.json</code></td></tr>
+<tr><td>2b</td><td>Profile and dependency gaps &#8212; selectors, reporter, scoped commands, execution prerequisites; whether an exact pinned dependency may be prepared, who owns it and where</td><td>as needed</td><td>Only for contours the project's work actually needs. Browser tooling is not asked about for API-only profiles</td></tr>
+<tr><td>3</td><td>Test data, four questions: accounts and datasets; real data and the masking rule; cleanup and reset; shared records</td><td>required</td><td>The “use your own test data” rule <em>changes meaning</em> with the answer, so a role with no answer decides for itself what the rule means. <code>unknown</code> is written as <code>unknown</code></td></tr>
+<tr><td>4</td><td>Risk areas and the impact-class map &#8212; two questions, risk areas first: which parts of the product would hurt most if they broke; then only whether the project's mapping differs from the canonical priority/severity map</td><td>optional</td><td>A requirement in a named risk area counts as more work when the factory sizes a story, and each name becomes a question the requirements check asks of every requirement. An answer of &#8220;no area stands out&#8221; is an answer; the answer <em>Later</em> (or silence) is a deferred decision with a backlog row. The impact class maps directly to priority and severity and sets the weight of each requirement in the computed story size. A legacy numeric value is never translated by guess</td></tr>
+<tr><td>5</td><td>Git conventions and pre-commit commands; <code>format_changed</code> versus <code>format_all</code>; <code>records_policy</code></td><td>optional</td><td>A role may run only the narrow formatter. On TP2-2520 the configured wide command would have rewritten 39 files belonging to other people</td></tr>
+<tr><td>6</td><td>Code conventions &#8212; assertion style, SDK/client layer, loops in tests, fixture placement, naming, mocking library</td><td><strong>not asked</strong></td><td>The repository already answered them. They are shown at the summary gate marked <code>inferred</code>, for correction in place</td></tr>
+<tr><td>7</td><td>Adapters: which tracker, which test-management system, which VCS host &#8212; and <strong>how this session reaches each</strong></td><td>required</td><td>A tracker is <strong>read through <code>adapters.ticket.direct_api</code> only</strong> &#8212; a CLI command or a tool that returns the ticket itself. An assistant is not offered for reading: it answers “the orchestrator already got the ticket once” to every follow-up key, so the scout loses the parent, the linked tickets and the attachments. A team whose only reading route is an assistant is <code>status: not configured</code> with that reason. Every claimed route is <strong>probed in this session</strong> before it is written as <code>configured</code>. For a tracker or a VCS host the factory does not know, the shape of one ticket key (<code>adapters.ticket.key_pattern</code>) and the command that opens a merge request (<code>adapters.vcs.delivery_commands</code>) are asked</td></tr>
+<tr><td>8</td><td>External-writes channels: where bugs go, where cases and results go &#8212; plus how each non-<code>markdown</code> channel is <em>written</em></td><td>required</td><td>The default is <code>markdown</code> for both, stated out loud, and it is a first-class outcome. A tracker channel closes <strong>only on a confirmed write right</strong> (see below). This is the one place an assistant belongs &#8212; as a write channel</td></tr>
+<tr><td>8 (same batch)</td><td>Strategy documents &#8212; for each pre-existing document: update this exact file, or create a separate factory document?</td><td>required per document</td><td>Permission applies to the named file only, and is recorded with provenance, <code>editable</code> and a <code>decision_ref</code>. Separate documents live under <code>qa-factory/strategy/</code> and cite the original</td></tr>
+<tr><td>9</td><td>Definition of done &#8212; one sentence</td><td>optional</td><td>It is the team's own standard for “tested”, used at gate B</td></tr>
+<tr><td>10</td><td>Product basics &#8212; business goal, primary users, and where requirements actually live</td><td>optional</td><td>The opening lines of <code>project-profile.md</code>; only what discovery did not already surface</td></tr>
+</tbody></table>
+
+<p>Nothing about testing cadences, a metrics menu or any non-functional testing type is asked. Every answer is written into the run's notes as it is given, and a question that the run proceeds past without an answer becomes a deferred decision, never a silently invented default.</p>
+
+<h3>Where bugs go &#8212; three options, and only a confirmed write right closes the topic</h3>
+
+<p>TP2-2534 ran green, found three real product problems and filed none of them: the
+channel was an assistant that could only read, and the factory learned it after the person had
+already chosen which bugs to file. The topic therefore closes on exactly one of three
+answers:</p>
+
+<table><tbody>
+<tr><th>Option</th><th>Config</th><th>How the right is proved</th></tr>
+<tr><td>An assistant that can write</td><td><code>external_writes.channels.&lt;name&gt;.writes: true</code> plus <code>method</code> and <code>invoke</code></td><td>The project's own declaration <strong>plus one question the orchestrator asks the assistant</strong>, whose answer is recorded with <code>tracker_write.py --record confirmed|no --words "&lt;its answer&gt;"</code>. No script can ask an assistant</td></tr>
+<tr><td>A direct API token</td><td><code>external_writes.bugs: "jira"</code>, <code>channels.&lt;name&gt;.method: "api"</code>, <code>external_writes.bugs_project</code></td><td><code>tracker_write.py</code> asks the tracker for the <strong>right</strong> without creating anything: <code>mypermissions</code> (<code>CREATE_ISSUES</code> in the bug project) and <code>createmeta</code> (which fields that project will demand, so a required field nobody filled is named in advance). Every request is a read</td></tr>
+<tr><td>A deliberate “keep it local”</td><td><code>external_writes.bugs: "markdown"</code></td><td>Nothing to prove. Bugs stay as files in the repository; at gate B this reads <em>deferred by decision</em> with its rows in <code>obligations.md</code>, never <code>NOT_CONFIGURED</code></td></tr>
+</tbody></table>
+
+<p>Onboarding runs <code>tracker_write.py --force --where onboarding</code> before phase 4 and
+writes its answer into the receipt at
+<code>qa-factory/state/integrations/tracker-write.json</code>. Credentials stay <strong>names</strong>: the receipt and every
+printed line carry <code>QA_JIRA_API_TOKEN</code>, never what it holds.</p>
+
+<h2>The summary gate</h2>
+
+<p>One screen, four parts, presented exactly once per round:</p>
+
+<ol>
+<li><strong>What was found</strong> (phases 1 and 2b), one line each, with phase 2b's three states kept verbatim.</li>
+<li><strong>What was answered</strong> (phase 2), plus <strong>2b: what was inferred from the repository</strong> &#8212; the conventions read out of the actual test files, as a block to correct in place. Correct a line and it is written as confirmed; say nothing and it is written as <code>inferred</code>, which is an honest label.</li>
+<li><strong>What will be written</strong> &#8212; the exact file list, one line about the report probe (see below), and <strong>3b: what the install would delete, set aside and keep</strong> &#8212; every file of every group, listed in full, because one “yes” covers a deletion and a person who says it sees every file. Files the factory does not recognise are set aside under <code>qa-factory/state/retired/</code>, never deleted.</li>
+<li><strong>Deferred items</strong> &#8212; every topic <em>that was asked</em> and left unanswered, with the question as it was put, the marker location, its backlog row, and, for a required fact, its consequence attached.</li>
+</ol>
+
+<p>It ends with exactly one question: <strong>“Write these files? yes / edit”</strong>.
+<code>yes</code> goes straight to phase 4. <code>edit</code> asks what to change and rebuilds
+the same full summary once more &#8212; never a loop of partial writes. Anything else is
+answered and then the same question is re-asked; that is not an implicit <code>edit</code>.
+There is no fifth part for topics nobody asked about: a required topic missing from parts 1
+and 2 is <strong>asked</strong>, not listed as deferred. The “yes” approves the listed file edits, the listed report probe and the listed dependency preparation; it does not authorize a commit, a push, a deployment, an unlisted installation or a changed test command.</p>
+
+<h2>What phase 4 generates</h2>
+
+<table><tbody>
+<tr><th>File under <code>qa-factory/</code></th><th>Contents</th></tr>
+<tr><td><code>config.json</code></td><td>From <code>references/templates/config.json</code> plus approved facts: roots and repositories, <code>test_locations</code>, <code>cases_root</code>, <code>case_id_form</code>, command templates, <code>run.reporter</code> / <code>run.report_path</code> / <code>run.levels</code>, the environment block (with <code>environment.access</code> &#8212; the scheme, the key names, the codes an unauthenticated request answers by design &#8212; and <code>secret_keys</code> only from keys the env file holds, proved by <strong>one real login</strong> stored as <code>access.login_probe</code>: user key, status, date &#8212; never a sentence in <code>verified</code>) and <code>environments[]</code>, <code>test_data</code>, adapters, external writes, strategy permissions, git conventions, <code>dod</code>, the impact scale. Every path relative to the project root. Written atomically, with the prior value kept under <code>records/config-migrations/</code></td></tr>
+<tr><td><code>strategy/test-strategy.md</code></td><td>What a <strong>plan</strong> is decided with: scope, test layers, git conventions, risk and impact scale, adapters and channels, environments, definition of done, case-id form</td></tr>
+<tr><td><code>strategy/project-profile.md</code></td><td>The one document about the product: what it is, components and entry points, how it runs locally, test data, environments, fragile areas, manual-only flows</td></tr>
+<tr><td><code>strategy/framework-rules.md</code></td><td>What test <strong>code</strong> is written and reviewed against: layers and idioms, case ids in code, run commands, team conventions with source links, confirmed conventions, traps</td></tr>
+<tr><td><code>strategy/aspect-profile.md</code></td><td>The project's completeness lenses, each with what it asks and the evidence that makes it a lens here</td></tr>
+<tr><td><code>strategy/faq.md</code></td><td>Two empty sections; gate answers are condensed here during stories</td></tr>
+<tr><td><code>records/coverage-map.md</code>, <code>obligations.md</code>, <code>factory-backlog.md</code>, <code>state/factory-dashboard.html</code>, <code>state/readiness.json</code></td><td>The coverage skeleton reconciled by <code>check_coverage.py</code>, the obligation and backlog registers, the dashboard, and readiness computed by <code>readiness.py --write</code></td></tr>
+</tbody></table>
+
+<p>Phase 4 also writes a <code>.gitignore</code> block with <code>project_gitignore.py --write</code>: one line for the machine-local folder <code>qa-factory/state/</code> (the dashboard included &#8212; it is regenerated by every run), together with raw run logs and the S5 work fragments. <code>qa-factory/records/</code> &#8212; the journal, the coverage map, the estimation ledger, decisions and approvals &#8212; has no line and stays visible to git. An existing config whose <code>adapters.ticket.method</code> is <code>agent</code> or <code>skill</code> next to a full <code>direct_api</code> is migrated with <code>ticket_adapter.py --migrate-method</code>: reading already goes through <code>direct_api</code> whatever the label says.</p>
+
+<p>Audit <strong>A21</strong> forbids the same section heading in the strategy and the
+framework-rules document &#8212; one fact, one owner. <code>audit_factory.py</code> runs
+<strong>before</strong> a commit. Approval to write the files does not itself authorize a commit or a push; when one is authorized it takes only <code>.gitignore</code> and <code>qa-factory/</code>, by explicit path, never <code>git add -A</code>.</p>
+
+<h2>The test command is proved at onboarding</h2>
+
+<p>Right after the profiles are written, onboarding runs each selected profile's test command to prove that its run leaves a report the factory can read. It runs ONE existing test through each profile's own one-test command (the report goes to the OS temp folder, and nothing changes in the project except the record gate A reads), because a run that writes no readable report is recorded as not executed at every story, however green its log. The summary gate lists this probe, so its “yes” covers it. Per profile the probe ends in one of four ways:</p>
+
+<table><tbody>
+<tr><th>Result</th><th>What you hear</th></tr>
+<tr><td>Proven</td><td>Nothing.</td></tr>
+<tr><td>Could not be checked (no test, a timeout, a launcher that is missing)</td><td>One line in words. Nothing is proposed; the card of gate A asks again at the first story.</td></tr>
+<tr><td>A known cure ran green</td><td>When a known cure exists, onboarding proposes it in words, one proposal per profile, and applies it only on your recorded yes. The question reads “I propose to run it as: &lt;command&gt;. Do it?” and only an explicit yes counts, and one approval changes one key. A headless approval of a cure is refused.</td></tr>
+<tr><td>No cure is known, or the cure did not prove</td><td>What was run, what came out, and why nothing is proposed, then three answers: here is the command that writes a JUnit report · I fix it myself · not needed now. The question is asked at most twice per profile, then it is treated as “not needed now”, which records nothing.</td></tr>
+</tbody></table>
+
+<h2>Optional config keys</h2>
+
+<p>All of them are optional with factory defaults, and their defaults are the ones in <code>references/templates/config.json</code>. <strong>A project onboarded earlier is never refused for lacking them</strong>: an omitted key keeps its default, onboarding asks nothing about them, and nothing needs reinstalling.</p>
+
+<table><tbody>
+<tr><th>Key</th><th>Default</th><th>What it controls</th></tr>
+<tr><td><code>turns.soft</code> / <code>turns.repeat</code> / <code>turns.window</code> / <code>turns.stage_default</code></td><td>60 / 30 / 120 / 35</td><td>The turn budget per dispatch. It is a <strong>notice</strong>, never a refusal &#8212; the turn budget stops no call. Onboarding does not ask about <code>soft</code> or <code>repeat</code></td></tr>
+<tr><td><code>budget.story_usd</code> / <code>budget.story_tokens</code> / <code>budget.warn_at</code></td><td><code>null</code> / <code>null</code> / <code>[0.5, 0.8]</code></td><td>A per-story ceiling in money or tokens: warns once at each fraction, stops and asks at 100%. <code>null</code> means no ceiling. A person's word passes it</td></tr>
+<tr><td><code>metrics.hot_cache_min_percent</code></td><td>90</td><td>The warning rule for the hot-cache share, evaluated per session and per story on the dashboard</td></tr>
+<tr><td><code>adapters.ticket.project_keys</code></td><td><code>[]</code></td><td>Tracker project prefixes known in advance. A key with such a prefix becomes a source with no probe; any other prefix costs <strong>one project lookup, not one per key</strong></td></tr>
+<tr><td><code>sizing.weights.P0…P3</code></td><td>1.6 / 1.3 / 1.0 / 0.6</td><td>The weight each requirement contributes to the computed story size, drawn from its impact class. Never one multiplier for a whole story. An omitted tier keeps the default</td></tr>
+<tr><td><code>dispatch.abandoned_after_s</code> / <code>dispatch.never_started_after_s</code></td><td>600 / 180</td><td>How long a role's subagent transcript may stay silent before the dispatch counts as abandoned, and how long a dispatch with no transcript may wait before it counts as never launched. A host that keeps no transcripts answers <code>unknown</code> and nothing is closed by absence</td></tr>
+<tr><td><code>dispatch.ui_window_cases</code> / <code>dispatch.api_window_cases</code> / <code>dispatch.mechanical_rounds</code></td><td>2 / 4 / 1</td><td>How many cases one S5 window holds (UI and other, never mixed), and how many exactly-worded mechanical fixes go back to the author per window without spending the repair cap</td></tr>
+<tr><td><code>gate_rehearsal.skip_collect</code> / <code>gate_rehearsal.collect_timeout_s</code></td><td><code>false</code> / 120</td><td>Whether the gate-A rehearsal collects the project's <strong>existing</strong> tests through the project's own run command (proving the toolchain and imports are alive), and its timeout. <code>skip_collect</code> exists for a project whose conftest must not run at a gate</td></tr>
+<tr><td><code>gate_rehearsal.skip_preconditions</code> / <code>environment.env_files</code></td><td><code>false</code> / <code>[]</code></td><td>The env files the test runner really loads (else discovered from the conftest), used by the gate-A check of case <code>preconditions</code>; the switch turns that check off</td></tr>
+<tr><td><code>gate_rehearsal.skip_executor</code></td><td><code>false</code></td><td>Turns off the gate-A check that the launcher of every S5 execution profile can be started in this session</td></tr>
+<tr><td><code>gate_rehearsal.skip_reporter</code> / <code>gate_rehearsal.reporter_timeout_s</code> / <code>gate_rehearsal.reporter_probe_test</code></td><td><code>false</code> / 180 / <code>{}</code></td><td>The gate-A rehearsal runs one existing test per execution profile and proves the report the factory will have to read; the switch turns that off for a project whose test must not run at a gate, the timeout bounds it, and <code>reporter_probe_test</code> names the one test (per profile, or one for all) instead of letting the rehearsal pick it</td></tr>
+<tr><td><code>external_writes.probe.max_age_h</code> / <code>external_writes.probe.gate_b_max_age_h</code></td><td>24 / 4</td><td>How old a stored <code>tracker_write</code> answer may be at S0, and at the gate-B rehearsal (a token can expire inside one story)</td></tr>
+<tr><td><code>external_writes.bugs_project</code></td><td><code>""</code></td><td>The tracker project bugs are created in; defaults to the first <code>adapters.ticket.project_keys</code> entry</td></tr>
+<tr><td><code>run.stand_wait_s</code></td><td>1800</td><td>With <code>run.parallel: false</code> a second run waits this long on the stand lease instead of failing both</td></tr>
+<tr><td><code>stand_health.same_failure_cases</code> / <code>slow_factor</code> / <code>slow_min_s</code></td><td>3 / 3 / 60</td><td>When finished runs raise <code>stand_signal</code>: that many different tests failing in a row with one line, or a run over that many times the median of comparable runs</td></tr>
+<tr><td><code>guards.raw_log_free_bytes</code></td><td>8192</td><td>A raw run log up to this size reads freely; above it the guard names the summary's <code>error_head</code> and <code>--detail</code></td></tr>
+<tr><td><code>execution.verify_node_ids</code> / <code>execution.node_id_collect_timeout_s</code></td><td><code>true</code> / 180</td><td>Asked test ids are checked against a real collect before anything is launched. A collect that cannot be read (unreadable, empty of ids, timed out) does not block: the run itself verifies the ids, prints &#8220;node ids were not verified&#8221; and goes on</td></tr>
+<tr><td><code>telemetry.keep_commands</code> / <code>telemetry.keep_days</code></td><td>200 / 7</td><td>How much of <code>qa-factory/state/telemetry/</code> the hook keeps when it prunes its own folder (once a minute)</td></tr>
+<tr><td><code>environment.access</code></td><td><code>{kind: "", &#8230;, unauth_status: [], login_probe: {}}</code></td><td>How the project reaches its stand: <code>kind</code> one of <code>harness_command</code> &#183; <code>local_login</code> &#183; <code>oidc_password</code> &#183; <code>bearer_env</code> &#183; <code>none</code>; the command or URL; the key <em>names</em> (<code>user_key</code>, <code>secret_key</code>, <code>client_id_key</code>, <code>realm_key</code>, <code>token_key</code>); <code>unauth_status</code> &#8212; the codes an unauthenticated request answers by design; <code>login_probe</code> &#8212; the proof of one real login (user key, status, date). Every value is a name or a URL, never a secret. An empty <code>kind</code> reads as &#8220;not recorded&#8221; and blocks nothing; the doctor points at the two onboarding questions that fill it</td></tr>
+<tr><td><code>retro.orchestrator_share_max</code></td><td>0.35</td><td>The share of a story's cost the orchestrator may hold before the retro and the dashboard's Factory banner report it as a finding with the per-stage split &#8212; the factory's own work, never a cost line for the person to repair</td></tr>
+<tr><td><code>cost.human_wait_cap_s</code> / <code>cost.recapture_max_mb</code> / <code>cost.rate_overrides</code></td><td>1800 / 64 / <code>[]</code></td><td>The cap on each gap counted as human wait, the largest transcript a dashboard build will recompute, and the project's own model rates, which come before the bundled catalogue</td></tr>
+</tbody></table>
+
+<h2>Onboarding forks</h2>
+
+<table><tbody>
+<tr><th>Condition</th><th>Who decides</th><th>Outcomes</th></tr>
+<tr><td>The install smoke prints a <code>FAIL</code>; Python or the plugin does not answer</td><td>code</td><td>Halt before phase 1, with the failing check verbatim and one fix. Not folded into the interview</td></tr>
+<tr><td>The current directory is not a git repository</td><td>code</td><td>Halt: run it from inside a git repository</td></tr>
+<tr><td>An unfinished onboarding left notes</td><td>person</td><td>Its date, phase and answered topics are shown, and one question is asked: <em>resume</em> · <em>start over</em> (the notes are set aside, never deleted) · <em>stop</em></td></tr>
+<tr><td><code>qa-factory/config.json</code> already exists</td><td>person</td><td><em>re-onboard</em> → phase 1 with existing values as defaults and a field-level merge shown at the gate · <em>stop</em> → end with one line, nothing changed</td></tr>
+<tr><td>Schema is missing or older than the template's</td><td>code, then person</td><td>The same two options, plus the list of top-level keys this version added, so “re-onboard” is an informed migration</td></tr>
+<tr><td>Traces of an earlier installation, but no configuration</td><td>code</td><td>Said in one sentence, nothing asked; the summary lists what the install would remove, and nothing changes before the “yes”</td></tr>
+<tr><td>Discovery resolved a fact</td><td>code</td><td>The topic is <strong>not</strong> asked; it appears in the summary as a found fact</td></tr>
+<tr><td>Discovery found nothing for a required fact</td><td>skill</td><td>Asked outright, from a blank page, with the reason stated. There is no third branch &#8212; never skipped, never filled with a default</td></tr>
+<tr><td>A named CLI or tool route does not answer in this session</td><td>code (the probe)</td><td><code>status: not configured</code> <strong>plus the question re-asked</strong> (“is there another way this session reaches the tracker?”). Unverifiable at onboarding time is <code>not configured</code> + a deferral, never <code>configured</code> on trust</td></tr>
+<tr><td>The only reading route for the tracker is an assistant</td><td>code</td><td><code>adapters.ticket</code> is <code>not_configured</code> with “configure a direct API for reading”, because the S1 role reads the tracker itself; the assistant is kept as a <strong>write</strong> channel</td></tr>
+<tr><td><code>tracker_write</code> probe says the channel cannot create issues</td><td>person</td><td>The topic does not close: an assistant with writes · a direct API token · a deliberate <code>bugs: markdown</code></td></tr>
+<tr><td>A profile's test run leaves no readable report</td><td>code, then person</td><td>See “The test command is proved at onboarding”: a proven cure on a recorded yes, or three answers</td></tr>
+<tr><td>A required topic was asked and not answered</td><td>person (by silence)</td><td><code>[DEFERRED: …]</code> marker + a <code>DD-n</code> backlog row carrying the question <strong>verbatim</strong> and its batch (audit A13 fails on a row without one), named out loud in the summary with its consequence</td></tr>
+<tr><td>A topic nobody asked about</td><td>skill</td><td>No marker and no row. Not asking a required fact is a defect of the interview, not a debt to record</td></tr>
+<tr><td>The interview named a source phase 1 could not read</td><td>code</td><td>Phase 2b re-reads exactly those rows; if the interview named nothing new, phase 2b is skipped in one line</td></tr>
+<tr><td>Summary answer is <code>yes</code></td><td>person</td><td>Phase 4 runs; the approval reference is recorded first</td></tr>
+<tr><td>Summary answer is <code>edit</code></td><td>person</td><td>One short correction prompt, then the same full summary again</td></tr>
+<tr><td>Phase 1 found no test framework at all</td><td>code</td><td>Only <code>config.json</code> and <code>project-profile.md</code> are written; the digest names <code>qa-bootstrap-framework</code> as planned for v1</td></tr>
+<tr><td>A path cannot be expressed relative to the project root</td><td>code</td><td>A deferral, never an absolute path written down (audit A20)</td></tr>
+</tbody></table>
+
+<p>The run ends with a digest: files written, every deferred item paired
+with its backlog row, and the next action — <code>/qa-factory:qa-doctor</code>, then
+<code>/qa-factory:qa-story &lt;ticket&gt;</code>.</p>
+
+<hr/>
+
+<h1>qa-doctor</h1>
+
+<h2>What the doctor is for and when to run it</h2>
+
+<p>Diagnosis, run between stories or whenever something feels wrong. It answers one question &#8212;
+<em>can work go on, or is something needed</em> &#8212; and ends in <strong>exactly one</strong> next
+action. It writes the dashboard, activity telemetry, smoke and host-probe receipts, and,
+<strong>only on a person's explicit word</strong>, the archive flag and
+<code>controller.py --operation recover|release</code>. It never edits a
+<code>pipeline.json</code> by hand.</p>
+
+<p>The doctor asks only three questions, all after its report: the archive offer, whether anybody is working on a stuck story, and the price-table question. None of them replaces a fact; a diagnosis is never something a person has to answer a question to receive. The price-table question appears only when the configuration check finds a conflict in the project's model prices: it is asked as written, nothing is applied, and one already answered is not repeated.</p>
+
+<h2>The seven execution steps</h2>
+
+<table><tbody>
+<tr><th>#</th><th>Step</th><th>What it runs</th><th>What it reports</th></tr>
+<tr><td>1</td><td>Install smoke</td><td><code>install_smoke.py --reuse-within 24 --report "qa-factory/state/doctor-install-smoke-latest.json"</code></td><td><code>plugin_line</code> verbatim plus failures. A passed report of this exact package is reused (<code>SMOKE REUSED</code>, said out loud). A missing exit code means <strong>pending</strong>, never failed; <code>status: running</code> means wait; a missing report means the evidence is unavailable, not that the installation is outdated</td></tr>
+<tr><td>1b</td><td>Live hook behaviour</td><td><code>host_probe.py --prepare</code>, then the two returned echo commands as <strong>separate native shell calls</strong> (ALLOW must execute, DENY must be refused by the guard), then <code>--check</code>; then exactly one diagnostic <code>qa-scout</code> with the prompt <code>QA_FACTORY_CONTEXT_PROBE</code></td><td>Guard verification (<code>status</code>) and context injection (<code>injection</code>) reported <strong>separately</strong>; the host in <code>host_integration.host</code> is evidence from receipts, and may legitimately read <code>mixed</code>. Two probes are not full parity</td></tr>
+<tr><td>2</td><td>Project state</td><td><code>git rev-parse --show-toplevel</code>; if <code>qa-factory/config.json</code> exists, <code>readiness.py --json --probe-vcs</code>; <code>config_contract.py --migration-plan</code>, read-only</td><td>Every capability whose status is not <code>ok</code>, with its <code>note</code> verbatim, its owner and its remedy. <code>unknown</code> is listed too &#8212; rounding it up to “fine” is the failure this skill exists to prevent. Configuration conflicts are reported, never applied. The full repository inventory is printed, every row, outside the line cap</td></tr>
+<tr><td>2b</td><td>Settle what a read-only probe can settle</td><td>Every remedy whose <code>autorun</code> is true, then <code>readiness.py --json</code> again</td><td><strong>The outcome, never the journey</strong>: a row a probe settled is printed as <code>ok</code> with its <code>evidence_ref</code>, with no “was unknown, now ok”. The Jira probe needs a sample ticket &#8212; the most recently touched open story, else the configured sample, else one question</td></tr>
+<tr><td>3</td><td>Factory audit</td><td><code>audit_factory.py</code>, <code>role_permissions.py</code> and <code>project_gitignore.py --check</code> (the <code>.gitignore</code> lines the project lacks)</td><td>Their output <strong>is</strong> the failing-item list: each <code>&lt;check&gt;: VIOLATIONS (n)</code> line plus its bullets. Clean checks need no mention; a detector is never re-run by hand</td></tr>
+<tr><td>4</td><td>Where every story is</td><td><code>stage_guard.py --stories</code></td><td>One line per open story: last <code>done</code> stage, any <code>running</code>/<code>halted</code> stage or <code>closed &lt;date&gt;</code>, both gate decisions, every unresolved halt. Archived stories are filtered and counted, and any archived story still carrying an open item is <strong>named</strong> &#8212; archiving is a person saying “stop showing me this”, not a claim the story finished</td></tr>
+<tr><td>5</td><td>The report and the one next action</td><td>&#8212;</td><td>Printed <strong>before</strong> step 6: a diagnosis is not something a person should have to answer a question to receive</td></tr>
+<tr><td>6</td><td>The archive offer</td><td><code>archive_task.py --candidates --days 14</code></td><td>No output → the step disappears silently</td></tr>
+<tr><td>7</td><td>Dashboard</td><td><code>factory_dashboard.py</code></td><td>Last, so the board shows this run's archiving. Skipped entirely when there is no <code>config.json</code></td></tr>
+</tbody></table>
+
+<p>The install smoke report is kept in <code>qa-factory/state/doctor-install-smoke-latest.json</code>. A passed report is reused within 24 hours, and dropping that flag runs the smoke afresh.</p>
+
+<p>A separate block &#8212; the <code>.claude/settings.json</code> permission allowlist for the
+factory's own read-only scripts &#8212; is printed <strong>only when asked</strong>, and the human
+writes that file, not the doctor. It saves wall-clock time, not money.</p>
+
+<h2>Readiness by capability, with owners</h2>
+
+<p>Readiness covers fourteen capabilities, and every one that is not ok carries its owner and a remedy. The status is one of <code>missing</code> · <code>not_configured</code> · <code>unknown</code>; the owner is the user or the factory; the remedy is machine-readable and says who must act.</p>
+
+<table><tbody>
+<tr><th>Capability</th><th>Means</th></tr>
+<tr><td><code>ticket_adapter</code></td><td><code>adapters.ticket</code> is set and reachable by the role that reads it, or is the built-in <code>file</code> adapter. A tracker the session reaches itself (<code>mcp_tool</code>, <code>agent</code> or <code>skill</code>), with no <code>adapters.ticket.direct_api</code>, is <code>not_configured</code>: no tool of the session is the scout's, and the S1 role reads the tracker itself. The remedy is onboarding recording <code>adapters.ticket.direct_api</code> (<code>references/jira-direct-access.md</code> shows the shape); it blocks S1 source collection until it is recorded or a person's word passes it</td></tr>
+<tr><td><code>jira_direct_api</code></td><td>Direct API source access for a Jira project &#8212; identity, comments and an original attachment, read-only</td></tr>
+<tr><td><code>test_repo</code></td><td><code>tests_root</code> exists on disk</td></tr>
+<tr><td><code>case_store</code></td><td><code>cases_root</code> exists and sits outside application code. An empty one is <code>not_configured</code>, which is not a failure and blocks nothing</td></tr>
+<tr><td><code>case_id_form</code></td><td><code>case_id_form</code> is empty (the default <code>TC-{nnn}</code>) or a readable template; otherwise <code>missing</code>, owned by the user, naming the problem</td></tr>
+<tr><td><code>adapter_forms</code></td><td>The ticket-key form and the delivery commands the gates read, from <code>references/adapter-forms.json</code> plus <code>adapters.ticket.key_pattern</code> and <code>adapters.vcs.delivery_commands</code>. <code>ok</code> names them and where each comes from; <code>missing</code> when a project value or the table cannot be read; <code>unknown</code> when the version-control route is a session tool the delivery gate cannot see</td></tr>
+<tr><td><code>app_repo</code></td><td>Application code is actually present &#8212; a <code>code_repos[]</code> path that exists, or an <code>app_root</code> whose protected paths are on disk</td></tr>
+<tr><td><code>vcs</code></td><td>Git on PATH and a remote; <code>--probe-vcs</code> adds a read-only <code>git ls-remote</code>, SSH included. A configured remote is not proof of access</td></tr>
+<tr><td><code>environment</code></td><td>The probe's three verdicts (<code>liveness</code> / <code>login</code> / <code>keys</code>). <code>missing</code> with <code>owner: factory</code> means onboarding wrote a config that fails its own probe &#8212; the doctor prints the remedy and never asks for a key value; <code>unknown</code> with &#8220;access scheme not recorded&#8221; means the stand is alive and how this project logs in was never recorded: re-run onboarding and answer its two access questions, nothing else is re-asked</td></tr>
+<tr><td><code>external_writes</code></td><td>Every channel is <code>markdown</code>, or its adapter is configured</td></tr>
+<tr><td><code>config_schema</code></td><td><code>schema_version</code> matches what the factory requires; carries <code>migration_hint</code> when stale, surfaced verbatim as the re-onboarding instruction</td></tr>
+<tr><td><code>vcs_api</code></td><td>Provider API access. Diagnostic <strong>unless</strong> a story needs API operations or MR metadata, comments or discussions. An API or network failure never negates a successful SSH probe, and a network or sandbox failure is never diagnosed as bad auth</td></tr>
+<tr><td><code>host_hooks</code></td><td>Evidence about the host, not a missing capability: <code>ok</code> when the host integration is story-ready, otherwise <code>unknown</code> with <code>owner: factory</code>. Its remedy is the step-1b probe itself, which needs native shell calls and so cannot be run by a script. It <strong>blocks nothing on its own</strong> &#8212; a story is not held up by an unrun probe</td></tr>
+<tr><td><code>tracker_write</code></td><td>Three readings &#8212; see below</td></tr>
+</tbody></table>
+
+<h3><code>tracker_write</code> — three readings</h3>
+
+<table><tbody>
+<tr><th>Reading</th><th>Status / owner</th><th>What the doctor prints</th></tr>
+<tr><td><strong>Confirmed</strong></td><td><code>ok</code> / factory</td><td><code>tracker_write confirmed &lt;date&gt;</code> with its evidence reference (<code>state/integrations/tracker-write.json</code>)</td></tr>
+<tr><td><strong>No</strong></td><td><code>missing</code> / user</td><td>The reason &#8212; no right to create issues in that project, or the channel is an assistant configured for reading only &#8212; plus the alternatives. What it costs: bugs are not filed in the tracker; every bug still gets its own file in this repository. Verified again by <code>tracker_write.py --force</code></td></tr>
+<tr><td><strong>Not checked</strong></td><td><code>unknown</code> / orchestrator</td><td>The project was configured before this check existed, or the evidence is one question only the orchestrator can ask an assistant. The doctor runs the probe itself and records it (<code>tracker_write.py --record confirmed|no --words "&lt;its answer&gt;"</code>); it blocks nothing &#8212; bugs are filed locally either way</td></tr>
+</tbody></table>
+
+<p>Beside those capabilities readiness publishes one more key, <code>execution_profile</code>:
+can anything in this configuration <em>run</em> one test? A profile with a real
+<code>commands.one_test.argv</code> is <code>ok</code>; a project with none is
+<code>not_configured</code> with <code>owner: user</code> &#8212; a warning the doctor prints and
+never a halt, because cases can still be written, reviewed and handed to a person. Its note says what it costs: S5 would refuse every run (<code>mine_refused</code>). It sits beside the capability block rather
+than inside it, so no project has to be re-onboarded to be told its execution is unconfigured.</p>
+
+<p>A channel that does not apply at all (bugs are deliberately <code>markdown</code>) is
+<code>not_configured</code> with <code>remedy.kind: not_a_defect</code> — printed as an
+ordinary line, not as a problem. The doctor never repairs the setting: it names whose it is —
+the project's (no channel configured) or access (the token has no rights) — and gives the
+onboarding command for that topic.</p>
+
+<h2>The live allow/deny probe on the host</h2>
+
+<p>The probe reacts to hook events, not to a product name. Synthetic
+JSON fed to a hook script is never a substitute &#8212; it certifies nothing about this host.</p>
+
+<table><tbody>
+<tr><th>Result</th><th>Reading</th></tr>
+<tr><td>ALLOW executed, DENY refused, <code>status: verified</code></td><td>The guard fires on this host</td></tr>
+<tr><td><code>status: verified</code>, <code>injection: unverified</code></td><td>Go to the context probe (<code>next_action: dispatch_context_probe</code>) — never require injection verification before the probe that establishes it</td></tr>
+<tr><td>Guard unverified</td><td>Report the missing or uncorrelated evidence. Do <strong>not</strong> call the hooks broken when ALLOW executed and DENY was blocked</td></tr>
+<tr><td><code>guard_parse: verified</code></td><td>One word in the readiness block. It proves the guard still reads the event shapes this host sends — two ordinary events, a shell call and a file write, handled cleanly</td></tr>
+<tr><td><code>guard_parse: guard_defect</code></td><td>The guard refused real calls it could not parse. Printed with its reason and the host version, <code>owner: factory</code>, and it <strong>never becomes the next action</strong>. The finding is already in <code>factory-backlog.md</code></td></tr>
+</tbody></table>
+
+<h2>The audit, and whose finding each rule is</h2>
+
+<p><code>audit_factory.py</code> is the executable half of calibration. Each check prints its
+own violations, and each one is labelled with an owner: the rules in <code>FACTORY_OWNED</code>
+— <strong>A1, A2, A9, A11, A12, A14, A19, A21, A22, A24, A25, A27</strong> — are the factory's own
+problem and are never handed to the person; every other rule is the project's. A26 (the gates that judge validity) and A27 (a state the driver has no move for) check the package's own source: they run in the package's own tests, not in the doctor.</p>
+
+<table><tbody>
+<tr><th>Rule</th><th>Checks</th><th>Owner</th></tr>
+<tr><td>A1 hook liveness</td><td>Every shipped script is live — named by <code>hooks.json</code>, imported by one that is, or a declared CLI tool</td><td>factory</td></tr>
+<tr><td>A2 role/tools parity</td><td>A role's write verbs match its <code>tools:</code>; excess rights; a role that could spawn subagents</td><td>factory</td></tr>
+<tr><td>A3 case/bug schemas</td><td>Validator rules over all existing cases and bugs</td><td>user</td></tr>
+<tr><td>A4 state machine</td><td>Automated without a red probe; a red lock with no bug file</td><td>user</td></tr>
+<tr><td>A5 seal / A6 journal / A7 journal completeness</td><td>Artifacts younger than their accepting event; journal line format; artifacts with no events</td><td>user</td></tr>
+<tr><td>A9 injection map</td><td>Every mapped file exists and every role is in the map</td><td>factory</td></tr>
+<tr><td>A11 artifact schema sync / A14 definition drift</td><td>Every key the validator requires is documented in its contract; the shipped files match the factory manifest when one exists</td><td>factory</td></tr>
+<tr><td>A12 skill size</td><td>A skill's <code>SKILL.md</code> stays within 19,000 characters and every phase file it references exists</td><td>factory</td></tr>
+<tr><td>A13 deferred decisions</td><td>Every <code>DD-n</code> row carries the question verbatim in its <code>asked</code> column; every deferral marker has its row</td><td>user</td></tr>
+<tr><td>A15 / A16 / A17 / A18</td><td>The estimation loop, registry hygiene, detector re-runs, result projection</td><td>user</td></tr>
+<tr><td>A19 agents contract</td><td>Every role file matches its frontmatter contract</td><td>factory</td></tr>
+<tr><td>A20 portable paths</td><td>No machine-local absolute path in config or strategy</td><td>user</td></tr>
+<tr><td>A21 one owner per fact</td><td>No section heading in both strategy documents</td><td>factory</td></tr>
+<tr><td>A22 injection weight</td><td>What the injection map delivers to one role stays within 42,000 bytes, and the common part within 18,000</td><td>factory</td></tr>
+<tr><td>A24 refusal registry</td><td>Every place a hook refuses on the dispatch path is registered with the way a person's recorded word passes it and the test that proves it</td><td>factory</td></tr>
+<tr><td>A25 dispatch budget</td><td>The whole weight one role is handed before its first tool call &#8212; charter, common injection, its slices and the brief's own cap &#8212; stays within 58,000 bytes. The remedy is never “write less” but “move the fact to the layer that owns it”</td><td>factory</td></tr>
+</tbody></table>
+
+<h2>Story state reporting</h2>
+
+<p>Step 4 prints one line per open story from <code>stage_guard.py --stories</code>:</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">text</ac:parameter><ac:plain-text-body><![CDATA[STORIES
+  <ticket>  last done: <Sn>  active: <Sn running|halted|none|closed <date>>  gate A: <d>  gate B: <d>]]></ac:plain-text-body></ac:structured-macro>
+
+<p>plus every unresolved halt. A story shown as <code>closed &lt;date&gt;</code> has had its gate B decided and its S8 done. A closed story that still carries a running stage or an open dispatch is repaired by recover, and the factory is its owner. Its line ends with the <code>STALE ACTIVE STATE AFTER CLOSURE</code> marker and the recover command. It is a tail, not work in flight. The doctor never re-opens a <code>pipeline.json</code> to check
+one of these facts.</p>
+
+<h2>The verdict - exactly one next action</h2>
+
+<p>The table is walked top to bottom; the first row that applies is reported and the walk
+stops. Never more than one action, and never a question about which to do first.
+<code>vcs_api</code> and <code>host_hooks</code> cannot be the next action unless an open story
+actually needs the provider API or a live hook probe.</p>
+
+<table><tbody>
+<tr><th>#</th><th>Condition</th><th>Next action</th></tr>
+<tr><td>0</td><td>A completed legacy smoke lacks the required install checks, or reports a version below 0.2.0</td><td>Update the plugin per <code>INSTALL.md</code></td></tr>
+<tr><td>0a</td><td>The smoke is still running, or its evidence is unavailable</td><td>Finish the existing smoke process or recover its saved report — never infer an installation failure</td></tr>
+<tr><td>1</td><td>Step 1 had a <code>FAIL</code></td><td>Fix the install: the failing check and its remedy</td></tr>
+<tr><td>2</td><td>Not a git repository</td><td><code>cd</code> into the project's working tree and re-run</td></tr>
+<tr><td>3</td><td>No <code>qa-factory/config.json</code></td><td><code>/qa-factory:qa-onboarding</code></td></tr>
+<tr><td>4</td><td><code>config_schema</code> not <code>ok</code></td><td>Re-run <code>/qa-factory:qa-onboarding</code>, citing the <code>migration_hint</code> keys</td></tr>
+<tr><td>5</td><td>A capability is <code>missing</code> with <code>remedy.owner: user</code></td><td>That remedy, printed in full — <code>missing</code> means the host answered and refused</td></tr>
+<tr><td>5a</td><td>A capability is not <code>ok</code> with <code>remedy.owner: factory</code></td><td><strong>Not an action.</strong> Print it, own it, move on. Never ask a person to fix the factory, and never turn a dropped network into a credentials errand</td></tr>
+<tr><td>5b</td><td>A required capability is <code>not_configured</code> or <code>unknown</code> with <code>remedy.owner: user</code></td><td>That remedy, distinguishing an unrun probe, inconclusive evidence and a session-only check</td></tr>
+<tr><td>6</td><td>A story has an unresolved halt</td><td>That halt's own instruction, for that ticket</td></tr>
+<tr><td>6a</td><td>A closed story still carries a running or halted stage or an open dispatch (the STALE line)</td><td><code>controller.py --task-root &lt;T&gt; --operation recover</code> (owner: factory)</td></tr>
+<tr><td>7</td><td>A story sits at gate A or gate B with no decision recorded</td><td>“Answer gate A/B for <code>&lt;ticket&gt;</code>”</td></tr>
+<tr><td>8</td><td>Step 3 found any violation</td><td>The first failing check line, verbatim</td></tr>
+<tr><td>9</td><td>Otherwise</td><td><code>/qa-factory:qa-story &lt;ticket&gt;</code> — the most recently touched open ticket, or no ticket named when every story is closed</td></tr>
+</tbody></table>
+
+<p>Steps are printed by <code>remedy.owner</code>, not by the capability's owner: an
+unreachable host is nobody's fault (<code>owner: factory</code>) yet only a person can turn a
+VPN on (<code>remedy.owner: user</code>). One dropped VPN is <strong>one line</strong> above
+the capabilities it explains, not three red rows, and those rows say “not verified” and
+nothing about credentials.</p>
+
+<h2>The repair phase</h2>
+
+<p>The doctor is where a person comes with a story that will not move. When what stops it is
+the factory's own bookkeeping, the person is not told to “fix <code>pipeline.json</code>”, and
+the doctor does not edit it either. The doctor's only repairs are recover and, on your word, release. Both are shipped, idempotent,
+journalled code:</p>
+
+<table><tbody>
+<tr><th>Repair</th><th>When</th><th>Result</th></tr>
+<tr><td><code>controller.py --task-root qa-factory/artifacts/&lt;TICKET&gt; --operation recover</code></td><td>Step 4 shows a stage <code>running</code> or <code>halted</code> <strong>and</strong> the person says no session is working on that story right now &#8212; a decision, so it is asked once</td><td>Rebuilds the projections from the journal and records a <code>state_repair</code> event for a state its own receipts contradict. It never invents a stage result, never accepts a dispatch, never touches a role's artifact. Both lists empty → the state was consistent; say so and do not run it again. An error → <code>unknown / owner: factory</code>, the error line, and a recommendation to report it</td></tr>
+<tr><td><code>controller.py … --operation release --dispatch &lt;id&gt; --words-file &lt;file&gt;</code></td><td><code>recover</code> left a dispatch open and the person says nobody is working on it. <strong>Only on their word, never on elapsed time</strong>; the file holds their words exactly as they said them</td><td><code>released_by_person</code>: the artifacts the role wrote stay, the stage is startable again, and the printed <code>next_action</code> (<code>relaunch</code> carries the ready dispatch request) is the story's next step</td></tr>
+</tbody></table>
+
+<p><strong>An escalated guard refusal is not a repair.</strong> A fail-closed refusal that
+repeats on a different call (“event could not be parsed”, “content could not be checked”) is
+the guard's own defect: the second occurrence already recorded the finding. The doctor reports
+it with the host version and <code>owner: factory</code> and stops — nothing there is the
+person's to repair, no plugin file is to be edited, and it never becomes the next action.</p>
+
+<h2>The archive offer</h2>
+
+<p>After the report, the doctor runs <code>archive_task.py --candidates --days 14</code>. The
+two candidate classes are two different conversations:</p>
+
+<table><tbody>
+<tr><th>Class</th><th>How it is asked</th><th>Command</th></tr>
+<tr><td><strong>Clean</strong> — every stage done, both gates answered</td><td>One message listing them with their ages: “Which of these should I archive? Names, <code>all</code>, or <code>none</code>.” Archiving hides a story from the board and this report; the folder and every artifact stay where they are</td><td><code>archive_task.py --task &lt;TICKET&gt; --words-file &lt;file&gt;</code> — exits 4 and writes nothing if the story turns out to carry an open item</td></tr>
+<tr><td><strong>With open items</strong></td><td><strong>One message per story</strong>, with its open items verbatim and exactly three answers: archive it and close those questions with that as their recorded reason · let us settle it · leave it active</td><td><code>archive_task.py --task &lt;TICKET&gt; --force --words-file &lt;file&gt;</code> — only after a person said the questions no longer matter. <code>--undo</code> reverses either</td></tr>
+</tbody></table>
+
+<p>The file holds the person's words exactly as they said them. If an archived story was the source of the report's next action, the verdict is recomputed
+and the new one-line action printed.</p>
+
+<h2>What the doctor never does</h2>
+
+<ul>
+<li><strong>Never asks a clarifying question to produce a fact.</strong> Facts come from a script or a plain git/file check. Its questions are decisions &#8212; the archive offer, “is anybody working on this story?” and the price-table question &#8212; with one exception, the sample ticket in step 2b when no story supplies one.</li>
+<li><strong>Never writes</strong> a config, a strategy file or anything under <code>artifacts/</code>. Running a read-only probe is not writing; its receipts live in <code>state/</code>.</li>
+<li><strong>Never sets <code>archived</code> by its own judgement</strong> — only <code>archive_task.py</code>, only on a person's word, <code>--force</code> only on their explicit answer.</li>
+<li><strong>Never fixes an audit finding itself</strong>: names it, names its owner, moves on.</li>
+<li><strong>Never runs project tests, installs dependencies or deploys the application</strong>, and never synthesizes a global green from independent profile results.</li>
+<li><strong>Never debugs the factory.</strong> Evidence missing after one prepare/pair/check is one line — <code>unknown / owner: factory</code>, the fact, one recommendation — never a reason to read or grep the plugin's scripts and manifests, and never a retry with variations.</li>
+<li><strong>Never reports a green it cannot back.</strong> A line is as good as its evidence; a status is never upgraded while summarizing; silence is not a pass (“no stories yet” is said out loud).</li>
+</ul>
+
+<h2>Sending the factory's records to its developers</h2>
+
+<p><code>/qa-factory:qa-collect</code> packs the factory's records of your project &#8212; what ran, where it stalled, what it cost, and your own words about it &#8212; into one file that you send to the factory's developers yourself. qa-collect asks two questions in one message, runs one packing command and changes nothing in your stories. Run <code>/qa-factory:qa-collect</code> from the project folder that holds <code>qa-factory/config.json</code>; the factory sends nothing from your machine.</p>
+
+<table><tbody>
+<tr><th>Step</th><th>What the skill asks and does</th></tr>
+<tr><td>Ask</td><td>One message with two questions, answered in your own words &#8212; either, both or neither: what problems you had with the QA factory since it was installed (or since the factory last packed them), and what you would like it to do differently or better. The reply &#8220;nothing to add&#8221; writes no file. With no person to ask, the packing records that nobody was asked</td></tr>
+<tr><td>Write the words down</td><td>Each answer word for word into a new file under <code>qa-factory/state/words/</code> (<code>collect-problems-&lt;stamp&gt;.txt</code>, <code>collect-suggestions-&lt;stamp&gt;.txt</code>). An answer left out writes no file. One text that does not divide into the two answers is written whole as the problems file. The words are not shortened, sorted or judged, and a words file is never overwritten or deleted</td></tr>
+<tr><td>Pack</td><td>ONE command, <code>collect_pack.py</code>, with the files of this run only. No agent packs anything and no model is involved. A data set that is not at its standard place is named in the output as <code>&lt;SET&gt;: not found at the standard place</code>; the skill then asks where it lives and runs the command again with <code>--extra &lt;SET&gt;=&lt;path inside the project&gt;</code>, and nothing else is searched for</td></tr>
+<tr><td>The window</td><td>By default the archive holds what is new since the last packing; <code>--since install</code> packs everything since the install again. An archive you did not send stays on disk</td></tr>
+<tr><td>Show</td><td>The summary of the run, as printed (at most twelve lines): the archive file and its size, the window, the gaps named, the files skipped with a reason, and <code>Package modified</code>. If the place for the file would show in git, the archive goes to the temp folder and the summary names the reason. Any other refusal is shown as printed; the skill does not work around it</td></tr>
+<tr><td>Send</td><td>You send the file named in the summary to the QA factory developers, or delete it. The transcripts of stalled stories are in a file of their own, named in the summary, so that you can delete just that file</td></tr>
+</tbody></table>
+
+<p>Everything that goes into the archive passes the factory's redaction rules. The finished archive is read back and checked again; if anything is found, the archive is deleted and the command refuses.</p>
+
+<p>An archive made by qa-collect says whether the installed package was modified, by comparing it with the fingerprint the release carries. The answer is <code>yes</code> only for a byte difference in a named file of a release of the same version, <code>no</code> for equality, and <code>unknown</code>, with a reason, for every doubt &#8212; an install whose release carries no fingerprint file reads <code>unknown</code>. Editor and cache leftovers are listed apart and never count as a modification.</p>

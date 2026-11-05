@@ -1,0 +1,108 @@
+<ac:structured-macro ac:name="toc"/>
+
+<p>This page describes the plans for QA Factory after version 0.10.2; what the factory does today is on the sibling pages. What each version changed is in the package's <code>CHANGELOG.md</code> (<code>ai-packages/qa-factory/CHANGELOG.md</code>). Here: the changes that are queued, by priority; what the reference runs measured; the limits a user should know about today; and how to report a finding about the factory.</p>
+
+<h2>How the roadmap is kept</h2>
+
+<p>The roadmap is the list of piles and their batches: a pile is one theme of work, and a batch is a set of changes inside it that one developer takes and finishes. A batch is closed when every change in it is finished and accepted; the roadmap promises no dates. Piles carry a priority, first, second or third, and a pile may have several batches. The tables below list the open batches that change what a user of the factory sees; internal tooling of the factory's own development is left out.</p>
+
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>Work in flight is described on the other pages only after it is released. The grounding step of the test plan (S3 in two windows), the Codex host and qa-collect are in the package: they are described on the sibling pages, and only what is still missing from them is listed below as a plan.</p></ac:rich-text-body></ac:structured-macro>
+
+<p>A part of a batch that is already in the package is not listed here as a plan; it is described on the sibling pages and in the <code>CHANGELOG.md</code>.</p>
+
+<h2>What release 0.10.2 (hotfix-12586 wave 1) changed</h2>
+
+<p>The release answers the run of TP1-12586, which stalled and spent most of its time on the factory's own plumbing. Each change below is described in full in the <code>CHANGELOG.md</code>.</p>
+
+<ul>
+<li><strong>One carrier for a Then number</strong> (HF2-2): the number of a Then in a test-to-Then binding and the tag of the waiting remainder are read through one place in code, and a Then written as a boolean or a float no longer reads as bound.</li>
+<li><strong>A test that covers several cases</strong> (HF2-3): when one test stops at one case's red assert, the Thens behind that assert read &#8220;not proven&#8221;, never a pass, in the ledger, in the trace and in &#8220;Left with you&#8221;, and a case whose own run failed keeps its own verdict.</li>
+<li><strong>A red test the requirement contradicts</strong> (HF2-4): it closes its S5 window with its own manifest row, without a probe and without a person's word, and S7 triages the red.</li>
+<li><strong>Merged Then bindings</strong> (HF2-5): a hand fragment replaces the rows of the units it names and leaves the rest, instead of replacing the whole array.</li>
+<li><strong>A test with no run record is not a pass</strong> (HF2-6): the trace reads <code>pass</code> only from a green result row of the test itself, and the report counts &#8220;proven by tests&#8221; from the same place as its green tests.</li>
+<li><strong>Answers apply at once</strong> (HF2-7): a person's answers at S2, S3 and S4 are recorded by code and laid over the plan, one open blocking question stops the stage whatever the count, <code>Q1: until the report</code> keeps a question open, and every role's brief carries what the person already decided.</li>
+<li><strong>The profile of a manifest row</strong> (HF2-8): the mutation probe and a <code>--node-id</code> run keep the profile the row names, so two profiles on one test root no longer block the probe.</li>
+<li><strong>Cost capture off the hot path</strong> (HF2-9): the capture after a tool call no longer renders the dashboard, the Stop capture is asynchronous and renders it once, and a subagent no longer shrinks its parent's cost file.</li>
+<li><strong>One collect per run</strong> (HF2-10): <code>run_suite --mine</code> collects test ids once, and a collect it cannot read is said as &#8220;node ids were not verified&#8221; instead of being repeated.</li>
+<li><strong>Run freshness</strong> (HF2-11): a green run of other code is stale; the ledger reads it as changed since the run, S6 sends the test back to the runner, and a stale live check is proved again by code.</li>
+<li><strong>The fields of a manifest row</strong> (HF2-12): the fields every row owes are one list, the automator learns the missing ones at the S5 exit, and the marker prints the row form before the first handback.</li>
+<li><strong>Helpers and fixtures</strong> (HF2-13): the code critic flags a second helper beside an existing one and the same fixture created twice in one window.</li>
+<li><strong>The red line names the Then</strong> (HF2-14): a test that raises before its assert is flagged, and the patterns say to assert the count before unpacking.</li>
+<li><strong>Refusal tests</strong> (HF2-15): a refusal test must tell its cause from any other 4xx answer, a masked value must not be compared with another masked value, and the critic checks that the test's level matches the level the S3 plan gave its case.</li>
+<li><strong>Integration texts</strong>: the stage files, role charters and references say what the code now does, for example that the answers to the S2 question halt are recorded by code.</li>
+</ul>
+
+<h2>First priority</h2>
+
+<table><tbody>
+<tr><th>Pile / batch</th><th>What changes for you</th></tr>
+<tr><td><strong>hotfix-12586 / batch 3</strong></td><td>The next planned work after this release: the S5 window cycle without 25 minutes of management (HF2-16), a window brief that gives the role the case files, the fixtures and examples of neighbouring tests (HF2-17), and a control experiment at S7 before an <code>APP_BUG</code> verdict on a surplus or different value, with the doubt put to the person in &#8220;Left with you&#8221; instead of a return to gate A (HF2-18); then the remainders that wave 1 left.</td></tr>
+<tr><td><strong>codex / batch 2</strong></td><td>What remains after the Codex host reached the package (the Codex hooks, the host guide and the driver's Codex mode are described on the sibling pages): reading the host's compressed session logs, one reader of time, the text of the host guide and the guard's remaining shell forms; and the rest of the fixes for what blocked the automation stage of the Codex run of TP2-2406.</td></tr>
+<tr><td><strong>conductor / batch 1</strong></td><td>What remains of the conductor's way out: the stages S6 to S9 and delivery offer its options in every state where they now end in a text or a command to run by hand, and a factory script whose result is dropped or only printed no longer passes silently.</td></tr>
+<tr><td><strong>conductor / batch 3</strong></td><td>Fixes left from the October reference runs: gate B's proof resumes after a stop, the recorded rounds of the last automation window are run or the stage is closed by code, and one decision covers a whole class of automation blocks.</td></tr>
+<tr><td><strong>grounding / batch 1</strong></td><td>What remains after the diff index, the grounding table and the two windows of S3 reached the package: a gate that does not let a plan through while a risk or a changed area of the table is left unanswered, and role texts that say exactly what the code checks.</td></tr>
+<tr><td><strong>grounding / batch 2</strong></td><td>Before the first test you learn whether this is the right merge request, how much of it is refactoring and which requirements are not implemented; a risky place becomes a plan row instead of being lost; the touched areas become regression; the plan knows what an existing automated test already checks, and a case carries its technique.</td></tr>
+<tr><td><strong>grounding / batch 3</strong></td><td>The grounding step is proved by a live run on a copy of a real story and on seeded copies, someone else's merge request and a bloated refactoring, and its price and friction are measured.</td></tr>
+<tr><td><strong>live-runs / batch 1</strong></td><td>Every change of a role's behaviour is proved by a live run, and the factory runs on an unfamiliar project and on a language other than Python.</td></tr>
+<tr><td><strong>report-delivery / batch 1</strong></td><td>The reasons a delivery is not ready are stated each with its owner, and triage has one table.</td></tr>
+</tbody></table>
+
+<h2>Second priority</h2>
+
+<table><tbody>
+<tr><th>Pile / batch</th><th>What changes for you</th></tr>
+<tr><td><strong>collect / batch 1</strong></td><td>What remains after qa-collect reached the package: the live proof of a collection on copies of real projects, through to its intake into the piles.</td></tr>
+<tr><td><strong>driver-controller / batch 1</strong></td><td>A headless run does not lose stages on a resume, a role's liveness can be proved, and the controller's next step is always the right one.</td></tr>
+<tr><td><strong>execution-probes / batch 1</strong></td><td>One predicate tells a pytest run, and the expected value comes from the requirements, not from the code.</td></tr>
+<tr><td><strong>gates-and-words / batch 1</strong></td><td>At the gates you answer in words, your words reach every reader and are not asked again, the gate's cards do not misstate, and a decision taken back no longer acts.</td></tr>
+<tr><td><strong>onboarding-hooks / batch 1</strong></td><td>A reinstall loses nothing, and the guard recognises shell workarounds through one shell tokenizer.</td></tr>
+<tr><td><strong>stand-and-sources / batch 1</strong></td><td>HTTP errors are read correctly, the stand's identity is one, the ticket and its sources are taken by API and agree with its snapshot, and a write to Jira uses Jira's own markup.</td></tr>
+<tr><td><strong>test-code-quality / batch 1</strong></td><td>A test the factory delivers fails on a plausibly broken product, does not hide an unknown expected value in a literal, tells a refusal for lack of rights from any other 4xx answer, does not duplicate the framework's own reader, cleans up after itself and lies entirely in the delivered tree.</td></tr>
+</tbody></table>
+
+<h2>Third priority</h2>
+
+<table><tbody>
+<tr><th>Pile / batch</th><th>What changes for you</th></tr>
+<tr><td><strong>cost-dashboard / batch 1</strong></td><td>The dashboard shows cost by task and by stage, forecasts it by story size, and never shows a zero price as a fact.</td></tr>
+<tr><td><strong>roles-context / batch 1</strong></td><td>Roles read less and more precisely, and the role charters carry the rules of the test pyramid and of how cases map to tests.</td></tr>
+</tbody></table>
+
+<h2>What the reference runs measured</h2>
+
+<p>The reference run of TP1-13797 on 13.10.2026 reached gate B and closed; its price was higher than the earlier run of the same story, mostly because of the conductor and repeated resumes in automation. This page quotes no amounts: prices are described as rules and words, and the dashboard page explains how far a story's price can be trusted.</p>
+
+<p>On that run the gate B road for words that are not an approval worked live: nothing was recorded as approved, the conductor offered its moves with their prices, a rework of the report ran, and the gate came back shown again on the person's words. The same road at gate A, with prose instead of the approval word, was not proven by it.</p>
+
+<p>No measured cost reduction is claimed: it needs paired measurements on real stories.</p>
+
+<h2>Known limitations a user should know today</h2>
+
+<table><tbody>
+<tr><th>Limitation</th><th>What it means in practice</th></tr>
+<tr><td><strong>Case preconditions are only as good as the cases declare them</strong></td><td>The gate-A check covers what a case names in <code>preconditions</code> (a variable in the env files the runner loads, or one anonymous GET). A need nobody wrote down still surfaces in S5</td></tr>
+<tr><td><strong>Hooks act only in factory sessions</strong></td><td>The read-size limit and the turn counter act only where there is factory activity, a role, or an open dispatch. So a story run outside the factory is not governed by the factory's guards</td></tr>
+<tr><td><strong>The tracker read route is direct API only</strong></td><td>A project whose only reading route is an assistant, a skill, or an MCP tool of the orchestrating session is not configured for reading and must be re-onboarded with <code>adapters.ticket.direct_api</code>. The assistant stays first-class as a <strong>write</strong> channel</td></tr>
+<tr><td><strong>The write probe proves a right, not a success</strong></td><td><code>tracker_write</code> proves the right to create an issue. A mandatory project field can still reject one write. After a write the id is read back, and an issue that was not created is visible immediately as a local bug file plus a row in <code>obligations.md</code></td></tr>
+<tr><td><strong>Two probes are not full parity</strong></td><td>A passing install smoke and a passing allow/deny pair certify that the guard fires and the package is intact. They do not certify that every lifecycle event of every host version activates</td></tr>
+<tr><td><strong>A stale live check is proved again only under an open S6 dispatch</strong></td><td>When a test changed after its run, S6 proves its live check again by code, but only while an S6 dispatch is open; otherwise the digest says &#8220;re-probe skipped&#8221; and the check stays stale</td></tr>
+<tr><td><strong>Two points about a test that stops at one red assert wait for the owner's word</strong></td><td>A Then that is red because of a product bug is not commented out in the test: the role texts are neutral on it. And a Then that passed before the red assert reads &#8220;not proven&#8221;. Both are open forks, not decisions</td></tr>
+<tr><td><strong>Regression is never executed by the factory</strong></td><td>Regression is never executed by the factory: the plan carries a recommended regression list, and running it stays with the team.</td></tr>
+</tbody></table>
+
+<h2>How to report a finding about the factory</h2>
+
+<p>A defect of the factory itself does not go into a ticket about the product; record it as a finding about the factory. It is not a question to answer. Record it where the doctor and the dashboard will see it:</p>
+
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[python "${CLAUDE_PLUGIN_ROOT}/scripts/project_decisions.py" --root <project> add-finding \
+  --essence "<one sentence: what the factory did wrong>" \
+  --scope local-urgent|local-calibration|upstream-candidate \
+  --witness "<the evidence: the command, the refusal text, the file, no secrets>" \
+  --idempotency-key "<a stable key, so a retry does not create a second row>"]]></ac:plain-text-body></ac:structured-macro>
+
+<p>It appends one <code>FB-n</code> row to <code>qa-factory/factory-backlog.md</code> under
+“Findings about the factory itself”; retrying the same key returns the existing row instead of
+duplicating it. The owner of such a finding is the factory, and it is never turned into a task for the person who hit it. The conductor and the guards write these rows
+by themselves when they recognise their own defect, and you can add one by hand at any time.</p>
+
+<ac:structured-macro ac:name="tip"><ac:rich-text-body><p>If a story will not move, run <code>/qa-factory:qa-doctor</code> first: a stuck stage or an orphaned dispatch is repaired by <code>recover</code>, and a dispatch nobody is doing is freed by <code>release</code> on your word. What the doctor cannot repair, it names with its owner — and if that owner is the factory, the finding is already recorded.</p></ac:rich-text-body></ac:structured-macro>

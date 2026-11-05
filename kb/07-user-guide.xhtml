@@ -1,0 +1,213 @@
+<ac:structured-macro ac:name="toc"/>
+<h2>Who this guide is for</h2>
+<p>This guide describes QA Factory version 0.10.2.</p>
+<p>Use QA Factory to test a ticket from requirements to a final QA result. This guide is for the QA engineer who runs it on a project: install it once, set the project up once, then test tickets.</p>
+<p>You run the factory from Claude Code: you type a skill command, the story moves through its stages in that session, and the factory asks you only what a person decides. Codex works the same way once the plugin is installed there; its install steps are in section 1.</p>
+<table><tbody>
+<tr><th>Command</th><th>When you type it</th></tr>
+<tr><td><code>/qa-factory:qa-onboarding</code></td><td>Once per project, and again after a major change to tests, environments, profiles or conventions</td></tr>
+<tr><td><code>/qa-factory:qa-story &lt;TICKET-ID&gt;</code></td><td>For every ticket you test</td></tr>
+<tr><td><code>/qa-factory:qa-doctor</code></td><td>After installing, between stories, and whenever something feels wrong</td></tr>
+<tr><td><code>/qa-factory:qa-collect</code></td><td>When you want to send the factory's records of your project to its developers</td></tr>
+</tbody></table>
+<h2>1. Install QA Factory</h2>
+<h3>Requirements</h3>
+<table><tbody>
+<tr><th>Requirement</th><th>Why</th></tr>
+<tr><td><code>git</code> on PATH</td><td>Branches, merge request conventions, project root detection</td></tr>
+<tr><td>Python 3.10 or newer on PATH</td><td>Every hook and helper is Python</td></tr>
+<tr><td>A git repository as the working folder</td><td>Onboarding and the story write their state into <code>&lt;project&gt;/qa-factory/</code></td></tr>
+</tbody></table>
+<p>Tools for your ticket system (Jira, Azure DevOps, GitLab, GitHub) and for test management (Xray, TestRail, Zephyr) are optional; you choose the channels during onboarding, and the default writes markdown files only.</p>
+<h3>Claude Code: from git</h3>
+<p>Install from the marketplace:</p>
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[claude plugin marketplace add Xartaxana/QAFactory
+claude plugin install qa-factory@qafactory]]></ac:plain-text-body></ac:structured-macro>
+<p>The marketplace that carries QA Factory is named qafactory.</p>
+<h3>Claude Code: from a local clone</h3>
+<p>Install from a local clone of the repository, on its default branch. If you already have a clone of <code>QAFactory</code>, do not clone it again: pull it.</p>
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[git clone https://github.com/Xartaxana/QAFactory.git
+cd QAFactory
+claude plugin marketplace add /path/to/QAFactory
+claude plugin install qa-factory@qafactory]]></ac:plain-text-body></ac:structured-macro>
+<p>Keep the clone of the plugin repository outside every project you onboard. The factory's hooks find the project by the nearest <code>qa-factory/config.json</code> above their working folder, so a plugin that lies inside a project makes hooks and self-tests mistake that project's stories for their own sandbox. A sibling folder is the usual place.</p>
+<p>A local clone is installed as it lies on disk, so anything a test run left inside the package goes along with it. Before installing from a clone, run <code>python scripts/selftest.py --hygiene</code> in the clone; it names every file that is not package content.</p>
+<h3>Codex</h3>
+<p>Codex has its own manifest and its own plugin commands. Follow these steps, and read <code>INSTALL.md</code> in the package for the access setup.</p>
+<ol>
+<li>Register the repository's marketplace with <code>codex plugin marketplace add &lt;local-clone-or-git-source&gt;</code>. Check the real source and marketplace name with <code>codex plugin marketplace list</code> and <code>codex plugin list</code> before installing.</li>
+<li>Install with <code>codex plugin add qa-factory@&lt;verified-marketplace-name&gt;</code>. Confirm that the installed manifest matches the source version and points to <code>./hooks/codex.json</code>, the Codex hook manifest.</li>
+<li>Review and enable the plugin's hooks in the host's trust flow. Repository trust and file existence do not grant hook trust.</li>
+<li>Select Full access for the project before the first doctor or onboarding run; installing the plugin alone does not change the permissions of the current task.</li>
+<li>If your Codex CLI needs explicit custom-agent profiles, preview them with <code>python &lt;plugin&gt;/scripts/codex_roles.py --root &lt;project&gt;</code> and add <code>--write</code> to export the roles into <code>.codex/agents/</code>. Existing profiles of yours are protected.</li>
+<li>Start a fresh Codex task, check that its permissions say Full access, and run the doctor. A mechanism the doctor cannot prove is reported as unverified, never as green.</li>
+</ol>
+<p>From there you invoke the same skills. The session dispatches the roles through the hook manifest and, in the Codex CLI, the exported profiles; in Codex Desktop it names each role's task.</p>
+<h3>Update and uninstall</h3>
+<p>An installed plugin is cached, and a plain reinstall over the same version does not refresh it. Update with the full cycle, restart Claude Code, then run <code>/qa-factory:qa-doctor</code>:</p>
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[claude plugin uninstall qa-factory@qafactory
+claude plugin marketplace update qafactory
+claude plugin install qa-factory@qafactory]]></ac:plain-text-body></ac:structured-macro>
+<ac:structured-macro ac:name="warning"><ac:rich-text-body><p>Never update the plugin under a live story: the session would run on two versions at once. Update between stories only.</p></ac:rich-text-body></ac:structured-macro>
+<p>To remove the plugin, run <code>claude plugin uninstall qa-factory</code>. The folder <code>&lt;project&gt;/qa-factory/</code> is yours and stays in place.</p>
+<h2>2. Check the installation</h2>
+<p>Confirm that the plugin is installed:</p>
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[claude plugin list | grep qa-factory]]></ac:plain-text-body></ac:structured-macro>
+<p>Open Claude Code in the repository of the project you want to test, and type <code>/qa-factory:</code>. The list shows four commands: <code>qa-collect</code>, <code>qa-doctor</code>, <code>qa-onboarding</code> and <code>qa-story</code>.</p>
+<p>After installing, run /qa-factory:qa-doctor: it reports what is missing and names one next action, normally /qa-factory:qa-onboarding.</p>
+<h2>3. Onboard your project</h2>
+<p>The project under test is the folder you start Claude Code from. Go to the repository of the project, or to the subfolder of a monorepo that holds the project, and run:</p>
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[/qa-factory:qa-onboarding]]></ac:plain-text-body></ac:structured-macro>
+<p>The factory reads the repository first and asks only what it could not find. For example:</p>
+<table><tbody>
+<tr><th>Topic</th><th>What you are asked</th></tr>
+<tr><td>Application repositories</td><td>Where the application code lives locally, if discovery could not find it</td></tr>
+<tr><td>Test environments and credentials</td><td>How each test environment is reached, which access scheme is the one, and who needs each key the environment file does not hold</td></tr>
+<tr><td>Test data</td><td>Accounts, real data and the masking rule, cleanup, and shared records</td></tr>
+<tr><td>Risk areas and the impact-class map</td><td>About risk, onboarding asks which parts of the product would hurt most if they broke, and then whether your project maps impact classes differently from the factory's canonical scale.</td></tr>
+<tr><td>Where results go</td><td>Where bugs go (markdown files by default, or Jira) and where cases and results go (markdown by default, or Xray, TestRail, Zephyr)</td></tr>
+<tr><td>Definition of Done</td><td>One sentence: when your team considers a story tested</td></tr>
+</tbody></table>
+<p>Git conventions, ticket and test-management tools and product basics are asked in the same way, and only where discovery found nothing. Questions come in batches of at most four, never one wall of every open topic.</p>
+<p>Nothing beyond reading the repository happens before you answer yes at the onboarding summary. The one exception is the run's own notes, which git ignores. Before it writes anything, the factory shows the summary and asks one question: write these files, yes or edit.</p>
+<ul>
+<li>Approve only if the information is correct: answer <code>yes</code>.</li>
+<li>If something is wrong: answer <code>edit</code>. The factory asks what to change and shows the summary once more.</li>
+</ul>
+<p>The factory proves each profile's test command at onboarding. A proven cure is offered in words, once per profile, and applied only on your yes.</p>
+<p>If the session is compacted or you start a new one, run <code>/qa-factory:qa-onboarding</code> again: onboarding continues from the notes of the run, and a topic you already answered is never asked again.</p>
+<p>After onboarding, run <code>/qa-factory:qa-doctor</code> again. It checks whether QA Factory is ready and names the next action, normally your first story.</p>
+<h2>4. Test a ticket</h2>
+<p>Start with the ticket id:</p>
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[/qa-factory:qa-story <TICKET-ID>]]></ac:plain-text-body></ac:structured-macro>
+<p>If you know where the developer's changes are, add one of <code>--mr</code>, <code>--branch</code> or <code>--commit</code>. They exclude each other: more than one stops the story. If you do not know the branch, merge request, commit or environment, start with the ticket id only, and the factory asks for what it needs.</p>
+<table><tbody>
+<tr><th>Option</th><th>Meaning</th></tr>
+<tr><td><code>--mr &lt;url|id&gt;</code></td><td>The merge request to ground the story on</td></tr>
+<tr><td><code>--branch &lt;name&gt;</code></td><td>A branch to compare with the default branch</td></tr>
+<tr><td><code>--commit &lt;sha&gt;</code></td><td>A commit to compare</td></tr>
+<tr><td><code>--env &lt;name&gt;</code></td><td>The test environment for this story, a name from your onboarding</td></tr>
+<tr><td><code>--ungrounded</code></td><td>Requirements only, no implementation: the tests are expected to fail</td></tr>
+<tr><td><code>--ticket-file &lt;path&gt;</code></td><td>This file is the requirement</td></tr>
+</tbody></table>
+<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[/qa-factory:qa-story <TICKET-ID> --branch <branch>
+/qa-factory:qa-story <TICKET-ID> --env <environment>]]></ac:plain-text-body></ac:structured-macro>
+<p>After a gate decision is recorded, the session stops with one line; continue with /qa-factory:qa-story and the same ticket. A decision you already recorded is never asked again when the story resumes. If the next stage will not fit the session, the factory asks you for <code>/compact</code> or a fresh <code>/qa-factory:qa-story</code> with the same ticket; nothing you already answered is asked again.</p>
+<h2>5. What you do during the story</h2>
+<p>The factory runs the stages itself. Your main responsibility is two gates: gate A after the plan and the cases, and gate B after the results. Besides them it also stops for you in four places:</p>
+<ul>
+<li>the review of the sources it found for the story, with its decision on each, at the start;</li>
+<li>a halt, when a decision is missing: it names what is needed and from whom, and "go on without it" is an answer;</li>
+<li>a stand-gap card, when a test cannot run because the test environment lacks something;</li>
+<li>one optional closing question at the end of the story.</li>
+</ul>
+<p>To approve a gate, answer with the word approve; words that ask for a change are not recorded as an approval. When you ask for a change, the stage is reworked first and the gate is asked again.</p>
+<h3>Gate A - review the test plan</h3>
+<p>Check that:</p>
+<ul>
+<li>all important requirements are covered;</li>
+<li>negative cases are included;</li>
+<li>high-risk areas are tested;</li>
+<li>unclear requirements are not guessed;</li>
+<li>proposed tests are useful and not duplicates.</li>
+</ul>
+<p>Approve only when the plan is good enough to execute.</p>
+<h3>A stand-gap card</h3>
+<p>A card names the fix, and you answer on a line of its own: the case id, a colon and one word. A card lists the words that apply to it.</p>
+<table><tbody>
+<tr><th>Word</th><th>What it means</th></tr>
+<tr><td><code>change</code></td><td>The factory makes the change shown on the card, on your word</td></tr>
+<tr><td><code>myself</code></td><td>You make that change yourself</td></tr>
+<tr><td><code>run</code></td><td>You run this test yourself, where the missing piece exists</td></tr>
+<tr><td><code>accept</code></td><td>It stays blocked and is reported as not run</td></tr>
+</tbody></table>
+<h3>Gate B - review the results</h3>
+<p>The message opens with the verdict and the traceability table. Check:</p>
+<ul>
+<li>what was planned;</li>
+<li>what was actually executed;</li>
+<li>what passed or failed;</li>
+<li>what was skipped, blocked, or not run;</li>
+<li>bugs and remaining risks.</li>
+</ul>
+<p>Then make the final QA decision (section 6). If something was not executed, it is visible and never silently treated as passed.</p>
+<h2>6. The delivery decision</h2>
+<p>Delivery has three outcomes: ready to ship, ready once you finish the checks left with you, and not ready to ship as is.</p>
+<table><tbody>
+<tr><th>Word</th><th>The report says</th><th>What it covers</th></tr>
+<tr><td><code>yes</code></td><td>Ready to ship</td><td>Everything is checked: no bug, no gap and nothing left with you</td></tr>
+<tr><td><code>after_checks</code></td><td>Ready once you finish the checks left with you</td><td>The factory found no bug and no gap, but part of the testing is left to you or to another environment</td></tr>
+<tr><td><code>no</code></td><td>Not ready to ship as is</td><td>A bug or a gap was found, or a requirement was not proven</td></tr>
+</tbody></table>
+<p>The section Left with you names every check handed to you and the regression scope the factory recommends. The checks handed to you, with the exact command, are also shown at gate B.</p>
+<p>For every gap that is yours to decide, you choose one of: fix now, verify on another environment, defer with a reminder, accept the risk. Bugs are answered by number: for example, file 1 and 3, and 2 is not a bug.</p>
+<ul>
+<li>On <code>yes</code> or <code>after_checks</code> you decide whether the factory opens a merge request. A merge request is only ever opened as a draft.</li>
+<li>When the verdict is not ready, there is no merge request to open; you may only deliver with known gaps, and only with a stated reason.</li>
+</ul>
+<h2>7. When the factory needs you</h2>
+<p>Every question the factory asks you is a closed question: each answer is followed by what it costs the factory, what it costs you, and what it does to the story.</p>
+<p>When the factory has no move of its own, its conductor offers you every move that lets the work continue, each with its price; in an interactive session the session itself plays the conductor.</p>
+<p>Your word passes any block. The factory records what you answered, in your own words. A request to change the factory is recorded as a finding about the factory; the factory never edits its own plugin.</p>
+<h2>8. If something goes wrong</h2>
+<p>Run <code>/qa-factory:qa-doctor</code>. Use it when:</p>
+<ul>
+<li>the factory does not start the story;</li>
+<li>a previous run was interrupted;</li>
+<li>the configuration looks incomplete;</li>
+<li>you are unsure what to do next.</li>
+</ul>
+<p>Follow the one next action the doctor shows.</p>
+<h2>9. Send the factory's records to its developers</h2>
+<p>/qa-factory:qa-collect packs the factory's records of your project into one file that you send to the factory's developers yourself.</p>
+<p>Run it from the project folder that holds <code>qa-factory/config.json</code>. The factory sends nothing from your machine.</p>
+<ul>
+<li>qa-collect asks two questions in one message, about the problems you had and what you would like done differently, and you may answer either, both or neither.</li>
+<li>It writes your answers down word for word, runs one packing command and shows you its summary.</li>
+<li>Everything that goes into the archive passes the factory's redaction rules: where a secret detector hits, only that unit (one line, one JSON value or one key) is replaced, never the whole file. The finished archive is read back and checked again; if anything is found, the archive is deleted and the command refuses.</li>
+<li>If the packing output names a set of records it could not find, say where it lives inside the project; nothing else is searched for.</li>
+<li>Your stories are not changed. You send the file named in the summary.</li>
+</ul>
+<h2>10. Where QA Factory keeps its files</h2>
+<p>The factory's files of a project live under qa-factory/: records/ is committed with the project, and state/ is machine-local and ignored by git.</p>
+<table><tbody>
+<tr><th>Path under <code>qa-factory/</code></th><th>What it holds</th></tr>
+<tr><td><code>config.json</code></td><td>The main project-specific configuration</td></tr>
+<tr><td><code>strategy/test-strategy.md</code></td><td>Project testing strategy and testing approach</td></tr>
+<tr><td><code>strategy/project-profile.md</code></td><td>Project context: product basics, stack, architecture, environments, test data</td></tr>
+<tr><td><code>strategy/framework-rules.md</code></td><td>Test framework rules and project conventions</td></tr>
+<tr><td><code>strategy/aspect-profile.md</code></td><td>Quality and risk aspects used during requirement analysis</td></tr>
+<tr><td><code>strategy/faq.md</code></td><td>Reusable project-specific answers collected during work</td></tr>
+<tr><td><code>records/journal.jsonl</code></td><td>The journal of what the factory did, committed with the project</td></tr>
+<tr><td><code>records/coverage-map.md</code></td><td>Requirement and area coverage</td></tr>
+<tr><td><code>state/factory-dashboard.html</code></td><td>HTML dashboard with the state of the factory and of the testing</td></tr>
+<tr><td><code>state/cost/</code></td><td>Token, request, timing and execution-cost telemetry</td></tr>
+<tr><td><code>artifacts/&lt;TICKET&gt;/</code></td><td>The story's folder; the four documents written for you are <code>understanding.md</code> and <code>test-plan.md</code> (gate A), <code>test-report.md</code> and <code>retro.md</code> (the end); the rest is working material</td></tr>
+<tr><td><code>bugs/</code></td><td>Bug reports, when file-based bug reporting is configured</td></tr>
+<tr><td><code>obligations.md</code></td><td>Follow-up items that cannot be completed now</td></tr>
+<tr><td><code>factory-backlog.md</code></td><td>Factory and setup findings and improvement items</td></tr>
+</tbody></table>
+<ul>
+<li>The readiness report is <code>qa-factory/state/readiness.json</code>.</li>
+<li>The coverage map is <code>qa-factory/records/coverage-map.md</code>.</li>
+<li>The product and business context is kept in the opening sections of <code>strategy/project-profile.md</code>.</li>
+</ul>
+<h2>11. Quick checklist</h2>
+<h3>First time on a project</h3>
+<ul>
+<li>Install the plugin (section 1).</li>
+<li>Check that <code>claude plugin list | grep qa-factory</code> shows it, and that <code>/qa-factory:</code> lists four commands.</li>
+<li>Open the project repository and run <code>/qa-factory:qa-doctor</code>.</li>
+<li>Run <code>/qa-factory:qa-onboarding</code>.</li>
+<li>Review and approve the onboarding summary.</li>
+<li>Run <code>/qa-factory:qa-doctor</code> again.</li>
+</ul>
+<h3>For every ticket</h3>
+<ul>
+<li>Run <code>/qa-factory:qa-story &lt;TICKET-ID&gt;</code>.</li>
+<li>Give one of the merge request, branch or commit, and the environment, if you know them.</li>
+<li>Review gate A.</li>
+<li>Review gate B.</li>
+<li>Make the final QA decision.</li>
+<li>After each gate, continue with the same command.</li>
+</ul>

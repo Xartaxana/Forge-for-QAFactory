@@ -1,0 +1,6 @@
+{
+  "name": "cost-band",
+  "version": "0.1.0",
+  "description": "A band above the prompt: model, tokens and API-price dollars for the session and its subagents, cache hit rate and time until the cache goes cold",
+  "author": { "name": "Xartaxana" }
+}

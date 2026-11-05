@@ -1,0 +1,13 @@
+# Строка манифеста `handed_to_person` не попадает в `handed_plan_rows`: обязательство её случая остаётся причиной покрытия, вердикт читает «нет» (близнец F-1 критика S5)
+
+id: — | кучка: `execution-report` | от: критик диффа S5 релиза 0.10.8 (`docs/tasks/specs/reviews/t-593-s5-critic.md`, F-1, «Twin»), проверено чтением 01.11.2026 | приоритет: П2 | кандидат наверх: нет
+
+Что не так: C5-4 (F-1 критика) научил `check_delivery.coverage_reasons` не считать причиной обязательство строки плана, все случаи которой человек взял руками: набор строк даёт `check_delivery.handed_plan_rows(artifacts)` (прочитано на `1afda33f`, `check_delivery.py:1511-1527`). Он собирается из `person_check_rows(artifacts)` — ответов человека в `request.json` (`refused.by: person_checks`) — и из индекса случаев. Строки манифеста `handed_to_person` (`contract.handed_tests`, читает `check_delivery.handed_rows` / `handed_records`) в этот набор не входят. Случай, который отдан человеку строкой манифеста, а не ответом `person_checks`, по-прежнему оставляет в `coverage_reasons` обязательство `not_run` и вердикт «нет» при зелёной остальной истории — то же, что F-1 назвал дырой, по другому носителю. Критик: «Twin: a manifest `handed_to_person` row has the same hole by reading (no filter in `coverage_reasons`); not probed» — на уровне чтения подтверждается (`handed_plan_rows` не зовёт `handed_rows`); не прогонялось.
+
+Что именно менять: `ai-packages/qa-factory/scripts/check_delivery.py`, функция `handed_plan_rows`: ключи отданных случаев брать из ОБОИХ носителей — `person_check_rows` и `handed_rows` (по `row["case"]`/ключу случая, как строит ключ `C.case_index`; проверить по коду, одна функция «какие случаи человек взял», AR-13; заметка t-727 К2-11: «mark_handed читает оба набора» — взять её функцию, а не третью). Красный прогон остаётся: условие `execution_state != "failed"` в `coverage_reasons` не трогать. Ошибка чтения любого из двух наборов — пустой набор строк, причина остаётся (FR-59). Тест `scripts/tests/test_check_delivery.py` (или соседний файл C5-4 — проверить по коду), фикстура С `work/test-plan.json`: (а) случай отдан строкой манифеста `handed_to_person`, зелёный → причины покрытия нет, `handed` показан; (б) то же, прогон красный → причина остаётся; (в) часть случаев строки отдана, часть нет → причина остаётся; (г) манифест нечитаем → причина остаётся.
+
+Свидетель: `docs/tasks/specs/reviews/t-593-s5-critic.md` F-1 (проба и «Twin»), строка 17; `ai-packages/qa-factory/scripts/check_delivery.py:1511` (`handed_plan_rows`), `:1530` (`coverage_reasons`); `docs/tasks/specs/reviews/t-727-t-721-plan.md` п. 14 (`mark_handed` и `handed_rows`).
+
+Принципы и правила: P21; FR-4, FR-35, FR-59; AR-13, AR-15, AR-28.
+
+Решение владельца нужно: нет.

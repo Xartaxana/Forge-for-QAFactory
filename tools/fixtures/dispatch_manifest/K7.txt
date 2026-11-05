@@ -1,0 +1,34 @@
+Task t-091 (B-155, pieces 0 and 1 of the split of test_story_run.py). Repo root: C:\proj. Run every command from the repo root with forward-slash paths; never use `cd`, never append ` 2>&1`. No git state changes (no add/commit/checkout/stash). The package is English only, no Cyrillic. Tests must never launch a real `claude -p`.
+
+given: the persisted spec C:\proj\docs\tasks\specs\t-089-split-test-story-run.md (read it whole first - it carries the measured inventory, the acceptance criteria, the witness-script subcommands and the old-unit -> new-file table); ai-packages/qa-factory/scripts/tests/test_story_run.py (whole); ai-packages/qa-factory/scripts/tests/harness.py; ai-packages/qa-factory/design/factory-rules.md (whole); plans/builder-rules.md.
+
+WHAT TO BUILD (only this, not pieces 2-9):
+1. The witness script `experiments/dev-speed/split_witness.py` (stdlib only) with the subcommands `selfcheck`, `baseline`, `piece <file>`, `final` exactly as the spec section "Witness script" describes, option `--work <dir>` for its data. It holds the spec's table as data. `piece` writes its own `<work>/pieces/<file>.json`; there is NO shared ledger (pieces 2-8 will be built by parallel builders), `final` takes the union.
+2. Piece 0: run `selfcheck`, then `baseline` (the old file takes 5-8 minutes: run it in the background with a generous timeout and wait; do not run it twice).
+3. Piece 1: `ai-packages/qa-factory/scripts/tests/story_run_common.py` per acceptance criterion 1 of the spec, then `piece` on it.
+
+owns:
+- C:\proj\experiments\dev-speed\split_witness.py
+- C:\proj\ai-packages\qa-factory\scripts\tests\story_run_common.py
+- C:\tmp\claude\proj\scratchpad\t089\ (the --work directory, scratch)
+
+non-goals: no edit to test_story_run.py, story_run.py, harness.py, selftest.py, the importers or any other file; no new test_story_run_*.py file (those are later pieces, other builders); no change to any scenario body, helper body or assertion; no full selftest.py, no install_smoke.py; a red baseline is reported, not fixed.
+
+edges:
+- inventory mismatch (not 37 scenario functions / 16 inline blocks / 37 helpers incl. the class / 20 constants / 76 top-level): STOP and report the numbers you measured; do not adapt the table yourself.
+- baseline not all green: STOP and report the failing lines.
+- `selfcheck` must work BEFORE any new test file exists: for its first negative control build the "new-style file" as a temp copy made by the script itself from one old scenario (in the work dir), change one assertion literal and show criterion 2 FAILS; second control: the baseline multiset minus one PASS token reports exactly 1 missing. If `baseline.out` does not exist yet, the second control uses a synthetic multiset - say so in its output.
+- PASS tokens: split on `(?=PASS |FAIL )` over the whole stdout (pool threads interleave lines); a token that repeats is counted as many times as it appears (multiset, not set).
+- helpers vs scenarios: a name is a scenario iff the spec's table lists it; everything else top-level (except `main` and `s0_scenarios`) is a helper/constant and goes to story_run_common.py identical by `ast.dump`.
+- story_run_common.py imports `harness` before anything from scripts/; it has no `main` and no `harness.finish`; `run_scenarios` does not catch exceptions; an empty `side_by_side` list starts no pool; an empty `in_process` list is legal.
+- line endings: the new module keeps the old file's line-ending style; the script compares.
+- the symtable check for story_run_common.py is run against EVERY old scenario and EVERY inline block of main() (names they read must be defined in the common module, imported, builtin, or be one of the two permitted locals `task` / `story_run`); report any name that is not.
+- while the old file still exists the common module DUPLICATES its helpers: that is expected until piece 9; nothing imports the common module yet.
+
+DoD: all three commands green, output verbatim in the report -
+`python -B experiments/dev-speed/split_witness.py --work <work> selfcheck`
+`python -B experiments/dev-speed/split_witness.py --work <work> baseline`
+`python -B experiments/dev-speed/split_witness.py --work <work> piece ai-packages/qa-factory/scripts/tests/story_run_common.py`
+plus `python -B ai-packages/qa-factory/scripts/selftest.py --limits --lang` (the new package file is English and within limits) and `python -B ai-packages/qa-factory/scripts/tests/test_no_real_claude.py`. Before and after: `git status --short` - only your two files are new.
+
+handoff: a report of at most 500 words - the verbatim outputs above (long ones: the path in the work dir plus the last 15 lines), the baseline N and its wall time, the measured inventory, the sha256 of story_run_common.py (from this moment the piece is FINISHED: you do not touch it again), the FR pass (section G: FR-29, FR-30, FR-31, FR-54; other sections one line each), analogs noticed, anything you needed beyond this manifest. Missing requirements come back as questions, not guesses.

@@ -1,0 +1,18 @@
+Task t-087 (B-158): MEASURE how long this repository's Claude Code hooks take per tool call, per hook. Measurement only - change no hook, no settings, no existing file. Repo root C:\proj; run everything from it; no `cd x &&`, no ` 2>&1`; no git state changes.
+
+Why: finding F-3 (docs/FINDINGS.md) estimated ~7 s per Edit/Write call, ~2 h a day over ~1000 edits. We need the per-hook numbers before deciding what to fix.
+
+GIVEN: .claude/settings.json (the hooks block: every event, matcher and command), the hook scripts those commands name (under tools/ and .claude/), docs/FINDINGS.md section F-3.
+
+OWNS (may write): experiments/dev-speed/hook_latency.py (new), experiments/dev-speed/hook-latency.md (new, the result). Nothing else. Temp files go to a temp dir the script creates and removes.
+
+WHAT TO BUILD: a script that, for every hook command configured for PreToolUse, PostToolUse, UserPromptSubmit, Stop/SubagentStop and SessionStart, runs the exact command line from settings.json with a realistic JSON payload on stdin for each matcher it applies to (at least: Edit on a .py file under ai-packages/, Edit on logs/routing-log.jsonl, Write of a new .md, Bash with a short command, Read, Agent/Task dispatch), N=5 times each, and records wall time (min / median / max) and exit code. Payload paths must point at COPIES in the temp dir or at harmless read-only targets so that no hook mutates a real file: if a hook writes state (e.g. a track or ledger file under .claude/ or logs/), say so in the result and measure it with its state path redirected if the hook offers a way, otherwise measure once and list the file it touched - do not leave changed tracked files behind (check `git status --short` before and after; it must be identical, quote both).
+Also measure the floor: `python -c pass` start-up time on this machine (N=5), so that interpreter start is separated from hook work.
+
+RESULT FILE experiments/dev-speed/hook-latency.md (English or Russian, outside the package): one table - event, matcher, hook command (short name), median ms, max ms, share of the per-call total; then per tool (Edit, Write, Bash, Read, Agent) the summed median of all hooks that fire on one call; then the three most expensive hooks with what in them takes the time (read their code: imports, file scans, subprocess calls, whole-journal reads) and the cheapest fix for each (one sentence each, no implementation).
+
+EDGES: a hook command that cannot run outside a live session (needs env vars the harness sets) - report which variable is missing and measure with it set to a plausible value, labelled as such; a hook that exits non-zero on the synthetic payload - record the code and the first line of its output, still time it; Windows: commands run through the same shell settings.json uses.
+
+DoD / witness, verbatim in the report: the script's full output table; `git status --short` before and after (identical); `python -B experiments/dev-speed/hook_latency.py --self-check` - a mode that times a no-op command and a `python -c "import time; time.sleep(0.5)"` command and asserts the measured medians are < 300 ms above floor and within 450-900 ms respectively (the negative control that the timer works).
+Non-goals: fixing anything; measuring hooks of the qa-factory package (ai-packages/qa-factory/hooks) - only this repository's own development hooks.
+Handoff: report <= 400 words: the per-tool totals, the top three hooks and proposed fixes, anything that could not be measured and why.

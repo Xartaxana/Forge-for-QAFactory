@@ -1,0 +1,8 @@
+#!/bin/sh
+# F6-38/t-1738: after a merge INTO main in the main checkout, start the FULL worktree sweep in the background (tools/worktree_sweep.py).
+# Never fails the merge (git ignores this hook's exit code). In a linked worktree it exits before python: the tool there is the branch's copy.
+gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+common=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+[ -n "$gd" ] && [ "$gd" = "$common" ] || exit 0
+[ -f tools/worktree_sweep.py ] || { echo "post-merge: tools/worktree_sweep.py not found; nothing swept" >&2; exit 0; }
+python tools/worktree_sweep.py --post-merge --squash-flag "$1" || true

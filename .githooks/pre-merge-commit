@@ -1,0 +1,20 @@
+#!/bin/sh
+# Forge attribution gate for a merge: when a branch of another developer is merged into this
+# one, every NEW backlog row, NEW package file and NEW journal event it brings must carry a
+# feature attribution (a tag / a registered feature / a `feature` field). It names each
+# offender with its door. set -e: the exit code of the check is the hook's exit code, so a
+# merge with an unattributed addition does not land until it is attributed.
+# (Fires only when the merge commits itself; a merge stopped by a conflict is concluded with
+# `git commit`, which runs pre-commit, where the same check runs in WARN mode.)
+#
+# B-401: the journal lines the OTHER clone brought are also checked for FORM here. The journal
+# never conflicts (merge=union), so a clean merge reaches this hook with the union staged and
+# MERGE_HEAD NOT resolvable; git names the merged parent in GITHEAD_<sha>=<branch> (measured on
+# git 2.45.1, Windows; the variable name is upper-cased by Python's os.environ there). No GITHEAD
+# -> exit 0 plus a WARN; several (an octopus merge) -> exit 1. A refused merge is left in progress
+# (MERGE_HEAD present): append the merge-accepts line the refusal names, then `git commit`.
+set -e
+python tools/forge_metrics.py --check
+python tools/journal_validator.py --merge-parent env
+# A clean merge never runs pre-commit: the generated piles board is checked here too (critic t-587 P12).
+python tools/piles.py board --check

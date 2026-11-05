@@ -1,0 +1,1416 @@
+"""Unit/smoke tests for tools/owns_gate.py. Covers: overlap checking
+(equal paths / a nested directory / a glob in either direction /
+sibling directories with a common name prefix -- NOT an overlap), the
+24h liveness window (ON the boundary -- still live; BEYOND it -- stale),
+the cwd scope (a different cwd is ignored, the same cwd + a different
+session_key -> WARN with a parallel-session label), a read-only
+dispatch -- silence, the sidecar does not grow, a non-Task tool --
+silence, a missing/malformed sidecar line -- fail-open, an adversarial
+stdin battery (malformed JSON, non-UTF-8 bytes, a huge owns string
+>1MB, a payload that isn't a dict) -- exit 0 everywhere, no traceback;
+PLUS named regressions for each extraction class: canonical forms
+(EN/RU, markdown bullet, guillemets, a prose-tail cut that preserves
+paths with spaces), a marker false-positive on a Given line yielding to
+a real owns line below, the empty-owns diagnostic (WARN, sidecar not
+grown), WARN dedup for one path against several live records, and the
+sidecar compaction boundary at 500/501 lines.
+
+Run from the repo root: python -m pytest toolkit/tools/test_owns_gate.py
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import owns_gate  # noqa: E402
+import dispatch_gate  # noqa: E402
+
+SCRIPT = Path(__file__).resolve().parent / "owns_gate.py"
+
+
+def _run_hook(raw_input, cwd=None, **kwargs) -> subprocess.CompletedProcess:
+    # cwd is ALWAYS passed explicitly by tests that write through the
+    # sidecar (payload["cwd"] determines the logs/owns_registry.jsonl
+    # path, see owns_gate.py's docstring) -- otherwise the subprocess
+    # would inherit the test runner's cwd and append to the REAL repo
+    # file logs/owns_registry.jsonl.
+    return subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        input=raw_input,
+        capture_output=True,
+        cwd=str(cwd) if cwd is not None else None,
+        **kwargs,
+    )
+
+
+# B-201: owns_gate registers a builder dispatch only when dispatch_gate.decide
+# does not refuse it, and decide() now refuses a builder dispatch that lacks
+# the full form (given/owns/non-goals/handoff/edges/DoD with a command).
+# _FORM_TAIL completes the old-shape fixtures below (the premise of those
+# tests -- "a passing dispatch" -- is kept).
+_FORM_TAIL = (
+    "non-goals: none\n"
+    "handoff: a short report\n"
+    "edges: none -- nothing to limit\n"
+    "DoD: `python -m pytest tools/x.py -q`\n"
+)
+
+
+def _writing_payload(owns_text: str, session_id="s-1", cwd="D:\\ctl", description="sonnet: write") -> dict:
+    # owns is on ITS OWN line (a realistic manifest form for this kit:
+    # each manifest item is a separate bullet line).
+    prompt = (
+        "DoD: the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        f"owns: {owns_text}.\n"
+        + _FORM_TAIL
+        + "Edit the files."
+    )
+    return {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": description},
+        "session_id": session_id,
+        "cwd": cwd,
+    }
+
+
+def _write_registry_line(path: Path, ts: str, session_key: str, cwd: str, description: str, owns: list) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"ts": ts, "session_key": session_key, "cwd": cwd, "description": description, "owns": owns}
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+# ---------------------------------------------------------------------
+# Extracting owns paths from the prompt.
+# ---------------------------------------------------------------------
+
+
+def test_extract_owns_paths_windows_absolute():
+    # FLIPPED (B-204): a marker in the MIDDLE of a given line is not an owns header; the owns line stands alone now
+    paths = owns_gate.extract_owns_paths("Given: the repo.\nowns: D:\\repo\\tools\\x.py; D:\\repo\\tools\\y.py.")
+    assert paths == ["D:\\repo\\tools\\x.py", "D:\\repo\\tools\\y.py"]
+
+
+def test_extract_owns_paths_no_marker_is_readonly():
+    assert owns_gate.extract_owns_paths("Read the file and tell me what's in it.") == []
+
+
+def test_extract_owns_paths_drops_relative_prose_tokens():
+    # "a line in .gitignore" is not a path-like token (no drive/slash
+    # at the start, no "*") -- dropped by the is_path_token filter.
+    paths = owns_gate.extract_owns_paths(
+        "owns: D:\\repo\\tools\\x.py, a line in .gitignore (not a path)."
+    )
+    assert paths == ["D:\\repo\\tools\\x.py"]
+
+
+# --- canonical form / RU form / markdown / guillemets / prose tail ----
+
+
+def test_extract_owns_paths_canonical_single_path_form():
+    prompt = "owns (ABSOLUTE write paths): D:/repo/tools/only_one.py"
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/tools/only_one.py"]
+
+
+def test_extract_owns_paths_canonical_two_paths_form():
+    prompt = "owns (ABSOLUTE write paths): D:/repo/tools/a.py; D:/repo/tools/b.py"
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:/repo/tools/a.py",
+        "D:/repo/tools/b.py",
+    ]
+
+
+def test_extract_owns_paths_ru_form():
+    prompt = "owns (\u0410\u0411\u0421\u041e\u041b\u042e\u0422\u041d\u042bE \u043f\u0443\u0442\u0438 \u0437\u0430\u043f\u0438\u0441\u0438): D:/repo/tools/x.py"
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/tools/x.py"]
+
+
+def test_extract_owns_paths_markdown_bullet_form():
+    prompt = "- **owns**: D:/a.py; D:/b.py"
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/a.py", "D:/b.py"]
+
+
+def test_extract_owns_paths_guillemets_quoted_path():
+    prompt = "owns: \u00abD:/a.py\u00bb"
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/a.py"]
+
+
+def test_extract_owns_paths_prose_tail_cut_preserves_path_with_space():
+    # A tail " -- a new file" (space-emdash-space) is cut off the first
+    # token; the SECOND token's path contains a space and must survive
+    # WHOLE -- no split on a bare space.
+    prompt = "owns: D:/a.py \u2014 a new file; D:/AI CRM/x/AGENTS.md"
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:/a.py",
+        "D:/AI CRM/x/AGENTS.md",
+    ]
+
+
+# ---------------------------------------------------------------------
+# Backtick-wrapped paths, quoted-with-space paths in the continuation
+# form, and a bold marker + bulleted continuation below.
+# ---------------------------------------------------------------------
+
+
+def test_backtick_wrapped_path_single_line_recognized():
+    prompt = "owns: `D:/repo/tools/a.py`, `D:/repo/tools/b.py`"
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:/repo/tools/a.py",
+        "D:/repo/tools/b.py",
+    ]
+
+
+def test_backtick_wrapped_path_continuation_recognized():
+    prompt = "owns:\n- `D:/repo/tools/a.py`\n- `D:/repo/tools/b.py`\n"
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:/repo/tools/a.py",
+        "D:/repo/tools/b.py",
+    ]
+
+
+def test_quoted_path_with_space_continuation_preserved():
+    prompt = 'owns:\n- "D:/repo/my folder/a.py"\n'
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/my folder/a.py"]
+
+
+def test_backtick_path_with_space_continuation_preserved():
+    prompt = "owns:\n- `D:/repo/my folder/a.py`\n"
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/my folder/a.py"]
+
+
+def test_unclosed_quote_continuation_falls_back_to_whitespace_split():
+    # An unclosed quote -- _first_raw_token finds no matching character,
+    # falls back to a plain space split; a path with no internal space
+    # is recognized as before, the quote is edge-trimmed on one side.
+    prompt = 'owns:\n- "D:/repo/tools/a.py\n'
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/tools/a.py"]
+
+
+def test_bold_marker_with_bulleted_continuation_below_parses_paths():
+    prompt = (
+        "DoD: acceptance criteria -- the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        "**owns (ABSOLUTE write paths):**\n"
+        "- D:\\repo\\tools\\dispatch_gate.py\n"
+        "- D:\\repo\\tools\\owns_gate.py\n"
+        "- D:\\repo\\tools\\test_dispatch_gate.py\n"
+        "- D:\\repo\\tools\\test_owns_gate.py\n"
+        "Edit the files per the spec."
+    )
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:\\repo\\tools\\dispatch_gate.py",
+        "D:\\repo\\tools\\owns_gate.py",
+        "D:\\repo\\tools\\test_dispatch_gate.py",
+        "D:\\repo\\tools\\test_owns_gate.py",
+    ]
+
+
+def test_decide_bold_marker_writes_declared_paths_to_sidecar(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    prompt = (
+        "DoD: acceptance criteria -- the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        "**owns (ABSOLUTE write paths):**\n"
+        "- D:\\repo\\tools\\dispatch_gate.py\n"
+        "- D:\\repo\\tools\\owns_gate.py\n"
+        + _FORM_TAIL
+        + "Edit the files per the spec."
+    )
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 10, 12, 0, 0))
+    assert exit_code == 0
+    assert output is None
+    written = [json.loads(ln) for ln in registry.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert written[0]["owns"] == [
+        "D:\\repo\\tools\\dispatch_gate.py",
+        "D:\\repo\\tools\\owns_gate.py",
+    ]
+
+
+def test_two_bold_marker_manifests_with_overlap_detected(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 8, 10, 12, 0, 0)
+    prompt1 = (
+        "DoD: witness attached.\n"
+        "Given: the whole repo.\n"
+        "**owns (ABSOLUTE write paths):**\n"
+        "- D:/repo/tools/shared.py\n"
+        + _FORM_TAIL
+        + "Edit the files."
+    )
+    payload1 = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt1, "description": "sonnet: write A"},
+        "session_id": "s-A",
+        "cwd": "D:\\ctl",
+    }
+    exit_code1, output1 = owns_gate.decide(payload1, registry_path=registry, now=now)
+    assert exit_code1 == 0
+    assert output1 is None
+
+    prompt2 = (
+        "DoD: witness attached.\n"
+        "Given: the whole repo.\n"
+        "**owns (ABSOLUTE write paths):**\n"
+        "- D:/repo/tools/shared.py\n"
+        + _FORM_TAIL
+        + "Edit the files."
+    )
+    payload2 = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt2, "description": "sonnet: write B"},
+        "session_id": "s-B",
+        "cwd": "D:\\ctl",
+    }
+    exit_code2, output2 = owns_gate.decide(payload2, registry_path=registry, now=now)
+    assert exit_code2 == 0
+    assert output2 is not None
+    assert "OWNS OVERLAP" in output2["hookSpecificOutput"]["additionalContext"]
+
+
+def test_owns_bare_marker_without_any_paths_stays_empty():
+    assert owns_gate.extract_owns_paths("**owns:**\n") == []
+    assert owns_gate.extract_owns_paths("owns:") == []
+
+
+def test_fenced_code_block_marker_not_specially_parsed_documented_non_goal():
+    prompt = "**owns (ABSOLUTE write paths):**\n```\nD:/repo/tools/a.py\n```\n"
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+# ---------------------------------------------------------------------
+# is_path_token() no longer counts a bare "*" (markdown decoration) as
+# a path -- a live sidecar could otherwise register prose containing
+# "**" as an owns path.
+# ---------------------------------------------------------------------
+
+
+def test_markdown_bold_decoration_no_slash_not_a_path_single_line():
+    prompt = "owns: the flip side.** A writing dispatch with no real path."
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_is_path_token_rejects_bare_star_without_slash_direct():
+    assert owns_gate.is_path_token("**Attention") is False
+    assert owns_gate.is_path_token("the flip side.**") is False
+    # Positive control (command hygiene rule 6): a glob WITH a slash is
+    # still path-like -- the negative above would not prove the
+    # function's absence without this control.
+    assert owns_gate.is_path_token("tools/*.py") is True
+    assert owns_gate.is_path_token("D:/repo/tools/a.py") is True
+
+
+def test_decide_prose_with_bare_star_does_not_register_in_sidecar(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    prompt = (
+        "DoD: the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        "owns: the flip side.** A writing dispatch with no real path.\n"
+        "Edit file x.py."
+    )
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 10, 12, 0, 0))
+    assert exit_code == 0
+    assert output is not None
+    assert "blind" in output["hookSpecificOutput"]["additionalContext"]
+    assert not registry.exists()
+
+
+def test_is_continuation_path_token_delegates_to_shared_predicate():
+    for tok in ("**Attention**:", "tools/test_*.py", "D:/repo/a.py", "flipside.**", "/repo/a.py"):
+        assert owns_gate.is_path_token(tok) == owns_gate._is_continuation_path_token(tok), tok
+
+
+def test_extract_owns_paths_marker_false_positive_line_skipped_for_valid_line_below():
+    prompt = (
+        "Given: edits to tools/owns_gate.py are already staged.\n"
+        "owns: D:\\repo\\tools\\owns_gate.py.\n"
+    )
+    assert owns_gate.extract_owns_paths(prompt) == ["D:\\repo\\tools\\owns_gate.py"]
+
+
+# --- word-boundary line selection: a marker false-positive on a Given
+# line, sitting next to real absolute paths, must not hijack the real
+# owns line below. -------------------------------------------------
+
+_CONTROL_INPUT_PROMPT = (
+    "DoD: the test is green, witness attached.\n"
+    "Given: D:/x/tools/owns_gate.py, D:/x/tools/dispatch_gate.py, D:/x/CLAUDE.md\n"
+    "owns (ABSOLUTE write paths): D:/x/tools/owns_gate.py\n"
+    "Edit the files."
+)
+
+
+def test_extract_owns_paths_given_line_with_owns_in_filename_does_not_hijack():
+    # A class edge, not a one-off: a false marker + valid paths on the
+    # SAME line. "_" is a word character, so "owns_gate.py" does not
+    # give "\bowns\b" -- the real owns line BELOW is used instead.
+    assert owns_gate.extract_owns_paths(_CONTROL_INPUT_PROMPT) == [
+        "D:/x/tools/owns_gate.py"
+    ]
+
+
+def test_decide_given_line_with_owns_in_filename_writes_declared_owns_only(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {
+            "subagent_type": "builder",
+            "prompt": _CONTROL_INPUT_PROMPT,
+            "description": "sonnet: write",
+        },
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    # the shared prompt constant stays as it is (the extraction test above reads it);
+    # the dispatch handed to decide() is completed with the full-form tail
+    payload["tool_input"]["prompt"] = _CONTROL_INPUT_PROMPT + "\n" + _FORM_TAIL
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
+    assert exit_code == 0
+    assert output is None  # no live records yet -- silence
+
+    written = [json.loads(ln) for ln in registry.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(written) == 1
+    assert written[0]["owns"] == ["D:/x/tools/owns_gate.py"]
+    assert "D:/x/tools/dispatch_gate.py" not in written[0]["owns"]
+    assert "D:/x/CLAUDE.md" not in written[0]["owns"]
+
+
+# --- port adaptation: this kit's dispatch_gate.py carries only ONE
+# owns marker regex, already word-bounded (MANIFEST_OWNS_RE) -- there
+# is no separate, unbounded substring regex to fall back to (see the
+# module docstring, "Owns MARKER"). A prompt whose only "owns" mention
+# is embedded inside another word is therefore treated exactly like a
+# prompt with no owns marker at all -- no fallback pass recovers it.
+# ---------------------------------------------------------------------
+
+
+def test_no_fallback_pass_substring_only_owns_mention_is_treated_as_readonly():
+    prompt = (
+        "DoD: the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        "manifest_owns_block; D:/repo/tools/a.py; D:/repo/tools/b.py\n"
+    )
+    assert owns_gate.MANIFEST_OWNS_RE.search(prompt) is None  # no word-bounded match anywhere
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_extract_owns_paths_word_boundary_line_without_paths_stays_empty():
+    prompt = (
+        "owns: to be filled in later\n"
+        "Given: D:/x/tools/owns_gate.py, D:/x/CLAUDE.md\n"
+    )
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_extract_owns_paths_leading_star_glob_is_stripped_known_limitation():
+    # A known limitation, pinned as current behavior (not fixed): a
+    # leading `*` is one of the junk leading characters (there for
+    # markdown "**owns**:") and gets eaten by the stripper. A glob with
+    # a leading star falls outside rule 11's "ABSOLUTE write paths"
+    # norm anyway.
+    assert owns_gate.extract_owns_paths("owns: */tools/*") == ["/tools/*"]
+
+
+# --- multi-line owns block ---------------------------------------------
+
+
+def test_extract_owns_paths_multiline_bullet_block():
+    prompt = (
+        "Given: the whole repo.\n"
+        "owns:\n"
+        "- D:/repo/tools/a.py\n"
+        "- D:/repo/tools/b.py\n"
+        "Edit the files."
+    )
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:/repo/tools/a.py",
+        "D:/repo/tools/b.py",
+    ]
+
+
+def test_extract_owns_paths_multiline_star_and_middot_bullets():
+    prompt = "owns:\n* D:/a.py\n\u2022 D:/b.py\n"
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/a.py", "D:/b.py"]
+
+
+def test_extract_owns_paths_multiline_bare_path_lines_no_bullets():
+    prompt = "owns:\nD:/repo/tools/a.py\nD:/repo/tools/b.py\n"
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:/repo/tools/a.py",
+        "D:/repo/tools/b.py",
+    ]
+
+
+def test_extract_owns_paths_marker_line_with_paths_takes_priority_over_block_below():
+    prompt = "owns: D:/repo/tools/only_this.py\n- D:/repo/tools/should_not_appear.py\n"
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/tools/only_this.py"]
+
+
+def test_extract_owns_paths_empty_line_immediately_after_marker_ends_block():
+    prompt = "owns:\n\n- D:/repo/tools/a.py\n"
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_extract_owns_paths_non_goals_section_right_after_marker_ends_block():
+    prompt = (
+        "owns:\n"
+        "non-goals: toolkit/**\n"
+        "- D:/repo/tools/a.py\n"
+    )
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_extract_owns_paths_handoff_section_right_after_marker_ends_block():
+    prompt = "owns:\nhandoff: see the report\n- D:/repo/tools/a.py\n"
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_extract_owns_paths_given_ru_section_right_after_marker_ends_block():
+    prompt = "owns:\n\u0434\u0430\u043d\u043e: the whole repo\n- D:/repo/tools/a.py\n"
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_extract_owns_paths_continuation_stops_at_first_non_path_line():
+    prompt = (
+        "owns:\n"
+        "- D:/repo/tools/a.py\n"
+        "a prose line with no path\n"
+        "- D:/repo/tools/should_not_appear.py\n"
+    )
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/tools/a.py"]
+
+
+def test_decide_multiline_owns_block_writes_declared_paths_to_sidecar(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    prompt = (
+        "DoD: the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        "owns:\n"
+        "- D:/repo/tools/a.py\n"
+        "- D:/repo/tools/b.py\n"
+        + _FORM_TAIL
+        + "Edit the files."
+    )
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is None
+    written = [json.loads(ln) for ln in registry.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert written[0]["owns"] == ["D:/repo/tools/a.py", "D:/repo/tools/b.py"]
+
+
+# --- continuation-line limit (boundary-tested both sides) --------------
+
+
+def test_extract_owns_paths_continuation_exactly_40_lines_returns_all():
+    lines = ["owns:"] + [f"- D:/repo/tools/f{i}.py" for i in range(40)]
+    prompt = "\n".join(lines) + "\n"
+    result = owns_gate.extract_owns_paths(prompt)
+    assert len(result) == 40
+    assert result[0] == "D:/repo/tools/f0.py"
+    assert result[-1] == "D:/repo/tools/f39.py"
+
+
+def test_extract_owns_paths_continuation_41_lines_hits_limit_returns_empty():
+    lines = ["owns:"] + [f"- D:/repo/tools/f{i}.py" for i in range(41)]
+    prompt = "\n".join(lines) + "\n"
+    # The block would STILL be continuing at line 41 -- hits the
+    # limit, an empty list, not a silent truncation to the first 40.
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_decide_continuation_limit_hit_gives_blind_owns_warn(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    lines = ["owns:"] + [f"- D:/repo/tools/f{i}.py" for i in range(41)]
+    prompt = (
+        "DoD: the test is green, witness attached.\nGiven: the whole repo.\n"
+        + "\n".join(lines) + "\nEdit file x.py."
+    )
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is not None
+    assert "blind" in output["hookSpecificOutput"]["additionalContext"]
+    assert not registry.exists()
+
+
+# --- "declaration, not prose" gate --------------------------------------
+
+
+def test_regression_prose_owns_word_does_not_hijack_declaration_below():
+    prompt = (
+        "Task: fixing the gate.\n"
+        "Don't go beyond the owns of this task.\n"
+        "D:/repo/readme.md -- read before starting\n"
+        "\n"
+        "owns: D:/repo/real_target.py\n"
+    )
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/repo/real_target.py"]
+
+
+def test_decide_regression_prose_owns_word_sidecar_gets_real_target(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    prompt = (
+        "DoD: the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        "Task: fixing the gate.\n"
+        "Don't go beyond the owns of this task.\n"
+        "D:/repo/readme.md -- read before starting\n"
+        "\n"
+        "owns: D:/repo/real_target.py\n"
+        + _FORM_TAIL
+        + "Edit the files."
+    )
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    written = [json.loads(ln) for ln in registry.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert written[0]["owns"] == ["D:/repo/real_target.py"]
+
+
+def test_prose_owns_word_mid_sentence_alone_gives_blind_warn_not_silence(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    prompt = (
+        "DoD: the test is green, witness attached.\nGiven: the whole repo.\n"
+        "Don't go beyond the owns of this task.\n"
+        "D:/repo/readme.md -- read before starting\n"
+        "Edit file x.py."
+    )
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is not None
+    assert "blind" in output["hookSpecificOutput"]["additionalContext"]
+    assert not registry.exists()
+
+
+def test_markdown_bold_junk_line_under_marker_does_not_pollute_block():
+    prompt = (
+        "owns:\n"
+        "**Attention**: write only here\n"
+        "- D:/repo/tools/a.py\n"
+    )
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_dod_line_under_marker_does_not_get_swallowed_whole():
+    prompt = (
+        "owns:\n"
+        "DoD: run pytest tools/test_*.py -q\n"
+        "- D:/repo/tools/a.py\n"
+    )
+    assert owns_gate.extract_owns_paths(prompt) == []
+
+
+def test_numbered_list_recognized_as_bullet_form():
+    prompt = "owns:\n1. D:/repo/tools/a.py\n2) D:/repo/tools/b.py\n"
+    assert owns_gate.extract_owns_paths(prompt) == [
+        "D:/repo/tools/a.py",
+        "D:/repo/tools/b.py",
+    ]
+
+
+def test_prose_tail_after_bullet_path_is_cut_not_swallowed_whole():
+    prompt = "owns:\n- D:/repo/tools/a.py -- the main file\n"
+    paths = owns_gate.extract_owns_paths(prompt)
+    assert paths == ["D:/repo/tools/a.py"]
+    assert owns_gate.paths_overlap(paths[0], "D:/repo/tools/a.py") is True
+
+
+def test_is_continuation_path_token_rejects_bare_star_without_slash():
+    assert owns_gate._is_continuation_path_token("**Attention**:") is False
+    assert owns_gate._is_continuation_path_token("tools/test_*.py") is True
+    assert owns_gate._is_continuation_path_token("D:/repo/a.py") is True
+
+
+def test_strip_owns_marker_junk_50kb_paren_groups_completes_under_5s():
+    junk = "(x)" * 16667  # 50 001 characters
+    assert len(junk) >= 50000
+    # FLIPPED (B-204): the junk sits AFTER the colon (a header allows 160 characters before it); the stripper is still what is timed
+    prompt = "owns: " + junk + " D:/repo/tools/a.py"
+    started = time.time()
+    paths = owns_gate.extract_owns_paths(prompt)
+    elapsed = time.time() - started
+    assert paths == ["D:/repo/tools/a.py"]
+    assert elapsed < 5.0
+
+
+# ---------------------------------------------------------------------
+# Path overlap checking (boundary-tested).
+# ---------------------------------------------------------------------
+
+
+def test_equal_paths_overlap():
+    assert owns_gate.paths_overlap("D:\\x\\y.py", "D:\\x\\y.py") is True
+
+
+def test_nested_directory_overlaps():
+    assert owns_gate.paths_overlap("D:\\x\\y", "D:\\x") is True
+    assert owns_gate.paths_overlap("D:\\x", "D:\\x\\y") is True
+
+
+def test_glob_overlaps_both_directions():
+    assert owns_gate.paths_overlap("D:\\x\\*.py", "D:\\x\\y.py") is True
+    assert owns_gate.paths_overlap("D:\\x\\y.py", "D:\\x\\*.py") is True
+
+
+def test_sibling_directories_common_name_prefix_do_not_overlap():
+    # D:\ab vs D:\abc -- NOT an overlap (a segment-boundary check, not a
+    # bare substring prefix).
+    assert owns_gate.paths_overlap("D:\\ab", "D:\\abc") is False
+    assert owns_gate.paths_overlap("D:\\abc", "D:\\ab") is False
+
+
+# ---------------------------------------------------------------------
+# decide(): the 24h window -- ON the boundary and BEYOND it.
+# ---------------------------------------------------------------------
+
+
+def test_window_on_boundary_still_live(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    boundary_ts = (now - timedelta(seconds=owns_gate.WINDOW_SECONDS)).strftime(owns_gate._TS_FORMAT)
+    # A DIFFERENT session than the new dispatch below -- same-session
+    # retry exclusion (K1) would otherwise silence an equal owns set,
+    # which is not what this test is checking (the window boundary).
+    _write_registry_line(registry, boundary_ts, "s-OTHER", "D:\\ctl", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+
+    payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
+    assert exit_code == 0
+    assert output is not None
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "OWNS OVERLAP" in ctx
+
+
+def test_window_beyond_boundary_is_stale(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    stale_ts = (now - timedelta(seconds=owns_gate.WINDOW_SECONDS + 1)).strftime(owns_gate._TS_FORMAT)
+    _write_registry_line(registry, stale_ts, "s-1", "D:\\ctl", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+
+    payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
+    assert exit_code == 0
+    assert output is None
+
+
+# ---------------------------------------------------------------------
+# Scope: cwd, NOT session_key (session_key is only a label).
+# ---------------------------------------------------------------------
+
+
+def test_scope_different_cwd_is_ignored(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    fresh_ts = now.strftime(owns_gate._TS_FORMAT)
+    _write_registry_line(registry, fresh_ts, "s-1", "D:\\OTHER_REPO", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+
+    # Same session_key ("s-1"), but a DIFFERENT cwd -- ignored: the
+    # check scope is the repo (cwd), not the session.
+    payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
+    assert exit_code == 0
+    assert output is None
+
+
+def test_scope_same_cwd_different_session_key_warns_with_parallel_session_label(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    fresh_ts = now.strftime(owns_gate._TS_FORMAT)
+    _write_registry_line(registry, fresh_ts, "s-OTHER", "D:\\ctl", "sonnet: prior write", ["D:\\repo\\tools\\x.py"])
+
+    payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
+    assert exit_code == 0
+    assert output is not None
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "a different session" in ctx
+
+
+# ---------------------------------------------------------------------
+# WARN dedup: one new path against several live records.
+# ---------------------------------------------------------------------
+
+
+def test_dedup_single_path_multiple_live_records_one_warn_line(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    fresh_ts = now.strftime(owns_gate._TS_FORMAT)
+    for i in range(3):
+        _write_registry_line(
+            registry, fresh_ts, f"s-other-{i}", "D:\\ctl", f"sonnet: prior write {i}",
+            ["D:\\repo\\tools\\shared.py"],
+        )
+
+    payload = _writing_payload("D:\\repo\\tools\\shared.py", session_id="s-me", cwd="D:\\ctl")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
+    assert exit_code == 0
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    # One WARN line for this path, not three -- at most 2 mentions +
+    # an "and N more" tail.
+    assert ctx.count("D:\\repo\\tools\\shared.py overlaps") == 1
+    assert "and 1 more" in ctx
+
+
+# ---------------------------------------------------------------------
+# Diagnosing an empty owns: a marker + write indicator with no paths.
+# ---------------------------------------------------------------------
+
+
+def test_decide_blind_owns_warn_when_marker_present_but_no_paths_parsed(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    prompt = (
+        "DoD: the test is green, witness attached.\n"
+        "Given: the whole repo.\n"
+        "owns: something unparseable here with no paths.\n"
+        "Edit file x.py."
+    )
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder", "prompt": prompt, "description": "sonnet: write"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is not None
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "blind" in ctx
+    assert not registry.exists()
+
+
+def test_decide_true_readonly_no_marker_no_write_indicator_is_silent(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "haiku: scout"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is None
+    assert not registry.exists()
+
+
+# ---------------------------------------------------------------------
+# A read-only dispatch -- silence, sidecar not grown.
+# ---------------------------------------------------------------------
+
+
+def test_readonly_dispatch_is_silent_and_sidecar_not_grown(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    payload = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "scout", "prompt": "Find the file and read it.", "description": "haiku: scout"},
+        "session_id": "s-1",
+        "cwd": "D:\\ctl",
+    }
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is None
+    assert not registry.exists()
+
+
+# ---------------------------------------------------------------------
+# A non-Task tool -- silence.
+# ---------------------------------------------------------------------
+
+
+def test_non_task_tool_is_silent(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    payload = {"tool_name": "Bash", "tool_input": {"command": "echo owns: D:\\x"}}
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is None
+    assert not registry.exists()
+
+
+# ---------------------------------------------------------------------
+# A missing sidecar / a malformed line -- fail-open.
+# ---------------------------------------------------------------------
+
+
+def test_missing_registry_file_fail_open(tmp_path):
+    registry = tmp_path / "does_not_exist" / "owns_registry.jsonl"
+    payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 7, 28, 12, 0, 0))
+    assert exit_code == 0
+    assert output is None
+    # The new session's own write must still land after the fail-open read.
+    assert registry.exists()
+
+
+def test_malformed_registry_line_fail_open(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    fresh_ts = now.strftime(owns_gate._TS_FORMAT)
+    with registry.open("a", encoding="utf-8") as f:
+        f.write("{not valid json\n")
+        # A DIFFERENT session than the new dispatch below -- same-session
+        # retry exclusion (K1) would otherwise silence an equal owns set,
+        # which is not what this test is checking (fail-open on a
+        # malformed sidecar line).
+        f.write(json.dumps({
+            "ts": fresh_ts, "session_key": "s-OTHER", "cwd": "D:\\ctl",
+            "description": "d", "owns": ["D:\\repo\\tools\\x.py"],
+        }) + "\n")
+
+    payload = _writing_payload("D:\\repo\\tools\\x.py", session_id="s-1", cwd="D:\\ctl")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=now)
+    assert exit_code == 0
+    assert output is not None
+    assert "OWNS OVERLAP" in output["hookSpecificOutput"]["additionalContext"]
+
+
+# ---------------------------------------------------------------------
+# Sidecar compaction boundary at 500/501 lines.
+# ---------------------------------------------------------------------
+
+
+def test_registry_compaction_boundary_500_lines_appends(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    fresh_ts = now.strftime(owns_gate._TS_FORMAT)
+    lines = [
+        json.dumps({
+            "ts": fresh_ts, "session_key": "s-1", "cwd": "D:\\ctl",
+            "description": "d", "owns": ["D:\\x.py"],
+        })
+        for _ in range(owns_gate.REGISTRY_COMPACT_THRESHOLD_LINES)
+    ]
+    registry.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # EXACTLY 500 existing lines -- not STRICTLY greater than the
+    # threshold -> a plain append, not compaction.
+    owns_gate._append_registry(registry, now, "s-2", "D:\\ctl", "new write", ["D:\\y.py"])
+
+    final_text = registry.read_text(encoding="utf-8")
+    final_lines = [ln for ln in final_text.splitlines() if ln.strip()]
+    assert len(final_lines) == owns_gate.REGISTRY_COMPACT_THRESHOLD_LINES + 1
+    # An append (not a rewrite/compaction): the first original line
+    # stays byte-for-byte.
+    assert final_lines[0] == lines[0]
+
+
+def test_registry_compaction_boundary_501_lines_compacts(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    now = datetime(2026, 7, 28, 12, 0, 0)
+    fresh_ts = now.strftime(owns_gate._TS_FORMAT)
+    stale_ts = (now - timedelta(seconds=owns_gate.WINDOW_SECONDS + 1)).strftime(owns_gate._TS_FORMAT)
+
+    live_lines = [
+        json.dumps({
+            "ts": fresh_ts, "session_key": "s-1", "cwd": "D:\\ctl",
+            "description": "d", "owns": ["D:\\x.py"],
+        })
+        for _ in range(owns_gate.REGISTRY_COMPACT_THRESHOLD_LINES)
+    ]
+    stale_line = json.dumps({
+        "ts": stale_ts, "session_key": "s-1", "cwd": "D:\\ctl",
+        "description": "stale", "owns": ["D:\\stale.py"],
+    })
+    # 500 live + 1 stale = 501 existing lines -- strictly greater than
+    # the threshold -> compaction.
+    registry.write_text("\n".join(live_lines + [stale_line]) + "\n", encoding="utf-8")
+
+    owns_gate._append_registry(registry, now, "s-2", "D:\\ctl", "new write", ["D:\\y.py"])
+
+    final_text = registry.read_text(encoding="utf-8")
+    final_lines = [ln for ln in final_text.splitlines() if ln.strip()]
+    # Compaction dropped the stale line: 500 live + 1 new = 501, not
+    # 502 (which a naive append with no compaction would give) -- the
+    # difference proves compaction actually ran at the 501 boundary.
+    assert len(final_lines) == owns_gate.REGISTRY_COMPACT_THRESHOLD_LINES + 1
+    assert "stale.py" not in final_text
+
+
+# ---------------------------------------------------------------------
+# Adversarial stdin battery (boundaries + main()).
+# ---------------------------------------------------------------------
+
+
+def test_decide_payload_not_dict_fail_open():
+    exit_code, output = owns_gate.decide(["not", "a", "dict"])
+    assert exit_code == 0
+    assert output is None
+
+
+def test_echo_json_malformed_json_fails_open():
+    result = _run_hook("{not valid json", text=True)
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
+def test_echo_json_empty_stdin_fails_open():
+    result = _run_hook(b"")
+    assert result.returncode == 0
+
+
+def test_echo_json_non_utf8_bytes_fail_open():
+    result = _run_hook(b"\xff\xfe\x00\x01not json either")
+    assert result.returncode == 0
+
+
+def test_echo_json_huge_owns_string_completes_quickly(tmp_path):
+    huge_owns = "D:\\repo\\tools\\huge_" + ("x" * (1024 * 1024)) + ".py"
+    payload = _writing_payload(huge_owns, session_id="s-huge", cwd=str(tmp_path))
+    started = time.time()
+    result = _run_hook(json.dumps(payload).encode("utf-8"), cwd=tmp_path)
+    elapsed = time.time() - started
+    assert result.returncode == 0
+    assert elapsed < 5.0
+
+
+def test_echo_json_valid_writing_dispatch_no_prior_records_is_silent(tmp_path):
+    payload = _writing_payload(
+        "D:\\repo\\tools\\brand_new_path_for_test.py", session_id="s-echo-1", cwd=str(tmp_path)
+    )
+    result = _run_hook(json.dumps(payload).encode("utf-8"), cwd=tmp_path)
+    assert result.returncode == 0
+    assert (tmp_path / "logs" / "owns_registry.jsonl").exists()
+
+
+# ---------------------------------------------------------------------
+# A single point of truth for the owns marker: owns_gate.py carries NO
+# local re.compile of its own for the bounded owns pattern -- it is
+# imported from dispatch_gate.py (positive control: dispatch_gate.py
+# DOES carry that compile -- a negative claim without a positive
+# control of the same form does not prove absence, command hygiene
+# rule 6).
+# ---------------------------------------------------------------------
+
+
+def test_owns_gate_source_has_no_local_owns_word_re_compile():
+    needle = 're.compile(r"\\bowns\\b"'
+    tools_dir = Path(__file__).resolve().parent
+    dispatch_gate_src = (tools_dir / "dispatch_gate.py").read_text(encoding="utf-8")
+    owns_gate_src = (tools_dir / "owns_gate.py").read_text(encoding="utf-8")
+
+    assert needle in dispatch_gate_src  # positive control of the search form
+    assert needle not in owns_gate_src  # owns_gate carries no local copy
+
+
+def test_owns_gate_imports_is_path_like_token_from_dispatch_gate():
+    assert owns_gate.is_path_token is not dispatch_gate.is_path_like_token
+    for tok in ("D:/a.py", "/a.py", "tools/*.py", "**bold**", "relative/x.py", ""):
+        assert owns_gate.is_path_token(tok) == dispatch_gate.is_path_like_token(tok), tok
+
+
+# ---------------------------------------------------------------------
+# ROOT-ONLY path tokens: a live cross-dependency (see the module
+# docstring, "Root-only path tokens"). owns_gate.is_path_token() has no
+# local logic of its own -- these tests exercise the boundary through
+# owns_gate's OWN public entry points (is_path_token / extract_owns_paths)
+# and assert CONSISTENCY with whatever dispatch_gate.is_path_like_token
+# currently returns, rather than hard-coding the guard's post-fix
+# verdict -- correct either before or after that guard lands in
+# dispatch_gate.py. AT the boundary: "/"/"D:\\"/"D:/" (no segment).
+# BEYOND it: "/a"/"D:/a" (one real segment) -- rule 6a, both sides.
+# ---------------------------------------------------------------------
+
+
+def test_root_only_tokens_match_shared_predicate_at_and_beyond_boundary():
+    for tok in ("/", "//", "D:\\", "D:/", "/a", "D:/a", "/a/b"):
+        assert owns_gate.is_path_token(tok) == dispatch_gate.is_path_like_token(tok), tok
+
+
+def test_root_only_token_in_owns_declaration_matches_shared_predicate():
+    # A bare-root owns declaration through the real extraction path: the
+    # observable outcome (registered vs. not) must track whatever the
+    # shared predicate currently decides for a bare root -- no local
+    # duplicate of the root-only guard exists in this file.
+    prompt = "owns: /"
+    expected = [ "/" ] if dispatch_gate.is_path_like_token("/") else []
+    assert owns_gate.extract_owns_paths(prompt) == expected
+
+
+# ---------------------------------------------------------------------
+# stdin deadline (a local copy of the same mechanism this kit's
+# tools/session_context.py already carries, see the module docstring,
+# "stdin deadline (P4 class)"). Boundary-tested both sides (rule 6a):
+# 0 is explicitly invalid (no "wait forever" mode), the max is valid,
+# just over the max falls back to the default.
+# ---------------------------------------------------------------------
+
+
+def test_stdin_deadline_seconds_default_with_no_env(monkeypatch):
+    monkeypatch.delenv(owns_gate._STDIN_DEADLINE_ENV, raising=False)
+    assert owns_gate._stdin_deadline_seconds() == owns_gate._STDIN_DEADLINE_DEFAULT
+
+
+def test_stdin_deadline_seconds_valid_env_override(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, "2.5")
+    assert owns_gate._stdin_deadline_seconds() == 2.5
+
+
+def test_stdin_deadline_seconds_non_numeric_falls_back(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, "not-a-number")
+    assert owns_gate._stdin_deadline_seconds() == owns_gate._STDIN_DEADLINE_DEFAULT
+
+
+def test_stdin_deadline_seconds_zero_is_invalid_no_wait_forever_mode(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, "0")
+    assert owns_gate._stdin_deadline_seconds() == owns_gate._STDIN_DEADLINE_DEFAULT
+
+
+def test_stdin_deadline_seconds_negative_falls_back(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, "-5")
+    assert owns_gate._stdin_deadline_seconds() == owns_gate._STDIN_DEADLINE_DEFAULT
+
+
+def test_stdin_deadline_seconds_at_max_boundary_is_valid(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, str(owns_gate._STDIN_DEADLINE_MAX))
+    assert owns_gate._stdin_deadline_seconds() == owns_gate._STDIN_DEADLINE_MAX
+
+
+def test_stdin_deadline_seconds_just_over_max_falls_back(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, str(owns_gate._STDIN_DEADLINE_MAX + 0.001))
+    assert owns_gate._stdin_deadline_seconds() == owns_gate._STDIN_DEADLINE_DEFAULT
+
+
+def test_stdin_deadline_seconds_smallest_positive_is_valid(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, "0.001")
+    assert owns_gate._stdin_deadline_seconds() == 0.001
+
+
+class _FakeTTYStdin:
+    def isatty(self):
+        return True
+
+    def read(self):  # pragma: no cover -- must never be called
+        raise AssertionError("read() must not be called when stdin is a TTY")
+
+
+def test_read_stdin_bytes_deadline_tty_returns_immediately(monkeypatch):
+    monkeypatch.setattr(sys, "stdin", _FakeTTYStdin())
+    data, timed_out = owns_gate._read_stdin_bytes_deadline()
+    assert data == b""
+    assert timed_out is False
+
+
+class _FakeBytesStdin:
+    def __init__(self, payload: bytes):
+        self._buffer = self
+        self._payload = payload
+
+    def isatty(self):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+def test_read_stdin_bytes_deadline_normal_read(monkeypatch):
+    monkeypatch.setattr(sys, "stdin", _FakeBytesStdin(b'{"tool_name": "Task"}'))
+    data, timed_out = owns_gate._read_stdin_bytes_deadline()
+    assert data == b'{"tool_name": "Task"}'
+    assert timed_out is False
+
+
+class _HangingStdin:
+    """.read() never returns within the test's lifetime -- exercises the
+    genuine timeout branch. The reader thread stays a daemon and is
+    simply abandoned (never joined) after the test, same contract the
+    production code relies on."""
+
+    def isatty(self):
+        return False
+
+    @property
+    def buffer(self):
+        return self
+
+    def read(self):
+        time.sleep(3600)
+        return b""  # pragma: no cover -- never reached
+
+
+def test_read_stdin_bytes_deadline_hanging_reader_times_out(monkeypatch):
+    monkeypatch.setenv(owns_gate._STDIN_DEADLINE_ENV, "0.1")
+    monkeypatch.setattr(sys, "stdin", _HangingStdin())
+    started = time.monotonic()
+    data, timed_out = owns_gate._read_stdin_bytes_deadline()
+    elapsed = time.monotonic() - started
+    assert timed_out is True
+    assert data == b""
+    assert elapsed < 2.0  # bounded by the 0.1s deadline, not the 3600s sleep
+
+
+def test_echo_json_subprocess_survives_stdin_that_is_never_closed(tmp_path):
+    # Real subprocess: OSLLM_STDIN_TIMEOUT overrides a genuinely blocked
+    # pipe (nothing is ever written to the child's stdin, and it is
+    # never closed either) -- the real-world shape of a harness bug
+    # this mechanism exists to survive.
+    env = dict(os.environ, OSLLM_STDIN_TIMEOUT="0.3")
+    proc = subprocess.Popen(
+        [sys.executable, str(SCRIPT)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(tmp_path),
+        env=env,
+    )
+    try:
+        out, err = proc.communicate(timeout=10)
+    finally:
+        proc.stdin.close()
+    assert proc.returncode == 0
+    assert out.strip() == b""
+    assert b"Traceback" not in err
+
+
+# ---------------------------------------------------------------------
+# M2-1-analog (the same class the reference deployment's owns_gate.py:
+# 1882-1905 fixes): decide() runs dispatch_gate.decide(payload) BEFORE
+# _append_registry -- a blocked (exit 2) dispatch must not leave a
+# sidecar registry line (the runtime executes ALL PreToolUse hooks
+# independently of a neighboring block). This hook's own exit_code
+# stays 0 in all three branches below.
+# ---------------------------------------------------------------------
+
+_K5_BLOCKED_PROMPT = (
+    # An owns-declaration with a real path IS present, but the other
+    # manifest items (given, non-goals, handoff, edges) are NOT --
+    # dispatch_gate blocks (the completeness check, B-201; formerly check 2,
+    # "no manifest") regardless of the DoD word being present.
+    "DoD: the test is green, witness attached.\n"
+    "owns: D:/repo/tools/k5_blocked_target.py.\n"
+    "Edit the file per spec."
+)
+
+
+def _k5_blocked_payload(session_id="s-k5-blocked"):
+    return {
+        "tool_name": "Task",
+        "tool_input": {
+            "subagent_type": "builder",
+            "prompt": _K5_BLOCKED_PROMPT,
+            "description": "sonnet: x",
+        },
+        "session_id": session_id,
+        "cwd": "D:\\ctl",
+    }
+
+
+def test_k5_blocked_dispatch_skips_registration(tmp_path):
+    registry = tmp_path / "owns_registry.jsonl"
+    payload = _k5_blocked_payload()
+    # Positive control (command hygiene p.6): confirm this payload is
+    # ACTUALLY blocked by the live dispatch_gate -- otherwise the test
+    # below would not prove what it claims.
+    gate_exit_code, gate_message = owns_gate.dispatch_gate.decide(payload)
+    assert gate_exit_code == 2, gate_message
+
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 25, 15, 35, 0))
+    assert exit_code == 0  # owns_gate's own exit_code is ALWAYS 0
+    assert not registry.exists()  # registration SKIPPED
+
+
+def test_k5_passing_dispatch_still_registers_edge_i(tmp_path):
+    # Edge (i): exit 0 (even with warn text) -> register as before.
+    registry = tmp_path / "owns_registry.jsonl"
+    payload = _writing_payload("D:/repo/tools/k5_allowed_target.py", session_id="s-k5-ok")
+    gate_exit_code, _ = owns_gate.dispatch_gate.decide(payload)
+    assert gate_exit_code == 0
+
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 25, 15, 35, 0))
+    assert exit_code == 0
+    assert registry.exists()
+    assert "k5_allowed_target.py" in registry.read_text(encoding="utf-8")
+
+
+def test_k5_dispatch_gate_decide_exception_fails_open_still_registers(monkeypatch, tmp_path):
+    # An exception out of dispatch_gate.decide -> register anyway
+    # (fail-open, the same philosophy this hook's own WARN mode
+    # already carries for its own failures).
+    registry = tmp_path / "owns_registry.jsonl"
+
+    def _raise(payload):
+        raise RuntimeError("boom -- dispatch_gate exploded")
+
+    monkeypatch.setattr(owns_gate.dispatch_gate, "decide", _raise)
+    payload = _writing_payload("D:/repo/tools/k5_failopen_target.py", session_id="s-k5-failopen")
+    exit_code, output = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 25, 15, 35, 0))
+    assert exit_code == 0
+    assert registry.exists()
+    assert "k5_failopen_target.py" in registry.read_text(encoding="utf-8")
+
+
+def test_k5_own_exit_code_always_zero_even_when_gate_blocks(tmp_path):
+    # Invariant: this hook's own exit_code stays 0 -- the branch above
+    # decides ONLY the registration, never the return value.
+    registry = tmp_path / "owns_registry.jsonl"
+    payload = _k5_blocked_payload(session_id="s-k5-invariant")
+    exit_code, _ = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 25, 15, 35, 0))
+    assert exit_code == 0
+
+
+def test_k5_temporal_edge_pre_fix_registry_line_not_purged(tmp_path):
+    # Temporal edge R11(c): a registry line written BEFORE this fix is
+    # NOT purged -- append-only, this check only concerns NEW records.
+    registry = tmp_path / "owns_registry.jsonl"
+    _write_registry_line(
+        registry, "2026-08-25T15:35:06", "pre-fix-session", "D:\\ctl",
+        "sonnet: EXPERIMENT-BLOCK D-0105 probe, dispatch should not have run",
+        ["D:/repo/tools/EXP_D0105_PROBE.txt"],
+    )
+    before = registry.read_text(encoding="utf-8")
+    payload = _k5_blocked_payload(session_id="s-k5-temporal")
+    exit_code, _ = owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 25, 15, 35, 0))
+    after = registry.read_text(encoding="utf-8")
+    assert before == after  # old line untouched, no new line added
+
+
+def test_path_refused_dispatch_is_not_registered_but_marked_new_is(tmp_path):
+    """B-245 / M4: the path check sits inside dispatch_gate.decide(), the question owns_gate asks before
+    it registers (and critic_snapshot before it snapshots) -- a dispatch refused for a missing owns path
+    leaves no registry line; the same dispatch with (new) registers the path WITHOUT the marker."""
+    root = tmp_path / "root"
+    root.mkdir()
+    registry = tmp_path / "owns_registry.jsonl"
+    gone = str(root / "gone.py")
+    payload = _writing_payload(gone, session_id="s-path", cwd=str(root))
+    assert owns_gate.dispatch_gate.decide(payload)[0] == 2  # positive control: the gate refuses it
+    owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 25, 15, 35, 0))
+    assert not registry.exists()
+    payload = _writing_payload(gone + " (new)", session_id="s-path", cwd=str(root))
+    owns_gate.decide(payload, registry_path=registry, now=datetime(2026, 8, 25, 15, 35, 0))
+    assert json.loads(registry.read_text(encoding="utf-8").splitlines()[0])["owns"] == [gone]
+
+
+# --- t-789 / t-796 (forge F5-8): owns_gate as one of the gate's two ONE-PROCESS readers. dispatch_gate.main()
+# calls run_after_gate(payload) only for a dispatch it ALLOWED, so a cap-refused dispatch never reaches this
+# module (the gate's own tests pin that, with real processes started together). Here: what run_after_gate IS,
+# that the standalone hook (settings.json today) reads no carrier, and that the two runs never write a row
+# twice for one tool_use_id. ---------------------------------------------------------------------------------
+
+
+_NOW = datetime(2026, 10, 15, 12, 0, 0)
+
+
+def _id_payload(root, tool_use_id=None, owns="D:/repo/tools/cap_x.py", session_id="s-cap"):
+    payload = _writing_payload(owns, session_id=session_id, cwd=str(root))
+    if tool_use_id is not None:
+        payload["tool_use_id"] = tool_use_id
+    return payload
+
+
+def _rows(root):
+    path = root / "logs" / "owns_registry.jsonl"
+    return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+
+
+def test_run_after_gate_registers_the_dispatch_and_prints_the_overlap_warning_like_main(tmp_path, capsys):
+    registry = tmp_path / "logs" / "owns_registry.jsonl"
+    _write_registry_line(registry, datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "other-session", str(tmp_path),
+                         "sonnet: live", ["D:/repo/tools/cap_x.py"])
+    payload = _id_payload(tmp_path, "toolu_ra")
+    assert owns_gate.run_after_gate(payload) == 0
+    out = capsys.readouterr().out
+    assert out.count("\n") == 1 and "OWNS OVERLAP" in json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert _rows(tmp_path) == 2
+    assert json.loads(registry.read_text(encoding="utf-8").splitlines()[1])["owns"] == ["D:/repo/tools/cap_x.py"]
+
+
+def test_run_after_gate_does_not_ask_the_gate_again_but_the_standalone_run_does(tmp_path, monkeypatch):
+    asked = []
+    monkeypatch.setattr(dispatch_gate, "decide", lambda payload: asked.append(payload) or (0, ""))
+    owns_gate.run_after_gate(_id_payload(tmp_path, "toolu_q1"))
+    assert asked == [] and _rows(tmp_path) == 1  # the gate has just answered "allow"
+    owns_gate.decide(_id_payload(tmp_path, "toolu_q2"), registry_path=tmp_path / "logs" / "owns_registry.jsonl", now=_NOW)
+    assert len(asked) == 1 and _rows(tmp_path) == 2  # the standalone hook still asks (M2-1-analog), as before
+
+
+def test_run_after_gate_passes_the_exit_code_through_and_survives_a_decide_failure(tmp_path, monkeypatch, capsys):
+    refusal = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "x"}}
+    monkeypatch.setattr(owns_gate, "decide", lambda payload, gate_allowed=False: (2, refusal))
+    assert owns_gate.run_after_gate({"tool_name": "Task"}) == 2 and "additionalContext" in capsys.readouterr().out
+    monkeypatch.setattr(owns_gate, "decide", lambda payload, gate_allowed=False: 1 / 0)
+    assert owns_gate.run_after_gate({"tool_name": "Task"}) == 0 and capsys.readouterr().out == ""
+    monkeypatch.undo()
+    assert owns_gate.run_after_gate("not a dict") == 0 and owns_gate.run_after_gate(None) == 0
+
+
+def test_the_standalone_hook_reads_no_carrier_a_refuse_or_an_allow_changes_nothing(tmp_path):
+    """settings.json today: the hook runs beside the gate and behaves as it always did. No hook reads
+    logs/dispatch_verdict.json (it is the gate's WRITTEN verdict for later readers)."""
+    for n, verdict in enumerate(("refuse", "allow", None)):
+        payload = _id_payload(tmp_path, "toolu_sa%d" % n)
+        if verdict:
+            (tmp_path / "logs").mkdir(exist_ok=True)
+            (tmp_path / "logs" / "dispatch_verdict.json").write_text(json.dumps(
+                {"ts": datetime.now().isoformat(timespec="seconds"), "verdict": verdict, "reason": "x",
+                 "key": "toolu_sa%d" % n, "key_kind": "tool_use_id"}), encoding="utf-8")
+        assert _run_hook(json.dumps(payload).encode("utf-8"), cwd=tmp_path).returncode == 0
+        assert _rows(tmp_path) == n + 1, verdict
+
+
+def test_the_gates_run_and_the_standalone_run_write_one_row_per_tool_use_id_in_either_order(tmp_path, capsys):
+    gate_first = _id_payload(tmp_path, "toolu_gf", "D:/repo/tools/gf_x.py")
+    assert owns_gate.run_after_gate(gate_first) == 0
+    capsys.readouterr()
+    result = _run_hook(json.dumps(gate_first).encode("utf-8"), cwd=tmp_path)
+    assert (result.returncode, result.stdout) == (0, b"") and _rows(tmp_path) == 1  # claimed: silent, no 2nd row
+    hook_first = _id_payload(tmp_path, "toolu_hf", "D:/repo/tools/hf_x.py")
+    assert _run_hook(json.dumps(hook_first).encode("utf-8"), cwd=tmp_path).returncode == 0
+    assert _rows(tmp_path) == 2
+    assert owns_gate.run_after_gate(hook_first) == 0 and capsys.readouterr().out == "" and _rows(tmp_path) == 2
+    other = _id_payload(tmp_path, "toolu_other", "D:/repo/tools/gf_x.py")  # control: ANOTHER id registers
+    assert owns_gate.run_after_gate(other) == 0 and _rows(tmp_path) == 3
+
+
+def test_without_a_tool_use_id_both_runs_write_never_zero_times(tmp_path, capsys):
+    payload = _id_payload(tmp_path)  # the live field not yet observed: nothing to key a claim on
+    assert owns_gate.run_after_gate(payload) == 0
+    assert _run_hook(json.dumps(payload).encode("utf-8"), cwd=tmp_path).returncode == 0
+    assert _rows(tmp_path) == 2
+
+
+def test_a_gate_that_died_after_allow_leaves_no_claim_and_the_standalone_hook_writes(tmp_path):
+    payload = _id_payload(tmp_path, "toolu_died")
+    dispatch_gate.write_verdict(payload, "allow")  # the gate wrote its verdict, then died before the readers
+    assert not (tmp_path / ".claude").exists()
+    assert _run_hook(json.dumps(payload).encode("utf-8"), cwd=tmp_path).returncode == 0
+    assert _rows(tmp_path) == 1

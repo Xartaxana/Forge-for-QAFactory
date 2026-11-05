@@ -1,0 +1,127 @@
+{
+  "generated_by": "python tools/lint_ratchet.py --update (pyflakes; identity = path + class + arguments, no line)",
+  "pyflakes_version": "3.2.0",
+  "total": 29,
+  "rows": [
+    {
+      "path": "ai-packages/qa-factory/scripts/factory_dashboard.py",
+      "class": "UnusedImport",
+      "args": "driver_journal.WHY_FALLS",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/factory_dashboard.py",
+      "class": "UnusedImport",
+      "args": "driver_journal.WHY_PER_CALL_ROOT",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/factory_dashboard.py",
+      "class": "UnusedImport",
+      "args": "driver_journal.WHY_SEVERAL_JOURNALS",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/s5_precheck.py",
+      "class": "UnusedImport",
+      "args": "run_history.expectation_records",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/s5_precheck.py",
+      "class": "UnusedImport",
+      "args": "run_history.function_key",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/s5_precheck.py",
+      "class": "UnusedImport",
+      "args": "run_history.record_for",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/s5_precheck.py",
+      "class": "UnusedImport",
+      "args": "run_history.record_functions",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "CredentialTypes",
+      "count": 2
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "all_of",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "assert_that",
+      "count": 4
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "contains_exactly",
+      "count": 2
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "contains_string",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "greater_than_or_equal_to",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "is_not",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "less_than",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "ms_teams_credentials",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/run-12586-red-then/test-code/put_project_change_into_occupied_project.py",
+      "class": "UndefinedName",
+      "args": "pytest",
+      "count": 5
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/story_run_common.py",
+      "class": "UnusedImport",
+      "args": "harness.check_eq",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/story_run_common.py",
+      "class": "UnusedImport",
+      "args": "harness.check_in",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/story_run_common.py",
+      "class": "UnusedImport",
+      "args": "harness.check_not_in",
+      "count": 1
+    }
+  ]
+}

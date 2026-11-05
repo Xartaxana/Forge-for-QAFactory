@@ -1,0 +1,14 @@
+#!/bin/sh
+# set -e: the hook's exit code is the FIRST failing gate's, not the last command's (the pre-commit lesson;
+# without it a mechanism_gate refusal is masked by a passing piles check -- critic t-587 P1).
+set -e
+# Gate for rule 10(b)'s axis block on mechanism-touching commits.
+python tools/mechanism_gate.py "$1"
+# Architecture gate (F6-29): a commit touching ai-packages/qa-factory/ names the AR-n invariants it touches in a
+# message line "architecture: AR-n[, AR-m] -- <how kept>"; the door is "architecture: none -- <reason>".
+# The same gate checks the "judgment:" line (D-0060, P27/AR-29): none / adds data check <unit> / moves <what> to role|to code,
+# with the judgment census (scripts/tests/fixtures/judgment-census.json) compared HEAD vs index; one refusal names both lines.
+python tools/architecture_gate.py "$1"
+# Piles gate (placement, overlap, frozen batch, frozen backlog, form, findings placed -- D-0036, F0-2, D-0044); the door is a
+# commit-message line "piles-skip: <item> -- <reason>" -- this is why it runs here and not in pre-commit.
+python tools/piles.py check --msg-file "$1"

@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "note": "Mechanical detectors used by validate_artifacts.py. Test-code lists run against files written under config.tests_root; plan_antipatterns runs against a test-plan.md row line. Every entry is a Python regex, matched case-sensitively unless the pattern says otherwise. A hit is a reject with the matched line quoted — not an opinion to discuss (design section 8).",
+  "retry_markers": [
+    "pytest\\.mark\\.flaky",
+    "reruns\\s*=",
+    "@Retry",
+    "retries\\s*=",
+    "flaky\\("
+  ],
+  "broad_status": [
+    "status_code\\s+in\\s*[\\(\\[]",
+    "anyOf\\(",
+    "in\\s*\\{\\s*40\\d",
+    "is_in\\(",
+    "any_of\\(",
+    ">=\\s*4\\d\\d(?!\\d)",
+    "<=?\\s*5\\d\\d(?!\\d)",
+    "range\\(\\s*4\\d\\d(?!\\d)\\s*,",
+    "greater_than(?:_or_equal_to)?\\(\\s*[45]\\d\\d(?!\\d)",
+    "(?<!\\d)4\\d\\d\\s*<=?\\s*[A-Za-z_]",
+    "<=?\\s*4\\d\\d(?!\\d)",
+    ">\\s*(?:3[89]|4\\d)\\d(?!\\d)",
+    "greater_than\\(\\s*3[89]\\d(?!\\d)"
+  ],
+  "broad_status_context": [
+    "(?i)status",
+    "(?i)\\bcode\\b",
+    "(?i)\\bresp(onse)?\\b"
+  ],
+  "broad_status_doors": [
+    "oracle_unknown:\\s*Q\\d+",
+    "broad_status:\\s*not a status\\b",
+    "broad_status:\\s*range per\\s+(?:R-\\d+|Q\\d+)\\b"
+  ],
+  "broad_status_note": "A status assertion that accepts several statuses, read by scripts/validate_artifacts.py check_test_code through assertion_detectors.shape_patterns. A line hits when a `broad_status` pattern matches it AND a `broad_status_context` pattern matches it or one of the 3 lines before or after it (a status in a multi-line assert_that). A hit is refused unless the hit line itself matches a `broad_status_doors` pattern: `# oracle_unknown: Q<n>` (the case leaves the exact code open behind question Q<n>; the test asserts a 4xx range AND an allowed call by the same credentials), `# broad_status: range per R-<n>` or `range per Q<n>` (a requirement or the person's answer states the range itself as the expected value) or `# broad_status: not a status (<why>)` (the line is no status check). Each of the other test-code keys (retry_markers, skip_markers, plan_antipatterns) is read the same way. An unreadable key means the built-in floor of today's rows, with a note (never no check).",
+  "sleep": [
+    "time\\.sleep\\(",
+    "Thread\\.sleep",
+    "sleep\\(\\d",
+    "\\bsleep\\(\\s*\\d",
+    "wait_for_timeout\\(",
+    "waitForTimeout\\(",
+    "Task\\.Delay\\(",
+    "Thread\\.Sleep\\(",
+    "time\\.Sleep\\(",
+    "\\bcy\\.wait\\(\\s*\\d"
+  ],
+  "sleep_note": "A fixed-time wait in test code. Read by scripts/arch_check.py (a finding) and scripts/judge_code.py (asks `sleep_justified`), both through assertion_detectors.shape_patterns; an unreadable key means today's regex in arch_check and the question asked of every test in judge_code (B-407 C).",
+  "locator": [
+    "\\.locator\\(",
+    "\\bBy\\.",
+    "find_element(?:s)?\\(",
+    "get_by_(?:role|text|label|placeholder|test_id)\\(",
+    "getBy[A-Z]\\w*\\(",
+    "\\bcy\\.get\\(",
+    "\\$\\$?\\(\\s*['\"]"
+  ],
+  "locator_note": "The shape of a UI locator CALL in test code. Read by scripts/arch_check.py (a locator outside the page-object layer is a finding) and scripts/judge_code.py (asks `locator_fragile`), through assertion_detectors.shape_patterns. Keep it to calls: arch_check flags every line that matches it. An unreadable key means today's regex in arch_check and the question asked of every test in judge_code (B-407 C).",
+  "locator_words": [
+    "(?i)\\blocator\\b",
+    "(?i)\\bget_by_",
+    "(?i)\\bfind_element\\b",
+    "(?i)\\bquery_selector\\b",
+    "(?i)\\bcss_selector\\b",
+    "(?i)\\bxpath\\b",
+    "(?i)\\bpage\\.",
+    "(?i)\\bselenium\\b",
+    "(?i)\\bplaywright\\b"
+  ],
+  "locator_words_note": "Words that make a test worth the question `locator_fragile`, wider than a locator call (a `page.` use, the word playwright). Read ONLY by scripts/judge_code.py, beside `locator`, through assertion_detectors.shape_patterns; arch_check never reads it, because it would flag `page.goto(...)`. An unreadable key means the question is asked of every test (B-407 C).",
+  "negative_code": [
+    "(?i)\\binvalid\\b",
+    "(?i)\\breject\\b",
+    "(?i)\\bdenied\\b",
+    "(?i)\\bforbidden\\b",
+    "(?i)\\bunauthori[sz]ed\\b",
+    "(?i)\\bnot_allowed\\b",
+    "(?i)\\braises\\b",
+    "(?i)\\b4\\d\\d\\b",
+    "(?i)\\b5\\d\\d\\b",
+    "(?i)\\berror\\b",
+    "assertThrows\\(",
+    "\\.toThrow\\(",
+    "Assert\\.Throws"
+  ],
+  "negative_code_note": "The shape of a negative check IN TEST CODE (an error word, a 4xx/5xx, an expected throw). Read by scripts/judge_code.py (asks `narrow_negative`) through assertion_detectors.shape_patterns; whether the CASE is negative is a field, never this list. An unreadable key means the question is asked of every test (B-407 C).",
+  "assert_lines": [
+    "(?i)assert",
+    "\\bexpect\\s*\\(",
+    "(?i)\\bshould\\b",
+    "\\bverify\\s*\\(",
+    "\\brequire\\.\\w+\\(",
+    "\\bt\\.(Error|Errorf|Fatal|Fatalf|Fail|FailNow)\\("
+  ],
+  "assert_lines_note": "Which lines of a self_fixes `before`/`after` count as an assertion, in any language: validate_artifacts.check_self_fixes refuses a fix whose `after` lacks one that `before` had. Read ONLY through assertion_detectors.assert_line_patterns, and unioned by check_self_fixes with the head of every assertion form of `assertion_probes`. A key that cannot be read leaves the built-in floor of these same six patterns, plus one note line (B-407 C).",
+  "dead_code": [
+    "@deprecated",
+    "# TODO remove",
+    "warnings\\.warn\\(.*deprecat"
+  ],
+  "skip_markers": [
+    "pytest\\.mark\\.skip",
+    "xfail",
+    "@Ignore",
+    "@Disabled",
+    "\\bit\\.skip\\(",
+    "\\[Ignore\\b",
+    "\\bt\\.Skip\\(",
+    "\\b(?:test|describe)\\.skip\\(",
+    "\\bxit\\(",
+    "\\[(?:Fact|Theory)\\([^\\]\\n]*\\bSkip\\s*=",
+    "\\[[^\\]\\n]*,\\s*Ignore\\b",
+    "\\bt\\.Skip(?:f|Now)\\("
+  ],
+  "plan_antipatterns": [
+    "(?i)\\bis\\s+visible\\b",
+    "(?i)\\bvisibility\\s+of\\b",
+    "(?i)\\belement\\s+(is\\s+)?displayed\\b",
+    "(?i)\\bpage\\s+title\\b",
+    "(?i)\\btitle\\s+is\\s+correct\\b",
+    "(?i)\\burl\\s+after\\s+navigat",
+    "(?i)\\bredirects?\\s+to\\s+url\\b",
+    "(?i)\\bfirst\\s+(available\\s+)?record\\b",
+    "(?i)\\bfirst\\s+(available\\s+)?(entity|item|row)\\s+exists\\b"
+  ],
+  "plan_antipatterns_note": "Visibility-only, title-only, URL-only and first-record rows are smoke at most and may never carry disposition automate (design section 7.5a). The detector reads the whole plan row, so the wording of either the hypothesis or the observable triggers it.",
+  "copy_detector": {"min_function_statements": 2, "fragment_window": 3, "max_files": 40},
+  "copy_detector_note": "How much code is a copy (scripts/copy_detector.py, read through scripts/s5_precheck.py check_copies). min_function_statements: a function with fewer statements is not compared as a whole; fragment_window: a run of this many consecutive statements that repeats under other names is a copy; max_files: files of a story's history read as units per run (the rest is named, not checked). Positive integers. An unreadable key means the default in the code and a note (the check never switches off).",
+  "baseline_names": ["before", "baseline", "original", "prev", "old"],
+  "baseline_names_note": "The words that make a variable the value a test took BEFORE an action (scripts/s5_precheck.py check_relative_oracle, TQ1-18): a name is split into words (`x_before`, `beforeMove` hold `before`), and a comparison of such a value with another that nothing asks to be a working answer is a finding, because a refusal before and a refusal after are equal. Plain lowercase words, not regexes. An unreadable key means no word-based judging and a note: the pair of one call before and after the action is still judged.",
+  "assertion_probes": {
+    "csharp": {
+      "suffixes": [".cs"],
+      "lexer": {
+        "line_comments": ["//"],
+        "block_comments": [["/*", "*/"]],
+        "strings": [
+          {"open": "@\"", "close": "\"", "escape": "double"},
+          {"open": "\"\"\"", "close": "\"\"\"", "escape": "none"},
+          {"open": "\"", "close": "\"", "escape": "backslash", "multiline": false},
+          {"open": "'", "close": "'", "escape": "backslash", "multiline": false}
+        ]
+      },
+      "conditional_directive": "^[ \\t]*#[ \\t]*(?:if|elif|else|endif)\\b",
+      "declaration_style": "method",
+      "test_declaration": "\\b(?:void|Task|ValueTask)\\s+{name}\\s*\\(",
+      "body_open": "\\s*\\{",
+      "helper_declaration": "\\b(?:void|Task|ValueTask)\\s+{name}\\s*\\(",
+      "name_separators": ["::", ".", "+"],
+      "tail_join": ".",
+      "statement_end": "semicolon",
+      "assertions": [
+        {"head": "\\bAssert\\.Equal\\b", "matcher_at": "head", "invert": [
+          {"id": "X1", "find": "^Assert\\.Equal\\b", "replace": "Assert.NotEqual", "fires_as": "^Assert\\.NotEqual\\(\\) Failure"}
+        ]},
+        {"head": "\\bAssert\\.NotEqual\\b", "matcher_at": "head", "invert": [
+          {"id": "X2", "find": "^Assert\\.NotEqual\\b", "replace": "Assert.Equal", "fires_as": "^Assert\\.Equal\\(\\) Failure"}
+        ]},
+        {"head": "\\bAssert\\.True\\b", "matcher_at": "head", "invert": [
+          {"id": "X3", "find": "^Assert\\.True\\b", "replace": "Assert.False", "fires_as": "^Assert\\.False\\(\\) Failure|(?m:^\\s*Expected: False\\b)"}
+        ]},
+        {"head": "\\bAssert\\.False\\b", "matcher_at": "head", "invert": [
+          {"id": "X4", "find": "^Assert\\.False\\b", "replace": "Assert.True", "fires_as": "^Assert\\.True\\(\\) Failure|(?m:^\\s*Expected: True\\b)"}
+        ]},
+        {"head": "\\bAssert\\.Null\\b", "matcher_at": "head", "invert": [
+          {"id": "X5", "find": "^Assert\\.Null\\b", "replace": "Assert.NotNull", "fires_as": "^Assert\\.NotNull\\(\\) Failure"}
+        ]},
+        {"head": "\\bAssert\\.NotNull\\b", "matcher_at": "head", "invert": [
+          {"id": "X6", "find": "^Assert\\.NotNull\\b", "replace": "Assert.Null", "fires_as": "^Assert\\.Null\\(\\) Failure"}
+        ]},
+        {"head": "\\bAssert\\.Empty\\b", "matcher_at": "head", "invert": [
+          {"id": "X7", "find": "^Assert\\.Empty\\b", "replace": "Assert.NotEmpty", "fires_as": "^Assert\\.NotEmpty\\(\\) Failure"}
+        ]},
+        {"head": "\\bAssert\\.NotEmpty\\b", "matcher_at": "head", "invert": [
+          {"id": "X8", "find": "^Assert\\.NotEmpty\\b", "replace": "Assert.Empty", "fires_as": "^Assert\\.Empty\\(\\) Failure"}
+        ]},
+        {"head": "\\bAssert\\.Contains\\b", "matcher_at": "head", "invert": [
+          {"id": "X9", "find": "^Assert\\.Contains\\b", "replace": "Assert.DoesNotContain", "fires_as": "^Assert\\.DoesNotContain\\(\\) Failure"}
+        ]},
+        {"head": "\\bAssert\\.DoesNotContain\\b", "matcher_at": "head", "invert": [
+          {"id": "X10", "find": "^Assert\\.DoesNotContain\\b", "replace": "Assert.Contains", "fires_as": "^Assert\\.Contains\\(\\) Failure"}
+        ]},
+        {"head": "\\b(?:Classic)?Assert\\.That\\b", "matcher_at": "second_arg", "invert": [
+          {"id": "N1", "find": "^Is\\.(?!Not\\b)", "replace": "Is.Not.", "fires_as": "(?m)^\\s*Expected: not\\b"},
+          {"id": "N2", "find": "^Is\\.Not\\.", "replace": "Is.", "fires_as": "(?m)^\\s*Expected: (?!not\\b)"}
+        ]},
+        {"head": "\\b(?:Classic)?Assert\\.AreEqual\\b", "matcher_at": "head", "invert": [
+          {"id": "N3", "find": "^((?:Classic)?Assert\\.)AreEqual\\b", "replace": "\\1AreNotEqual", "fires_as": "(?m)^\\s*Expected: not equal to\\b"}
+        ]},
+        {"head": "\\b(?:Classic)?Assert\\.AreNotEqual\\b", "matcher_at": "head", "invert": [
+          {"id": "N4", "find": "^((?:Classic)?Assert\\.)AreNotEqual\\b", "replace": "\\1AreEqual", "fires_as": "(?m)^\\s*Expected: (?!not\\b)"}
+        ]},
+        {"head": "\\bAssert\\.(?:Throws|ThrowsAsync|ThrowsAny|Single|IsType|IsAssignableFrom|Collection|All|Equivalent|InRange|Matches|StartsWith|EndsWith|Same|NotSame)\\b", "matcher_at": "head", "invert": null}
+      ],
+      "frames": ["^\\s*at\\s+.+?\\s+in\\s+(?P<path>.+?):line\\s+(?P<line>\\d+)\\s*$"],
+      "skip_frames": ["^\\s*at\\s+(?:Xunit|NUnit\\.Framework|System|Microsoft)\\."],
+      "frame_path": "path",
+      "compiled": true,
+      "builds_by_default": ["dotnet test"],
+      "no_rebuild_flags": ["--no-build"]
+    },
+    "java": {
+      "suffixes": [".java"],
+      "lexer": {
+        "line_comments": ["//"],
+        "block_comments": [["/*", "*/"]],
+        "strings": [
+          {"open": "\"\"\"", "close": "\"\"\"", "escape": "backslash"},
+          {"open": "\"", "close": "\"", "escape": "backslash", "multiline": false},
+          {"open": "'", "close": "'", "escape": "backslash", "multiline": false}
+        ]
+      },
+      "declaration_style": "method",
+      "test_declaration": "\\bvoid\\s+{name}\\s*\\(",
+      "body_open": "\\s*(?:throws\\s+[\\w.]+(?:\\s*,\\s*[\\w.]+)*\\s*)?\\{",
+      "helper_declaration": "\\bvoid\\s+{name}\\s*\\(",
+      "display_name": "@DisplayName\\s*\\(",
+      "name_separators": ["::", ".", "#"],
+      "tail_join": ".",
+      "statement_end": "semicolon",
+      "assertions": [
+        {"head": "\\b(?:Assertions\\.|Assert\\.)?assertEquals\\b", "matcher_at": "head", "invert": [
+          {"id": "J1", "find": "^((?:Assertions\\.|Assert\\.)?)assertEquals\\b", "replace": "\\1assertNotEquals", "fires_as": "^(?:org\\.opentest4j\\.AssertionFailedError: |java\\.lang\\.AssertionError: )?(?:.*? ==> )?(?:expected: not equal but was:|Values should be different\\.)"}
+        ]},
+        {"head": "\\b(?:Assertions\\.|Assert\\.)?assertNotEquals\\b", "matcher_at": "head", "invert": [
+          {"id": "J2", "find": "^((?:Assertions\\.|Assert\\.)?)assertNotEquals\\b", "replace": "\\1assertEquals", "fires_as": "^(?:org\\.opentest4j\\.AssertionFailedError: |java\\.lang\\.AssertionError: )?(?:.*? ==> )?expected: ?<.*> but was: ?<"}
+        ]},
+        {"head": "\\b(?:Assertions\\.|Assert\\.)?assertTrue\\b", "matcher_at": "head", "invert": [
+          {"id": "J3", "find": "^((?:Assertions\\.|Assert\\.)?)assertTrue\\b", "replace": "\\1assertFalse", "fires_as": "^(?:org\\.opentest4j\\.AssertionFailedError: |java\\.lang\\.AssertionError: )?expected: <false> but was: <true>"}
+        ]},
+        {"head": "\\b(?:Assertions\\.|Assert\\.)?assertFalse\\b", "matcher_at": "head", "invert": [
+          {"id": "J4", "find": "^((?:Assertions\\.|Assert\\.)?)assertFalse\\b", "replace": "\\1assertTrue", "fires_as": "^(?:org\\.opentest4j\\.AssertionFailedError: |java\\.lang\\.AssertionError: )?expected: <true> but was: <false>"}
+        ]},
+        {"head": "\\b(?:Assertions\\.|Assert\\.)?assertNull\\b", "matcher_at": "head", "invert": [
+          {"id": "J5", "find": "^((?:Assertions\\.|Assert\\.)?)assertNull\\b", "replace": "\\1assertNotNull", "fires_as": "^(?:org\\.opentest4j\\.AssertionFailedError: |java\\.lang\\.AssertionError: )?expected: not <null>"}
+        ]},
+        {"head": "\\b(?:Assertions\\.|Assert\\.)?assertNotNull\\b", "matcher_at": "head", "invert": [
+          {"id": "J6", "find": "^((?:Assertions\\.|Assert\\.)?)assertNotNull\\b", "replace": "\\1assertNull", "fires_as": "^(?:org\\.opentest4j\\.AssertionFailedError: |java\\.lang\\.AssertionError: )?expected: <null> but was:"}
+        ]},
+        {"head": "\\b(?:Assertions\\.)?assertThat\\s*\\(", "matcher_at": "after_args", "invert": [
+          {"id": "A1", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.isEqualTo\\b", "replace": "\\1.isNotEqualTo", "fires_as": "(?s)not to be equal to:"},
+          {"id": "A2", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.isNotEqualTo\\b", "replace": "\\1.isEqualTo", "fires_as": "(?s)^\\s*(?:\\[.*?\\]\\s*)?expected: .*\\bbut was:"},
+          {"id": "A3", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.isTrue\\b", "replace": "\\1.isFalse", "fires_as": "Expecting value to be false but was true"},
+          {"id": "A4", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.isFalse\\b", "replace": "\\1.isTrue", "fires_as": "Expecting value to be true but was false"},
+          {"id": "A5", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.isNull\\b", "replace": "\\1.isNotNull", "fires_as": "Expecting actual not to be null"},
+          {"id": "A6", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.isNotNull\\b", "replace": "\\1.isNull", "fires_as": "(?s)expected: null\\b.*but was:"},
+          {"id": "A7", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.contains\\b", "replace": "\\1.doesNotContain", "fires_as": "(?m)^\\s*not to contain:"},
+          {"id": "A8", "find": "^((?:\\s*\\.(?:as|describedAs)\\((?:[^()]|\\([^()]*\\))*\\))*)\\s*\\.doesNotContain\\b", "replace": "\\1.contains", "fires_as": "(?m)^\\s*to contain:"}
+        ]},
+        {"head": "\\b(?:Assertions\\.)?(?:assertThrows|assertDoesNotThrow|assertAll|assertSame|assertNotSame|assertArrayEquals|assertIterableEquals|assertLinesMatch|assertTimeout|fail)\\s*\\(", "matcher_at": "head", "invert": null}
+      ],
+      "frames": ["^\\s*at\\s+(?P<qual>[\\w$.<>/]+)\\((?P<path>[\\w$]+\\.java):(?P<line>\\d+)\\)"],
+      "skip_frames": ["^\\s*at\\s+(?:org\\.junit|org\\.opentest4j|org\\.assertj|org\\.hamcrest|java\\.|jdk\\.|sun\\.|org\\.apache\\.maven|org\\.gradle)"],
+      "frame_path": "basename",
+      "compiled": true,
+      "builds_by_default": ["mvn", "mvnw", "gradle", "gradlew"],
+      "no_rebuild_flags": ["surefire:test", "compileTestJava"]
+    },
+    "typescript": {
+      "suffixes": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
+      "lexer": {
+        "line_comments": ["//"],
+        "block_comments": [["/*", "*/"]],
+        "strings": [
+          {"open": "'", "close": "'", "escape": "backslash", "multiline": false},
+          {"open": "\"", "close": "\"", "escape": "backslash", "multiline": false},
+          {"open": "`", "close": "`", "escape": "backslash"}
+        ],
+        "regex_literal": {"open": "/", "close": "/", "escape": "\\", "class_open": "[", "class_close": "]", "multiline": false,
+                          "after": {"chars": "(,=:[!&|?{};+-*%<>~^",
+                                    "words": ["return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await"]}}
+      },
+      "declaration_style": "call",
+      "test_declaration": "\\b(?:it|test)(?:\\.(?:only|concurrent|fixme|fail|slow|skip))?\\s*\\(\\s*(['\"`]){name}\\1",
+      "title_tag": "(?<![\\w.])@[\\w:-]+",
+      "title_template": {"open": "${", "close": "}"},
+      "title_placeholders": ["%s", "%d", "%i", "%j", "%o", "\\$[\\w.]+"],
+      "group_declaration": "\\b(?:test\\.)?describe(?:\\.(?:only|skip|parallel|serial|fixme|configure))*\\s*\\(\\s*(['\"`])",
+      "each_declaration": "\\b(?:it|test)\\.each\\s*\\(",
+      "group_each_declaration": "\\b(?:test\\.)?describe\\.each\\s*\\(",
+      "loop_heads": "\\bfor\\s*\\(|\\.forEach\\s*\\(|\\.map\\s*\\(",
+      "body_open": "=>\\s*\\{|\\bfunction\\b\\s*\\*?\\s*[\\w$]*\\s*\\([^()]*\\)\\s*\\{",
+      "helper_declaration": "\\b(?:async\\s+)?function\\s*\\*?\\s*{name}\\s*\\(",
+      "helper_body_open": "\\s*(?::\\s*[^{};=]+)?\\{",
+      "name_separators": ["::"],
+      "report_separators": [" > "],
+      "soft_assert_patterns": ["\\bexpect\\.soft\\s*\\("],
+      "soft_report": {"error_head": "^\\s*Error:", "after_frame_ok": ["^\\s*Error Context:"]},
+      "tail_join": " ",
+      "statement_end": "semicolon_or_newline",
+      "assertions": [
+        {"head": "\\bexpect(?:\\.soft)?\\s*\\(", "matcher_at": "after_args", "invert": [
+          {"id": "T1", "find": "^((?:\\s*\\.(?:resolves|rejects))?)\\s*\\.not(\\s*\\.to[A-Z]\\w*\\s*\\()", "replace": "\\1\\2", "fires_as": "^(?:Error: )?expect\\(received\\)(?:\\.(?:resolves|rejects))?\\.to[A-Z]\\w*\\(|^Error: (?:Timed out \\d+ms waiting for )?expect\\((?:locator|page|response)\\)\\.to[A-Z]\\w*\\(|^(?:AssertionError: )?expected (?:(?! not to ).)+ to "},
+          {"id": "T2", "find": "^((?:\\s*\\.(?:resolves|rejects))?)(\\s*\\.to[A-Z]\\w*\\s*\\()", "replace": "\\1.not\\2", "fires_as": "^(?:Error: )?expect\\(received\\)(?:\\.(?:resolves|rejects))?\\.not\\.to[A-Z]\\w*\\(|^Error: (?:Timed out \\d+ms waiting for )?expect\\((?:locator|page|response)\\)\\.not\\.to[A-Z]\\w*\\(|^(?:AssertionError: )?expected .+ not to "}
+        ]},
+        {"head": "\\bassert(?:\\.(?:equal|strictEqual|deepEqual|deepStrictEqual|ok|notEqual|throws|rejects|match))?\\s*\\(", "matcher_at": "head", "invert": null}
+      ],
+      "frames": [
+        "^\\s*at\\s+(?:.*?\\()?(?P<path>(?:[A-Za-z]:)?[^():\\s][^():]*?):(?P<line>\\d+):\\d+\\)?\\s*$",
+        "^\\s*\\u276f\\s+(?P<path>(?:[A-Za-z]:)?[^():\\s][^():]*?):(?P<line>\\d+):\\d+\\s*$"
+      ],
+      "skip_frames": ["node_modules|node:internal|^\\s*at\\s+(?:new\\s+)?Promise\\b|\\(<anonymous>\\)\\s*$|^\\s*at\\s+<anonymous>\\s*$"],
+      "frame_path": "path",
+      "compiled": false,
+      "builds_by_default": [],
+      "no_rebuild_flags": []
+    }
+  },
+  "assertion_probes_note": "How probe_by_code.py probes a test that is not Python (B-373, D-0028), read ONLY through scripts/assertion_detectors.py. One entry per language; a suffix belongs to one entry and is never .py. A row that is wrong or missing never gives a verdict on the test: the probe refuses or answers incomplete. FR-13: the table grows by data as projects report what they meet. Entry: lexer {line_comments, block_comments, strings[{open, close, escape backslash|double|none, multiline (false = a string that crosses a line break is a lexer error and a refusal: it means a regex literal or an apostrophe opened one where none is)}]}; lexer.regex_literal (optional, JS/TS: a `/` opens a regular-expression literal when the last code character before it is in after.chars, the word it ends is in after.words, or it starts a line or the file - otherwise it divides; inside, `escape` skips one character, a [class] may hold `/`, and a line break before the close is a lexer error and a refusal); conditional_directive (optional regex, matched per line: a file holding one - C# #if/#else - is refused, because which branch is compiled is not knowable here); declaration_style method (a name, a parameter list, then body_open) or call (it('title', () => {...})); test_declaration and helper_declaration hold exactly one {name}, replaced by re.escape; name_separators split the --test tail, the segments are joined by tail_join and compared with the report id (report_separators are more separators of the report id); display_name (optional) marks a title the runner may report instead of the method name; soft_assert_patterns (optional list of regexes, matched at the start of an assertion head) names the forms that record a failure and let the test go on (Playwright expect.soft). `soft_report` {error_head, after_frame_ok} (regexes) says how the runner's failure text for such a test is built: every error of the text starts at a line matching `error_head`, has a frame line, and after its last frame only lines matching `after_frame_ok` follow - a text that does not fit is a test that may have stopped (a timeout, a throw with no frame), so the finding stays; with no `soft_report` the finding always stays. assertions: one form per assertion call, head (a regex; the first head in the body is the target) and matcher_at head | after_args (after the balanced parentheses of the head) | second_arg; invert is null (a form no pair inverts: the probe refuses, it never skips to a later assertion) or a list of pairs {find, replace, fires_as} tried in order, find applied with re.match at exactly that position, fires_as a regex that must match the failure message of the INVERTED form and is searched with no flags (a call-style entry anchors every alternative with ^, so a code frame echoing the mutated statement never matches), and the plan is refused when fires_as matches the mutated statement itself. An optional pair id names the row in a refusal. frames and skip_frames read the runner's stack (named groups path and line; basename also needs qual, the qualified method name, whose package must be a suffix of the file's directory); compiled is true where a test binary is built, builds_by_default lists the launchers (argv basenames joined by spaces) that rebuild by themselves, no_rebuild_flags the argv tokens that stop one. Every message and stack shape below is an ESTIMATE from the libraries' documented output (xUnit 2.5, NUnit 3/4, JUnit 5, AssertJ 3.19+, Jest, Vitest, Playwright); measurement M2/M3 corrects a row, and a runner that words a message differently gives incomplete. Not covered, and left to give incomplete: NUnit 3 classic X5-X10, JUnit 4 J3-J6, AssertJ before 3.19, Hamcrest assertThat(x, is(y)), Chai, a message passed to xUnit Assert.True/False, a test whose expectation lives in a helper the probe is not told about (--oracle)."
+}

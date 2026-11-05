@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>QA Factory in three layers</title>
+<style>
+  html { background: #ffffff; }
+  body { margin: 0; padding: 24px; background: #ffffff; color: #1f2328;
+         font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+  .wrap { max-width: 1600px; margin: 0 auto; }
+  svg { display: block; width: 100%; height: auto; background: #ffffff; }
+  p.note { font-size: 13px; color: #56606a; margin: 0 0 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="note">QA Factory 0.10.2 — the factory in cross-section: people, pipeline, code.</p>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="796" viewBox="0 0 1600 796" role="img" aria-label="QA Factory in three layers">
+<rect x="0" y="0" width="1600" height="796" fill="#ffffff"/>
+<text x="40" y="42" text-anchor="start" font-size="22" font-weight="600" fill="#1f2328">THE FACTORY IN CROSS-SECTION — THREE LAYERS</text>
+<text x="40" y="68" text-anchor="start" font-size="12.5" font-weight="400" fill="#56606a">Gold: a person's decision.  Green: code.  White: a role.  Dashed: a conditional route.</text>
+<text x="40" y="104" text-anchor="start" font-size="15" font-weight="600" fill="#3d5a80">LAYER 1 · PEOPLE — decisions on the plan, the gaps and external actions</text>
+<rect x="40" y="118" width="330" height="92" rx="6" fill="#f7e2de" stroke="#d3a29b" stroke-width="1.2"/>
+<text x="205.0" y="144" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">Blocker / an answer is needed</text>
+<text x="205.0" y="163" text-anchor="middle" font-size="11.5" fill="#4a4a4a">No trustworthy oracle / no access</text>
+<text x="205.0" y="180" text-anchor="middle" font-size="11.5" fill="#4a4a4a">A dependent scope is stopped</text>
+<text x="400" y="160" text-anchor="start" font-size="12" font-weight="400" fill="#3a3f45">Regression is run by the user</text>
+<text x="400" y="178" text-anchor="start" font-size="12" font-weight="400" fill="#3a3f45">on their own stand.</text>
+<rect x="625" y="118" width="350" height="92" rx="6" fill="#f4e7cf" stroke="#c9a86a" stroke-width="1.2"/>
+<text x="800.0" y="144" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">GATE A · after S4</text>
+<text x="800.0" y="163" text-anchor="middle" font-size="11.5" fill="#1c6b5a">understanding.md + test-plan.md</text>
+<text x="800.0" y="180" text-anchor="middle" font-size="11.5" fill="#1c6b5a">Cases / review / budget / TMS</text>
+<text x="1002" y="160" text-anchor="start" font-size="12" font-weight="400" fill="#3a3f45">Authorization stays within</text>
+<text x="1002" y="178" text-anchor="start" font-size="12" font-weight="400" fill="#3a3f45">the agreed limits.</text>
+<rect x="1225" y="118" width="335" height="92" rx="6" fill="#f4e7cf" stroke="#c9a86a" stroke-width="1.2"/>
+<text x="1392.5" y="144" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">GATE B · after S8</text>
+<text x="1392.5" y="163" text-anchor="middle" font-size="11.5" fill="#1c6b5a">test-report.md with the ledger</text>
+<text x="1392.5" y="180" text-anchor="middle" font-size="11.5" fill="#1c6b5a">Bugs / export / commit / MR</text>
+<text x="40" y="227" text-anchor="start" font-size="12" font-weight="400" fill="#2b6c5d">Seven kinds of question: the source review, a source gap, gate A, gate B, a halt, the retro question, a question of the conductor.</text>
+<text x="40" y="250" text-anchor="start" font-size="15" font-weight="600" fill="#3d5a80">LAYER 2 · PIPELINE — ten logical stages, sequential windows</text>
+<rect x="40" y="264" width="1520" height="56" rx="6" fill="#f0f1f2" stroke="#c8ccd0" stroke-width="1.2"/>
+<text x="800" y="287" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2328">qa-story session or driver + controller:  next_action → dispatch → accept_result</text>
+<text x="800" y="307" text-anchor="middle" font-size="12" font-weight="400" fill="#2b6c5d">Short role context  ·  state after every window  ·  resume with no repeat of accepted results  ·  a fresh conductor only when the factory has no move</text>
+<rect x="40" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="111.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S0 · start</text>
+<text x="111.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">Code</text>
+<text x="111.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">readiness / roots</text>
+<text x="111.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">baseline / branch</text>
+<rect x="193" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="264.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S1 · context</text>
+<text x="264.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">qa-scout</text>
+<text x="264.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">sources / diff</text>
+<text x="264.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">versions</text>
+<line x1="181" y1="402.0" x2="185" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="192,402.0 184,397.5 184,406.5" fill="#3a3f45"/>
+<rect x="346" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="417.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S2 · understanding</text>
+<text x="417.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">requirements</text>
+<text x="417.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">expected behaviour</text>
+<text x="417.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">oracle / unknowns</text>
+<line x1="334" y1="402.0" x2="338" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="345,402.0 337,397.5 337,406.5" fill="#3a3f45"/>
+<rect x="499" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="570.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S3 · plan</text>
+<text x="570.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">strategist</text>
+<text x="570.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">risk / pyramid</text>
+<text x="570.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">scope / budget</text>
+<line x1="487" y1="402.0" x2="491" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="498,402.0 490,397.5 490,406.5" fill="#3a3f45"/>
+<rect x="652" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="723.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S4 · cases</text>
+<text x="723.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">case-designer</text>
+<text x="723.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">case-critic*</text>
+<text x="723.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">plan + cases</text>
+<line x1="640" y1="402.0" x2="644" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="651,402.0 643,397.5 643,406.5" fill="#3a3f45"/>
+<rect x="805" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="876.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S5 · Automation</text>
+<text x="876.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">automator</text>
+<text x="876.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">code-critic</text>
+<text x="876.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">green / fix / red</text>
+<line x1="793" y1="402.0" x2="797" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="804,402.0 796,397.5 796,406.5" fill="#3a3f45"/>
+<rect x="958" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="1029.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S6 · remaining</text>
+<text x="1029.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">runner as needed</text>
+<text x="1029.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">manual / new</text>
+<text x="1029.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">current checks</text>
+<line x1="946" y1="402.0" x2="950" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="957,402.0 949,397.5 949,406.5" fill="#3a3f45"/>
+<rect x="1111" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="1182.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S7 · triage</text>
+<text x="1182.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">analyst as needed</text>
+<text x="1182.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">diagnosis reuse</text>
+<text x="1182.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">no failures → code</text>
+<line x1="1099" y1="402.0" x2="1103" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="1110,402.0 1102,397.5 1102,406.5" fill="#3a3f45"/>
+<rect x="1264" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="1335.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S8 · results</text>
+<text x="1335.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">Code</text>
+<text x="1335.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">ledger / report</text>
+<text x="1335.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">regression list</text>
+<line x1="1252" y1="402.0" x2="1256" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="1263,402.0 1255,397.5 1255,406.5" fill="#3a3f45"/>
+<rect x="1417" y="358" width="142" height="88" rx="6" fill="#ffffff" stroke="#8a8f98" stroke-width="1.2"/>
+<text x="1488.0" y="380" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2328">S9 · closure</text>
+<text x="1488.0" y="398" text-anchor="middle" font-size="10.5" fill="#1c6b5a">Code + retro-agent*</text>
+<text x="1488.0" y="414" text-anchor="middle" font-size="10.5" fill="#1c6b5a">delivery / retro.md</text>
+<text x="1488.0" y="430" text-anchor="middle" font-size="10.5" fill="#1c6b5a">receipts / metrics</text>
+<line x1="1405" y1="402.0" x2="1409" y2="402.0" stroke="#3a3f45" stroke-width="1.4"/>
+<polygon points="1416,402.0 1408,397.5 1408,406.5" fill="#3a3f45"/>
+<path d="M 800 210 V 258" fill="none" stroke="#3a3f45" stroke-width="1.3" stroke-dasharray="6 5"/>
+<path d="M 800 326 V 336 H 799.5 V 354" fill="none" stroke="#3a3f45" stroke-width="1.3" stroke-dasharray="6 5"/>
+<polygon points="799.5,356 795.0,348 804.0,348" fill="#3a3f45"/>
+<text x="809.5" y="348" text-anchor="start" font-size="12.5" font-weight="700" fill="#3a3f45">A</text>
+<path d="M 1392 210 V 258" fill="none" stroke="#3a3f45" stroke-width="1.3" stroke-dasharray="6 5"/>
+<path d="M 1392 326 V 336 H 1411.5 V 354" fill="none" stroke="#3a3f45" stroke-width="1.3" stroke-dasharray="6 5"/>
+<polygon points="1411.5,356 1407.0,348 1416.0,348" fill="#3a3f45"/>
+<text x="1421.5" y="348" text-anchor="start" font-size="12.5" font-weight="700" fill="#3a3f45">B</text>
+<text x="40" y="470" text-anchor="start" font-size="12.5" font-weight="400" fill="#2b6c5d">* S4: the independent qa-case-critic reviews the plan rows whose design_review_required is true — mandatory for critical depth, unknown impact,</text>
+<text x="40" y="488" text-anchor="start" font-size="12.5" font-weight="400" fill="#2b6c5d">unknown oracle or a source conflict; the strategist may add more. Each stage is its own dispatch: there is no combined S1–S4 planning dispatch.</text>
+<text x="40" y="506" text-anchor="start" font-size="12.5" font-weight="400" fill="#2b6c5d">Models: the host is inherited; an explicit override comes from policy.</text>
+<text x="40" y="548" text-anchor="start" font-size="15" font-weight="600" fill="#3d5a80">LAYER 3 · CODE — checks the transitions, executes the commands, keeps the facts and builds the projections</text>
+<rect x="40" y="564" width="240" height="78" rx="6" fill="#dcebe4" stroke="#8fb5a4" stroke-width="1.2"/>
+<text x="160.0" y="590" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">Roots + guards</text>
+<text x="160.0" y="609" text-anchor="middle" font-size="11" fill="#1c6b5a">Paths / ownership / secrets</text>
+<text x="160.0" y="626" text-anchor="middle" font-size="11" fill="#1c6b5a">Stage / gate / permissions</text>
+<rect x="296" y="564" width="240" height="78" rx="6" fill="#dcebe4" stroke="#8fb5a4" stroke-width="1.2"/>
+<text x="416.0" y="590" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">Event store</text>
+<text x="416.0" y="609" text-anchor="middle" font-size="11" fill="#1c6b5a">Revision / lock / IDs</text>
+<text x="416.0" y="626" text-anchor="middle" font-size="11" fill="#1c6b5a">Checkpoint / recovery</text>
+<rect x="552" y="564" width="240" height="78" rx="6" fill="#dcebe4" stroke="#8fb5a4" stroke-width="1.2"/>
+<text x="672.0" y="590" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">Runner + adapters</text>
+<text x="672.0" y="609" text-anchor="middle" font-size="11" fill="#1c6b5a">Scope / selectors / dedup</text>
+<text x="672.0" y="626" text-anchor="middle" font-size="11" fill="#1c6b5a">Sandbox / cleanup</text>
+<rect x="808" y="564" width="240" height="78" rx="6" fill="#dcebe4" stroke="#8fb5a4" stroke-width="1.2"/>
+<text x="928.0" y="590" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">Evidence + review</text>
+<text x="928.0" y="609" text-anchor="middle" font-size="11" fill="#1c6b5a">Instance / hash / proof</text>
+<text x="928.0" y="626" text-anchor="middle" font-size="11" fill="#1c6b5a">Traceability / validation</text>
+<rect x="1064" y="564" width="240" height="78" rx="6" fill="#dcebe4" stroke="#8fb5a4" stroke-width="1.2"/>
+<text x="1184.0" y="590" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">Reducer + delivery</text>
+<text x="1184.0" y="609" text-anchor="middle" font-size="11" fill="#1c6b5a">Outcomes / gaps / allowlist</text>
+<text x="1184.0" y="626" text-anchor="middle" font-size="11" fill="#1c6b5a">Decisions / receipts</text>
+<rect x="1320" y="564" width="240" height="78" rx="6" fill="#dcebe4" stroke="#8fb5a4" stroke-width="1.2"/>
+<text x="1440.0" y="590" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">Visibility + costs</text>
+<text x="1440.0" y="609" text-anchor="middle" font-size="11" fill="#1c6b5a">Dashboard after events</text>
+<text x="1440.0" y="626" text-anchor="middle" font-size="11" fill="#1c6b5a">Usage / budgets / doctor</text>
+<text x="40" y="682" text-anchor="start" font-size="14" font-weight="600" fill="#1f2328">Requirement → plan → case version → test instance → attempt → review / proof → decision → delivery</text>
+<text x="40" y="706" text-anchor="start" font-size="12.5" font-weight="400" fill="#2b6c5d">Dashboard: current step, progress, gaps, next action, cost. A completed process with gaps does not mean passed_green.</text>
+<text x="40" y="726" text-anchor="start" font-size="12.5" font-weight="400" fill="#2b6c5d">One plugin — many projects. Extensible capability profiles; external CLIs / skills are installed only when they are needed.</text>
+<text x="40" y="750" text-anchor="start" font-size="12.5" font-weight="400" fill="#2b6c5d">* S9 as it is: the orchestrator's optional question before the dispatch; qa-retro-analyst always, over numbers code computed. Metrics,</text>
+<text x="40" y="768" text-anchor="start" font-size="12.5" font-weight="400" fill="#2b6c5d">retro.md, knowledge, backlog and the dashboard are kept.</text>
+</svg>
+</div>
+</body>
+</html>

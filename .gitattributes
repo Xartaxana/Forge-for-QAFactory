@@ -1,0 +1,41 @@
+# Line-ending form is pinned to LF for the kit's own hook/tool scripts
+# and git-hook shell scripts, plus the two boot files this port's own
+# tools/session_context.py measures BY ON-DISK BYTE SIZE (stat().st_size):
+# BOOT BUDGET (boot_budget_lines()), the personal CLAUDE.md WARN
+# threshold (CLAUDE_WARN), and the Layer A "on disk" byte figure
+# (layer_a_lines()) all read the file's size straight off the
+# filesystem -- a checkout that rewrites LF -> CRLF (or the reverse,
+# core.autocrlf-dependent) silently changes that size and can move a
+# WARN/OVER verdict without any real content change. Same class the
+# staff deployment's own .gitattributes exists for (byte-budget
+# measured by on-disk form -- docs/SIBLING_MAP.md, axis 14 there).
+#
+# Scripts: a CRLF shebang line under .githooks/ silently breaks hook
+# execution on a Linux clone; a mixed CRLF/LF split was found on disk
+# empirically across toolkit/tools/*.py and toolkit/.githooks/* during
+# this port (2026-08-25) -- this pin normalizes checkouts going
+# forward, it does not itself rewrite any file's current content.
+CLAUDE.md text eol=lf
+BOOT.md text eol=lf
+tools/*.py text eol=lf
+plans/PILES.md text eol=lf
+.githooks/* text eol=lf
+# Generated file compared byte-for-byte by `tools/factory_rules_index.py --check`
+# (pre-commit): a CRLF checkout under core.autocrlf=true would read as stale forever.
+docs/FACTORY_RULES_INDEX.md text eol=lf
+# The same for `tools/architecture_index.py --check` (F6-29).
+docs/ARCHITECTURE_INDEX.md text eol=lf
+AGENTS.md text eol=lf
+# The routing journal is append-only and two clones append at its tail: `merge=union` merges
+# the two tails without a conflict (both sets of lines are kept). The union may interleave two
+# sessions' lines, so tools/journal_validator.py's ts monotonicity can report such a merged
+# tail; the commit that FOLLOWS the merge validates as before (tools/test_forge_metrics.py K7).
+logs/routing-log.jsonl merge=union
+# t-581: one journal file per writer, logs/journal/<slug>.jsonl. `union` covers the one case it can still
+# meet -- one slug on two machines (the merge validator then WARNs "written by two clones"); `eol=lf`
+# keeps a CRLF checkout (core.autocrlf=true) from turning every line into an edit.
+logs/journal/*.jsonl merge=union text eol=lf
+# GM1-8: shell scripts and workflow files run on Linux; a CRLF shebang or YAML line breaks them there.
+*.sh text eol=lf
+docs/migration/**/*.yml text eol=lf
+.github/**/*.yml text eol=lf

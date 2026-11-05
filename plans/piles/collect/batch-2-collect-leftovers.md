@@ -1,0 +1,47 @@
+# Collect — пачка 2: остатки пачки 1 — третий рецепт отпечатка, дефекты редактора, приём-детектор
+
+кучка: `collect` | статус: закрыта | взял: dev1, 20.10.2026 | ветка: `pile/collect/batch-2` | MR: `3dec9462` | стенд: не нужен | приоритет: П3 | issue: —
+
+Открыта Lead 20.10.2026 00:5x (D-0044): находка 20.10 (третий рецепт отпечатка, ревью t-1019 m-11) и дефекты редактора CL1-1, найденные билдером CL1-2 (отчёт t-1024), не вмещаются в взятую пачку 1 иначе как строками «Остатков». Слово владельца на пачку: нет.
+
+Правило готовности: как у пачки 1.
+
+очередь: conductor/1 → collect/2
+очередь: `skills/qa-story/SKILL.md`, `phases/s9.md`: conductor/1 → collect/2 (CL2-3 (б) — после слияния conductor/1)
+очередь: `scripts/machine_facts.py`: collect/1 (CL1-1 слит) → collect/2 (CL2-2); `scripts/host_probe.py (fingerprint)`, `scripts/audit_factory.py (A14)`: collect/1 (CL1-8) → collect/2 (CL2-1)
+
+## Бриф
+
+Пачка собирает остатки пачки 1 кучки `collect`: CL2-1 сводит третий рецепт отпечатка пакета (`host_probe.fingerprint` и A14 `--stamp`) к `release_fingerprint`, CL2-2 чинит два дефекта редактора CL1-1 (квадратичный `Redactor.text()` на длинном run, ложный UNC в `Redactor.residue()`).
+Узлы независимы по файлам (`очередь:` выше задаёт порядок только для `machine_facts.py`, `host_probe.py`, `audit_factory.py`); оба идут builder → critic.
+Стенд не нужен; слова владельца на пачку нет. Подробно — строки таблицы «Узлы» и находка `findings/20261020-tretij-recept-otpechatka-host-probe-i-a14.md`.
+
+## Узлы
+
+| Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
+|---|---|---|---|---|---|---|
+| CL2-1 | П3 | Третий рецепт отпечатка — `host_probe.fingerprint` и A14 `--stamp` зовут `release_fingerprint` (находка `findings/20261020-tretij-recept-otpechatka-host-probe-i-a14.md`; F-7 (c) спеки t-994) | builder → critic | `scripts/host_probe.py (fingerprint)`, `scripts/audit_factory.py (a14_definition_drift)`, `scripts/factory_manifest.py (DEFINITION_GLOBS)`, тесты | CL1-8 | принято, слито (коммит слияния 21.10 03:3x; t-1152 под критиком темы t-1160, фикс-раунд t-1166 345ad92f) |
+| CL2-2 | П2 | Дефекты редактора CL1-1 по отчёту CL1-2 (t-1024): (а) `machine_facts.Redactor.text()` квадратичен на длинном непрерывном алфавитно-цифровом run (16 КБ строка — 5 с, 64 КБ — 76 с): base64-blob в файле останавливает сборку на минуты — ошибка к стопу сборки, чинится алгоритмом (один проход), пин на 64 КБ ≤ 1 с (счёт операций, не часы — FR-31); (б) `Redactor.residue()` на экранированном тексте целого JSON помечает `\\.env\\.` шаблона конфига как UNC-путь — читатель residue по листьям строк JSON (как `test_collect_redact`), не по сырому тексту | builder → critic | `scripts/machine_facts.py (Redactor.text, Redactor.residue)`, `scripts/tests/test_collect_redact.py` | CL1-1 (слит 711775dd) | принято, слито (коммит слияния 21.10 04:0x; b4671cb8 + фикс-раунд t-1167 650fb92f/2b9f9205 под критиком t-1160) |
+| CL2-3 | П2 | Находка `findings/20261020-priem-ne-schitaet-otvet-s9-human-feedback-adaptaciej.md` (t-974 §L-5 X2-F2 (а), X1 (а)) — приём `tools/collect_intake.py:620` `fb_element` считает `adaptation` только по `change-request:` в witness; ответ S9 `<ticket>:human-feedback` ретро-аналитика (одна запись, FR-10) в сводке просьб не виден — однострочник `… or ":human-feedback" in witness` + пин с отрицательным контролем; под `numbers` ответ S9 живёт только в `retro.md` — развилка дизайнеру (оркестратор пишет `change-request:<T>` сам — C3a SKILL.md, или приём читает `retro.md`) | designer → builder → critic | `tools/collect_intake.py (fb_element)`, `tools/test_collect_intake.py`, при (б) `skills/qa-story/SKILL.md` / `phases/s9.md` | CL1-5 (слит), CL1-6 (слит) | принято, слито (3dec9462; t-1153, критик темы t-1160 — fit; O-A/O-B — вопрос владельцу открыт) |
+
+## Ход
+
+функции: scripts/host_probe.py (fingerprint, inspect, observe)
+- 20.10 23:5x — пачка взята Lead (f1707e26) по слову владельца 20.10 «всё возможное в параллель»; очередь conductor/1 → collect/2 (`SKILL.md`, `s9.md` — CL2-3 (б)); CL2-2 — билдер t-1187 (журнал t-1146, wt-t1187) сразу, спека Lead (два файла); дизайнер t-1185 (t-1144) — спека CL2-1 + CL2-3
+- 21.10 00:2x — спека t-1185 принята (14 секций): один рецепт отпечатка — `release_fingerprint.py` остаётся и не правится, `host_probe.fingerprint` хэширует через него, A14 читает только `compare()`, `factory_manifest.collect_definition` зовёт `file_digests`, `DEFINITION_GLOBS` удаляется; `unknown:<why>:<nonce>` никогда не равен записанному (AR-28). Развилки F-1..F-4, F-7 — по рекомендации (§L); F-5/F-6 (ответ S9 под `numbers`: приём читает `retro.md` (O-B) или оркестратор пишет `change-request:<T>` (O-A); прочтение D-0053 / t-974 X1 (в)) — вопрос владельцу (чат 21.10 00:2x). Билдеры: B1 — CL2-1 (t-1194, wt-t1194), B2 — CL2-3 однострочник + T1 (t-1195, wt-t1195) запущены; O-B — после слова владельца
+- 21.10 02:2x — критик темы t-1206 (журнал t-1160; один проход на CL2-1 35c5956f, CL2-2 b4671cb8, CL2-3 93abb37b): 0 блокеров. CL2-3 — fit, в слияние как есть. CL2-1 — три правки без блокировки (C1-1 заголовок `--check` не обвиняет на UNKNOWN/чужом рецепте, C1-2 `fingerprint_detail` называет нечитаемые файлы, C1-3 `reason` на unread) — фикс-раунд t-1166 (свежий воркер, wt-t1194). CL2-2 — полуход: оба дефекта строки были закрыты раньше ((а) 8a1840cf, (б) `collect_pack._units` с 7fe625b3 — строка пачки устарела, дефект свежести диспетчера); новый читатель `residue_document` лучше старого (ловит ключ-токен), поэтому слияние несёт замену вызова в `_verify` и удаление `_units` + три пина — фикс-раунд t-1167 (wt-t1187). Порядок слияния: CL2-3 → CL2-1 → CL2-2; второй из CL2-1/OH2-1 перегоняет `test_audit_rules.py` на слитом дереве (кап A27 102 → 78 на main). Очередь критика → «Остатки».
+- 21.10 03:3x — слияния: CL2-3 3dec9462 (как есть); CL2-1 — коммит слияния следом (ветка t-1194 на 345ad92f после фикс-раунда t-1166: C1-1 заголовок `NOT JUDGED (n)` для UNKNOWN/чужого рецепта, exit 1; C1-2 `inspect` на `package_unreadable` называет файлы через `factory_manifest._unreadable_names`; C1-3 `reason` на unread «package files could not be read; the evidence was not judged»; комментарий `install_paths.py:145`); докер python:3.12 на слитом дереве (все EXIT 0): test_release_fingerprint 193/193, test_claude_host_probe 58/58, test_host_probe_shapes 351/351, test_audit_rules 287/287, test_session_identity 159/159. CL2-2 — слит следом (ветка t-1187 на 2b9f9205: фикс-раунд t-1167 в два коммита — `_verify` читает члены архива через `residue_document` (`_kind` по суффиксу), `collect_intake.residue_category` читает элемент через него же (owns расширены Lead: посылка «у `_units` нет вызывающих» была ложной — `tools/collect_intake.py:580`; калибровочный случай), `_units` удалён, пины Y1/Y2/Y3 + `post_check_members` + пин intake; докер python:3.12 на слитом дереве: test_collect_redact 287/287, test_collect_pack 166/166, test_collect_stall 195/195; pytest tools/test_collect_intake.py 74 passed). Очередь критика (C1-5..C1-8, C2-4, SKILL.md:87, аналог DRIFT) — в «Остатках».
+- 20.10 00:5x — пачка открыта Lead; CL2-2 — дефекты принятой работы CL1-1 (`defect_found` в журнале, ref t-986)
+- 21.10 11:3x — слово владельца (чат): «Законные переносы в другие кучки подтверждаю. Всё, что касается текущих кучек, надо доделывать» — две строки «Остатков» идут в сметание CL3-1 (спека дизайнера t-1241): kb-страницы про A14 — перенос в кучку kb с `подтвердил: владелец, 21.10.2026`, остальное (OSError-префикс `factory_manifest.py`, идиома «первые 10», читатель листьев P48) — доделать.
+- 28.10 — закрытие по слову владельца 28.10.2026: статусы сверены (разведка t-1551), хвосты перенесены (t-1554). Три узла приняты и слиты (807e394f, 53b667d5, 3dec9462); две строки «Остатков» — collect/3 (CL3-1, CL3-2); живых доказательств нет.
+
+## Живые доказательства
+
+| Что | Где | Статус |
+|---|---|---|
+
+## Остатки
+
+- очередь критика t-1206 по CL2-1 (вне owns узла): C1-5 kb-страницы `kb/02-architecture.xhtml:281`, `kb/04-onboarding-doctor.xhtml:308` описывают A14 как проверку штампа (AR-22, читатели вне переписи) → кучка kb; C1-6 `factory_manifest.py:45, :53-57` читает текст OSError выжившего по префиксу — атрибут со списком при следующем открытии `release_fingerprint.py` (AR-18); C1-7 идиома «первые 10, потом (+k more)» скопирована дважды в этом диффе поверх шести копий — один выживший `cut_list(names, cap)`; C1-8 литерал `echo QA_FACTORY_PROBE_` пять раз в `host_probe.py` (:60, :105, :109, :164, :169) — одна константа; `skills/qa-doctor/SKILL.md:87` на `unverified` велит «report missing/correlation evidence» — роль отчитается неверно на unread (байтовый бюджет пинит `test_session_identity.py`); аналог фикс-раунда t-1166: строки `verify()` «manifest missing/unreadable» тоже печатаются под `DRIFT` | перенос: пачка 3 | обоснование: хвосты мелкие, срочного нет; положены узлом CL3-1 в новую пачку collect/3 тем же ходом (D-0044), kb-страницы (C1-5) идут тем же узлом через кучку kb | подтвердил: владелец, 28.10.2026
+- очередь критика t-1206 по CL2-2 (C2-4): `test_collect_redact.py` `leaves()`/`sweep()` (P48) — третий читатель листьев; пины начальной позиции для остальных регэкспов данных; строка пачки CL2-2 устарела (оба дефекта были закрыты до узла: (а) 8a1840cf, (б) `_units` с 7fe625b3 — дефект свежести диспетчера, калибровочный случай) | перенос: пачка 3 | обоснование: хвосты мелкие, срочного нет; положены узлом CL3-2 в новую пачку collect/3 тем же ходом (D-0044) | подтвердил: владелец, 28.10.2026
+

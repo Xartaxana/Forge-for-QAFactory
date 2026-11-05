@@ -1,0 +1,34 @@
+Task t-085 (B-192): the factory dashboard shows every "Hot cache share below 90%" warning twice. Fix the cause in the package. Repo root: C:\proj (run everything from it; no `cd x &&`, no ` 2>&1`; no git state changes; package files are English only, no Cyrillic).
+
+GIVEN (read these first):
+- ai-packages/qa-factory/design/factory-rules.md (whole) and plans/builder-rules.md (whole) - the standing rules for package edits.
+- ai-packages/qa-factory/scripts/metric_signals.py - `evaluate` (lines ~60-114), `_hot_cache_signals` (117-154), `refresh` (157-199).
+- ai-packages/qa-factory/scripts/tests/test_metric_signals.py - existing tests and their helpers.
+- Measured cause (Lead, on a real receipt: 28 signals, 7 ids twice, the second copy `evaluation: not_evaluated`, reason "Rule retired or policy version changed"): in `refresh`, `custom_previous` strips only `legacy-estimate-v1:*` from the previous receipt, so previous `hot-cache-v1:*` signals reach the generic `evaluate(...)`, which does not know their rule and re-appends every unresolved one as `not_evaluated` (lines 108-111); then `_hot_cache_signals` appends the same id again, freshly evaluated. From the second refresh on, every open hot-cache signal is doubled.
+
+OWNS (may write): ai-packages/qa-factory/scripts/metric_signals.py, ai-packages/qa-factory/scripts/tests/test_metric_signals.py. Nothing else.
+
+REQUIRED BEHAVIOUR
+Invariant: the receipt returned and written by `refresh` holds each signal id at most once.
+1. In `refresh`, after all three sources are assembled (generic evaluate, hot-cache, legacy-estimate), dedupe `receipt['signals']` by `id`: an entry WITHOUT `evaluation == 'not_evaluated'` wins over one with it; among equals the first wins; order of first appearance is preserved. Do the same for nothing else (evaluations list stays as is).
+2. When `_hot_cache_signals` / the legacy block pick the prior signal for an id from `previous` and the previous receipt carries that id twice (receipts already on disk do), the prior used must be the evaluated copy, not the `not_evaluated` one - so lifecycle fields (first_seen, status, recovery_count) are not lost. Simplest: dedupe `previous['signals']` by the same rule once at the top of `refresh` and use that everywhere below.
+Edges, decided:
+- A prior open hot-cache signal whose session/story is NOT in this refresh's `sessions`: it stays, once, as `not_evaluated` (today's behaviour; an outstanding warning is never silently erased).
+- A previous receipt with duplicates on disk heals in one refresh (ids unique afterwards).
+- `previous` empty / no `signals` key / `sessions` None or empty: no error, behaviour unchanged.
+- Resolved signals: unchanged behaviour.
+Non-goals: no change to thresholds, titles, per-session vs per-story scoping, `signals_html`, or factory_dashboard.py (another worker's uncommitted file - do not touch).
+
+TESTS (add to test_metric_signals.py, using the file's existing helpers and tmp dirs):
+a. two `refresh` calls in a row with the same cold session -> ids unique in the returned receipt AND in metric-signals.json; the surviving entry for the session id is the evaluated one and keeps `first_seen` from the first refresh.
+b. a metric-signals.json seeded with a duplicated id (evaluated + not_evaluated copy) -> one refresh -> unique.
+c. first refresh with cold session A, second refresh with sessions=[] -> A's signal present exactly once, `evaluation == 'not_evaluated'`.
+d. mutation (builder-rules 7a): remove the dedupe -> test (a) goes red in test_metric_signals.py; restore by byte copy taken before the mutation, show the hash comparison.
+
+DoD / witness (verbatim output in the report, not a retelling), in the form builder-rules prescribes for package tests:
+- scripts/tests/test_metric_signals.py green;
+- neighbours once at the end: scripts/tests/test_dashboard_cost_widgets.py and any other test file importing metric_signals (grep, name them);
+- `python -B scripts/selftest.py --limits --lang` from ai-packages/qa-factory (use the form builder-rules gives);
+- the mutation result from (d);
+- FR pass: one line per touched section of factory-rules.md (F measurement, G code; others "not applicable - why").
+Handoff: report <= 500 words: diff summary with line refs, the witness outputs, analogs noticed elsewhere (report, do not fix), anything needed beyond the manifest. If a requirement above is missing or contradictory, return it as a question instead of guessing.
