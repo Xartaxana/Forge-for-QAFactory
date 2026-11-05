@@ -3408,6 +3408,18 @@ def refusal_c2_4_the_doors_of_code_run_before_every_resume():
         harness.cleanup(root)
 
 
+def s4_critic_form(driver, task_root, dispatch: str = "S4-qa-case-critic-1", verdict: str = "concerns") -> list:
+    """What the S4 critic's finish now needs (X2-7): the live dispatch id and the critic's handoff form with a verdict word of the
+    acceptance table. The record writer is replaced by a logger (its own pins are `test_controller_stage_acceptance.py`). Returns the log."""
+    form = task_root / "work" / "handoffs" / f"{dispatch}.yaml"
+    form.parent.mkdir(parents=True, exist_ok=True)
+    form.write_text(f"header:\n  role: qa-case-critic\n  stage: S4\n  verdict: {verdict}\n", encoding="utf-8")
+    driver.last_dispatch = dispatch
+    written: list = []
+    driver.stage_acceptance_write = lambda stage, did: written.append((stage, did))
+    return written
+
+
 def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
     """C2-4 T18/T18b + F-3/F-4/F-6 (t-909): the S4 case critic's finish says `OpenWork` (`--not-complete --unresolved --reason`)
     exactly when the rework branch will run (verdict sends cases back, a round is left, a findings file exists); with no findings
@@ -3419,6 +3431,9 @@ def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
     try:
         driver = driver_for(root, env, task)
         digest = "qa-case-critic S4 TC-1 · concerns\nTC-1 · rejected · weak Then\nwork/test-cases/critic-findings.md"
+        # X2-7: the finish first reads the critic's own form (a verdict word of the table) and has the record written; the
+        # scenario supplies the dispatch id and the form (real `stage_verdict_known`), the writer only logs its call
+        written = s4_critic_form(driver, task_root)
         rule = driver.s4_critic_completion(["TC-1", "TC-2"], 0, 2)
         check_eq("F-3: concerns, a round left, NO findings file: the old False (one resume of the critic, no open stage)", rule(digest), False)
         findings = task_root / "work" / "test-cases" / "critic-findings.md"
@@ -3433,14 +3448,26 @@ def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
                  (no_rows.startswith("the case critic sent work back for repair; S4 was kept open"), any(ch.isdigit() for ch in no_rows.split(";")[0])), (True, False))
         check_not_in("T18: and is timeless (no 'round k of cap', no present tense)", " is kept", got.reason)
         check_eq("T18: approve -> None (the critic closes S4)", rule(digest.replace("concerns", "approve")), None)
-        check_eq("T18: the last round (counted == cap) -> None", driver.s4_critic_completion(["TC-1"], 2, 2)(digest), None)
-        check_eq("T18/edge 15: a cap or count that is no number -> None, as today", driver.s4_critic_completion(["TC-1"], None, "x")(digest), None)
+        check_eq("X2-7: the record of the critic's form was written first, once per finish",
+                 set(written), {("S4", "S4-qa-case-critic-1")})
+        # the last round: a stage with NO acceptor keeps the old None; a stage WITH one hands a sent-back stage to the seam (X2-7 point 7)
+        real_acceptor, real_exhausted = driver.stage_acceptor, driver.stage_review_exhausted
+        driver.stage_acceptor = lambda s: ""
+        check_eq("T18: the last round (counted == cap), a stage with no acceptor -> None", driver.s4_critic_completion(["TC-1"], 2, 2)(digest), None)
+        check_eq("T18/edge 15: a cap or count that is no number, no acceptor -> None, as today", driver.s4_critic_completion(["TC-1"], None, "x")(digest), None)
+        driver.stage_acceptor = real_acceptor
+        driver.stage_review_exhausted = lambda *a, **k: "SEAM"
+        check_eq("X2-7: the last round (counted == cap), the critic sent cases back -> the seam, not a silent None",
+                 driver.s4_critic_completion(["TC-1"], 2, 2)(digest), "SEAM")
+        check_eq("X2-7/edge 15: a cap or count that is no number is the last round -> the seam",
+                 driver.s4_critic_completion(["TC-1"], None, "x")(digest), "SEAM")
+        driver.stage_review_exhausted = real_exhausted
         long_scope = [f"TC-{i:04d}" for i in range(80)]
         long_digest = "qa-case-critic S4 TC-0000 · concerns\n" + "".join(f"{c} · rejected · weak Then\n" for c in long_scope) + "work/test-cases/critic-findings.md"
         reason = driver.s4_critic_completion(long_scope, 0, 2)(long_digest).reason
         check_eq("T18: a long list is cut to 300 and ends with the path of the findings", (len(reason), reason.endswith("… [list: work/test-cases/critic-findings.md]")), (300, True))
         driver.controller = lambda *a, **kw: {"repair_budget": {"counted": 0, "cap": 2}}
-        recovered = driver.completion_for("S4", "qa-case-critic", {"scope": ["TC-1"], "rework_of": "S4-qa-case-critic-1"})
+        recovered = driver.completion_for("S4", "qa-case-critic", {"id": "S4-qa-case-critic-1", "scope": ["TC-1"], "rework_of": "S4-qa-case-critic-1"})
         check_eq("F-4: the recovery road applies the same rule, before rework_of", type(recovered(digest)).__name__, "OpenWork")
         argv = []
         driver.py = lambda script, *args, **kw: argv.extend(str(a) for a in args) or (0, "accepted x")
@@ -3502,10 +3529,11 @@ def refusal_c2_4_an_owed_s4_repair_round_starts_instead_of_a_new_critic():
     root, task_root, env = seed(task)
     try:
         probe = driver_for(root, env, task)
+        s4_critic_form(probe, task_root)
         (task_root / "work" / "test-cases").mkdir(parents=True, exist_ok=True)
         (task_root / "work" / "test-cases" / "critic-findings.md").write_text("#", encoding="utf-8")
         probe.controller = lambda *a, **kw: {"repair_budget": {"counted": 0, "cap": 2}}
-        recovery = probe.completion_for("S4", "qa-case-critic", {"scope": ["TC-1"], "rework_of": "S4-qa-case-critic-1"})(digest)
+        recovery = probe.completion_for("S4", "qa-case-critic", {"id": "S4-qa-case-critic-1", "scope": ["TC-1"], "rework_of": "S4-qa-case-critic-1"})(digest)
         refused_then_continue = probe.s4_critic_completion(["TC-1"], 0, 2)(digest)
     finally:
         harness.cleanup(root)
