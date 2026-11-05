@@ -1628,7 +1628,7 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
                     "says why in `apart_reason`. `s5_plan.py --check` is the exit check; its hints are advice, not repairs")
     else:
         head.append("Your work is the plan review, not the code: judge work/s5-plan.json against the cases and fill your review form "
-                    "(verdict, remarks PR-n); `s5_plan.py --check` is what code already found, do not re-report it")
+                    "(verdict, remarks PR-n); do not re-report what `s5_plan.py --check` already found")
         rows, why = _sp().hint_rows(task_root)
         if why:
             head.append(f"grouping hints not computed ({_short(why, 80)})")
@@ -1666,13 +1666,13 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
                              + ("" if write else " (not written in this run)")
                              + (" - still over the cap: read it by ranges" if big > cap else ""))
     if not author:
-        files.append(f"- {_rel(task, 'work/handoffs/' + dispatch_id + '.yaml')} - your review form (`start` writes it right after this "
+        files.append(f"- {_rel(task, 'work/handoffs/' + dispatch_id + '.yaml')} - your review form (`start` writes it after this "
                      "brief; `finish` stamps the plan you read)")
         rubric = file_lines([RUBRIC], task_root, project, True)
         files += [line + " - read its section «On the plan» (`Grep -n` it)" for line in rubric]
         last = _last_remark_number(task_root, state)
         if last is not None:
-            head.append(f"This is a re-look: number your new remarks after the chain's last PR-n (PR-{last}), so no id repeats")
+            head.append(f"This is a re-look: number your new remarks after the chain's last PR-n (PR-{last})")
     return {"head": head, "files": files, "sides": sides}
 
 
@@ -3069,9 +3069,21 @@ def _form_line(key: str, value: str, whole: str, form: dict, keep: str = "") -> 
     return f"{key}: {value}{keep}"
 
 
+def measured_bytes(text: str, roots=None) -> int:
+    """The bytes of `text` as the BUDGET counts them: every checkout-dependent absolute root (the plugin root, which also holds the
+    scripts directory) is replaced by a fixed 8-character token first, so the same brief weighs the same on any machine (AR-4); the
+    brief TEXT itself keeps the real paths (AR-8). `roots` defaults to the plugin root; an empty root is skipped, a longer root goes
+    before a shorter one that is its prefix, and both separators are replaced."""
+    found = [HERE.parent.as_posix()] if roots is None else list(roots)
+    spelled = {r for root in found if root for r in (str(root).replace("\\", "/").rstrip("/"), str(root).replace("/", "\\").rstrip("\\")) if r}
+    for root in sorted(spelled, key=len, reverse=True):
+        text = text.replace(root, "<plugin>")
+    return len(text.encode("utf-8"))
+
+
 def head_bytes(lines: list) -> int:
-    """The bytes the SD head lines take in the brief (each line and its newline)."""
-    return sum(len(line.encode("utf-8")) + 1 for line in lines)
+    """The bytes the SD head lines take in the brief (each line and its newline), measured as the budget measures them."""
+    return sum(measured_bytes(line) + 1 for line in lines)
 
 
 def sd_head_lines(task_root: Path, stage: str, role: str, dispatch_id: str, names: list, stage_def: dict) -> list:
@@ -3402,14 +3414,14 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     attempts = [(MAP_INLINE_LINES, 2, True, 2), (MAP_INLINE_LINES, 2, True, 1), (MAP_INLINE_LINES, 2, True, 0), (0, 2, True, 0),
                 (0, 2, True, -1), (0, 2, False, -1), (0, 1, False, -1)]      # N4: level 0 (words as a pointer only) is gone (F-3)
     # N4: the budget does NOT count the digest template (F-4): it is a door like the card and goes last, whatever the ceiling.
-    form_cost = len("\n".join(digest_form).encode("utf-8")) + (1 if digest_form else 0)
+    form_cost = measured_bytes("\n".join(digest_form)) + (1 if digest_form else 0)
 
     # t-1765 X1 fix-3/4: the SD head is form too, up to its own HARD cap SD_HEAD_MAX_BYTES; what it weighs beyond the cap counts
     # against the body (never outside the budget) and is reported in `over_ceiling`. 0 for a non-charter role.
     sd_cost = min(head_bytes(sd_head), SD_HEAD_MAX_BYTES)
 
     def budget_of(body: str) -> int:
-        return len(body.encode("utf-8")) - form_cost - sd_cost
+        return measured_bytes(body) - form_cost - sd_cost       # path-independent (AR-4): the one measure for the number and the trim
 
     text, omitted, chosen = "", [], attempts[-1]
     truncated = any("<decisions>" in line for line in shown)
@@ -3435,6 +3447,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         # t-1765 CI fix C: the automation manifest's line carries its door (`manifest_view.py`, never a whole read), so it is a door
         # too: the optional tail (the other input files) goes first, this line stays whatever the head weighs (FR-2).
         doors |= {line for line in files if "work/automation-manifest.json" in line}
+        # GM3 C7: the pointer to the plan critic's rubric («On the plan») is a door too: the role is always told where its rubric is (AR-10).
+        doors |= {line for line in files if "«On the plan»" in line}
         chosen = (0, 1, False, -1)
         while budget_of(text) > BRIEF_MAX_BYTES:
             last = next((i for i in range(len(files) - 1, -1, -1) if files[i] not in doors), None)

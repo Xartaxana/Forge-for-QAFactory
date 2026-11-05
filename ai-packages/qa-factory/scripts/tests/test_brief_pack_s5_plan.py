@@ -730,6 +730,23 @@ def hf8_18_n3_what_it_could_not_read_is_a_line():
         cleanup(project)
 
 
+def k11_budget_is_path_independent():
+    """GM3 (AR-4): the budget measure counts a brief the same at any checkout path - the same text built with a 20-character and an
+    80-character plugin root weighs the same; an empty root is skipped; a root that is the prefix of another goes second."""
+    short, long_ = "C:/work/qa-plugin-x1234", "C:/" + "w" * 77          # 23 and 80 characters
+    assert len(short) >= 20 and len(long_) == 80
+    def body(root):
+        return f"- {root}/references/code-review-rubric.md (9.4 KB)\nrun `python \"{root}/scripts/x.py\"`\n"
+    a, b = brief_pack.measured_bytes(body(short), [short]), brief_pack.measured_bytes(body(long_), [long_])
+    check_eq("K11: the same text at a 20-char and an 80-char root weighs the same", a, b)
+    check("K11: ... and the text itself still carries the real path (the measure does not rewrite the brief)", long_ in body(long_))
+    check_eq("K11: an empty or None root is skipped", brief_pack.measured_bytes("abc", ["", None]), 3)
+    check_eq("K11: a root that is the prefix of another is replaced longest first",
+             brief_pack.measured_bytes("C:/a/b/x C:/a/y", ["C:/a", "C:/a/b"]), len("<plugin>/x <plugin>/y"))
+    check_eq("K11: a backslash spelling of the root is replaced too",
+             brief_pack.measured_bytes("C:\\a\\b\\x", ["C:/a/b"]), len("<plugin>\\x"))
+
+
 def main():
     k13_base_log_lines()
     k12_helpers_section()
@@ -747,6 +764,7 @@ def main():
     k10_marker_form()
     k7_delta()
     k8_legacy()
+    k11_budget_is_path_independent()
     finish("test_brief_pack_s5_plan")
 
 
