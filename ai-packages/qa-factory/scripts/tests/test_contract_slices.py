@@ -446,8 +446,10 @@ def test_plan_role_charter_line() -> None:
 def test_handoff_keys_pages() -> None:
     """X1-7: the generated key page of the four charter roles (`handoff_keys_page`): present, fresh, generated, and unknowns named."""
     roles = ("qa-scout", "qa-requirements-tester", "qa-test-strategist", "qa-case-designer")
-    check_eq("X1-7: the map names a key page for exactly the four roles", sorted(r for r, _e, _p in CS.keys_targets(PLUGIN_ROOT)),
-             sorted(roles))
+    # Source: references/inject-map.json, which names a key page for these three roles besides the four.
+    mapped = roles + ("qa-bug-reporter", "qa-doc-scribe", "qa-retro-analyst")
+    check_eq("X1-7: the map names a key page for exactly the seven roles", sorted(r for r, _e, _p in CS.keys_targets(PLUGIN_ROOT)),
+             sorted(mapped))
     check_not_in("X1-7: `targets` never names a key page (no source file to cut it from)", CS.KEYS_NAME,
                  " ".join(t["subject"] for t in CS.targets(PLUGIN_ROOT)))
     for role in roles:

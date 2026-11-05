@@ -332,7 +332,8 @@ def test_the_raise_command() -> None:
 # and test_s3_s4_chain.py; here only what the strategist is TOLD.
 T227B_KEYS = (
     ("references/ahead-cards.json#qa-test-strategist", "`oracle_unknown: false`"),  # moved charter -> card (t-1685 N3)
-    ("agents/qa-test-strategist.md", "P19"),
+    # "manifesto ladder": the word the charter carries now (agents/qa-test-strategist.md line 25); it no longer says P19.
+    ("agents/qa-test-strategist.md", "manifesto ladder"),
     ("references/artifact-contract-plan.md", "EVERY reading letter"),
     ("references/artifact-contract-plan.md", "`not_needed`"),
     ("references/slices/qa-test-strategist/artifact-contract-plan.md", "EVERY reading letter"),

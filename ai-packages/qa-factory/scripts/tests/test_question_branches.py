@@ -1772,7 +1772,8 @@ def test_t227b_role_text_doc_witness() -> None:
     contract = (PLUGIN_ROOT / "references" / "artifact-contract-plan.md").read_text(encoding="utf-8")
     slice_text = (PLUGIN_ROOT / "references" / "slices" / "qa-test-strategist" / "artifact-contract-plan.md").read_text(
         encoding="utf-8")
-    agent_keys = ("`question_refs`", "P19", "`test_level_rationale`", "the S3 exit refuses")
+    # "manifesto ladder": the word agents/qa-test-strategist.md carries now (line 25, "on the manifesto ladder"); the charter no longer says P19.
+    agent_keys = ("`question_refs`", "manifesto ladder", "`test_level_rationale`", "the S3 exit refuses")
     # t-1685 N3 moved the exit-judged letter-branch rule out of the charter into the strategist's ahead-card: the
     # witness reads the place the role now receives it (a missing or unreadable card fails, naming the file).
     card_keys = ("`oracle_unknown: false`", "`oracle_status: resolved`")
