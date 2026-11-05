@@ -131,7 +131,10 @@
             "qa-scout",
             "qa-requirements-tester",
             "qa-test-strategist",
-            "qa-case-designer"
+            "qa-case-designer",
+            "qa-doc-scribe",
+            "qa-bug-reporter",
+            "qa-retro-analyst"
           ],
           "field": "the witness artifact of the role (stages.json witness)",
           "told": [
@@ -148,10 +151,7 @@
             "qa-case-critic",
             "qa-automator",
             "qa-runner",
-            "qa-failure-analyst",
-            "qa-doc-scribe",
-            "qa-bug-reporter",
-            "qa-retro-analyst"
+            "qa-failure-analyst"
           ],
           "field": "the witness artifact of the role (stages.json witness)",
           "told": [
@@ -297,7 +297,9 @@
             "qa-scout",
             "qa-requirements-tester",
             "qa-test-strategist",
-            "qa-case-designer"
+            "qa-case-designer",
+            "qa-doc-scribe",
+            "qa-retro-analyst"
           ],
           "field": "the required outputs of the role's stage (stages.json)",
           "told": [
@@ -313,9 +315,7 @@
           "roles": [
             "qa-automator",
             "qa-runner",
-            "qa-failure-analyst",
-            "qa-doc-scribe",
-            "qa-retro-analyst"
+            "qa-failure-analyst"
           ],
           "field": "the required outputs of the role's stage (stages.json)",
           "told": [
@@ -581,7 +581,7 @@
           "field": "the work the detector re-runs over",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Outputs"
             }
           ],
