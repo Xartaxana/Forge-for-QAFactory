@@ -752,7 +752,17 @@ def k10_grep_witness() -> None:
     # the control over the LAST commit that still carried the old spellings (not HEAD: once the change is committed HEAD holds none)
     repo = SCRIPTS.parents[2]
     old = "941a948"
+    present = False
     if (repo / ".git").exists():
+        try:
+            probe = subprocess.run(["git", "-C", str(repo), "cat-file", "-e", old + "^{commit}"], capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=60)
+            present = probe.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            present = False
+    if (repo / ".git").exists() and not present:
+        check(f"K10 positive control (git grep) skipped: revision {old} is not in this repository's history", True)
+    elif present:
         proc = subprocess.run(["git", "-C", str(repo), "grep", "-n", "-E", r"DELIVERY_HINTS = |TICKET_RE = ", old, "--",
                                "ai-packages/qa-factory/scripts/stage_guard.py"], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=60)
