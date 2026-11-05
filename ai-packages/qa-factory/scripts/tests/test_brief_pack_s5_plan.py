@@ -739,7 +739,13 @@ def k11_budget_is_path_independent():
         return f"- {root}/references/code-review-rubric.md (9.4 KB)\nrun `python \"{root}/scripts/x.py\"`\n"
     a, b = brief_pack.measured_bytes(body(short), [short]), brief_pack.measured_bytes(body(long_), [long_])
     check_eq("K11: the same text at a 20-char and an 80-char root weighs the same", a, b)
-    check("K11: ... and the text itself still carries the real path (the measure does not rewrite the brief)", long_ in body(long_))
+    project, _task, _c = story()
+    try:
+        # the measure is applied to a copy: a brief the code BUILDS keeps the real plugin path in its text
+        built = build(AUTHOR, "S5-plan-author-1")["markdown"]
+        check_in("K11: ... and a built brief still carries the real plugin path (the measure does not rewrite the brief)", brief_pack.SCRIPTS, built)
+    finally:
+        cleanup(project)
     check_eq("K11: an empty or None root is skipped", brief_pack.measured_bytes("abc", ["", None]), 3)
     check_eq("K11: a root that is the prefix of another is replaced longest first",
              brief_pack.measured_bytes("C:/a/b/x C:/a/y", ["C:/a", "C:/a/b"]), len("<plugin>/x <plugin>/y"))

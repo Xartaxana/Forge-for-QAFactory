@@ -63,8 +63,9 @@ EXPECT_BYTES = 6144
 # t-1812 (X3 fix-2): the manual brief's BUDGET (budget_bytes, counted against the ceiling) measured 6794 B on this fixture once the
 # exploration cells and the axis oracles left the brief for the side file `<dispatch>-cells.md` (it was 7342 with them inline, t-1807);
 # brief_pack's own ceiling stays 6144 (the line above), the 650 B over it are the commands and the handoff rules of other topics. This
-# bound is dense (measured, 0 slack); a raise past it is named in a verdict (AR-20): 6144 -> 7342 (t-1807) -> 6794 (t-1812).
-MANUAL_BUDGET_BYTES = 6794
+# bound is dense (measured, 0 slack); a raise past it is named in a verdict (AR-20): 6144 -> 7342 (t-1807) -> 6794 (t-1812, raw bytes)
+# -> 6703 (GM3, plugin root counted as a token: the measure no longer depends on where the plugin is installed).
+MANUAL_BUDGET_BYTES = 6703
 
 
 def real_requests() -> dict:

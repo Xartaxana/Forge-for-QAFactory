@@ -610,7 +610,7 @@
   {"name": "Driver.s7_retriage_once", "kind": "method", "home": "driver_stages", "row": 76, "note": "C1-5b2 t-832: N1 re-triage once per chain; the second consecutive not-fresh one asks the person through the seam"},
   {"name": "Driver.s7_consumer_completion", "kind": "method", "home": "driver_stages", "row": 76, "note": "X7-6: the S7 analyst writes the accept record, then S6 closes by the record"},
   {"name": "Driver.s7_consumer_settled", "kind": "method", "home": "driver_stages", "row": 76, "note": "X7-6: whether the S7 consumer round is settled"},
-  {"name": "Driver.ticket_rerun_critic", "kind": "method", "home": "driver_stages", "row": 76, "note": "the critic is run again for a dispatch after a ticket rerun"},
+  {"name": "Driver.ticket_rerun_critic", "kind": "method", "home": "driver_stages", "row": 67, "note": "the critic is run again for a dispatch after a ticket rerun"},
   {"name": "Driver.s7_close", "kind": "method", "home": "driver_stages", "row": 76, "note": "C1-5b2: every row ended: the close by code"},
   {"name": "Driver.s7_investigation_gate", "kind": "method", "home": "driver_stages", "row": 76, "note": "P2 M3: the investigation decision at the three S7 code closers"},
   {"name": "Driver.investigation_lines", "kind": "method", "home": "driver_stages", "row": 76, "note": "P2 M3: the dispatch lines of the read-only investigation (targets, caps, commands, form note)"},
