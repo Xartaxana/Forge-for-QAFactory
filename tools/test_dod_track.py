@@ -900,8 +900,10 @@ def test_atomic_write_mid_write_failure_never_corrupts_the_original_file(
 
 
 @pytest.mark.skipif(
-    os.name != "nt" and os.geteuid() == 0,
-    reason="root-only: root writes through a read-only mode bit, so the save succeeds and nothing is protected",
+    os.name != "nt",
+    reason="Windows-only: on POSIX os.replace() over a read-only file succeeds (the permission that matters is the "
+           "directory's, and root writes through any mode bit), so the save succeeds and nothing is protected; "
+           "the directory-occupied twin below covers the loud fail-open path on every OS",
 )
 def test_readonly_target_file_stays_loud_fail_open_original_untouched(
     tmp_path, monkeypatch, capsys,
