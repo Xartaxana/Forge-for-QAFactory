@@ -1970,6 +1970,7 @@ def main() -> int:
         before = code_close_s6("a")
         zero.apply("dispatch", {"id": "late-s6", "stage": "S6", "role": "qa-worker", "scope": ["TC-1"], "input_hash": "late",
                                 "budget": {}, "known_paths": {}, "idempotency_key": "dispatch-late-s6"})
+        record_stage_acceptance(zero_root, "S6")  # X7-6: S6 closes over its consumer's accept record
         zero.apply("accept", {"id": "late-s6", "status": "accepted", "stage_complete": True,
                               "evidence_refs": [evidence_ref(zero_root, "late-s6.txt")], "idempotency_key": "accept-late-s6"})
         late = zero.state()["stages"]["S6"]

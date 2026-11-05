@@ -250,6 +250,9 @@ def runner(c, root, dispatch_id, kind, scope, complete, **extra):
         request["manual_case_ids"] = list(scope)
     if dispatch_id not in c.state()["dispatches"]:
         c.apply("dispatch", request)
+    if complete:
+        # X7-6: S6 is closed by its consumer's accept record, not by the runner's own finish; the record comes first
+        BASE.record_stage_acceptance(root, "S6", dispatch_id)
     return refused(c.apply, "accept", dict({
         "id": dispatch_id, "status": "accepted", "stage_complete": complete,
         "evidence_refs": [BASE.evidence_ref(root, dispatch_id + ".txt", dispatch_id)],

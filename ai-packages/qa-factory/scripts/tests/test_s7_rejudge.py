@@ -326,10 +326,15 @@ def q9c_a_fall() -> None:
         d.stage_scope = lambda *a, **k: {"scope": []}
         d.manual_plan = lambda scope, skip=(): {"blocks": [], "refused": []}
         record = {"id": "S6-qa-runner-2", "execution_kind": "manual", "scope": ["TC-1"]}
-        check_eq("Q9c a record that is not ours takes the S6 rule (nothing left to run: it closes)", d.completion_for("S6", "qa-runner", record), True)
+        # X7-6: S6 has a consumer (qa-failure-analyst); the S6 rule's "closes" is now `OpenWork("stage_awaits_acceptance")` (story_run `s6_awaits`)
+        def s6_rule(value):
+            return getattr(value, "unresolved", value)
+        check_eq("Q9c a record that is not ours takes the S6 rule (nothing left to run: it awaits the consumer's acceptance)",
+                 s6_rule(d.completion_for("S6", "qa-runner", record)), "stage_awaits_acceptance")
         d.state["s7_rejudge"] = {"TC-1|a9": ["S6-qa-runner-2"]}
         check_eq("Q9c a running re-judge finished through wait_existing_job never closes S6", d.completion_for("S6", "qa-runner", record), False)
-        check_eq("Q9c ... another dispatch still takes the S6 rule", d.completion_for("S6", "qa-runner", dict(record, id="S6-qa-runner-9")), True)
+        check_eq("Q9c ... another dispatch still takes the S6 rule",
+                 s6_rule(d.completion_for("S6", "qa-runner", dict(record, id="S6-qa-runner-9"))), "stage_awaits_acceptance")
     finally:
         rig.done()
 
