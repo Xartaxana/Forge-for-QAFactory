@@ -100,6 +100,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261101-test-run-suite-mine-pin-vremeni-fazy-flake.md` | находка, id — | `test_run_suite_mine`: пины времени фаз по реальным часам флейкают под нагрузкой (FR-31) | `scripts/tests/test_run_suite_mine.py` | пачка 1, PC1-12 | нет | PC1-7; SC2-45 |
 | `findings/20261102-potolki-brief-pack-v-testah-plyvut-s-kazhdym-bajtom-brifa.md` | находка | пины потолков S5 в `test_brief_pack` дрейфуют с каждым байтом брифа: три перемера за вечер | `scripts/tests/test_brief_pack.py` | пачка 2, PC2-1 | нет | t-747, t-755, t-769 |
 | `findings/20261104-testy-posle-svertki-changelog-chitayut-ne-svoyu-zapis.md` | находка | три теста после свёртки changelog проверяют непустой `CHANGELOG.md`, а не свою запись релиза | `scripts/tests/test_codex_tool_guidance.py`, `scripts/tests/test_role_policy_reads.py`, `scripts/tests/test_story_step_materialize.py` | пачка 2, PC2-2 | нет | t-1822 |
+| `findings/20261105-hvosty-kritika-gm3-2-obshchie-helpery-priemki-s6-i-podpisi-byudzheta.md` | находка | хвосты критика GM3-2: общие хелперы приёмки S6 в тестах, фикстура K3, подписи бюджета брифа | `scripts/tests/story_run_common.py`, `scripts/brief_pack.py` | пачка 2, PC2-3 | нет | t-008, `github-move` GM3-2 |
 
 ## Входящие
 
