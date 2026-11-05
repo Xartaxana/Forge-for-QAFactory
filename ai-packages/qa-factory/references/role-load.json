@@ -9,31 +9,31 @@
   "ratchet_slack_tokens": 1000,
   "ratchet_tokens": {
     "qa-scout": 15425,
-    "qa-requirements-tester": 12487,
+    "qa-requirements-tester": 12475,
     "qa-test-strategist": 16719,
-    "qa-case-designer": 13258,
-    "qa-case-critic": 18261,
+    "qa-case-designer": 13249,
+    "qa-case-critic": 18251,
     "qa-automator": 18465,
     "qa-code-critic": 17988,
     "qa-runner": 16711,
     "qa-failure-analyst": 17836,
-    "qa-bug-reporter": 14486,
-    "qa-doc-scribe": 17333,
-    "qa-retro-analyst": 13699
+    "qa-bug-reporter": 14477,
+    "qa-doc-scribe": 17322,
+    "qa-retro-analyst": 13689
   },
   "process_ratchet_tokens": {
     "qa-scout": 13962,
-    "qa-requirements-tester": 11229,
+    "qa-requirements-tester": 11219,
     "qa-test-strategist": 15292,
-    "qa-case-designer": 12061,
-    "qa-case-critic": 15968,
+    "qa-case-designer": 12052,
+    "qa-case-critic": 15959,
     "qa-automator": 18243,
     "qa-code-critic": 17766,
     "qa-runner": 16489,
     "qa-failure-analyst": 17614,
-    "qa-bug-reporter": 13640,
-    "qa-doc-scribe": 16426,
-    "qa-retro-analyst": 12924
+    "qa-bug-reporter": 13631,
+    "qa-doc-scribe": 16417,
+    "qa-retro-analyst": 12914
   },
   "target_tokens": 6000,
   "target_confirmed_by": ""
