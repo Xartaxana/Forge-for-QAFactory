@@ -2495,7 +2495,7 @@ def n4_scenario(task: Path, root: Path) -> None:
         check_eq("N4 W2: with no template the brief is the templated one minus the section plus the R5 line",
                  bare["markdown"], stem + "\n\n" + brief_pack.NO_FORM_LINE + "\n")
         check_in("N4 W2: ... the R5 line points at the digest shape of the rules", "`## Your handover`", bare["markdown"])
-        check_eq("N4 W2: ... and the budget is the whole text (no form to leave out)", bare["bytes"], bare["budget_bytes"])
+        check_eq("N4 W2: ... and the budget is the whole text (no form to leave out)", brief_pack.measured_bytes(bare["markdown"]), bare["budget_bytes"])
         # W5: the trimmed files are in `<ID>-files.md`, one `Not in the brief` line names it; --output writes no side file
         tight = build(ceiling=1, write=True)
         side_files = task / "work/briefs/S5-qa-automator-1-files.md"
@@ -2646,7 +2646,7 @@ def main() -> None:
               result["budget_bytes"] <= 6 * 1024, str(result["budget_bytes"]))
         check("the S5 brief is under 6 KB (budget)", result["budget_bytes"] <= 6 * 1024)
         check_eq("N4 W1: the section is outside the budget: bytes - budget_bytes is exactly its size",
-                 result["bytes"] - result["budget_bytes"], form_bytes())
+                 brief_pack.measured_bytes(text) - result["budget_bytes"], form_bytes())       # GM3: the budget counts the plugin root as a token
         check_in("it names the scope", "Scope: TC-001, TC-002", text)
         check_in("and the read_first pointer", "Read first, before anything else: work/s5-notes.md", text)
         digests_ceiling = s5_ceiling(lambda r: r["sides"]["digests"] is False)

@@ -238,7 +238,7 @@ def k2_automated_block(requests):
     x3_ba_lines = {
         "-## Not in the brief", "-",
         f"-- the digests of earlier roles - read qa-factory/artifacts/{TICKET}/work/briefs/S6-qa-runner-2-digests.md",
-        f"-- 4 input file(s) - read qa-factory/artifacts/{TICKET}/work/briefs/S6-qa-runner-2-files.md",
+        f"-- 3 input file(s) - read qa-factory/artifacts/{TICKET}/work/briefs/S6-qa-runner-2-files.md",
         "-- in the side file, see Not in the brief",
         "+- S0 done: no digest",
         "-- the stage declares no input file",
