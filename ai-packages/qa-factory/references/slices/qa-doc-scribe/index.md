@@ -6,7 +6,7 @@ names. A rule you did not read is still a rule the exit gate checks.
 
 - `references/slices/qa-doc-scribe/artifact-contract-results.md` (5,161 B) — `work/ledger.md`, `test-report.md`
 - `references/slices/qa-doc-scribe/artifact-contract-run.md` (6,842 B) — `run-report.json`, The two halves of S6, `triage.json`, `bugs/BUG-n.md` — the filing header (HF8-21)
-- `references/slices/qa-doc-scribe/artifact-contract.md` (4,403 B) — Where artifacts live, Project-level files, Where the working files sit, Versioned lifecycle records
+- `references/slices/qa-doc-scribe/artifact-contract.md` (4,467 B) — Where artifacts live, Project-level files, Where the working files sit, Versioned lifecycle records
 - `references/slices/qa-doc-scribe/coverage-design.md` (619 B) — Evidence freshness
 - `references/slices/qa-doc-scribe/vocabularies.md` (2,981 B) — Disposition, `unresolved[]` reason, `remedy`, `execution_status`, Triage verdict and FLAKY mechanism, Checks-ledger state…
 - `references/slices/qa-doc-scribe/handoff-keys.md` (2,817 B) — Outputs, Witness, Handoff form

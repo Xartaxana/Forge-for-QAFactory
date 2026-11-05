@@ -25,6 +25,7 @@ writes them (`artifact-contract-plan.md`, `artifact-contract-results.md`).
       test-cases/<area>/<id>.md
       automation-manifest.json  run-report.json  triage.json
       ledger.json  ledger.md  s5-plan.json
+      retro-numbers.json  retro-numbers.md  estimate-facts.json
       evidence/  proposals/  bug-drafts/
 ```
 

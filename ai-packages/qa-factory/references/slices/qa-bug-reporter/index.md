@@ -4,6 +4,6 @@ Each line is a file of YOUR rules and the sections it carries. They are not in t
 the ones your work touches BEFORE you write your artifact, the way you read the files the brief
 names. A rule you did not read is still a rule the exit gate checks.
 
-- `references/slices/qa-bug-reporter/artifact-contract.md` (3,847 B) — Where artifacts live, Project-level files, Where the working files sit
+- `references/slices/qa-bug-reporter/artifact-contract.md` (3,911 B) — Where artifacts live, Project-level files, Where the working files sit
 - `references/slices/qa-bug-reporter/vocabularies.md` (1,621 B) — Triage verdict and FLAKY mechanism, Bug confirmation
 - `references/slices/qa-bug-reporter/handoff-keys.md` (3,187 B) — Outputs, Witness, Handoff form

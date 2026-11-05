@@ -5308,9 +5308,10 @@ class Controller:
                 if d["stage"] == "S3":
                     self._s3_completion_gate(d, p, state)
                 if p.get("stage_complete"):
-                    # X2-5 (E-B11). POSITION: after every check of this branch that exists today, before the S5/S6 branches. INVARIANT: a stage
-                    # without `acceptance_by` (S5-S8 and every stage until X2-7) is refused nothing new; S2-S4 do not close without an `accept`
-                    # record for the author's last dispatch, or a person's recorded word (P13).
+                    # X2-5 (E-B11). POSITION: after every check of this branch that exists today, before the S5/S6 branches (so the acceptance
+                    # refusal comes before the S6 derived-scope refusal below). INVARIANT: a stage without `acceptance_by` (S5, S7-S9) is
+                    # refused nothing new; S2-S4 and S6 (X7-6) do not close without an `accept` record for the author's last dispatch,
+                    # or a person's recorded word (P13).
                     from acceptance import stage_acceptance_refusal
                     refusal, passed = stage_acceptance_refusal(self._pipeline(), d, state, self._passed_by_person)
                     if refusal:
