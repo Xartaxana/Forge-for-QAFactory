@@ -1,6 +1,6 @@
 # GM3-1: why 16 package test files are red on `main` (recon, no package edits)
 
-Clone: `C:\AI\Factory\qa-forge-export-2026-11-05`, package `ai-packages/qa-factory/`. Tests: `scripts/tests/`. Raw outputs: `C:\AI\Factory\gm3-1-scratch\` (not committed).
+Clone: the forge clone, package `ai-packages/qa-factory/`. Tests: `scripts/tests/`. Raw outputs: a scratch folder outside the clone (not committed).
 Run form: `python -B <abs path>` once per file, cap 6 min, Windows. All "trial" results below are IN-MEMORY patches of a test file (scratch harness `trial.py` / `trial2.py`, nothing written into the package); they prove the proposed fix, they are not the fix.
 
 ## 0. Summary
@@ -128,7 +128,7 @@ Unmeasured: after this abort the rest of the file's scenarios did not run. A per
 
 ## 4. Trail: every command run
 - `git -C <clone> show 8ae68ce --stat` and `show 8ae68ce` (stage-joints pointers).
-- `pwsh -NoProfile -File C:\AI\Factory\gm3-1-scratch\run_all.ps1`: runs `python -B <test>` for the 16 files in order, 360 s cap each, stdout/stderr to `<file>.out/.err`, results in `summary.txt`:
+- `pwsh -NoProfile -File <scratch>/run_all.ps1`: runs `python -B <test>` for the 16 files in order, 360 s cap each, stdout/stderr to `<file>.out/.err`, results in `summary.txt`:
   refusals OVERCAP; words_doors OVERCAP; deferred exit=1 28s; s7_rejudge exit=1 38s; controller_state exit=1 35s; contract_slices exit=1 10s; stages exit=1 8s; s7_live exit=1 32s; s6 exit=1 228s; controller_rework exit=1 37s; driver_layers exit=1 51s; question_branches exit=1 40s; brief_pack_s5_plan exit=1 67s; brief_pack_manual exit=1 9s; fixes_13797 exit=1 17s; oracle_provenance exit=1 11s.
 - Supplementary (outside the spec cap, labelled): `pwsh -File run_long.ps1` = `python -u -B` of words_doors (exit 1, 572 s, 3 FAIL) and refusals (exit 1, 983 s, aborted at line 3423); outputs `long_*.out/.err`.
 - Diagnostics: `diag_s7live.py` (prints the controller answer of the seeding `rework`); `each_scenarios.py test_story_run_s6|test_story_run_deferred|test_story_run_refusals` (one scenario at a time, keeps going after an exception).
