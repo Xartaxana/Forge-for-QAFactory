@@ -1,0 +1,152 @@
+# Forge CI on GitHub, tier 1 + tier 2 (ported from .gitlab-ci.yml jobs forge-check and package-fast).
+# STAGED COPY: lives in docs/migration/ until the move; at the move it goes to .github/workflows/ of
+# Xartaxana/Forge-for-QAFactory unchanged. tools/test_workflows.py judges it (the draft, or the live folder once
+# .github exists) against the steps of .gitlab-ci.yml.
+#   forge-check   every push to main and every pull request: lint/clone ratchets, journal, attribution, indexes,
+#                 piles, install parity, the whole tools/ suite
+#   package-fast  same triggers, only when the package or the workflows changed
+# GitLab variables are re-exported under their old names (CI_*), so the tools that read them need no change on day one.
+# A value that comes from a person (the canon's ref, a pull request's sha) reaches a shell only through env:,
+# never spliced into a run: string (tools/test_workflows.py pins it).
+name: forge-check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:          # the canon workflow calls this one on the ref it was started for
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: forge-check-${{ github.ref }}-${{ inputs.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  # the names the tools read today (GitLab); GitHub values mapped onto them
+  CI_MERGE_REQUEST_DIFF_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  CI_COMMIT_BEFORE_SHA: ${{ github.event.before }}
+  # the canon's ref and the event name, read by the shell as variables
+  CANON_REF: ${{ inputs.ref }}
+  EVENT_NAME: ${{ github.event_name }}
+
+jobs:
+  forge-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # the attribution gate diffs against the merge base
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: deps
+        # pyyaml: mechanism_gate.py and three test modules; openpyxl: token_usage_stats.py and its test
+        run: pip install -q pytest pyflakes==3.2.0 pyyaml openpyxl
+      - name: git setup
+        run: |
+          git config core.hooksPath .githooks
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: base of the pushed range
+        id: base
+        run: |
+          # the canon (a branch started by hand): the range is the branch against main, like a pull request
+          if [ -n "$CANON_REF" ]; then echo "base=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
+          elif [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then echo "base=$CI_MERGE_REQUEST_DIFF_BASE_SHA" >> "$GITHUB_OUTPUT"
+          elif [ -n "$CI_COMMIT_BEFORE_SHA" ] && [ "$CI_COMMIT_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then echo "base=$CI_COMMIT_BEFORE_SHA" >> "$GITHUB_OUTPUT"
+          else echo "base=HEAD~1" >> "$GITHUB_OUTPUT"; fi
+      - run: python tools/lint_ratchet.py --check
+      - run: python tools/dup_ratchet.py --check
+      - name: journal
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: python tools/journal_validator.py --all --base "$BASE"
+      - name: feature attribution
+        run: |
+          if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then python tools/forge_metrics.py --check --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+          else python tools/forge_metrics.py --check --base HEAD~1 --warn; fi
+      - run: python tools/escape_check.py
+      - run: python tools/factory_rules_index.py --check
+      - run: python tools/architecture_index.py --check
+      - run: python tools/agents_md.py --check
+      - run: python tools/piles.py board --check
+      - name: piles frozen batches and backlog
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: python tools/piles.py check --all --base "$BASE"
+      # install parity (.gitlab-ci.yml: the step before the whole-suite run). On a pull request the checkout is the merge
+      # commit, so the door `parity-skip:` is read from the message of the PR head; otherwise the tool reads HEAD itself.
+      - name: install parity (pull request)
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python tools/install_parity.py --check --skip-from-commit-message "$(git log -1 --format=%B $HEAD_SHA)"
+      - name: install parity (push, canon)
+        if: github.event_name != 'pull_request'
+        run: python tools/install_parity.py --check
+      - run: python -m pytest tools/ -q
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-metrics
+          path: plans/forge-metrics.md
+          retention-days: 7
+
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.f.outputs.package }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
+      - id: f
+        # the package or the workflows changed in the pushed range; the canon (a called run, a ref given) always runs it
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ -n "$CANON_REF" ]; then echo "package=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          base="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-$CI_COMMIT_BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then base=HEAD~1; fi
+          if git diff --name-only "$base" HEAD | grep -qE '^(ai-packages/|\.github/workflows/)'; then echo "package=true" >> "$GITHUB_OUTPUT"; else echo "package=false" >> "$GITHUB_OUTPUT"; fi
+
+  package-fast:
+    needs: changes
+    if: needs.changes.outputs.package == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ai-packages/qa-factory
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      # --fast already covers --limits, --lang, --hygiene (and --slices, --wiring, --tests)
+      - run: python -B scripts/selftest.py --contracts
+      - run: python -B scripts/tests/test_audit_rules.py
+      - run: python -B scripts/selftest.py --fast --jobs 4
+      # the audit's A19 over the real agents/ (F6-44): the last step; its wall time is printed, a red audit is the step's exit
+      - name: audit_factory --agents
+        run: |
+          t0=$(date +%s)
+          rc=0
+          python -B scripts/audit_factory.py --agents || rc=$?
+          echo "audit_factory --agents wall time: $(( $(date +%s) - t0 )) s"
+          exit $rc

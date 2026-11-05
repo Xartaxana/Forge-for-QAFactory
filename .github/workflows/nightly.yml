@@ -1,0 +1,199 @@
+# Forge CI on GitHub, tier 3 (ported from .gitlab-ci.yml jobs package-full, install-smoke, package-full-report, crap-measure).
+# STAGED COPY: goes to .github/workflows/ of Xartaxana/Forge-for-QAFactory at the move. tools/test_workflows.py judges it.
+#   package-full         the full selftest in two shards (selftest.py --shard I/N), at once; nightly, and by the Run button
+#   install-smoke        install_smoke.py, a job of its own next to the shards (not after them)
+#   package-full-report  joins the shard outputs and diffs scripts/slow_tests.json against them (--slow-tests --from)
+#   crap-measure         the CRAP report under coverage; nightly only, a measurement (never red for the release verdict)
+# board-check is not ported: it mirrors piles to GitLab issues (tools/piles_gitlab.py) and there is no port to
+# GitHub Issues (owner's word, plan O6).
+# MINUTES: a private repo on GitHub Free has 2000 Linux minutes a month. The job "skip-if-unchanged" stops the
+# nightly run when main has no new commit in the last 24 hours, so a quiet night costs ~1 minute, not hours.
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 1 * * *"     # 01:00 UTC
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch or sha to run the full tier on"
+        required: false
+        default: main
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: main
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  EVENT_NAME: ${{ github.event_name }}
+
+jobs:
+  skip-if-unchanged:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.c.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          ref: ${{ inputs.ref || 'main' }}
+      - id: c
+        run: |
+          if [ "$EVENT_NAME" != "schedule" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          last=$(git log -1 --format=%ct); now=$(date +%s)
+          if [ $((now - last)) -lt 90000 ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; echo "main unchanged for 25h: nightly skipped"; fi
+
+  package-full:
+    needs: skip-if-unchanged
+    if: needs.skip-if-unchanged.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false          # a red shard does not hide the other
+      matrix:
+        shard: [1, 2]           # the two shards of .gitlab-ci.yml (parallel: 2)
+    env:
+      NODE_INDEX: ${{ matrix.shard }}
+      NODE_TOTAL: ${{ strategy.job-total }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: full selftest, one shard
+        run: |
+          OUT="$GITHUB_WORKSPACE/ci-out"; mkdir -p "$OUT"
+          # the clone report (B-417): a measurement of shard 1 only, so a failure here is printed and never flips the release verdict
+          if [ "$NODE_INDEX" = "1" ]; then python tools/dup_ratchet.py --report "$OUT" || echo "dup report: exit $? (a report, not the release verdict)"; fi
+          cd ai-packages/qa-factory
+          rc=0
+          python -B scripts/selftest.py --jobs 4 --shard "$NODE_INDEX/$NODE_TOTAL" > "$OUT/selftest-shard-$NODE_INDEX-of-$NODE_TOTAL.txt" 2>&1 || rc=1
+          tail -n 25 "$OUT/selftest-shard-$NODE_INDEX-of-$NODE_TOTAL.txt"
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-full-shard-${{ matrix.shard }}
+          path: ci-out/
+          retention-days: 14
+
+  install-smoke:
+    needs: skip-if-unchanged
+    if: needs.skip-if-unchanged.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: install smoke
+        run: |
+          OUT="$GITHUB_WORKSPACE/ci-out"; mkdir -p "$OUT"
+          cd ai-packages/qa-factory
+          rc=0
+          python -B scripts/install_smoke.py > "$OUT/install_smoke.txt" 2>&1 || rc=1
+          tail -n 25 "$OUT/install_smoke.txt"
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: install-smoke-ci-out
+          path: ci-out/
+          retention-days: 14
+
+  package-full-report:
+    # the drift diff of scripts/slow_tests.json against the durations of the WHOLE run: the shard outputs are joined
+    # (a missing, repeated or mixed shard output is exit 2 of the tool). Needs both shards green, like the GitLab job.
+    needs: package-full
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-full-shard-*
+          path: ci-out
+          merge-multiple: true
+      - name: join the shards, diff slow_tests.json
+        run: |
+          set -e
+          cat ci-out/selftest-shard-*.txt > ci-out/selftest.txt
+          cd ai-packages/qa-factory
+          python -B scripts/selftest.py --slow-tests --from "$GITHUB_WORKSPACE/ci-out/selftest.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-full-report
+          path: ci-out/selftest.txt
+          retention-days: 14
+
+  crap-measure:
+    needs: skip-if-unchanged
+    if: github.event_name == 'schedule' && needs.skip-if-unchanged.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install -q pytest coverage==7.16.2
+          python -m coverage --version
+          python -m coverage debug sys
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: selftest under coverage, CRAP report
+        run: |
+          W="$GITHUB_WORKSPACE"
+          mkdir -p ci-out/crap/data
+          sha256sum ai-packages/qa-factory/scripts/*.py > ci-out/crap/coverage-files.sha256
+          printf '%s\n' '[run]' 'parallel = True' "data_file = $W/ci-out/crap/data/.coverage" "source = $W/ai-packages/qa-factory/scripts" 'omit = */scripts/tests/*' 'disable_warnings = no-data-collected, module-not-imported, module-not-measured' > ci-out/crap/coveragerc
+          python -c "import sysconfig; open(sysconfig.get_paths()['purelib'] + '/zz_coverage_startup.pth', 'w').write('import coverage; coverage.process_startup()\n')"
+          export COVERAGE_PROCESS_START="$W/ci-out/crap/coveragerc"
+          (cd ai-packages/qa-factory && python -B scripts/selftest.py --jobs 4) > ci-out/crap/selftest-under-coverage.txt 2>&1 || true
+          unset COVERAGE_PROCESS_START
+          echo "coverage data files $(ls -A ci-out/crap/data | wc -l); selftest FAIL lines $(grep -c '^FAIL' ci-out/crap/selftest-under-coverage.txt || true)"
+          tail -n 5 ci-out/crap/selftest-under-coverage.txt
+          python -m coverage combine --rcfile=ci-out/crap/coveragerc
+          python -m coverage json --rcfile=ci-out/crap/coveragerc -o ci-out/crap/coverage.json
+          python tools/crap_report.py --coverage ci-out/crap/coverage.json --coverage-hashes ci-out/crap/coverage-files.sha256 --require-coverage > ci-out/crap/crap-report.md
+          python tools/crap_report.py --coverage ci-out/crap/coverage.json --coverage-hashes ci-out/crap/coverage-files.sha256 --require-coverage --json > ci-out/crap/crap-report.json
+          head -n 25 ci-out/crap/crap-report.md
+          rm -rf ci-out/crap/data
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crap-report
+          path: ci-out/crap/
+          retention-days: 14

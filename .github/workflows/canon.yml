@@ -1,0 +1,55 @@
+# The batch / release canon, started by hand (replaces `tools/ci_read.py start --ref <branch>` and the docker canon).
+# STAGED COPY: goes to .github/workflows/ of Xartaxana/Forge-for-QAFactory at the move.
+# Start: GitHub -> Actions -> canon -> Run workflow -> branch; or from a terminal / a cloud session:
+#   gh workflow run canon.yml -f ref=<branch>
+#   gh run watch            # or: gh run list --workflow canon.yml ; gh run view <id> --log-failed
+# What it runs: tier 1 + tier 2 (forge-check.yml) AND the full tier (nightly.yml package-full) on the same ref,
+# on a clean Linux python:3.12 machine -- the same thing the docker canon proved on the owner's machine.
+# The clock (.gitlab-ci.yml canon-clock): the wall time of the whole canon against 60 minutes, read after a red job too.
+# The hour is a norm to measure, not a gate on duration yet: the door `canon-over-hour: <reason>` in the head commit message
+# is measured in the first week on GitHub (owner's word 28.10.2026, decision FK-4) and tightened or loosened from that number.
+# run-name: the list of runs shows the ref being canonised (head_branch of a dispatched run is always main).
+name: canon
+run-name: canon ${{ inputs.ref }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch or sha to canonise"
+        required: true
+        default: main
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    outputs:
+      created_at: ${{ steps.t.outputs.created_at }}
+    steps:
+      - id: t
+        run: echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+  checks:
+    needs: start
+    uses: ./.github/workflows/forge-check.yml
+    with:
+      ref: ${{ inputs.ref }}
+  full:
+    needs: start
+    uses: ./.github/workflows/nightly.yml
+    with:
+      ref: ${{ inputs.ref }}
+  clock:
+    needs: [start, checks, full]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CREATED_AT: ${{ needs.start.outputs.created_at }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tools/canon_clock.py --created-at "$CREATED_AT" --message "$(git log -1 --format=%B)"
