@@ -33,7 +33,10 @@ the diet before anyone has seen the report.
      DECISIONS.md → docs/DECISIONS_ARCHIVE.md (expired lines moved whole,
      over-long lines trimmed with the full text there); the CLAUDE.md host
      adaptations trimmed to pointers ↔ docs/CLAUDE_HOST_ADAPTATIONS_FULL.md
-     (a trimmed ↔ full pair, step 4 applies);
+     (a trimmed ↔ full pair, step 4 applies); PROJECT.md ↔ docs/PROJECT_FULL.md
+     (11.11.2026: the full side is the file as it stood before the trim, a frozen
+     copy — a new rule is written into PROJECT.md short, its story goes to a spec,
+     a finding or a batch, never into the frozen copy);
    - CURRENT_CONTEXT.md → docs/task_reports/ (boot-context-is-expensive
      rule; this pairing ships with the template);
    - any other boot file your deployment has since given an archival

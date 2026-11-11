@@ -152,3 +152,42 @@ The owner's word 16.10.2026 (chat, to the Lead's proposal after the question «d
 
 ### D-0062 — trimmed to its operative statement (boot-diet, trimmed 11.11.2026)
 - D-0062 — A red probe has one road for every language, and only our own marker text proves that a check fired (the owner's six answers 06.11.2026, spec `docs/tasks/specs/t-2064-probe-every-check.md` §11; nodes N1..N3b on the experiment branch, P30 in PROJECT.md of that branch). What holds: the forms of a language's checks and the place where a runner's token may be read are data rows of `references/detectors.json` (`assertion_probes*`, `marker_read`), never a branch in code; a failure at the mutated statement without our token proves nothing by itself and goes to the code critic as a judgment with the facts; a form with no inversion (`invert: null`) is still a check and never refuses the walk; every check of a joint run has its own marker text. Cost: one critic judgment per probe of a form with no message slot until node P3; its count is a line of the P7 live proof. Detector: `test_probe_by_code_languages.py`, the inert road guard `tools/language_sites.py` (teeth after node N6). Tier: fable.
+
+## Moved out whole by the every-session audit (11.11.2026)
+
+The owner's word 11.11.2026 on the audit of the boot files («Да, убирай»): the live log keeps only what EVERY session
+needs. A decision is moved here whole when (a) it belongs to one node, one spec, one batch or one day, (b) its rule text
+lives in `CLAUDE.md`, `PROJECT.md` or a role file and the log line only repeated it, or (c) its facts are no longer true. All of
+them stay in force unless the heading says otherwise; the number resolves here.
+
+Already above with their full text, now also gone from the live log:
+
+- (a) one node, spec or batch: D-0041 (the driver's `--answer` road), D-0042 (the comparison run's answer files), D-0051
+  (the grounding forks), D-0052 and D-0053 (the collect skill), D-0061 (S5 windows), D-0062 (the red probe's one road).
+- (b) the rule text lives elsewhere: D-0021 (designer role, host adaptation 2), D-0022 (CLAUDE.md row R11-f), D-0035, D-0038,
+  D-0040, D-0054 (CLAUDE.md host adaptation 6), D-0036, D-0044, D-0048 (PROJECT.md «Командная работа»), D-0055 (host
+  adaptation 9), D-0056, D-0057, D-0059 (PROJECT.md «Как принимается изменение пакета» item 2, `plans/builder-rules.md` 7b,
+  `docs/tasks/critic-diff-brief.md`), D-0060 (PROJECT.md P27, host adaptation 10).
+
+Moved here for the first time, as they stood:
+
+### D-0001 — (c) the repository names are of the old host; replaced by D-0064 (archived 11.11.2026)
+- D-0001 — This repository (dev1/yml-text-factory) is the only place the QA Factory is developed; releases go to tp1-group/QAFactory as a copy of ai-packages/qa-factory/, and the old working branches (feat/qa-factory, experiment/qa-factory-driver) are archives.
+
+### D-0008 — (b) the rule text is PROJECT.md «Как принимается изменение пакета» item 1 (archived 11.11.2026)
+- D-0008 — A change to ai-packages/qa-factory walks design/factory-rules.md by the sections it touches, one line per inapplicable section and one fact per applicable rule; changes to plans/, docs/, kb/, experiments/ walk no FR.
+
+### D-0009 — (a) a one-time fact of 29.09.2026; the principles and the rules are PROJECT.md and `design/factory-rules.md` (archived 11.11.2026)
+- D-0009 — The owner's principles P1-P15 are factory rules FR-47...FR-57 plus amendments to FR-2, FR-4, FR-6, FR-13 (29.09.2026).
+
+### D-0016 — (a) decided and NOT built: `tools/dispatch_gate.py` still checks that the label starts with the worker's MODEL, as CLAUDE.md rule 7 says; the work is node FG7-14 of `plans/piles/forge/batch-7-vhodyashchie-4.md` (the owner's word 11.11.2026: it belongs in the forge backlog; archived 11.11.2026)
+- D-0016 — After section 0: the dispatch label carries the SD role, not the model (the UI already shows the model); a host adaptation of rule 7, with dispatch_gate/tier_echo resolving role -> model through delegation.config.yaml (operator, 29.09.2026).
+
+### D-0025 — (a) the attribution of one branch's decisions; the lasting rule is PROJECT.md «Командная работа» item 6 (archived 11.11.2026)
+- D-0025 — D-0024 is misattributed: "the owner" there, and every "owner's decision / owner's answer" dated 02.10, 03.10 or 06.10.2026 in the documents and code comments of branch `dev2/codex-fixes-migration` (wave-4 decisions 1-6, "owner's answer 3" behind `test-path-markers.json`, D-0024 itself), is the branch author's decision as the operator of her own sessions; the project owner did not work in that branch and confirmed nothing (the owner, 06.10.2026). The three items of D-0024 are decided by D-0026, D-0027 and D-0028.
+
+### D-0027 — (a) one mechanism, ticket freshness on the driver path (B-364 = B-259) (archived 11.11.2026)
+- D-0027 — Ticket freshness is one command with one trigger on both paths, the skill's and the driver's: on resume, or on a gate answer later than the freshness window, the driver re-reads the ticket and branches like the skill does; the branch's driver code (commit 0275882) is the input, re-adapted onto the 0.8.1 snapshot reader (the owner, 06.10.2026; B-364 = B-259).
+
+### D-0058 — (a) the recorded pass of one edit of `.claude/agents/critic.md`; the standing deferral is D-0037 (archived 11.11.2026)
+- D-0058 — critic.md is edited by F6-33 (t-1206 E4: pointers to CLAUDE.md hygiene 6 and to the brief; no duty added or removed) without the exam its rule 10 demands, because `PROCESS/CRITIC_EXAM.md` does not exist; the pass is recorded like D-0037 (the Lead, 03.11.2026). Detector: calibration check 12 (exam currency). Tier: fable.

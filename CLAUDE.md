@@ -19,27 +19,27 @@ Host adaptations inside the policy block below (listed per the onboarding merge 
    (DECISIONS.md D-0002).
 2. `.claude/agents/designer.md` rule 1: every named edge states the invariant it protects, and a
    reused function in a more consequential role gets its error direction and adversarial inputs
-   (DECISIONS.md D-0021, finding F-2).
+   (D-0021, finding F-2).
 3. Rule 11, table row R11-f: a writing dispatch carries its manifest as header lines, checked by
-   `tools/dispatch_manifest.py` before it leaves (DECISIONS.md D-0022, finding F-3).
+   `tools/dispatch_manifest.py` before it leaves (D-0022, finding F-3).
 4. Event shapes: every new journal event also carries `feature: Fnn` — the factory feature it belongs
-   to, from `plans/features.json` (the Forge attribution, commit 6ba43b6, 02.10); `journal_validator`
+   to, from `plans/features.json`; `journal_validator`
    WARNs on a missing or unknown id for events dated from 2026-10-02, `tools/forge_metrics.py`
    attributes by it first and by tag/files/words only when it is absent. Unclassified work is a
    Forge metric, not an error.
 5. Rule 3, the critic gate on a diff: every diff gate answers DUPLICATION and CODE QUALITY on top of the
    verdict layer — the rule text is `docs/tasks/critic-diff-brief.md` items 6-7 (the owner's word 06.10.2026; B-417,
    B-419; the critic role file's rule 18 points there; its exam deferred by D-0037).
-6. Cost gates (D-0035, D-0038, D-0040, D-0054; the owner's words 07–10.10.2026, 20.10.2026): a fix round runs in a FRESH worker
+6. Cost gates (D-0035, D-0038, D-0040, D-0054): a fix round runs in a FRESH worker
    carrying only the diff and the verdict; `tools/agent_budget.py` caps a worker (WARN 250K, STOP 400K; the
    remainder goes to a fresh worker whole); ONE critic pass per topic (R13-g), critic-on-plan only for forks
    or a schema/money change, otherwise `critic: skipped` with the reason; a re-review carries only the fix diff and the
    verdict; the Lead compacts at ~300K at a
    stage boundary, a stage commit per 2–3 merges, journal notes ≤ 300 chars, CI through `tools/ci_read.py`; at most 6 parallel WRITING
-   workers (the owner's word 20.10.2026, D-0054) and a push before a worktree launch (`tools/dispatch_gate.py`; readers are not counted).
-   The cap counts ONLY builders writing code; designers, critics and scouts are never counted and never wait for a slot
-   (the owner's word 21.10.2026). The queue is kept FULL: whatever can run in parallel is launched at once — a session
-   running 2–3 workers while independent work waits is the failure this line names (the owner's word 21.10.2026). Detector:
+   workers and a push before a worktree launch (`tools/dispatch_gate.py`; readers are not counted).
+   The cap counts ONLY builders writing code; designers, critics and scouts are never counted and never wait for a slot.
+   The queue is kept FULL: whatever can run in parallel is launched at once — a session
+   running 2–3 workers while independent work waits is the failure this line names. Detector:
    calibration check 17. Why: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`.
 7. Team work in piles and batches (D-0036; PROJECT.md «Командная работа» is the rule text): `plans/piles/<slug>/`
    with `plans/PILES.md` generated; ONE taker per batch, frozen once taken; `plans/BACKLOG.md` frozen (only
@@ -47,19 +47,19 @@ Host adaptations inside the policy block below (listed per the onboarding merge 
    of `main` only. Gates: `piles.py check --msg-file` in commit-msg (door `piles-skip: <item> -- <reason>`),
    `board --check` in pre-commit, pre-merge-commit and CI. Detector: calibration check 33. Full text:
    `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`.
-8. Rule 11, row R11-h (D-0045, decision pending).
+8. Rule 11, row R11-h: a critic or designer dispatch writes only its `handoff:` report file (`tools/handoff_gate.py`; the number
+   D-0045 is reserved for it, no decision text was written).
 9. Architecture (D-0055; the owner's word 20.10.2026): the package's architecture is the map `ai-packages/qa-factory/design/architecture.md` (AR-1..AR-28 by the four goals; its one-line index `docs/ARCHITECTURE_INDEX.md` is imported above). A change to the package NAMES the AR-n invariants it touches and keeps them; a producer and its readers change in one commit. Code on the path: `tools/architecture_gate.py` in commit-msg (`architecture: AR-n -- <how kept>` or `architecture: none -- <reason>` on every package commit), `tools/architecture_index.py --check` in pre-commit and CI; the critic's standing question 10; the designer names the AR-n in §1 of a package spec. Detector: calibration check 36.
 10. Where judgment lives (P27, AR-29; the owner's word 03.11.2026, spec `docs/tasks/specs/t-1765-thinking-roles.md`): code owns DATA
    (reads, assembles, carries, checks keys and cross-references), a role owns JUDGMENT and the OUTCOME (accepted by meaning by a tier above,
    with a witness), the person owns INTENT. A package check that judges a role's judgment, closes a role's obligation by a closed list or
    refuses a role's output on its content is a breach of AR-29. Code on the path: the judgment census
-   `scripts/tests/fixtures/judgment-census.json` with `test_judgment_census.py` (shrink-only ratchets; node A3), the `judgment:` line of
-   `tools/architecture_gate.py` on every package commit (node A5), `role-load.json` `process_ratchet_tokens` (node A4); the critic's standing
+   `scripts/tests/fixtures/judgment-census.json` with `test_judgment_census.py` (shrink-only ratchets), the `judgment:` line of
+   `tools/architecture_gate.py` on every package commit, `role-load.json` `process_ratchet_tokens`; the critic's standing
    question 11 (JUDGMENT) and the designer's rule 1 (every check names the owner it serves and its census class) change with this line (axis 1).
-   Detector: calibration check 41. Until nodes A3/A4 land, check 41 writes «census not on main» / «craft split not on main» — not a zero.
-11. Rule 4, the witness scope of a node, solo or parallel (F6-33, 21.10.2026; written as «host adaptation 10» in spec t-1206 E7c and renumbered
-   at the `local/p1-closeout` merge of 04.11.2026, where D-0060's adaptation 10 came first): reconciled with D-0056 — a node's run covers the
-   test FILE that judges each owned path, never its big neighbours; the full sets are the batch canon (`plans/builder-rules.md` 7b).
+   Detector: calibration check 41.
+11. Rule 4, the witness scope of a node, solo or parallel (F6-33, D-0056): a node's run never covers its big neighbours, the full sets are
+   the batch canon (`plans/builder-rules.md` 7b); WHAT the node runs is named by adaptation 12, which overrides this line.
 12. Rule 11, which tests a DoD asks for (the owner's word 10.11.2026; rule text `docs/TESTING.md`): behaviour through the script's door and the
    stage junction, one parameterised test per behaviour; the mini-battery and the AT/BEYOND tests only where input comes from OUTSIDE; a
    DOC-DISPATCH witness is attached in the report, never committed as a test; a role's rule is guarded by one register row, not a pin file; no pin on script source or a measured constant.
@@ -67,8 +67,7 @@ Host adaptations inside the policy block below (listed per the onboarding merge 
    `docs/tasks/specs/td-15-scenarios-quarantine.md`): not run in the canon, not repaired, not edited; the witness of a change is what
    `scenario_walk.py --witness-for <owns>` prints — in this repository this overrides host adaptation 11 and rule 4's «test FILE that judges
    each owned path», and rule 11's «AT and BEYOND» and «SCOPE CEILING» (the policy block is re-synced whole, never hand-edited): a boundary from
-   OUTSIDE input is a scenario variant row; an internal boundary gets no test. Until the phase-1 move lands (no `quarantine` rows yet) the old
-   scope of adaptation 11 is added to what the command prints. When the SessionStart line says `TEST QUARANTINE ALERT` or `READY TO DELETE`,
+   OUTSIDE input is a scenario variant row; an internal boundary gets no test. When the SessionStart line says `TEST QUARANTINE ALERT` or `READY TO DELETE`,
    the Lead tells the owner the same turn. Detector: calibration check 33 and `tools/test_quarantine.py check` in `forge-check`.
 
 <!-- BEGIN supervised-delegation policy (do not hand-edit below this
