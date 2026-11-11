@@ -48,6 +48,29 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = PLUGIN_ROOT / "scripts"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 TEST_CODE = FIXTURES / "test-code"
+DRIVER_MAP = FIXTURES / "driver-layers.json"
+
+
+def driver_sources(root: Path = PLUGIN_ROOT, exempt=None) -> list:
+    """The ONE reader of the driver source set (AR-13): [(Path, text)] of scripts/story_run.py first, then the sorted
+    scripts/driver_*.py, minus the stems the map lists as `not_driver` (read from driver-layers.json; the layer test passes
+    the stems of the map under test as `exempt`). A missing map or a missing story_run.py raises with the path: an empty set
+    would make every 'no such form anywhere in the driver' census pass."""
+    root = Path(root)
+    if exempt is None:
+        if not DRIVER_MAP.is_file():
+            raise FileNotFoundError(f"driver_sources: the layer map {DRIVER_MAP} is missing; expected driver-layers.json there")
+        exempt = {row["module"] for row in json.loads(DRIVER_MAP.read_text(encoding="utf-8")).get("not_driver", [])}
+    main = root / "scripts" / "story_run.py"
+    if not main.is_file():
+        raise FileNotFoundError(f"driver_sources: {main} is missing; expected the driver's entry file there")
+    files = [main] + [p for p in sorted((root / "scripts").glob("driver_*.py")) if p.stem not in exempt]
+    return [(p, p.read_text(encoding="utf-8")) for p in files]
+
+
+def driver_text(root: Path = PLUGIN_ROOT) -> str:
+    """The driver source set as one text (the texts of driver_sources joined with a newline)."""
+    return "\n".join(text for _p, text in driver_sources(root))
 
 # Test scripts historically passed GOOD/BAD directly to writers such as ledger.py. Give
 # every test process private copies so generated ledgers never dirty tracked fixtures.

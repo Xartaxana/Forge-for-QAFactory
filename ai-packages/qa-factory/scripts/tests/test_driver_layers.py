@@ -33,7 +33,8 @@ from harness import check, check_eq, finish  # noqa: E402
 DRIVER_CLASS = re.compile(r"^Driver[A-Za-z0-9]*$")
 MAP_PATH = harness.FIXTURES / "driver-layers.json"
 # The golden's own files mention the driver by name on purpose; L8 counts the rig's tests, not the instrument.
-L8_SKIP = {"driver_golden.py", "driver_trace.py", "test_driver_golden.py", "test_driver_layers.py"}
+# harness.py holds the ONE reader of the driver set (`driver_sources`), which must name story_run.py; it is the instrument too.
+L8_SKIP = {"harness.py", "driver_golden.py","driver_trace.py", "test_driver_golden.py", "test_driver_layers.py"}
 
 # The `exceptions` list is SHRINK-ONLY: it may lose rows when a node removes the upward edge, never gain one. These are the rows
 # the map held when N0 recorded it (one `from>to>kind` per line). A row in the map that is not here fails L5; a row here that
@@ -62,14 +63,7 @@ Driver.s0_quote>Driver.QUOTE_LIMIT>call
 def read_modules(root: Path, exempt=()) -> dict:
     """The driver set: story_run.py plus every scripts/driver_*.py that the map does not exempt as `not_driver` (a module
     that merely carries the `driver_` prefix, like `driver_journal.py`, the dashboard's reader of the driver's journal)."""
-    scripts = root / "scripts"
-    files = [scripts / "story_run.py"] + [p for p in sorted(scripts.glob("driver_*.py")) if p.stem not in exempt]
-    mods = {}
-    for path in files:
-        if path.is_file():
-            text = path.read_text(encoding="utf-8")
-            mods[path.stem] = (path, text, ast.parse(text, str(path)))
-    return mods
+    return {path.stem: (path, text, ast.parse(text, str(path))) for path, text in harness.driver_sources(root, set(exempt))}
 
 
 def _targets(node):
@@ -163,7 +157,9 @@ class Scan(ast.NodeVisitor):
                 self.refused.append(("`self.__dict__` hides every attribute it touches", node.lineno))
             else:
                 self.self_use.append((node.attr, self._ctx(node), node.lineno, "self"))
-        elif isinstance(node.value, ast.Name) and node.value.id == "Driver":
+        elif isinstance(node.value, ast.Name) and DRIVER_CLASS.match(node.value.id):
+            # `Driver.<m>` and `DriverCore.<m>` (a mixin) both resolve to the member row `Driver.<m>`; one that does not
+            # resolve is refused in L3 below, never passed.
             self.self_use.append((node.attr, "load", node.lineno, "Driver"))
         elif (isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "type"
               and len(node.value.args) == 1 and self._is_self(node.value.args[0])):
@@ -567,7 +563,15 @@ def analyse(root: Path, mp: dict, tests_dir: Path | None = None) -> dict:
 
     # L8 source readers: every occurrence of the literal driver file name in the rig's tests
     tests = tests_dir if tests_dir is not None else root / "scripts" / "tests"
+    # Every file name of the driver set is a literal L8 counts. TEMPORAL RULE: a row of the map carries no driver file name of
+    # its own, so a name other than story_run.py is ENFORCED only once some `source_readers`/`source_mentions` row mentions it
+    # (in its targets or note); before the map gains such rows its hits are only collected in `l8_extra` and printed as an
+    # informational line, after it they are counted like story_run.py's.
+    driver_files = [mods[stem][0].name for stem in mods]
+    row_text = json.dumps(mp.get("source_readers", [])) + json.dumps(mp.get("source_mentions", []))
+    enforced = [n for n in driver_files if n == "story_run.py" or n in row_text]
     census_l8 = {}
+    l8_extra = {}
     if tests.is_dir():
         for path in sorted(tests.glob("*.py")):
             if path.name in L8_SKIP:
@@ -576,8 +580,12 @@ def analyse(root: Path, mp: dict, tests_dir: Path | None = None) -> dict:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
             except SyntaxError:
                 continue
-            for function, line, count in _literal_mentions(tree, "story_run.py"):
-                census_l8.setdefault((path.name, function), []).append((line, count))
+            for fname in driver_files:
+                for function, line, count in _literal_mentions(tree, fname):
+                    if fname in enforced:
+                        census_l8.setdefault((path.name, function), []).append((line, count))
+                    else:
+                        l8_extra.setdefault(fname, []).append(f"{path.name}:{line}")
     readers = {(r["file"], r["function"]): r for r in mp.get("source_readers", [])}
     mentions = {}
     for r in mp.get("source_mentions", []):
@@ -598,7 +606,7 @@ def analyse(root: Path, mp: dict, tests_dir: Path | None = None) -> dict:
             first_line = found[0][0]
             kind = "reads the driver's source" if key not in mentions else "mentions the driver"
             probs["L8"].append(
-                f"{file}:{first_line}, in `{function}`, {kind} ({total} occurrence(s) of the literal story_run.py) and the "
+                f"{file}:{first_line}, in `{function}`, {kind} ({total} occurrence(s) of a driver file name literal) and the "
                 f"map declares {declared}: add or fix a row in `source_readers` (a source-text read, with the names it pins, "
                 f"so the node that moves them owns this test, t-301 section 0b F3) or in `source_mentions` (command text).")
     for (file, function), row in sorted({**readers, **mentions}.items()):
@@ -631,7 +639,7 @@ def analyse(root: Path, mp: dict, tests_dir: Path | None = None) -> dict:
             "adhoc_seen": {a: {r: sorted(s) for r, s in roles.items()} for a, roles in adhoc_seen.items()},
             "upward_edges": sorted(upward), "defs": defs, "dyn_sites": dyn_sites,
             "dispatch_sites": {k: [e for e, _ in v] for k, v in dispatch_sites.items()}, "census_l8": census_l8,
-            "attr_init": attr_init}
+            "attr_init": attr_init, "l8_extra": l8_extra}
     return {"problems": probs, "info": info}
 
 
@@ -830,6 +838,10 @@ def bad_fixtures() -> None:
     expect("L3 self.flags.x resolves `flags` only", "L3", "nothing owns `flags`",
            source=BASE_SOURCE.replace("self.low()", "self.flags.x\n        self.low()"))
     expect("L3 Driver.X", "L3", "not a member of the Driver class", source=BASE_SOURCE.replace("self.low()", "Driver.X\n        self.low()"))
+    expect("L3 DriverX.nope (a class-name access that does not resolve)", "L3", "not a member of the Driver class",
+           source=BASE_SOURCE.replace("self.low()", "DriverX.nope\n        self.low()"))
+    resolved = problems_of("L3 DriverCore.K", "L3", source=BASE_SOURCE.replace("self.low()", "DriverCore.K\n        self.low()"))
+    check_eq("L3 DriverCore.K resolves to the member row Driver.K (no problem)", resolved, [])
     expect("L3 type(self).X", "L3", "not a member of the Driver class",
            source=BASE_SOURCE.replace("self.low()", "type(self).Y\n        self.low()"))
     expect("L3 functools.partial(self.m)", "L3", "nothing owns `m`",
@@ -877,6 +889,17 @@ def bad_fixtures() -> None:
     expect("L8 a source_readers row for a function that reads nothing", "L8", "belongs in `source_mentions`",
            tests_files={"test_x.py": 'def reader():\n    return "run story_run.py now"\n'},
            edit=lambda m: m["source_readers"].append({"file": "test_x.py", "function": "reader", "count": 1, "targets": []}))
+    expect("L8 a driver_x.py literal with a row that names the file", "L8", "test_x.py:6",
+           extra_files={"scripts/driver_x.py": "X = 1\n"},
+           tests_files={"test_x.py": 'def other():\n    return "driver_x.py"\n\n\ndef reader():\n    return "run driver_x.py now"\n'},
+           edit=lambda m: (m["names"].append({"name": "X", "kind": "const", "home": "driver_core"}),
+                           m["source_mentions"].append({"file": "test_x.py", "function": "other", "count": 1,
+                                                        "note": "driver_x.py"})))
+    quiet = problems_of("L8 a driver_x.py literal with no row naming the file", "L8",
+                        extra_files={"scripts/driver_x.py": "X = 1\n"},
+                        tests_files={"test_x.py": 'def reader():\n    return "run driver_x.py now"\n'},
+                        edit=lambda m: m["names"].append({"name": "X", "kind": "const", "home": "driver_core"}))
+    check_eq("L8 a driver_x.py literal with no row naming the file is informational only (temporal rule)", quiet, [])
     expect("L9 a direct sys.stdout.write", "L9", "writes to sys.stdout directly",
            source=BASE_SOURCE.replace("self.low()", "sys.stdout.write('x')\n        self.low()"))
     expect("L9 print to another stream", "L9", "prints to a stream other than",
@@ -906,6 +929,8 @@ def real_map() -> None:
     print(f"L8 source-pinning sites declared as readers: {sum(r['count'] for r in readers)} in "
           f"{len({r['file'] for r in readers})} files: "
           + "; ".join(f"{r['file']}::{r['function']}" for r in readers))
+    for fname, hits in sorted(info["l8_extra"].items()):
+        print(f"L8 informational: {len(hits)} literal(s) of {fname} in the tests, no row names the file yet: " + ", ".join(hits))
     pinned = {line.strip() for line in PINNED_EXCEPTIONS.strip().split("\n") if line.strip()}
     now = {f"{r['from']}>{r['to']}>{r['kind']}" for r in mp.get("exceptions", [])}
     check("the exceptions list is a subset of the pinned list (shrink-only)", now <= pinned,
