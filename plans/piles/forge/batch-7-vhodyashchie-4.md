@@ -35,6 +35,7 @@
 | FG7-12 | П3 | Три старые неслитые ветки из бандла истории (`t-861-f6-15-fold`, `t-1256-cx2-23`, `wt/sc14-d`): поднять узлом или списать — по слову владельца (`findings/20261111-ostatki-sliyaniya-eksperimenta-v-main.md`; слияние 11.11.2026) | Lead | нет | слово владельца | ожидает |
 | FG7-13 | П2 | CI на GitHub после диеты тестов: расписания на ветке по умолчанию, замер минут первой недели, абзац RUNBOOK про наблюдателя карантина под workflow (`findings/20261111-ostatki-sliyaniya-eksperimenta-v-main.md`; слияние 11.11.2026) | builder | `docs/RUNBOOK.md`, `plans/MEASUREMENTS.md` | FG7-9 | ожидает |
 | FG7-14 | П2 | Метка диспатча несёт роль, а не модель: проверка 3 `dispatch_gate` принимает роль, модель по роли даёт `delegation.config.yaml`, хост-адаптация правила 7 (`findings/20261111-metka-dispatcha-neset-rol-d-0016-ne-sdelano.md`; D-0016, слово владельца 11.11.2026) | designer → builder → critic | `tools/dispatch_gate.py`, `tools/test_dispatch_gate.py`, `CLAUDE.md` | нет | ожидает |
+| FG7-15 | П3 | Свидетель для путей вне пакета одной дорогой: `scenario_walk.py --witness-for` отвечает и за `tools/`, путь без теста называется строкой (`findings/20261111-svidetel-dlya-putej-vne-paketa-odin-put.md`; t-013 F5) | designer → builder → critic | `ai-packages/qa-factory/scripts/tests/scenario_walk.py`, `ai-packages/qa-factory/scripts/tests/test-layers.json` | нет | ожидает |
 
 ## Ход
 

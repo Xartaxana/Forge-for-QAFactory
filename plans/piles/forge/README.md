@@ -190,6 +190,7 @@
 | `findings/20261104-khody-koordinatora-na-uzel-v-tsene.md` | находка, id — | ответы воркерам и повторные диспатчи не входят в цену узла; `forge_metrics` считает ходы координатора по `task_id` | `tools/forge_metrics.py`, `tools/test_forge_metrics.py` | пачка 7, FG7-7 | да, 04.11.2026 | FG7-5; правило 12 `CLAUDE.md` |
 | `findings/20261111-ostatki-sliyaniya-eksperimenta-v-main.md` | находка, id — | остатки слияния ветки эксперимента в `main` и переноса: TR2-9, первый канон, карантин на GitHub, TR4-17, три старые ветки, настройки CI | `scripts/gate_preflight.py`, `tools/test_quarantine.py`, `references/role-load.json`, `docs/RUNBOOK.md` | пачка 7, FG7-8…FG7-13 | да: FG7-12, FG7-10 | t-2564, t-2565, t-2566 |
 | `findings/20261111-metka-dispatcha-neset-rol-d-0016-ne-sdelano.md` | находка, id — | решение D-0016 (метка диспатча несёт роль, а не модель) не исполнено: гейт и правило 7 требуют модель в метке | `tools/dispatch_gate.py`, `tools/test_dispatch_gate.py`, `CLAUDE.md` | пачка 7, FG7-14 | нет (D-0016; слово 11.11.2026) | D-0016, D-0003; P31 |
+| `findings/20261111-svidetel-dlya-putej-vne-paketa-odin-put.md` | находка, id — | команда свидетеля `scenario_walk.py --witness-for` отвечает только за пути пакета; для `tools/` свидетеля называет диспатч руками — два пути для одного действия | `ai-packages/qa-factory/scripts/tests/scenario_walk.py`, `ai-packages/qa-factory/scripts/tests/test-layers.json` | пачка 7, FG7-15 | нет | t-013 F5; P31, AR-1 |
 
 ## Входящие
 
