@@ -22,6 +22,7 @@ journal is read) and the role runs (`run_role` is replaced by a stub that accept
          the driver's word is the safe side for the reviewers (judge and route)
 """
 import contextlib
+import hashlib
 import io
 import json
 import subprocess
@@ -328,6 +329,17 @@ def gate_a_story(decided: bool = True, late: bool = False):
     return root, task_root, env, ticket, c
 
 
+def strategist_closed_s3(controller, task_root: Path) -> None:
+    """`BASE.accept_stage` closes S3 with a `qa-worker` dispatch, but the rework of S3 goes back over the work of the strategist
+    (`ticket_rework_step`: "a first look accepted after the strategist is not the author"): give S3 the strategist's accepted work."""
+    controller.apply("dispatch", {"id": "dS3-strategist", "stage": "S3", "role": "qa-test-strategist", "scope": ["TC-1"], "input_hash": "S3",
+                                  "budget": {}, "known_paths": {}, "idempotency_key": "dispatch-S3-strategist"})
+    evidence = task_root / "S3-strategist.txt"
+    evidence.write_text("S3-strategist", encoding="utf-8")
+    controller.apply("accept", {"id": "dS3-strategist", "status": "accepted", "stage_complete": False, "idempotency_key": "accept-S3-strategist",
+                                "evidence_refs": [{"path": evidence.name, "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}]})
+
+
 def staged_driver(root: Path, env: dict, task_root: Path, accept: dict):
     """A driver whose roles are recorded, not run: `accept["on"]` says whether the stub closes the dispatch it was sent to."""
     driver = driver_for(root, env, KEY, max_boundaries=12)
@@ -348,6 +360,14 @@ def accept_dispatch(task_root: Path, dispatch_id: str, complete: bool = True) ->
     from controller import Controller
     evidence = task_root / f"{dispatch_id}.txt"
     evidence.write_text(dispatch_id, encoding="utf-8")
+    if complete:
+        # X2-7: a stage with an acceptor closes over the critic's record of THIS dispatch (a refusal raises StateConflict out of `apply`: loud)
+        # the record names the dispatch the controller reads as the stage's author (`""` for a fixture role that is not the stage's first)
+        import acceptance
+        from test_controller_state import record_stage_acceptance
+        state = Controller(task_root).state()
+        held = state["dispatches"][dispatch_id]
+        record_stage_acceptance(task_root, held["stage"], reviewed_dispatch=acceptance.stage_author_dispatch(state, acceptance.stage_def_of(held["stage"]), held))
     Controller(task_root).apply("accept", {"id": dispatch_id, "status": "accepted", "stage_complete": complete,
                                            "evidence_refs": [{"path": evidence.name, "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}],
                                            "idempotency_key": "accept-" + dispatch_id})
@@ -361,6 +381,7 @@ def state_of(task_root: Path) -> dict:
 def k6_k7_new_text_reworks_s2_then_s3_then_reopens_gate_a() -> None:
     root, task_root, env, ticket, controller = gate_a_story(decided=True, late=True)
     try:
+        strategist_closed_s3(controller, task_root)
         driver, _person = asked_driver(root, env, task_root, ticket)
         accept = {"on": False}
         stub = staged_driver(root, env, task_root, accept)
@@ -385,6 +406,8 @@ def k6_k7_new_text_reworks_s2_then_s3_then_reopens_gate_a() -> None:
         accept["on"] = False
         with contextlib.redirect_stdout(io.StringIO()):
             check_eq("K6: S2 accepted: S3 is registered now", (stub.ticket_rework_step(), [s for s, *_ in stub.started]), (True, ["S2", "S3"]))
+        if not check_eq("K6: the S3 dispatch is there to be accepted", len(stub.started), 2):
+            return
         s3_id = stub.started[1][2]
         accept_dispatch(task_root, s3_id, True)
         state = state_of(task_root)
@@ -440,8 +463,9 @@ def k6_k7_new_text_reworks_s2_then_s3_then_reopens_gate_a() -> None:
 
 
 def k7b_gate_a_not_decided_is_not_reopened() -> None:
-    root, task_root, env, ticket, _controller = gate_a_story(decided=False)
+    root, task_root, env, ticket, controller = gate_a_story(decided=False)
     try:
+        strategist_closed_s3(controller, task_root)
         driver, _ = asked_driver(root, env, task_root, ticket)
         accept = {"on": True}
         stub = staged_driver(root, env, task_root, accept)
