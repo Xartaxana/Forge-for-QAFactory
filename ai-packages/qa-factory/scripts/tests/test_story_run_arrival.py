@@ -8,7 +8,7 @@ driver runs over it with `where` and the freshness look faked, and spies on ever
       process that asked the changed-ticket question ends with the word still pending; the ANSWER run (`run()` with `--answer`)
       records the arrival BEFORE the first rework of the ticket answer (B4, one ordered list of `arrive` and every rework)
   A2  no role is dispatched, and no arrival is recorded, before the person's answer about a changed ticket
-  A3  E-A4: a relaunch with no flag on an awaiting story re-prints the packet, dispatches nothing, exits 0 - both relaunches, in a
+  A3  E-A4: a relaunch with no flag on an awaiting story re-prints the packet, dispatches nothing, exits 3 (the absent-side question) - both relaunches, in a
       fake world
   A4  a STOPPED story relaunched without a flag prints the stopped line and exits 0 - no freshness look, no dispatch
   A5  a relaunch with a flag on a stopped story arrives: the hold is cleared, the side is real, `source: arrival`
@@ -164,13 +164,14 @@ def a2_no_role_before_the_ticket_answer() -> None:
 
 
 def a3_reprint_with_no_dispatch() -> None:
+    import story_run
     root, task_root, env = held_story()
     try:
         driver = driver_for(root, env, KEY)
         action = {"action": "awaiting_implementation", "cause": "s5_absent_side", "held_from": "S6", "packet": "interim-report.md"}
         spied = fake_world(driver, action)
         code, out = run_quiet(driver)
-        check_eq("A3 (E-A4): exit 0", code, 0)
+        check_eq("A3 (E-A4): exit 3: the absent-side question", code, story_run.EXIT_PERSON)
         check_eq("A3: the freshness look ran (a changed ticket would have been E-A2)", len(spied["looks"]), 1)
         check_eq("A3: no role, no rework", (spied["roles"], spied["reworks"]), ([], []))
         check_in("A3: the packet is printed", "# Interim report for " + KEY, out)
@@ -178,7 +179,7 @@ def a3_reprint_with_no_dispatch() -> None:
         again = driver_for(root, env, KEY)
         spied2 = fake_world(again, action)           # B5: the second relaunch has a fake world too - the real `where` would dispatch S1
         code2, out2 = run_quiet(again)
-        check_eq("A3: a second relaunch with no flag is the same: exit 0", code2, 0)
+        check_eq("A3: a second relaunch with no flag is the same: exit 3: the absent-side question", code2, story_run.EXIT_PERSON)
         check_eq("A3: ... no role, no rework", (spied2["roles"], spied2["reworks"]), ([], []))
         check_in("A3: ... and the packet is printed again", "# Interim report for " + KEY, out2)
     finally:

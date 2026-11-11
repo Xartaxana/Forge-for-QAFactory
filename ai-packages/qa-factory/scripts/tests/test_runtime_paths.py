@@ -317,12 +317,12 @@ def k2_names_project() -> None:
 # The walks that are NOT in this node and stay (t-617 section 8.4). SHRINK ONLY: an entry whose walk is gone must be
 # deleted (a stale entry fails the key below), and a new walk is not added here - it calls `nearest_project`.
 OUTSIDE_WALKS = {
-    ("contract.py", "_config_location"), ("gate_brief.py", "filing_line"), ("gate_brief.py", "portable"),
-    ("gate_brief.py", "project_config"), ("host_probe.py", "_not_a_project"), ("launch_check.py", "_find_project_root"),
+    ("contract.py", "_config_location"), ("gate_brief.py", "_project_root_of"),
+    ("host_probe.py", "_not_a_project"), ("launch_check.py", "_find_project_root"),
     ("manual_capture.py", "load_config"), ("migrate_artifacts.py", "_find_project_root"), ("question_stop.py", "_find_config"),
     ("stand_gaps.py", "project_of"), ("story_progress.py", "_project_of"),
 }
-OUTSIDE_WALKS_MAX = 11
+OUTSIDE_WALKS_MAX = 9
 THE_LEAF = ("runtime_paths.py", "nearest_project")
 
 

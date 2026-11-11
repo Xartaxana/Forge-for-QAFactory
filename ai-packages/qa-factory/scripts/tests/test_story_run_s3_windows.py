@@ -44,6 +44,7 @@ def story(*, diff: bool = True, table: bool = True):
     if table:
         (task_root / "work" / "grounding.yaml").write_text("schema_version: 1\n", encoding="utf-8")
     driver = driver_for(root, env, KEY)
+    driver.first_look_step = lambda: None  # the first-look step has its own test (test_first_look_step.py)
     driver.calls, driver.roles = [], []
     return root, task_root, env, driver
 

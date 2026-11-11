@@ -669,7 +669,7 @@ def a_run_that_executed_nothing_keeps_the_standing_record(stub: Path) -> None:
         attempt = kept.get("last_attempt") or {}
         check_eq("kept: last_attempt names the verdict", attempt.get("verdict"), "not_executed")
         check("kept: last_attempt carries the time and the cause",
-              bool(attempt.get("at")) and "no report evidence" in str(attempt.get("why")), str(attempt))   # the walk's last note (was "no summary")
+              bool(attempt.get("at")) and "no row of the junit-xml report" in str(attempt.get("why")), str(attempt))   # the walk's check-row note
         check_eq("kept: the test bytes are back", (root / TEST_FILE_REL).read_bytes(), original)
         # a run that executed replaces it, whatever it found
         write_json(root / "qa-factory" / "artifacts" / TASK / "work" / "probes" / "test_dead_assert.json",
