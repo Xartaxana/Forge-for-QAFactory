@@ -626,7 +626,10 @@ def crashed_lane_closes_its_walk():
     d.record_running = broken
     err, _said = enter(d, ["TC-1", "TC-2"])
     check("the crash is raised once", isinstance(err, SR.Refusal), repr(err))
-    check("the lane that opened a walk and ended before `run_role` closes it, with no result", calls and calls[0] == (["TC-1"], "S6-qa-runner-1", {}), str(calls))
+    # lanes run in threads: which lane crashes first, which takes which dispatch id, and whether the second opens a walk at all are not guaranteed
+    runner_ids = {"S6-qa-runner-1", "S6-qa-runner-2"}
+    check("the lane that opened a walk and ended before `run_role` closes it, with no result",
+          bool(calls) and all(lane in (["TC-1"], ["TC-2"]) and did in runner_ids and result == {} for lane, did, result in calls), str(calls))
     d = make(["TC-1", "TC-2"], walking=False)
     d.walk_after = after
     d.record_running = broken
