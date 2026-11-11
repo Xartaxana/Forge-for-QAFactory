@@ -28,8 +28,6 @@ writes them (`artifact-contract-plan.md`, `artifact-contract-results.md`).
       evidence/  proposals/  bug-drafts/  s5-notes/
 ```
 
-`work/s5-plan.json` is written by `s5_plan.py --init` for qa-automator; fields: the brief.
-
 Names are fixed. A role that invents a filename makes an artifact nobody reads. `records/` is
 committed, `state/` is ignored; an older project keeps them in `state/`.
 

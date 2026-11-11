@@ -113,7 +113,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hooklib import read_json, story_root  # noqa: E402
+from hooklib import project_root, read_json, story_root  # noqa: E402
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
 from person_words import door  # noqa: E402

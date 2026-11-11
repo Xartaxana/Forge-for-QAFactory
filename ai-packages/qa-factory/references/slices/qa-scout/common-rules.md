@@ -73,7 +73,7 @@ refuses, never creating a second state tree; run the script from inside the proj
 repository's origin matches `remote_identity`.
 
 **Absolute is a defect, not a style**: these files are committed and cloned, so
-`/Users/anna/Projects/testproject1` resolves nowhere on the next machine — audit **A20** fails on one.
+`/home/anna/testproject1` resolves nowhere on the next machine — audit **A20** fails on one.
 Local runtime packets may hold resolved installation paths; shared configuration and human
 reports may not. A path that cannot be relative (another drive) is `[DEFERRED: …]` with the reason.
 
