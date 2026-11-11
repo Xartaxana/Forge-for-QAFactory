@@ -1735,11 +1735,30 @@ class Rehearsal:
             norm_ids = contract.norm_row_ids(register)
         except Exception:
             self.note(check, "the register could not be read, so the norms-question rule was not checked")
+        # TR2-9 (B-12): the status of a question is read from the question register, the one reader (AR-13) - an answer recorded
+        # there is an answer, as much as a word kept in the question's own dict. FR-59: a register that cannot be read, or a
+        # record it set aside, is a note, and the question is then checked as it stands (the safe direction: toward asking).
+        settled_ids = set()
+        try:
+            import question_register
+            view = question_register.load(self.task_root)
+            settled_ids = {str(q.get("id")) for q in view.get("questions") or [] if question_register.settled(q)}
+            set_aside = sum(int(n or 0) for n in (view.get("skipped") or {}).values())
+            if view.get("problems") or set_aside:
+                self.note(check, "the question register was read with problems (" + "; ".join(
+                    [str(p) for p in view.get("problems") or []][:2]
+                    + ([f"{set_aside} record(s) set aside"] if set_aside else [])) + "), so a question it does not "
+                    "show as settled is checked as it stands")
+        except Exception as exc:
+            self.note(check, f"the status of the questions could not be read from the question register ({type(exc).__name__}), "
+                             "so every question is checked as it stands")
         keyed = None   # the question ids some case keys by meaning (`now` / `before`), read once and only when needed
         for index, question in enumerate(questions, start=1):
             if any(str(question.get(key) or "").strip()
                    for key in ("answer", "answered", "resolution")):
                 continue  # already answered: nothing left to ask, nothing to rewrite
+            if str(question.get("id") or "").strip() in settled_ids:
+                continue  # answered in the register (B-12): the same question is not shown again as one nobody can answer
             problems = question_errors(question, norm_ids)
             qid = str(question.get("id") or question.get("ref") or f"Q-{index}").strip()
             # HF4-7 (B7-3): a before/now question that does not say which reading is the behaviour now is the tester's to

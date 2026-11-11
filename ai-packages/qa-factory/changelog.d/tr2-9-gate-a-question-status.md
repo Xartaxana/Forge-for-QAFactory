@@ -1,0 +1,1 @@
+- Gate A: a question the person already answered in the question register is no longer listed as "cannot be answered as it stands"; the shape check now asks the register (the one reader of a question's status) as well as the question's own `answer`, and a register it cannot read is a note, with the question checked as it stands (FR-59).
