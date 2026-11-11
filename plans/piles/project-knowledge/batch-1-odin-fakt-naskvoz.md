@@ -8,6 +8,7 @@
 Решения владельца: слово владельца 10.11.2026 — план `plans/project-knowledge-plan.md` (В1–В8), развилки спеки FK-3, FK-4, FK-6 «по рекомендациям»; «саму разработку не начинаем, пока не закончит параллельная сессия».
 очередь: project-knowledge/1 → pre-code/1 (`scripts/project_knowledge.py`, `scripts/guard_pre_tool.py`: PK0-1, PK0-8 → PC-1b; `docs/SIBLING_MAP.md` ось 34: PK0-6 → PC-10)
 очередь: project-knowledge/1 → pre-code/1
+очередь: project-knowledge/1 → github-move/3
 Порядок по общим файлам: `scripts/tests/fixtures/judgment-census.json`: PK0-1 → PK0-4; `scripts/gate_preflight.py`: PK0-4 → PK0-9, PK0-5 — другие функции; `scripts/stand_gaps.py`, `scripts/gate_brief.py`: PK0-4 → PK0-9; `scripts/story_run.py`: PK0-3, PK0-5, PK0-9 — разные функции, поздний сливает ветку; `scripts/project_knowledge.py`: PK0-1 → PK0-3; `scripts/guard_pre_tool.py`: PK0-8 после слияния TR3-5, TR3-14, TR3-16 кучки `thinking-roles`.
 Скоуп свидетеля: новый тестовый файл узла и быстрые соседние, названные в узле спеки (до минуты каждый); файлы из списка медленных, `test_story_run_*`, `test_controller_*`, `test_judgment_census.py` — только CI; канон пачки — пайплайн CI.
 Общий бриф: узел исполняется по разделу §5 спеки `docs/tasks/specs/t-2142-project-knowledge-phase0.md` со своим id; поведение — §2–§4, решения развилок — блок «Lead acceptance». Повышение храповика одобрено одно: `judgment-census.json` `safety` 51 → 52 (PK0-1); любое другое — стоп и возврат.
