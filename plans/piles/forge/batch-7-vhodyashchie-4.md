@@ -34,6 +34,7 @@
 | FG7-11 | П3 | Остатки TR4-17: понятный отказ при пустом номере задания; тест проб привязан к фиче в `plans/features.json` (`findings/20261111-ostatki-sliyaniya-eksperimenta-v-main.md`; слияние 11.11.2026) | builder | `scripts/probe_by_code.py`, его тест, `plans/features.json` | — | ожидает |
 | FG7-12 | П3 | Три старые неслитые ветки из бандла истории (`t-861-f6-15-fold`, `t-1256-cx2-23`, `wt/sc14-d`): поднять узлом или списать — по слову владельца (`findings/20261111-ostatki-sliyaniya-eksperimenta-v-main.md`; слияние 11.11.2026) | Lead | нет | слово владельца | ожидает |
 | FG7-13 | П2 | CI на GitHub после диеты тестов: расписания на ветке по умолчанию, замер минут первой недели, абзац RUNBOOK про наблюдателя карантина под workflow (`findings/20261111-ostatki-sliyaniya-eksperimenta-v-main.md`; слияние 11.11.2026) | builder | `docs/RUNBOOK.md`, `plans/MEASUREMENTS.md` | FG7-9 | ожидает |
+| FG7-14 | П2 | Метка диспатча несёт роль, а не модель: проверка 3 `dispatch_gate` принимает роль, модель по роли даёт `delegation.config.yaml`, хост-адаптация правила 7 (`findings/20261111-metka-dispatcha-neset-rol-d-0016-ne-sdelano.md`; D-0016, слово владельца 11.11.2026) | designer → builder → critic | `tools/dispatch_gate.py`, `tools/test_dispatch_gate.py`, `CLAUDE.md` | нет | ожидает |
 
 ## Ход
 
