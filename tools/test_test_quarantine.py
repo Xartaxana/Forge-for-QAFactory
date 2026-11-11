@@ -1658,13 +1658,86 @@ def test_watch_alert_is_computed_from_the_recorded_rows_without_ci(tmp_path, cap
     assert "TEST QUARANTINE ALERT: the watch cannot be confirmed on CI" in capsys.readouterr().out
 
 
-def test_config_ci_other_than_gitlab_is_an_unknown_with_a_door(tmp_path):
+def test_config_ci_other_than_a_read_host_is_an_unknown_with_a_door(tmp_path):
+    root = plain_root(tmp_path)
+    W(root, tq.CONFIG_REL, json.dumps({"ci": "jenkins", "branch": "br", "max_gap_days": 4}))
+    d = tq.status_data(root, TODAY)
+    assert "reads github and gitlab only" in d["unknown"] and 'set "ci": "github"' in d["unknown"]
+    for host in ("gitlab", "github"):                      # both hosts are read (FG7-10)
+        W(root, tq.CONFIG_REL, json.dumps({"ci": host, "branch": "br", "max_gap_days": 4}))
+        assert tq.status_data(root, TODAY)["unknown"] is None
+
+
+class FakeGithub(tq.GithubCI):
+    """GithubCI with the network replaced by a table {GitHub path: object | bytes}; the GitLab-shaped answers are the real code."""
+
+    def __init__(self, table, root):
+        self.root, self._workflow_of, self.table, self.asked = Path(root), {}, table, []
+
+    def _raw(self, path):
+        self.asked.append(path)
+        if path not in self.table:
+            raise tq.CIError("missing", "HTTP 404")
+        body = self.table[path]
+        return body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+
+
+def _gh_run(rid, event, path, at):
+    return {"id": rid, "head_sha": "a" * 40, "event": event, "path": ".github/workflows/" + path, "created_at": at, "head_branch": "br"}
+
+
+def _zip_of(members):
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, text in members.items():
+            z.writestr(name, text)
+    return buf.getvalue()
+
+
+def test_pull_reads_the_watch_runs_of_github_and_asks_no_jobs_of_other_workflows(tmp_path):   # FG7-10
     root = plain_root(tmp_path)
     W(root, tq.CONFIG_REL, json.dumps({"ci": "github", "branch": "br", "max_gap_days": 4}))
-    d = tq.status_data(root, TODAY)
-    assert "reads GitLab only" in d["unknown"] and 'set "ci": "gitlab"' in d["unknown"]
-    W(root, tq.CONFIG_REL, json.dumps({"ci": "gitlab", "branch": "br", "max_gap_days": 4}))
-    assert tq.status_data(root, TODAY)["unknown"] is None
+    record = {"package_version": "0.10.9", "complete": True, "files": {"test_a.py": "pass"}}
+    ci = FakeGithub({
+        "/actions/runs?branch=br&per_page=50&page=1": {"workflow_runs": [
+            _gh_run(7, "push", "forge-check.yml", "2026-11-24T10:00:00Z"),
+            _gh_run(5, "schedule", "quarantine-watch.yml", "2026-11-24T03:00:00Z"),
+            _gh_run(4, "workflow_dispatch", "nightly.yml", "2026-11-23T07:00:00Z")]},
+        "/actions/runs/5/jobs?per_page=100": {"jobs": [{"id": 51, "name": "quarantine-watch"}, {"id": 52, "name": "quarantine-watch-report"}]},
+        "/actions/runs/5/artifacts?per_page=100": {"artifacts": [{"id": 900, "name": "quarantine-watch-report", "expired": False}]},
+        "/actions/artifacts/900/zip": _zip_of({"quarantine-watch.json": json.dumps(record)}),
+    }, root)
+    code, lines = tq.pull(root, ci=ci, today=TODAY)
+    rows = watch_rows(root)
+    assert code == 0, lines
+    assert [r["kind"] for r in rows] == ["run", "pull"]
+    assert rows[0]["pipeline"] == 5 and rows[0]["source"] == "schedule" and rows[0]["complete"] is True and rows[0]["files"] == record["files"]
+    assert rows[1]["ci"] == "ok" and rows[1]["newest_watch_pipeline"] == 5
+    assert not [p for p in ci.asked if p.startswith(("/actions/runs/7/", "/actions/runs/4/"))]     # no request per foreign run
+
+
+def test_github_reader_answers_the_shapes_the_readers_ask(tmp_path):                            # FG7-10: both forms of the answer
+    root = plain_root(tmp_path)
+    W(root, ".github/workflows/quarantine-watch.yml", "on:\n  schedule:\n    - cron: \"0 3 * * 1,4\"\n")
+    table = {"/actions/runs/5": _gh_run(5, "workflow_dispatch", "quarantine-watch.yml", "2026-11-12T03:00:00Z"),
+             "/actions/runs/7": _gh_run(7, "push", "forge-check.yml", "2026-11-24T10:00:00Z"),
+             "/actions/workflows/quarantine-watch.yml": {"state": "active"}, "": {"default_branch": "br"},
+             "/actions/runs/5/artifacts?per_page=100": {"artifacts": [{"id": 1, "name": "quarantine-watch-report", "expired": True}]}}
+    ci = FakeGithub(table, root)
+    assert ci.pipeline_sha(5) == "a" * 40
+    assert json.loads(ci._get("/pipelines/5"))["source"] == "web"                               # a dispatch is the GitLab "web"
+    assert ci.pipeline_variables(5) == {"QUARANTINE_WATCH": "1"} and ci.pipeline_variables(7) == {}
+    assert ORIG_SCHEDULES("br", ci) == "ok" and ORIG_SCHEDULES("other", ci) == "missing"
+    table["/actions/workflows/quarantine-watch.yml"] = {"state": "disabled_manually"}
+    assert ORIG_SCHEDULES("br", ci) == "missing"
+    del table["/actions/workflows/quarantine-watch.yml"]
+    assert ORIG_SCHEDULES("br", ci) == "unknown"                                                # CI could not be read: never a pass
+    with pytest.raises(tq.CIError) as exc:
+        ci.artifact(5, "quarantine-watch-report", "ci-out/quarantine-watch.json")              # an expired artifact is missing
+    assert exc.value.kind == "missing"
+    with pytest.raises(tq.CIError):
+        ci._get("/merge_requests")                                                             # no GitHub form: said, not guessed
 
 
 def test_pull_reads_a_recorded_pipeline_again_when_asked_and_the_flaky_door_works(tmp_path, capsys):   # N4

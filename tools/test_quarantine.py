@@ -21,6 +21,7 @@ import argparse
 import ast
 import glob
 import importlib.util
+import io
 import json
 import os
 import re
@@ -29,6 +30,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.parse
+import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -62,6 +64,9 @@ class Refusal(Exception):
 
 class Unknown(Refusal):
     """Something could not be established: never a pass (FR-59, AR-28)."""
+
+
+CI_HOSTS = ("github", "gitlab")          # the values of "ci" in plans/test-quarantine/config.json; ci_reader() picks the reader
 
 
 class CIError(Exception):
@@ -143,9 +148,9 @@ def _config(root):
     if not isinstance(cfg, dict) or not isinstance(cfg.get("branch"), str) or not cfg["branch"]:
         raise Unknown("plans/test-quarantine/config.json names no branch -- write plans/test-quarantine/config.json")
     cfg.setdefault("max_gap_days", 4)
-    if cfg.setdefault("ci", "gitlab") != "gitlab":
-        raise Unknown("plans/test-quarantine/config.json names ci %r, and this tool reads GitLab only -- set \"ci\": \"gitlab\" "
-                      "or extend the tool (spec td-15 section E2)" % str(cfg["ci"])[:20])
+    if cfg.setdefault("ci", "gitlab") not in CI_HOSTS:
+        raise Unknown("plans/test-quarantine/config.json names ci %r, and this tool reads %s only -- set \"ci\": \"github\" "
+                      "or \"ci\": \"gitlab\", or extend the tool (spec td-15 section E2)" % (str(cfg["ci"])[:20], " and ".join(CI_HOSTS)))
     return cfg
 
 
@@ -609,6 +614,121 @@ class GitlabCI:
         return [r["id"] for r in rows]
 
 
+class GithubCI(GitlabCI):
+    """The reader of CI on GitHub (FG7-10). It answers the SAME paths `GitlabCI._get` answers, in the same shapes, so the readers
+    above it (pull, _ci_pipelines, _schedules, enter) stay one code path for both hosts: a pipeline is a workflow run, its jobs are
+    the run's jobs, a job's artifact file is the member of the run's artifact named like the job. The network code is ci_read's
+    (`_open`, the repository of `origin`, the token variable of tools/dev.config.yaml); nothing else is opened here.
+    What GitHub does not have is said, not guessed: a schedule has no variables, the watch is a workflow of its own
+    (quarantine-watch.yml), so a run of THAT workflow is what `QUARANTINE_WATCH=1` was, and the schedule is active when the
+    workflow is active on GitHub and its file here carries a cron. An unknown path is `missing`."""
+
+    WATCH_WORKFLOW = "quarantine-watch.yml"
+    EVENTS = {"schedule": "schedule", "workflow_dispatch": "web", "repository_dispatch": "api", "push": "push"}
+
+    def __init__(self, token=None, root=None):
+        import ci_read
+        self._ci = ci_read
+        self.root = Path(ROOT if root is None else root)
+        try:
+            door = os.environ.get(ci_read.REPO_DOOR, "")
+            repo = ci_read._repo_name(door) if door else ci_read._origin_repo_path(ci_read.split_origin(ci_read.origin_url(self.root))[1])
+            if token is None:
+                name, _ = ci_read.github_backend(repo or "", self.root).token_env_name()
+                token = os.environ.get(name)
+        except ci_read.common.Refusal as exc:
+            raise CIError("token_refused", str(exc)) from None
+        if not repo:
+            raise CIError("unreachable", "origin does not name a GitHub repository (owner/repo)")
+        if not token:
+            raise CIError("token_refused", "the GitHub token variable is not set")
+        self.token = token
+        self._base = "%s/repos/%s" % (ci_read.API, repo)
+        self._workflow_of = {}                 # run id -> the path of its workflow file, as the lists and the run say it
+
+    def _raw(self, path):
+        try:
+            return self._ci._open(self._base + path, self.token, limit=self._ci.MAX_ARTIFACT_BYTES)[1]
+        except urllib.error.HTTPError as exc:
+            raise CIError({401: "token_refused", 403: "token_refused", 404: "missing"}.get(exc.code, "unreachable"), f"HTTP {exc.code}") from None
+        except (urllib.error.URLError, OSError, ValueError):
+            raise CIError("unreachable") from None
+
+    def _json(self, path):
+        try:
+            return json.loads(self._raw(path).decode("utf-8", errors="replace"))
+        except ValueError:
+            raise CIError("unreachable", "the answer is not JSON") from None
+
+    def _pipeline(self, run):
+        """A workflow run in the shape of a pipeline row: id, sha, source, created_at."""
+        self._workflow_of[str(run.get("id"))] = str(run.get("path") or "")
+        return {"id": run.get("id"), "sha": run.get("head_sha"), "source": self.EVENTS.get(run.get("event"), run.get("event")),
+                "created_at": run.get("created_at"), "ref": run.get("head_branch")}
+
+    def _is_watch(self, pid):
+        if str(pid) not in self._workflow_of:
+            self._pipeline(self._json("/actions/runs/%s" % pid))
+        return self._workflow_of[str(pid)].endswith("/" + self.WATCH_WORKFLOW)
+
+    def _cron_here(self):
+        try:
+            text = (self.root / ".github" / "workflows" / self.WATCH_WORKFLOW).read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return bool(re.search(r"^\s*schedule:\s*\n\s*-\s*cron:", text, re.M))
+
+    def _get(self, path):
+        """The GitLab path, answered from GitHub as the JSON text GitLab would give."""
+        head, _, query = path.partition("?")
+        args = urllib.parse.parse_qs(query)
+        one = re.fullmatch(r"/pipelines/(\d+)(/jobs|/variables)?", head)
+        if head == "/pipelines":
+            runs = self._json("/actions/runs?branch=%s&per_page=%s&page=%s" % (
+                urllib.parse.quote(args.get("ref", [""])[0], safe=""), args.get("per_page", ["20"])[0], args.get("page", ["1"])[0]))
+            return json.dumps([self._pipeline(r) for r in runs.get("workflow_runs") or []])
+        if one and one.group(2) is None:
+            return json.dumps(self._pipeline(self._json("/actions/runs/%s" % one.group(1))))
+        if one and one.group(2) == "/variables":
+            return json.dumps([{"key": WATCH_VARIABLE, "value": "1"}] if self._is_watch(one.group(1)) else [])
+        if one:                                 # /jobs: only a watch run can carry the watch jobs -- no request for the others
+            if not self._is_watch(one.group(1)):
+                return "[]"
+            jobs = self._json("/actions/runs/%s/jobs?per_page=100" % one.group(1)).get("jobs") or []
+            return json.dumps([{"id": j.get("id"), "name": j.get("name")} for j in jobs])
+        if head == "/pipeline_schedules":
+            flow = self._json("/actions/workflows/%s" % self.WATCH_WORKFLOW)
+            if flow.get("state") != "active" or not self._cron_here():
+                return "[]"
+            return json.dumps([{"id": self.WATCH_WORKFLOW, "active": True, "ref": self._json("").get("default_branch")}])
+        if head == "/pipeline_schedules/%s" % self.WATCH_WORKFLOW:
+            return json.dumps({"variables": [{"key": WATCH_VARIABLE, "value": "1"}]})
+        raise CIError("missing", "no GitHub form of %s" % head[:60])
+
+    def artifact(self, pid, job, path):
+        """The file `path` a job kept: the member of the run's artifact named like the job (the whole path, else its file name)."""
+        rows = self._json("/actions/runs/%s/artifacts?per_page=100" % pid).get("artifacts") or []
+        found = [r for r in rows if r.get("name") == job and not r.get("expired")]
+        if not found:
+            raise CIError("missing", f"no artifact {job} in run {pid}")
+        raw = self._raw("/actions/artifacts/%s/zip" % urllib.parse.quote(str(found[0].get("id")), safe=""))
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                names = archive.namelist()
+                member = path if path in names else path.rsplit("/", 1)[-1]
+                if member not in names:
+                    raise CIError("missing", f"{path} is not in the artifact {job} of run {pid}")
+                return archive.read(member).decode("utf-8", errors="replace")
+        except zipfile.BadZipFile:
+            raise CIError("missing", f"the artifact {job} of run {pid} is not a readable zip") from None
+
+
+def ci_reader(root=None):
+    """The CI reader the config names ("ci": github | gitlab). The one place that picks the host."""
+    root = Path(ROOT if root is None else root)
+    return GithubCI(root=root) if _config(root).get("ci") == "github" else GitlabCI()
+
+
 # --- the watch: pull, ci-summary, the schedule and pipeline readers --------------------------------------------------
 
 WATCH_JOB, WATCH_REPORT_JOB, WATCH_ART = "quarantine-watch", "quarantine-watch-report", "ci-out/quarantine-watch.json"
@@ -635,7 +755,7 @@ def _schedules(branch, ci=None):
     """GET /projects/:id/pipeline_schedules (through ci_read.request). "ok": an active schedule on `branch` carries
     QUARANTINE_WATCH=1; "missing": none does (no schedule, or one without the variable); "unknown": CI could not be read."""
     try:
-        ci = GitlabCI() if ci is None else ci
+        ci = ci_reader() if ci is None else ci
         for row in json.loads(ci._get("/pipeline_schedules?scope=active&per_page=100")):
             if row.get("active") is False or _plain_ref(row.get("ref")) != branch:
                 continue
@@ -658,7 +778,7 @@ def _ci_pipelines(branch, sources, ci=None, after=None, capped=None):
     oldest row is at or below the floor `after` (everything newer was on the pages already read). Only PIPELINE_PAGES FULL pages that
     never reached the floor are a cut: a line naming it is appended to the list `capped` (if given); the page after the tenth is not
     read, so a list of exactly ten full pages is reported cut, never complete on an unknown. CI errors propagate."""
-    ci = GitlabCI() if ci is None else ci
+    ci = ci_reader() if ci is None else ci
     floor = _ts(after) if after else None
     found, ref, list_ended = [], urllib.parse.quote(branch, safe=""), False
     for page in range(1, PIPELINE_PAGES + 1):
@@ -719,7 +839,7 @@ def pull(root, ci=None, pipeline=None, today=None):
         _append(root, WATCH_REL, {"kind": "pull", "at": at, "ci": state, "newest_watch_pipeline": newest[0], "newest_watch_at": newest[1]})
 
     try:
-        ci = GitlabCI() if ci is None else ci
+        ci = ci_reader(root) if ci is None else ci
     except CIError as exc:
         pull_row(exc.kind)
         return 1, ["ci: %s" % exc.kind]
@@ -926,7 +1046,7 @@ def _ci_call(fn, pid):
 def _need_ci(ctx):
     if ctx.ci is None:
         try:
-            ctx.ci = GitlabCI()
+            ctx.ci = ci_reader(ctx.root)
         except CIError as exc:
             _refuse_enter("CI cannot be read (%s)" % exc.kind.replace("_", " "), CI_DOOR % "<id>")
     return ctx.ci
