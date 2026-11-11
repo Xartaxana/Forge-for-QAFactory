@@ -8,13 +8,13 @@ to models and accounting, never to a rule.
 
 | Function (canonical policy name) | Duty | Subscription-channel default | API-channel default |
 |---|---|---|---|
-| **scout** — recon | search/read, digest with a trail | Sonnet subagent (host adaptation 1, P7) | Sonnet alias (unbound here: `delegation.config.yaml` `scout.api` is empty) |
+| **scout** — recon | search/read, digest with a trail | Sonnet subagent (CLAUDE.md Tiers, P7) | Sonnet alias (unbound here: `delegation.config.yaml` `scout.api` is empty) |
 | **builder** — implementation to a written spec | code/tests, witness | Sonnet subagent | Sonnet alias (~$3/$15 per MTok; Opus-as-builder rejected by Rule #1 evidence) |
 | **critic** — review | verdict with a trail | Opus subagent | Opus alias (~$5/$25 per MTok) |
 | **judge** — leaf acceptance (rule 13) + equivalence verdicts | verdict vs pinned intent keys; calibrated instance only | subscription judge-subagent, pinned prompt (rule 13's second judge form) | `judge-sonnet` alias (calibration home; needs `drop_params: true` — Sonnet rejects `temperature=0`) |
 | **Lead** — decomposition, specs, graph acceptance | coordinator; full authority only on the Lead tier | Fable session | Fable alias (~$10/$50 per MTok) |
 
-The binding in force is `delegation.config.yaml` (the harness reads each role file's frontmatter `model:`, its machine copy); the default columns above are the template's defaults with host adaptation 1 applied.
+The binding in force is `delegation.config.yaml` (the harness reads each role file's frontmatter `model:`, its machine copy); the default columns above are the template's defaults with CLAUDE.md Tiers applied.
 
 Function names classify WORK and carry duties (trail, witness, flat
 delegation); every routing rule references functions and none

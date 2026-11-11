@@ -330,6 +330,8 @@ CLAUDE.md wins and that's a bug report against this file.
 
 ## Upgrade mode (existing deployment)
 
+Not used in this repository: CLAUDE.md is the project's own text since 11.11.2026, there are no BEGIN/END markers and nothing more is pulled from the kit (the owner's word); do not run this mode here — its step 6.5 would insert markers and its step 6.2 would overwrite the own text.
+
 Re-running this skill over a deployment that already carries an
 adoption ledger is an UPGRADE, not a re-install. The unit of delivery
 is the REVISION DELTA, never the full kit:

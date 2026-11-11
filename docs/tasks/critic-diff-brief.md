@@ -2,8 +2,8 @@
 
 Owner's word, 06.10.2026: after the 0.8.1 clean-up (six real repeats converted to one function each,
 B-309) the order is KEPT — every diff gate checks duplication and code quality, and the clone ratchet
-is the deterministic layer. This brief is the rule text of the critic gate on a diff: CLAUDE.md rule 3,
-host adaptation 5 and the critic role file's rule 18 point here (B-419).
+is the deterministic layer. This brief is the rule text of the critic gate on a diff: CLAUDE.md rule 3
+and the critic role file's rule 18 point here (B-419).
 
 ## The two layers (CLAUDE.md rule 3, the two-layer review rule)
 

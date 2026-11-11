@@ -191,20 +191,18 @@ _ALWAYS_INCLUDE_BOOT_FILE = "CLAUDE.md"
 # by this port): a fixed WARN constant with >=15% headroom over a
 # measured baseline, re-derived by hand when it goes stale.
 #
-# Re-derived 2026-08-25 (kit-v0.9.0 port): toolkit/CLAUDE.md was 48716
-# bytes AT THE TIME OF THIS MEASUREMENT -- taken AFTER an earlier
-# port of toolkit/CLAUDE.md's content landed (the prior baseline below,
-# 46323 bytes, was measured BEFORE that port and is now superseded).
+# Re-derived 2026-11-11 (t-013, CLAUDE.md rewritten as the project's own
+# text): CLAUDE.md was 41502 bytes AT THE TIME OF THIS MEASUREMENT.
 # WARN = ceil(measured * 1.15 / 100) * 100:
-# ceil(48716 * 1.15 / 100) * 100 = 56100 (margin over measured:
-# (56100 - 48716) / 48716 = ~15.16%, >= the 15% floor).
-# Prior measurement (now stale, kept for history): 2026-08-25 node C1,
-# 46323 bytes -> CLAUDE_WARN = 53300.
+# ceil(41502 * 1.15 / 100) * 100 = 47800 (margin over measured:
+# (47800 - 41502) / 41502 = ~15.18%, >= the 15% floor).
+# Prior measurement (now stale, kept for history): 2026-08-25 (kit-v0.9.0
+# port), 48716 bytes -> CLAUDE_WARN = 56100.
 # RE-DERIVE AT ONBOARDING: recompute this constant as
 # ceil(os.path.getsize("CLAUDE.md") * 1.15 / 100) * 100 whenever it goes
 # stale (kit CLAUDE.md size drifted) -- lowering is always safe; raising
 # should keep the same >=15% margin.
-CLAUDE_WARN = 56100
+CLAUDE_WARN = 47800
 
 _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 

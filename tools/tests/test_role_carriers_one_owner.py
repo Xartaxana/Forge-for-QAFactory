@@ -28,7 +28,7 @@ EXCLUDED = ("AGENTS.md", "DECISIONS.md", "docs/DECISIONS_ARCHIVE.md", "ai-packag
 BRIEF = "docs/tasks/critic-diff-brief.md"
 RULES = "plans/builder-rules.md"
 RULES_7B = "7b. **Уровень билдера и уровень пачки**"
-COST = "6. Cost gates (D-0035"
+COST = "Cost gates (D-0035, D-0038, D-0040, D-0054;"
 HYGIENE_6 = "6. An environment-negative claim requires verification: empty output"
 
 # (aspect id, owner, key)
@@ -54,7 +54,7 @@ POINTERS = [
     ("PROJECT.md", "`plans/builder-rules.md` п. 7b", RULES, RULES_7B),
     ("PROJECT.md", "`docs/tasks/critic-diff-brief.md`", BRIEF, "## The two layers"),
     (RULES, "правило 7 `.claude/agents/builder.md`", ".claude/agents/builder.md", "7. The report is a FILE; the final message is its digest."),
-    (RULES, "host-адаптация 6 `CLAUDE.md`", "CLAUDE.md", COST),
+    (RULES, "`CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
     (".claude/agents/builder.md", "`plans/builder-rules.md` 7b", RULES, RULES_7B),
     (".claude/agents/builder.md", "the rule is CLAUDE.md command hygiene point 6", "CLAUDE.md", HYGIENE_6),
     (".claude/agents/critic.md", "the rule is CLAUDE.md command hygiene point 6", "CLAUDE.md", HYGIENE_6),
@@ -66,10 +66,10 @@ POINTERS = [
     (BRIEF, "`.claude/agents/critic.md` rules 16-17", ".claude/agents/critic.md", "16. The report is a FILE; the final message is its digest."),
     ("CLAUDE.md", "`docs/tasks/critic-diff-brief.md` items 6-7", BRIEF, "7. **CODE QUALITY**"),
     ("docs/CLAUDE_HOST_ADAPTATIONS_FULL.md", "the rule text is `docs/tasks/critic-diff-brief.md`", BRIEF, "6. **DUPLICATION AND CONSISTENCY**"),
-    ("docs/CLAUDE_HOST_ADAPTATIONS_FULL.md", "the rule text is `CLAUDE.md` host adaptation 6", "CLAUDE.md", COST),
+    ("docs/CLAUDE_HOST_ADAPTATIONS_FULL.md", "the rule text is `CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
     ("SYSTEM_PROMPT.md", "CLAUDE.md rule 9", "CLAUDE.md", "9. Fix the class, not the instance (fix-the-class-not-the-instance"),
     ("docs/RUNBOOK.md", "`plans/builder-rules.md` п. 7b", RULES, RULES_7B),
-    ("docs/RUNBOOK.md", "host-адаптация 6 `CLAUDE.md`", "CLAUDE.md", COST),
+    ("docs/RUNBOOK.md", "`CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
     ("docs/TWO_VOCABULARIES.md", "`delegation.config.yaml`", "delegation.config.yaml", "scout:"),
 ]
 

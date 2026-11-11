@@ -77,13 +77,13 @@ for the period, and diffs to DECISIONS.md.
    over roughly 100 changed lines, accepted with no
    `delegated(critic)` and no "critic: skipped, <reason>" note in the
    accepting `accepted` event. Source: `git log --stat` + journal.
-   CUMULATIVE SUBCASE (rule 13's judge/critic-integration clause):
-   judge acceptance of a leaf does NOT substitute for a critic entry at
-   integration — this check reads COMMITS, the leaf's acceptance form
-   is irrelevant to it; more than 2 small judge-accepted leaves of the
-   SAME topic/blast-radius, merged in the window with no critic entry
-   on the integration, is a violation of the same class (whether "one
-   topic" holds is a semantic call for the calibrating Lead).
+   CUMULATIVE SUBCASE (R13-g of CLAUDE.md): ONE critic pass per TOPIC,
+   not one per part (Cost gates, rule 12) — this check reads COMMITS:
+   a commit over the threshold whose own `accepted` has no critic
+   entry is covered when the critic pass of its topic names it; a
+   second critic pass on a part of an already-reviewed topic is a
+   Cost-gates finding, not a credit (whether "one topic" holds is a
+   semantic call for the calibrating Lead).
 3. **Rule 6 / the escalation rule.** Two `rejected` events for the
    same task at the same tier with no subsequent `escalated` = a
    violation. An `escalated` with no `rejected` trail = a question
@@ -360,7 +360,7 @@ for the period, and diffs to DECISIONS.md.
     the batch's LAST `accepted` event (rule 4 names this the carrier);
     a second or later full run in the `witness` of the same group is a
     violation. SECOND SIGNATURE: a parallel node's `witness` NOT
-    covering the test FILE that judges each path in its OWN `owns`
+    covering what `scenario_walk.py --witness-for <its owns>` prints (rule 4)
     (the per-command file where the tests are split; the rule says
     "narrowed BY OWNS", not "narrowed to whatever the node
     touched") is the same class of spec defect, even when the missed
@@ -648,32 +648,14 @@ check, ported under this file's own continuous numbering rather than
 the source's own number.
 
 20. **Leaf-routing judge acceptance (rule 13).** Mechanism: rule 13 of
-    CLAUDE.md's core policy, a `"judge"` value in the journal
-    validator's `BASIS_VALUES`, and the judge-acceptance tooling class
-    it depends on. Window check: (a) liveness -- rule 13 is present in
-    CLAUDE.md; `"judge"` is in the validator's basis whitelist; judge
-    calibration is alive (full agreement on the labeled set in
-    gateway/judge_calibration.json, procedure in PROCESS/
-    JUDGE_CALIBRATION_PROTOCOL.md). BOTH judge forms in use this window
-    are checked: the gateway alias, and any subscription judge-subagent
-    -- the subagent's system prompt is VERBATIM equal to
-    `JUDGE_SYSTEM_PROMPT` in gateway/shadow_eval.py (a drifted prompt is
-    a finding, not a judge), and the equivalence run itself is on
-    record (journal or the calibration protocol's own log). (b)
-    event-by-event -- every `accepted` carrying `basis: "judge"` is
-    genuinely leaf-class (recon, or implementation to a written spec);
-    a mechanism/policy/integration accepted under a judge basis is a
+    CLAUDE.md reads 'not used in this deployment': no judge is bound,
+    and the judge's files stay dormant (the owner's word 11.11.2026).
+    Window check: (a) rule 13 reads 'not used in this deployment';
+    (b) any `accepted` with `basis: "judge"` in the window is a
     self-certification finding (the same class as a role-vs-tier
-    violation, CLAUDE.md's "Role != tier"); spot-check judge reject/
-    accept rationales for hallucination (citing a symbol or file that
-    does not exist) -- a systematic pattern is grounds to reconsider the
-    judge binding by an explicit decision, never silently. (c)
-    economics -- the window's judge calls cost a small fraction of the
-    coordinator-tier acceptance they stand in for (Rule #1); a rising
-    share of failed-after-escalation leaf tasks is a finding about the
-    construction itself, not about one task. (d) siblings -- any
-    deployment-specific judge/leaf-routing queue entries have not gone
-    stale.
+    violation, CLAUDE.md's "Role != tier"). `tools/journal_validator.py`
+    still accepts the value (residual node R-1 of t-013), so (b) is
+    its only detector.
 21. **Durable persistence of accepted deliverables (session-handoff
     step 2a).** Class: "deliverable drift" -- work accepted against the
     working tree (a real witness at the time) gets washed out by a
@@ -961,7 +943,7 @@ the source's own number.
     besides `tools/test_compact_snapshot.py`); uncommitted snapshots
     beyond the newest 30 are noted (the hook never deletes them).
 33. **Piles and batches, the journal per developer (DECISIONS.md D-0036;
-    CLAUDE.md host adaptation 7; PROJECT.md «Командная работа»).**
+    CLAUDE.md rule 4a; PROJECT.md «Командная работа»).**
     Mechanism: `tools/piles.py check` in `.githooks/commit-msg` (door
     `piles-skip: <item> -- <reason>`), `board --check` in pre-commit,
     pre-merge-commit and CI forge-check, `piles.py close` (formerly

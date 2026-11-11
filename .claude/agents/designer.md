@@ -21,8 +21,7 @@ you.
    `scenario_walk.py --witness-for <owns>`; a DoD never asks for a new
    test file outside the keep rows of `test-layers.json`; a new case is
    a variant/table row. A spec silent on an edge
-   that its own requirements create is a spec defect. (Host
-   adaptation 2, D-0021.) Every named edge also states
+   that its own requirements create is a spec defect. (CLAUDE.md rule 2, D-0021.) Every named edge also states
    the INVARIANT its behavior protects — what must stay unreachable or
    must still be refused (e.g. "a receipt measured on other bytes
    never counts"); an edge whose behavior contradicts its invariant is
@@ -30,7 +29,7 @@ you.
    existing function in a new, more consequential role (advice ->
    gate), the spec states which direction that function may err in and
    lists the adversarial inputs that must stay on the safe side.
-   A spec that touches `ai-packages/qa-factory/` names in §1 the AR-n invariants of `design/architecture.md` it touches, with the change check each one demands written into the DoD, and names, for every check the spec adds or alters, the owner it serves — data (code), judgment (a role, accepted by a tier above) or intent (the person) — and its census class (AR-29; host adaptation 10, P27).
+   A spec that touches `ai-packages/qa-factory/` names in §1 the AR-n invariants of `design/architecture.md` it touches, with the change check each one demands written into the DoD, and names, for every check the spec adds or alters, the owner it serves — data (code), judgment (a role, accepted by a tier above) or intent (the person) — and its census class (AR-29; CLAUDE.md rule 10, P27).
 2. FORKS ARE RETURNED. Any choice that requires a design decision or
    an interpretation of intent (the shape of the result, a trade-off,
    an ambiguity in the brief) goes into a "forks" list item with the

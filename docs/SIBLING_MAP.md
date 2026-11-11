@@ -28,8 +28,8 @@ diff and the map, not against the whole codebase.
 | Routing policy | CLAUDE.md |
 | Role profiles | .claude/agents/{scout,builder,critic,designer}.md |
 | Model binding | delegation.config.yaml |
-| Routing journal | logs/routing-log.jsonl |
-| Journal readers <-> the task key (B-401/B-402, t-507) | `tools/journal_keys.py` (the one reader of `logs/journal-segments.json`; the key is `<id>@<label>`); the readers `tools/session_context.py`, `tools/forge_metrics.py` and `tools/calibration_counts.py` key by it; the GATE `tools/journal_validator.py` stays on bare ids; readers still on bare ids: `tools/compact_snapshot.py:258/421` and `tools/journal_echo.py:1474` (BACKLOG B-454); `tools/hop_metrics.py` (F5-2 N2) keys by it too; the node of a line: `journal_keys.node_of` (`NODE_RE` `<slug>/<N>/<id>` with `\Z`; `NODE_TOKEN_RE` for old notes, a digit in the id) — the one node reader; the gate `tools/journal_validator.py` rule 18 (a present `node` outside the form is a FAIL on a new line; merge door `merge-accepts:<n>:node`) and `node_warnings` (F-9 (c): a `delegated` from `NODE_WARN_FROM` 2026-10-15 with a token and no field, or a field/token mismatch; WARN only, not seen by `journal_echo`) read it — no regex of the form in the validator (N3, t-814/t-816) |
+| Routing journal | logs/journal/<dev>.jsonl |
+| Journal readers <-> the task key (B-401/B-402, t-507) | `tools/journal_keys.py` (the key is `<id>@<label>`); the readers `tools/session_context.py`, `tools/forge_metrics.py` and `tools/calibration_counts.py` key by it; the GATE `tools/journal_validator.py` stays on bare ids; readers still on bare ids: `tools/compact_snapshot.py:258/421` and `tools/journal_echo.py:1474` (BACKLOG B-454); `tools/hop_metrics.py` (F5-2 N2) keys by it too; the node of a line: `journal_keys.node_of` (`NODE_RE` `<slug>/<N>/<id>` with `\Z`; `NODE_TOKEN_RE` for old notes, a digit in the id) — the one node reader; the gate `tools/journal_validator.py` rule 18 (a present `node` outside the form is a FAIL on a new line; merge door `merge-accepts:<n>:node`) and `node_warnings` (F-9 (c): a `delegated` from `NODE_WARN_FROM` 2026-10-15 with a token and no field, or a field/token mismatch; WARN only, not seen by `journal_echo`) read it — no regex of the form in the validator (N3, t-814/t-816) |
 | Digest form v1 — three carriers (forge/5 F5-2 N1, t-804/t-810, 15.10) | `.claude/agents/scout.md` rule 10 (teaches the form) <-> `docs/tasks/exchange-form.md` (the grammar, the flag table, the examples) <-> `tools/digest_form.py` (reads it back; a leaf on `tools/md_table.py` — since N3 also `piles.py`'s table reader: one copy, the same objects; `md_table.fence_walk` is the one fence reader of both; the flag `fence_unclosed:<line>`); a change to one is a change to all three; detectors: `tools/test_handoff_rule_anchors.py` (the key line), `tools/test_digest_form.py` (reads the note's example; every flag name in the note and in the reader) |
 
 A rule change in CLAUDE.md that touches a role's duties (what it must
@@ -465,19 +465,19 @@ obeys, the cost gates, its exam, its model binding — has ONE owner carrier tha
 holds a one-line pointer (file + section) or is a machine copy that changes with the owner. Owner per aspect: the role file
 `.claude/agents/<role>.md` (duties, `tools:`, hand-back form), `plans/builder-rules.md` 7b (the builder's verification scope
 and the batch canon's content), `docs/tasks/critic-diff-brief.md` (the critic review), `CLAUDE.md` (routing rules, command
-hygiene; cost gates in host adaptation 6), `delegation.config.yaml` (the model binding), the exam instruments of axis 2.
+hygiene; cost gates in rule 12, Cost gates), `delegation.config.yaml` (the model binding), the exam instruments of axis 2.
 
 | File | Role(s) | Aspect | Owner / pointer |
 |---|---|---|---|
 | `.claude/agents/builder.md` | builder | duties, `tools:`, hand-back (7) | owner; scope → builder-rules 7b (4); env-negative → CLAUDE.md hygiene 6 (6); rule 9 → name + consequence (5) |
 | `.claude/agents/critic.md` | critic | duties, `tools:`, hand-back (16), JSON verdict (17), exam (10) | owner; questions 6-7 → the brief (18); question 12 → the brief (19); re-run size → the brief (12); env-negative → hygiene 6 (11) |
-| `.claude/agents/designer.md` | designer | duties, `tools:`, hand-back (5), edge invariant (host adaptation 2), one road (6) | owner; draft form → CLAUDE.md rule 11 (1); DoD scope → builder-rules 7b (1) |
+| `.claude/agents/designer.md` | designer | duties, `tools:`, hand-back (5), edge invariant (CLAUDE.md rule 2 -> designer.md rule 1), one road (6) | owner; draft form → CLAUDE.md rule 11 (1); DoD scope → builder-rules 7b (1) |
 | `.claude/agents/scout.md` | scout | duties, `tools:`, final message (9), digest form (10), exam (6) | owner; rule 10 ↔ exchange-form ↔ digest_form a pinned trio (axis 1) |
 | `.claude/agents/judge.md` | judge | duties, `tools:`, verdict shape (3) | owner; the two prompt blocks are pinned verbatim copies of the code constants below |
-| `plans/builder-rules.md` | builder | verification scope (7b, 7, 7a), canon content (7b), report content (11), budget practice (16 а-б), worktree and commit (2, 17-19) | owner; hand-back → builder.md 7 (11); cost gates → CLAUDE.md host 6 (16 в) |
+| `plans/builder-rules.md` | builder | verification scope (7b, 7, 7a), canon content (7b), report content (11), budget practice (16 а-б), worktree and commit (2, 17-19) | owner; hand-back → builder.md 7 (11); cost gates → CLAUDE.md rule 12, Cost gates (16 в) |
 | `docs/tasks/critic-diff-brief.md` | critic | the two layers' content, questions 1-12, verdict content | owner; hand-back → critic.md 16-17 |
-| `CLAUDE.md` | all | routing rules 1-13, journal, Role ≠ tier, degradation, command hygiene, host adaptations; cost gates (host 6) | owner; critic questions → the brief (host 5, rule 3) |
-| `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md` | Lead | the reason of host adaptations 5-6; adaptation 7 in full | reason only → the brief, CLAUDE.md host 6; 7 a trimmed ↔ full pair |
+| `CLAUDE.md` | all | routing rules 1-13, journal, Role ≠ tier, degradation, command hygiene; cost gates (rule 12) | owner; critic questions → the brief (rule 3) |
+| `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md` | Lead | the reason of the clauses in rule 3 (critic gate) and rule 12 (Cost gates); the clause of rule 4a in full | reason only → the brief, CLAUDE.md rule 12; rule 4a a trimmed ↔ full pair |
 | `PROJECT.md` | builder, critic, integrator | package-change acceptance p. 1-6, CI regression | owner of p. 1, 3-6 and of the owner's words in p. 2; p. 2 otherwise holds pointers: scope → D-0056 + builder-rules 7b; CI job map → `.gitlab-ci.yml` header; branch run, canon procedure, docker fallback → RUNBOOK §7; critic re-run → the brief; report → builder.md 7 + builder-rules 11 |
 | `DECISIONS.md` | all | decisions and their reasons | record (append-only; not a rule carrier) |
 | `delegation.config.yaml` | all | model binding | owner |
@@ -487,7 +487,7 @@ hygiene; cost gates in host adaptation 6), `delegation.config.yaml` (the model b
 | `BOOT.md` | Lead | boot sequence | owner; routing → DELEGATION_TABLE.md (read when needed, not at boot) |
 | `CURRENT_CONTEXT.md` | Lead | live state, queue | state; a queued rule change names its owner |
 | `AGENTS.md` | Codex | copy of CLAUDE.md, imports, hooks, role front matter | generated (`tools/agents_md.py`) |
-| `docs/RUNBOOK.md` | night agent | night run 9.1 | procedure; owner of the branch-run recipe, the BATCH CANON procedure and the docker-fallback wording (§7); package fix → builder-rules 7b; parallel launch → CLAUDE.md host 6 |
+| `docs/RUNBOOK.md` | night agent | night run 9.1 | procedure; owner of the branch-run recipe, the BATCH CANON procedure and the docker-fallback wording (§7); package fix → builder-rules 7b; parallel launch → CLAUDE.md rule 12, Cost gates |
 | `docs/tasks/exchange-form.md` | scout | digest grammar | pinned with scout.md 10 (axis 1) |
 | `docs/tasks/pre-release-0.9-brief-common.md` | designer (0.9) | the 0.9 brief | historical (superseded header) |
 | `docs/tasks/pre-release-0.9-critic-brief.md` | critic (0.9) | the 0.9 critic-on-plan brief | historical |
