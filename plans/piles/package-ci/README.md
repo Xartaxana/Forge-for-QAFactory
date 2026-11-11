@@ -101,6 +101,10 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261102-potolki-brief-pack-v-testah-plyvut-s-kazhdym-bajtom-brifa.md` | находка | пины потолков S5 в `test_brief_pack` дрейфуют с каждым байтом брифа: три перемера за вечер | `scripts/tests/test_brief_pack.py` | пачка 2, PC2-1 | нет | t-747, t-755, t-769 |
 | `findings/20261104-testy-posle-svertki-changelog-chitayut-ne-svoyu-zapis.md` | находка | три теста после свёртки changelog проверяют непустой `CHANGELOG.md`, а не свою запись релиза | `scripts/tests/test_codex_tool_guidance.py`, `scripts/tests/test_role_policy_reads.py`, `scripts/tests/test_story_step_materialize.py` | пачка 2, PC2-2 | нет | t-1822 |
 | `findings/20261105-hvosty-kritika-gm3-2-obshchie-helpery-priemki-s6-i-podpisi-byudzheta.md` | находка | хвосты критика GM3-2: общие хелперы приёмки S6 в тестах, фикстура K3, подписи бюджета брифа | `scripts/tests/story_run_common.py`, `scripts/brief_pack.py` | пачка 2, PC2-3 | нет | t-008, `github-move` GM3-2 |
+| `findings/20261111-kanon-krasnyj-probe-by-code-povtor-obhoda-i-raspiska.md` | находка | канон красный: расписка пробы пишется на каждой публикации, повтор отвечает `already_probed`, два ключа без пина | `scripts/probe_by_code.py`, `scripts/tests/test_probe_by_code.py` | пачка 2, PC2-4 | нет | t-033, t-035 |
+| `findings/20261111-kanon-krasnyj-freshness-s3-ne-registriruetsya.md` | находка | канон красный: после приёмки S2 диспатч S3 не зарегистрирован, тест падает исключением | `scripts/tests/test_story_run_freshness.py` | пачка 2, PC2-5 | нет | t-034, t-035; PC2-3 |
+| `findings/20261111-kanon-krasnyj-brief-pack-brify-vyshe-potolka-6-kb.md` | находка | канон красный: брифы S5 и критика кода выше потолка 6 КБ, срез убирает обход человека и файлы кейсов | `scripts/brief_pack.py`, `scripts/tests/test_brief_pack.py` | пачка 2, PC2-6 | нет | t-034, t-035; PC2-1 |
+| `findings/20261111-kanon-krasnyj-no-mr-entry-otvet-o-storone-vyklyuchaet-produkt.md` | находка | канон красный: собственный ответ о стороне выключает продукт по умолчанию | `scripts/story_run.py`, `scripts/tests/test_no_mr_entry.py` | пачка 2, PC2-7 | нет | t-034; `pre-code` PC1-3 |
 
 ## Входящие
 
