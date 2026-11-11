@@ -7,7 +7,8 @@ where it is built, measured and fixed.
 
 - `ai-packages/qa-factory/` — the package itself (English); its own README, INSTALL and CHANGELOG.
 - `PROJECT.md` — how work on the factory is done here: principles, layout, acceptance, release.
-- `plans/BACKLOG.md` — the one list of what to do in the factory.
+- `plans/PILES.md` — the list of what to do in the factory (generated from the piles); `plans/BACKLOG.md` is
+  frozen and holds the old rows until they close.
 - `docs/RUNBOOK.md` — the MyBooks stand, release hygiene, CI on GitHub and the canon, updating the installed plugin,
   the night run.
 - Work is routed with [Supervised Delegation](https://github.com/Xartaxana/Supervised-Delegation):
@@ -60,8 +61,7 @@ where it is built, measured and fixed.
    whether the token variable is SET.
 2. Open `plans/PILES.md` and pick a batch with status "ожидает" whose "стенд" you can satisfy
    (a batch marked "не нужен" is proved by CI alone).
-3. Take it: `python tools/piles.py take <pile> <N> --who <your-slug>` (lands with node F0-2; until then edit
-   the pile card and the batch header by hand as `plans/piles/_template/` shows). Work on the branch
+3. Take it: `python tools/piles.py take <pile> <N> --who <your-slug>`. Work on the branch
    `pile/<slug>/batch-<N>`, cut from `origin/main`.
 4. A taken batch is frozen: its file is written only by you. Your Lead keeps its "Ход" section (not
    CURRENT_CONTEXT.md) and the node statuses.

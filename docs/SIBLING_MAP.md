@@ -484,7 +484,7 @@ hygiene; cost gates in host adaptation 6), `delegation.config.yaml` (the model b
 | `DELEGATION_TABLE.md` | Lead | assignment statuses | owner of statuses; routing → CLAUDE.md rules 1-11 |
 | `docs/TWO_VOCABULARIES.md` | all | function vs grade vocabulary | owner of the vocabulary; binding → delegation.config.yaml |
 | `SYSTEM_PROMPT.md` | all | permanent principles | owner of principles; fix the class → CLAUDE.md rule 9 |
-| `BOOT.md` | Lead | boot sequence | owner; routing → DELEGATION_TABLE.md (step 4) |
+| `BOOT.md` | Lead | boot sequence | owner; routing → DELEGATION_TABLE.md (read when needed, not at boot) |
 | `CURRENT_CONTEXT.md` | Lead | live state, queue | state; a queued rule change names its owner |
 | `AGENTS.md` | Codex | copy of CLAUDE.md, imports, hooks, role front matter | generated (`tools/agents_md.py`) |
 | `docs/RUNBOOK.md` | night agent | night run 9.1 | procedure; owner of the branch-run recipe, the BATCH CANON procedure and the docker-fallback wording (§7); package fix → builder-rules 7b; parallel launch → CLAUDE.md host 6 |

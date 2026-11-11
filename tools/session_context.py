@@ -1809,8 +1809,7 @@ def worktrees_line(root: Path):
 # RESOLVED (Lead decision: kit's Layer A
 # = the boot list WITHOUT the state file): the kit's own BOOT.md now
 # carries the SAME explicit split the staff deployment's BOOT.md
-# carries -- a "## Layer A" heading (README/SYSTEM_PROMPT/DECISIONS/
-# DELEGATION_TABLE) followed by a "## Layer B" heading
+# carries -- a "## Layer A" heading (SYSTEM_PROMPT/DECISIONS) followed by a "## Layer B" heading
 # (CURRENT_CONTEXT.md, the kit's own state file, read by the session
 # itself, never injected here). layer_a_file_names() below parses ONLY
 # the "Read X.md" lines that fall inside the "## Layer A" section (up

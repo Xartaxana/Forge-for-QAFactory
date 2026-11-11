@@ -117,6 +117,23 @@ def test_layer_a_lines_negative_control_no_state_file_emitted_directive_present(
     assert any("BEGIN README.md" in l for l in lines)
 
 
+def test_real_boot_md_injects_two_files_and_ignores_readme_and_delegation_table(tmp_path):
+    # The repository's own BOOT.md is the one source of the set: README.md
+    # and DELEGATION_TABLE.md sit under "Read when needed, not at boot" --
+    # present in the tree, they are neither injected nor counted.
+    real_boot = Path(__file__).resolve().parent.parent / "BOOT.md"
+    (tmp_path / "BOOT.md").write_text(real_boot.read_text(encoding="utf-8"), encoding="utf-8")
+    for name in ("README.md", "SYSTEM_PROMPT.md", "DECISIONS.md", "DELEGATION_TABLE.md", "CLAUDE.md"):
+        (tmp_path / name).write_text("body\n", encoding="utf-8")
+    assert sc.layer_a_file_names(tmp_path) == ["SYSTEM_PROMPT.md", "DECISIONS.md"]
+    lines = sc.layer_a_lines(tmp_path)
+    assert any(l.startswith("--- BOOT LAYER A INJECTED -- 2 files") for l in lines)
+    assert not any("BEGIN README.md" in l or "BEGIN DELEGATION_TABLE.md" in l for l in lines)
+    counted = sc.boot_path_files(tmp_path)
+    assert "README.md" not in counted and "DELEGATION_TABLE.md" not in counted
+    assert not any("README.md" in l or "DELEGATION_TABLE.md" in l for l in sc.boot_budget_lines(tmp_path))
+
+
 # ---- BOOT.md absent/empty -> honest line, never a traceback (DoD edge) ----
 
 
