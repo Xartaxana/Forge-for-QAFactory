@@ -271,9 +271,13 @@ def role_load_raise_named():
     # qa-code-critic 19373 -> 19389 / 17571 -> 17566.
     # t-2277 batch 2a (AR-20, named in the commit): the scribe's `real_or_mock` form line is +15, re-measured on the merged tree with
     # `role_load.py --all`: scribe 17950 -> 17965 / 16960 -> 16975.
-    old = {"qa-scout": 15441, "qa-requirements-tester": 12649, "qa-case-designer": 13338, "qa-case-critic": 18315, "qa-automator": 20181,
-           "qa-code-critic": 19389, "qa-runner": 16124, "qa-failure-analyst": 18361, "qa-bug-reporter": 14817, "qa-doc-scribe": 17965,
-           "qa-retro-analyst": 14092}
+    # The first canon after the merge into main (FG7-9, AR-20: rows lowered, none raised): the s5-plan sentence of artifact-contract.md
+    # is back under the qa-automator marker, so the six slice holders stopped carrying it, and the shorter tracker key of the moved
+    # repository took a few bytes off four forms. Re-measured with `role_load.py --all`: scout 15441 -> 15437, tester 12649 -> 12630,
+    # designer 13338 -> 13320, case critic 18315 -> 18296, bug reporter 14817 -> 14799, scribe 17965 -> 17944, retro 14092 -> 14075.
+    old = {"qa-scout": 15437, "qa-requirements-tester": 12630, "qa-case-designer": 13320, "qa-case-critic": 18296, "qa-automator": 20181,
+           "qa-code-critic": 19389, "qa-runner": 16124, "qa-failure-analyst": 18361, "qa-bug-reporter": 14799, "qa-doc-scribe": 17944,
+           "qa-retro-analyst": 14075}
     old_process = {"qa-scout": 13979, "qa-requirements-tester": 11299, "qa-case-designer": 12101, "qa-case-critic": 15948,
                    "qa-automator": 18614, "qa-code-critic": 17566, "qa-runner": 14434, "qa-failure-analyst": 16336,
                    "qa-bug-reporter": 13937, "qa-doc-scribe": 16975, "qa-retro-analyst": 13223}

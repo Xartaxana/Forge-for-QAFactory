@@ -4716,6 +4716,24 @@
     "tests/story_step_common.py"
    ]
   },
+  "test_package_identity.py": {
+   "layer": "data_join",
+   "why": "the package's identity is one fact in many files: the LICENSE bytes and the README pointer, the plugin manifests, the skill authors, and the marketplace name of every install instruction against hooklib.VERSION_MARKETPLACE (GM2-1)",
+   "covers": [
+    "hooklib.py",
+    "tests/harness.py"
+   ]
+  },
+  "test_synthetic_corpus.py": {
+   "layer": "data_join",
+   "why": "the synthetic tracker corpus the scenario fixtures are built on is a fixed point: every recorded derivation equals what the package's own functions compute, the screenshots rebuild to their hashes, and no real tracker, product or person form is in it (GM2-7)",
+   "covers": [
+    "event_store.py",
+    "source_inventory.py",
+    "tests/fixtures/synthetic_corpus.py",
+    "tests/harness.py"
+   ]
+  },
   "test_task_price.py": {
    "layer": "table",
    "why": "table (B.2 criterion 5): task price money",
