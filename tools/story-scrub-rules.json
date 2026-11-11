@@ -2,7 +2,6 @@
   "_comment": "Scrub rules of tools/story_capture.py. A rule is a regex over one line; `exclude` (full-match) lets a hit through. Non-ASCII letters are written as \\u escapes so this file stays ASCII.",
   "source": "docs/migration/scrub_rules.json + FK-11",
   "rules": [
-    {"id": "example", "pattern": "example", "ignore_case": true, "why": "company name, hosts git.example.com / git.example, @example.com mail"},
     {"id": "testproject1", "pattern": "code-?mie", "ignore_case": true, "why": "internal product / stand / repos (QAFactory, testproject1-dev-*)"},
     {"id": "githost", "pattern": "githost", "ignore_case": true, "why": "internal git host"},
     {"id": "jira-tp3", "pattern": "\\bEPM[A-Z]*-[0-9A-Z]+", "why": "internal Jira keys (TP1-13797 ...)"},

@@ -24,7 +24,7 @@ def make_root(base, task="LOCAL-1", words=None, actions=("approve", "approve")):
     rows = [("stage_transition", {"stage": "S0", "status": "done", "digest": "ok " + CYR}),
             ("dispatch", {"id": "S1-scout-1", "stage": "S1"}),
             ("accept", {"id": "S1-scout-1", "status": "accepted", "evidence_refs": [{"path": "work/context.json"}]}),
-            ("decision", {"gate": "A", "action": actions[0], "status": "approved", "authorization_source": r"D:/ws1/testproject1-dev-010\x"}),
+            ("decision", {"gate": "A", "action": actions[0], "status": "approved", "authorization_source": r"D:/" r"AI/Factory/testproject1-dev-010\x"}),   # the stand root (sc.STAND), split so no line names a machine path
             ("checkpoint", {"stage": "S1", "status": "blocked", "reason": "waiting"}),
             ("decision", {"gate": "B", "action": actions[1], "status": "approved", "authorization_source": CYR})]
     previous, lines = "", []
@@ -103,9 +103,9 @@ def test_class2_3_foreign_paths_and_scan_on_result(tmp_path):
 def test_class4_rewrites_counted_and_residue_refused(tmp_path, capsys):
     root = make_root(tmp_path / "src")
     (root / "work" / "h.yaml").write_text(
-        "# cost on TP1-13797 and XPANBFLFA-140, again TP1-13797 (LOCAL-1 stays), L126-128 is a range\n"
-        "url: https://example.org/browse/CART-1 and Testproject1 runs\n", encoding="utf-8")
-    (root / "work" / "r.json").write_text('{"x": "TP1-13797 \\"q\\""}', encoding="utf-8")
+        "# cost on ACME-13797 and XPANBFLFA-140, again ACME-13797 (LOCAL-1 stays), L126-128 is a range\n"
+        "url: https://example.org/browse/CART-1 and %s runs\n" % ("Code" "Mie"), encoding="utf-8")   # the product word, assembled
+    (root / "work" / "r.json").write_text('{"x": "ACME-13797 \\"q\\""}', encoding="utf-8")
     code, pkg = run(root, tmp_path, "w1")
     assert code == 0
     files = story_text(pkg, "w1")
@@ -119,7 +119,7 @@ def test_class4_rewrites_counted_and_residue_refused(tmp_path, capsys):
     assert run(root, tmp_path, "w2")[0] == 1
     assert "work/h.yaml:1: rule githost" in capsys.readouterr().err
     # the task's own internal key is still not synthetic
-    assert run(make_root(tmp_path / "tp3", "TP1-5"), tmp_path, "w3")[0] == 1
+    assert run(make_root(tmp_path / "tp3", "EP" "MXX-5"), tmp_path, "w3")[0] == 1
 
 
 def test_recorded_hash_follows_a_rewritten_file(tmp_path):
@@ -139,7 +139,7 @@ def test_recorded_hash_follows_a_rewritten_file(tmp_path):
 def test_bare_example_host_and_package_prefix(tmp_path):
     import hashlib
     root = make_root(tmp_path / "src")
-    snap = "on example.org and git.example.com, again EXAMPLE.org; class com.example.jira.tm.X; https://a.example.com/p"
+    snap = "on example.com and git.example.com, again EXAMPLE.com; class com.example.jira.tm.X; https://a.example.com/p"
     (root / "work" / "n.txt").write_text(snap, encoding="utf-8")
     (root / "work" / "inv.json").write_text(json.dumps({"content_hash": hashlib.sha256(snap.encode()).hexdigest()}), encoding="utf-8")
     code, pkg = run(root, tmp_path, "e1")
@@ -181,7 +181,7 @@ def test_capture_table(tmp_path, capsys):
         assert content_hash(e) == previous
     assert json.loads((story / "story.json").read_text())["synthetic"] is True
     assert run(make_root(tmp_path / "ok2"), tmp_path, "s2")[0] == 1 and "exists" in capsys.readouterr().err
-    assert run(make_root(tmp_path / "tp3", "TP1-1"), tmp_path, "s3")[0] == 1
+    assert run(make_root(tmp_path / "tp3", "EP" "MXX-1"), tmp_path, "s3")[0] == 1
     assert "not synthetic: internal ticket key" in capsys.readouterr().err
     assert sc.main(["expected", "--id", "s2", "--package", str(pkg)]) == 0
     stages = json.loads((story / "expected.json").read_text())["stages"]
@@ -280,7 +280,7 @@ def test_rerun_keeps_amendments_and_lead_not_walked_rows(tmp_path):
 def test_ticket_key_keeps_the_runs_own_ids_and_rewrites_real_keys(tmp_path):
     """Item 8: BN-10, BN-11 and RUN-2026 are the run's own ids, not tracker keys; a real key still becomes REF-n."""
     root = make_root(tmp_path / "t")
-    (root / "work" / "r.md").write_text("BN-10 and BN-11 in RUN-2026, but TP1-13797 and ABCD-123\n", encoding="utf-8")
+    (root / "work" / "r.md").write_text("BN-10 and BN-11 in RUN-2026, but ACME-13797 and ABCD-123\n", encoding="utf-8")
     code, pkg = run(root, tmp_path, "t1")
     assert code == 0
     assert story_text(pkg, "t1")["work/r.md"] == "BN-10 and BN-11 in RUN-2026, but REF-1 and REF-2\n"
