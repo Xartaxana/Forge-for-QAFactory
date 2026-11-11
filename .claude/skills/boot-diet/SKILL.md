@@ -1,6 +1,6 @@
 ---
 name: boot-diet
-description: Reaction procedure for a boot-budget breach (>100KB total, or >10% growth in a session) — archival unrolling of boot files, confirming trimmed versions haven't diverged from their full counterparts, and that archiving was done correctly; deep cuts to operational homes require an explicit operator decision. Run this when a breach is flagged by session-handoff's check 4, by the Boot Report, or by an in-session measurement.
+description: Reaction procedure for a boot-budget breach (>120KB total, or >10% growth in a session) — archival unrolling of boot files, confirming trimmed versions haven't diverged from their full counterparts, and that archiving was done correctly; deep cuts to operational homes require an explicit operator decision. Run this when a breach is flagged by session-handoff's check 4, by the Boot Report, or by an in-session measurement.
 ---
 
 # boot-diet — reacting to a boot-budget breach

@@ -56,7 +56,7 @@ reads in the morning, handoff verifies in the evening.
    BOOT.md's sequence lists. Compare against the last measurement (the
    notes field of the last `calibrated` event, or the last handoff
    report). Flags: >10% growth in a single session with no explained
-   cause; total size >100KB. A breach → run the boot-diet skill that
+   cause; total size >120KB. A breach → run the boot-diet skill that
    same evening (it is the sole owner of the reaction order: archival
    unrolling and checking trimmed↔full pairs come first; deep cuts to
    operational homes need an explicit operator decision).

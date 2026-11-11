@@ -1065,7 +1065,8 @@ unnamed. Rec: A (a reader otherwise meets «work waits» and «no blocking quest
   added demands today's text does not make. F10 as worded by critic F2: PROJECT.md's two cases apply regardless of size.
 - F5 = the one road as a residual node: forge/7 FG7-15
   (`plans/piles/forge/findings/20261111-svidetel-dlya-putej-vne-paketa-odin-put.md`); until it lands §3 stays as drafted.
-- F9 — open: `BOOT_BUDGET_LIMIT` is the owner's number; she decides after the final size is measured.
+- F9 — closed by the owner 11.11.2026 («Поднять до 120 КБ») after the measured load 117 229: `BOOT_BUDGET_LIMIT` and
+  `BOOT_BREACH_THRESHOLD` 120000, `BOOT_WARN_THRESHOLD` 108000 (t-031).
 - Measured by the Lead: §3 is 44 340 bytes (the estimate was ~37 000); the 40 000 target is not met — key K7 of the
   critic-on-plan names what else can go. Fix round 2: ≈ 41 600 by hand count, still over (§3 footnote).
 - Fix round 2 accepted by the Lead (t-023, 11.11.2026). Measured: §3 is 41 502 bytes, 435 lines (the text inside the

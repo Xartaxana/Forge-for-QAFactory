@@ -177,9 +177,10 @@ QUOTA_WINDOW_SECONDS = 86400
 SEGMENTS_LINE_MAX_REASON = 160
 
 # Boot-budget thresholds (bytes).
-BOOT_WARN_THRESHOLD = 90000
-BOOT_BREACH_THRESHOLD = 100000
-BOOT_BUDGET_LIMIT = 100000
+# raised from 100000 by the owner's word 11.11.2026 after the boot diet (measured load 117229)
+BOOT_WARN_THRESHOLD = 108000
+BOOT_BREACH_THRESHOLD = 120000
+BOOT_BUDGET_LIMIT = 120000
 
 _ALWAYS_INCLUDE_BOOT_FILE = "CLAUDE.md"
 
@@ -1244,7 +1245,7 @@ def boot_budget_lines(root: Path) -> list:
     """The summary line always (every boot-path file that exists plus the
     bytes of CLAUDE.md's `@path` imports, F6-27: the harness injects them
     into every session), then a top-3-by-size breakdown when the total
-    crosses the WARN (>90000) or BREACH (>100000) threshold (the imports
+    crosses the WARN (>108000) or BREACH (>120000) threshold (the imports
     under CLAUDE.md, at most IMPORT_ROWS_MAX rows), then one "BOOT IMPORT
     WARN:" line when an import was not measured."""
     root = Path(root)
