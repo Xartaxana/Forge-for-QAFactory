@@ -796,12 +796,6 @@ def item_probe_command(root):
              host_probe.probe_command(host_adapter.normalize(event("local_shell", {"command": ["echo", tail]}))))
 
 
-def item_skill_names_detail(root):
-    """The doctor's skill names the key it must act on (the byte budget is pinned by test_session_identity.py)."""
-    skill = (SCRIPTS.parent / "skills" / "qa-doctor" / "SKILL.md").read_text(encoding="utf-8")
-    check_in("the qa-doctor skill names `injection_detail` and its door (re-probe)", "`injection_detail` = partial answer: re-probe.", skill)
-
-
 def item4_root(project):
     # 4a: a directory that is not a factory project is refused, nothing is created in it.
     bare = temp_dir("qa-probe-bare-")
@@ -1065,11 +1059,8 @@ def check_not_in_text(name, needle, text):
 
 
 def item6_skill_and_evals(unused):
-    """The doctor's skill names exit 3 and stays within its byte budget; eval 13 carries its assertions."""
+    """The doctor's skill stays within its byte budget; eval 13 carries its assertions."""
     skill_path = SCRIPTS.parent / "skills" / "qa-doctor" / "SKILL.md"
-    skill = skill_path.read_text(encoding="utf-8")
-    check_in("the doctor skill names exit 3 and has no pair there",
-             "Exit 3 (not onboarded): no pair, no probe; `host_hooks` unknown, owner factory; row 3.", skill)
     check("SKILL.md stays at most 19000 bytes", len(skill_path.read_bytes()) <= 19000, str(len(skill_path.read_bytes())))
     evals = json.loads((skill_path.parent / "evals" / "evals.json").read_text(encoding="utf-8"))["evals"]
     ids = [e["id"] for e in evals]
@@ -1375,7 +1366,7 @@ def main():
     try:
         for item in (item1_native_patch, item2_wrapped_probe, item_probe_command, item3_sentinel, item3_verdicts,
                      item3_unreadable, item3_returned, item3_real_rows, item3_form, item3_tool, item3b_detail,
-                     item_rn1_1_launch_id, item_skill_names_detail):
+                     item_rn1_1_launch_id):
             guarded(item, root)
     finally:
         cleanup(root)

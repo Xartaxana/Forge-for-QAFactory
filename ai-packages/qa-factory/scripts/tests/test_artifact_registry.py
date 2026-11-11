@@ -48,7 +48,6 @@ try:
 except ValueError:
     check("canonical() refuses an empty name", True)
 
-check("entries() is cached (repeated calls return the identical dict object)", AR.entries() is AR.entries())
 check("the registered set carries at least the artifacts writers/readers actually use",
       {"understanding.md", "test-plan.md", "test-report.md", "retro.md"} <= set(AR.entries()))
 

@@ -19,7 +19,8 @@ import shutil
 
 from execution_request import validate_request
 from hooklib import project_root, story_cli
-from run_suite import build_run_block
+import stand_identity as SI
+from run_suite import build_run_block, block_folder, PROOF_STAMP_KEYS
 
 
 class ImportError(ValueError):
@@ -241,7 +242,12 @@ def validate_import_block(task: Path, block: dict) -> list[str]:
                        "summary_path": refs[0].get("path") if isinstance(refs[0], dict) else "",
                        "results": receipt.get("results")}
             expected = build_run_block(binding, summary, attempt_id)
-            actual = {key: value for key, value in block.items() if key != "import_provenance"}
+            # the proof stamp is a fact of the moment of import, written by code (PC-5a): it is not a function of the receipt, so
+            # today's pipeline.json must not re-decide it (a side that became real after the import would void a valid green); the
+            # `reference_run` mark is the same kind of fact (the record read at the moment of import, W1), so it is not compared either
+            skip = {"import_provenance", "reference_run", *PROOF_STAMP_KEYS}
+            actual = {key: value for key, value in block.items() if key not in skip}
+            expected = None if expected is None else {key: value for key, value in expected.items() if key not in skip}
             if expected is None or actual != expected:
                 errors.append("import block execution payload does not match its receipt")
     return sorted(set(errors))
@@ -256,7 +262,12 @@ def import_receipt(request: dict, receipt: dict, root: Path, output: Path) -> di
     import_dir = Path(output).resolve() / "imports" / _compact(digest, "i-")
     _reject_destination_symlinks(Path(output).resolve(), import_dir)
     import_path = import_dir / "r.json"
-    block_path = output / "run-blocks" / f"{_compact(digest, 'x-')}.json"
+    block_name = f"{_compact(digest, 'x-')}.json"
+    # the block lives in the folder its own mark names (a sample never in run-blocks, W1); a reuse looks in both, the mark is not re-decided
+    block_path = output / "run-blocks" / block_name
+    for folder in ("run-blocks", SI.REFERENCE_RUNS_DIR):
+        if (output / folder / block_name).exists():
+            block_path = output / folder / block_name
     if import_path.exists() and block_path.exists():
         existing_receipt = json.loads(import_path.read_text(encoding="utf-8"))
         existing_block = json.loads(block_path.read_text(encoding="utf-8"))
@@ -281,6 +292,7 @@ def import_receipt(request: dict, receipt: dict, root: Path, output: Path) -> di
     block["import_provenance"] = {"receipt_sha256": digest,
                                   "receipt_ref": import_path.relative_to(evidence_root).as_posix(),
                                   "producer": receipt["producer"], "evidence": durable_refs}
+    block_path = output / block_folder(block) / block_name
     _write_exclusive(import_path, receipt)
     _write_exclusive(block_path, block)
     errors = validate_import_block(evidence_root, block)

@@ -35,7 +35,7 @@ inputs:
 # from the scout's handoff and the answer is `<read> of <handed>`; anything short of the whole
 # is a `blocked` field, not a smaller number quietly written.
 inputs_read:
-  - path: work/impl-diff.txt
+  - path: work/impl-diff.txt   # absent when the source is `ungrounded` or `current-code`
     handed: <the scout's `implementation.diff.hunks`>
     read: <how many hunks were actually opened>
   - path: work/context-bundle.json

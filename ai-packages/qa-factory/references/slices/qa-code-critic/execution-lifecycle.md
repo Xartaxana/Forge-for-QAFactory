@@ -22,7 +22,7 @@ or unrelated failure is incomplete proof. Schema-v1 windows are unchanged.
 A probe row binds to its target by the request's `report_test_id`; a TRX report is
 read like a JUnit one. A failure at a site a non-pytest JUnit report does not give is
 `incomplete`, not `survived`; so is what `probe_by_code.py` cannot read of a non-Python test
-(frame, message, a launcher that may not rebuild): no verdict. One path takes one
+(frame, a launcher that may not rebuild): no verdict; a failure at the mutated line it cannot read is yours to judge (`--judge`). One path takes one
 mutation per probe; a red probe with a baseline needs the target's baseline row to pass.
 
 ### After a mechanical fix

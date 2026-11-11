@@ -569,27 +569,10 @@ def main():
 
     more_keys()
 
-    # ---- K-D1: the docs name the command (keys quoted from the spec BEFORE the run); negative control
-    plugin = harness.PLUGIN_ROOT
-    s1 = (plugin / "skills/qa-story/phases/s1.md").read_text(encoding="utf-8")
-
-    def docs_ok(s1_text, judge, conductor, walk):
-        card = s1_text.split("## Card", 1)[1].split("\n## ", 1)[0] if "## Card" in s1_text else ""
-        review = s1_text.split("Source review", 1)[-1]
-        return [("card", "story_step.py resume --task <TICKET> --dispatch-id S1-qa-scout-1" in card),
-                ("review has resume", "story_step.py resume" in review.split("Before producing Gate A inputs")[0]),
-                ("review has no stage_done running", "--stage S1 --status running --role qa-scout" not in review.split("Before producing Gate A inputs")[0]),
-                ("judge", "story_step.py\" resume" in judge or "story_step.py resume" in judge),
-                ("conductor", any("finish" in ln and "resume" in ln for ln in conductor.splitlines())),
-                ("walk", "`resume`" in walk and "test_controller_resume.py" in walk)]
-    judge = (plugin / "references/judge.md").read_text(encoding="utf-8")
-    conductor = (plugin / "references/conductor.md").read_text(encoding="utf-8")
-    walk = (plugin / "design/state-exits.md").read_text(encoding="utf-8")
-    check_eq("K-D1: every doc key holds", [k for k, ok in docs_ok(s1, judge, conductor, walk) if not ok], [])
-    old = ("## Card\nthen continue the same scout (section \"Source review\").\n## Source review\n"
-           "Record the stand per S0 and mark the stage open again (`stage_done.py --task <TICKET>\n"
-           "--stage S1 --status running --role qa-scout`) - it resolves the halt.\nBefore producing Gate A inputs")
-    check("K-D1 negative control: today's Source-review paragraph FAILS the check", any(not ok for _, ok in docs_ok(old, judge, conductor, walk)))
+    # ---- K-D1: the walk of design/state-exits.md names `resume` and this test (the AR-25 exit proof); the role texts
+    # that name the command are rows of design/role-rules.json
+    walk = (harness.PLUGIN_ROOT / "design/state-exits.md").read_text(encoding="utf-8")
+    check("K-D1: design/state-exits.md names `resume` and this test", "`resume`" in walk and "test_controller_resume.py" in walk)
     finish("test_controller_resume")
 
 

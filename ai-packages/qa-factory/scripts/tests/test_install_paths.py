@@ -100,7 +100,7 @@ def section_table_rows() -> None:
     for rel in ("qa-factory/state/estimation-ledger.lock", "qa-factory/state/stand-lease.lock",
                 "qa-factory/state/execution-leases.lock", "qa-factory/state/native-context/state/events.lock",
                 "qa-factory/state/.dashboard-writer/state/events.lock", "qa-factory/state/.exit_gate_blocks.json.lock",
-                "qa-factory/state/.project-decisions.lock"):
+                "qa-factory/state/.project-decisions.lock", "qa-factory/state/project-decisions.lock"):
         c = cls_of(rel)
         check(f"locks: {rel} is regenerated and retire_safe false", (c["class"], c["retire_safe"]) == ("regenerated", False))
     # t-272 item 1: a regenerated file that is NOT a lock is safe to retire when this run does not rebuild it (the lease
@@ -546,11 +546,12 @@ def section_undetermined_and_locks() -> None:
         check("nothing outside qa-factory/ and the table is looked at (src/)", not any(i["rel_path"].startswith("src/") for i in scan["not_ours_kept"]))
     finally:
         cleanup(root)
-    kinds = {"qa-factory/state/.exit_gate_blocks.json.lock": "exclusive_create", "qa-factory/state/.project-decisions.lock": "folder",
+    kinds = {"qa-factory/state/.exit_gate_blocks.json.lock": "os", "qa-factory/state/.project-decisions.lock": "folder",
+             "qa-factory/state/project-decisions.lock": "os",
              "qa-factory/state/estimation-ledger.lock": "os", "qa-factory/state/stand-lease.lock": "os",
              "qa-factory/state/cost/.writers/s1/state/events.lock": "os", "qa-factory/state/.dashboard-writer/state/events.lock": "os",
              "qa-factory/state/config.json": None, "qa-factory/config.json": None}
-    check_eq("item 6: lock_kind comes from the table's rows: the specific rows (exit_gate's O_EXCL file, the mkdir folder) before the generic `os` row",
+    check_eq("item 6: lock_kind comes from the table's rows: the specific rows (exit_gate's and project_decisions' files, the old mkdir folder) before the generic `os` row",
              {rel: cls_of(rel)["lock_kind"] for rel in kinds}, kinds)
     check_eq("item 6: a lock under a CARRIED row stays carried (never removable) and keeps its kind",
              (cls_of("qa-factory/state/cost/.writers/s1/state/events.lock")["class"], cls_of("qa-factory/state/cost/.writers/s1/state/events.lock")["retire_safe"]),
@@ -633,8 +634,9 @@ def section_hook_written() -> None:
              sorted((r["glob"], r["class"]) for r in TABLE["rules"] if r.get("hook_written")),
              sorted([("qa-factory/state/dashboard-dirty.json", "regenerated"), ("qa-factory/state/dashboard-refresh.json", "regenerated"),
                      ("qa-factory/state/.dashboard-writer/**", "regenerated"), ("qa-factory/state/.journal-writer/**", "regenerated"),
-                     ("qa-factory/state/events.lock", "regenerated"),
-                     ("qa-factory/state/conductor-stop.json", "regenerated")]))
+                     ("qa-factory/state/events.lock", "regenerated"), ("qa-factory/state/.exit_gate_blocks.json.lock", "regenerated"),
+                     ("qa-factory/state/conductor-stop.json", "regenerated"),
+                     ("qa-factory/state/project-decisions.lock", "regenerated")]))
     t = {"home": "qa-factory", "rules": [rule("a/**", "regenerated", hook_written=True), rule("a/keep.txt", "carried")]}
     check_eq("E(a): a path that is hook-written AND carried is carried: the flag never reaches it (precedence)",
              (I.classify("a/keep.txt", table=t, casefold=FOLD)["class"], I.classify("a/keep.txt", table=t, casefold=FOLD)["hook_written"]), ("carried", False))

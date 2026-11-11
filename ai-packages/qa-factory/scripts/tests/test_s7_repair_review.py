@@ -168,14 +168,9 @@ def k3_the_verdict_is_read_before_the_round() -> None:
 def k4_the_critics_outcomes() -> None:
     def authors(s):
         return s.roles().count("qa-automator")
-    s = Scene(critics=(CONCERNS,))
-    try:
-        raised, _out = s.run()
-        check_eq("K4: sent back twice: two authors, two critics, then the limit QUESTION (a Person), nothing marked",
-                 (type(raised).__name__, authors(s), s.roles().count("qa-code-critic"), s.record().get("outcome")), ("Person", 2, 2, None))
-    finally:
-        s.done()
-    for label, digest in (("unverified", "qa-code-critic S5 TC-1 · concerns\nTC-1 · unverified\nwork/x.md"),
+    # F4 (e): a send-back with no typed finding is never a round on an assumed cause: the round is stopped, the debt stays in the triage row
+    for label, digest in (("a send-back with no typed finding", CONCERNS),
+                          ("unverified", "qa-code-critic S5 TC-1 · concerns\nTC-1 · unverified\nwork/x.md"),
                           ("a halting critic", "qa-code-critic S5 TC-1 · halt\nwork/x.md"),
                           ("an approving verdict with a rejected row", "qa-code-critic S5 TC-1 · ok\nTC-1 · rejected\nwork/x.md")):
         s = Scene(critics=(digest,))
@@ -269,8 +264,8 @@ def k8_a_restart() -> None:
         d.state["s7_rows"][LIFE][IDENT].pop("outcome")
         with contextlib.redirect_stdout(io.StringIO()):
             got = d.s7_green_outside(LIFE, IDENT, dict(ROW_1), "t", "TC-1", True)
-        check_eq("K8a: a sent-back review clears its mark and the loop goes on to the author (not read twice)",
-                 (got, s.record().get("review_round"), s.record().get("outcome")), (False, "", None))
+        check_eq("K8a: a send-back with no typed finding stops the round (F4 (e)): read once, marked no_progress",
+                 (got, s.record().get("outcome")), (True, "no_progress"))
     finally:
         s.done()
     # (b) the author's round ended green outside the loop
@@ -293,7 +288,8 @@ def k8_a_restart() -> None:
         d.controller_state, d.saved_done = accepted("A1"), lambda rid: GREEN
         with contextlib.redirect_stdout(io.StringIO()):
             got = d.s7_green_outside(LIFE, IDENT, dict(ROW_1), "t", "TC-1", True)
-        check_eq("K8b: green outside and the critic sends it back: not repaired, the loop goes on", (got, s.record().get("outcome")), (False, None))
+        check_eq("K8b: green outside and the critic sends it back with no typed finding: not repaired, the round is stopped (F4 (e))",
+                 (got, s.record().get("outcome")), (True, "no_progress"))
     finally:
         s.done()
     # a review that was never accepted is a new entry: the author's green round leads to a NEW review

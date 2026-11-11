@@ -924,7 +924,8 @@ def test_a2_write_right_is_a_field() -> None:
     # so the critic is a registry role; the `## Outputs` branch is exercised on a nameless role below.
     check_in("A2: the registry names the case critic as the writer of its findings",
              "work/test-cases/critic-findings.md", why)
-    check_in("and the S5 critic likewise", "work/test-code/critic-findings.md",
+    # the message lists the first three keys in sort order: the S5 critic holds four since TR3-15 (its notes row), the old single file sorts last
+    check_in("and the S5 critic likewise", "work/test-code/critic-findings-*.md",
              A.role_writes(agents / "qa-code-critic.md",
                            (agents / "qa-code-critic.md").read_text(encoding="utf-8")))
 

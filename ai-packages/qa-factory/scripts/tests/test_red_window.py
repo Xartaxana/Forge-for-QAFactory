@@ -16,7 +16,7 @@ Part 4b (spec 4.2): K1 the controller takes a red window only as an unresolved a
 (m1); K2 the door of a failed instance is the row road, never the person's `probe gap:` word (m4); K3/K3b the critic's
 receipts item exempts a red test its row explains - the manifest-wide current red, never the window's own instances (m2,
 m5); K4 `finish` derives the pair (m3); K5 the chain window -> finish -> accept -> `stage_done` closes S5 with no word;
-K8 the role texts, quoted from the DoD, with a negative control; K9 the exit of the state in `design/state-exits.md`.
+K8 (the role texts) is rows of design/role-rules.json; K9 the exit of the state in `design/state-exits.md`.
 """
 import copy
 import json
@@ -326,7 +326,7 @@ def k6_the_battery():
 # ---------------------------------------------------------------------------------------------------------------------
 # HF2-4 part 4b (spec t-085 rev. 3, 4.2): the controller, `finish` and the role texts take the red window by code.
 # Keys: K1 the pair must name the word; K2 the door follows the outcome; K3/K3b the critic's proof item exempts only
-# the CURRENT red; K4 `finish` derives the pair; K5 the chain to `stage_done`; K8 the two role texts (doc witness).
+# the CURRENT red; K4 `finish` derives the pair; K5 the chain to `stage_done`; K8 (the two role texts) is rows of design/role-rules.json.
 # ---------------------------------------------------------------------------------------------------------------------
 RED_WORD = "contradicts_requirement"
 FINDINGS = {"evidence_refs": [{"path": "work/test-code/critic-findings.md"}]}
@@ -580,33 +580,6 @@ def k5_the_chain_to_stage_done():
         cleanup(project)
 
 
-def k8_the_role_texts():
-    """4b-K6/K7/K8: the two texts say what the code does; the keys are the DoD's phrases, quoted verbatim, read with
-    whitespace folded (a phrase may wrap). The negative control: a phrase in no file is reported absent."""
-    def folded(rel: str) -> str:
-        return " ".join((harness.PLUGIN_ROOT / rel).read_text(encoding="utf-8").split())
-
-    def absent(rel: str, phrases) -> list:
-        text = folded(rel)
-        return [phrase for phrase in phrases if phrase not in text]
-
-    s5, critic = "skills/qa-story/phases/s5.md", "agents/qa-code-critic.md"
-    k6 = ("A red test whose manifest row says `contradicts_requirement` for its instance closes its window by code",
-          "probe not applicable: red", "approved", "acceptable as unresolved",
-          "no word passes them: they are the author's repair",
-          "A red test, and a test whose probe ran and judged it, take no word.")
-    k7 = ("a red test with its `contradicts_requirement` row takes no probe",)
-    check_eq("K6: s5.md carries every phrase of the DoD", absent(s5, k6), [])
-    check_eq("K7: qa-code-critic.md step 3 carries its phrase", absent(critic, k7), [])
-    step3 = folded(critic).split("3. `probe_by_code.py`", 1)[1].split(" 4. `red_sandbox.py", 1)[0]
-    check_in("K7: and it stands inside step 3", k7[0], step3)
-    check_eq("K6 (A3): the sentence that said a person's word passes the oracle shapes is gone",
-             [p for p in ("the person's word passes them (`waiver.py --stage S5",) if p in folded(s5)], [])
-    check_eq("K8 negative control: a phrase in no file is reported absent",
-             absent(s5, ("zzz-not-in-any-file",)) + absent(critic, ("zzz-not-in-any-file",)),
-             ["zzz-not-in-any-file", "zzz-not-in-any-file"])
-
-
 def k9_the_exit_of_a_red_window():
     """4b-K9 (AR-25): the walk names how a story leaves a window accepted as unresolved with the red word."""
     text = (harness.PLUGIN_ROOT / "design/state-exits.md").read_text(encoding="utf-8")
@@ -628,7 +601,6 @@ def main():
     k3b_a_red_of_another_window_is_exempt_too()
     k4_finish_derives_the_pair()
     k5_the_chain_to_stage_done()
-    k8_the_role_texts()
     k9_the_exit_of_a_red_window()
     finish("red window")
 

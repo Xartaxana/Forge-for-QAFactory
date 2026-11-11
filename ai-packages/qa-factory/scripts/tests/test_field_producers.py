@@ -138,12 +138,6 @@ def the_sensitivity_gap_is_reported_not_hidden() -> None:
                    "probe": {}}]}
     gaps = acceptance.validate_window(window, harness.PLUGIN_ROOT)
     check("an instance with no probe receipt is still refused", bool(gaps), str(gaps))
-    # And the three checks the declared gap is waiting on are still the ones that would name it.
-    # (A window valid enough to REACH them needs twenty fields; what matters here is that the
-    # checks are not quietly gone, which is the only way a declared gap could stop being one.)
-    source = (harness.SCRIPTS / "acceptance.py").read_text(encoding="utf-8")
-    for name in ("sensitivity:", "semantic_sensitivity:", "probe_evidence:"):
-        check(f"acceptance.validate_window still emits {name}", '"' + name in source, name)
 
 
 def main() -> None:

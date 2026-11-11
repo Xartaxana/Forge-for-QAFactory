@@ -22,6 +22,9 @@ Contract `s8-scribe-to-gate-b` (fill `work/handoffs/<dispatch>.yaml`; `handoff_c
 - `inputs_read[].rows` (required) - n
 - `header.window` (required) - TICKET
 - `header.verdict` (required) - one of vocabulary.header_verdicts
+- `stage_acceptance.failure_class` (required) - spec|capability|data|tooling
+- `stage_acceptance.quote` (required) - the analyst's own words, with path#anchor
+- `stage_acceptance.witness_paths[]` (optional) - task-relative path the verdict rests on, or omit when none
 - `delivery.ready` (required) - yes|after_checks|no
 - `delivery.blocked_by` (required) - the ledger's own list; exactly ['factory'] is said in the first sentence
 - `questions[].id` (required) - gap or bug or delivery item
@@ -37,6 +40,11 @@ Contract `s8-scribe-to-gate-b` (fill `work/handoffs/<dispatch>.yaml`; `handoff_c
 - `claims.the_bug_list_is_built_by_code_and_numbered` (required) - true|false
 - `claims.traceability_table_exists_on_disk` (required) - true|false
 - `claims.s8_was_closed_before_the_gate_was_asked` (required) - true|false
+- `tried[].requirement` (required) - the claim of the report, in a few words
+- `tried[].technique` (required) - the code block or tool output the claim rests on
+- `tried[].observation` (required) - what it shows, in one line
+- `tried[].evidence` (required) - the path (and anchor) where it shows
+- `tried_note` (optional) - why the table is empty, or a dash when it has rows
 - `unresolved[].id` (required) - row or item
 - `unresolved[].reason` (required) - one of vocabulary.unresolved_reasons
 - `unresolved[].detail` (required) - what exactly is missing, and what would settle it

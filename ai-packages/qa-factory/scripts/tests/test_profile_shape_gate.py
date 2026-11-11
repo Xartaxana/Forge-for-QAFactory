@@ -359,26 +359,15 @@ def g_shape_and_door() -> None:
 
 
 def t_wiring() -> None:
-    """OH3-28 (finding N3): the shape reaches whoever builds `proposal.json` BEFORE the work (AR-10, AR-8)."""
+    """OH3-28 (finding N3): the shape reaches whoever builds `proposal.json` BEFORE the work (AR-10, AR-8); the phase texts are rows of
+    design/role-rules.json, the config note is checked here."""
     pkg = Path(__file__).resolve().parents[2]
-    phases = pkg / "skills" / "qa-onboarding" / "phases"
-    p3 = (phases / "p3-summary-gate.md").read_text(encoding="utf-8")
-    p4 = (phases / "p4-generate.md").read_text(encoding="utf-8")
     note = json.loads((pkg / "references" / "templates" / "config.json").read_text(encoding="utf-8"))["profiles_note"]
-
-    def names_shape(text: str, *words: str) -> bool:
-        return all(word in text for word in ("references/profile-shape.json",) + words)
-
-    check("T-wiring: phase 3 names the sample and says never a list", names_shape(p3, "never a list"))
-    check("T-wiring: phase 4 names the sample", names_shape(p4))
     check("T-wiring: the profiles_note says the object keyed by command name", "keyed by command name" in note and "selector/" not in note)
     check("T-wiring: the note names the sample too", "references/profile-shape.json" in note)
-    check("T-wiring control: a phase text without the sample path fails the same check", not names_shape("the shape of a row, never a list", "never a list"))
     old_note = json.loads((pkg / "references" / "config-keys.json").read_text(encoding="utf-8"))["notes"]["profiles_note"]["note_history"][-2]
     check("T-wiring control: the previous note text (`selector/`, no object) fails the same check",
           not ("keyed by command name" in old_note and "selector/" not in old_note))
-    check_not_in("T-manual: phase 4 no longer promises a manual or preparatory profile", "valid manual or preparatory profile", p4)
-    check_in("T-manual: it says a missing framework is `profiles: []` with its deferral", "`profiles: []` with its deferral", p4)
 
 
 if __name__ == "__main__":

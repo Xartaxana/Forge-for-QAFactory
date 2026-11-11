@@ -77,7 +77,10 @@ ORACLE_PREFIXES = ("requirement:", "external:", "history:")
 # problem: no `owner`, no waiver. It holds the delivery as a product check still owed (`after_checks`). ONE home, here
 # (FR-13); the readers import it (`THEN_REMAINDER_REASONS`, the ledger, the delivery check, the trace).
 BLOCKED_BY_CHECK = "blocked_by_check"
-UNRESOLVED_REASONS = ("impossible", "blocked_by_env", "pending_implementation", "contradicts_requirement",
+# The word of a test written against a side that does not exist yet (t-2181 PC-4): ONE home here; `acceptance.PENDING_OUTCOME`
+# aliases it, and the window outcomes and the probe rule take it (FR-13).
+PENDING_IMPLEMENTATION = "pending_implementation"
+UNRESOLVED_REASONS = ("impossible", "blocked_by_env", PENDING_IMPLEMENTATION, "contradicts_requirement",
                       # The person answered, at gate A or mid-S5, that THEY will run these
                       # tests: the runner of their profile does not exist in the session the
                       # factory works in (TP2-2536: Maestro/iOS, no Xcode for the
@@ -954,7 +957,15 @@ def open_word_errors(value, words, vocabulary: str, *, never=()) -> list:
 # What a word needs as its `ref`: R-n for requirement/ac/spec; for precedent the BASE revision's behaviour
 # (`base:<rev>:<path>:<line>`, F4 - a requirement names a parity with OLDER behaviour); a question id for
 # person/unknown (the register's own ids, `Q1`, not an alias).
-PRECEDENT_REF_RE = re.compile(r"^base:[^:\s]+:\S+:\d+$")
+# A second form (t-2181 PC-9a): `reference:<item>`, an item of the story's reference snapshot (the OLD version walked on its own stand);
+# C7 inside `then_oracle_errors` ties it to a snapshot item and a parity requirement.
+REFERENCE_ITEM = r"[A-Za-z0-9][A-Za-z0-9._-]*"
+REFERENCE_REF_RE = re.compile(rf"^reference:({REFERENCE_ITEM})$")
+BASE_REF_PATTERN = r"base:[^:\s]+:\S+:\d+"
+BASE_REF_RE = re.compile(rf"^{BASE_REF_PATTERN}$")   # a claim's `before_ref` takes `reference:<item>` only with `snapshot_items` (PC-9c item check)
+PRECEDENT_REF_RE = re.compile(rf"^(?:{BASE_REF_PATTERN}|reference:{REFERENCE_ITEM})$")
+REQUIREMENT_BASIS_RE = re.compile(r"requirement:(R-\d+)")
+PARITY_YES = "yes"
 CLAIM_HEADING = "## Behaviour claims"
 # `origin` is LAST and is read only by its header (an old table has no such column - empty means the
 # row was written at S2). The seven before it are the S2 columns the validator names to the role.
@@ -1190,6 +1201,7 @@ def register_rows(text: str) -> list:
            "ac_ref": _header_index(header, "ac_ref", 5), "observable": _header_index(header, "observable", 6)}
     delta_at = _header_index(header, "delta", -1, exact=True)
     says_at = _header_index(header, "code_says", -1, exact=True)
+    parity_at = _header_index(header, "parity", -1, exact=True)
     rows = []
     for cells in body:
         rid = strip_cell(cells[0]) if cells else ""
@@ -1200,8 +1212,22 @@ def register_rows(text: str) -> list:
             row[key] = strip_cell(cells[i]) if i < len(cells) else ""
         row["delta"] = None if delta_at < 0 else (strip_cell(cells[delta_at]) if delta_at < len(cells) else "")
         row["code_says"] = None if says_at < 0 else (strip_cell(cells[says_at]) if says_at < len(cells) else "")
+        row["parity"] = None if parity_at < 0 else (strip_cell(cells[parity_at]) if parity_at < len(cells) else "")
         rows.append(row)
     return rows
+
+
+def requirement_id(text):
+    """The R id a `requirement:R-n` basis/oracle names, or None for any other text (the one reader of that form)."""
+    found = REQUIREMENT_BASIS_RE.fullmatch(str(text or "").strip())
+    return found.group(1) if found else None
+
+
+def parity_ids(text: str) -> set:
+    """The R ids of the register rows whose `parity` cell is exactly `yes` (S-c: the requirement says the new version behaves as the old
+    one did; t-2181 PC-9a). THE reader of that column (AR-13), read only by its header: a register with no such column, an empty cell or
+    any other word gives no id - absent means `no`, so a parity `precedent` is refused, never waved through."""
+    return {row["r"] for row in register_rows(text) if row.get("parity") == PARITY_YES}
 
 
 NORM_DERIVED_PREFIXES = ("aspect:", "norm:", "invariant:", "bug:")   # a `derived` row with one of these states a NORM (t-1692 B3: `bug:candidate-defect` too)
@@ -1435,11 +1461,13 @@ def claim_required_requirements(text: str) -> list:
     return list(dict.fromkeys(row["r"] for row in register_rows(text) if row["r"] in owed))
 
 
-def claim_row_errors(row: dict, questions=None, link_index=None) -> list:
+def claim_row_errors(row: dict, questions=None, link_index=None, snapshot_items=None) -> list:
     """What one behaviour-claim row lacks, as short fragments (the validator prefixes the file and
     the R). `questions` is {id: question dict} of requirements-readiness.json, or None when it is
     not there yet (the register may be written before it: the id is then not checked). `link_index`
-    is `claim_link_index(questions)` for a caller that checks many rows against the one map."""
+    is `claim_link_index(questions)` for a caller that checks many rows against the one map.
+    `snapshot_items` the ids of the story's reference snapshot (`reference_snapshot.item_ids`), None when there is none or the
+    caller gives none: then `before_ref: reference:<item>` is refused as it was before PC-9c (the error direction is refusing)."""
     errors = []
     before, before_ref = row.get("before", ""), row.get("before_ref", "")
     now, now_ref = row.get("now", ""), row.get("now_ref", "")
@@ -1452,8 +1480,16 @@ def claim_row_errors(row: dict, questions=None, link_index=None) -> list:
     elif before.lower() == CLAIM_ABSENT:
         if before_ref not in ("", CLAIM_ABSENT) and before_ref not in EMPTY_CELLS:
             errors.append(f"`before_ref` of an `absent` claim is `{CLAIM_ABSENT}`, not '{before_ref}'")
+    elif REFERENCE_REF_RE.match(before_ref) and snapshot_items is not None:
+        # t-2181 PC-9c: `reference:<item>` is a legal `before_ref` only for an item of the story's snapshot. Presence only: whether the
+        # item shows what `before` says is the case critic's judgment (AR-29). `snapshot_items` None (no snapshot, or a caller that has
+        # none to give) leaves the form refused with the words it has always had.
+        item = REFERENCE_REF_RE.match(before_ref).group(1)
+        if item not in snapshot_items:
+            errors.append(f"`before_ref` '{before_ref}' is not an item of work/reference-snapshot.yaml (its items: "
+                          f"{', '.join(sorted(map(str, snapshot_items))) or 'none'}); cite one of them, or the forms {_BEFORE_REF_FORMS}")
     elif not (before_ref == CLAIM_ABSENT or re.match(r"^diff:-\S", before_ref)
-              or PRECEDENT_REF_RE.match(before_ref) or re.match(r"^screenshot:\S", before_ref)):
+              or BASE_REF_RE.match(before_ref) or re.match(r"^screenshot:\S", before_ref)):
         errors.append(f"`before_ref` '{before_ref}' is none of {_BEFORE_REF_FORMS}")
     if not now or not now_ref:
         errors.append("`now` and `now_ref` are both required (what the behaviour is now, and the diff line or current-code place it was read from)")
@@ -1559,8 +1595,12 @@ def grounding_row_question(prose, quote, where) -> dict:
 
 
 def then_oracle_errors(name: str, raw, raw_question_thens, thens, impl_only=None, known_r=None,
-                       questions=None, raw_raise_questions=None) -> list:
+                       questions=None, raw_raise_questions=None, snapshot_items=None, parity=None, basis="") -> list:
     """Why a case's `then_oracles` is not acceptable, one line per problem; [] when it is.
+
+    C7 (`precedent` with `reference:<item>`): `snapshot_items` the ids of `work/reference-snapshot.yaml` (None - there is no snapshot),
+    `parity` the register's `parity_ids` (None - no register), `basis` the case's basis (`requirement:R-n` names the requirement the
+    parity rests on). A caller that passes none of them gets the refusal with its door: the error direction is toward refusing.
 
     `raw` the front-matter value (None - the key is absent); `raw_question_thens` the case's
     `question_thens` value; `thens` the numbers under `## Then`; `impl_only` the implementation-only
@@ -1642,8 +1682,31 @@ def then_oracle_errors(name: str, raw, raw_question_thens, thens, impl_only=None
         elif source == "precedent":
             if not PRECEDENT_REF_RE.match(ref):
                 errors.append(f"{where}: `precedent` needs the BASE revision's behaviour as ref "
-                              f"(base:<rev>:<path>:<line>), not '{ref}'; any other precedent is a question "
-                              "with the precedent shown as before")
+                              f"(base:<rev>:<path>:<line>) or an item of the reference snapshot (reference:<item>), "
+                              f"not '{ref}'; any other precedent is a question with the precedent shown as before")
+            elif REFERENCE_REF_RE.match(ref):
+                # C7: the item is in the story's snapshot AND the case basis is `requirement:R-n` of a `parity: yes` row. Presence and
+                # cross-reference only; whether the item shows what the Then says is the case critic's judgment (AR-29).
+                if snapshot_items is None:
+                    errors.append(f"{where}: `precedent` cites {ref}, but the story has no reference snapshot (the S1 reference walk writes "
+                                  "work/reference-snapshot.yaml with `reference_snapshot.py put`); cite `base:<rev>:<path>:<line>` or "
+                                  "raise a question until it exists")
+                else:
+                    if REFERENCE_REF_RE.match(ref).group(1) not in snapshot_items:
+                        errors.append(f"{where}: {ref} is not an item of work/reference-snapshot.yaml (its items: "
+                                      f"{', '.join(sorted(map(str, snapshot_items))) or 'none'}); cite one of them or raise a question")
+                    parity_r = requirement_id(basis)
+                    if not parity_r:
+                        errors.append(f"{where}: {ref} rests on a parity requirement: the case `basis` must be `requirement:R-n` of the "
+                                      f"register row whose `parity` is `{PARITY_YES}` (the basis is '{str(basis or '').strip()[:60]}')")
+                    elif parity is None:
+                        errors.append(f"{where}: {ref} needs {parity_r} to be a parity requirement, but the register has no `parity` column "
+                                      f"or could not be read (the requirements tester adds the column and sets `{PARITY_YES}`; without it "
+                                      "the Then is a question)")
+                    elif parity_r not in parity:
+                        errors.append(f"{where}: {ref} needs {parity_r} to be a parity requirement, but its register row does not "
+                                      f"say `parity: {PARITY_YES}` (the requirements tester sets the `parity` column; without it the Then "
+                                      "is a question)")
         else:  # person | unknown: both name a question of the register
             if source == "unknown" and ref == RAISE_REF:
                 raising.add(then)  # the question does not exist yet: its entry in `raise_questions` is checked below
@@ -1823,15 +1886,80 @@ def resolve_then_oracle(entry, question=None, question_then=None) -> dict:
 # `unconfirmed`. `handoffs/vocabulary.yaml` mirrors the tuple (a test holds them equal).
 BUG_CONFIRMATIONS = ("unconfirmed", "reproduced_by_factory", "confirmed_by_person", "confirmed_by_rerun")
 # The kinds of a `reproduction` entry: a rerun of the red test on fresh data (a later attempt of the run report), or
-# the analyst's own script (a receipt file under evidence/). Whether the data was fresh is the role's word (FR-47).
-BUG_REPRODUCTION_KINDS = ("fresh_data_rerun", "own_script")
+# the analyst's own script (a receipt file under evidence/), or a walk of the analyst on the stand (t-1991 U2: the record
+# `place_answers.py write` keeps, judged by `bug_records._walk_receipt_problem`). Whether the data was fresh is the role's word (FR-47).
+BUG_REPRODUCTION_KINDS = ("fresh_data_rerun", "own_script", "walk")
 # Why a filed bug is not in the tracker (HF8-21, `bug_records.filing_of`): the code's own derivation from the config, the run's
 # record, the person's words at gate B and the books of `external_writes.py` - never a role's claim. The WORDS a person reads
 # are data (`handoffs/vocabulary.yaml` `bug_not_sent_reasons`, a test holds the keys equal to this tuple).
 BUG_NOT_SENT_REASONS = ("project_choice", "gate_b_word", "no_access", "run_closed")
 BUG_DRAFT_REQUIRED = ("title", "impact", "violates", "case", "triage_ref", "manual_steps")
+# The red test travels with the bug (P28, spec t-1765 X7-5): a draft and a bug carry EITHER `red_test` (`{path, command}` - the
+# failing test that shows the defect and re-checks the fix) OR `red_test_none` (why there is none: a one-off or manual check).
+# One of the two, never neither: the empty outcome is stated (AR-23). Both forms of a draft use it.
+BUG_DRAFT_RED_TEST = ("red_test", "red_test_none")
+# Asked of a draft or a bug created on or after this day (ISO date); an older one carries none and is not re-litigated.
+BUG_RED_TEST_CUTOFF = "2026-11-04"
+# One bug, many manifestations (spec t-2187 N1): a draft may carry the shared cause (`mechanism`) and every way it shows
+# (`manifestations[]`). The closed words are data beside the contract (AR-1): how far the analyst got on the cause, and the kinds of
+# evidence a `mechanism.basis` entry stands on - a line of the application code, a run the recorder captured, or the person's own
+# words at gate B (F-6 (a), the "merge" door). Read only by `bug_records.mechanism_problems` / `manifestation_problems`.
+MECHANISM_STATUSES = ("confirmed", "unverified", "unknown")
+MECHANISM_BASIS_KINDS = ("code_line", "run", "person")
+# Asked of a triage draft created on or after this day (ISO date) to carry `mechanism` (spec t-2187 3.2, world 3: the charters and the
+# phase text name the field since this day, FR-38, FR-5); None = nobody is asked. Read only by `mechanism_owed`.
+BUG_MECHANISM_CUTOFF = "2026-11-10"
+
+
+def mechanism_owed(record, fallback_day: str = "") -> bool:
+    """Is `mechanism` asked of this triage draft? The one reader of `BUG_MECHANISM_CUTOFF` (AR-13), the same date rule as
+    `red_test_owed`: the record's `created` day, else `fallback_day` (the draft file's own day); no cutoff or no readable day is
+    not asked. Whether the draft already carries `mechanism`, and whether it is a code-reading draft, is the caller's to say."""
+    cutoff = BUG_MECHANISM_CUTOFF        # read at call time: a test may set it
+    data = record if isinstance(record, dict) else {}
+    day = G.date_prefix(data.get("created")) or G.date_prefix(fallback_day)
+    return bool(cutoff) and bool(day) and day >= str(cutoff)
+
+
+def red_test_owed(record, fallback_day: str = "") -> bool:
+    """Is the red test asked of this draft or bug? The one reader of `BUG_RED_TEST_CUTOFF` (AR-13): the record's `created` day,
+    else `fallback_day` (a caller's own day, e.g. the draft file's); a record with no readable day is not asked (the rule does
+    not apply, as `grammar.after_cutoff`)."""
+    data = record if isinstance(record, dict) else {}
+    day = G.date_prefix(data.get("created")) or G.date_prefix(fallback_day)
+    return bool(day) and day >= BUG_RED_TEST_CUTOFF
+
+
+def red_test_problems(record, flat: bool = False) -> list:
+    """Why a bug draft or a bug record does not carry its red test, one line per problem; [] when it does. Shape only: that
+    `red_test` is `{path, command}` (both non-empty) on a draft - or, with `flat=True` (a bug file's flat frontmatter, which
+    holds no mapping), any non-empty text `<path> -- <command>` - and that `red_test_none` is a non-empty reason. Whether the
+    test is the right one or the reason holds is the reporter's / the reading tier's judgment (AR-29). Both set is a conflict
+    and is refused: the bug either has a red test or says why not."""
+    data = record if isinstance(record, dict) else {}
+    test, none = data.get("red_test"), data.get("red_test_none")
+    test_given = bool(test) and (bool(str(test).strip()) if not isinstance(test, dict) else True)
+    none_given = bool(str(none or "").strip().strip("-"))
+    names = " or ".join(f"`{name}`" for name in BUG_DRAFT_RED_TEST)
+    form = "`red_test: <path of the failing test> -- <command that runs it>`" if flat         else "`red_test: {path: <the failing test>, command: <how to run it>}`"
+    if test_given and none_given:
+        return [f"both `red_test` and `red_test_none` are set - write one: {names}"]
+    if test_given:
+        if isinstance(test, dict):
+            lacking = [key for key in ("path", "command") if not str(test.get(key) or "").strip()]
+            if lacking:
+                return ["`red_test` lacks " + ", ".join(f"`{key}`" for key in lacking) + f" - write {form}"]
+        elif not flat:
+            return [f"`red_test` of a draft is a mapping, not text - write {form}"]
+        return []
+    if none_given:
+        return []
+    return [f"no red test: write {names}. {form} - the failing test that shows the defect and re-checks "
+            "the fix; `red_test_none: <why>` - e.g. a manual check that no test can hold (the test travels with the bug, P28)"]
+
+
 # The second form of a draft (t-1676, RN1-12): `evidence: "code-reading"` - a bug candidate found by comparing an oracle (a settled
-# answer or an unambiguous register requirement) with an S1 code fact, where no run spoke. It has no triage row, so it has no
+# answer or an unambiguous register requirement) with an S1 code fact, where no factory test spoke; a walk of the analyst may be its receipt. It has no triage row, so it has no
 # `case` / `triage_ref`; `bug_records.code_reading_problems` is its one checker. A closed list, so it lives beside the contract (FR-13).
 BUG_DRAFT_CODE_READING_REQUIRED = ("title", "impact", "violates", "oracle", "fact", "check_state", "manual_steps")
 CODE_READING_CHECK_STATES = ("not_executed", "unverifiable")
@@ -2579,7 +2707,7 @@ def triage_reorder_problems(row) -> list:
     blocked = row.get("blocked_thens")
     if not (isinstance(blocked, list) and any(isinstance(e, dict) for e in blocked)):
         return ["`reorder: true` with no `blocked_thens`: name the Thens whose asserts the author moves above the red one as "
-                "`blocked_thens: [{then, blocking_check, detail}]` (rule 2c of the failure analyst), or drop `reorder`"]
+                "`blocked_thens: [{then, blocking_check, detail}]` ('One red, one triage' of the failure analyst), or drop `reorder`"]
     return []
 
 
@@ -3650,6 +3778,107 @@ def manifest_unresolved(manifest: dict) -> list:
     return [u for u in (manifest.get("unresolved") or []) if isinstance(u, dict)]
 
 
+# --- the provisional registry (t-2181 PC-3, §2.2): `provisional[]` and `tests[].provisional` -------------------------
+#
+# Everything a test ASSUMES rather than observed. `manifest_provisional` is the one reader of both fields (AR-13); like
+# `story_sides` it never raises: a row it cannot read is skipped and NAMED in the return value (FR-41), and an absent
+# field reads as `[]` (AR-23) - manifests written before the registry existed carry neither field. The home of a row is
+# found by its marker, never by `line_hint` (S9), so the marker rule and the hash of the marked line live here too: the
+# writer (`manifest_put`) stamps `home_hash` with the same function the settling check will compare it with.
+PROVISIONAL_ID_RE = re.compile(r"^P-\d+$")
+
+
+def provisional_id(row) -> str:
+    """The `id` of a `provisional[]` row as text ("" for a row that is no object): the one extractor the writer
+    (`manifest_put`) and the reader (`manifest_provisional`) both call."""
+    return str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+
+
+def provisional_marker_re(pid: str):
+    """The comment `qa-provisional: P-n` of one row. `P-1` never matches inside `P-12` (the id ends at a non-word
+    character), so a row's marker is exactly its own."""
+    return re.compile(r"qa-provisional:\s*" + re.escape(str(pid)) + r"(?![\w-])")
+
+
+def marked_line_hash(project, file, pid) -> tuple:
+    """(sha256 of the marked line, "") or ("", why it could not be hashed). The marked line is the first line of `file`
+    (relative to `project`, inside it) that carries the marker of `pid`, WHEREVER it is: an edit above it moves the line and
+    changes nothing here (E-P2). The hash is of the line stripped of surrounding whitespace, so re-indenting a moved line is
+    not an edit of it; the error direction is "not matched", never a false match. Never raises."""
+    name = str(file or "").strip()
+    if not PROVISIONAL_ID_RE.match(str(pid or "")):
+        return "", f"{str(pid or '')!r} is not an id of the form P-<n>"   # an empty id would match every marker
+    if not name:
+        return "", "the row names no home file"
+    try:
+        root = Path(project).resolve()
+        path = (root / name).resolve()
+        if Path(name).is_absolute() or not path.is_relative_to(root):
+            return "", f"{name} is not a path inside the project"
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError) as exc:
+        return "", f"{name} cannot be read ({type(exc).__name__})"
+    marker = provisional_marker_re(pid)
+    for line in text.splitlines():
+        if marker.search(line):
+            return hashlib.sha256(line.strip().encode("utf-8")).hexdigest(), ""
+    return "", f"{name} holds no line with the marker `qa-provisional: {pid}`"
+
+
+FIRST_LOOK_REF_RE = re.compile(r"^first_look:R-\d+$")
+PROVISIONAL_SETTLED = ("settled_matched", "settled_edited")     # the two statuses of a row whose placeholder was settled by a run
+
+
+def first_look_row(row) -> bool:
+    """The accounting row of joint plan J-C5 (t-2277): a `placeholder_locator` that stands for an element the first look saw missing.
+    THE one predicate of it (AR-13): the S5 exit (`s5_precheck`) and the ledger (`ledger._placeholder_reading`) both call it. A row
+    that is no object is none."""
+    return (isinstance(row, dict) and str(row.get("kind") or "") == "placeholder_locator"
+            and bool(FIRST_LOOK_REF_RE.match(str(row.get("assumed_from") or "").strip())))
+
+
+def manifest_provisional(manifest) -> dict:
+    """{"rows": [the `provisional[]` rows], "by_test": {instance id: [P-n]}, "skipped": [sentences]}.
+
+    `rows`: every dict row with an id of the form `P-<n>`, first row of an id wins. `by_test`: EVERY `tests[]` instance of the
+    manifest is a key; its value is the P-n of its `provisional` field, `[]` when it has none (absent reads empty). A field
+    that is not a list, a row that is no object, an id that is not `P-<n>` and a repeated id are skipped and named in
+    `skipped`; nothing here judges whether a P-n names a row or whether a kind is known (the checks of the S5 exit)."""
+    rows, skipped, seen = [], [], set()
+    body = manifest if isinstance(manifest, dict) else {}
+    raw = body.get("provisional")
+    if raw is not None and not isinstance(raw, list):
+        skipped.append(f"`provisional` is {type(raw).__name__}, not a list")
+    for at, row in enumerate(raw if isinstance(raw, list) else []):
+        pid = provisional_id(row)
+        if not isinstance(row, dict):
+            skipped.append(f"provisional[{at}] is not an object")
+        elif not PROVISIONAL_ID_RE.match(pid):
+            skipped.append(f"provisional[{at}] has the id {pid!r}, which is not of the form P-<n>")
+        elif pid in seen:
+            skipped.append(f"provisional[{at}] repeats the id {pid}")
+        else:
+            seen.add(pid)
+            rows.append(row)
+    by_test: dict = {}
+    for entry in manifest_tests(body):
+        iid = test_instance_id(entry)
+        if not iid:
+            continue
+        ids = by_test.setdefault(iid, [])
+        value = entry.get("provisional")
+        if value is not None and not isinstance(value, list):
+            skipped.append(f"tests[] {iid}: `provisional` is {type(value).__name__}, not a list")
+            continue
+        for item in value or []:
+            if isinstance(item, str) and PROVISIONAL_ID_RE.match(item.strip()):
+                if item.strip() not in ids:
+                    ids.append(item.strip())
+            else:
+                skipped.append(f"tests[] {iid}: `provisional` holds {item!r}, which is not of the form P-<n>")
+    return {"rows": rows, "by_test": by_test, "skipped": skipped}
+
+
 def canonical_parameters(value) -> dict:
     """A deterministic parameter map; collection/display ordering has no identity role."""
     if not isinstance(value, dict):
@@ -4376,7 +4605,10 @@ def triage_targets(report) -> dict:
       `observations` (P26, RN1-10) one `<case>#obs<n>` per entry of a manual check's `observations[]` (n from 1, in the record's
                  order), WHATEVER the check's own result - a green check keeps its doubts (E7); a check with observations and no
                  name is a note in `unnamed`. Not part of `all` / `names`: `triage_failures` turns each into a failure of the
-                 kind `observation`, which `bind_triage` binds like any other (a row naming `<case>#obs<n>`).
+                 kind `observation`, which `bind_triage` binds like any other (a row naming `<case>#obs<n>`). Also (t-1765 X8-3, AR-22,
+                 AR-27) one `<case>#sur-<id>` per entry of the check's `surprises[]` that no observation cites with `"surprise": "<id>"`,
+                 the first `surprise.max_per_attempt` of them, and ONE `<case>#sur-overflow` for the rest (`_surprise_split`); a check
+                 with no `surprises` yields what it did before. Code lists the lines; whether one is a bug is the analyst's (AR-29).
     A manual check with no `case` and no `instance_id` is named by its `test` when it has one. A report with
     no `current_results` LIST (a legacy one with `results[]`) is read through `current_instance_results`, the
     contract's own projection; a `current_results` list, even an empty one, always wins over the legacy
@@ -4411,8 +4643,10 @@ def triage_targets(report) -> dict:
     for index, row in enumerate(manual if isinstance(manual, list) else []):
         if not isinstance(row, dict):
             continue
+        # F5 (S7): an unprepared walk has no result and is still a target - what it observed is the analyst's call (P26, FR-22)
         failing = result_status({"status": row.get("result") or row.get("status")}) in (
             "failed", "error", "inconclusive")
+        failing = failing or row.get("unprepared") is not None
         names = [str(row.get(key) or "").strip() for key in ("case", "instance_id", "test")]
         names = [name for name in names if name]
         # P26 / RN1-10: what the runner doubted at ANY step is a target of triage beside a red Then, whatever the check's own
@@ -4420,10 +4654,14 @@ def triage_targets(report) -> dict:
         # A check with observations and no name is a note (an observation is never silently dropped), unless it already is one.
         found = row.get("observations")
         found = [n for n, entry in enumerate(found, 1) if isinstance(entry, dict)] if isinstance(found, list) else []
-        if found and names:
-            out["observations"] |= {f"{names[0]}#obs{n}" for n in found}
-        elif found and not failing:
-            note = f"manual check #{index + 1} has observations and no case, instance_id or test"
+        # t-1765 X8-3: a surprise line of the recorder that no observation cites is a target of its own, `<case>#sur-<id>` (at most
+        # `surprise.max_per_attempt` of them; the rest are ONE `<case>#sur-overflow`) - a cited line is judged inside its observation
+        shown, extra = _surprise_split(row)
+        sur = [f"#sur-{one['id']}" for one in shown] + (["#sur-overflow"] if extra else [])
+        if (found or sur) and names:
+            out["observations"] |= {f"{names[0]}#obs{n}" for n in found} | {f"{names[0]}{tail}" for tail in sur}
+        elif (found or sur) and not failing:
+            note = f"manual check #{index + 1} has observations or surprises and no case, instance_id or test"
             out["unnamed"].add(note)
             out["unnamed_manual"].add(note)
         if not failing:
@@ -4444,7 +4682,8 @@ def triage_failures(report) -> tuple:
     """`({(kind, name): {"names": [...], "attempts": {...}}}, [notes])` - every failure that needs a verdict, as
     `triage_targets` reads it, ready for `bind_triage` (t-323 A1: moved here from `check_delivery`, so every reader
     binds the same units).
-    `kind` is `result`, `manual` or `observation` (P26: one per `<case>#obs<n>` of a manual check, whatever its result);
+    `kind` is `result`, `manual` or `observation` (P26: one per `<case>#obs<n>` of a manual check, whatever its result, and, X8-3,
+    one per uncited surprise line `<case>#sur-<id>` plus the `<case>#sur-overflow` of the lines past the cap);
     `name` is the failure's first name; `names` every name a row may answer it by
     (merged over the rows that share the key); `ids` the subset the EXACT step of `bind_triage` reads - a result
     failure's instance_id / test_instance_id / test_id, never its `test` (t-323 F7: two siblings `x[json]` and
@@ -4494,8 +4733,8 @@ def triage_failures(report) -> tuple:
         # P26 / RN1-10 (AR-28): what the runner doubted is a target of triage beside a red Then, whatever its check's result - an
         # unanswered observation never passes. Kind `observation`, name `<case>#obs<n>`, the record's attempt (CD2, as above).
         # A report with no observation yields exactly the failures it did before.
-        for name in sorted(triage_targets({"current_manual_checks": [row]})["observations"],
-                           key=lambda one: (one.rpartition("#obs")[0], int(one.rpartition("#obs")[2] or 0))):
+        # (t-1765 X8-3: the same kind holds `<case>#sur-<id>` and `<case>#sur-overflow`; `target_parts` is the one reading of the name)
+        for name in sorted(triage_targets({"current_manual_checks": [row]})["observations"], key=_target_order):
             add("observation", [name], [name], str(row.get("attempt_id") or "").strip())
     return failures, sorted(triage_targets(report)["unnamed"])
 
@@ -4569,12 +4808,78 @@ def bind_triage(failures: dict, rows: list) -> dict:
     return {"matched": matched, "ambiguous": ambiguous, "ambiguous_rows": ambiguous_rows, "multiple": multiple}
 
 
-OBSERVATION_TARGET_RE = re.compile(r"^.+#obs[1-9][0-9]*$")
+OBSERVATION_TARGET_RE = re.compile(
+    r"^(?P<case>.+)#(?:obs(?P<n>[1-9][0-9]*)|sur-(?P<overflow>overflow)|sur-(?P<sid>[A-Za-z0-9][A-Za-z0-9._-]*-S[1-9][0-9]*))$")
+SURPRISE_CAP_FALLBACK = 30      # only when `manual-capture-steps.json` cannot be read; its `surprise.max_per_attempt` is the number
+
+
+def target_parts(name):
+    """The ONE reading of the name of a manual check's target of triage (AR-13): `(case, kind, key)`, or None when `name` is none.
+    `<case>#obs<n>` -> `(case, "obs", n)` (n an int); `<case>#sur-<id>` -> `(case, "sur", id)` (id as the recorder writes it,
+    `a2-ui-S3`); `<case>#sur-overflow` -> `(case, "sur-overflow", "")`. Every reader of such a name asks this function
+    (`is_observation_target`, `observation_entry`, the order of `triage_failures`); no other place splits it (X8-3, F-4). A case
+    name that holds `#` is read whole: the suffix is the last `#...` that matches. Pure, never raises."""
+    found = OBSERVATION_TARGET_RE.match(name.strip()) if isinstance(name, str) else None
+    if not found:
+        return None
+    if found["n"]:
+        return found["case"], "obs", int(found["n"])
+    return (found["case"], "sur-overflow", "") if found["overflow"] else (found["case"], "sur", found["sid"])
 
 
 def is_observation_target(name) -> bool:
-    """`<case>#obs<n>` - the name `triage_targets` gives an observation of a manual check (P26, RN1-10)."""
-    return isinstance(name, str) and bool(OBSERVATION_TARGET_RE.match(name.strip()))
+    """`<case>#obs<n>`, `<case>#sur-<id>` or `<case>#sur-overflow` - the names `triage_targets` gives what a manual check's runner
+    doubted or the recorder surprised it with (P26, RN1-10; t-1765 X8-3)."""
+    return target_parts(name) is not None
+
+
+def _target_order(name) -> tuple:
+    """The order of targets of one case in `triage_failures`: observations by number, then surprise lines in the order the recorder
+    wrote them (`S2` before `S10`), then the overflow target."""
+    case, kind, key = target_parts(name) or (str(name), "", "")
+    if kind == "obs":
+        return case, 0, "", key
+    if kind == "sur":
+        prefix, _, number = key.rpartition("-S")
+        return case, 1, prefix, int(number or 0)
+    return case, 2, "", 0
+
+
+def _surprise_cap() -> int:
+    """`surprise.max_per_attempt` of `manual-capture-steps.json` - the number is data (AR-1); the fallback holds only for an
+    install whose file cannot be read."""
+    try:
+        import manual_capture as MC
+        return max(1, int(MC.spec()["surprise"]["max_per_attempt"]))
+    except Exception:
+        return SURPRISE_CAP_FALLBACK
+
+
+def _surprise_split(row) -> tuple:
+    """`(shown, extra)` of one manual check: the entries of its `surprises[]` that no observation cites (`observations[].surprise`),
+    in the record's order - `shown` the first `_surprise_cap()` of them (each is a target of its own), `extra` the rest (ONE
+    `#sur-overflow` target). An entry that is no object, has no id, or repeats an id already listed counts for nothing; a record
+    with no `surprises` yields `([], [])`. A cited line is judged inside its observation; citing an id the record does not hold
+    cites nothing (the id is no line). Pure, never raises."""
+    if not isinstance(row, dict) or not isinstance(row.get("surprises"), list):
+        return [], []
+    cited = {str(one.get("surprise")).strip() for one in row.get("observations") or []
+             if isinstance(one, dict) and isinstance(one.get("surprise"), str)}
+    seen, loose = set(), []
+    for one in row["surprises"]:
+        ident = str(one.get("id") or "").strip() if isinstance(one, dict) else ""
+        if ident and ident not in seen and ident not in cited:
+            loose.append(one)
+        seen.add(ident)
+    cap = _surprise_cap()
+    return loose[:cap], loose[cap:]
+
+
+def _overflow_words(extra) -> str:
+    """The words of the `#sur-overflow` target: how many lines it stands for and the first five ids (the lines themselves are in the
+    record's `surprises[]`)."""
+    ids = [str(one.get("id")) for one in extra]
+    return f"{len(ids)} more surprises: {', '.join(ids[:5])}" + (", ..." if len(ids) > 5 else "")
 
 
 def observation_duplicates(rows, report=None) -> dict:
@@ -4611,26 +4916,69 @@ def quoted_words(reason) -> list:
             if any(g is not None and g.strip() for g in m.groups())]
 
 
+def surprise_line(entry) -> str:
+    """The words of one `surprises[]` entry of a record, as a target of triage shows them: `surprise: <id> step <n> <kind>: <fact>`
+    (the recorder's own line, `manual_capture._surprise_line`, holds the step's word in parentheses before the kind: an entry that
+    carries `word` gives that exact line, one built before `word` the form without it). The text a `NO_DEFECT` on that target
+    quotes from (X8-3, F-13)."""
+    word = entry.get("word")
+    if isinstance(word, str) and word.strip():
+        import manual_capture as MC
+        return MC._surprise_line({"id": entry.get("id"), "step": entry.get("step"), "word": word, "kind": entry.get("kind"),
+                                  "fact": entry.get("fact")})
+    return f"surprise: {entry.get('id')} step {entry.get('step')} {entry.get('kind')}: {entry.get('fact')}"
+
+
 def observation_entry(report, name, attempt="") -> dict | None:
     """The recorded observation `<case>#obs<n>` of a run report (`current_manual_checks[]` row named `<case>`, entry n of its
-    `observations[]`), else None. Two records of one case: the one of `attempt` wins. Pure, never raises."""
-    case, _, number = str(name).strip().rpartition("#obs")
+    `observations[]`), else None. Two records of one case: the one of `attempt` wins. For `<case>#sur-<id>` the entry is made from the
+    record's `surprises[]` line: `{step, expected: "", seen: <fact>, evidence: "", quote: <the line>}` - there is NO evidence capture, so a
+    `NO_DEFECT` quote must stand in THAT line (a word of the file's other lines is not it, F-13); `<case>#sur-overflow` stands for the
+    uncited lines past the cap: its quote is the overflowed lines (`surprise_line` each) and its `seen` the counter words `_overflow_words`, which are no quote. A line the record does not hold (or one an observation cites: it is
+    no target) gives None. Pure, never raises."""
+    parts = target_parts(name)
     manual = report.get("current_manual_checks") or report.get("manual_checks") if isinstance(report, dict) else None
-    if not case or not number.isdigit() or not isinstance(manual, list):
+    if parts is None or not isinstance(manual, list):
         return None
+    case, kind, key = parts
     found = []
     for row in manual:
-        if not isinstance(row, dict) or not isinstance(row.get("observations"), list):
+        if not isinstance(row, dict):
             continue
-        names = [str(row.get(key) or "").strip() for key in ("case", "instance_id", "test")]
+        names = [str(row.get(field) or "").strip() for field in ("case", "instance_id", "test")]
         names = [n for n in names if n]
-        index = int(number) - 1
-        if names and names[0] == case and 0 <= index < len(row["observations"]) and isinstance(row["observations"][index], dict):
-            found.append((str(row.get("attempt_id") or "").strip(), row["observations"][index]))
+        if not names or names[0] != case:
+            continue
+        said = str(row.get("attempt_id") or "").strip()
+        if kind == "obs":
+            index = key - 1
+            if isinstance(row.get("observations"), list) and 0 <= index < len(row["observations"]) \
+                    and isinstance(row["observations"][index], dict):
+                found.append((said, row["observations"][index]))
+            continue
+        shown, extra = _surprise_split(row)
+        if kind == "sur":
+            line = next((one for one in shown if str(one.get("id")).strip() == key), None)
+            if line is not None:
+                found.append((said, {"step": line.get("step"), "expected": "", "seen": str(line.get("fact") or ""),
+                                     "evidence": "", "quote": surprise_line(line)}))
+        elif extra:
+            found.append((said, {"step": extra[0].get("step"), "expected": "", "seen": _overflow_words(extra), "evidence": "",
+                                 "quote": "\n".join(surprise_line(one) for one in extra)}))
     for said, entry in found:
         if attempt and said == attempt:
             return entry
     return found[0][1] if found else None
+
+
+def _counter_words(words, entry) -> bool:
+    """True when `words` stand inside the counter words of an overflow entry (`seen`): code's own count, not a fact of a hidden line."""
+    try:
+        import manual_evidence as ME
+        wanted = ME._squash(words)
+        return bool(wanted) and wanted in ME._squash(str(entry.get("seen") or ""))
+    except (ImportError, AttributeError):
+        return False
 
 
 def _quote_is_recorded(words, entry, task_root) -> bool:
@@ -4651,19 +4999,21 @@ def _quote_is_recorded(words, entry, task_root) -> bool:
 def triage_no_defect_problems(row, report=None, task_root=None) -> list:
     """The problems of one triage row of the verdict `NO_DEFECT` (P26), `[]` when there are none; a row of another verdict is not
     judged here. THE one reader (AR-13): the delivery check and the triage validator ask it. The row must name an observation
-    target and ONLY observation targets (every name of `row_names` ends in `#obs<n>`: a row that also names a red test is a
-    Then's verdict, which this word is not for) - on a Then target the word is refused with the existing words as the door - and
-    carry a `reason` (`triage_reason`) with quoted words (`quoted_words`: a quotation mark pair, never an apostrophe). The judgment
-    of the words is the analyst's (FR-12, FR-47), but with a `report` the quoted words must STAND in the observation's recorded
-    evidence (`_quote_is_recorded`); without one only the form is checked. Pure, never raises."""
+    target and ONLY observation targets (every name of `row_names` is one of `target_parts`: `<case>#obs<n>`, `<case>#sur-<id>` or
+    `<case>#sur-overflow` - a row that also names a red test is a Then's verdict, which this word is not for) - on a Then target the
+    word is refused with the existing words as the door - and carry a `reason` (`triage_reason`) with quoted words (`quoted_words`: a
+    quotation mark pair, never an apostrophe). The judgment of the words is the analyst's (FR-12, FR-47), but with a `report` the
+    quoted words must STAND in the target's recorded evidence (`_quote_is_recorded`: for an observation its `quote` and its `evidence`
+    capture; for a surprise target its OWN line only, X8-3); without one only the form is checked. Pure, never raises."""
     if not isinstance(row, dict) or row.get("verdict") != "NO_DEFECT":
         return []
     names = row_names(row)
     if not names or not all(is_observation_target(name) for name in names):
         bad = next((n for n in names if not is_observation_target(n)), None)
-        return [f"verdict NO_DEFECT is for an observation of a manual check (`<case>#obs<n>`) and nothing else, and the row names "
+        return [f"verdict NO_DEFECT is for an observation of a manual check (`<case>#obs<n>`) or a surprise of the recorder "
+                f"(`<case>#sur-<id>`) and nothing else, and the row names "
                 f"{bad or 'no target'}: a failed Then is judged with APP_BUG, TEST_BUG, ENV_ISSUE, FLAKY, "
-                "APP_CHANGED, CASE_DEFECT or ASSERT_STRICTER - change the verdict, or name only the observation"]
+                "APP_CHANGED, CASE_DEFECT or ASSERT_STRICTER - change the verdict, or name only the observation or the surprise"]
     reason = triage_reason(row)
     words = quoted_words(reason)
     if not words:
@@ -4671,7 +5021,17 @@ def triage_no_defect_problems(row, report=None, task_root=None) -> list:
                 "double quotes, copied from its capture; an apostrophe is not a quote): write the row again with the quote, "
                 "or give another verdict (`APP_BUG` when the observation shows a defect)"]
     entry = observation_entry(report, names[0], str(row.get("attempt_id") or "").strip()) if report is not None else None
+    if entry is not None and (target_parts(names[0]) or ("", "", ""))[1] == "sur-overflow":
+        words = [w for w in words if not _counter_words(w, entry)]           # code's own counter words are no evidence (M-1)
     if entry is not None and not any(_quote_is_recorded(w, entry, task_root) for w in words):
+        if (target_parts(names[0]) or ("", "", ""))[1] == "sur-overflow":
+            return [f"verdict NO_DEFECT: no quoted word of the `reason` stands in a fact of the lines {names[0]} stands for (the count "
+                    f"\"{entry.get('seen')}\" is the tool's own, not evidence): quote the words of one of those lines "
+                    "(`surprises/NNN-surprises.txt` holds them), or give another verdict (`APP_BUG` when a surprise shows a defect)"]
+        if (target_parts(names[0]) or ("", "", ""))[1] != "obs":
+            return [f"verdict NO_DEFECT: no quoted word of the `reason` stands in the line of {names[0]} (\"{entry.get('quote')}\"): "
+                    "quote that line, not another line of the surprises file, or give another verdict (`APP_BUG` when the "
+                    "surprise shows a defect)"]
         return [f"verdict NO_DEFECT: no quoted word of the `reason` stands in the recorded evidence of {names[0]} (its `quote` "
                 "and its `evidence` capture): copy the words as the capture holds them, or give another verdict (`APP_BUG` when "
                 "the observation shows a defect)"]
@@ -4951,7 +5311,7 @@ WINDOW_INSTANCE_FIELDS = ("instance_id", "input_hash", "outcome", "execution_fin
                           "evidence_refs", "review")
 # `blocked_by_env` (t-219): the stand stopped the instance before any Then; the same word as the manifest's
 # `unresolved[].reason` (FR-10). `acceptance.blocked_instances` decides it; this tuple only says it is a word.
-WINDOW_OUTCOMES = ("passed", "failed", "handed_to_person", "blocked_by_env")
+WINDOW_OUTCOMES = ("passed", "failed", "handed_to_person", "blocked_by_env", PENDING_IMPLEMENTATION)
 
 # HF1-14 (EP1-10, TP1-12586): a probe that could not run here, accepted by the person, closes the S5 window as a
 # NAMED gap. The unit is a `probe_gap` block on the window item BESIDE `probe` (never inside it: `probe` keeps meaning
@@ -4979,7 +5339,7 @@ def probe_gap_words(pipeline) -> dict:
     """{value: {"words", "at"}} — the instances (or cases) whose probe gap the person accepted, from their own words.
 
     Read from `stage_overrides[]` like every block a person's word passes (`waiver.py --stage S5 --block "probe gap:
-    <instance id or case key>"`): a live (not revoked) S5 record with non-empty words, whose `match` is the prefix and
+    <case key>"`; an instance id works only when it is one token): a live (not revoked) S5 record with non-empty words, whose `match` is the prefix and
     ONE token (`prefix_value`). A word joins an item by IDENTIFIER equality only, case kept: never a substring, never
     `*`, never `not receipted` (FR-12; `waiver.split_overridden` is deliberately NOT this reader: `*` matches
     everything there). Error direction: toward NO entry, which leaves the gap refused. Never raises: a pipeline that
@@ -4987,6 +5347,22 @@ def probe_gap_words(pipeline) -> dict:
     is not one token give none."""
     return {value: {"words": " ".join(str(entry.get("decision") or "").split()), "at": str(entry.get("at") or "")}
             for value, entry in stage_override_values(pipeline, PROBE_GAP_MATCH_PREFIX)}
+
+
+# t-1968 N5: the person's own word about a test whose probe the code reviewer could not judge (`cannot_judge`). A SEPARATE prefix,
+# with no `class` (one word never widens), so a `probe gap:` word about tooling never names such a test (the owner's word 05.11.2026).
+PROBE_NOT_PROVED_PREFIX = "probe not proved:"
+
+
+def probe_not_proved_words(pipeline) -> dict:
+    """{case key: {"words", "at"}} - the cases whose "not proved" the person accepted, from their own words (t-1968 N5).
+
+    `probe_gap_words`' reading with the prefix `PROBE_NOT_PROVED_PREFIX` (`waiver.py --stage S5 --block "probe not proved: <case key>"`):
+    a live S5 record with non-empty words whose `match` is the prefix and ONE token, joined to an item by IDENTIFIER equality only
+    (never `*`, never a substring; FR-12). Whether the word is newer than the judgment it answers is the reader's
+    (`window_record.not_proved_name`). Error direction: toward NO entry (the person is asked again). Never raises."""
+    return {value: {"words": " ".join(str(entry.get("decision") or "").split()), "at": str(entry.get("at") or "")}
+            for value, entry in stage_override_values(pipeline, PROBE_NOT_PROVED_PREFIX)}
 
 
 PROBE_GAP_CLASS = "probe_gap_accepted"                    # the `class` of a record of a `probe gap:` word (`references/block-names.json`)
@@ -5146,7 +5522,8 @@ def window_shape_errors(window) -> list:
         if PROBE_NOT_APPLICABLE_KEY in item:
             errors.extend(f"{label}: {PROBE_NOT_APPLICABLE_KEY}: {e}" for e in probe_not_applicable_errors(item))
         elif "probe_gap" not in item and item.get("change_disposition") == "new_or_changed" \
-                and item.get("outcome") not in ("handed_to_person", "blocked_by_env") and "probe" not in item:
+                and item.get("outcome") not in ("handed_to_person", "blocked_by_env", PENDING_IMPLEMENTATION) \
+                and "probe" not in item:
             # three ways to satisfy a new_or_changed instance: a probe, a named gap (green only), a red's row
             errors.append(f"{label}: {PROBE_MISSING_ERROR}")
     if scope and isinstance(scope, dict) and isinstance(window.get("instances"), list):
@@ -5265,3 +5642,194 @@ def evidence_ref_issue(task_root, ref, what: str = "evidence", require_hash: boo
     if hashlib.sha256(path.read_bytes()).hexdigest() != str(ref.get("sha256")):
         return f"{what} path {raw_text} has changed since it was referenced (stale sha256, task root {root})"
     return ""
+
+
+# --- sides of the product and the story held for code (t-2181 PC-1a) ------------------------------------------------
+#
+# A side is a part of the product a story's checks can meet; its reality words and the default side are DATA
+# (`references/side-realities.json`, AR-1), the side NAMES are open (AR-2). `story_sides` is the one reader of the
+# story's record of them (AR-13); the registry leg joins it in PC-1b. Every reader here returns a value and never raises:
+# a record it cannot read is never read as `real` - the reality of such a side reads as "" (unknown), which no reader
+# counts as real (AR-28).
+SIDE_REALITIES_PATH = Path(__file__).resolve().parent.parent / "references" / "side-realities.json"
+AWAITING_DEFAULT_CAUSE = "s5_absent_side"   # a record written before the cause existed was held for an absent side ...
+AWAITING_DEFAULT_HELD_FROM = "S6"           # ... from the first stage after S5
+PARKING_REALITY = "absent"                  # the one reality word code acts on (a deliverable absent side parks the story); it must be in the data file's `realities`
+
+
+def story_sides(pipeline, cfg=None, env_name=None, root=None) -> dict:
+    """{side name: {reality, deliverable, settles_by, reference, source}} of the story.
+
+    `pipeline.sides` first - a readable record always wins; an entry's missing `deliverable` reads true, a missing `settles_by`
+    reads "" and a missing `reality` reads "" (unknown, never real). Then (t-2181 PC-1b, only when `root` - the project - is given)
+    the registry (`registry_sides`): its sides carry `source: registry` and `registry_key`, the key of the row that set them. An
+    unreadable registry reads the default side with reality "" (unknown, never real); a malformed side row reads that side unknown.
+    Then the default side of `references/side-realities.json` with `source: default`. The data file unreadable as well: {} - no
+    side is invented in code. `cfg` is not read here; `env_name` picks the stand whose `environments.sides` rows count."""
+    import sys   # late: the note below is the only use
+    record = pipeline.get("sides") if isinstance(pipeline, dict) else None
+    if isinstance(record, dict) and record:
+        return {str(name): _side_row(entry, entry.get("reference") if isinstance(entry, dict) else None,
+                                     entry.get("source") if isinstance(entry, dict) else None)
+                for name, entry in record.items()}
+    default = side_realities().get("default")
+    if not isinstance(default, dict) or not default:
+        print("sides: references/side-realities.json could not be read; no side is read for the story", file=sys.stderr)
+        return {}
+    out = {str(name): _side_row(side, None, "default") for name, side in default.items()}
+    if root is not None:
+        read = registry_sides(root, env_name)
+        if read["unreadable"]:
+            print("sides: " + read["problem"] + "; the sides read as unknown", file=sys.stderr)
+            return {name: {**row, "reality": ""} for name, row in out.items()}
+        if read["sides"]:
+            if read["product_rows"]:
+                out = {}                                # once a `product.sides` row exists `product` is not implied
+            for name, row in read["sides"].items():
+                out[name] = {**row, "deliverable": True if row["deliverable"] is None else row["deliverable"]}
+            return out
+    if not isinstance(pipeline, dict):
+        print("sides: the story's pipeline.json could not be read; the sides read as the default ("
+              + ", ".join(out) + ")", file=sys.stderr)
+    return out
+
+
+def registry_sides(root, env_name=None) -> dict:
+    """The registry leg of the sides, read ONLY through `project_knowledge.subjects` and `state` (never the file):
+    `{"sides": {name: {reality, deliverable (None = no row says), settles_by, reference, source: registry, registry_key}},
+    "names": [every side name any row of the three keys holds, all stands], "problem": str, "unreadable": bool,
+    "product_rows": bool}`. `product.sides` rows give the project's sides (`reality: real` unless a stand row says otherwise),
+    `environments.sides` rows of the stand `env_name` (exact; none when None) give the reality, `environments.reference_for` rows of
+    ALL stands give the reference. A side's `registry_key` is the key that set its reality (the stand row), else `product.sides`,
+    else `environments.reference_for`. A row that is not of its key's shape or not `known` reads that side with reality ""
+    (unknown) and fills `problem`; two stands naming one side's reference do the same. Never raises, never writes."""
+    out = {"sides": {}, "names": [], "problem": "", "unreadable": False, "product_rows": False}
+    try:
+        import project_knowledge as PK
+        words = side_realities().get("realities")
+        problems, names = [], set()
+
+        def rows_of(key, environment=None):
+            listed = PK.subjects(root, key, environment)
+            if listed["problem"]:
+                raise LookupError(listed["problem"])
+            return [(env, element, PK.state(root, key, env, element)) for env, element in listed["subjects"]]
+
+        def side(name):
+            return out["sides"].setdefault(name, {"reality": "real", "deliverable": None, "settles_by": "", "reference": None,
+                                                  "source": "registry", "registry_key": None})
+        for env, element, got in rows_of(PK.SIDES_KEY):
+            names.add(element)
+            row, value = got["row"], (got["row"] or {}).get("value")
+            entry = side(element)
+            if (got["state"] != PK.KNOWN or not isinstance(value, dict) or not isinstance(value.get("deliverable"), bool)
+                    or not isinstance(value.get("settles_by", ""), str) or env != "" or _keyless(element)):
+                entry["reality"] = ""
+                problems.append(f"the row {row and row.get('id')} of {PK.SIDES_KEY} for `{element}` is malformed")
+                continue
+            out["product_rows"] = True
+            entry.update(deliverable=value["deliverable"], settles_by=value.get("settles_by", ""))
+            entry["registry_key"] = entry["registry_key"] or PK.SIDES_KEY
+        if env_name:
+            for env, element, got in rows_of(PK.STAND_SIDES_KEY, str(env_name)):
+                names.add(element)
+                row, value = got["row"], (got["row"] or {}).get("value")
+                entry = side(element)
+                if (got["state"] != PK.KNOWN or not isinstance(value, dict) or not isinstance(words, list)
+                        or value.get("reality") not in words or _keyless(element)):
+                    entry["reality"] = ""
+                    problems.append(f"the row {row and row.get('id')} of {PK.STAND_SIDES_KEY} for `{element}` is malformed")
+                    continue
+                entry["reality"], entry["registry_key"] = value["reality"], PK.STAND_SIDES_KEY
+        for env, element, got in rows_of(PK.STAND_SIDES_KEY):
+            names.add(element)                          # every stand's names count for the case check (C15)
+        stands = {}
+        for env, element, got in rows_of(PK.REFERENCE_KEY):
+            names.add(element)
+            row = got["row"] or {}
+            if got["state"] != PK.KNOWN or row.get("value") != {"reference": True} or _keyless(element):
+                side(element)["reality"] = ""
+                problems.append(f"the row {row.get('id')} of {PK.REFERENCE_KEY} for `{element}` is malformed")
+                continue
+            stands.setdefault(element, []).append(env)
+        for element, held in stands.items():
+            entry = side(element)
+            if len(held) > 1:
+                entry["reality"] = ""
+                problems.append(f"`{element}` has more than one reference stand ({', '.join(sorted(held))})")
+                continue
+            entry["reference"] = held[0]
+            entry["registry_key"] = entry["registry_key"] or PK.REFERENCE_KEY
+        out["names"] = sorted(names)
+        out["problem"] = "; ".join(problems)
+        for entry in out["sides"].values():             # a side named by a malformed row alone keeps a key too
+            entry["registry_key"] = entry["registry_key"] or PK.SIDES_KEY
+    except Exception as exc:    # the registry could not be read at all: never `real` (S12)
+        out.update(sides={}, names=[], unreadable=True, product_rows=False,
+                   problem=f"the project's record of sides could not be read ({str(exc)[:160]})")
+    return out
+
+
+def _keyless(name) -> bool:
+    """A side name that cannot be a key of the story's record (`sides.<name>.<attribute>=<value>`): it holds a dot or an equals sign.
+    An old or hand-edited registry row with such a name reads malformed (unknown), so S0 records `sides_unknown` instead of refusing."""
+    return "." in str(name) or "=" in str(name)
+
+
+def side_realities() -> dict:
+    """THE reader of `references/side-realities.json` (AR-1, AR-13): the parsed table, or {} when it cannot be read.
+    BOM-safe, because it is `hooklib.read_json`; `story_sides` and `stage_done.coerce_value` both read through it."""
+    from hooklib import read_json   # late, as the other `hooklib` names of this module
+    return read_json(SIDE_REALITIES_PATH, {}, kind=dict)
+
+
+PROVISIONAL_KINDS_PATH = Path(__file__).resolve().parent.parent / "references" / "provisional-kinds.json"
+
+
+def provisional_kinds():
+    """THE reader of `references/provisional-kinds.json` (AR-1, AR-13): the list of kind names (the keys of its `kinds` object), or
+    None when the file cannot be read (absent, not JSON, no `kinds` object) - None is "unknown", never "no kinds". BOM-safe,
+    because it is `hooklib.read_json`; the S5 exit check and the S5 brief both read through it."""
+    from hooklib import read_json   # late, as `side_realities`
+    kinds = read_json(PROVISIONAL_KINDS_PATH, {}, kind=dict).get("kinds")
+    return [str(k) for k in kinds] if isinstance(kinds, (dict, list)) else None
+
+
+def provisional_kind_on_real(kind) -> str:
+    """The `on_real` of a provisional kind, read through the same file as `provisional_kinds` (AR-13): `first_look_only` or `never`.
+    A kind without the field, with another word, an unknown kind, a kinds file shaped as a list or an unreadable file reads `never` -
+    what cannot be shown legal on a real side is not legal (J-C5, AR-28)."""
+    from hooklib import read_json   # late, as `provisional_kinds`
+    kinds = read_json(PROVISIONAL_KINDS_PATH, {}, kind=dict).get("kinds")
+    body = kinds.get(str(kind or "")) if isinstance(kinds, dict) else None
+    return "first_look_only" if isinstance(body, dict) and body.get("on_real") == "first_look_only" else "never"
+
+
+def _side_row(entry, reference, source) -> dict:
+    """One side as the readers return it; a missing or non-dict part reads unknown / true / "" and never `real`."""
+    entry = entry if isinstance(entry, dict) else {}
+    return {"reality": str(entry.get("reality") or ""),
+            "deliverable": entry["deliverable"] if isinstance(entry.get("deliverable"), bool) else True,
+            "settles_by": str(entry.get("settles_by") or ""),
+            "reference": reference or None,
+            "source": str(source or "")}
+
+
+def parks_after_s5(pipeline) -> bool:
+    """True when a side of the story is `absent` AND `deliverable`: the code this story delivers does not exist yet, so the
+    story is held after S5. A `substituted` side (deliverable or not) and an `absent` side that is not this story's deliverable
+    never park it (S6)."""
+    return any(side["reality"] == PARKING_REALITY and side["deliverable"] is True for side in story_sides(pipeline).values())
+
+
+def awaiting(pipeline) -> dict:
+    """The hold of a story waiting for code, from `pipeline.awaiting`: {"state": "none" | "awaiting" | "stopped", "cause",
+    "held_from", ...the record as written}. No record: {"state": "none", "cause": "", "held_from": ""}. A record with
+    `stopped` is "stopped", any other record is "awaiting". A record without `cause` / `held_from` (written before they
+    existed) reads `s5_absent_side` / `S6`; a record that carries them is returned as given."""
+    record = pipeline.get("awaiting") if isinstance(pipeline, dict) else None
+    if not isinstance(record, dict) or not record:
+        return {"state": "none", "cause": "", "held_from": ""}
+    return {**record, "state": "stopped" if record.get("stopped") else "awaiting",
+            "cause": str(record.get("cause") or AWAITING_DEFAULT_CAUSE),
+            "held_from": str(record.get("held_from") or AWAITING_DEFAULT_HELD_FROM)}

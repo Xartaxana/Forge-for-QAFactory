@@ -13,6 +13,7 @@ and it can kill the probe that launched it or make the mutated file read-only so
 import errno
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -27,7 +28,7 @@ from harness import (SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, 
 import install_paths  # noqa: E402
 import probe_by_code as PBC  # noqa: E402
 from test_probe_by_code import (DISPATCH, FAKE_RUN_SUITE, TASK, TEST_FILE_REL, cleanup_beside,  # noqa: E402
-                                env_for, project, read_record)
+                                env_for, model_entries, mutated_line, project, read_record)
 
 PY = sys.executable
 TEST_ABS_NAME = "test_calc.py"
@@ -88,7 +89,9 @@ sys.stdin.read()
 
 
 def crun(root: Path, stub: Path, test: str, instance: str, **extra):
-    """The CLI, as a role runs it. Returns (process, parsed JSON of stdout or {})."""
+    """The CLI, as a role runs it. Returns (process, parsed JSON of stdout or {}). t-2064 P4b: the plain call walks every check and needs a
+    model entry per check; the window's model file is written first (`model_entries`)."""
+    model_entries(root, stub, test, instance)
     proc = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--test", test,
                       "--instance", instance, "--mutation", "invert", "--json", cwd=root,
                       env=env_for(root, stub, PROBE_SCRIPTS_DIR=str(SCRIPTS), **extra))
@@ -98,6 +101,11 @@ def crun(root: Path, stub: Path, test: str, instance: str, **extra):
     except ValueError:
         payload = {}
     return proc, payload
+
+
+def said(record: dict) -> str:
+    """Everything the aggregate says in words: its notes and the note of each check row (t-2064 P4b: the old record's `notes` were both)."""
+    return " ".join(list(record.get("notes") or []) + [str(r.get("note") or "") for r in record.get("checks") or []])
 
 
 def release_cli(root: Path, what: str):
@@ -574,20 +582,29 @@ def the_copy_is_on_disk_during_the_run(stub: Path) -> None:
         check_eq("during: and the original sha", meta.get("original_sha"), PBC.sha256(original))
         check("during: and a DIFFERENT mutated sha", meta.get("mutated_sha") not in (None, PBC.sha256(original)))
         check_eq("during: and the original mtime", meta.get("original_mtime_ns"), OLD_NS)
-        check_eq("during: the statement before", meta.get("statement_before"), STATEMENT)
-        check_eq("during: the statement after is the mutated one", meta.get("statement_after"),
-                 'assert not (add(2, 2) == 4), "probe-test_add invert: add(2, 2) == 4"')
+        # PRODUCT QUESTION 14 (t-2064-p4b2t3-report.md): the walk's copy record carries `statement_before` None (begin_copy's `details[0]` of an
+        # invert check, probe_by_code.py:6353 -> :3763), and the recovery text of :3620 says "put back `None`"; the old road wrote the statement
+        check_eq("during: the statement before (PRODUCT QUESTION 14)", meta.get("statement_before"), STATEMENT)
+        # t-2045 N2: the Python marker is the joined expression, its token this run's own
+        check("during: the statement after is the mutated one",
+              re.fullmatch(r"assert not \(add\(2, 2\) == 4\), '-'\.join\(\['qa-probe', '[0-9a-f]{12}'\]\)",
+                           str(meta.get("statement_after"))) is not None, str(meta.get("statement_after")))
         check_eq("during: the line", meta.get("line"), 6)
-        check_eq("during: the timeout the probe runs under", meta.get("timeout_s"), PBC.RUN_TIMEOUT_S)
+        # t-2064 P4b (old -> new): the timeout of the one run (RUN_TIMEOUT_S) -> what is LEFT of the walk's one shared budget when the row starts,
+        # rounded up to the second (`int(left) + 1`, probe_by_code.py:6353, EP-J): the first row of a plan sees the whole budget, plus that second
+        check("during: the timeout the probe runs under (the walk's budget left, rounded up)",
+              PBC.RUN_TIMEOUT_S <= (meta.get("timeout_s") or 0) <= PBC.RUN_TIMEOUT_S + 1, str(meta.get("timeout_s")))
         check("during: and when it started", PBC.copy_deadline(meta) is not None)
         check_eq("during: the lock was HELD by the probe while its runner ran", seen.get(key + ".lock-state"), "held")
         check_eq("after: the file is byte-identical", path.read_bytes(), original)
         check_eq("after: a .py has its old mtime back", path.stat().st_mtime_ns, OLD_NS)
         check_eq("after: no copy is left", copies_in(root), [])
         restore = record.get("restore") or {}
-        check_eq("after: the restore says it came from the copy and the copy is gone",
-                 (restore.get("verified"), restore.get("restored_from"), restore.get("copy_kept")), (True, "copy", False))
-        check_eq("after: and where the copy was", restore.get("copy"), f"qa-factory/state/probe-copies/{key}.orig")
+        # t-2064 P4b (old -> new): the aggregate's `restore` is {verified, sha256, runs}: `restored_from == "copy"`, `copy_kept` and `copy` (where the
+        # copy was) are not carried. The reason this pin keeps: the restore is VERIFIED to the author's bytes and the copy is gone (`no copy is
+        # left` just above; `during:` pinned where the copy stood, by the file name the runner saw)
+        check_eq("after: the restore is verified to the author's bytes, once", (restore.get("verified"), restore.get("sha256"), restore.get("runs")),
+                 (True, PBC.sha256(original), 1))
         check_eq("after: the lock is free", lock_state(root, path), "locked")
     finally:
         cleanup(root)
@@ -606,7 +623,9 @@ def a_killed_probe_is_recovered(stub: Path) -> None:
         check("killed: the probe died with its runner's signal (no exit 0, no answer)", proc.returncode != 0 and not payload,
               f"{proc.returncode} {proc.stdout[:200]}")
         left = path.read_bytes()
-        check("killed: the author's file was left MUTATED (the failure this node fixes)", b"probe-test_add invert" in left)
+        # t-2045 N2: the mutated statement carries the joined marker expression (the same shape as `invert_plain_assert`)
+        check("killed: the author's file was left MUTATED (the failure this node fixes)",
+              re.search(rb"assert not \(add\(2, 2\) == 4\), '-'\.join\(\['qa-probe', '[0-9a-f]{12}'\]\)", left) is not None)
         orig, meta = PBC.copy_files(PBC.copy_dir(root), key)
         check_eq("killed: but the original bytes are on disk", orig.read_bytes(), original)
         left_meta = json.loads(meta.read_text(encoding="utf-8"))
@@ -615,7 +634,7 @@ def a_killed_probe_is_recovered(stub: Path) -> None:
         proc, record = crun(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
         check("recovery: the next probe runs", proc.returncode == 0, proc.stdout + proc.stderr)
         check_eq("recovery: and answers intended_failure", record.get("verdict"), "intended_failure")
-        check_in("recovery: with a note about what it recovered", f"recovered {TEST_FILE_REL}", " ".join(record.get("notes") or []))
+        check_in("recovery: with a note about what it recovered", f"recovered {TEST_FILE_REL}", said(record))
         check_eq("recovery: the author's bytes are back", path.read_bytes(), original)
         check_eq("recovery: with the old mtime", path.stat().st_mtime_ns, OLD_NS)
         check_eq("recovery: and no copy left", copies_in(root), [])
@@ -623,11 +642,11 @@ def a_killed_probe_is_recovered(stub: Path) -> None:
         check_eq("position: test_file_sha256 is the author's bytes, not the dead probe's", record.get("test_file_sha256"), original_sha)
         check_eq("position: the mutated file's recorded original is the author's", (record.get("mutated_file") or {}).get("sha256"),
                  original_sha)
-        detail = record.get("mutation_detail") or {}
-        check_eq("position: the statement mutated is the author's, not an inversion of an inversion",
-                 detail.get("statement_before"), STATEMENT)
-        check_eq("position: and the marker is of the author's expression", detail.get("marker"),
-                 "probe-test_add invert: add(2, 2) == 4")
+        # t-2064 P4b (old -> new): `mutation_detail.statement_before` / `.marker` are not in the aggregate; the bytes the runner saw are: its
+        # first run's mutated line is the inversion of the AUTHOR'S statement, ONCE (the marker is of the author's expression, and no `not (not`)
+        seen_line = mutated_line(root, record, 6).strip()
+        check("position: the statement mutated is the author's, not an inversion of an inversion",
+              re.fullmatch(r"assert not \(add\(2, 2\) == 4\), '-'\.join\(\['qa-probe', '[0-9a-f]{12}'\]\)", seen_line) is not None, seen_line)
     finally:
         cleanup(root)
         cleanup_beside(root)
@@ -643,6 +662,7 @@ def a_running_probe_blocks_only_its_own_file(stub: Path) -> None:
         try:
             check_eq("running: a second process holds the lock of the test file", state, "locked")
             check_eq("running: and it is held for the first", lock_state(root, path), "held")
+            model_entries(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")    # t-2064 P4b: the wrapper's own file, before the snapshot
             before = tree_without_locks(root)
             proc, payload = crun(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
             check_eq("running: the second probe is refused (exit 2)", (proc.returncode, payload.get("status")), (2, "refused"))
@@ -678,26 +698,27 @@ def a_stale_copy_of_another_file_does_not_stop_this_probe(stub: Path) -> None:
         mutated = b"def f():\n    assert not (1 == 1)\n"
         edited = b"def f():\n    assert 2 == 2  # the author's edit\n"
         stale_copy(root, "tests/other.py", original, mutated, file_bytes=edited)
-        helper = root / "expectations.py"
+        helper = root / "tests" / "expectations.py"
         helper_original = helper.read_bytes()
         helper_edited = helper_original + b"# the author edited this after the crash\n"
-        stale_copy(root, "expectations.py", helper_original, helper_original + b"# mutated\n", file_bytes=helper_edited)
+        stale_copy(root, "tests/expectations.py", helper_original, helper_original + b"# mutated\n", file_bytes=helper_edited)
         key_other, _ = PBC.copy_key(root / "tests" / "other.py", root)
         key_helper, _ = PBC.copy_key(helper, root)
+        model_entries(root, stub, f"{TEST_FILE_REL}::test_via_helper", "test_via_helper")    # t-2064 P4b: the wrapper's own file, before the snapshot
         before = tree_without_locks(root)
         # (1) the oracle of this probe is the helper whose stale copy cannot be applied: a refusal, nothing changed
         proc, payload = crun(root, stub, f"{TEST_FILE_REL}::test_via_helper", "test_via_helper")
         check_eq("oracle: a stale copy of THIS probe's oracle refuses it (exit 2)", (proc.returncode, payload.get("status")),
                  (2, "refused"))
-        check_in("oracle: naming the helper", "expectations.py", payload.get("error", ""))
-        check_in("oracle: and the door", "--release-copy expectations.py", payload.get("error", ""))
+        check_in("oracle: naming the helper", "tests/expectations.py", payload.get("error", ""))
+        check_in("oracle: and the door", "--release-copy tests/expectations.py", payload.get("error", ""))
         check_eq("oracle: nothing in the tree changed", tree_without_locks(root), before)
         # (2) a test that never touches either file goes on, with a note
         proc, record = crun(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
         check("other: a stale copy of an UNRELATED file is a note, and the probe goes on", proc.returncode == 0,
               proc.stdout + proc.stderr)
         check_eq("other: it answered", record.get("verdict"), "intended_failure")
-        notes = " ".join(record.get("notes") or [])
+        notes = said(record)
         check_in("other: the note names that file", "tests/other.py", notes)
         check_in("other: and its door", "--release-copy tests/other.py", notes)
         check_eq("other: that file is untouched", (root / "tests" / "other.py").read_bytes(), edited)
@@ -714,14 +735,15 @@ def a_live_probe_of_the_oracle_blocks_the_probe_that_needs_it(stub: Path) -> Non
     root = project()
     scratch = temp_dir("qa-copy-oracle-")
     try:
-        helper = root / "expectations.py"
+        helper = root / "tests" / "expectations.py"
         proc_h, state = holder(root, helper, scratch)
         try:
             check_eq("oracle lock: another process holds the helper's lock", state, "locked")
+            model_entries(root, stub, f"{TEST_FILE_REL}::test_via_helper", "test_via_helper")    # t-2064 P4b: the wrapper's own file, before the snapshot
             before = tree_without_locks(root)
             proc, payload = crun(root, stub, f"{TEST_FILE_REL}::test_via_helper", "test_via_helper")
             check_eq("oracle lock: the probe whose oracle that is is refused", (proc.returncode, payload.get("status")), (2, "refused"))
-            check_in("oracle lock: naming the helper", "a probe of expectations.py is running", payload.get("error", ""))
+            check_in("oracle lock: naming the helper", "a probe of tests/expectations.py is running", payload.get("error", ""))
             check_eq("oracle lock: tree unchanged", tree_without_locks(root), before)
             proc, record = crun(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
             check_eq("oracle lock: a test that does not need it is not blocked", (proc.returncode, record.get("verdict")),
@@ -748,15 +770,19 @@ def an_unverified_restore_keeps_the_copy_and_names_it(stub: Path) -> None:
         check("unverified: the restore had a DIRECTORY at the file's path to write to (no privilege bypasses that)",
               path.is_dir())
         restore = record.get("restore") or {}
-        check_eq("unverified: the restore says it was not verified and the copy was kept",
-                 (restore.get("verified"), restore.get("copy_kept")), (False, True))
+        # t-2064 P4b (old -> new): `restore.copy_kept` is not in the aggregate's `restore` ({verified, sha256, runs, error}); that the copy was kept
+        # is the next pin (both files are on disk). What this pin keeps: the restore says it was NOT verified
+        check_eq("unverified: the restore says it was not verified", restore.get("verified"), False)
         check_eq("unverified: both files are kept (never deleted before the verification)", (orig.is_file(), meta.is_file()),
                  (True, True))
         check_eq("unverified: the copy still holds the original", orig.read_bytes(), original)
         # the probe resolves the project root (a temp dir may be spelled 8.3 on Windows); so does this
-        check_in("unverified: stderr names the one move that undoes it", f"copy {orig.resolve()} over {path.resolve()}",
+        # PRODUCT QUESTION 15 (t-2064-p4b2t3-report.md): the walk's stderr line says "could not be verified restored (sha256 None) - stop and restore
+        # <file> by hand": it names neither the copy to put back (`copy <orig> over <file>`) nor the sha of the author's bytes (it prints None);
+        # the old road's line named both (FR-1: what to do and how). Both pins stay RED
+        check_in("unverified: stderr names the one move that undoes it (PRODUCT QUESTION 15)", f"copy {orig.resolve()} over {path.resolve()}",
                  proc.stderr)
-        check_in("unverified: and the sha of the bytes it could not put back", PBC.sha256(original), proc.stderr)
+        check_in("unverified: and the sha of the bytes it could not put back (PRODUCT QUESTION 15)", PBC.sha256(original), proc.stderr)
         check_eq("unverified: no receipt (a receipt vouching for a restore nobody verified)", record.get("receipt"), None)
         check("unverified: the mutated bytes the runner saw are not the author's", kept.read_bytes() != original)
         # the file is not there to probe: a refusal, and the copy stays
@@ -769,7 +795,7 @@ def an_unverified_restore_keeps_the_copy_and_names_it(stub: Path) -> None:
         path.write_bytes(kept.read_bytes())
         proc, answer = crun(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
         check("unverified: writable again, the next probe goes on", proc.returncode == 0, proc.stdout + proc.stderr)
-        check_in("unverified: and says it recovered the file", f"recovered {TEST_FILE_REL}", " ".join(answer.get("notes") or []))
+        check_in("unverified: and says it recovered the file", f"recovered {TEST_FILE_REL}", said(answer))
         check_eq("unverified: the author's bytes are back", path.read_bytes(), original)
         check_eq("unverified: and the copy is gone", copies_in(root), [])
     finally:
@@ -787,14 +813,19 @@ def no_copy_no_mutation(stub: Path) -> None:
         folder = PBC.copy_dir(root)
         folder.parent.mkdir(parents=True, exist_ok=True)
         folder.write_text("a file where the folder of copies should be", encoding="utf-8")
+        model_entries(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")    # t-2064 P4b: the wrapper's own file, before the snapshot
         before = tree_without_locks(root)
         proc, payload = crun(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
-        check_eq("no copy: refused before any write (exit 2)", (proc.returncode, payload.get("status")), (2, "refused"))
-        check_in("no copy: the refusal says the file is not mutated without one", "not mutated without one", payload.get("error", ""))
-        check_in("no copy: and ends 'Nothing was changed'", "Nothing was changed", payload.get("error", ""))
-        check_eq("no copy: the author's bytes and mtime are untouched, no record written", tree_without_locks(root), before)
+        # PRODUCT QUESTION 16 (t-2064-p4b2t3-report.md): `begin_copy` failing (probe_by_code.py:3755, a FILE where the folder should be) is caught
+        # per row by the walk (:6353): exit 1, the row `incomplete` cause `tooling` with the failure in its note, the aggregate and the check's
+        # record WRITTEN, no refusal "not mutated without one" and no "Nothing was changed". The invariant itself holds (the bytes below are the
+        # author's; `restore.runs` 0: nothing was mutated). The pins about the REFUSAL stay RED
+        check_eq("no copy: refused before any write (exit 2) (PRODUCT QUESTION 16)", (proc.returncode, payload.get("status")), (2, "refused"))
+        check_in("no copy: the refusal says the file is not mutated without one (PRODUCT QUESTION 16)", "not mutated without one", payload.get("error", ""))
+        check_in("no copy: and ends 'Nothing was changed' (PRODUCT QUESTION 16)", "Nothing was changed", payload.get("error", ""))
+        check_eq("no copy: the author's bytes and mtime are untouched, no record written (PRODUCT QUESTION 16)", tree_without_locks(root), before)
         check_eq("no copy: bytes", path.read_bytes(), original)
-        check_eq("no copy: no probe record", read_record(root, "test_add"), {})
+        check_eq("no copy: no probe record (PRODUCT QUESTION 16)", read_record(root, "test_add"), {})
     finally:
         cleanup(root)
         cleanup_beside(root)

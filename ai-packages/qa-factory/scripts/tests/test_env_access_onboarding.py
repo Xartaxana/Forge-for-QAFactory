@@ -16,8 +16,6 @@ from config_contract import (ACCESS_KINDS, access_errors, canonical_template,
                              environment_errors, environment_key_errors, validate)
 from project_inventory import (KIND_PRIORITY, access_discovery, key_role, render_access)
 
-PHASES = Path(__file__).resolve().parents[2] / "skills" / "qa-onboarding" / "phases"
-
 CLIENT_FACTORY = '''
 from testproject1_sdk import TestProject1Client
 from .credentials_manager import CredentialsManager
@@ -220,27 +218,6 @@ def main() -> None:
     check_eq("a config written by this version passes its own probe",
              environment_key_errors(ok_block, present, strict_integrations=True), [])
 
-    # --- the phases carry the rule ------------------------------------------------------
-    p1 = (PHASES / "p1-discovery.md").read_text(encoding="utf-8")
-    p2 = (PHASES / "p2-interview.md").read_text(encoding="utf-8")
-    p4 = (PHASES / "p4-generate.md").read_text(encoding="utf-8")
-    check_in("p1 runs the access discovery", "--access", p1)
-    check_in("p2 asks which access scheme is the one", "access.kind", p2)
-    # OH3-8 (old -> new): p2 asked "which area or profile needs a code-only key" (pin: `required_by` in p2). The person is not
-    # asked about keys any more: the keys of the DoD are quoted verbatim from the spec, with a control that CAN fail (a
-    # string known to stand in p2 is found by the same helper)
-    def says(text: str, needle: str) -> bool:
-        return needle in text
-    check("K-B5 control: the helper finds a string that is in p2", says(p2, "access.kind"))
-    check("K-B5 negative control: and a string that is not in p2 is not found", not says(p2, "no such sentence 7f3a"))
-    for needle in ("who owns", "required_by", "which area or profile"):
-        check(f"K-B5: p2 no longer asks about keys: {needle!r} is gone", not says(p2, needle))
-    for needle in ("integration_proposals", "credential_alternatives"):
-        check(f"K-B5: p1 carries the writer's rule: {needle!r}", says(p1, needle))
-    for needle in ("read_at", "credential_alternatives"):
-        check(f"K-B5: p4 writes the new fields: {needle!r}", says(p4, needle))
-    check("K-B5: p4 no longer writes the old row form", not says(p4, "{name, keys, owner, required_by}"))
-
     # --- HF8-11: the form of the new row fields, and the legal row with a place and no area -----------------------
     def errs(**fields) -> list:
         return environment_errors({"integrations": [dict({"name": "j", "keys": ["A_ONE", "B_ONE"]}, **fields)]})
@@ -284,33 +261,11 @@ def main() -> None:
              environment_key_errors(sets, present, strict_integrations=True))
     sets["integrations"][0]["read_at"] = ["tests/test_a.py:4"]
     check_eq("K-A12: sets with a place: an unset set is no error", environment_key_errors(sets, present, strict_integrations=True), [])
-    accounts_tests(p1, p2, p4)
-    check_in("p4 stores the proof, not prose", "login_probe", p4)
-    check_in("p4 runs the deterministic key check", "--check-environment", p4)
-    check_in("OH3-10: p2 has the person confirm the login body fields phase 1 found", "confirm what phase 1 found", p2)
-    check_in("OH3-10: p2 names both body field keys", "`user_field`, `secret_field`", p2)
-    check_in("OH3-10: p4 writes the body field names from the login proof (login.accepted_fields)",
-             "`login.accepted_fields`", p4)
-    check_in("OH3-10: ... into access.user_field", "access.user_field", p4)
-    # EP1-31 (t-506 5.4 #7): the keys are quoted from the spec's DoD; the negative control is `says` above
-    flat4 = " ".join(p4.split())
-    for needle in ("only through the sign-in page", "url_not", "manual_capture.login.http", "I do not know"):
-        check(f"EP1-31: p4 tells the role how a manual capture signs in: {needle!r}", says(flat4, needle))
-    check("EP1-31 negative control: a sentence p4 does not hold is not found", not says(flat4, "sign in through the moon 7f3a"))
-    # RN1-3: the UI on the API's own address; the keys are quoted verbatim from the spec's DoD (§2.1.c, §2.1.d), the control CAN fail
-    flat2, flat1 = " ".join(p2.split()), " ".join(p1.split())
-    check("K-RN3-P0 negative control: a sentence the phases do not hold is not found", not says(flat4, "the UI lives on the moon 9c1e")
-          and not says(flat2, "the UI lives on the moon 9c1e"))
-    check("K-RN3-P1: p2 says where the UI is when the UI tests open the base key", says(flat2, "the UI is on the API's own address"))
-    check("K-RN3-P2: p2 proposes the base key by name", says(flat2, "propose <base_url_key>"))
-    check("K-RN3-P3: p4 writes url_key = the base key when topic 2 confirmed it", says(flat4, "url_key = <base_url_key>"))
-    check("K-RN3-P4: p4 leaves url_key empty only for a stand with no UI", says(flat4, "no UI tests and no UI profile"))
-    check("K-RN3-P5: p4's login.record paragraph carries the duration", says(flat4, "seconds"))
-    check("K-RN3-P6: p1 hands the role the fact it judges from", says(flat1, "`frontend_same_origin`"))
+    accounts_tests()
     finish("test_env_access_onboarding")
 
 
-def accounts_tests(p1: str, p2: str, p4: str) -> None:
+def accounts_tests() -> None:
     """HF8-9: the accounts of a stand - the check of the names a role's note holds (K-9.7) and the phases that carry the rule (K-9.8)."""
     from config_contract import environments_account_errors, reserved_role
     held = ["AUTH_USERNAME", "AUTH_PASSWORD", "QA_SECOND_USER_EMAIL", "QA_SECOND_USER_PASSWORD"]
@@ -373,27 +328,9 @@ def accounts_tests(p1: str, p2: str, p4: str) -> None:
              "AUTH_USERNAME / AUTH_PASSWORD. Which role is each account on the stand - an administrator, a plain user, or not an account "
              "of the stand at all?\n\n## How to answer\n\nWrite one role for each pair, in your own words.\n")
     check_eq("K-9.7 the question about the accounts breaks no rule of human-questions.md", human_text.problems(asked), [])
-    # K-9.8: the keys of the phase texts, quoted from the DoD before the run; the control CAN fail
-    def says(text: str, needle: str) -> bool:
-        return needle in text
-    check("K-9.8 control: the helper finds a string that is in p2", says(p2, "access.kind"))
-    check("K-9.8 negative control: and a string that is not in p4 is not found", not says(p4, "no such sentence 91cc"))
-    for name, text, needle in (("p2", p2, "account_pairs"), ("p2", p2, "which role"), ("p4", p4, "credentials_by_role"),
-                               ("p1", p1, "account_pairs"), ("p1", p1, "not a sign-in to the stand")):
-        check(f"K-9.8 {name} carries {needle!r}", says(text, needle))
-    # F10 (fix round 2): the re-onboarding paragraph that calls the access question "the whole of topic 2" names the pairs question too
-    flat = " ".join(p2.split())
-    check("F10 p2 re-onboarding: the access question is the whole of topic 2 together with the pairs question",
-          says(flat, "*whole* of topic 2 together with the pairs question above (for `account_pairs` not yet recorded as roles)"))
-    check("F10 negative control: the old wording alone is gone", not says(flat, "this question is the *whole* of topic 2 — stands,"))
-    # OH3-40: S4's door for an account already recorded with another pair names `--replace` (the CART-1 case); the first-move question
-    # of the node ("does `account_pairs` read a `.env.local`?") is answered by a fixture, not by a line of the remainder
-    s4 = (PHASES.parents[1] / "qa-story" / "phases" / "s4.md").read_text(encoding="utf-8")
-    flat_s4 = " ".join(s4.split())
-    check("OH3-40 s4 names `--replace` beside `stand-account` for a role recorded with another pair",
-          says(flat_s4, "stand-account --role \"<role>\" --user-key <U> --secret-key <S> --words-file <file>` (a role the stand already records "
-                        "with another pair is refused until the person's words say to change it: then add `--replace`)"))
-    check("OH3-40 s4 negative control: the old sentence without the flag is not there", not says(flat_s4, "--words-file <file>`; for the address,"))
+    # (the role-text keys of the phases and of s4 are rows of design/role-rules.json)
+    # OH3-40: the first-move question of the node ("does `account_pairs` read a `.env.local`?") is answered by a fixture,
+    # not by a line of the remainder
     root = temp_dir("qa-oh3-40-pairs-")
     try:
         (root / ".env.local").write_text("USER_EMAIL=sentinel-a\nUSER_PASSWORD=sentinel-b\n", encoding="utf-8")

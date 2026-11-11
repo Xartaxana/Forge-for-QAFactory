@@ -1,0 +1,1 @@
+- `question_register.py --raise --from-handoff` now reads a relative path against the story folder (the form the driver passes, `work/handoffs/<dispatch>.yaml`), not against the process working directory; an absolute path is unchanged, a blank value is refused.

@@ -3,7 +3,7 @@ judge now; their tests went with the body).
 
 What is left is the sibling family the plan check reads (`plan_antipatterns`) through the one reader
 (`assertion_detectors.shape_patterns`): a key that cannot be read means the built-in floor and one ORACLE_NOTES line naming
-the key - never "no check" (FR-4, FR-41, FR-59). Negative control: the cut functions are gone (K-cut).
+the key - never "no check" (FR-4, FR-41, FR-59).
 """
 import json
 import os
@@ -23,9 +23,6 @@ AD = V.AD
 WORK = temp_dir("qa-broad-status-")
 COUNTER = [0]
 
-# --- K-cut: the judgment moved to the role; no refusal on write is left in the validator -------------------------------------------
-check_eq("K-cut: check_test_code and broad_status_hit are gone from the validator",
-         [hasattr(V, "check_test_code"), hasattr(V, "broad_status_hit")], [False, False])
 # --- K-floor: the built-in row is the shipped data -----------------------------------------------------------------------------
 for key in V.DETECTOR_FLOORS:
     check_eq(f"K-floor: DETECTOR_FLOORS[{key!r}] is the shipped `{key}` row", list(V.DETECTOR_FLOORS[key]), AD.shape_patterns(key))

@@ -423,24 +423,32 @@ def k10_report_line():
         (state / "created-accounts.json").write_text(json.dumps({"accounts": [{"name": "qa-factory-a"}]}), encoding="utf-8")
         check_in("K10 the line is in the block that lists the checks", "Users this story created on the stand: qa-factory-a",
                  RF.manual_checks_text(t.task))
+        # TR3-10 A (F15): an `unconfirmed` row is no user the report may promise
+        path = state / "created-accounts.json"
+        row = lambda n, **x: {"name": n, "case": "C", "at": "t", "endpoint": "/v1/users", **x}      # noqa: E731
+        path.write_text(json.dumps({"accounts": [row("qa-factory-ok"), row("qa-factory-bad", status="unconfirmed", reason="refused")]}), encoding="utf-8")
+        line = RF.created_accounts_line(t.task)
+        check_eq("K10 created_line_leaves_out_unconfirmed", ("qa-factory-ok" in line, "qa-factory-bad" in line, line.endswith("; 1 sign-up(s) not confirmed.")),
+                 (True, False, True))
+        path.write_text(json.dumps({"accounts": [row("qa-factory-bad", status="unconfirmed"), row("qa-factory-bad2", status="unconfirmed")]}),
+                        encoding="utf-8")
+        check_eq("K10 created_line_only_unconfirmed", RF.created_accounts_line(t.task),
+                 "Users this story tried to create on the stand: none was confirmed (2 sign-up(s) not confirmed).")
+        import manual_capture as MC
+        MC.AccountDoubts(t.task).add("env:A/B", "the page said wrong password", "C")
+        path.write_text(json.dumps({"accounts": [row("qa-factory-bad", status="unconfirmed", reason="the form came back")]}), encoding="utf-8")
+        line = RF.unconfirmed_accounts_line(t.task)
+        check_in("K10 unconfirmed_line_names_both_kinds: the created user and its reason", "qa-factory-bad (created: the form came back)", line)
+        check_in("K10 unconfirmed_line_names_both_kinds: the given account and its why", "the stand's account env:A/B (given: the page said wrong password)", line)
+        check_in("K10 the line is in the checks block", "Accounts the checks could not confirm", RF.manual_checks_text(t.task))
+        MC.account_doubts_path(t.task).write_text("{broken", encoding="utf-8")
+        check_eq("K10 unconfirmed_line_unreadable_is_unknown", RF.unconfirmed_accounts_line(t.task),
+                 "Accounts the checks could not confirm: unknown - the record of them cannot be read.")
+        MC.account_doubts_path(t.task).unlink()
+        path.write_text(json.dumps({"accounts": [row("qa-factory-ok")]}), encoding="utf-8")
+        check_eq("K10 no_unconfirmed_no_line", RF.unconfirmed_accounts_line(t.task), "")
     finally:
         S.cleanup(t)
-
-
-def k11_texts():
-    pkg = HERE.parent.parent
-    # the runner charter names the `--as default` door and points to manual-evidence.md for the other forms of `--as` (a byte cap
-    # on the charter, EP1-41f); the form `--as env:USER_KEY/SECRET_KEY` itself is pinned in the reference below
-    texts = {"agents/qa-runner.md": ["--as default", "the forms of `--as`", "never a global admin", "{generated_username}"],
-             "references/manual-evidence.md": ["--as default", "--as env:USER_KEY/SECRET_KEY", "never a global admin", "created_account"],
-             "agents/qa-case-designer.md": ["kind: account", "stand_account"]}
-
-    def missing(keys, text):
-        return [k for k in keys if k not in text]
-    for rel, keys in texts.items():
-        check_eq(f"K11 {rel}: every key is present", missing(keys, (pkg / rel).read_text(encoding="utf-8")), [])
-    check_eq("K11 NEGATIVE control: a key that is not in the text is reported", missing(["--as NO-SUCH-FORM"], (pkg / "agents/qa-runner.md").read_text(encoding="utf-8")),
-             ["--as NO-SUCH-FORM"])
 
 
 def k27_3_the_role_is_read_through_one_reader():
@@ -648,7 +656,6 @@ def main():
     k8_the_question_sees_the_actors()
     k9_old_and_unreadable_requests()
     k10_report_line()
-    k11_texts()
     finish("test_manual_actor")
 
 

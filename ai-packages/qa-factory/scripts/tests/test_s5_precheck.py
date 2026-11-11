@@ -848,7 +848,7 @@ def precheck_is_project_agnostic() -> None:
                  "contradictions or smells - the code critic reads them", result["notes"])
         quiet_ok = {"ok": True, "findings": [], "hints": [], "notes": [], "cases": ["TC-500"], "unchecked": []}
         legacy_line = ("OK: S5 exit checks pass for 1 case(s) (manifest invariants, Then bindings, oracle, run "
-                       "mapping, test smells, obligation bindings).\n")
+                       "mapping, obligation bindings).\n")
         check_eq("K-C4 (E-C8): a Python-only OK line is byte for byte the line it always was", printed(quiet_ok), legacy_line)
         check_eq("K-C4 (E-C8): ... and so is a result of the older shape that has no `unchecked` key at all",
                  printed({k: v for k, v in quiet_ok.items() if k != "unchecked"}), legacy_line)
@@ -858,7 +858,7 @@ def precheck_is_project_agnostic() -> None:
             {"case": "TC-501", "file": "ui/login.spec.ts", "checks": list(P.UNCHECKED_CHECKS)}]))
         check_eq("K-C4: the OK line names each unchecked file once and claims nothing for it", left,
                  "OK: S5 exit checks pass for 1 case(s) (manifest invariants, Then bindings, oracle, run mapping, "
-                 "test smells, obligation bindings), except 2 test file(s) not checked by code for their Then "
+                 "obligation bindings), except 2 test file(s) not checked by code for their Then "
                  "assertions, contradictions or smells (the code critic reads them in full): "
                  "tests/ValidateTests.cs, ui/login.spec.ts.\n")
         critic = " ".join((Path(P.__file__).resolve().parents[1] / "agents" / "qa-code-critic.md")
@@ -872,7 +872,7 @@ def precheck_is_project_agnostic() -> None:
             check_eq("K-C4 (E-C8): a story with no non-Python file has an empty `unchecked`", done["unchecked"], [])
             check_eq("K-C4 (E-C8): ... and its printed result is the legacy line, nothing else",
                      printed(done), "OK: S5 exit checks pass for 0 case(s) (manifest invariants, Then bindings, "
-                     "oracle, run mapping, test smells, obligation bindings).\n")
+                     "oracle, run mapping, obligation bindings).\n")
         finally:
             cleanup(py_only)
 
@@ -3038,8 +3038,10 @@ def the_verdict_is_one_line_per_finding() -> None:
              verdict["refused"], ["", "family", "family"])
     check("the refusal lines stand ABOVE the header", all(i < heads[0] for i, line in enumerate(lines)
           if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)) and out.count(DETV.WORDS_REFUSED_AT_SOURCE) == 2, out[:300])
-    check_in("the footer names the door for the passable families and the tag", "an [environment] or [obligations] "
-             "finding or a changed-after-red one", out)
+    # the footer joins every tag of WORD_PASSABLE_TAGS (sides-undeclared and provisional-open-on-real joined changed-after-red later)
+    check_in("the footer names the door for the passable families and the tags", "an [environment] or [obligations] "
+             "finding or a " + " or ".join(P.WORD_PASSABLE_TAGS) + " one", out)
+    check_in("...the first tag is still changed-after-red", "finding or a changed-after-red or ", out)
     check_in("...and says no word passes the rest, `*` included", "no recorded word, `*` included, passes any other "
              "finding", out)
     check_not_in("...and never names `--block \"*\"` as a door", '--block "*"', out)
@@ -3160,7 +3162,7 @@ def a_broad_word_covers_only_what_existed() -> None:
 
 def the_could_not_judge_road_is_said_the_same_everywhere() -> None:
     """F-cj (FR-10): ONE road, one sentence, in every place that states it: the vocabulary, the rubric dim 9,
-    the critic's charter step 1c, the window's gap row, the brief's line and the writer's refusal."""
+    the critic's charter (the changed-after-red bullet), the window's gap row, the brief's line and the writer's refusal."""
     road = "the conductor records the window as unresolved with the reason"
     package = Path(__file__).resolve().parents[2]
 
@@ -3172,7 +3174,7 @@ def the_could_not_judge_road_is_said_the_same_everywhere() -> None:
     places = {
         "vocabulary.yaml (could_not_judge)": handoff.vocabulary()["expectation_change_verdicts"]["could_not_judge"],
         "code-review-rubric.md (dim 9)": (package / "references" / "code-review-rubric.md").read_text(encoding="utf-8"),
-        "qa-code-critic.md (step 1c)": (package / "agents" / "qa-code-critic.md").read_text(encoding="utf-8"),
+        "qa-code-critic.md (the changed-after-red bullet)": (package / "agents" / "qa-code-critic.md").read_text(encoding="utf-8"),
         "window_record.GAP_ORIGIN": " ".join(window_record.change_origin("could_not_judge")),
         "manifest_put refusal": " ".join(M.expectation_change_problems([{
             "function": KEY, "red_attempt": "r1", "green_attempt": "g1", "critic_verdict": "could_not_judge"}],

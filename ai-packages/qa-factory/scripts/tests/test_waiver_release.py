@@ -587,9 +587,6 @@ def standing_refusal(root: Path, task_id: str) -> None:
     check("M3: ...and the temporal edge as it is now: the driver writes and erases the record, no record = silent (no `dormant` left)",
           "the driver writes the record when the seam is called for a refusal" in waiver.__doc__
           and "with no record the refusal is silent" in waiver.__doc__ and "dormant" not in waiver.__doc__, "")
-    skill = (SCRIPTS.parent / "skills" / "qa-story" / "SKILL.md").read_text(encoding="utf-8")
-    check_eq("M2: SKILL.md teaches no `the guard checked`, and the door's word as `not verified`",
-             ("the guard checked" in skill, "`not verified` (its own door too: run the step again)" in skill), (False, True))
     many_doors = [f"door number {n:02d}" for n in range(1, 22)]
     standing_pipeline(task_dir, task_id, done_through="S8")
     put_standing(task_dir, "S9", ["a line"], doors=many_doors)

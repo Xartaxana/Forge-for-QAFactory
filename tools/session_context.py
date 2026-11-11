@@ -584,6 +584,19 @@ def last_calibration_line(events: list, now: datetime.datetime = None) -> str:
         return f"Last calibration: {ts} (age unknown -- unparsable ts)"
 
 
+def test_quarantine_line(root) -> list:
+    """Spec td-15 D.5 (1): the test-quarantine status lines (files only, no network). No layers file or
+    an empty quarantine: no lines. Any failure: one 'unavailable' line -- the session start never fails here."""
+    try:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import test_quarantine
+        return [str(x) for x in test_quarantine.status_line(root)]
+    except Exception as exc:  # noqa: BLE001 -- fail-open by design
+        return [f"TEST QUARANTINE: unavailable ({_ascii_sanitize(f'{type(exc).__name__}: {exc}', 120)})"]
+
+
 def gemini_aliases(config: dict) -> list:
     """Gateway aliases whose RAW litellm_params.model starts with
     'gemini/' -- Gemini free tier limits per-model requests/day, not
@@ -2182,6 +2195,7 @@ def build_context_lines(
         lines.append(f"JOURNAL FILES: {_ascii_sanitize(shown, 240)}")
 
     lines.append(last_calibration_line(events, now))
+    lines.extend(test_quarantine_line(root))
     lines.extend(quota_lines(gateway_root, now))
     lines.extend(boot_budget_lines(root))
 

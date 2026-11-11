@@ -37,7 +37,6 @@ FR-6: `human_text` rejects `S5-qa-code-critic-6` in a text for a person). The id
 """
 import argparse
 import json
-import math
 import sys
 import time
 from datetime import datetime, timezone
@@ -400,7 +399,12 @@ def _block_position(root, controller_state, dispatches, primary, task):
         covered = {c for b in blocks for c in b["cases"]}
         left = [c for c in scope.get("scope") or [] if str(c) not in covered]
         import controller
-        total = len(blocks) + math.ceil(len(left) / controller.MANUAL_WINDOW_CASES)
+        # t-1957 N5s (E5s.9, AR-19): the lanes still to walk are counted by the function the driver and the door cut them with
+        try:
+            keys = controller.lane_keys(root, left)
+        except Exception:
+            keys = {}                 # unreadable: every case a lane of its own (an account is never guessed)
+        total = len(blocks) + len(controller.walk_lanes(left, keys, controller.MANUAL_WINDOW_CASES))
     return {"kind": "block", "block": index, "blocks_total": total,
             "cases": [_short_case(c, task) for c in mine], "dispatch": (anchor or {}).get("id")}
 

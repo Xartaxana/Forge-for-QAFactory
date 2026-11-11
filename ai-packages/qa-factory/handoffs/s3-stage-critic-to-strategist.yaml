@@ -12,7 +12,7 @@ from_role: qa-case-critic
 to_role: qa-test-strategist          # on `ok` the same file closes S3 instead
 
 inputs:
-  - path: work/handoffs/<the strategist's dispatch>.yaml
+  - path: work/handoffs/<the author's dispatch>.yaml
     what: the strategist's handoff for this stage, with its `tried` table
     required: true
   - path: work/test-plan.json
@@ -28,12 +28,17 @@ inputs:
     what: what the stage's advisers printed (absent on a first run: say so in `advice_read`)
     required: false
 
+# The author row only; add a row of your own for each further input you read.
 inputs_read:
-  - path: <path exactly as listed in inputs>
+  - path: work/handoffs/<the author's dispatch>.yaml
     version: <the file's sha256, or omit for an unversioned input>
 
 required_when:
   concerns: [stage_acceptance, questions]
+
+rows_owed_when:
+  concerns: [findings]
+  review: [findings]
 
 header:
   role: qa-case-critic

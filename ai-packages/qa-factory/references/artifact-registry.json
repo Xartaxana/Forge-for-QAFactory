@@ -310,6 +310,16 @@
       "retention": "task",
       "delivery": false,
       "schema": "json"
+    },
+    "interim-report.md": {
+      "path": "interim-report.md",
+      "producer": "interim_packet",
+      "consumers": [
+        "human"
+      ],
+      "retention": "task",
+      "delivery": false,
+      "schema": "markdown"
     }
   },
   "unknown_machine_path": "work/{name}"

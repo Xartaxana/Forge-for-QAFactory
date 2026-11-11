@@ -44,6 +44,6 @@ A charter has no `roles` marker.
 
 ## Where the form lives
 
-This document is the human description (FR-44: it is read by whoever changes the factory, so it lives in `design/`). The machine
+This document is the human description (FR-44: it is read by whoever changes the factory, so it lives in `references/`). The machine
 form is `CHARTER_SECTIONS` in `scripts/charter.py`. There is deliberately no template file under `agents/`: every `agents/*.md`
 is loaded by the host as a role and walked by audits A19, A9 and A2b.

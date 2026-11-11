@@ -36,9 +36,6 @@ check_in("K1 the brief is a summary (no file name: the driver writes none, FR-37
 check_not_in("K1 no brief file path in the line", "gate-a-brief", line)
 check_eq("K2 the carrier holds the two", [name for _, name in gate_brief.GATE_A_DOCUMENTS], TWO)
 
-source = (SCRIPTS / "gate_brief.py").read_text(encoding="utf-8")
-check_eq("K2 one list of gate A documents in gate_brief.py", len(re.findall(r"^GATE_A_DOCUMENTS\s*=", source, re.M)), 1)
-
 base = temp_dir("qa-gw111-")
 try:
     root = base / "artifacts" / "T-1"

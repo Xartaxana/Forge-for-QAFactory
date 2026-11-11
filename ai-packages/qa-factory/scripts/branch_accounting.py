@@ -1941,6 +1941,16 @@ def _s5_window(task_root):
         return None, [], exc
 
 
+def _s5_running_count(task_root) -> int:
+    """How many S5 automators are running (by `s5_precheck.dispatch_ids`, the one reader); 0 when the state cannot be read: the
+    cause text then falls to its old wording, and the unreadable state itself is `_s5_window`'s `error`, said first."""
+    try:
+        import s5_precheck as S5
+        return len(S5.dispatch_ids(Path(task_root), "running"))
+    except Exception:
+        return 0
+
+
 def s5_scope(task_root):
     """The cases of the S5 window the exit judges: the dispatch `_s5_window` found, then `dispatch_scope` of it (the two readers,
     AR-13). Two returned, none, an unreadable or an empty scope: `UNKNOWN_SCOPE` - never None and never "every case" (RN1-26).
@@ -1969,7 +1979,11 @@ def s5_check(task_root) -> dict:
             elif found:
                 cause = f"dispatch {found} has an empty scope"
             else:
-                cause = f"no running qa-automator dispatch and {len(returned) or 'none'} returned unaccepted"
+                running = _s5_running_count(task_root)
+                if running >= 2:
+                    cause = f"{running} automators are running and none was named (QA_FACTORY_DETECTOR_DISPATCH / QA_FACTORY_DRIVER_RUN)"
+                else:
+                    cause = f"no running qa-automator dispatch and {len(returned) or 'none'} returned unaccepted"
             raise Unreadable(f"the S5 window's scope could not be read: {cause}; state/controller.json dispatches")
         return s5_problems(task_root, text, branches, scope)
     return _stage_check(task_root, "the branches of the manifest (`then_bindings`, `unresolved`)",

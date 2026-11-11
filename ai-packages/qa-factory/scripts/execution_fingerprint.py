@@ -33,7 +33,7 @@ from profile_contract import ACCEPTS, acceptable_provenance, refusal_text, valid
 RECORD_EXAMPLE = '{"path": "tests/test_x.py", "sha256": "<64 hex>"}'
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 # What `build` reads of a specification (AR-13, AR-10): the keys that must be there, and the keys that hold lists of inputs.
-# The runner is told both before the work (agents/qa-runner.md step 9, references/execution-lifecycle.md; t-1355 N2-K7).
+# The runner is told both before the work (agents/qa-runner.md, references/execution-lifecycle.md; t-1355 N2-K7).
 SPEC_REQUIRED = ("source_revision", "test_files", "config_files", "dependency_files", "runtime_provenance", "profile_id")
 SPEC_FILE_LISTS = ("test_files", "helper_files", "config_files", "dependency_files")
 

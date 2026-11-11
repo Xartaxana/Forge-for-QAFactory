@@ -45,6 +45,18 @@ truncates:
                           each row it dropped. A key that names no row, or a row an earlier revision
                           already dropped, is refused; so is a fragment that sends the row of a case and
                           retracts it. `[]` retracts nothing
+  provisional[]           by `id` (`P-<n>`, t-2181 PC-3): what a test ASSUMES rather than observed. A field the patch
+                          omits survives, so a status or an `evidence` is one more small fragment. `home_hash` is built
+                          HERE, before the commit, from the line that carries the marker `qa-provisional: P-n` in the
+                          row's `home.file` (wherever the line is; `home.line_hint` is a hint only): a hash a role sends is
+                          dropped, a patch that carries no `home` keeps the stored hash, and a marker that is not found
+                          leaves the row with no hash and is printed. The baseline is taken only while the row is open (stored
+                          open or absent AND open after the patch): once a row settles it keeps the hash it had, and the
+                          tool stamps `evidence.home_hash_after` (the marked line now; a role-sent value is dropped).
+                          `tests[].provisional` (`[P-n]`) merges with the other fields of the test row. A non-list
+                          `provisional`, a row that is no object, an id that is not `P-<n>` or repeats, and a bad
+                          `tests[].provisional` are refused before the commit. `retracted_provisional: ["P-n"]` is the door
+                          out: the row stays with `status: retracted`; an id that names no row is refused
   self_fixes[], runs[]    appended; a line another role wrote is never edited
   obligation_bindings[]   by obligation id, and the id is the PLAN's
                           (`coverage_obligations[].obligation_id`, verbatim): a fragment
@@ -136,6 +148,11 @@ BY_RECORD = ("expectation_changes",)
 BY_HELPER = ("introduced_helpers",)
 HELPER_ROLE_FIELDS = ("purpose", "searched", "similar_found", "keep")
 HELPER_SCAFFOLD_FIELDS = ("file", "name", "novelty")
+# The assumptions registry (t-2181 PC-3): merged by the row's `id`; `retracted_provisional` is its door out. Both keys are the
+# merge's own, so the trailing "a scalar the fragment carries wins" loop must not copy them (`SCALAR_EXEMPT`).
+# `design/state-exits.md` has a row for it and `test_state_exits.py` walks this tuple.
+BY_ID = ("provisional",)
+RETRACT_PROVISIONAL = "retracted_provisional"
 VERDICTS_LIST = "expectation_change_verdicts"  # in handoffs/vocabulary.yaml (FR-13)
 # `runs[]` is a log — the same launch recorded twice is two facts about one launch only if
 # the role meant it, so only `self_fixes[]` is de-duplicated (self_fixes[1] and [2] of
@@ -145,7 +162,8 @@ DEDUPED = ("self_fixes",)
 # handled above by a rule of its own, and `retracted_obligations` is a manifest-level history,
 # not something a fragment sets; `retracted_unresolved` is the same kind (a history the retraction appends to).
 SCALAR_EXEMPT = {"expected_revision", "obligation_bindings", "retracted_obligations",
-                 "retracted_instances", "retracted_unresolved", "then_bindings", "retract", *BY_RECORD, *BY_HELPER}
+                 "retracted_instances", "retracted_unresolved", "then_bindings", "retract", RETRACT_PROVISIONAL,
+                 *BY_RECORD, *BY_HELPER, *BY_ID}
 # `retract` (RN1-22, LOCAL-1 run 3): the fragment's own sign "replace these top-level keys whole / take the Thens of a named
 # unit out". A list of key names, never stored. The three keys below have a door of their own and are refused here.
 RETRACT_KEY = "retract"
@@ -694,6 +712,152 @@ def _merge_helpers(merged: dict, fragment: dict, summary: dict) -> None:
             out.append(patch)
             summary["added"] += 1
     merged[key] = out
+
+
+def provisional_row_problems(current, fragment) -> list:
+    """One sentence per defect of the provisional keys of a fragment, [] when none is. Pure.
+
+    The refusals of the registry, asked by `_refuse_unmergeable` under the lock before the commit (never in `merge`, which
+    replays every event ever committed and must not raise): `provisional` is a list of rows; a row is an object whose `id` is
+    `P-<n>` and appears once in the fragment; `tests[].provisional` is a list of `P-<n>`; `retracted_provisional` is a list of
+    ids and each names a row the manifest (`current`) or this same fragment holds. The reader (`contract.manifest_provisional`)
+    stays tolerant of what is already stored."""
+    if not isinstance(fragment, dict):
+        return []
+    out, rows = [], fragment.get(BY_ID[0])
+    held = {C.provisional_id(r) for r in ((current or {}).get(BY_ID[0]) or []) if isinstance(r, dict)} \
+        if isinstance((current or {}).get(BY_ID[0]), list) else set()
+    if BY_ID[0] in fragment and not isinstance(rows, list):
+        out.append(f"`provisional` is a list of rows ({{id: \"P-<n>\", kind, what, status, home}}); it was sent as "
+                   f"{type(rows).__name__}")
+    seen = set()
+    for at, row in enumerate(rows if isinstance(rows, list) else []):
+        pid = C.provisional_id(row)
+        if not isinstance(row, dict):
+            out.append(f"provisional[{at}] is not an object (a row is {{id: \"P-<n>\", kind, what, status, home}})")
+        elif not C.PROVISIONAL_ID_RE.match(pid):
+            out.append(f"provisional[{at}] has the id {pid!r}, which is not of the form P-<n>")
+        elif pid in seen:
+            out.append(f"provisional[{at}] repeats the id {pid}: send one row per id")
+        else:
+            seen.add(pid)
+    for entry in fragment.get("tests") or []:
+        value = entry.get("provisional") if isinstance(entry, dict) else None
+        if value is None:
+            continue
+        label = f"tests[] {entry.get('instance_id') or '(no instance_id)'}: `provisional`"
+        if not isinstance(value, list):
+            out.append(f"{label} is a list of ids (e.g. [\"P-1\"]); it was sent as {type(value).__name__}")
+        else:
+            out.extend(f"{label} holds {item!r}, which is not of the form P-<n>" for item in value
+                       if not (isinstance(item, str) and C.PROVISIONAL_ID_RE.match(item.strip())))
+    if RETRACT_PROVISIONAL in fragment:
+        asked = fragment[RETRACT_PROVISIONAL]
+        if not isinstance(asked, list):
+            out.append(f"{RETRACT_PROVISIONAL} is a list of ids, e.g. [\"P-1\"]; it was sent as " + type(asked).__name__)
+        else:
+            unknown = [i for i in dict.fromkeys(str(x).strip() for x in asked if str(x).strip()) if i not in held | seen]
+            if unknown:
+                out.append(f"{RETRACT_PROVISIONAL} names no provisional[] row this manifest holds: " + ", ".join(unknown)
+                           + " - the ids are the `id` of the rows already sent through `manifest_put.py --fragment`")
+    return out
+
+
+def _open_or_absent(row) -> bool:
+    return str((row or {}).get("status") or "open").strip() == "open"
+
+
+def _merge_provisional(merged: dict, fragment: dict, summary: dict) -> None:
+    """`provisional[]` by `id` (see `BY_ID`), then the door `retracted_provisional`. Never raises (replay): what a fragment
+    may not send is refused earlier by `provisional_row_problems`.
+
+    A patch of a standing id lays its fields over the row (a field it omits survives, `home` and `evidence` are replaced as
+    wholes); a row with a new id is appended; a row with no usable id (only an old journal holds one) is appended untouched
+    and `contract.manifest_provisional` skips and names it. The baseline `home_hash` is taken from a patch ONLY when the
+    stored row is absent or open AND the row after the patch is open (E-P1): a row that settles, or has settled, keeps the
+    hash it was baselined with, so the settling check can tell an edited line from a moved one. The key stays absent from a
+    manifest no fragment ever sent it to (a story with every side real carries none), and an empty list SENT is the declared
+    empty outcome. A retraction keeps the row as history with `status: retracted`."""
+    key = BY_ID[0]
+    incoming = (fragment or {}).get(key)
+    if isinstance(incoming, list):
+        rows = [r for r in (merged.get(key) or []) if isinstance(r, dict)]
+        at = {}
+        for i, row in enumerate(rows):
+            at.setdefault(C.provisional_id(row), i)
+        for patch in (p for p in incoming if isinstance(p, dict)):
+            pid = C.provisional_id(patch)
+            stored = rows[at[pid]] if pid and pid in at else None
+            row = {**(stored or {}), **patch}
+            if not (_open_or_absent(stored) and _open_or_absent(row)):
+                if stored and "home_hash" in stored:
+                    row["home_hash"] = stored["home_hash"]
+                else:
+                    row.pop("home_hash", None)
+            if stored is not None:
+                rows[at[pid]] = row
+                summary["replaced"] += 1
+            else:
+                rows.append(row)
+                if pid:
+                    at[pid] = len(rows) - 1
+                summary["added"] += 1
+        merged[key] = rows
+    asked_raw = (fragment or {}).get(RETRACT_PROVISIONAL)
+    if not isinstance(asked_raw, list):
+        return
+    asked = set(str(i).strip() for i in asked_raw if str(i).strip())
+    out = []
+    for row in [r for r in (merged.get(key) or []) if isinstance(r, dict)]:
+        if C.provisional_id(row) in asked and row.get("status") != "retracted":
+            out.append({**row, "status": "retracted"})
+            summary["retracted_provisional"] = summary.get("retracted_provisional", 0) + 1
+        else:
+            out.append(row)
+    if key in merged or out:
+        merged[key] = out
+
+
+def stamp_provisional(fragment, project) -> tuple:
+    """(the fragment with its `provisional[]` rows stamped, [sentences to print]). Pure; the fragment it is given is not edited.
+
+    `home_hash` is built by the code, never typed by a role (AR-14): for a row that carries a `home.file` it is the hash of the
+    marked line found by its marker (`contract.marked_line_hash`), so the same line one row lower gives the same hash; a
+    marker that is not found leaves the row with an empty hash and a sentence naming the file and the marker (a message,
+    never a raise - the row itself is still the role's record). A row that carries no `home` has any `home_hash` it brought
+    removed. This is a candidate stamp only: whether `_merge_provisional` TAKES it (the baseline is kept once the row settles)
+    is decided there, under the lock, against the stored row. A row that moves to a `settled_*` status and carries a
+    `home.file` also gets `evidence.home_hash_after`, the hash of the marked line NOW, by the same function; a value a role
+    sent there is dropped, and a row that is not settling keeps none."""
+    rows = fragment.get(BY_ID[0]) if isinstance(fragment, dict) else None
+    if not isinstance(rows, list):
+        said = [f"`{BY_ID[0]}` was sent as {type(rows).__name__}, not a list of rows: nothing of it was merged"]             if isinstance(fragment, dict) and rows is not None else []
+        return fragment, said
+    out, said = [], []
+    for row in rows:
+        if not isinstance(row, dict):
+            out.append(row)
+            continue
+        row = dict(row)
+        pid = C.provisional_id(row)
+        home = row.get("home")
+        file = str(home.get("file") or "").strip() if isinstance(home, dict) else ""
+        if file:
+            digest, why = C.marked_line_hash(project, file, pid)
+            row["home_hash"] = digest
+            if why:
+                said.append(f"provisional {pid or '(no id)'}: no home_hash was recorded - {why}. Put the comment "
+                            "`qa-provisional: <id>` on the line of the locator, contract or mock in its home file and send the "
+                            "row again")
+        else:
+            row.pop("home_hash", None)
+        if isinstance(row.get("evidence"), dict) and "home_hash_after" in row["evidence"]:
+            row["evidence"] = {k: v for k, v in row["evidence"].items() if k != "home_hash_after"}
+        if file and str(row.get("status") or "").startswith("settled_"):
+            row["evidence"] = {**(row.get("evidence") if isinstance(row.get("evidence"), dict) else {}),
+                               "home_hash_after": C.marked_line_hash(project, file, pid)[0]}
+        out.append(row)
+    return {**fragment, BY_ID[0]: out}, said
 
 
 def _record_retractions(merged: dict, summary: dict, retracted: list) -> None:
@@ -1535,6 +1699,78 @@ def critic_approval_problems(fragment, stored_tests) -> list:
     return out
 
 
+def _changed_assertion_ids(fragment, stored_tests) -> list:
+    """`(index, row, id)` of the `tests[]` rows of the fragment that SEND an `assertion_id` the stored row of the same instance
+    does not already hold (a row with no stored twin is new, so its id is changed too). A row that re-sends its stored id, or
+    carries none, is not listed: an old manifest is not broken by an unrelated edit of another field of its row."""
+    rows = fragment.get("tests") if isinstance(fragment, dict) else None
+    stored = [t for t in (stored_tests if isinstance(stored_tests, list) else []) if isinstance(t, dict)]
+    out = []
+    for at, row in enumerate(rows if isinstance(rows, list) else []):
+        sent = row.get("assertion_id") if isinstance(row, dict) else None
+        if not isinstance(sent, str) or not sent.strip():
+            continue
+        spellings = _spellings(row)
+        if any(spellings & _spellings(t) and str(t.get("assertion_id") or "").strip() == sent.strip() for t in stored):
+            continue
+        out.append((at, row, sent.strip()))
+    return out
+
+
+def assertion_line_problems(fragment, stored_tests, project) -> tuple:
+    """`(problems, notes)` for the `assertion_id` of every `tests[]` row this fragment writes or changes (TR2-1, AR-13/AR-29).
+
+    A DATA cross-reference of an id to the file it names, not a judgment of the test: the id `<file>:<line>` must stand on a
+    line that holds a check by the ONE reader of "what is a check on this line", `probe_by_code.check_on_line` (a check counts
+    when it starts on the line or its statement spans it; a line that calls a helper is not refused). A line with no check is a
+    problem naming the line and the nearest check below (the door), or that none follows. An UNKNOWN is never a refusal and
+    never a silent pass (FR-59): an id not of the `<file>:<line>` form, a file outside the project root or unreadable, a
+    suffix with no reader entry, a file that does not parse, a line that calls a helper whose check this file does not hold
+    -> one note per such id, which `run` prints as one line. Pure over its arguments plus the read of the named files.
+    `probe_by_code` is imported only when a changed id exists: the cost is paid only then."""
+    changed = _changed_assertion_ids(fragment, stored_tests)
+    if not changed:
+        return [], []
+    import probe_by_code as PBC
+    root = Path(project).resolve()
+    problems, notes = [], []
+    for at, row, sent in changed:
+        shown = f"tests[{at}].assertion_id {sent}"
+        parsed = PBC._ASSERTION_ID.match(sent)
+        if not parsed:
+            notes.append(f"{shown} is not of the form <file>:<line>")
+            continue
+        name, line = parsed.group("file").replace("\\", "/"), int(parsed.group("line"))
+        try:
+            path = (root / name).resolve()
+            path.relative_to(root)
+        except (ValueError, OSError):
+            notes.append(f"{shown} names a file outside the project root")
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            notes.append(f"{shown} names a file that cannot be read ({type(exc).__name__})")
+            continue
+        try:
+            entry = PBC._reader_entry(PBC.parse_node(f"{name}::x", root))
+            facts = PBC.check_on_line(data, name, entry, line)
+        except (ValueError, RecursionError) as exc:       # a Refusal of the reader: no entry for the suffix, not UTF-8, no parse
+            notes.append(f"{shown} names a file the reader cannot read ({str(exc).split('.')[0][:120]})")
+            continue
+        if facts["found"] is not None:
+            continue
+        if facts["calls_helper"]:
+            notes.append(f"{shown} is a line that calls `{facts['calls_helper']}(`: the check it holds is not in this file")
+            continue
+        below = facts["nearest_below"]
+        door = (f"the nearest check below it starts at line {below['line']}: the id is `{name}:{below['line']}` when that is "
+                "the Then's check" if below else f"this test has no check below line {line}")
+        problems.append(f"{shown}: line {line} of {name} holds no check (none starts or spans there), and the id is the line "
+                        f"where the Then's check starts; {door}")
+    return problems, notes
+
+
 def merge(current: dict, fragment: dict) -> tuple:
     """(merged manifest, summary counts). Pure: the caller owns the file."""
     return _merge(current, fragment, {})
@@ -1717,6 +1953,7 @@ def _merge(current: dict, fragment: dict, trail: dict) -> tuple:
         merged, _dropped_spellings(current, [*spent, *(asked if isinstance(asked, list) else ())]), summary)
     _merge_expectation_changes(merged, fragment, summary)
     _merge_helpers(merged, fragment, summary)
+    _merge_provisional(merged, fragment, summary)
     if "then_bindings" in (fragment or {}):
         rows = fragment["then_bindings"]
         if isinstance(rows, list):
@@ -1977,7 +2214,8 @@ def _refuse_unmergeable(folded: dict, fragment: dict, task: str) -> None:
     # After the merge's own refusals (their words win), against the same `folded` and under the same lock (HF3-2): the
     # ghost of a retracted instance is a property of the manifest as it stands, so it is asked HERE and not in `run`, which
     # reads the manifest without the lock - and not in `merge`, which replays old journals.
-    problems = ghost_row_problems(folded, fragment, task) + helper_row_problems(folded, fragment)
+    problems = (ghost_row_problems(folded, fragment, task) + helper_row_problems(folded, fragment)
+                + provisional_row_problems(folded, fragment))
     if problems:
         raise _MergeRefused("; ".join(problems))
 
@@ -2197,6 +2435,15 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         print("manifest_put: " + _problems_text(task_root, "critic-approval", approval_problems)
               + ". " + REPAIR_MARKER + ".", file=sys.stderr)
         return EXIT_BAD_FRAGMENT
+    # An `assertion_id` on a line with no check is refused before the commit (TR2-1): a probe aimed there proves nothing. Rows whose id
+    # did not change in this call are not read; unknowns (language, file, form) are notes printed at the end, never a refusal.
+    line_problems, line_notes = assertion_line_problems(fragment, _current_tests(task_root), project_root())
+    if line_problems:
+        print("manifest_put: " + _problems_text(task_root, "assertion-line", line_problems)
+              + ". Correct the row's `assertion_id` in your fragment to the line where the Then's check starts "
+              "(`manifest_from_tests.py` prints it as `assertion_ref` `<file>:<first>-<last>`; the id is the first line of "
+              "that range), or leave the key out. " + REPAIR_MARKER + ".", file=sys.stderr)
+        return EXIT_BAD_FRAGMENT
     # A Then left with its owner (GW1-14) is refused here when its row is malformed: the shape check is the
     # contract's (`then_remainder_errors`), the same one the marker parser and the S5 exit call. Before the commit, like
     # the checks above; `merge` stays pure (it replays old journals).
@@ -2216,6 +2463,9 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         print("manifest_put: " + _problems_text(task_root, "unresolved-reasons", reason_conflicts)
               + ". " + REPAIR_MARKER + ".", file=sys.stderr)
         return EXIT_BAD_FRAGMENT
+    # `home_hash` of a provisional row is the code's, stamped HERE and committed with the fragment: `merge` stays pure and a replay
+    # of the journal reads the hash that was true when the row was written, not a line that has changed since.
+    fragment, stamp_notes = stamp_provisional(fragment, project_root())
     # Which critic verdicts this fragment takes away (the author's words changed under them) is
     # read BEFORE the commit, from the same merge the projection will run.
     incoming = fragment.get("expectation_changes")
@@ -2289,12 +2539,16 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         print(line)
     for line in retract_idle_lines(fragment):
         print(line)
+    for line in stamp_notes:
+        print(line)
     records = merged.get("expectation_changes")
     if isinstance(records, list) and records and "expectation_changes" in fragment:
         print(f"expectation_changes: {len(records)} record(s) in the manifest")
     if verdicts_dropped:
         print("expectation_changes: the critic's verdict on " + "; ".join(verdicts_dropped)
               + " was dropped, because the author's words about it changed - the critic judges it again")
+    if line_notes:
+        print("assertion_id: the line was not checked for a check - " + "; ".join(line_notes) + " (the write went through)")
     return 0
 
 

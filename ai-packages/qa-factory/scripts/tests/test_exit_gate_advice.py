@@ -16,6 +16,7 @@ the adviser's content -> (4); `_stage_detectors` merges all stages -> (5); `_dig
 import json
 import subprocess
 import sys
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -233,3 +234,6 @@ def test_7_an_advice_block_that_breaks_its_shape_is_never_silence(monkeypatch, t
     gate.run_advisers(ROLE, TASK)
     assert len(env.signals) == 1 and "breaks the contract" in env.advice_file("S2")["unread"][0]["reason"]
     assert DV.parse(3, "UNREADABLE: x\nADVICE — 1\n- a\n", "")["advice"] == []     # an unreadable run reads no advice
+
+
+if __name__ == "__main__": raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

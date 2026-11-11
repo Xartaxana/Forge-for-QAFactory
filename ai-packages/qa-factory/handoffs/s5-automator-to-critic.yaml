@@ -63,7 +63,7 @@ artifacts:
   run_witness: <path of the run_suite summary with the exit code and the totals line>
   probes:
     - <work/probes/<instance>.json, one per new or changed instance, or the empty list>
-  notes: <work/s5-notes.md, or omit>
+  notes: <work/s5-notes/<your dispatch id>.md, or omit>
 
 # What the automator asserts about the window, in the factory's own words. Code verifies two of
 # these keys today: every_instance_names_its_current_case_version and
@@ -95,6 +95,16 @@ deviations:
     from: <one of vocabulary.plan_deviation_kinds>
     planned: <file::function or T-n of the planned test>
     reason: <= 80 characters>
+
+# What you did to make the test fall, one row per attempt: the mutation or the wrong value you tried, the run, what you saw
+# (spec t-1765 X7-7). The stage critic reads it against your Good outcome. Empty only with `tried_note` saying why nothing was tried.
+# Distinct from `blocked.tried` below, which is what failed while filling this form.
+tried:
+  - requirement: <R-n, a source id or an area>
+    technique: <what you did to make the test fall (the mutation, the wrong value, the removed line)>
+    observation: <what you saw, in one line>
+    evidence: <the path (and anchor) where it shows>
+tried_note: <why the table is empty, or a dash when it has rows>
 
 # Items left open on purpose. Empty list is a valid answer; a non-empty one is copied into the
 # stage's completion, so the controller no longer asks for it separately.

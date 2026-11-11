@@ -161,6 +161,8 @@ def _why_not(rows: list, case_names: set, held: tuple) -> str:
         return "the manifest holds a contradicts_requirement row for it"
     attempts = set()
     for row in rows:
+        if row.get("unprepared") is not None:      # F5: code never decides what an unprepared walk observed (FR-22, P26)
+            return "an unprepared walk: whether what it observed is a bug is the analyst's call (P26)"
         if C.triage_targets({"current_manual_checks": [row]})["observations"]:
             return "the runner recorded an observation, and whether it is a bug is the analyst's call (P26)"
         if C.result_status({"status": row.get("result") or row.get("status")}) != "inconclusive":

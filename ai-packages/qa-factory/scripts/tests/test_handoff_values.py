@@ -1360,8 +1360,9 @@ SNAP_ETALON = {
                 "json": (1, 224, "4b60d733d11da4ed4f35daf758f0a34a7a4150e85d10df79aa9acc470db48d52")},
     "pending": {"text": (1, 63, "e0c585bd6ea0fcc7e3a165cb6d8423210e44ed890f6278b42a34c4447840dc94"),
                 "json": (1, 224, "3de579178f38b77e1ed3832afc391ea44e5f3831a48a1d377fc8d8988cdc91c7")},
-    "cut": {"text": (0, 2, "b0ca1561f6b35d9b478de9256595a6f019de1b58700069a86e8b15275b735f59"),
-            "json": (0, 21, "a563708def205e0e4de7978b34d8e9e0ae926503c912361fe253500817227007")},
+    # re-recorded at the X7-7 integration (35 to 58 fields) and again at t-1946 (the form gained the `rows_owed_when` block, t-1936 F4; the json cell was already at this value on c75ec3789, the text cell moved with the block)
+    "cut": {"text": (0, 2, "5792448a0e31ed43067261f8fcb76b4f631886f5207be92d03df5969bd806d53"),
+            "json": (0, 21, "c05e8c260567a8fa65aa560372b88db772a645369a0d398aeed5dacc2d3ceea7")},
 }
 
 

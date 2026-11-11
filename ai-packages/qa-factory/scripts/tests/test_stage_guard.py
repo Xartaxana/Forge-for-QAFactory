@@ -820,6 +820,98 @@ def part_closed_story(root, arts, story) -> None:
              facts.get("closed"), [])
 
 
+def part_held_for_code() -> None:
+    """t-2181 PC-6 (C13) / t-2277 J-C8: a story held for code is not let into a stage from `held_from` (S6 for the default cause
+    `s5_absent_side`, S3 for `first_look_stop`); the stages below it are open (a rework runs inside the hold); a person's recorded
+    word passes the refusal and the pass is a `gate_override`; `stories` (the doctor) prints the hold and the stop."""
+    root = temp_project("qa-guard-held-")
+    try:
+        art = root / "qa-factory" / "artifacts" / "QA-8"
+        (art / "work").mkdir(parents=True)
+        (art / "state").mkdir()
+        use_project(root)
+        model = SG.stage_model()
+        empty = {"tests": [], "unresolved": []}
+
+        def story(stage: str, hold=None, overrides=None) -> None:
+            """The story at `stage` (every earlier one done, gate A approved, a readable empty manifest) with `hold` as pipeline.awaiting."""
+            (art / "work" / MANIFEST).write_text(json.dumps(empty), encoding="utf-8")
+            stages = {s["id"]: {"status": "done" if int(s["id"][1:]) < int(stage[1:]) else "pending"} for s in model["stages"]}
+            data = {"ticket": "QA-8", "gates": {"A": {"decision": "approved"}}, "stages": stages}
+            if hold is not None:
+                data["awaiting"] = hold
+            if overrides:
+                data["stage_overrides"] = overrides
+            (art / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+
+        def dispatch(role: str) -> tuple:
+            with contextlib.redirect_stderr(io.StringIO()):
+                code = SG.check_dispatch({"tool_name": "Task", "cwd": str(root), "tool_input": {"subagent_type": role, "task_id": "QA-8"}})
+            return code, SG.LAST_DENIAL.get("message", "") if code else ""
+
+        def word(stage: str, revoked: bool = False) -> list:
+            row = {"stage": stage, "match": "is held for code", "decision": "go on, the code is on its way", "at": "2026-11-01T10:00:00"}
+            if revoked:
+                row["revoked_at"] = "2026-11-01T11:00:00"
+            return [row]
+
+        record = {"since": "2026-11-01T10:00:00+00:00", "sides": {"backend": {"reality": "absent"}}, "packet": None}
+        story("S6")
+        check_eq("no hold: an S6 role is let in (today's pass)", dispatch("qa-runner")[0], 0)
+        story("S6", record)
+        code, said = dispatch("qa-runner")
+        check_eq("s6_role_refused_while_awaiting", code, 2)
+        for needle in ("held for code (s5_absent_side) from S6", "the code this story delivers is not there yet", "--block \"is held for code\"",
+                       "stop_waiting"):
+            check_in(f"... the refusal says `{needle}`", needle, said)
+        story("S5", record)
+        check_eq("a stage BELOW the hold (S5) is open: a rework runs inside the hold", dispatch("qa-automator")[0], 0)
+        story("S6", dict(record, held_from="stage six"))
+        check_eq("an unreadable `held_from` reads as the default stage: S6 is refused", dispatch("qa-runner")[0], 2)
+        story("S6", dict(record, stopped={"at": "2026-11-02T09:00:00+00:00", "words": "stop"}))
+        code, said = dispatch("qa-runner")
+        check_eq("a STOPPED story refuses S6 as well", code, 2)
+        check_in("... and says the person stopped the wait", "the person stopped the wait", said)
+
+        first_look = dict(record, cause="first_look_stop", held_from="S3", s5_dispatch=None)
+        story("S3", first_look)
+        code, said = dispatch("qa-test-strategist")
+        check_eq("s3_role_refused_while_first_look_held", code, 2)
+        check_in("... naming the cause and the stage", "held for code (first_look_stop) from S3", said)
+        story("S2", first_look)
+        check_eq("a stage below the first-look hold (S2) is open", dispatch("qa-requirements-tester")[0], 0)
+        story("S4", first_look)
+        check_eq("a later stage (S4) is held too", dispatch("qa-case-designer")[0], 2)
+
+        story("S3", first_look)
+        RP.record(root, "journal.jsonl").unlink(missing_ok=True)
+        story("S3", first_look, overrides=word("S3"))
+        check_eq("a person's recorded word passes the hold", dispatch("qa-test-strategist")[0], 0)
+        check_eq("... and the pass is journaled as a gate_override",
+                 any(r.get("event") == "gate_override" for r in SG.journal_lines({"cwd": str(root)})), True)
+        story("S3", first_look, overrides=word("S3", revoked=True))
+        check_eq("a revoked word refuses again", dispatch("qa-test-strategist")[0], 2)
+        story("S3", first_look, overrides=word("S6"))
+        check_eq("a word for another stage passes nothing", dispatch("qa-test-strategist")[0], 2)
+
+        def doctor() -> str:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                SG.stories({"cwd": str(root)})
+            return buf.getvalue()
+
+        story("S6", record)
+        check_in("stories prints `awaiting code since <date> (<sides>)`", "awaiting code since 2026-11-01 (backend)", doctor())
+        story("S3", first_look)
+        check_in("stories names the first-look hold", "held after the first look since 2026-11-01", doctor())
+        story("S6", dict(record, stopped={"at": "2026-11-02T09:00:00+00:00", "words": "stop"}))
+        check_in("stories prints `stopped waiting <date>`", "stopped waiting 2026-11-02", doctor())
+        story("S6")
+        check_not_in("a story that waits for nothing prints neither", "waiting", doctor())
+    finally:
+        cleanup(root)
+
+
 def part_third_verdict() -> None:
     """K-N8.15 (t-305 N8, Q3, F8): rule 4 opens on `yes` and on `after_checks` - the person's checks are theirs to finish - and
     refuses `no`, an unknown word and an absent ledger; a TMS publish is no delivery shape (it happens at S4), the MR commands
@@ -1997,7 +2089,48 @@ def part_guard_crash() -> None:
         cleanup(root)
 
 
+def optional_dispatch_rows_checks() -> None:
+    """t-2277 FL-5 (decision 3): the ONE reader of a stage's `optional_dispatches` rows - admits a (role, purpose) row, places the ONE running
+    dispatch of the role on the stage, and is blind to everything else (negative controls inline)."""
+    model = json.loads((PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))
+    row = SG.optional_row(model, "S3", "qa-runner", "first_look")
+    check_eq("optional rows: S3 admits qa-runner with purpose first_look", (row or {}).get("role"), "qa-runner")
+    for label, args in (("no purpose", ("S3", "qa-runner", "")), ("another purpose", ("S3", "qa-runner", "initial")),
+                        ("another role", ("S3", "qa-scout", "first_look")), ("another stage", ("S6", "qa-runner", "first_look")),
+                        ("an unknown stage", ("S99", "qa-runner", "first_look"))):
+        check_eq(f"optional rows: {label} is not admitted", SG.optional_row(model, *args), None)
+    check_eq("optional rows: a malformed list is no rows", SG.optional_rows({"optional_dispatches": [1, {"role": "x"}, "y", {"role": " ", "purpose": "p"}]}), [])
+    check_eq("optional rows: the S3 stage's own roles are unchanged by them", SG.stages_of_role(model, "qa-runner")[-1]["id"], "S6")
+    live = {"role": "qa-runner", "stage": "S3", "status": "running", "request_binding": {"purpose": "first_look"}}
+    placed = SG.optional_stage_of_dispatch(model, "qa-runner", {"d1": live})
+    check_eq("optional rows: the one running first-look dispatch stands on S3", (placed or [{}])[0].get("id"), "S3")
+    check_eq("optional rows: a running plain runner stands nowhere optional", SG.optional_stage_of_dispatch(
+        model, "qa-runner", {"d1": dict(live, stage="S6", request_binding={"purpose": "manual"})}), None)
+    check_eq("optional rows: two running dispatches of the role are not established", SG.optional_stage_of_dispatch(
+        model, "qa-runner", {"d1": live, "d2": dict(live)}), None)
+    check_eq("optional rows: a finished dispatch is not placed", SG.optional_stage_of_dispatch(model, "qa-runner", {"d1": dict(live, status="accepted")}), None)
+    check_eq("optional rows: a held name picks one of two", (SG.optional_stage_of_dispatch(model, "qa-runner", {"d1": live, "d2": dict(live)}, name="d2")
+                                                           or [{}])[0].get("id"), "S3")
+    check_eq("optional rows: a role no row names is never placed by them", SG.optional_stage_of_dispatch(model, "qa-scout", {"d1": dict(live, role="qa-scout")}), None)
+    check_eq("optional rows: anything but a mapping of records is None", SG.optional_stage_of_dispatch(model, "qa-runner", ["x"]), None)
+    # t-2181 PC-9b (critic t-2513 B2): the owed output and the admitted purposes are DATA of the row, read through the one reader
+    check_eq("optional rows: the owed outputs are the rows' own `output` (S3 first look, S1 reference walk)",
+             (SG.optional_outputs(SG.optional_row(model, "S3", "qa-runner", "first_look")),
+              SG.optional_outputs(SG.optional_row(model, "S1", "qa-runner", "reference_walk"))),
+             (("work/first-look.yaml",), ("work/reference-snapshot.yaml",)))
+    check_eq("optional rows: a row with no output, a blank one or a non-mapping owes nothing",
+             (SG.optional_outputs({"role": "r", "purpose": "p"}), SG.optional_outputs({"output": " "}), SG.optional_outputs(None)), ((), (), ()))
+    check_eq("optional rows: a list of outputs is read whole, blanks dropped", SG.optional_outputs({"output": ["a.yaml", " ", 3, "b.yaml"]}), ("a.yaml", "b.yaml"))
+    check_eq("optional rows: the purposes a role is admitted with are the rows' (both stages), none for another role",
+             (SG.optional_purposes(model, "qa-runner"), SG.optional_purposes(model, "qa-scout")), ({"first_look", "reference_walk"}, set()))
+    live_s1 = {"role": "qa-runner", "stage": "S1", "status": "running", "request_binding": {"purpose": "reference_walk"}}
+    check_eq("optional rows: the one running reference-walk dispatch stands on S1, owing the snapshot",
+             [(p[0].get("id"), SG.optional_outputs(p[1])) for p in [SG.optional_stage_of_dispatch(model, "qa-runner", {"d1": live_s1})]],
+             [("S1", ("work/reference-snapshot.yaml",))])
+
+
 def main() -> None:
+    optional_dispatch_rows_checks()
     p = run_script("stage_guard.py", "--selftest")
     check("stage_guard.py --selftest is green", p.returncode == 0,
           (p.stdout or p.stderr).strip()[-600:])
@@ -2083,6 +2216,7 @@ def main() -> None:
     part_resume_ids()
     part_resume_no_recipient()
     part_third_verdict()
+    part_held_for_code()
     part_manifest_not_read()
     part_adapter_forms()
     part_cx2_27_matcher()

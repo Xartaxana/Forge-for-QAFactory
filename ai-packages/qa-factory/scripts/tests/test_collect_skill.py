@@ -69,16 +69,16 @@ def s1_the_file():
               ["--action", "start", "--type", "collect"], ["--action", "end", "--type", "collect", "--after-response"]])
     # F4 (t-1067, the Lead's word): the words files are named by time like the sibling skills' (never overwritten, never deleted)
     check("S1 F4: the words go to qa-factory/state/words/collect-problems-<stamp>.txt and collect-suggestions-<stamp>.txt, <stamp> is yyyymmddThhmmss, a clash gets -2",
-          all(p in text for p in ("qa-factory/state/words/collect-problems-<stamp>.txt", "qa-factory/state/words/collect-suggestions-<stamp>.txt", "yyyymmddThhmmss", "add `-2`", "Never overwrite or delete")))
-    check("S1 F4: no fixed words-file name is left (a second collect would overwrite it), and the packing line names the files by placeholder, only those of THIS run",
-          not re.search(r"collect-(problems|suggestions)\.txt", text) and "--problems-file <problems file> --suggestions-file <suggestions file>" in text and "never a file of an earlier run" in text)
+          all(p in text for p in ("qa-factory/state/words/collect-problems-<stamp>.txt", "qa-factory/state/words/collect-suggestions-<stamp>.txt", "yyyymmddThhmmss", "add `-2`")))
+    check("S1 F4: no fixed words-file name is left (a second collect would overwrite it), and the packing line names the files by placeholder",
+          not re.search(r"collect-(problems|suggestions)\.txt", text) and "--problems-file <problems file> --suggestions-file <suggestions file>" in text)
     check("S1 F6 / FR-15: the plugin root is stated in the skill itself (CLAUDE_PLUGIN_ROOT holding scripts/hooklib.py, else two levels up) - no pointer to a file the skill cannot read",
           "scripts/hooklib.py" in text and "two levels up" in text and "common-rules" not in text)
     check("S1 F1 section 6: --extra when the output (or a refusal) names `--extra <SET>=`, which is what 'not found at the standard place' prints",
           "not found at the standard place" in text and "names `--extra <SET>=`" in text)
     check("S1 F9 / F10: the two things only the agent sees are carried by an option each, named at the step where they happen",
           text.count("--activity-not-recorded") == 1 and text.count("--answers-not-split") == 1 and "ACTIVITY NOT RECORDED" in text and "is a finding" not in text)
-    check("S1: nothing is sent from the skill (the person sends the file), and no other command than the three", "nothing is sent from here" in text and text.count("run-py.cmd") == 3)
+    check("S1: no other command than the three", text.count("run-py.cmd") == 3)
 
 
 def s2_the_questions():

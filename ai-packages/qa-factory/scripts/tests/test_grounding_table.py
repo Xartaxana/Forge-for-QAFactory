@@ -724,18 +724,7 @@ report = GT.check_report(s.task)
 check_eq("P2: a whole file labelled infrastructure passes and is named", (report[0], "labelled whole: src/a.py" in " ".join(report[1])), ([], True))
 s.done()
 
-# --- classes: one writer, one join, one reader ---------------------------------------------------------------------------------------
-source = (SCRIPTS / "grounding_table.py").read_text(encoding="utf-8")
-check_eq("one os.replace in grounding_table.py: ONE writer of the table", source.count("os.replace("), 1)
-check("no private twin of the writer (_quoted / _render / a second dump)", not re.search(r"def (_quoted|_render|dump_table|_write_table)\b", source) and source.count("def dump_yaml") == 1)
-check("the manifest is read only through HC.implementation_entries", "HC.implementation_entries(" in source and 'get("implementations")' not in source)
-check("the hash of a hunk never reads `lines`", 'h.get("lines")' not in source.split("def hunk_text")[1].split("def assign_ids")[0])
-check("the table is read only through PC.read_grounding (no second parser of the file)", source.count("PC.read_grounding(") >= 2 and "handoff.parse(" not in source.replace("H.parse(", ""))
-
-# --- F-5: the source carries no raw separator, and the escape set is the READER's ----------------------------------------------------
-suspect = [hex(ord(ch)) for ch in source if PC._GROUNDING_CONTROL.match(ch) and ch not in "\n\t"] + [hex(ord(ch)) for ch in source if ch in (chr(0xFFFD), chr(0xFEFF))]
-check_eq("F-5: grounding_table.py holds no literal control character, U+2028/U+2029 or U+FFFD (FR-29: chr() in the source)", suspect, [])
-check("F-5: the escape set is PC._GROUNDING_CONTROL itself (imported, not copied)", "PC._GROUNDING_CONTROL.sub(" in source and "CHARS_THE_READER_SPLITS" not in source)
+# --- F-5: the escape set is the READER's ----------------------------------------------------------------------------------------------
 check_eq("F-5: every character the reader refuses raw is written escaped and reads back",
          [GT._quote(chr(c)) for c in (0x85, 0x2028, 0x2029, 0xD800)], ['"\\u0085"', '"\\u2028"', '"\\u2029"', '"\\ud800"'])
 

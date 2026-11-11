@@ -137,7 +137,19 @@
     {"id": "NE35", "kind": "scope", "carrier": "s3-stage-critic-to-strategist:scope",
      "requirement": "one row per plan row or requirement under review",
      "why": "the stage critic reviews a plan that exists only when S3 produced rows (an empty S3 plan is the open-questions halt, not a result), so a review with no scope row has looked at nothing; the legal way to say a place was not looked at is `not_looked`, never an empty scope",
-     "guard": "no guard: handoff_check.py::check refuses the empty list (`no rows`), which is the intended outcome; the role's door is `blocked` and handoff_help.py"}
+     "guard": "no guard: handoff_check.py::check refuses the empty list (`no rows`), which is the intended outcome; the role's door is `blocked` and handoff_help.py"},
+    {"id": "NE36", "kind": "validator", "carrier": "contract.py:manifest provisional rows",
+     "requirement": "a story with a non-real side states its assumptions as `provisional: []` when it assumes nothing, a story with every side real carries no `provisional` key, and a test row without `provisional` reads as `[]`",
+     "why": "the registry of assumptions is read by one reader, and an absent field is never read as a malformed one: a manifest written before the registry existed carries neither field, and an empty list sent is the declared empty outcome",
+     "guard": "contract.py::manifest_provisional"},
+    {"id": "NE37", "kind": "validator", "carrier": "first_look.py:work/first-look.yaml rows",
+     "requirement": "a first look that was walked holds one row per requirement of the register (a requirement the stand does not show is a `missing` row, never an absent one); a first look that was not walked is `null: <reason>` with `rows: []` and one gap line, and an empty register is the reason `empty_register`, never an empty walk",
+     "why": "an absent row would read as 'nothing wrong' and a requirement would drop out of the first look without a trace; the empty outcomes are declared in the record itself (`null` with a reason from references/first-look-statuses.json, `rows: []`, a gap line), and `first_look.put` refuses a record that leaves a requirement out",
+     "guard": "first_look.py::put_problems"},
+    {"id": "NE38", "kind": "validator", "carrier": "reference_snapshot.py:work/reference-snapshot.yaml items",
+     "requirement": "the S1 reference window of a story whose side has a reference writes the snapshot; a window that saw nothing (the old version could not be reached, or nothing of it was walked) is `items: []` with one gap line saying why, never an absent file and never an empty list with no reason; a story with no reference has no snapshot and nothing reads one",
+     "why": "an absent snapshot would read as 'the old version does nothing' and a parity requirement would lose its expected value without a trace; the empty outcome is declared in the record itself (`items: []`, a gap line) and `reference_snapshot.put` refuses an empty list with no gap line",
+     "guard": "reference_snapshot.py::build"}
   ],
   "pending": [
     {"kind": "scope", "carrier": "s3-strategist-to-designer:scope", "node": "N4", "default": false, "intent": "never_empty", "inventory": "I3"},

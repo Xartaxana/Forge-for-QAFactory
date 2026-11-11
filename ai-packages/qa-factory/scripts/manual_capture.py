@@ -53,6 +53,11 @@ The agent drives the UI as a user. After every step (the first 40) the summary's
 never in the record) with a short excerpt (<= 160 chars; a failed step: its own screenshot, <= 600); the sum of the
 excerpts is <= 8000 (`observation_trimmed`). `fill-account <selector> <actor> user|secret` types an account (value
 read by code); from the first one until the URL leaves the sign-in addresses no screen is saved and no capture runs.
+`fill-new-account <selector> user|secret [template]` makes a NEW account on a stand that may be changed (`safe_to_break`):
+`user` generates the pair, records it under a lock and types the name (the template is `{generated_username}` plus what the
+form needs, e.g. `{generated_username}@example.test`); `secret` types the same pair's password. It opens the same window.
+The account is recorded `unconfirmed` and is an identity (`created:<name>`) only once a step other than `goto` shows a page whose
+path differs from the form's; an app that answers on the same address stays `unconfirmed`.
 
 Login: done here, and PROVEN to have landed (`login.ui.landed` in references/manual-capture-steps.json: the URL
 holds none of `url_not` and the session cookie exists). Submitting the form is not signing in: on the local
@@ -116,11 +121,20 @@ OBSERVE_FAIL_CHARS = 600            # after a step that did not; never trimmed b
 OBSERVE_TOTAL_CHARS = 8000          # the excerpts of one call's summary; the oldest passed ones are emptied beyond it
 OBSERVE_DIR = "observe"             # `<attempt>/observe/NNN-<word>.png`: the screens of passed steps, not evidence; `NNN-excerpt.txt`: their text
 PAGE_TEXT_CHARS = 20000             # how much of a page's text `page_words` reads, however large the DOM
+GONE = "<gone>"                     # what a field or a watched element reads as when it is no longer there
+WHOLE_FLAG = "--whole"              # the word that makes a `fill` set the whole value at once, when the data file does not say otherwise
+MANUAL_DEFAULTS = {"type_delay_ms": 50, "settle_ms": 300}      # what config `manual_capture.<key>` is when absent (the template says the same)
 NO_SHOT_IN_WINDOW = "no screenshot: the sign-in form may show the account"
 
 _PART = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?")
 _ATTEMPT = re.compile(r"a[0-9]{1,6}")
 _LABEL_CHARS = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+# The two reads a `type` that goes on without a new focus makes (TR1-1): whether the field is still in the page, and what has the focus.
+CONNECTED_JS = "el => el.isConnected"
+ACTIVE_JS = ("el => { const a = el.getRootNode().activeElement; if (!a) return 'nothing'; "
+             "return a.tagName.toLowerCase() + (a.id ? '#' + a.id : ''); }")
 
 
 class StepFailed(Exception):
@@ -173,8 +187,17 @@ class BrowserUnavailable(Exception):
     """No Playwright in this interpreter."""
 
 
+#: the cause of an env_blocked row whose login by code was NOT TRIED (nothing was sent): the factory does not know this
+#: project's sign-in request. One producer (`http_login_source`); `_blocked`, `choose_attempt`, `_account_steps_gate` and
+#: `manual_evidence.build_record` read it by name (AR-13). Another spec imports it: name and value stay.
+LOGIN_UNKNOWN_CAUSE = "login_unknown"
+
+
 class EnvBlocked(Exception):
-    """The stand could not be identified by its runtime probe: the case cannot be recorded."""
+    """The stand could not be identified by its runtime probe: the case cannot be recorded. With `do_not_retry` the row
+    locks the screen route only when the cause proves the same stand or account answers again (`build`, `device`, or
+    a ui login refused after submit); cause `login_unknown` (`LOGIN_UNKNOWN_CAUSE`) is the factory's gap, nothing was
+    sent, and it locks nothing."""
 
     def __init__(self, probe_line, remedy, owner, do_not_retry=False, cause=""):
         super().__init__(probe_line)
@@ -317,12 +340,25 @@ def choose_attempt(root: Path, explicit) -> str:
         if attempt_number(explicit) < 0:
             raise ValueError(f"--attempt {explicit!r} is not an attempt name. Expected a<number>, for example a1 "
                              "or a2")
-        if attempt_state(root / explicit) == "env_blocked" and _env_blocked_row(root / explicit).get("do_not_retry") is True:
+        state = attempt_state(root / explicit)
+        old = _env_blocked_row(root / explicit)
+        if state == "env_blocked" and old.get("do_not_retry") is True and old.get("cause") == LOGIN_UNKNOWN_CAUSE:
+            # a login by code that was not tried (nothing sent): the factory's gap, the door is a new attempt
+            raise ValueError(f"attempt {explicit} holds a login by code that was not tried (nothing was sent); capture "
+                             "into a new attempt (leave --attempt out)")
+        if (state == "env_blocked" and old.get("do_not_retry") is True and old.get("owner") == "user"
+                and not old.get("cause") and not _row_locks_screen_route(old, root / explicit)):
+            # an old row (no cause) with no failed sign-in step in its steps: nothing shows a login was sent, and the screen route
+            # is open (`_account_steps_gate`, the same test); the named attempt itself stays closed, the door is a new one
+            raise ValueError(f"attempt {explicit} is env_blocked, but nothing shows a sign-in was sent from it (no cause is recorded "
+                             "and its last step is not a failed `ui` step), so the screen route is open: capture into a new "
+                             "attempt (leave --attempt out), signing in through fill-account steps")
+        if state == "env_blocked" and old.get("do_not_retry") is True:
             # t-308 F2 (the Q2 invariant): an attempt whose login did not land never gets a "capture again" door while
             # the cause stands - the door is the one the runner has: the env_blocked line, then halt (FR-2, FR-57)
-            line = _env_blocked_row(root / explicit).get("probe_line")
+            line = old.get("probe_line")
             # the build cause and its door are DATA (refusals block, t-300 N2 F6); the login's stay as written
-            which = _env_blocked_row(root / explicit).get("cause")
+            which = old.get("cause")
             build = which == "build"
             # the device cause (EP1-41d) has its own words: a device is never described as a test account that did not land
             cause = (say_refusal("cause_build") if build else say_refusal("cause_device") if which == "device"
@@ -334,8 +370,8 @@ def choose_attempt(root: Path, explicit) -> str:
                              + f": {cause}. Put the case in env_blocked[] with that line and the remedy in "
                              f"{explicit}/env_blocked.json, make no further capture of any kind in this block, and halt "
                              f"the block; {door}")
-        if attempt_state(root / explicit) != "open" and (root / explicit).is_dir():
-            raise ValueError(f"attempt {explicit} of this case is already {attempt_state(root / explicit)}: a "
+        if state != "open" and (root / explicit).is_dir():
+            raise ValueError(f"attempt {explicit} of this case is already {state}: a "
                              f"capture never changes what a record was built from. Capture again with the next "
                              f"attempt (--attempt a{attempt_number(explicit) + 1}) or leave --attempt out")
         return explicit
@@ -483,6 +519,20 @@ def stand_hosts(cfg: dict, values=None, root=None) -> dict:
     return _hosts_and_notes(cfg, values, root)[0]
 
 
+def hosts_sentence(hosts) -> str:
+    """The ONE way a refusal lists the hosts a call may reach: `scheme://host:port`, sorted, comma-separated, `none` for an empty set."""
+    return ", ".join(sorted({f"{k[0]}://{k[1]}:{k[2]}" for k in hosts})) or "none"
+
+
+def read_body_file(path) -> tuple:
+    """`(bytes, "")` of a request body file (`--body-file`, the walk's `http` step), or `(None, the ONE refusal sentence)` when it cannot be
+    read. A value, not a raise: the callers refuse it in their own way and no new refusal unit enters the judgment census (L-b)."""
+    try:
+        return Path(path).read_bytes(), ""
+    except OSError as exc:
+        return None, f"--body-file {str(path)!r} cannot be read ({exc.__class__.__name__}). Expected the path of the request body"
+
+
 def environment_of(url, cfg: dict, values=None, root=None) -> dict:
     """The configured stand a URL belongs to; a host outside every `environments[]` base_url / frontend address is refused."""
     hosts, sources, notes = _hosts_and_notes(cfg, values, root)
@@ -492,12 +542,11 @@ def environment_of(url, cfg: dict, values=None, root=None) -> dict:
     env = hosts.get(host_key(url))
     if env is None:
         import env_probe
-        allowed = sorted({f"{k[0]}://{k[1]}:{k[2]}" for k in hosts})
         frontend = ("the frontend address is read from " + ", ".join(sources) if sources
                     else "no frontend address is configured (" + env_probe.frontend_door(cfg)["none"] + ")")
         said = "; ".join(notes)
         raise ValueError(f"the URL {str(url)[:120]!r} is not on a configured stand (http or https, no user:password "
-                         f"part). Allowed hosts: {', '.join(allowed)}. Frontend address: {frontend}"
+                         f"part). Allowed hosts: {hosts_sentence(hosts)}. Frontend address: {frontend}"
                          f"{'; ' + said if said else ''}. A capture never leaves the stand; a stand "
                          "that is not listed is added to `environments[]` first")
     return env
@@ -680,6 +729,10 @@ def _default_keys(env: dict) -> tuple:
 # --------------------------------------------------------------------------------------------
 
 GENERATED_USER, GENERATED_PASSWORD = "{generated_username}", "{generated_password}"
+UNCONFIRMED = "unconfirmed"       # a created user whose sign-up the app refused (N1c E1c.6): never an identity
+ACCOUNT_LOCK_WAIT_S = 20          # how long `CreatedAccounts` waits for another walker's write (N1c E1c.2)
+ACCOUNT_LOCK_WAIT_HTTP_S = 300    # the `http` create route has already made the user on the stand: it waits long rather than lose the password
+NEW_ACCOUNT_TRIES = 3            # fresh pairs tried when a generated value matches a secret pattern (N1c E1c.3)
 NO_LOGIN_AS = ("this project's captures need no login (manual_capture.login in config.json is null for this kind); `--as` "
                "has nothing to sign in. Leave `--as` out")
 _SLUG_OUT = re.compile(r"[^a-z0-9-]")
@@ -692,7 +745,8 @@ _CREATE_ROUTE = ("the stand lists no other account, so create one: find the stan
                  "`manual_capture.py http --as default --method POST --url <endpoint> --body-file <file>` with "
                  f"`{GENERATED_USER}` and `{GENERATED_PASSWORD}` in the body (a user with the least rights the "
                  "precondition needs, never a global admin unless it says so); the summary's `created_account` is "
-                 "the name for `--as created:<username>`")
+                 "the name for `--as created:<username>`; this project's way of getting more accounts is in config "
+                 "`manual.accounts_way`; the factory asks the person once")
 
 
 def _roles_of(stand) -> dict:
@@ -743,24 +797,155 @@ class CreatedAccounts:
         return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
 
     def password_of(self, name):
+        """The password of a user this story created, None when there is none or the sign-up was refused (`unconfirmed`: never an identity)."""
         for row in self._rows(self.secret_path):
-            if row.get("name") == name and row.get("password"):
+            if row.get("name") == name and row.get("password") and row.get("status") != UNCONFIRMED:
                 return str(row["password"])
         return None
 
-    def add(self, name, password, case, endpoint_path) -> None:
+    def is_unconfirmed(self, name) -> bool:
+        return any(row.get("name") == name and row.get("status") == UNCONFIRMED for row in self._rows(self.secret_path))
+
+    @contextlib.contextmanager
+    def _locked(self, wait_s=ACCOUNT_LOCK_WAIT_S):
+        """The OS lock of the story's created users (t-1957 N1c, E1c.2): every read-modify-write of the two files runs under it, so two
+        walkers adding at once keep both rows. The lock file is only opened, never deleted; it is released when the process dies. A lock
+        not got within `wait_s` (ACCOUNT_LOCK_WAIT_S) is a refusal - the caller has written nothing, so no created password is lost."""
+        from event_store import LockBroken, LockBusy, take_file_lock
+        try:
+            held = take_file_lock(self.secret_path.with_suffix(".lock"), wait_s, purpose="created accounts", record_holder=True,
+                                  poll_s=0.05)
+        except LockBusy as exc:
+            raise TimeoutError(f"the list of created users is held by another walker for over {wait_s:g} s: nothing was written. "
+                               f"Repeat the step; {exc.holder_clause}") from exc
+        except LockBroken as exc:
+            raise TimeoutError(str(exc)) from exc
+        try:
+            yield
+        finally:
+            held.release()
+
+    def add(self, name, password, case, endpoint_path, status=None, reason=None, wait_s=ACCOUNT_LOCK_WAIT_S) -> None:
+        """Record a created user. `status=None` (the `http` route: the stand answered 2xx) is a usable identity; `UNCONFIRMED` (the sign-up
+        form: the app has not been seen to accept it) is recorded first and confirmed on evidence (`confirm`). `wait_s`: how long to wait
+        for the lock; a lock not got raises TimeoutError and nothing is written."""
         from event_store import atomic_json
         at = _now()
-        self.secret_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_json(self.secret_path, {"accounts": self._rows(self.secret_path) + [{"name": name, "password": password}]})
-        self.names_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_json(self.names_path, {"accounts": self._rows(self.names_path)
-                                      + [{"name": name, "case": str(case), "at": at, "endpoint": endpoint_path}]})
+        secret_row, names_row = {"name": name, "password": password}, {"name": name, "case": str(case), "at": at, "endpoint": endpoint_path}
+        if status is not None:
+            secret_row["status"] = names_row["status"] = status
+            if reason:
+                names_row["reason"] = reason
+        with self._locked(wait_s):
+            self.secret_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_json(self.secret_path, {"accounts": self._rows(self.secret_path) + [secret_row]})
+            self.names_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_json(self.names_path, {"accounts": self._rows(self.names_path) + [names_row]})
+
+    def row_of(self, name):
+        """The names-file row of a user this story created (a dict), None when there is none."""
+        return next((row for row in self._rows(self.names_path) if row.get("name") == name), None)
+
+    def confirm(self, name, by="code", why="") -> None:
+        """`name` has been seen to work: both rows lose `status` and `reason`, so it is an identity. `by="code"` (the page left the form's
+        path) leaves the rows exactly as before; any other `by` (the walker's own word, TR3-10 A) is kept on the names row as `confirmed_by`
+        and `why` (a row with no `confirmed_by` reads as confirmed by code; the report line marks the others). A name not in the store changes nothing."""
+        from event_store import atomic_json
+        with self._locked():
+            for path in (self.secret_path, self.names_path):
+                rows = self._rows(path)
+                for row in rows:
+                    if row.get("name") == name:
+                        row.pop("status", None)
+                        row.pop("reason", None)
+                        if by != "code" and path == self.names_path:
+                            row["confirmed_by"] = str(by)
+                            row["why"] = str(why)
+                atomic_json(path, {"accounts": rows})
+
+    def mark_unconfirmed(self, name, reason) -> None:
+        """The sign-up of `name` was refused or never landed (E1c.6): both rows say `unconfirmed`, the names row with the words
+        (already hidden and scanned by the caller). A name not in the store changes nothing."""
+        from event_store import atomic_json
+        with self._locked():
+            for path, with_reason in ((self.secret_path, False), (self.names_path, True)):
+                rows = self._rows(path)
+                for row in rows:
+                    if row.get("name") == name:
+                        row["status"] = UNCONFIRMED
+                        if with_reason:
+                            row["reason"] = reason
+                            row.pop("confirmed_by", None)      # a role's earlier `confirmed` no longer stands
+                            row.pop("why", None)
+                atomic_json(path, {"accounts": rows})
 
 
 def created_account_store(task_root) -> CreatedAccounts:
     """The one door to the users the story created (`resolve_actor` reads them, `run_http` writes them)."""
     return CreatedAccounts(task_root)
+
+
+def account_doubts_path(task_root) -> Path:
+    """The ONE path of the story's list of given accounts a walker doubted (`<T>/state/account-doubts.json`, handles and words only):
+    `AccountDoubts` writes it; `account_doubt_rows` is the one reader of its bytes (`account_doubts` and the report read through it);
+    nothing else names the file (AR-13, AR-14)."""
+    return Path(task_root) / "state" / "account-doubts.json"
+
+
+def account_doubt_rows(task_root) -> tuple:
+    """`(rows, problem)` of the doubts file - the one reader of its bytes (`account_doubts` and the report's line read through it): a
+    missing file is no doubt, an unreadable one is a problem in words."""
+    path = account_doubts_path(task_root)
+    if not path.is_file():
+        return [], ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:        # UnicodeDecodeError is a ValueError
+        return [], f"{path.name} cannot be read ({type(exc).__name__})"
+    rows = data.get("accounts") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return [], f"{path.name} does not hold an `accounts` list"
+    return [r for r in rows if isinstance(r, dict) and r.get("handle")], ""
+
+
+class AccountDoubts:
+    """The given accounts (`default`, a role, `env:U/S`) a walker said it could not confirm, this story only (TR3-10 A): one row per handle
+    `{handle, why, case, at}`, the last why kept. The story never edits the project's credentials or env file (A.2). Every read-modify-write
+    runs under `event_store.hold_file_lock` (AR-15), so two walkers writing at once keep both rows."""
+
+    def __init__(self, task_root):
+        self.task = Path(task_root).resolve()
+        self.path = account_doubts_path(self.task)
+
+    def rows(self) -> list:
+        return account_doubt_rows(self.task)[0]
+
+    def add(self, handle, why, case, wait_s=ACCOUNT_LOCK_WAIT_S) -> None:
+        """Record a doubt. A lock not got within `wait_s`, or a file that cannot be read (rewriting it would drop the others' doubts), raises
+        and nothing is written."""
+        from event_store import LockBroken, LockBusy, atomic_json, hold_file_lock
+        try:
+            with hold_file_lock(self.path.with_suffix(".lock"), wait_s, purpose="account doubts", record_holder=False, poll_s=0.05):
+                rows, problem = account_doubt_rows(self.task)
+                if problem:
+                    raise ValueError(f"the list of account doubts cannot be extended: {problem}. Nothing was written. Tell the person; "
+                                     "the account is not used by the other walkers until the list is readable")
+                rows = [r for r in rows if r.get("handle") != handle]
+                rows.append({"handle": str(handle), "why": str(why), "case": str(case), "at": _now()})
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                atomic_json(self.path, {"accounts": rows})
+        except LockBusy as exc:
+            raise TimeoutError(f"the list of account doubts is held by another walker for over {wait_s:g} s: nothing was written. "
+                               f"Repeat the step; {exc.holder_clause}") from exc
+        except LockBroken as exc:
+            raise TimeoutError(str(exc)) from exc
+
+
+def account_doubts(task_root) -> tuple:
+    """`(set of handles, problem)`: the ONE reader of the doubts (the pool and the report read it). A missing file: `(set(), "")`;
+    an unreadable one: `(set(), "<why>")`, so a reader never uses an extra account on an unknown."""
+    rows, problem = account_doubt_rows(task_root)
+    return ({str(r["handle"]) for r in rows} if not problem else set()), problem
 
 
 def resolve_actor(cfg: dict, stand, actor, task_root) -> tuple:
@@ -788,7 +973,11 @@ def resolve_actor(cfg: dict, stand, actor, task_root) -> tuple:
         return user, secret, None, f"env:{user}"
     if text.startswith("created:"):
         name = text[len("created:"):]
-        password = created_account_store(task_root).password_of(name) if name else None
+        store = created_account_store(task_root)
+        if name and store.is_unconfirmed(name):
+            raise ValueError(f"`{name[:80]}` was created, but its sign-up was refused or was not seen to land (recorded `{UNCONFIRMED}`): it is not an identity. "
+                             f"Create another user (the create route: {_CREATE_ROUTE}) or name an account: {_ACTOR_DOOR}")
+        password = store.password_of(name) if name else None
         if password is None:
             raise ValueError(f"`{name[:80]}` was created on another machine or its record is gone; create another user "
                              f"(the create route: {_CREATE_ROUTE}) or name an account: {_ACTOR_DOOR}")
@@ -892,6 +1081,15 @@ def _input_problem(word, args, row, shape) -> str:
     return ""
 
 
+def _whole_flag(spec_data) -> str:
+    """The word that makes a `fill` set the whole value at once: the data's (`steps.fill.whole_flag`), the caller's spec data first."""
+    for source in (spec_data, spec()):
+        flag = ((source.get("steps") or {}).get("fill") or {}).get("whole_flag")
+        if isinstance(flag, str) and flag:
+            return flag
+    return WHOLE_FLAG
+
+
 def _fail_problem(args, spec_data, shape) -> str:
     """"" when `fail_request <glob> <status|timeout>` is well formed: a glob, then `timeout` or a whole number inside the
     data's bounds (a 2xx is not a failure; an unreadable word is never a status)."""
@@ -901,6 +1099,16 @@ def _fail_problem(args, spec_data, shape) -> str:
     if args[1] != "timeout" and not (re.fullmatch(r"[0-9]{1,4}", args[1]) and low <= int(args[1]) <= high):
         return f"`fail_request` takes {shape}, the second word `timeout` or a whole number from {low} to {high}"
     return ""
+
+
+def _star_hint(glob) -> str:
+    """TR1-2: "" or the hint line for a `fail_request` pattern with no `**` and no scheme whose path starts with a single `*` and goes on
+    past a `/`: the `*` does not cross `/`, so it matches one segment of a host-less path only. A hint in the answer, never a refusal
+    (a pattern is the role's, FR-47); `**/api/cart` and `http://...` patterns get none."""
+    text = str(glob)
+    if "**" in text or "://" in text or not text.startswith("*") or "/" not in text:
+        return ""
+    return spec()["capture_words"]["failure_star_hint"].format(glob=_detail(text))
 
 
 def _read_problem(mode, spec_data, shape) -> str:
@@ -917,6 +1125,31 @@ def _read_problem(mode, spec_data, shape) -> str:
             return ""
         return f"`read` takes {shape}; the state is one of: {', '.join(states)}"
     return f"`read` takes {shape}"
+
+
+EXPECT_PREFIX = "expect="      # the last argument of a browser `read`: the role's own planned text (t-1957 F12)
+
+
+def read_args(args) -> tuple:
+    """`(args without the expectation, the expected text or None)` of a browser `read`: `read <selector> [mode] expect=<text>`.
+    The expectation is the LAST argument and only after a selector; the code compares bytes and never says who is right (FR-58)."""
+    if len(args) > 1 and str(args[-1]).startswith(EXPECT_PREFIX):
+        return list(args[:-1]), str(args[-1])[len(EXPECT_PREFIX):]
+    return list(args), None
+
+
+def lane_key(task_root, case) -> str:
+    """The canonical key of a case's account set (t-1957 N1a): the accounts the case's request names (`check` kind `env` or
+    `stand_account`, as `auto_actor` reads them), written `<kind>:<value>`, deduplicated, sorted, joined with `+`; `` when the case
+    names none. One reader of the actors (`_case_actors`), so a lane is cut by the same facts the recorder reads."""
+    keys = set()
+    for actor in _case_actors(task_root, case):
+        check = actor.get("check") if isinstance(actor, dict) else None
+        if isinstance(check, dict) and check:
+            kind, value = next(iter(check.items()))
+            if kind in ("env", "stand_account"):
+                keys.add(f"{kind}:{' '.join(str(value).split())}")
+    return "+".join(sorted(keys))
 
 
 APP_WORDS = "app_steps"            # the key of the steps file's closed list on a device surface (`parse_steps(words=APP_WORDS)`)
@@ -939,10 +1172,61 @@ def _app_read_problem(mode, shape) -> str:
     return f"`read` takes {shape}; `style=` and `state=` are reads of a browser, there is no such read on this surface"
 
 
-def parse_steps(text: str, spec_data: dict, words: str = "steps", selectors=None) -> list:
+def _new_account_problem(args, shape) -> str:
+    """The shape problem of a `fill-new-account` line, "" when it is well formed: the kind is `user` or `secret`, a template belongs to
+    `user` only and holds the placeholder `{generated_username}` (E1c.5: without it every user would get the same name)."""
+    if args[1] not in ("user", "secret"):
+        return f"`fill-new-account` takes {shape}, the second word `user` (the new account's name) or `secret` (its password)"
+    if len(args) == 3 and args[1] != "user":
+        return f"`fill-new-account` takes {shape}; a template goes with `user` only (the password has none)"
+    if len(args) == 3 and GENERATED_USER not in args[2]:
+        return f"`fill-new-account` template {args[2]!r} lacks the placeholder `{GENERATED_USER}`; expected for example `{GENERATED_USER}@example.test`"
+    return ""
+
+
+def _account_word_problem(args, row, spec_data, shape) -> str:
+    """The shape problem of an `account <handle> confirmed|unconfirmed <why>` line, "" when it is well formed (A.4): the handle is not
+    empty, the verdict is one of the data row's `verdicts`, the why holds 1..`why_max` characters. Nothing is recorded from a malformed word."""
+    verdicts = [str(v) for v in row.get("verdicts") or []]
+    example = "for example `account created:qa-user-1 unconfirmed \"the page stayed on the sign-up form\"`"
+    if not args[0].strip():
+        return f"`account` takes {shape}, the handle not empty ({example})"
+    if args[1] not in verdicts:
+        return f"`account` takes {shape}, the verdict one of: {', '.join(verdicts)} ({example})"
+    top = _step_number(spec_data, "account", "why_max")
+    if not args[2].strip():
+        return f"`account` takes {shape}, the why not empty: quote what you saw ({example})"
+    if len(args[2]) > top:
+        return f"`account` takes at most {top} characters of why (this one has {len(args[2])}): say it shorter ({example})"
+    return ""
+
+
+def _http_word_problem(args, spec_data, shape, http_ok) -> str:
+    """"" or what is wrong with an `http <METHOD> <path|url> [--body-file <file>]` step (FL-1 B). Only a walk session runs one
+    (`http_ok`); a single request outside a walk is `manual_capture.py http`. Shape only: the stand, the file and the placeholders
+    are the walk's to check (it knows its stand)."""
+    if not http_ok:
+        return ("`http` is a step of a walk session (`walk_session.py step`); a single request outside a walk is "
+                "`manual_capture.py http --method <M> --url <url>`")
+    methods = list(spec_data.get("http_methods") or spec().get("http_methods") or [])
+    if str(args[0]).upper() not in methods:
+        return f"`http` takes {shape}; the method {str(args[0])[:20]!r} is none of {', '.join(methods)}"
+    target = str(args[1])
+    if not (target.startswith("/") or target.startswith("http://") or target.startswith("https://")):
+        return f"`http` takes {shape}; {target[:80]!r} is neither a path starting with `/` nor an http(s) URL"
+    if not target.isascii():
+        return f"`http` takes {shape}; the address holds a character outside ASCII: percent-encode the path (`%D0%...`), then send it"
+    if len(args) == 3 or (len(args) == 4 and args[2] != "--body-file"):
+        return f"`http` takes {shape}; the body goes in as `--body-file <file>`, the flag and its file together and last"
+    return ""
+
+
+def parse_steps(text: str, spec_data: dict, words: str = "steps", selectors=None, need_goto: bool = True, http_ok: bool = False) -> list:
     """[{n, line, word, args}] from a steps file; every problem is named with its line (one refusal). `words` names the closed list
     of the surface (`steps`: the browser; APP_WORDS: a device, whose selectors are checked against `selectors`, the row's
-    strategies). Only the browser's list needs a `goto`."""
+    strategies). Only the browser's list needs a `goto`, and only a call that opens a page: a step call of a kept walk session
+    (t-1957 N1a, `need_goto=False`) goes on from the page the session is already on. `http_ok` (FL-1 B): the caller is a walk
+    session, which may run an `http` step; every other caller refuses the word."""
     table = spec_data.get(words) or {}
     on_device = words != "steps"
     known = list(table)
@@ -967,7 +1251,7 @@ def parse_steps(text: str, spec_data: dict, words: str = "steps", selectors=None
         shape = (table[word] or {}).get("args", "")
         arity = (table[word] or {}).get("arity") or [0, 0]
         if not arity[0] <= len(args) <= arity[1]:
-            problems.append(f"line {number}: `{word}` takes {shape}" if shape else f"line {number}: `{word}` takes no argument")
+            problems.append(f"line {number}: `{word}` takes {shape}" if shape else f"line {number}: `{word}` takes no argument; write `{word}` alone on its line")
             continue
         if on_device:
             target = args[0] if word in ("click", "fill", "fill-account", "drag", "read") else (
@@ -978,6 +1262,11 @@ def parse_steps(text: str, spec_data: dict, words: str = "steps", selectors=None
                 continue
             if word == "read" and len(args) == 2 and _app_read_problem(args[1], shape):
                 problems.append(f"line {number}: {_app_read_problem(args[1], shape)}")
+                continue
+        if word == "http":
+            problem = _http_word_problem(args, spec_data, shape, http_ok)
+            if problem:
+                problems.append(f"line {number}: {problem}")
                 continue
         if word == "drag":
             try:
@@ -995,11 +1284,35 @@ def parse_steps(text: str, spec_data: dict, words: str = "steps", selectors=None
             if problem:
                 problems.append(f"line {number}: {problem}")
                 continue
+        if word == "fill" and not on_device and (args[0] == _whole_flag(spec_data)) != (len(args) == 3):
+            problems.append(f"line {number}: `fill` takes {shape}; the flag `{_whole_flag(spec_data)}` comes first, with a selector "
+                            "and a text after it (and only then)")
+            continue
         if word == "fill-account" and args[2] not in ("user", "secret"):
             problems.append(f"line {number}: `fill-account` takes {shape}, the last word `user` (the account's name) or "
                             "`secret` (its password)")
             continue
-        if word == "read" and len(args) == 2:
+        if word == "fill-new-account":
+            problem = _new_account_problem(args, shape)
+            if problem:
+                problems.append(f"line {number}: {problem}")
+                continue
+        if word == "account":
+            problem = _account_word_problem(args, table[word] or {}, spec_data, shape)
+            if problem:
+                problems.append(f"line {number}: {problem}")
+                continue
+        if word == "read" and not on_device:
+            rest = read_args(args)[0]
+            if len(rest) == 2:
+                problem = _read_problem(rest[1], spec_data, shape)
+                if problem:
+                    problems.append(f"line {number}: {problem}")
+                    continue
+            elif len(rest) > 2:        # three words and none of them an `expect=`: the arity [1, 3] is for the expectation only
+                problems.append(f"line {number}: `read` takes {shape}")
+                continue
+        elif word == "read" and len(args) == 2:
             problem = _read_problem(args[1], spec_data, shape)
             if problem:
                 problems.append(f"line {number}: {problem}")
@@ -1015,7 +1328,7 @@ def parse_steps(text: str, spec_data: dict, words: str = "steps", selectors=None
         raise ValueError("the steps file holds no steps (blank lines and # comments only). Expected one step per "
                          "line" + ("" if on_device else ", starting with a `goto <url>`") + ": " + "; ".join(
                              f"{n} {(table[n] or {}).get('args', '')}".strip() for n in known))
-    if not on_device and steps[0]["word"] != "goto" and not any(s["word"] == "goto" for s in steps):
+    if need_goto and not on_device and steps[0]["word"] != "goto" and not any(s["word"] == "goto" for s in steps):
         raise ValueError("a ui session needs a `goto <url>` step: the first one names the stand the session runs on "
                          "(its login, its page-load limit and its runtime probe)")
     return steps
@@ -1050,10 +1363,49 @@ class Attempt:
         self.failure_declared = False             # a `fail_request` ran in this session
         self.command = "ui"                       # the word a step and a capture line carry; `run_app` sets "app" (EP1-41d)
         self.entry_limitation = ""                # what every file of a device capture also says (set by `run_app`)
+        self.watches: dict = {}                   # label -> {"selector", "last"}: the elements `watch` reads after every step of this call
+        self.call_surprises: list = []            # the `surprise` lines this call wrote (the summary lists them)
+        self.last_input = None                    # {"selector", "text", "rows", "secret"} of the keyed step just run: the detector's `field` data
+        self.type_chain = None                    # the selector the step just run typed in (a `type`), else None: any other step resets it (TR1-1)
+        self.type_prior = None                    # what `type_chain` was when the step now running began
+        self.blocked_seen: set = set()            # hosts a `blocked_host` line was already written for in this call
+        self.unmet_pending: list = []             # `surprise: fail_request <glob> matched no request` lines a restore left, told by the next look/read (TR1-2)
+        self.carry: list = []                     # the lines of `unmet_pending` the step now running adds to its answer if it ends ok
+
+    def _lines(self, name) -> list:
+        path = self.dir / name
+        return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()] if path.is_file() else []
+
+    def step_number(self) -> int:
+        """The number of the step just written: its line in this attempt's steps.jsonl (what `surprises.jsonl` calls `step`)."""
+        return len(self._lines("steps.jsonl"))
+
+    def surprise(self, step_no, word, kind, fact, status=None) -> dict:
+        """One `surprise` line of `surprises.jsonl` (a FACT the role is shown, never a verdict, AR-18). The file is created by the first
+        line, never ahead of it. `k` runs on across the calls of an attempt; the id is `<attempt>-<surface>-S<k>`. `status` (t-1957 N1a):
+        the answer's number, stored ONLY on a `status` line and only when it is a whole number - the walk server's stop rule reads it
+        (a line without it matches every status rule, AR-28); a reader that ignores the field is unchanged."""
+        number = sum(1 for r in _surprise_rows(self.dir)[0] if r.get("line") == "surprise") + 1
+        entry = {"line": "surprise", "id": f"{self.name}-{self.command}-S{number}", "step": step_no, "word": word, "kind": kind,
+                 "fact": " ".join(str(fact).split())[:int(_surprise_data({}, "fact_chars"))], "at": _now()}
+        if kind == "status" and isinstance(status, int) and not isinstance(status, bool):
+            entry["status"] = status
+        self._append("surprises.jsonl", entry)
+        return entry
+
+    def detector(self, step_no, dead, kinds) -> dict:
+        """The line that says the detector WATCHED a step: which listeners were alive and which kinds were checked. Without it a step is
+        'not observed', and an empty `surprises.jsonl` never reads as 'nothing happened' (AR-28)."""
+        entry = {"line": "detector", "step": step_no, "listeners": "ok" if not dead else "dead:" + ",".join(dead),
+                 "kinds_checked": list(kinds), "at": _now()}
+        self._append("surprises.jsonl", entry)
+        return entry
 
     def _append(self, name, entry) -> None:
-        with (self.dir / name).open("a", encoding="utf-8", newline="\n") as out:
-            out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        path = self.dir / name
+        torn = path.is_file() and path.stat().st_size > 0 and not path.read_bytes().endswith(b"\n")   # a call killed mid-append: do not glue onto it
+        with path.open("a", encoding="utf-8", newline="\n") as out:
+            out.write(("\n" if torn else "") + json.dumps(entry, ensure_ascii=False) + "\n")
 
     def rel(self, path: Path) -> str:
         return Path(path).resolve().relative_to(self.task).as_posix()
@@ -1081,7 +1433,15 @@ class Attempt:
         return self.register(path, kind, phase, proves, command, limitation)
 
     def step(self, command, line, outcome, detail="", **extra) -> dict:
+        told = [str(x) for x in (extra.pop("told", None) or []) if x]     # the lines a step tells the walker: typed, kept in `detail` too (F6)
+        if self.carry and outcome == "ok":      # a restored rule that matched nothing is told once, by the first look/read after it
+            detail = "\n".join(x for x in (detail, *self.carry) if x)
+            told += self.carry
+            self.unmet_pending = [x for x in self.unmet_pending if x not in self.carry]
+            self.carry = []
         entry = {"at": _now(), "command": command, "step": line, "outcome": outcome, "detail": detail, **extra}
+        if told:
+            entry["told"] = told
         self._append("steps.jsonl", entry)
         return entry
 
@@ -1271,7 +1631,8 @@ def _blocked(attempt: Attempt, case, exc: EnvBlocked) -> int:
     # build (t-300 N2 X13): the stand answered and it is not (or not known to be) this story's build; the same stand answers
     # again, so the way on is the halt and the door of the PERSON, named by the remedy. login: the sign-in did not land; capturing
     # again meets the same page (qa-runner.md "Refusals": env_blocked, halt). owner `factory`: the recipe did not fit the page
-    key = ("blocked_build" if kept and cause == "build" else "blocked_device" if kept and cause == "device" else
+    key = ("blocked_login_unknown" if cause == LOGIN_UNKNOWN_CAUSE else
+           "blocked_build" if kept and cause == "build" else "blocked_device" if kept and cause == "device" else
            ("blocked_login_factory" if exc.row["owner"] == "factory" else "blocked_login_user") if kept else "blocked_stand")
     print(say_refusal(key, probe_line=exc.row["probe_line"], remedy=exc.row["remedy"], owner=exc.row["owner"]), file=sys.stderr)
     return EXIT_ENV_BLOCKED
@@ -1296,7 +1657,7 @@ class PlaywrightBackend:
         self._sync, self._Error, self._Timeout = sync_playwright, Error, PwTimeout
         self._pw = self._browser = self._context = self._page = None
         self._allowed, self._failing = set(), {}
-        self._seen = {}                                 # (method, address without query) -> count: the requests the page sent to a stand
+        self._events, self._ours, self._dead, self._char = [], {}, set(), None       # the ONE log of what the page did (t-1765 X8-2)
         self._limit_ms = int(DEFAULT_TIMEOUT_S * 1000)
         self._element_ms = int(ELEMENT_WAIT_S * 1000)
 
@@ -1304,7 +1665,7 @@ class PlaywrightBackend:
         self._limit_ms = int(timeout_s * 1000)          # a page load (goto, login)
         self._element_ms = int(element_wait_s * 1000)   # an element lookup
         self._allowed = set(allowed_hosts)              # the hosts `fail_request` may answer for (EP1-30)
-        self._pw = self._sync().start()
+        self._pw = _driver_acquire(self._sync)
         if profile_dir is not None:
             # RN1-10: a session lives between calls in the actor's own PERSISTENT profile (cookies and localStorage stay on
             # disk until `session close`), one browser process per call - nothing is left running between two calls
@@ -1320,17 +1681,64 @@ class PlaywrightBackend:
             url = route.request.url
             key = host_key(url)
             if url.startswith(("data:", "blob:", "about:")) or key in allowed_hosts:
-                if key in allowed_hosts:        # the log of what the page sent (t-1765 X3): a stand host only, no query
-                    pair = (route.request.method, _safe_url(url))
-                    self._seen[pair] = self._seen.get(pair, 0) + 1
+                if key in allowed_hosts:        # the ONE collector of the page's requests (X3, X8-2): a stand host only
+                    self._record("request", method=route.request.method, url=url, rid=route.request)
                 route.continue_()
             else:
+                self._record("blocked", method=route.request.method, url=url)
                 route.abort()
         context.route("**/*", guard)
         if local_storage:
             lines = "".join(f"localStorage.setItem({json.dumps(k)}, {json.dumps(v)});" for k, v in local_storage.items())
             context.add_init_script(lines)
         self._page = context.pages[0] if profile_dir is not None and context.pages else context.new_page()
+        for kind, name, handler in (("response", "response", self._on_response), ("failed", "requestfailed", self._on_failed),
+                                    ("console", "console", self._on_console), ("pageerror", "pageerror", self._on_pageerror)):
+            self._page.on(name, self._guarded(kind, handler))
+
+    # --- what the page did (t-1765 X8-2): every event carries the monotonic time of its handling and the character being typed
+    def _record(self, kind, **fields) -> None:
+        events = self.__dict__.setdefault("_events", [])
+        events.append({"kind": kind, "t": time.monotonic(), "char": self.__dict__.get("_char"), "ours": False, **fields})
+
+    def _guarded(self, kind, handler):
+        """A listener that raises must not stop the page's event loop or the call: the kind is marked dead (the detector line says so) and
+        the call goes on (P1). A dead listener is 'the detector did not see', never 'nothing happened' (AR-28)."""
+        def run(*args):
+            try:
+                handler(*args)
+            except Exception:  # noqa: BLE001
+                self.__dict__.setdefault("_dead", set()).add(kind)
+        return run
+
+    def _is_ours(self, request) -> bool:
+        return request in self.__dict__.get("_ours", {})
+
+    def _on_response(self, response) -> None:
+        request = response.request
+        if host_key(response.url) in self._allowed:
+            self._record("response", method=request.method, url=response.url, status=int(response.status), rid=request, ours=self._is_ours(request))
+
+    def _on_failed(self, request) -> None:
+        if host_key(request.url) in self._allowed:
+            self._record("failed", method=request.method, url=request.url, failure=str(request.failure or ""), rid=request, ours=self._is_ours(request))
+
+    def _on_console(self, message) -> None:
+        if str(message.type) == "error":
+            where = message.location if isinstance(message.location, dict) else {}
+            self._record("console", text=str(message.text), location=str(where.get("url") or ""))
+
+    def _on_pageerror(self, error) -> None:
+        self._record("pageerror", text=str(error))
+
+    def event_mark(self) -> int:
+        return len(self.__dict__.get("_events", []))
+
+    def events_since(self, mark) -> list:
+        return [dict(e) for e in self.__dict__.get("_events", [])[mark:]]
+
+    def dead_listeners(self) -> list:
+        return sorted(self.__dict__.get("_dead", set()))
 
     # What the page says about the element at (x, y): evaluated on the target, so "is the top element the target or
     # inside it" needs no selector re-resolution. A plain object with no code of ours about the browser's wording.
@@ -1523,6 +1931,88 @@ class PlaywrightBackend:
         return self._timed(lambda: self._page.locator(selector).first.fill(text, timeout=self._element_ms), element=True,
                            selector=selector)
 
+    def field_traits(self, selector) -> tuple:
+        """({"type", "tag"}, seconds) of the field: the `type` attribute (`None` when it has none) and the lower-cased tag. Waits the element
+        limit for the element, as every step with an element does; the caller (the data's `whole_types` / `whole_tags`) decides what
+        can be keyed. The attribute is asked first: a field that never appears fails here, as a failed step, before any key."""
+        box = {}
+
+        def run():
+            element = self._page.locator(selector).first
+            box["type"] = element.get_attribute("type", timeout=self._element_ms)
+            box["tag"] = str(element.evaluate("el => String(el.tagName || '').toLowerCase()", None) or "")
+        seconds = self._timed(run, element=True, selector=selector)
+        kind = box["type"]
+        return {"type": None if kind is None else str(kind).lower(), "tag": box["tag"].lower()}, seconds
+
+    def clear_field(self, selector):
+        """(row, seconds, focus_s): the field emptied as a person does - focus, select all, delete - and one row `{n: "cleared", value,
+        focus}` of what it holds afterwards (a mask or a controlled input may hand something back; the caller records it, FR-47)."""
+        def act(page, sel):
+            try:
+                page.keyboard.press("ControlOrMeta+A")
+            except self._Error:
+                page.keyboard.press("Control+A")        # a Playwright older than 1.45 knows no ControlOrMeta
+            page.keyboard.press("Delete")
+            state = self._field_state(sel)
+            return {"n": "cleared", "value": state["value"], "focus": state["focused"]}
+        row, seconds, focus_s, _ = self._keyboard_step(selector, act)
+        return row, seconds, focus_s
+
+    def look(self, selector=None) -> tuple:
+        """(text | None, form, why, seconds): what the page shows, the way a person sees it. `form` is `aria` (the accessibility tree of
+        the element - the whole page when there is no selector) or `text` (the page's words, when the tree could not be read; `why` is the
+        first line of the browser's reason). `None` text: nothing could be read, `why` says why. Never raises for the page's sake: the
+        look is an observation (P1). A selector that matches nothing is NOT retried as text (it would wait the limit twice)."""
+        started = time.perf_counter()
+        target = selector or "body"
+        why = ""
+        try:
+            tree = self._page.locator(target).first.aria_snapshot(timeout=self._element_ms)
+            return str(tree or ""), "aria", "", time.perf_counter() - started
+        except AttributeError:
+            why = "this Playwright has no aria_snapshot"
+        except Exception as exc:  # noqa: BLE001 - the browser's own error classes are not imported here
+            why = _first_line(exc, "the accessibility tree could not be read")
+            if selector and isinstance(exc, self._Timeout):
+                return None, "", why, time.perf_counter() - started
+        try:
+            if selector:
+                words = self._page.locator(selector).first.inner_text(timeout=self._element_ms)
+            else:
+                words = self.page_words("long")
+        except Exception as exc:  # noqa: BLE001
+            return None, "", why or _first_line(exc, "the page could not be read"), time.perf_counter() - started
+        words = "\n".join(line for line in str(words or "").splitlines() if line.strip())
+        return (words if words else None), "text", why, time.perf_counter() - started
+
+    def watch_text(self, selector) -> str:
+        """The text of the element NOW on one line (cut at PAGE_TEXT_CHARS), or `<gone>`: a short probe, never the element limit."""
+        try:
+            raw = self._page.locator(selector).first.inner_text(timeout=self._probe_ms())
+        except Exception:  # noqa: BLE001
+            return GONE
+        return " ".join(str(raw or "").split())[:PAGE_TEXT_CHARS]
+
+    def settle(self, settle_ms, idle_max_ms, remaining_s) -> bool:
+        """Let the requests a step caused arrive (the sync API hands events over only inside its own calls): wait `settle_ms`, then for the
+        network to go idle - for no longer than `idle_max_ms` and no longer than `remaining_s` in all. True: the network was idle; False: it
+        was not, in the time there was (the step line says so); None: the page could not be asked (closed) - nothing is claimed."""
+        budget_ms = max(0.0, float(remaining_s)) * 1000
+        wait = min(float(settle_ms), budget_ms)
+        try:
+            if wait >= 1:
+                self._page.wait_for_timeout(int(wait))
+            idle_ms = min(float(idle_max_ms), budget_ms - wait)
+            if idle_ms < 1:
+                return False                          # a timeout of 0 would mean 'no limit' to the browser
+            self._page.wait_for_load_state("networkidle", timeout=int(idle_ms))
+            return True
+        except self._Timeout:
+            return False                              # the network did not quiet down in the time there was
+        except Exception:  # noqa: BLE001 - a closed page is not this step's failure and says nothing about the network
+            return None
+
     # --- keyboard input: fill sets the whole value at once and puts focus back, so it hides a lost character and a lost focus
     def _field_state(self, selector) -> dict:
         """{"value", "focused"} of the field NOW: a short probe (`probe_wait_ms` of the steps file), never the element limit.
@@ -1535,7 +2025,7 @@ class PlaywrightBackend:
             try:
                 value = element.inner_text(timeout=wait)
             except Exception:
-                value = "<gone>"
+                value = GONE
         return {"value": value, "focused": self._has_focus(element, wait)}
 
     @staticmethod
@@ -1549,56 +2039,87 @@ class PlaywrightBackend:
         except Exception:
             return False
 
-    def _keyboard_step(self, selector, act):
+    def _keyboard_step(self, selector, act, refocus=True):
         """(rows, seconds, focus_s, focused_before): `act(page, selector)` runs after the focus - the ONE focus of the step, never one per
-        character (a focus per character puts the focus back and hides the lost one). The focus is read BEFORE it is set."""
+        character (a focus per character puts the focus back and hides the lost one). The focus is read BEFORE it is set.
+        `refocus=False` (a `type` that goes on with the field the last step typed in, TR1-1): the focus is NOT set - a person who goes on
+        typing does not click again; the keys go where the focus is, and when that is not the field `self.focus_lost_before` names what
+        has it (the caller records the fact, FR-47). A field gone or detached is a failed step, nothing typed."""
         box = {}
+        self.focus_lost_before = None
 
         def run():
             element = self._page.locator(selector).first
+            if not refocus:
+                try:
+                    attached = bool(element.evaluate(CONNECTED_JS, timeout=self._probe_ms()))
+                except Exception:
+                    attached = False
+                if not attached:
+                    raise StepFailed("the field is gone or detached before the call: nothing was typed")
             box["before"] = self._has_focus(element, self._probe_ms())
             started = time.perf_counter()
-            element.focus(timeout=self._element_ms)
+            if refocus:
+                element.focus(timeout=self._element_ms)
+            elif not box["before"]:
+                try:
+                    self.focus_lost_before = str(element.evaluate(ACTIVE_JS, timeout=self._probe_ms()) or "nothing")
+                except Exception:
+                    self.focus_lost_before = "something that could not be read"
             box["focus_s"] = time.perf_counter() - started
             box["rows"] = act(self._page, selector)
         seconds = self._timed(run, element=True, selector=selector)
         return box["rows"], seconds, box["focus_s"], box["before"]
 
-    def type_chars(self, selector, text, delay_ms, settle_ms=0):
+    def same_field(self, a, b) -> bool:
+        """Do the selectors `a` and `b` resolve to ONE element of the page now? The page answers; anything not established is False (TR4-9)."""
+        try:
+            first, second = self._page.locator(a).first, self._page.locator(b).first
+            other = second.element_handle(timeout=self._probe_ms())
+            return bool(other) and bool(first.evaluate("(el, other) => el === other", other, timeout=self._probe_ms()))
+        except Exception:
+            return False
+
+    def type_chars(self, selector, text, delay_ms, settle_ms=0, continued=False):
         """(rows, seconds, focus_s): one row per character `{n, value, focus}`, then `settled` after `settle_ms` - the page
-        redraws after the server answers, later than any one character. Code records, the role judges (FR-47)."""
+        redraws after the server answers, later than any one character. Code records, the role judges (FR-47).
+        `continued`: the call goes on with the field the step before typed in - no focus is set (see `_keyboard_step`)."""
         def act(page, sel):
             rows, deadline = [], time.perf_counter() + self._limit_ms / 1000
-            for number, char in enumerate(text, 1):
-                if time.perf_counter() > deadline:      # the step limit holds INSIDE the loop; the rows read so far are kept
-                    break
-                page.keyboard.type(char)
-                page.wait_for_timeout(delay_ms)
-                state = self._field_state(sel)
-                rows.append({"n": number, "value": state["value"], "focus": state["focused"]})
+            try:
+                for number, char in enumerate(text, 1):
+                    if time.perf_counter() > deadline:      # the step limit holds INSIDE the loop; the rows read so far are kept
+                        break
+                    self._char = (number, len(text))        # the events handled during the pause belong to this character (X8-2)
+                    page.keyboard.type(char)
+                    page.wait_for_timeout(delay_ms)
+                    state = self._field_state(sel)
+                    rows.append({"n": number, "value": state["value"], "focus": state["focused"]})
+            finally:
+                self._char = None
             whole = len(rows) == len(text)
             if whole:
                 page.wait_for_timeout(settle_ms)
             state = self._field_state(sel)
             rows.append({"n": "settled" if whole else "stopped", "value": state["value"], "focus": state["focused"]})
             return rows
-        rows, seconds, focus_s, _ = self._keyboard_step(selector, act)
+        rows, seconds, focus_s, _ = self._keyboard_step(selector, act, refocus=not continued)
         return rows, seconds, focus_s
 
-    def press_key(self, selector, key):
-        """(row, seconds, focus_s): the row carries `focused_before`, read before the focus is set."""
-        return self._one_key_row(selector, key, lambda page: page.keyboard.press(key))
+    def press_key(self, selector, key, continued=False):
+        """(row, seconds, focus_s): the row carries `focused_before`, read before the focus is set. `continued`: as `type_chars` (TR1-2)."""
+        return self._one_key_row(selector, key, lambda page: page.keyboard.press(key), continued)
 
-    def paste_text(self, selector, text):
+    def paste_text(self, selector, text, continued=False):
         """(row, seconds, focus_s): inserted at once - the page gets an `input` event, not a `paste` event."""
-        return self._one_key_row(selector, "paste", lambda page: page.keyboard.insert_text(text))
+        return self._one_key_row(selector, "paste", lambda page: page.keyboard.insert_text(text), continued)
 
-    def _one_key_row(self, selector, name, do):
+    def _one_key_row(self, selector, name, do, continued=False):
         def act(page, sel):
             do(page)
             state = self._field_state(sel)
             return {"n": name, "value": state["value"], "focus": state["focused"]}
-        row, seconds, focus_s, before = self._keyboard_step(selector, act)
+        row, seconds, focus_s, before = self._keyboard_step(selector, act, refocus=not continued)
         row["focused_before"] = before
         return row, seconds, focus_s
 
@@ -1622,6 +2143,7 @@ class PlaywrightBackend:
             if host_key(request.url) not in self._allowed:
                 route.fallback()
                 return
+            self.__dict__.setdefault("_ours", {})[request] = True       # BEFORE it answers: its response/failure is ours, not the product's (X8-2)
             record["hits"] += 1
             if len(record["rows"]) < top:
                 record["rows"].append({"method": request.method, "url": request.url})
@@ -1642,12 +2164,40 @@ class PlaywrightBackend:
         record["active"] = False
         return seconds
 
+    def end_session(self):
+        """TR1-3: (cookies deleted, seconds) - every cookie of THIS actor's browser context goes (the context is one actor's: a walk
+        keeps one per actor); the page stays open as it was, as for a person whose session ran out. Only the count is returned: a
+        cookie's name or value is a credential and never leaves here. A context with no cookie is a count of 0, not an error."""
+        held = []
+
+        def drop():
+            held.append(len(self._context.cookies()))
+            self._context.clear_cookies()
+        seconds = self._timed(drop)
+        return held[0], seconds
+
+    def forget_failures(self) -> dict:
+        """TR1-2: the end of an item of a walk - every failing rule is lifted (a route still on is taken off) and forgotten; what each caught
+        is returned as `drain_failures` shows it, for the item's evidence. A rule never outlives the item that declared it."""
+        seen = self.drain_failures()
+        for glob, record in self._failing.items():
+            if record["active"]:
+                with contextlib.suppress(Exception):
+                    self._page.unroute(glob, record["handler"])
+                record["active"] = False
+        self._failing = {}
+        return seen
+
     def drain_requests(self) -> dict:
         """{rows: [{method, url, count}], count: n} - the requests the page sent to a stand host in this session (the context's guard
         sees every one that reaches the stand; it writes no file). A request `fail_request` answers never reaches the guard: it is in the
         `fail-request-*` log, not here."""
-        rows = [{"method": m, "url": u, "count": c} for (m, u), c in self._seen.items()]
-        return {"rows": rows, "count": sum(c for c in self._seen.values())}
+        seen: dict = {}
+        for e in self.__dict__.get("_events", []):                  # a projection of the one collector, never a second counter
+            if e["kind"] == "request":
+                pair = (e["method"], _safe_url(e["url"]))
+                seen[pair] = seen.get(pair, 0) + 1
+        return {"rows": [{"method": m, "url": u, "count": c} for (m, u), c in seen.items()], "count": sum(seen.values())}
 
     def drain_failures(self) -> dict:
         """{glob: {how, hits, rows, active}} - what the routes saw. The handlers run inside Playwright and write no file."""
@@ -1714,11 +2264,32 @@ class PlaywrightBackend:
     def close(self):
         # a persistent context is closed itself (it has no browser object); the cookies stay in the profile on disk
         for closer in (lambda: self._context and self._browser is None and self._context.close(),
-                       lambda: self._browser and self._browser.close(), lambda: self._pw and self._pw.stop()):
+                       lambda: self._browser and self._browser.close(), lambda: self._pw and _driver_release(self._pw)):
             try:
                 closer()
             except Exception:
                 pass
+        self._pw = None
+
+
+_DRIVER = {"pw": None, "users": 0}      # ONE Playwright driver per process: a second `sync_playwright().start()` in the same thread is refused
+
+
+def _driver_acquire(sync_factory):
+    """The process's one driver, started by the first browser and shared by the others (a walk with two actors); every backend gets its own
+    context or profile from it, so cookies are never shared."""
+    if _DRIVER["pw"] is None:
+        _DRIVER["pw"] = sync_factory().start()
+    _DRIVER["users"] += 1
+    return _DRIVER["pw"]
+
+
+def _driver_release(pw):
+    """Stops the driver when the last browser using it closes."""
+    _DRIVER["users"] = max(0, _DRIVER["users"] - 1)
+    if _DRIVER["users"] == 0 and _DRIVER["pw"] is not None:
+        driver, _DRIVER["pw"] = _DRIVER["pw"], None
+        driver.stop()
 
 
 SLEEP = None                # (seconds) -> None; the pause of the device backend's polling, tests put a fake here
@@ -2083,7 +2654,8 @@ def _summary(attempt: Attempt, case, steps, captures_before, failed, probes, obs
         if (attempt.dir / "captures.jsonl").is_file() else []
     rows = [{"step": s["step"], "outcome": s["outcome"],
              **({"screenshot": s.get("screenshot"), "text": s.get("text") or ""} if "screenshot" in s else {}),
-             **({"hits_at_capture": s["hits_at_capture"]} if "hits_at_capture" in s else {})}
+             **({"hits_at_capture": s["hits_at_capture"]} if "hits_at_capture" in s else {}),
+             **({"surprise": s["surprise"]} if s.get("surprise") else {})}
             for s in steps]
     total, trimmed = sum(len(r.get("text") or "") for r in rows), 0
     for row in rows:
@@ -2096,6 +2668,9 @@ def _summary(attempt: Attempt, case, steps, captures_before, failed, probes, obs
            "captures": [{k: v for k, v in c.items() if k in ("path", "kind", "phase", "proves", "content_hash")}
                         for c in lines[captures_before:]],
            "steps": rows, "failed": failed, "limitations": list(attempt.limitations), "probe": probes}
+    out["surprises"] = [{k: s[k] for k in ("id", "step", "kind", "fact")} for s in getattr(attempt, "call_surprises", [])]   # t-1765 X8-2: [] is NOT
+    # 'nothing happened' - `surprise_detection` says whether anyone watched
+    out["surprise_detection"] = _detection_of(attempt.dir)
     if attempt.failures_without_hits:      # a `fail_request` that matched nothing: the role reads it with `limitations` (EP1-30)
         out["failures_without_hits"] = list(attempt.failures_without_hits)
     if observed:
@@ -2856,6 +3431,48 @@ def run_app(args, spec_data) -> int:
     return _session_cycle(attempt, backend, args, profile, cfg, project_root, stand, "app", session)
 
 
+def jsonl_rows(path) -> list:
+    """The parseable object lines of a recorder jsonl file (`steps.jsonl`, `probes.jsonl`); `[]` when it is absent, unreadable
+    or empty. Tolerant on purpose: a damaged line is not a row, and it never stops a walk from being read (the recorder is the
+    only writer, AR-14). The ONE tolerant reader of these files (AR-13)."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError):
+        return []
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _last_step_row(attempt_dir) -> dict:
+    """The LAST parseable row of the attempt's steps.jsonl; {} when the file is absent, unreadable, empty or holds no
+    JSON object line (non-JSON lines are skipped)."""
+    rows = jsonl_rows(Path(attempt_dir) / "steps.jsonl")
+    return rows[-1] if rows else {}
+
+
+def _row_locks_screen_route(row: dict, attempt_dir) -> bool:
+    """Whether an env_blocked row keeps the screen route (`fill-account` steps) shut. Only a do_not_retry row of owner
+    `user` can; the cause test comes first: `login_unknown` (nothing was sent) never locks, any other cause locks. A row
+    with no cause locks only on step evidence of a SENT login: the last steps.jsonl row is a failed `ui` step. The error
+    direction is toward NOT locking: an attempt where nothing was sent never closes the door (spec t-1955 E2.1-E2.3)."""
+    if row.get("do_not_retry") is not True or row.get("owner") != "user":
+        return False
+    cause = row.get("cause")
+    if cause == LOGIN_UNKNOWN_CAUSE:
+        return False
+    if cause:
+        return True
+    last = _last_step_row(attempt_dir)
+    return last.get("outcome") == "failed" and last.get("command") == "ui"
+
+
 def _account_steps_gate(steps, cfg, stand, task_root, case) -> None:
     """The refusals of a step file that signs in by `fill-account`, before any attempt or browser exists (exit 2): an
     actor the call cannot resolve is refused with the doors of `--as` (the line named), and so is a case whose last
@@ -2874,7 +3491,7 @@ def _account_steps_gate(steps, cfg, stand, task_root, case) -> None:
     known = attempts_of(root)
     if known and attempt_state(root / known[-1]) == "env_blocked":
         row = _env_blocked_row(root / known[-1])
-        if row.get("do_not_retry") is True and row.get("owner") == "user":
+        if _row_locks_screen_route(row, root / known[-1]):
             raise ValueError(f"attempt {known[-1]} of this case is env_blocked with do_not_retry and owner user"
                              + (f" ({str(row.get('probe_line'))[:200]})" if row.get("probe_line") else "")
                              + ": the account or the stand was refused, so signing in through `fill-account` meets the same "
@@ -2939,24 +3556,68 @@ def _observe(backend, attempt: Attempt, step, outcome, cfg, account) -> dict:
         return {"screenshot": None, "text": ""}
 
 
-def _run_steps(backend, attempt: Attempt, steps, timeout_s, cfg, spec_data, element_s, account) -> tuple:
+def _run_steps(backend, attempt: Attempt, steps, timeout_s, cfg, spec_data, element_s, account, stop=None) -> tuple:
     """(rows, failed): every step run, in order, until one does not pass. A row is the steps.jsonl entry plus what the
     role sees after it (`screenshot`, `text`) for the first OBSERVE_MAX_STEPS steps; the sign-in window of `account` is
-    kept here, after the observation of the step that opened or closed it."""
+    kept here, after the observation of the step that opened or closed it.
+    `stop` (t-1957 N1a, the walk server's call-back; `None` = the `ui` road, exactly as before): `stop(step, row, found, late=False)`
+    is called after each step's surprise lines are written, with the surprise rows of THAT step (`found`), and once more with
+    `late=True` for the lines that arrive after the last step; a truthy answer ends the loop like a step that did not pass, the
+    row's own outcome unchanged (`failed` stays what the outcome says). The call-back keeps what it answered; this loop reads only
+    whether to go on."""
     rows, failed = [], None
+    watching = hasattr(backend, "event_mark") and hasattr(backend, "events_since")       # the surprise detector (t-1765 X8-2)
+    last_step, last_end = None, None
+    mark_next = None
     for step in steps:
+        mark = (mark_next if mark_next is not None else backend.event_mark()) if watching else None      # the window starts where the last one ended: no event falls between (B-1)
+        before = _url_of(backend) if watching else ""
+        found = []
         outcome = _run_step(backend, attempt, step, timeout_s, cfg, spec_data, element_s, account)
         row = dict(outcome["entry"])
-        if step["n"] <= OBSERVE_MAX_STEPS:
+        found = list(outcome.get("surprises") or [])      # an `http` step writes its own surprise lines (FL-1 B); the stop rule and the answer read them as a screen step's
+        if "excerpt" in outcome:      # an `http` step has no screen to observe: its excerpt is the head of the answer it saved
+            row["text"] = outcome["excerpt"]
+        elif step["n"] <= OBSERVE_MAX_STEPS:
             row.update(_observe(backend, attempt, step, outcome, cfg, account))
             attempt.keep_observation(outcome["entry"], row.get("text"))
         elif step["n"] == OBSERVE_MAX_STEPS + 1:
             attempt.limitations.append(f"observation stopped after {OBSERVE_MAX_STEPS} steps")
+        if watching:
+            if not attempt.call_surprises and last_step is None:
+                attempt.limitations.append(str(_surprise_data(spec_data, "limitation")))
+            fresh, last_end = _surprises_after(backend, attempt, step, mark, before, cfg, spec_data, account)
+            found = [*found, *fresh]
+            last_step, mark_next = step, last_end
+        if found:
+            attempt.call_surprises.extend(found)
+            shown = [_surprise_line(r) for r in found]
+            top = int(_surprise_data(spec_data, "max_per_step_lines"))
+            row["surprise"] = shown[:top] + ([f"... and {len(shown) - top} more"] if len(shown) > top else [])
         rows.append(row)
+        stopped = bool(stop(step, row, found)) if stop is not None else False
         if row["outcome"] != "ok":
+            _settle_new_accounts(attempt, account, cfg, row)
             failed = {"step": step["line"], "outcome": row["outcome"], "detail": row["detail"]}
             break
         account.watch(backend)
+        _confirm_new_accounts(backend, attempt, account, step)      # the window keeps its own job; the sign-up is confirmed by a path change (N1c E1c.6)
+        if stopped:
+            break
+    if watching and failed is None and last_step is not None:
+        _pump(backend, "goto", time.perf_counter(), timeout_s, cfg, spec_data)         # what the last step caused after it was left
+        late, _ = _surprises_after(backend, attempt, last_step, last_end, "", cfg, spec_data, account, late=True)
+        attempt.call_surprises.extend(late)
+        if late:
+            for row in reversed(rows):
+                if row.get("step") == last_step["line"]:
+                    row["surprise"] = [*(row.get("surprise") or []), *[_surprise_line(r) for r in late]]
+                    break
+            if stop is not None:
+                stop(last_step, rows[-1], late, late=True)
+    if attempt.call_surprises:         # the evidence a role (and the analyst) quotes: one file per call, the same lines as the summary
+        text = "\n".join(_surprise_line(r) for r in attempt.call_surprises) + "\n"
+        attempt.store_text("surprises", text.encode("utf-8"), "log", "supporting", ["surprises"], _cmd(attempt), ".txt")
     _store_open_failures(backend, attempt, cfg, account)
     return rows, failed
 
@@ -3017,6 +3678,432 @@ def _step_number(spec_data, word, key) -> int:
     return value
 
 
+def _manual_number(cfg, key) -> int:
+    """`manual_capture.<key>` of the project's config (a whole number >= 0), else MANUAL_DEFAULTS (AR-3: a default for every key, the
+    template of config.json carries the same numbers; a value that is not such a number is the default - the project's typo never stops
+    a capture)."""
+    own = cfg.get("manual_capture") if isinstance(cfg, dict) and isinstance(cfg.get("manual_capture"), dict) else {}
+    value = own.get(key)
+    return MANUAL_DEFAULTS[key] if isinstance(value, bool) or not isinstance(value, int) or value < 0 else value
+
+
+def _surprise_data(spec_data, key):
+    """`surprise.<key>` of the data file (the caller's spec data first, else the package's own): the closed lists and limits of the
+    detector are data (AR-1); a key the file lacks is a damaged install and fails loudly (KeyError), as `spec()['steps']` does."""
+    block = spec_data.get("surprise") if key in (spec_data.get("surprise") or {}) else spec()["surprise"]
+    return block[key]
+
+
+def _joined(detail, note) -> str:
+    return "; ".join(x for x in (detail, note) if x)
+
+
+def _pump(backend, word, started, timeout_s, cfg, spec_data, waited=False) -> str:
+    """After a step that acts or types: let the requests it caused arrive BEFORE the next step starts (the sync API hands events over only
+    inside its own calls), by `backend.settle` - `settle_ms`, then the network idle, held to the step's remaining limit and to
+    `surprise.settle_idle_max_ms`. `waited`: the step has already waited `settle_ms` itself. Returns "" or `idle: not reached` for the step
+    line. A backend with no `settle`, a word that neither acts nor types, or a pump that raises, change nothing: the step is never failed
+    by its own wait (P1)."""
+    if word not in [*_surprise_data(spec_data, "action_steps"), *_surprise_data(spec_data, "input_steps")]:
+        return ""
+    settle = getattr(backend, "settle", None)
+    if settle is None:
+        return ""
+    try:
+        idle = settle(0 if waited else _manual_number(cfg, "settle_ms"), int(_surprise_data(spec_data, "settle_idle_max_ms")),
+                      timeout_s - (time.perf_counter() - started))
+    except Exception:  # noqa: BLE001
+        return ""
+    return "idle: not reached" if idle is False else ""
+
+
+def _look_limit(cfg, spec_data) -> int:
+    """The most bytes a `look` file keeps: `steps.look.max_bytes`, and no more than the role's own whole-read limit leaves (`read.max_bytes`
+    of the config, read by its one reader `guard_pre_tool.big_read_cap`, less 1024 for the file's first lines); a limit of 0 or less is
+    'the guard is off'."""
+    top = _step_number(spec_data, "look", "max_bytes")
+    try:
+        import guard_pre_tool
+        cap = int(guard_pre_tool.big_read_cap(cfg))
+    except Exception:  # noqa: BLE001
+        return top
+    return top if cap <= 0 else max(1, min(top, cap - 1024))
+
+
+def _run_look(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, account) -> dict:
+    """`look [<selector>]` (t-1765 X8): what the page shows, stored as a state file the role may cite. The code reads and stores; the role
+    judges what it sees (FR-47). Refused inside the sign-in window (the tree holds the form), on a device with a selector, and when the
+    text matches a secret pattern or cannot be scanned. Nothing read: the step stays `ok` and says so, with a limitation (P1)."""
+    line, args = step["line"], step["args"]
+    selector = args[0] if args else None
+    on_device = _cmd(attempt) == "app"
+    if on_device and selector is not None:
+        return attempt.step(_cmd(attempt), line, "refused", "a device has no page to narrow by a selector: repeat the step as `look` "
+                            "with no argument (it stores the screen's whole element tree)")
+    if account.window:
+        return _window_refusal(attempt, line, account, "a look")["entry"]
+    limit = _look_limit(cfg, spec_data)
+    short_lines, short_chars = _step_number(spec_data, "look", "short_lines"), _step_number(spec_data, "look", "short_chars")
+    label = _label(selector or "page")
+
+    def says(kept, made):
+        lines = kept.splitlines()
+        said = f"look: {len(lines)} lines, {len(kept.encode('utf-8'))} bytes -> {made['path']}\n" + "\n".join(lines[:short_lines])
+        return said if len(said) <= short_chars else said[:short_chars] + "..."
+    if on_device:
+        text, took = backend.source()
+        if took > timeout_s:
+            raise StepTimeout(took)
+        return _store_device_text(attempt, step, account, cfg, "state", "look", text, ".xml", max_bytes=limit,
+                                  cut_note="[cut: {k} more lines not stored]", says=says)
+    looker = getattr(backend, "look", None)
+    if looker is None:
+        raise StepFailed("this capture backend cannot look at a page", by="the factory")
+    text, form, why, took = looker(selector)
+    if took > timeout_s:
+        raise StepTimeout(took)
+    if text is None:
+        said = f"nothing read: {_first_line(why, 'the page could not be read')}"
+        attempt.limitations.append(f"look {selector or 'page'} read nothing ({_first_line(why, 'the page could not be read')}): "
+                                   "the page was not seen by this step")
+        return attempt.step(_cmd(attempt), line, "ok", _detail(account.hide(said)))
+    if form == "aria" and not str(text).strip():
+        text = "the page has no accessible content"
+    head = "form: aria\n" if form == "aria" else f"form: text ({_first_line(why, 'the accessibility tree could not be read')})\n"
+    return _store_device_text(attempt, step, account, cfg, "state", label, str(text).rstrip("\n") + "\n", ".txt", max_bytes=limit,
+                              cut_note="[cut: {k} more lines not stored; look <selector> narrows it]", head=head, says=says)
+
+
+def _run_watch(backend, attempt: Attempt, step, cfg, spec_data, account) -> dict:
+    """`watch <selector> [<label>]`: from now on every step reads the element's text (the detector of X8-2 compares it). The reading now
+    is the baseline. At most `steps.watch.max_watched` different labels per call; a repeat of a label replaces its element."""
+    line, args = step["line"], step["args"]
+    selector = args[0]
+    label = args[1] if len(args) == 2 else selector
+    top = _step_number(spec_data, "watch", "max_watched")
+    if label not in attempt.watches and len(attempt.watches) >= top:
+        return attempt.step(_cmd(attempt), line, "refused", f"{len(attempt.watches)} elements are already watched in this call and at most "
+                            f"{top} can be: watch the ones that matter, or repeat a label to point it at another element "
+                            f"(watched: {', '.join(attempt.watches)})")
+    reader = getattr(backend, "watch_text", None)
+    if reader is None:
+        raise StepFailed("this capture backend cannot read an element's text", by="the factory")
+    text = str(reader(selector))
+    attempt.watches[label] = {"selector": selector, "last": text}
+    return attempt.step(_cmd(attempt), line, "ok", _detail(_kept_text(f'watching {label}: "{text}"', cfg, account)))
+
+
+def _fill_detail(text, rows, settle_ms, secret) -> str:
+    """The step line of a human `fill`: that the field was cleared (and what it still held), what was typed and what the field holds
+    after. `rows[0]` is the clearing. A secret-looking text is told by its length only."""
+    cleared = rows[0]
+    prefix = "cleared" + (f' (it still held "{cleared["value"]}")' if cleared["value"] not in ("", GONE) else "")
+    if secret:
+        chars = rows[1:-1]
+        return f"{prefix}; typed {len(chars)} of {len(text)} characters; value not shown (it looks like a secret)"
+    return f"{prefix}; " + _input_detail("type", ["", text], rows[1:], settle_ms)
+
+
+def _run_fill(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, account, lookup, started) -> dict:
+    """`fill [--whole] <selector> <text>` (t-1765 X8): the field ends holding the text, typed as a person types it. The text is scanned for
+    secrets ONCE, before any key (a hit keys it all the same and stores no log - the fill before X8 never refused); a text that would take
+    longer than the step limit at `manual_capture.type_delay_ms` is refused BEFORE the first key, with the door `fill --whole`; the field is
+    emptied first (select all, delete) so what it ends with is the given text whatever it held; an empty text only empties it. A field that
+    cannot be keyed (the data's `whole_types` / `whole_tags`) and `--whole` set the whole value at once and the line says `input: whole`.
+    A backend with no `clear_field` (a device, an older fake) keeps the plain `backend.fill`."""
+    line, args = step["line"], step["args"]
+    asked = args[0] == _whole_flag(spec_data)
+    selector, text = (args[1], args[2]) if asked else (args[0], args[1])
+    human = all(hasattr(backend, name) for name in ("clear_field", "field_traits", "type_chars"))
+    if not human:
+        elapsed = lookup(backend.fill(selector, text))
+        idle = _pump(backend, "fill", started, timeout_s, cfg, spec_data)
+        return {"entry": attempt.step(_cmd(attempt), line, "ok", _joined("input: whole (this backend sets a field's value at once)"
+                                                                         if asked else "", idle)), "shot": None}
+    try:
+        hit = secret_pattern_hit(text, cfg)
+        unscanned = False
+    except ValueError:
+        hit, unscanned = None, True
+    delay, settle = _manual_number(cfg, "type_delay_ms"), _manual_number(cfg, "settle_ms")
+    if not asked and len(text) * delay > timeout_s * 1000:
+        return {"entry": attempt.step(_cmd(attempt), line, "refused",
+                                      f"typing {len(text)} characters at {delay} ms each takes {len(text) * delay / 1000:g} s, over the step "
+                                      f"limit of {timeout_s:g} s: nothing was typed. Use `fill {_whole_flag(spec_data)} {selector} <text>` "
+                                      "(it sets the whole value at once) or a shorter text"), "shot": None}
+    why = _whole_flag(spec_data) if asked else ""
+    if not why:
+        traits, took = backend.field_traits(selector)
+        lookup(took)
+        if traits.get("type") in _step_list(spec_data, "whole_types"):
+            why = f"type={traits['type']}"
+        elif traits.get("tag") in _step_list(spec_data, "whole_tags"):
+            why = f"<{traits['tag']}>"
+    if why:
+        elapsed = lookup(backend.fill(selector, text))
+        if elapsed > timeout_s:
+            raise StepTimeout(elapsed)
+        return {"entry": attempt.step(_cmd(attempt), line, "ok", _joined(f"input: whole ({why})", _pump(backend, "fill", started, timeout_s,
+                                                                                                          cfg, spec_data))), "shot": None}
+    cleared, took_clear, focus_clear = backend.clear_field(selector)
+    lookup(focus_clear)
+    rows, took, focus_s = backend.type_chars(selector, text, delay, settle)
+    lookup(focus_s)
+    rows = [cleared, *rows]
+    log = account.hide("\n".join(_input_line(r) for r in rows))
+    try:
+        log_hit = secret_pattern_hit(log, cfg)
+    except ValueError:
+        log_hit, unscanned = None, True
+    if hit is not None or log_hit is not None or unscanned:
+        attempt.limitations.append(
+            f"the log of `fill {selector}` was not stored: " + ("a secret_content_patterns entry could not be scanned" if unscanned else
+            f"the text matches secret_content_patterns[{hit if hit is not None else log_hit}]") + " (the field was filled all the same)")
+    else:
+        stored, truncated = cut_body(log.encode("utf-8"))
+        kept, _ = body_text(stored, truncated)
+        attempt.store_text(f"fill-{selector}", kept.encode("utf-8"), "log", "supporting", [f"fill {selector}"], "ui", ".txt",
+                           _limit_words("read") if truncated else None)
+    if took_clear + took > timeout_s:
+        raise StepTimeout(took_clear + took)
+    secret = hit is not None or log_hit is not None or unscanned
+    attempt.last_input = {"selector": selector, "text": text, "rows": rows, "secret": secret, "cleared": True}
+    idle = _pump(backend, "fill", started, timeout_s, cfg, spec_data, waited=True)
+    return {"entry": attempt.step(_cmd(attempt), line, "ok", _joined(_detail(account.hide(_fill_detail(text, rows, settle, secret))), idle)),
+            "shot": None}
+
+
+def _url_of(backend) -> str:
+    try:
+        return str(backend.current_url() or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _path_of(url) -> str:
+    return urlsplit(str(url or "")).path or "/"
+
+
+def _surprise_line(row) -> str:
+    """The ONE form of a `surprise` in the summary and in `NNN-surprises.txt`: `surprise: <id> step <n> (<word>) <kind>: <fact>`."""
+    return f"surprise: {row['id']} step {row['step']} ({row['word']}) {row['kind']}: {row['fact']}"
+
+
+def _span(numbers) -> str:
+    """[2, 3, 4, 7] -> `2-4, 7`."""
+    out, run = [], []
+    for n in sorted(set(numbers)):
+        if run and n == run[-1] + 1:
+            run.append(n)
+            continue
+        if run:
+            out.append(str(run[0]) if len(run) == 1 else f"{run[0]}-{run[-1]}")
+        run = [n]
+    if run:
+        out.append(str(run[0]) if len(run) == 1 else f"{run[0]}-{run[-1]}")
+    return ", ".join(out)
+
+
+def _surprise_rows(attempt_dir) -> tuple:
+    """`(rows, torn)` of `<attempt_dir>/surprises.jsonl`: the ONE tolerant reader of the file (AR-13) - `Attempt.surprise`, `_detection_of`
+    and `manual_evidence.surprises_of` all ask it. A line that is not a JSON object (a call killed mid-append) is skipped and counted in
+    `torn`; it never raises for content (the OSError of an unreadable file is the caller's). `[]` and 0 for no file."""
+    path = Path(attempt_dir) / "surprises.jsonl"
+    rows, torn = [], 0
+    if not path.is_file():
+        return rows, torn
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            torn += 1
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+        else:
+            torn += 1
+    return rows, torn
+
+
+def _detection_of(attempt_dir) -> str:
+    """How much of the attempt the detector WATCHED, from the `detector` lines of `surprises.jsonl` (never from the surprises): `on` -
+    every step of the attempt has a line and every listener was alive; `partial: <kind> dead at steps a-b; steps c-d not observed`;
+    an unreadable line (`<n> unreadable line(s)`) makes it `partial`; `absent: <why>` - no detector line at all (no file, an empty file, a backend that does not log the page). `absent` and `partial`
+    are never read as 'no surprises' (AR-28). The sign-in by code is the factory's own step and is not a step to observe."""
+    rows, torn = _surprise_rows(attempt_dir)
+    seen = [r for r in rows if r.get("line") == "detector" and isinstance(r.get("step"), int)]
+    if not seen:
+        return ("absent: no detector line was written for this attempt (the backend does not log the page's events, or nothing ran)"
+                + (f"; {torn} unreadable line(s) in surprises.jsonl" if torn else ""))
+    observed = {r["step"] for r in seen}
+    dead: dict = {}
+    for r in seen:
+        if r.get("listeners") != "ok":
+            for kind in str(r["listeners"]).split(":", 1)[-1].split(","):
+                dead.setdefault(kind, []).append(r["step"])
+    path = Path(attempt_dir) / "steps.jsonl"
+    steps = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()] if path.is_file() else []
+    missing = [i for i, s in enumerate(steps, 1) if i not in observed and not str(s.get("step", "")).startswith("login by code")]
+    parts = [f"{kind} dead at steps {_span(ns)}" for kind, ns in dead.items()] + ([f"steps {_span(missing)} not observed"] if missing else []) \
+        + ([f"{torn} unreadable line(s) in surprises.jsonl"] if torn else [])
+    return "on" if not parts else "partial: " + "; ".join(parts)
+
+
+def _candidates(backend, attempt, step, events, before, after, spec_data) -> list:
+    """[(kind, subject, fact, count, status)] of one step (`status`: the answer's number on a `status` line, else None): what the page did, as plain facts. On a step that ACTS (goto, click, drag) a request or
+    a change of address is the action's own and goes to the step line; errors are reported on any step. The code does not say whether a
+    fact is a defect (FR-47): the role reads it, the analyst judges it."""
+    word, args = step["word"], step["args"]
+    acts = word in _surprise_data(spec_data, "action_steps")
+    out, answered = [], {e["rid"]: e.get("status") for e in events if e["kind"] == "response"}
+    broken, numbers = set(), {}       # `numbers`: (kind, subject, fact) of a `status` line -> the answer's number (t-1957 N1a)
+    for e in events:
+        who = f"{e.get('method', 'GET')} {_path_of(e.get('url'))}"
+        if e["kind"] == "response" and not e["ours"] and int(e.get("status") or 0) >= 400:
+            broken.add(e["url"])
+            out.append(("status", f"{who} -> {e['status']}", f"{who} -> {e['status']}", 1))
+            numbers[("status", f"{who} -> {e['status']}", f"{who} -> {e['status']}")] = int(e["status"])
+        elif e["kind"] == "failed" and not e["ours"]:
+            broken.add(e["url"])
+            out.append(("failed", who, f"{who} failed: {e.get('failure') or 'no reason given'}", 1))
+    for e in events:
+        if e["kind"] in ("console", "pageerror"):
+            if e["kind"] == "console" and str(e["text"]).startswith("Failed to load resource") and e.get("location") in broken:
+                continue                                  # the browser's own echo of a status/failed line of this step
+            out.append(("console", e["text"], f"{'pageerror' if e['kind'] == 'pageerror' else 'console'}: {e['text']}", 1))
+    groups: dict = {}
+    for e in events:
+        if e["kind"] == "request":
+            groups.setdefault((e["method"], _path_of(e["url"])), []).append(e)
+    for (method, path), found in groups.items():
+        if acts:
+            if method != "GET" and len(found) > 1:
+                out.append(("request", f"{method} {path}", f"{method} {path} sent {len(found)} times", 1))
+            continue
+        status = answered.get(found[0]["rid"])
+        said = f"{method} {path} -> {status}" if status is not None else f"{method} {path} (no answer yet)"
+        if found[0].get("char"):
+            said += f" after character {found[0]['char'][0]} of {found[0]['char'][1]}"
+        out.append(("request", f"{method} {path}", said, len(found)))
+    if word == "goto" and after and _safe_url(after) != _safe_url(args[0]):
+        out.append(("url", f"{_path_of(args[0])} -> {_path_of(after)}", f"goto {_path_of(args[0])} landed on {_path_of(after)}", 1))
+    elif not acts and before and after and _safe_url(before) != _safe_url(after):
+        out.append(("url", f"{_path_of(before)} -> {_path_of(after)}", f"url changed {_path_of(before)} -> {_path_of(after)}", 1))
+    typed, attempt.last_input = attempt.last_input, None
+    if typed and word in _surprise_data(spec_data, "input_steps"):
+        said = _field_fact(typed)
+        if said:
+            out.append(("field", typed["selector"], said, 1))
+    reader = getattr(backend, "watch_text", None)
+    for label, watched in list(attempt.watches.items()):
+        if reader is None:
+            break
+        now = str(reader(watched["selector"]))
+        if now != watched["last"]:
+            if not acts:
+                out.append(("text", label, f'watch {label}: "{watched["last"]}" -> "{now}"', 1))
+            watched["last"] = now
+    hosts: dict = {}
+    for e in events:
+        if e["kind"] == "blocked":
+            hosts[urlsplit(e["url"]).hostname or e["url"]] = hosts.get(urlsplit(e["url"]).hostname or e["url"], 0) + 1
+    for host, count in hosts.items():
+        if host not in attempt.blocked_seen:
+            attempt.blocked_seen.add(host)
+            out.append(("blocked_host", host, f"requests to {host} blocked (not a stand host): {count}", 1))
+    merged: dict = {}                                   # one line per (kind, subject, fact) of the step, `xN` for a repeat
+    for kind, subject, fact, count in out:
+        merged[(kind, subject, fact)] = merged.get((kind, subject, fact), 0) + count
+    return [(kind, subject, fact, count, numbers.get((kind, subject, fact))) for (kind, subject, fact), count in merged.items()]
+
+
+def _field_fact(typed) -> str:
+    """'' or the one `field` fact of a keyed step: the first reading that is not the typed prefix, the settled value, a lost focus.
+    A `fill` cleared the field first (equality); a `type` appends to what was there (the value must END with the prefix)."""
+    text, rows = typed["text"], [r for r in typed["rows"] if r["n"] != "cleared"]
+    same = (lambda value, want: value == want) if typed.get("cleared") else (lambda value, want: str(value).endswith(want))
+    parts = [typed["lost_before"]] if typed.get("lost_before") else []
+    for r in rows:
+        want = text if r["n"] in ("settled", "stopped") else text[:r["n"]]
+        if not same(r["value"], want):
+            when = "after settling" if r["n"] == "settled" else f"after character {r['n']}"
+            parts.append(f"{when} the field shows \"{r['value']}\" (typed \"{want}\")" if not typed.get("secret")
+                         else f"{when} the field does not hold what was typed (values not shown)")
+            break
+    lost = next((r["n"] for r in rows if isinstance(r["n"], int) and not r["focus"]), None)
+    if lost is not None:
+        parts.append(f"focus lost after character {lost - 1}" if lost > 1 else "no focus already at the reading after character 1")
+    return "; ".join(parts)
+
+
+def _kept_text(text, cfg, account) -> str:
+    """A text the call keeps, as the file may hold it: through `account.hide` and the secret scan (a hit keeps only the pattern's
+    index). The ONE place of these words for the surprise facts, the action note and the watch baseline (D-7, B-2)."""
+    text = account.hide(text)
+    try:
+        hit = secret_pattern_hit(text, cfg)
+    except ValueError:
+        return "not kept: secret_content_patterns could not be scanned"
+    return text if hit is None else f"not kept: matches secret_content_patterns[{hit}]"
+
+
+def _surprises_after(backend, attempt, step, mark, before, cfg, spec_data, account, late=False) -> tuple:
+    """`(lines, end)`: the surprise lines of one step, written to `surprises.jsonl` (every one),
+    and the detector line that says the step was watched. The window is [`mark`, the end of the step's observation]; `end` is the
+    index it consumed, and the next step's window starts there, so an event handed over while the detector itself reads the page
+    (`watch`) falls into a window all the same. Facts pass `account.hide` and the secret scan like every text the call keeps.
+    Nothing here refuses, stops or judges (P1, AR-18): a failure of the detector's own code is a dead listener `detector`."""
+    try:
+        events, dead = backend.events_since(mark), list(backend.dead_listeners())
+    except Exception:  # noqa: BLE001
+        events, dead = [], ["events"]
+    end = (mark or 0) + len(events)
+    kinds, word, step_no = _surprise_data(spec_data, "kinds"), step["word"], attempt.step_number()
+    written = []
+    try:
+        for kind, subject, fact, count, number in _candidates(backend, attempt, step, events, before, _url_of(backend), spec_data):
+            if late and kind == "url":
+                continue                                       # where the last step landed was told on the step itself
+            text = _kept_text(fact + (f" x{count}" if count > 1 else "") + (" (after the last step)" if late else ""), cfg, account)
+            written.append(attempt.surprise(step_no, word, kind, text, status=number))
+    except Exception:  # noqa: BLE001
+        dead = [*dead, "detector"]
+    if not late:
+        attempt.detector(step_no, dead, kinds)
+    return written, end
+
+
+def _action_note(backend, mark, before, step, cfg, account) -> str:
+    """The step line of a step that ACTS: the requests it caused and the address it moved to (its own effects, not surprises)."""
+    if mark is None or step["word"] not in _surprise_data({}, "action_steps"):
+        return ""
+    try:
+        events = backend.events_since(mark)
+    except Exception:  # noqa: BLE001
+        return ""
+    answered = {e["rid"]: e.get("status") for e in events if e["kind"] == "response"}
+    seen = [_kept_text(f"{e['method']} {_path_of(e['url'])}" + (f" -> {answered[e['rid']]}" if e["rid"] in answered else ""), cfg, account)
+            for e in events if e["kind"] == "request"]
+    parts = []
+    if seen:
+        parts.append("requests: " + ", ".join(seen[:5]) + (f" and {len(seen) - 5} more" if len(seen) > 5 else ""))
+    after = _url_of(backend)
+    if step["word"] != "goto" and before and after and _safe_url(before) != _safe_url(after):
+        parts.append(_kept_text(f"url: {_path_of(before)} -> {_path_of(after)}", cfg, account))
+    return "; ".join(parts)
+
+
+def _step_list(spec_data, key) -> list:
+    """`steps.fill.<key>` of the data (a list of words), the caller's spec data first."""
+    for source in (spec_data, spec()):
+        value = ((source.get("steps") or {}).get("fill") or {}).get(key)
+        if isinstance(value, list):
+            return [str(v) for v in value]
+    return []
+
+
 def _input_line(row) -> str:
     """One line of a keyboard step's log: `<n>\\t<value>\\tfocus=yes|no` (+ `\\tfocused_before=yes|no`); the value on one line."""
     flat = " ".join(str(row["value"]).replace("\t", " ").splitlines())
@@ -3043,25 +4130,54 @@ def _input_detail(word, args, rows, settle_ms) -> str:
     return said + ("" if last["focus"] else "; focus lost after the wait")
 
 
-def _run_input(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, account, lookup) -> dict:
+def _continues_field(backend, prior, selector) -> bool:
+    """Does a `type` / `press` / `paste` on `selector` go on with the field the step before typed in (`prior`)? The same spelling does; a
+    different one only when the backend says both resolve to one field (`same_field`: the page decides, no list of spellings here).
+    A doubt - no `same_field`, an error, any answer but True - is a new field, never a continuation (TR4-9)."""
+    if not prior:
+        return False
+    if prior == selector:
+        return True
+    ask = getattr(backend, "same_field", None)
+    if not callable(ask):
+        return False
+    try:
+        return ask(prior, selector) is True
+    except Exception:  # noqa: BLE001 - a backend that cannot tell is a doubt, not a stop
+        return False
+
+
+def _run_input(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, account, lookup, started=None) -> dict:
     """`type` / `press` / `paste`: the backend does the keys, code stores one log line per character (or per key) and names
     the result. The element lookup limit applies to the FOCUS only (a long text must not fail as 'element not found'); the
     whole step is held to `timeout_s`."""
     word, args, line = step["word"], step["args"], step["line"]
     settle = 0
+    # the step before typed in this very field (a `type`): this one - `type`, `press` or `paste` - goes on, no new focus (TR1-1, TR1-2).
+    # ONE rule for the three; a backend gets `continued=True` only then (an older backend or fake keeps its signature).
+    continued = _continues_field(backend, attempt.type_prior, args[0])
+    more = {"continued": True} if continued else {}
     if word == "type":
         delay = int(args[2]) if len(args) == 3 else _step_number(spec_data, "type", "default_delay_ms")
         settle = _step_number(spec_data, "type", "settle_ms")
-        rows, took, focus_s = backend.type_chars(args[0], args[1], delay, settle)
+        rows, took, focus_s = backend.type_chars(args[0], args[1], delay, settle, **more)
+        attempt.type_chain = args[0]
     elif word == "press":
-        row, took, focus_s = backend.press_key(args[0], args[1])
+        row, took, focus_s = backend.press_key(args[0], args[1], **more)
         rows = [row]
     else:
-        row, took, focus_s = backend.paste_text(args[0], args[1])
+        row, took, focus_s = backend.paste_text(args[0], args[1], **more)
         rows = [row]
+    lost_before = getattr(backend, "focus_lost_before", None) if continued else None
     lookup(focus_s)
     text = account.hide("\n".join(_input_line(r) for r in rows))
     hit = secret_pattern_hit(text, cfg)
+    fact = f"focus lost before the call: keys went to {lost_before}" if lost_before else ""       # ONE text, three readers
+    if word == "type":
+        attempt.last_input = {"selector": args[0], "text": args[1], "rows": rows, "secret": hit is not None, "cleared": False,
+                              "lost_before": fact}
+    elif lost_before:       # a `press` / `paste` that went on and found no focus: the same fact for the detector, no rows to compare
+        attempt.last_input = {"selector": args[0], "text": "", "rows": [], "secret": False, "cleared": False, "lost_before": fact}
     if hit is not None:
         return {"entry": attempt.step(_cmd(attempt), line, "refused",
                                       f"the value read back matches secret_content_patterns[{hit}]: nothing was stored; "
@@ -3072,7 +4188,10 @@ def _run_input(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, accou
                        _limit_words("read") if truncated else None)
     if took > timeout_s:       # after the rows are kept: the lines read before the stop are the evidence of the defect
         raise StepTimeout(took)
-    return {"entry": attempt.step(_cmd(attempt), line, "ok", _detail(account.hide(_input_detail(word, args, rows, settle)))),
+    if lost_before:         # the keys went elsewhere: the step is not ok (a fact, no pass is set over it); the rows above are its evidence
+        raise StepFailed(fact + "; a `click` on the field is a person's new click")
+    idle = _pump(backend, word, time.perf_counter() if started is None else started, timeout_s, cfg, spec_data, waited=settle > 0)
+    return {"entry": attempt.step(_cmd(attempt), line, "ok", _joined(_detail(account.hide(_input_detail(word, args, rows, settle))), idle)),
             "shot": None}
 
 
@@ -3122,7 +4241,7 @@ def _store_open_failures(backend, attempt: Attempt, cfg, account) -> None:
             _store_failure(attempt, cfg, account, glob, record)
 
 
-def _store_requests_seen(backend, attempt: Attempt, cfg, account=None) -> None:
+def _store_requests_seen(backend, attempt: Attempt, cfg, account=None, since=None) -> None:
     """End of a `ui` session (t-1765 X3): the log of the requests the page sent to a stand host, as `requests-seen.txt`: `METHOD address`
     (no query), one line per distinct pair (`xN` for a repeat), the first `requests_seen.max_logged` lines, then `... and K more`; a line
     that matches a secret pattern is counted, not kept (as `_store_failure`). No request: the file says `requests seen: 0` and the
@@ -3139,6 +4258,12 @@ def _store_requests_seen(backend, attempt: Attempt, cfg, account=None) -> None:
         return
     try:
         seen = drain()
+        if since is not None and seen is not None:
+            # t-1957 N1a (E1.13): a kept session serves several items, so the log of ONE item is the part of the backend's single
+            # collector that began at `since` (an `event_mark()`); a backend that cannot give that part is said, never read whole
+            # (a request is never attributed to another item's attempt)
+            events = backend.events_since(since)
+            seen = {"rows": [{"method": e.get("method"), "url": e.get("url"), "count": 1} for e in events if e.get("kind") == "request"]}
     except Exception:
         seen = None
     if seen is None:
@@ -3199,7 +4324,7 @@ def _manual_stand_wait_s(cfg: dict) -> int:
 
 
 @contextlib.contextmanager
-def _hold_stand(cfg: dict, project_root, stand, job_id: str, attempt_dir=None):
+def _hold_stand(cfg: dict, project_root, stand, job_id: str, attempt_dir=None, mode: str = "exclusive", max_shared: int = 1):
     """Every `ui`, `http` and `app` call holds the stand's lease while it runs (t-1765 X3, F-X3-5): the whole call, released on a normal
     exit and on an exception. ONE lease helper for the suites and the captures: `run_suite.hold_stand` (it prints the one `stand_busy`
     answer, AR-18); a busy stand is `StandHeld` (exit 3, before anything is opened; an empty attempt folder this call made is removed).
@@ -3207,8 +4332,9 @@ def _hold_stand(cfg: dict, project_root, stand, job_id: str, attempt_dir=None):
     import run_suite
     name = str((stand or {}).get("name") or "") if isinstance(stand, dict) else ""
     stack = contextlib.ExitStack()
+    extra = {} if mode == "exclusive" else {"mode": mode, "max_shared": max_shared}     # the default call stays the old 4-argument call
     try:
-        lease = stack.enter_context(run_suite.hold_stand(cfg, job_id, name, _manual_stand_wait_s(cfg)))
+        lease = stack.enter_context(run_suite.hold_stand(cfg, job_id, name, _manual_stand_wait_s(cfg), **extra))
     except SystemExit as stop:
         if attempt_dir is not None:
             try:
@@ -3245,20 +4371,47 @@ def _with_limit(attempt, own=None):
     return "; ".join(x for x in (own, wide) if x) or None
 
 
-def _store_device_text(attempt, step, account, cfg, kind, label, text, suffix, cut=False):
-    """A device's `source` or `log` (EP1-41d): the text hidden from the session's accounts, scanned for secrets (a match is a refusal
-    that names only the pattern's index), cut at BODY_CAP with its limitation, stored as a `supporting` file of `kind`. Returns the
-    steps.jsonl entry."""
+def _cut_lines(text, max_bytes, cut_note) -> tuple:
+    """(text, lines left out): `text` whole when it fits `max_bytes`, else its first whole lines that fit, then `cut_note` (its `{k}` is
+    the number of lines left out) as the last line - the file says it was cut, and where, never ends in the middle of a line."""
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text, 0
+    lines, kept, used = text.splitlines(), [], 0
+    for one in lines:
+        size = len(one.encode("utf-8")) + 1
+        if used + size > max_bytes:
+            break
+        kept.append(one)
+        used += size
+    left = len(lines) - len(kept)
+    return "\n".join([*kept, cut_note.format(k=left)]) + "\n", left
+
+
+def _store_device_text(attempt, step, account, cfg, kind, label, text, suffix, cut=False, max_bytes=None, cut_note="", head="", says=None):
+    """A device's `source` or `log` (EP1-41d) and a page's `look` (t-1765 X8): the text hidden from the session's accounts, scanned for
+    secrets (a match - or a pattern that cannot be scanned - is a refusal that names only the pattern's index), cut at BODY_CAP with its
+    limitation, stored as a `supporting` file of `kind`. `head` is a first line the file starts with (scanned with it); `max_bytes` cuts the
+    text at a line with `cut_note` and a limitation of its own (`look` is read by a role through a guard that refuses a large file whole);
+    `says(kept_text, capture_entry)` words the step line (default: the byte count). Returns the steps.jsonl entry."""
     line, word = step["line"], step["word"]
-    text = account.hide(text)
-    hit = secret_pattern_hit(text, cfg)
+    text = account.hide(head + text)
+    try:
+        hit = secret_pattern_hit(text, cfg)
+    except ValueError:
+        return attempt.step(_cmd(attempt), line, "refused", f"the {word} could not be scanned for secrets (secret_content_patterns of "
+                            "config.json is broken): nothing was stored. Repair the pattern, then repeat the step")
     if hit is not None:
         return attempt.step(_cmd(attempt), line, "refused", f"the {word} matches secret_content_patterns[{hit}]: nothing was stored")
+    own = None
+    if max_bytes is not None:
+        text, left = _cut_lines(text, max_bytes, cut_note)
+        if left:
+            own = f"{word} cut: {left} more lines not stored (the file holds at most {max_bytes} bytes)"
     stored, truncated = cut_body(text.encode("utf-8"))
     kept, _ = body_text(stored, truncated)
-    attempt.store_text(f"{word}-{label}", kept.encode("utf-8"), kind, "supporting", [f"{word} {label}"], _cmd(attempt), suffix,
-                       _with_limit(attempt, _limit_words(word) if (truncated or cut) else None))
-    return attempt.step(_cmd(attempt), line, "ok", f"{len(kept.encode('utf-8'))} bytes")
+    made = attempt.store_text(f"{word}-{label}", kept.encode("utf-8"), kind, "supporting", [f"{word} {label}"], _cmd(attempt), suffix,
+                              _with_limit(attempt, _limit_words(word) if (truncated or cut) else own))
+    return attempt.step(_cmd(attempt), line, "ok", says(kept, made) if says else f"{len(kept.encode('utf-8'))} bytes")
 
 
 def _window_refusal(attempt, line, account, what: str) -> dict:
@@ -3275,13 +4428,227 @@ def _window_refusal(attempt, line, account, what: str) -> dict:
                                   + door), "shot": None}
 
 
+def _stand_may_change(stand, no_words=()) -> bool:
+    """Whether the stand's row records that it may be changed (`safe_to_break`: true, or the person's words about what may break).
+    ERROR DIRECTION (FR-59): an absent, empty or false value, no row at all, or a string that IS one of the data row `safe_to_break_no`
+    (the WHOLE stripped, case-folded value: "no", "false", "unknown" ...) is `no` - a new account is never made on a guess. A sentence
+    is not searched for those words (FR-12)."""
+    value = stand.get("safe_to_break") if isinstance(stand, dict) else None
+    if value is True:
+        return True
+    if not isinstance(value, str) or not value.strip():
+        return False
+    return value.strip().casefold() not in {str(w).strip().casefold() for w in no_words}
+
+
+def _new_account_template(args, spec_data) -> str:
+    return args[2] if len(args) == 3 else str(spec_data.get("generated_user_template") or spec()["generated_user_template"])
+
+
+def _type_new_value(backend, cfg, selector, text, lookup, timeout_s) -> None:
+    """Type `text` into the field character by character, as `fill` does; the rows the backend keeps hold the value and are NOT stored.
+    A backend that cannot key a field (a device, an older fake) sets the value at once."""
+    if all(hasattr(backend, name) for name in ("clear_field", "type_chars")):
+        _, took_clear, focus_clear = backend.clear_field(selector)
+        lookup(focus_clear)
+        _, took, focus_s = backend.type_chars(selector, text, _manual_number(cfg, "type_delay_ms"), _manual_number(cfg, "settle_ms"))
+        lookup(focus_s)
+        if took_clear + took > timeout_s:
+            raise StepTimeout(took_clear + took)
+    else:
+        lookup(backend.fill(selector, text))
+
+
+def _run_new_account(backend, attempt: Attempt, step, cfg, spec_data, account, lookup, timeout_s=0) -> dict:
+    """`fill-new-account <selector> user|secret [template]` (t-1957 N1c): a NEW account made through the app's own sign-up form.
+    `user`: the pair is generated (`generated_account`), the name shaped by the template, BOTH are recorded through
+    `CreatedAccounts.add` (under its lock) BEFORE anything is typed, so a created password is never lost; then the name is typed.
+    `secret`: the same pair's password. The step line, the answer and the evidence say `created:<name> [generated]`, never a value;
+    the pair is added to the call's `account` so every kept text hides it. Refused, with a door: a stand that is not `safe_to_break`
+    (E1c.4), a `secret` with no `user` before it in the item (E1c.1), a template without the placeholder (E1c.5), a generated value that
+    matches a `secret_content_patterns` entry three times running (E1c.3: nothing stored)."""
+    line, args = step["line"], step["args"]
+
+    def stop(words):
+        return {"entry": attempt.step(_cmd(attempt), line, "refused", _detail(words)), "shot": None}
+
+    if not _stand_may_change(account.stand, spec_data.get("safe_to_break_no") or spec()["safe_to_break_no"]):
+        return stop("this stand may not be changed: its row in config.json environments[] does not record `safe_to_break`, so no "
+                      "account is made on it. Ask the person to record what may be changed on it, or sign in with an account the stand "
+                      "already lists: `fill-account <selector> <actor> user|secret`")
+    if account.task_root is None:
+        return stop("the story's folder is not known to this call, so a created user cannot be recorded: nothing was typed")
+    if args[1] == "secret":
+        pair = getattr(account, "generated", None)
+        if pair is None or pair[0] != attempt.case:         # the pair of ANOTHER item of the walk is not this item's (E1c.1)
+            return stop("type the user first: a `fill-new-account <selector> user` step comes before `secret` in the same item, "
+                          "so the password belongs to a recorded account")
+        _, name, password = pair
+    else:
+        template = _new_account_template(args, spec_data)
+        if GENERATED_USER not in template:
+            return stop(f"the template {template!r} lacks the placeholder `{GENERATED_USER}`; expected for example "
+                          f"`{GENERATED_USER}@example.test`")
+        for _ in range(NEW_ACCOUNT_TRIES):
+            name, password = generated_account(account.task_root, attempt.case)
+            name = template.replace(GENERATED_USER, name)
+            try:
+                hit = next((h for h in (secret_pattern_hit(name, cfg), secret_pattern_hit(password, cfg)) if h is not None), None)
+            except ValueError:
+                return stop("a generated account could not be scanned for secrets (secret_content_patterns of config.json is broken): "
+                              "nothing was stored. Repair the pattern, then repeat the step")
+            if hit is None:
+                break
+        else:
+            return stop(f"the generated account matched secret_content_patterns[{hit}] {NEW_ACCOUNT_TRIES} times: nothing was stored. "
+                          "Repeat the step; if it happens again the pattern is too broad for a generated value")
+        form_path = _path_of(_url_of(backend))
+        try:       # recorded FIRST and `unconfirmed`: an identity only once the sign-up is seen to land (`_confirm_new_accounts`)
+            created_account_store(account.task_root).add(name, password, attempt.case, form_path, status=UNCONFIRMED,
+                                                         reason="the sign-up has not been seen to land")
+        except (ValueError, TimeoutError) as exc:
+            return stop(str(exc))
+        account.credentials.append(Credentials(name, password))
+        account.generated = (attempt.case, name, password)
+        account.pending_new = [*(getattr(account, "pending_new", None) or []), (name, form_path)]
+    _type_new_value(backend, cfg, args[0], name if args[1] == "user" else password, lookup, timeout_s)
+    return {"entry": attempt.step(_cmd(attempt), line, "ok", f"created:{name} [generated]"), "shot": None}
+
+
+def _settle_new_accounts(attempt: Attempt, account, cfg, row) -> None:
+    """A step did not pass while a created account was still unconfirmed (the page has not left the form's path, `_confirm_new_accounts`):
+    the app refused the sign-up or it never landed (E1c.6). The account is already recorded `unconfirmed`; the page's words (hidden,
+    scanned for secrets, cut) replace its reason. A confirmed account is off the list, so a later failure elsewhere does not touch it.
+    A step that was only refused changes nothing: nothing was submitted. A name the walker confirmed (`account created:<n> confirmed`)
+    while it was still pending is re-marked `unconfirmed` here when a later step fails on the form's path, and the walker's
+    `confirmed_by` goes with it: code may override the word only in the safe direction (the account becomes unusable, FR-59)."""
+    pending = list(getattr(account, "pending_new", None) or [])
+    if not pending or row.get("outcome") not in ("failed", "timeout"):
+        return
+    account.pending_new = []
+    words = account.hide(row.get("text") or row.get("detail") or "")
+    try:
+        hit = secret_pattern_hit(words, cfg)
+        words = f"(not kept: matches secret_content_patterns[{hit}])" if hit is not None else _detail(words)
+    except ValueError:
+        words = "(not kept: secret_content_patterns could not be scanned)"
+    store = created_account_store(account.task_root)
+    for name, _ in pending:
+        try:
+            store.mark_unconfirmed(name, words)
+        except (ValueError, TimeoutError) as exc:
+            attempt.limitations.append(f"the account {name} could not be recorded as {UNCONFIRMED}: {exc}")
+
+
+def _confirm_new_accounts(backend, attempt: Attempt, account, step) -> None:
+    """After a step that passed (E1c.6, F11): a created account recorded `unconfirmed` is confirmed when a step other than `goto` shows a
+    page whose path differs from the path it was added on - the sign-up form was left, which is the evidence it landed. A `goto` is
+    no proof (the walker moved itself): it only moves the path an account is compared with. An unreadable URL changes nothing. No clause
+    on `url_not`: a sign-up commonly lands on the sign-in page. An app that shows success on the form's own address stays `unconfirmed`
+    (the safe direction); the role's confirm word is TR3-10."""
+    pending = list(getattr(account, "pending_new", None) or [])
+    if not pending:
+        return
+    now = _url_of(backend)
+    if not now:
+        return
+    path = _path_of(now)
+    if step["word"] == "goto":
+        account.pending_new = [(name, path) for name, _ in pending]
+        return
+    keep = []
+    store = created_account_store(account.task_root)
+    for name, form_path in pending:
+        if path == form_path:
+            keep.append((name, form_path))
+            continue
+        try:
+            store.confirm(name)
+        except (ValueError, TimeoutError) as exc:
+            keep.append((name, form_path))
+            attempt.limitations.append(f"the account {name} could not be confirmed: {exc}")
+    account.pending_new = keep
+
+
+def _run_account_word(backend, attempt: Attempt, step, cfg, account) -> dict:
+    """`account <handle> confirmed|unconfirmed <why>` (TR3-10 A): the walker's own word about an account. It acts on nothing in the browser;
+    the step records `account <handle> <verdict>`, the why and the page's path. The verdict is the WALKER'S judgment (the analyst reads it
+    at S7 beside the sign-in steps); this function only checks the shape and records it (AR-29). `created:<name>`: `confirmed` ->
+    `CreatedAccounts.confirm(name, by="role", why=...)`, `unconfirmed` -> `mark_unconfirmed`; a name this story did not create is refused,
+    nothing written. A given handle (`default`, a role, `env:U/S`): `unconfirmed` -> `AccountDoubts.add`, `confirmed` -> the step only.
+    The handle is checked by shape through `resolve_actor` (no value is read, nothing is signed in). A why that matches a secret pattern is
+    refused, nothing written (the walk's request check and the `ui` file check already refuse the whole text; this is the same test)."""
+    line, (handle, verdict, why) = step["line"], step["args"]
+
+    def stop(words, as_line=None):
+        # `as_line`: the step line recorded in place of the walker's raw line (a why that is secret-shaped or unscanned is never recorded)
+        return {"entry": attempt.step(_cmd(attempt), account.hide(as_line) if as_line else line, "refused", _detail(account.hide(words))), "shot": None}
+
+    try:
+        hit = secret_pattern_hit(why, cfg)
+    except ValueError:
+        return stop("the why could not be scanned for secrets (secret_content_patterns of config.json is broken): nothing was written. "
+                    "Repair the pattern, then repeat the step", f"account {handle} {verdict} (why not kept: could not be scanned)")
+    if hit is not None:
+        return stop(f"the why matches secret_content_patterns[{hit}]: nothing was written. Repeat the step with words that quote what you "
+                    "saw and no credential", f"account {handle} {verdict} (why not kept: secret_content_patterns[{hit}])")
+    if account.task_root is None:
+        return stop("the story's folder is not known to this call, so the word cannot be recorded: nothing was written")
+    kept, note = account.hide(why), ""
+    created = handle.startswith("created:")
+    try:
+        if created:
+            name = handle[len("created:"):]
+            store = created_account_store(account.task_root)
+            row = store.row_of(name) if name else None
+            if row is None:
+                return stop(f"`{name[:80]}` is not a user this story created (`created:` names a user the sign-up or the `http` create route "
+                            f"recorded). Expected `account created:<username> ...` with a name from `fill-new-account` or `created_account`, or "
+                            f"a given account: {_ACTOR_FORMS}")
+            if verdict == "confirmed":
+                if row.get("status") != UNCONFIRMED:
+                    note = "already confirmed; nothing changed"
+                else:
+                    store.confirm(name, by="role", why=kept)
+            else:
+                store.mark_unconfirmed(name, kept)
+                # the role's doubt wins over a later code confirmation in the same call (the page may well have left the form)
+                account.pending_new = [(n, p) for n, p in (getattr(account, "pending_new", None) or []) if n != name]
+        else:
+            try:
+                label = resolve_actor(cfg, account.stand, handle, account.task_root)[3]
+            except ValueError as exc:
+                return stop(str(exc))
+            if verdict == "unconfirmed":
+                # a role is stored under the stand's real role key (spellings of one role are one doubt, the pool reads that key);
+                # `default` and `env:U/S` keep the text as typed (the env label drops the secret key)
+                role = not (handle == "default" or handle.startswith(("env:", "created:")))
+                AccountDoubts(account.task_root).add(label if role else handle, kept, attempt.case)
+            else:
+                note = "a given account needs no confirmation; nothing written"
+    except (ValueError, TimeoutError) as exc:       # a lock not got, an unreadable list: nothing was written
+        return stop(str(exc))
+    page = _path_of(_url_of(backend)) if _url_of(backend) else ""
+    said = _joined(f"account {handle} {verdict}: {kept}", _joined(f"page: {page}" if page else "", note))
+    return {"entry": attempt.step(_cmd(attempt), line, "ok", _detail(account.hide(said))), "shot": None}
+
+
 def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, element_s=ELEMENT_WAIT_S, account=None) -> dict:
     """One step: {"entry": the steps.jsonl line, "shot": the path of the failed step's screenshot or None}."""
     word, args, line = step["word"], step["args"], step["line"]
     account = account or SessionAccount()
-    if word == "fill-account":
+    # an ACTION between two `type`s breaks the run of typing; a passive step (data: the `keeps_run` list of the `type` row) does not - a person
+    # who types '1', looks and types '2' does not click again (B1). The list is read through spec(): a caller's spec data may be empty.
+    if word not in (spec().get("steps", {}).get("type", {}).get("keeps_run") or []):
+        attempt.type_prior, attempt.type_chain = attempt.type_chain, None
+    attempt.carry = list(attempt.unmet_pending) if word in ("look", "read") else []
+    told = ""       # what a failure step adds to its own answer (a hint for the pattern, the restored rule's empty result)
+    if word in ("fill-account", "fill-new-account"):
         account.window = True       # before the field is filled: nothing of this form is saved, not even a failure's screen
     elapsed = 0.0
+    started = time.perf_counter()
+    mark = backend.event_mark() if hasattr(backend, "event_mark") else None
+    before = _url_of(backend) if mark is not None else ""
 
     def lookup(took):
         """An element lookup that took longer than the element limit found nothing in time: a failed step (with
@@ -3295,15 +4662,25 @@ def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, elemen
         elif word == "click":
             elapsed = lookup(backend.click(args[0]))
         elif word == "fill":
-            elapsed = lookup(backend.fill(args[0], args[1]))
+            return _run_fill(backend, attempt, step, timeout_s, cfg, spec_data, account, lookup, started)
+        elif word == "look":
+            return {"entry": _run_look(backend, attempt, step, timeout_s, cfg, spec_data, account), "shot": None}
+        elif word == "watch":
+            return {"entry": _run_watch(backend, attempt, step, cfg, spec_data, account), "shot": None}
         elif word in ("type", "press", "paste"):
-            return _run_input(backend, attempt, step, timeout_s, cfg, spec_data, account, lookup)
+            return _run_input(backend, attempt, step, timeout_s, cfg, spec_data, account, lookup, started)
         elif word == "fill-account":
             try:
                 found = account.credentials_of(cfg, args[1])
             except ValueError as exc:       # a key the env file lacks, an actor the call cannot resolve: named, no value
                 return {"entry": attempt.step(_cmd(attempt), line, "refused", _detail(account.hide(exc))), "shot": None}
             elapsed = lookup(backend.fill(args[0], found.username if args[2] == "user" else found.password))
+        elif word == "fill-new-account":
+            return _run_new_account(backend, attempt, step, cfg, spec_data, account, lookup, timeout_s)
+        elif word == "account":
+            return _run_account_word(backend, attempt, step, cfg, account)
+        elif word in _surprise_data(spec_data, "http_steps"):
+            return _run_http_word(backend, attempt, step, timeout_s, cfg, spec_data, account)
         elif word == "fail_request":
             if "://" in args[0] and host_key(args[0]) not in set(backend.allowed_hosts()):
                 return _failure_refusal(backend, attempt, line, args[0])
@@ -3312,11 +4689,22 @@ def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, elemen
                 _store_failure(attempt, cfg, account, args[0], old)
             elapsed = backend.fail_request(args[0], args[1])
             attempt.failure_declared = True
+            told = account.hide(_star_hint(args[0]))
         elif word == "restore_request":
             elapsed = backend.restore_request(args[0])
             record = (_drained(backend) or {}).get(args[0])
             if record:
                 _store_failure(attempt, cfg, account, args[0], record)
+                if record["hits"] == 0:     # lifted with no match: told here and by the first look/read after it, never silent (TR1-2)
+                    told = spec()["capture_words"]["failure_unmatched"].format(glob=_detail(account.hide(args[0])))
+                    attempt.unmet_pending.append(told)
+        elif word == "end-session":
+            dropped, elapsed = backend.end_session()
+            if elapsed > timeout_s:
+                raise StepTimeout(elapsed)
+            words = spec()["capture_words"]
+            said = words["session_ended"].format(n=dropped, unit="cookie" if dropped == 1 else "cookies") if dropped else words["session_none"]
+            return {"entry": attempt.step(_cmd(attempt), line, "ok", said), "shot": None}
         elif word in ("launch", "back"):                 # the steps of a device (EP1-41d): they exist only in `app_steps`
             elapsed = getattr(backend, word)()
         elif word == "source":
@@ -3346,7 +4734,8 @@ def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, elemen
             else:
                 elapsed = lookup(backend.wait_selector(args[0]))
         elif word == "read":
-            mode = args[1] if len(args) == 2 else "text"
+            plain, expected = read_args(args) if _cmd(attempt) != "app" else (list(args), None)
+            mode = plain[1] if len(plain) == 2 else "text"
             value, took = backend.read(args[0], mode)
             lookup(took)
             raw = str(value).encode("utf-8")
@@ -3362,7 +4751,14 @@ def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, elemen
             attempt.store_text(f"read-{args[0]}", text.encode("utf-8"), "log", "supporting",
                                [f"read {args[0]}" + ("" if mode == "text" else f" {mode}")], _cmd(attempt), ".txt",
                                _with_limit(attempt, limitation))
-            return {"entry": attempt.step(_cmd(attempt), line, "ok", _detail(account.hide(value))), "shot": None}
+            if expected is None:
+                return {"entry": attempt.step(_cmd(attempt), line, "ok", _detail(account.hide(value))), "shot": None}
+            # F12 (a): the role's own planned text against the value read, whitespace collapsed; a different value is RECORDED (the
+            # step's `expect` field and its detail) - a walk call stops on it, a `ui` call only records. Code compares bytes.
+            same = " ".join(str(value).split()) == " ".join(expected.split())
+            said = "expect: matched" if same else f"expect: differs, expected \"{_kept_text(expected, cfg, account)}\""
+            return {"entry": attempt.step(_cmd(attempt), line, "ok", _joined(_detail(account.hide(value)), said),
+                                          expect="matched" if same else "differs"), "shot": None}
         elif word == "capture":
             if account.window:
                 return _window_refusal(attempt, line, account, "a capture")
@@ -3372,7 +4768,7 @@ def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, elemen
                 return {"entry": attempt.step(_cmd(attempt), line, "refused", "whether the failure declared with `fail_request` was met "
                                               "could not be established, so no post_action screen is taken. Repeat the "
                                               "check in a new attempt"), "shot": None}
-            idle = [g for g, r in (seen or {}).items() if r["hits"] == 0]
+            idle = [g for g, r in (seen or {}).items() if r["active"] and r["hits"] == 0]     # a lifted rule reported its result at the lifting (TR1-2)
             if idle:        # a screen of a page that never met the failure proves nothing about it (EP1-30, FR-18)
                 return {"entry": attempt.step(_cmd(attempt), line, "refused", spec()["capture_words"]["failure_unmet"].format(
                     globs=", ".join(idle))), "shot": None}
@@ -3391,7 +4787,10 @@ def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, elemen
             return {"entry": attempt.step(_cmd(attempt), line, "ok", ""), "shot": None}
         if elapsed > timeout_s:
             raise StepTimeout(elapsed)
-        return {"entry": attempt.step(_cmd(attempt), line, "ok", f"{elapsed:.2f} s" if word == "goto" else ""), "shot": None}
+        idle = _pump(backend, word, started, timeout_s, cfg, spec_data)
+        note = _action_note(backend, mark, before, step, cfg, account)
+        return {"entry": attempt.step(_cmd(attempt), line, "ok", _joined(_joined(_joined(f"{elapsed:.2f} s" if word == "goto" else "", note), idle),
+                                                                         told), told=[told] if told else []), "shot": None}
     except StepTimeout as exc:
         note = (f"step: {line}\nlimit_s: {timeout_s:g}\nelapsed_s: {exc.elapsed_s:g}\n"
                 "the step took longer than the limit; no screenshot was taken\n")
@@ -3400,6 +4799,7 @@ def _run_step(backend, attempt: Attempt, step, timeout_s, cfg, spec_data, elemen
         return {"entry": attempt.step(_cmd(attempt), line, "timeout", f"took {exc.elapsed_s:g} s, the limit is {timeout_s:g} s"),
                 "shot": None}
     except StepFailed as exc:
+        _pump(backend, word, started, timeout_s, cfg, spec_data)       # what the failed step already caused still reaches it
         shot = None
         if not account.window:
             try:
@@ -3440,6 +4840,30 @@ class UrllibHttp:
             raise StepFailed(f"the stand did not answer: {exc.reason}")
         return HttpResult(answer.status, list(answer.headers), answer.body, time.perf_counter() - started,
                           unreadable=answer.unreadable)
+
+
+class HttpOnlyBackend:
+    """The surface of a walk that has no screen (FL-1 B: a story with an API and no UI). It is the walk's `backends[actor]` and has only
+    what an `http` step needs: `http` (one request through `client`, the Bearer token of the actor's account added when there is one and
+    the request names no Authorization of its own), `allowed_hosts` (the walk's stand hosts: `http_call` sends nowhere else), `close`.
+    `sign_in_problem` is set by the walk when the actor has no HTTP sign-in the factory knows; a step of that actor then ends `failed`
+    BEFORE anything is sent. The token lives in memory only. `screenless` tells the walk server there is no page to look at."""
+    screenless = True
+
+    def __init__(self, client=None, hosts=(), token="", sign_in_problem=""):
+        self.client, self._hosts, self.token, self.sign_in_problem = client or UrllibHttp(), set(hosts), str(token or ""), sign_in_problem
+
+    def allowed_hosts(self) -> set:
+        return set(self._hosts)
+
+    def http(self, method, url, headers, body, timeout_s):
+        sent = dict(headers)
+        if self.token and not any(str(k).lower() == "authorization" for k in sent):
+            sent["Authorization"] = "Bearer " + self.token
+        return self.client.request(method, url, sent, body, timeout_s)
+
+    def close(self):
+        self.token = ""
 
 
 def _own_login(cfg: dict) -> dict:
@@ -3570,8 +4994,8 @@ def http_login_source(cfg: dict, spec_data: dict, env: dict, root=None) -> tuple
         if url:
             return {"url": url}, "access"
     words = _login_words(spec_data)
-    raise EnvBlocked(words["not_known_line"].replace("{kind}", kind[:40]), words["not_known_door"], "user",
-                     do_not_retry=True)
+    raise EnvBlocked(words["not_known_line"].replace("{kind}", kind[:40]), words["not_known_door"], "factory",
+                     do_not_retry=True, cause=LOGIN_UNKNOWN_CAUSE)
 
 
 def _pairs_login(post, cfg, creds: Credentials, secrets: tuple) -> list:
@@ -3651,6 +5075,211 @@ def _http_login(client, env, creds: Credentials, spec_data, cfg, timeout_s, root
     return str(token)
 
 
+def http_call(attempt, client, method, url, body, headers, *, hosts, timeout_s, spec_data, cfg, phase, proves, step_line,
+              label="request-response", kind="request_response", hide=(), created=None, store=None, case="", earlier=None) -> dict:
+    """ONE request on a stand that is already chosen, into an attempt that is already open (FL-1 B, AR-15: the one request executor
+    of `manual_capture.py http` and of the walk's `http` step). `{"entry": the steps.jsonl line, "result": HttpResult | None, "failed":
+    {step, outcome, detail} | None, "recorded": the name of the account the stand made | None}`. Done here: (1) the URL's host is one of
+    `hosts`, else a refusal and NOTHING is sent; the URL and the headers hold no generated-value placeholder, the body holds one only
+    when `created` is given (its pair is put in the sent bytes, never in the recorded request); the request text matches no
+    `secret_content_patterns` (the headers of `redact_headers`, which code sets, are not scanned); (2) the request; a timeout or a failed transport is the step line `timeout` / `failed`; (3) the document
+    {request, response} through `_side` (`cut_body`/`body_text`: the one cut and the one encoding) and `redact`, then `_hide` over each
+    credential of `hide` and over `created`, then the secret scan - a hit saves NOTHING and is a refusal; (4) the document is stored, with the
+    cut said in the limitation. Not done here, by the caller: the stand lease, the choice of stand and of attempt, the sign-in.
+    `earlier`: the account an earlier call of the same capture recorded (only its refusal sentence names it). A refusal is RETURNED as
+    `{"refused": sentence, "recorded": ...}` (the other keys None): the caller raises or ends its step with it (L-b: no refusal unit here)."""
+    def turned_back(text, recorded=None):
+        return {"entry": None, "result": None, "failed": None, "recorded": recorded, "refused": text}
+    if host_key(url) not in set(hosts):
+        return turned_back(f"the URL {str(url)[:120]!r} is not on this call's stand (http or https, no user:password part). Allowed hosts: "
+                       f"{hosts_sentence(hosts)}. Nothing was sent: a request never leaves the stand")
+    # the headers code itself sets (`redact_headers`: the Bearer the tool adds) are not a request the role wrote: they are not scanned for a
+    # credential shape (a JWT token is one), they are redacted in the record
+    own = {str(n).lower() for n in spec_data.get("redact_headers") or []}
+    pairs = [("the URL", str(url)), *((f"the header {k}", f"{k}: {v}") for k, v in headers.items())]
+    scanned = [pairs[0], *(p for p, k in zip(pairs[1:], headers) if str(k).lower() not in own)]
+    for where, text in pairs:
+        if GENERATED_USER in text or GENERATED_PASSWORD in text:
+            return turned_back(f"{where} holds a generated-value placeholder: generated values go only into the request body (--body-file)")
+    placeholders = bool(body) and (GENERATED_USER.encode() in body or GENERATED_PASSWORD.encode() in body)
+    if placeholders and created is None:
+        return turned_back("the body holds a generated-value placeholder and this call creates no account: nothing was sent. Expected a body "
+                       "with the real values, or `manual_capture.py http` for a request that creates a user")
+    for text in [*(t for _w, t in scanned), body.decode("utf-8", "replace") if body else ""]:
+        hit = secret_pattern_hit(text, cfg)
+        if hit is not None:
+            return turned_back(f"the request matches secret_content_patterns[{hit}] of config.json: nothing was sent "
+                           "or saved. A credential never goes in a request you write; login is done by code")
+    sent = body
+    if placeholders:
+        sent = (body.replace(GENERATED_USER.encode(), created.username.encode())
+                .replace(GENERATED_PASSWORD.encode(), created.password.encode()))
+    step, recorded = step_line, None
+    try:
+        result = client.request(method, url, dict(headers), sent, timeout_s)
+        if created is not None and store is not None and kind == "request_response" and 200 <= result.status < 300:
+            # the stand made the user: its password is kept at once, before the answer is judged, timed or stored (a slow
+            # or refused answer below must not leave a user nobody can sign in as) - machine-local; the story folder
+            # gets the NAME
+            store.add(created.username, created.password, case, urlsplit(url).path, wait_s=ACCOUNT_LOCK_WAIT_HTTP_S)
+            recorded = created.username
+        if result.elapsed_s > timeout_s or getattr(result, "unreadable", False):
+            raise StepTimeout(result.elapsed_s)
+    except StepTimeout as exc:
+        note = (f"step: {step}\nlimit_s: {timeout_s:g}\nelapsed_s: {exc.elapsed_s:g}\n"
+                "the call took longer than the limit; no response was saved\n")
+        attempt.store_text("timeout", note.encode("utf-8"), "log", "supporting", ["timeout"], "http", ".log")
+        late = (f"; account recorded as created:{recorded}; the answer came after the limit"
+                if recorded and kind == "request_response" else "")
+        entry = attempt.step("http", step, "timeout", f"took {exc.elapsed_s:g} s, the limit is {timeout_s:g} s" + late)
+        return {"entry": entry, "result": None, "failed": {"step": step, "outcome": "timeout", "detail": entry["detail"]},
+                "recorded": recorded}
+    except StepFailed as exc:
+        entry = attempt.step("http", step, "failed", _detail(exc))
+        return {"entry": entry, "result": None, "failed": {"step": step, "outcome": "failed", "detail": entry["detail"]},
+                "recorded": recorded}
+    document = {"request": _side(body, headers, spec_data, method=method, url=url),
+                "response": _side(result.body, result.headers, spec_data, status=result.status,
+                                  elapsed_s=round(result.elapsed_s, 3))}
+    text = json.dumps(document, ensure_ascii=False, indent=2)
+    for credentials in hide:
+        text = _hide(text, credentials)
+    if created is not None:
+        text = _hide(text, created)       # B2: an answer that echoes the generated values is saved without them
+    hit = secret_pattern_hit(text, cfg)
+    if hit is not None:
+        return turned_back(f"the response of {method} {url[:80]} matches secret_content_patterns[{hit}] of "
+                       "config.json: it was NOT saved. Ask for a narrower answer or a field that carries no "
+                       "secret" + (f". The account WAS recorded as created:{recorded or earlier}: use it with "
+                                   f"`--as created:{recorded or earlier}` and do not create another" if recorded or earlier else ""), recorded)
+    limit = None
+    if document["response"]["truncated"]:
+        limit = _limit_words("response")
+    elif document["request"]["truncated"]:
+        limit = _limit_words("request")
+    attempt.store_text(label, text.encode("utf-8"), kind, phase, proves, "http", ".json", limit)
+    # B-408: an answer that is not shown to be the stand's own (a protection page, an unreadable text) keeps the step
+    # `ok` - the call completed and the answer is saved - but the detail says so instead of leaving a bare status
+    said = _foreign_said(result) if result.status >= 300 else ""
+    made = ""
+    if created is not None and kind == "request_response":
+        made = (f"; account recorded as created:{recorded}" if recorded else
+                f"; no account was recorded (status {result.status})")
+    entry = attempt.step("http", step, "ok", f"status {result.status}" + (f"; what answered is not shown to be "
+                                                                         f"the stand's own: {said}" if said else "")
+                         + made)
+    return {"entry": entry, "result": result, "failed": None, "recorded": recorded}
+
+
+def _http_surprises(attempt, step_no, result, hosts, spec_data, hide=()) -> list:
+    """The `surprise` lines of one `http` step, through the same writer as a screen step's (`Attempt.surprise`, no new kind), then the
+    `detector` line that says the step was watched (FL-1 B). FACTS, never a verdict (AR-18): a `status` line with the number for a 3xx
+    (its fact says `redirect to <path>`), 4xx or 5xx; `blocked_host` for a redirect whose Location is not on `hosts` (nothing follows a
+    redirect: it is the answer); `text` for an answer that says it is JSON and does not parse. An empty body is no `text` line (nothing
+    to read), and a body cut at the cap is not read as JSON. A timeout or a failed transport is the step's outcome, not a surprise.
+    Every fact passes `hide` and the secret scan, as the screen's facts do."""
+    kinds, word = _surprise_data(spec_data, "http_kinds"), _surprise_data(spec_data, "http_steps")[0]
+    heads = {str(k).lower(): str(v) for k, v in dict(result.headers or {}).items()}
+    written = []
+
+    def keep(kind, fact, number=None):
+        if kind not in kinds:
+            return
+        text = " ".join(str(fact).split())
+        for credentials in hide:
+            text = _hide(text, credentials)
+        try:
+            hit = secret_pattern_hit(text, attempt.cfg)
+        except ValueError:
+            text, hit = "not kept: secret_content_patterns could not be scanned", None
+        if hit is not None:
+            text = f"not kept: matches secret_content_patterns[{hit}]"
+        written.append(attempt.surprise(step_no, word, kind, text, status=number))
+    status = int(result.status)
+    if 300 <= status < 400:
+        location = heads.get("location", "")
+        try:
+            went = _path_of(location) if location else "(no Location header)"
+        except ValueError:
+            went = "(an address that does not parse)"
+        keep("status", f"status {status}: redirect to {went}", status)
+        try:
+            absolute = bool(urlsplit(location).scheme or urlsplit(location).netloc)
+        except ValueError:
+            absolute = True
+        if location and absolute and host_key(location) not in set(hosts):
+            try:
+                where = urlsplit(location).hostname or "an address that is no http(s) host"
+            except ValueError:
+                where = "an address that is no http(s) host"
+            keep("blocked_host", f"the redirect points to {where}, which is not a host of this walk's stand: it was not followed", None)
+    elif status >= 400:
+        keep("status", f"status {status}", status)
+    body = result.body or b""
+    if "json" in heads.get("content-type", "").lower() and body and len(body) <= BODY_CAP:
+        try:
+            json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            keep("text", "the answer says it is JSON and its body does not parse as JSON")
+    attempt.detector(step_no, [], kinds)
+    return written
+
+
+def _saved_excerpt(attempt, chars=300) -> str:
+    """The first `chars` characters of the body of the answer the attempt's LAST capture holds - read from the saved document, which
+    is already redacted and scanned - never from the live answer. "" when it cannot be read. A base64 body is not quoted: the
+    sentence says so."""
+    try:
+        last = attempt._lines("captures.jsonl")[-1]
+        side = json.loads((attempt.task / str(last["path"])).read_text(encoding="utf-8"))["response"]
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return ""
+    if side.get("body_encoding") != "utf-8":
+        return f"(a body of {side.get('body_bytes_stored')} bytes stored as base64: read the capture)"
+    return str(side.get("body") or "")[:chars]
+
+
+def _run_http_word(backend, attempt, step, timeout_s, cfg, spec_data, account) -> dict:
+    """The walk's `http <METHOD> <path|url> [--body-file <file>]` step (FL-1 B): one request through the walk's client for the
+    actor (`_BackendHttp`: the actor's browser cookies on a walk with a screen, the Bearer token of the actor's account on a walk
+    without one), by `http_call`, on the hosts the backend names (a backend that names none sends nothing). `{"entry", "shot", "excerpt",
+    "surprises"}`: `excerpt` is the head of the SAVED answer (`_saved_excerpt`), `surprises` the lines `_http_surprises` wrote.
+    A refusal before the send, and a response that matches a secret pattern, end the step as `refused`; the walk server asks the same
+    questions earlier, so these are the second guard."""
+    line, args = step["line"], step["args"]
+
+    def ended(outcome, detail):
+        return {"entry": attempt.step("http", line, outcome, _detail(account.hide(detail))), "shot": None, "excerpt": ""}
+    blocked = str(getattr(backend, "sign_in_problem", "") or "")
+    if blocked:
+        return ended("failed", blocked)      # the actor has no HTTP sign-in: said before anything is sent
+    names = getattr(backend, "allowed_hosts", None)
+    if not callable(names):
+        return ended("refused", "this surface names no stand hosts, so no request was sent. A request is sent only on a host the walk's stand names")
+    # the walk's OWN stand only (B2): the walk names it in the step; the browser's hosts (every stand of a no-`--env` walk) are never the answer
+    hosts = set(step["hosts"]) if step.get("hosts") is not None else set(names())
+    url = str(step.get("url") or args[1])
+    if not url.startswith(("http://", "https://")):
+        return ended("refused", f"the address {url[:80]!r} is a path and the walk did not resolve it on its stand: nothing was sent. "
+                                "Expected a full URL on the stand, or a path on a stand that records base_url")
+    body = None
+    if len(args) == 4:
+        body, problem = read_body_file(args[3])
+        if problem:
+            return ended("refused", problem)
+    import http_client
+    headers = {"User-Agent": http_client.user_agent()}      # B-408: part of the request the evidence records
+    hide = list(getattr(account, "credentials", None) or [])
+    out = http_call(attempt, _BackendHttp(backend), args[0].upper(), url, body, headers, hosts=hosts, timeout_s=timeout_s,
+                    spec_data=spec_data, cfg=cfg, phase="supporting", proves=["request and response"], step_line=line, hide=hide,
+                    case=attempt.case)
+    if out.get("refused"):
+        return ended("refused", out["refused"])
+    result = out["result"]
+    found = _http_surprises(attempt, attempt.step_number(), result, hosts, spec_data, hide=hide) if result is not None else []
+    return {"entry": out["entry"], "shot": None, "excerpt": _saved_excerpt(attempt) if result is not None else "", "surprises": found}
+
+
 def run_http(args, spec_data, passthrough=None) -> int:
     """`manual_capture.py http`. With `--session <actor>` the request goes through that actor's browser profile (`closers` holds
     what the call must close however it ends)."""
@@ -3699,11 +5328,9 @@ def _run_http(args, spec_data, passthrough, closers) -> int:
         headers[name.strip()] = value.strip()
     body = None
     if args.body_file:
-        try:
-            body = Path(args.body_file).read_bytes()
-        except OSError as exc:
-            raise ValueError(f"--body-file {args.body_file!r} cannot be read ({exc.__class__.__name__}). Expected the "
-                             "path of the request body")
+        body, problem = read_body_file(args.body_file)
+        if problem:
+            raise ValueError(problem)
     for where, text in [("--url", args.url), ("--state-url", args.state_url or ""),
                         *(("--header", f"{k}: {v}") for k, v in headers.items())]:
         if GENERATED_USER in text or GENERATED_PASSWORD in text:
@@ -3717,13 +5344,11 @@ def _run_http(args, spec_data, passthrough, closers) -> int:
         if hit is not None:
             raise ValueError(f"the request matches secret_content_patterns[{hit}] of config.json: nothing was sent "
                              "or saved. A credential never goes in a request you write; login is done by code")
-    sent_body, created, store = body, None, None
+    created, store = None, None      # `http_call` puts the pair into the sent bytes, never into the recorded request
     if body and (GENERATED_USER.encode() in body or GENERATED_PASSWORD.encode() in body):
         new_name, new_password = generated_account(args.task_root, args.case)
         created = Credentials(new_name, new_password)
         store = created_account_store(args.task_root)      # opened BEFORE anything is sent: a user must never be created unrecorded
-        sent_body = (body.replace(GENERATED_USER.encode(), new_name.encode())
-                     .replace(GENERATED_PASSWORD.encode(), new_password.encode()))
     timeout_s = timeout_for(env)
     # B-408 (E4): the factory's User-Agent is part of the request the evidence records - put into `headers` HERE, before the
     # request document is built, so the saved request shows what was sent. A role's own User-Agent (any case) wins.
@@ -3803,61 +5428,19 @@ def _run_http(args, spec_data, passthrough, closers) -> int:
     if args.state_url:
         calls.append(("state", "GET", args.state_url, None, "state", ["state"]))
     recorded = None
+    hosts = set(stand_hosts(cfg, root=project_root))
     for label, verb, url, payload, kind, words in calls:
         step = line if kind == "request_response" else f"http GET {url} (state)"
-        try:
-            result = client.request(verb, url, dict(headers), sent_body if kind == "request_response" else payload,
-                                    timeout_s)
-            if created is not None and kind == "request_response" and 200 <= result.status < 300:
-                # the stand made the user: its password is kept at once, before the answer is judged, timed or stored (a slow
-                # or refused answer below must not leave a user nobody can sign in as) - machine-local; the story folder
-                # gets the NAME
-                store.add(created.username, created.password, args.case, urlsplit(url).path)
-                recorded = created.username
-            if result.elapsed_s > timeout_s or getattr(result, "unreadable", False):
-                raise StepTimeout(result.elapsed_s)
-        except StepTimeout as exc:
-            note = (f"step: {step}\nlimit_s: {timeout_s:g}\nelapsed_s: {exc.elapsed_s:g}\n"
-                    "the call took longer than the limit; no response was saved\n")
-            attempt.store_text("timeout", note.encode("utf-8"), "log", "supporting", ["timeout"], "http", ".log")
-            late = (f"; account recorded as created:{recorded}; the answer came after the limit"
-                    if recorded and kind == "request_response" else "")
-            done.append(attempt.step("http", step, "timeout", f"took {exc.elapsed_s:g} s, the limit is {timeout_s:g} s"
-                                     + late))
-            failed = {"step": step, "outcome": "timeout", "detail": done[-1]["detail"]}
+        out = http_call(attempt, client, verb, url, payload, headers, hosts=hosts, timeout_s=timeout_s, spec_data=spec_data, cfg=cfg,
+                        phase=args.phase, proves=words, step_line=step, label=label, kind=kind, created=created, store=store,
+                        case=args.case, earlier=recorded)
+        if out.get("refused"):
+            raise ValueError(out["refused"])
+        done.append(out["entry"])
+        recorded = out["recorded"] or recorded
+        if out["failed"] is not None:
+            failed = out["failed"]
             break
-        except StepFailed as exc:
-            done.append(attempt.step("http", step, "failed", _detail(exc)))
-            failed = {"step": step, "outcome": "failed", "detail": done[-1]["detail"]}
-            break
-        document = {"request": _side(payload, headers, spec_data, method=verb, url=url),
-                    "response": _side(result.body, result.headers, spec_data, status=result.status,
-                                      elapsed_s=round(result.elapsed_s, 3))}
-        text = json.dumps(document, ensure_ascii=False, indent=2)
-        if created is not None:
-            text = _hide(text, created)       # B2: an answer that echoes the generated values is saved without them
-        hit = secret_pattern_hit(text, cfg)
-        if hit is not None:
-            raise ValueError(f"the response of {verb} {url[:80]} matches secret_content_patterns[{hit}] of "
-                             "config.json: it was NOT saved. Ask for a narrower answer or a field that carries no "
-                             "secret" + (f". The account WAS recorded as created:{recorded}: use it with "
-                                         f"`--as created:{recorded}` and do not create another" if recorded else ""))
-        limit = None
-        if document["response"]["truncated"]:
-            limit = _limit_words("response")
-        elif document["request"]["truncated"]:
-            limit = _limit_words("request")
-        attempt.store_text(label, text.encode("utf-8"), kind, args.phase, words, "http", ".json", limit)
-        # B-408: an answer that is not shown to be the stand's own (a protection page, an unreadable text) keeps the step
-        # `ok` - the call completed and the answer is saved - but the detail says so instead of leaving a bare status
-        said = _foreign_said(result) if result.status >= 300 else ""
-        made = ""
-        if created is not None and kind == "request_response":
-            made = (f"; account recorded as created:{recorded}" if recorded else
-                    f"; no account was recorded (status {result.status})")
-        done.append(attempt.step("http", step, "ok", f"status {result.status}" + (f"; what answered is not shown to be "
-                                                                                 f"the stand's own: {said}" if said else "")
-                                 + made))
     try:
         stand_probe(attempt, cfg, project_root, profile, "end", "http", env)
     except EnvBlocked as exc:

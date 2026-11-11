@@ -999,6 +999,14 @@ class FakeDriver:
     def stages(self):
         return story_step._stages()
 
+    def session_of(self, stage, dispatch):
+        """t-2133: `resume_role` reads the stored session through `Driver.session_of` (TR3-6); the fake has the stored one only."""
+        return self.state["sessions"].get(dispatch)
+
+    def timed(self, *a, **k):
+        """t-2113: `run_role` times its steps (`Driver.timed`, TR3-2); the fake times nothing."""
+        return contextlib.nullcontext()
+
     def system_file(self, *a, **k):
         return None
 
@@ -1041,6 +1049,12 @@ class FakeDriver:
 
     def halt_text(self, *a, **k):
         return "the role handed the decision back"
+
+    def walk_reopen(self, dispatch, reopen=True):       # t-2016 F4: `run_role` asks it for every dispatch; none of these is a walk dispatch
+        return [], ""
+
+    def s7_is_triage(self, *a, **k):       # `run_role` asks it for every dispatch; none of these is an S7 triage one
+        return False
 
     def question_threshold(self, *a, **k):
         self.calls.append(("question_threshold",))

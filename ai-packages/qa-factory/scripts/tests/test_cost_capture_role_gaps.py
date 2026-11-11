@@ -275,6 +275,7 @@ def main():
     for test in tests:
         test()
     print("PASS test_cost_capture_role_gaps (%d tests)" % len(tests))
+    print("=== test_cost_capture_role_gaps: %d/%d ok ===" % (len(tests), len(tests)))
 
 
 if __name__ == "__main__":

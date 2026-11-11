@@ -460,6 +460,15 @@ REGISTRY: list[dict] = [
      "override": "`controller.py --operation rework --stage <S> --role <role> --cases <ids> "
      "--reason \"...\" --brief` opens the dispatch that makes the write the role's own.",
      "test": "scripts/tests/test_hook_lifecycle.py (guard_pre_tool.py --selftest)"},
+    {"id": "PT-window-file", "file": "guard_pre_tool.py", "function": "window_file_check",
+     "call": "_window_refusal(WF, task_root, rel, owner, count)",
+     "refuses": "a Write, Edit or NotebookEdit by an S5 window of a test file another window of the story claimed first and "
+     "has not released (`state/window-files/`; a window sharing a case with the owner is the owner); the refusal names the owner's "
+     "cases, the door and the conductor's command; from the second in a row it names the story's state, never a guard fault",
+     "override": "the door is a new file in the same directory (a test in a new file is judged the same, P17); no waiting door. "
+     "A person's word is recorded by the conductor as for any block, and the conductor frees the claim with "
+     "`python window_files.py --task <task root> --release \"<window>\"`.",
+     "test": "scripts/tests/test_guard_window_files.py"},
     {"id": "PT-external-writes", "file": "guard_pre_tool.py", "function": "writes_check",
      "call": "WRITES_MSG",
      "refuses": "a role writing to a tracker or a TMS from a shell",
@@ -708,6 +717,16 @@ REGISTRY: list[dict] = [
      "`--ref <MR link or id>` for an MR, `--words-file <file>` (the person's own words) or `--reason-code no_trace|delivered_without_mr "
      "--ref <the delivery step's record>` for a cancellation, `--operation next` for the state, `gate-decision --gate B` for an undecided gate",
      "test": "scripts/tests/test_gate_b_orders.py"},
+    {"id": "CTRL-first-look-continue", "kind": "operation", "file": "controller.py",
+     "function": "apply(first_look_continue)", "guarantor": "_hold_op_refusal",
+     "refuses": "a `first_look_continue` call (t-2277 J-C10) that carries no words of the person, no `--source-head` text, a "
+                "`--register-hash` that is not 64 hex characters, or comes on a story held for `s5_absent_side` (only the code arriving, "
+                "or the person's `not ours` for the side, clears that hold) or stopped (the wait was ended); with no hold at all it only records",
+     "override": "each refusal names the call that passes: `--words-file <file>` (the person's own words) with the two keys the driver "
+     "takes from `first_look.py show --json`, `arrive` (relaunch with `--mr`, `--branch`, `--commit` or `--side <side>=real`) for the "
+     "code (or the person's `not ours` answer about an absent side, which the driver carries out through `arrive` naming that side), "
+     "`stop_waiting --words-file <file>` to end the wait, `rework --words-file <file>` of S0..held_from-1 for a stopped story",
+     "test": "scripts/tests/test_awaiting_state.py"},
     {"id": "CTRL-next-blocked", "kind": "operation", "file": "waiver.py",
      "function": "run_stage", "guarantor": "route_release",
      "refuses": "not a message but an ANSWER that stops the story just as hard: "
@@ -724,7 +743,7 @@ REGISTRY: list[dict] = [
      "test": "scripts/tests/test_refusal_registry.py, scripts/tests/test_stage_guard.py"},
     {"id": "WV-placeholder-block", "kind": "operation", "file": "waiver.py",
      "function": "record_refusals", "guarantor": "PLACEHOLDER_RE",
-     "refuses": "recording a `--block` that still holds the form's placeholder (`probe gap: <instance or case>`, `RP-<profile>`): "
+     "refuses": "recording a `--block` that still holds the form's placeholder (`probe gap: <case key>`, `RP-<profile>`): "
                "it names nothing, so the record would pass nothing and read as a decision (GW1-1). `*`, `stand gap:` and "
                "`protected test path:` keep their own branches; an old record with a placeholder stays on disk, passes nothing "
                "and can be revoked",

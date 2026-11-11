@@ -261,6 +261,7 @@ MECHANISM_PREFIXES = (
     # complete against that closure as the wiring drifts.
     "tools/tier_echo.py",           # imported by tools/journal_echo.py
     "tools/preflight_quota.py",     # imported by tools/session_context.py
+    "tools/test_quarantine.py",     # imported by tools/session_context.py (the TEST QUARANTINE line, TD-15.7)
     "tools/wiring_check.py",        # imported by tools/session_context.py
     "tools/md_regions.py",          # imported by THIS file (region scanner)
     "tools/md_table.py",            # imported by tools/piles.py (the table reader, t-797 F5-2 N3) - live wiring closure

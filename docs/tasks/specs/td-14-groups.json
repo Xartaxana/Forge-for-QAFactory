@@ -1,0 +1,3002 @@
+{
+ "groups": [
+  [
+   {
+    "adds": 24,
+    "sec": 2.03,
+    "lines": 845,
+    "file": "test_acceptance_semantics.py"
+   },
+   {
+    "adds": 36,
+    "sec": 2.33,
+    "lines": 261,
+    "file": "test_activity_session_identity.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.78,
+    "lines": 159,
+    "file": "test_actor_control_rule.py"
+   },
+   {
+    "adds": 48,
+    "sec": 0.77,
+    "lines": 746,
+    "file": "test_adapter_forms.py"
+   },
+   {
+    "adds": 7,
+    "sec": 3.58,
+    "lines": 207,
+    "file": "test_adapter_matrix.py"
+   },
+   {
+    "adds": 1,
+    "sec": 3.12,
+    "lines": 317,
+    "file": "test_ahead_cards.py"
+   },
+   {
+    "adds": 1,
+    "sec": 1.42,
+    "lines": 161,
+    "file": "test_ahead_cards_rules.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.47,
+    "lines": 150,
+    "file": "test_answer_rework_pairs.py"
+   },
+   {
+    "adds": 5,
+    "sec": 0.62,
+    "lines": 133,
+    "file": "test_app_boundary_notices.py"
+   },
+   {
+    "adds": 96,
+    "sec": 2.32,
+    "lines": 296,
+    "file": "test_app_card.py"
+   },
+   {
+    "adds": 98,
+    "sec": 0.36,
+    "lines": 208,
+    "file": "test_arch_check.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.26,
+    "lines": 78,
+    "file": "test_artifact_registry.py"
+   }
+  ],
+  [
+   {
+    "adds": 21,
+    "sec": 3.13,
+    "lines": 300,
+    "file": "test_artifact_sections.py"
+   },
+   {
+    "adds": 84,
+    "sec": 8.43,
+    "lines": 250,
+    "file": "test_artifact_supersede.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.57,
+    "lines": 67,
+    "file": "test_bare_calls_live.py"
+   },
+   {
+    "adds": 17,
+    "sec": 52.69,
+    "lines": 433,
+    "file": "test_bind_dispatch_list.py"
+   },
+   {
+    "adds": 0,
+    "sec": 20.96,
+    "lines": 319,
+    "file": "test_bind_repair_dispatch.py"
+   },
+   {
+    "adds": 44,
+    "sec": 2.82,
+    "lines": 543,
+    "file": "test_brief_pack_manual.py"
+   },
+   {
+    "adds": 22,
+    "sec": 45.58,
+    "lines": 519,
+    "file": "test_brief_pack_roles.py"
+   },
+   {
+    "adds": 2,
+    "sec": 6.31,
+    "lines": 278,
+    "file": "test_brief_pack_sd_head.py"
+   },
+   {
+    "adds": 26,
+    "sec": 1.13,
+    "lines": 102,
+    "file": "test_brief_pack_timeout.py"
+   },
+   {
+    "adds": 4,
+    "sec": 3.52,
+    "lines": 171,
+    "file": "test_brief_stand_helpers.py"
+   },
+   {
+    "adds": 5,
+    "sec": 0.67,
+    "lines": 74,
+    "file": "test_broad_status.py"
+   },
+   {
+    "adds": 27,
+    "sec": 0.68,
+    "lines": 129,
+    "file": "test_browser_inventory_policy.py"
+   },
+   {
+    "adds": 19,
+    "sec": 2.2,
+    "lines": 298,
+    "file": "test_bug_confirmation.py"
+   }
+  ],
+  [
+   {
+    "adds": 42,
+    "sec": 6.48,
+    "lines": 493,
+    "file": "test_bug_filing.py"
+   },
+   {
+    "adds": 17,
+    "sec": 20.74,
+    "lines": 453,
+    "file": "test_bug_link_s9.py"
+   },
+   {
+    "adds": 16,
+    "sec": 2.1,
+    "lines": 129,
+    "file": "test_candidate_defects.py"
+   },
+   {
+    "adds": 52,
+    "sec": 0.72,
+    "lines": 48,
+    "file": "test_candidate_evidence.py"
+   },
+   {
+    "adds": 65,
+    "sec": 5.12,
+    "lines": 568,
+    "file": "test_carried_concerns.py"
+   },
+   {
+    "adds": 12,
+    "sec": 0.99,
+    "lines": 154,
+    "file": "test_case_alternatives.py"
+   },
+   {
+    "adds": 18,
+    "sec": 1.76,
+    "lines": 77,
+    "file": "test_case_appendix.py"
+   },
+   {
+    "adds": 28,
+    "sec": 7.79,
+    "lines": 393,
+    "file": "test_case_gates.py"
+   },
+   {
+    "adds": 5,
+    "sec": 2.02,
+    "lines": 189,
+    "file": "test_case_glob_strict.py"
+   },
+   {
+    "adds": 15,
+    "sec": 1.07,
+    "lines": 616,
+    "file": "test_case_id_form.py"
+   },
+   {
+    "adds": 6,
+    "sec": 4.43,
+    "lines": 384,
+    "file": "test_case_id_form_texts.py"
+   }
+  ],
+  [
+   {
+    "adds": 0,
+    "sec": 2.37,
+    "lines": 143,
+    "file": "test_case_id_texts_sweep.py"
+   },
+   {
+    "adds": 11,
+    "sec": 1.07,
+    "lines": 459,
+    "file": "test_case_identity.py"
+   },
+   {
+    "adds": 71,
+    "sec": 1.87,
+    "lines": 582,
+    "file": "test_case_key_identity_join.py"
+   },
+   {
+    "adds": 4,
+    "sec": 0.16,
+    "lines": 16,
+    "file": "test_case_lifecycle.py"
+   },
+   {
+    "adds": 26,
+    "sec": 9.54,
+    "lines": 824,
+    "file": "test_case_stamp.py"
+   },
+   {
+    "adds": 3,
+    "sec": 2.02,
+    "lines": 119,
+    "file": "test_case_store.py"
+   },
+   {
+    "adds": 16,
+    "sec": 8.49,
+    "lines": 262,
+    "file": "test_case_versions.py"
+   },
+   {
+    "adds": 42,
+    "sec": 11.76,
+    "lines": 274,
+    "file": "test_changelog_assemble.py"
+   },
+   {
+    "adds": 16,
+    "sec": 1.62,
+    "lines": 214,
+    "file": "test_charter_form.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.72,
+    "lines": 307,
+    "file": "test_charters_s5_s9.py"
+   },
+   {
+    "adds": 11,
+    "sec": 7.45,
+    "lines": 234,
+    "file": "test_check_coverage.py"
+   }
+  ],
+  [
+   {
+    "adds": 78,
+    "sec": 4.84,
+    "lines": 559,
+    "file": "test_code_close_behind.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.57,
+    "lines": 142,
+    "file": "test_code_critic_probe_rule.py"
+   },
+   {
+    "adds": 24,
+    "sec": 35.29,
+    "lines": 544,
+    "file": "test_codex_hooks_matchers.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.17,
+    "lines": 68,
+    "file": "test_codex_host_reference.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.82,
+    "lines": 130,
+    "file": "test_codex_message_semantics.py"
+   },
+   {
+    "adds": 5,
+    "sec": 0.67,
+    "lines": 96,
+    "file": "test_collect_gaps.py"
+   },
+   {
+    "adds": 13,
+    "sec": 8.48,
+    "lines": 261,
+    "file": "test_collect_history_sets.py"
+   },
+   {
+    "adds": 2,
+    "sec": 9.17,
+    "lines": 192,
+    "file": "test_collect_skill.py"
+   },
+   {
+    "adds": 9,
+    "sec": 77.58,
+    "lines": 1142,
+    "file": "test_conductor_doors.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.42,
+    "lines": 239,
+    "file": "test_conductor_investigates_first.py"
+   }
+  ],
+  [
+   {
+    "adds": 62,
+    "sec": 4.56,
+    "lines": 309,
+    "file": "test_conductor_stop.py"
+   },
+   {
+    "adds": 7,
+    "sec": 1.83,
+    "lines": 140,
+    "file": "test_config_discovery.py"
+   },
+   {
+    "adds": 21,
+    "sec": 39.08,
+    "lines": 400,
+    "file": "test_config_fill.py"
+   },
+   {
+    "adds": 23,
+    "sec": 1.62,
+    "lines": 639,
+    "file": "test_config_projection.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.57,
+    "lines": 89,
+    "file": "test_console_plain_and_same_bytes.py"
+   },
+   {
+    "adds": 6,
+    "sec": 35.43,
+    "lines": 317,
+    "file": "test_consumer_close_route.py"
+   },
+   {
+    "adds": 41,
+    "sec": 3.03,
+    "lines": 642,
+    "file": "test_context_bundle.py"
+   },
+   {
+    "adds": 14,
+    "sec": 0.87,
+    "lines": 507,
+    "file": "test_contract.py"
+   },
+   {
+    "adds": 0,
+    "sec": 4.68,
+    "lines": 183,
+    "file": "test_controller_blocks.py"
+   },
+   {
+    "adds": 16,
+    "sec": 5.03,
+    "lines": 318,
+    "file": "test_controller_brief.py"
+   }
+  ],
+  [
+   {
+    "adds": 0,
+    "sec": 3.27,
+    "lines": 141,
+    "file": "test_controller_doors.py"
+   },
+   {
+    "adds": 85,
+    "sec": 79.45,
+    "lines": 1481,
+    "file": "test_controller_gate_decision.py"
+   },
+   {
+    "adds": 12,
+    "sec": 3.34,
+    "lines": 103,
+    "file": "test_controller_lifecycle_gate.py"
+   },
+   {
+    "adds": 7,
+    "sec": 3.89,
+    "lines": 200,
+    "file": "test_controller_paths.py"
+   },
+   {
+    "adds": 21,
+    "sec": 14.76,
+    "lines": 594,
+    "file": "test_controller_release.py"
+   },
+   {
+    "adds": 44,
+    "sec": 46.15,
+    "lines": 597,
+    "file": "test_controller_resume.py"
+   }
+  ],
+  [
+   {
+    "adds": 23,
+    "sec": 13.86,
+    "lines": 899,
+    "file": "test_controller_rework_scope.py"
+   },
+   {
+    "adds": 48,
+    "sec": 19.21,
+    "lines": 801,
+    "file": "test_controller_scope_expansion.py"
+   },
+   {
+    "adds": 28,
+    "sec": 12.02,
+    "lines": 289,
+    "file": "test_controller_stage_acceptance.py"
+   },
+   {
+    "adds": 5,
+    "sec": 39.58,
+    "lines": 482,
+    "file": "test_controller_task_flag.py"
+   },
+   {
+    "adds": 83,
+    "sec": 1.13,
+    "lines": 288,
+    "file": "test_copy_detector.py"
+   }
+  ],
+  [
+   {
+    "adds": 51,
+    "sec": 3.77,
+    "lines": 858,
+    "file": "test_cost_capture_hot_path.py"
+   },
+   {
+    "adds": 55,
+    "sec": 1.89,
+    "lines": 547,
+    "file": "test_cost_capture_iterations.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.18,
+    "lines": 190,
+    "file": "test_cost_capture_lock_scope.py"
+   },
+   {
+    "adds": 0,
+    "sec": 2.43,
+    "lines": 118,
+    "file": "test_cost_capture_nonfactory_summary.py"
+   },
+   {
+    "adds": 2,
+    "sec": 1.92,
+    "lines": 188,
+    "file": "test_cost_capture_ownership.py"
+   },
+   {
+    "adds": 12,
+    "sec": 1.37,
+    "lines": 186,
+    "file": "test_cost_capture_question_wait.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.52,
+    "lines": 169,
+    "file": "test_cost_capture_recapture.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.47,
+    "lines": 125,
+    "file": "test_cost_capture_resumed_agent.py"
+   },
+   {
+    "adds": 60,
+    "sec": 1.58,
+    "lines": 463,
+    "file": "test_cost_capture_settled.py"
+   },
+   {
+    "adds": 44,
+    "sec": 0.62,
+    "lines": 492,
+    "file": "test_cost_capture_start_turn.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.47,
+    "lines": 199,
+    "file": "test_cost_capture_sticky_attribution.py"
+   }
+  ],
+  [
+   {
+    "adds": 0,
+    "sec": 1.63,
+    "lines": 184,
+    "file": "test_cost_capture_subagent_usage.py"
+   },
+   {
+    "adds": 0,
+    "sec": 2.32,
+    "lines": 130,
+    "file": "test_coverage_controller_integration.py"
+   },
+   {
+    "adds": 1,
+    "sec": 1.02,
+    "lines": 75,
+    "file": "test_coverage_targeted_projection.py"
+   },
+   {
+    "adds": 59,
+    "sec": 1.47,
+    "lines": 224,
+    "file": "test_critic_rollcall_apply_fixes.py"
+   },
+   {
+    "adds": 88,
+    "sec": 0.92,
+    "lines": 109,
+    "file": "test_current_audit_contract.py"
+   },
+   {
+    "adds": 7,
+    "sec": 0.97,
+    "lines": 252,
+    "file": "test_d1_answer_card.py"
+   },
+   {
+    "adds": 19,
+    "sec": 1.87,
+    "lines": 259,
+    "file": "test_d1_gate_words.py"
+   },
+   {
+    "adds": 92,
+    "sec": 1.87,
+    "lines": 381,
+    "file": "test_d1_product_gap.py"
+   },
+   {
+    "adds": 10,
+    "sec": 0.57,
+    "lines": 188,
+    "file": "test_dashboard_cost_gap_rows.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.72,
+    "lines": 164,
+    "file": "test_dashboard_cost_widgets.py"
+   },
+   {
+    "adds": 23,
+    "sec": 1.37,
+    "lines": 69,
+    "file": "test_dashboard_events.py"
+   },
+   {
+    "adds": 12,
+    "sec": 2.27,
+    "lines": 88,
+    "file": "test_dashboard_restore.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.72,
+    "lines": 310,
+    "file": "test_dashboard_single_source.py"
+   },
+   {
+    "adds": 26,
+    "sec": 2.87,
+    "lines": 767,
+    "file": "test_dashboard_task_price.py"
+   },
+   {
+    "adds": 5,
+    "sec": 2.17,
+    "lines": 312,
+    "file": "test_dashboard_task_row.py"
+   }
+  ],
+  [
+   {
+    "adds": 17,
+    "sec": 17.86,
+    "lines": 577,
+    "file": "test_decision_classes.py"
+   },
+   {
+    "adds": 3,
+    "sec": 1.37,
+    "lines": 203,
+    "file": "test_delivery_manifest_refresh.py"
+   },
+   {
+    "adds": 17,
+    "sec": 5.78,
+    "lines": 299,
+    "file": "test_delivery_owner_case_defect.py"
+   },
+   {
+    "adds": 37,
+    "sec": 6.33,
+    "lines": 869,
+    "file": "test_delivery_ownership.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.57,
+    "lines": 65,
+    "file": "test_delivery_visibility.py"
+   },
+   {
+    "adds": 6,
+    "sec": 12.95,
+    "lines": 461,
+    "file": "test_denial_scope.py"
+   },
+   {
+    "adds": 32,
+    "sec": 28.99,
+    "lines": 378,
+    "file": "test_detector_named_story.py"
+   },
+   {
+    "adds": 3,
+    "sec": 0.72,
+    "lines": 103,
+    "file": "test_detector_unreadable.py"
+   },
+   {
+    "adds": 49,
+    "sec": 8.63,
+    "lines": 515,
+    "file": "test_detector_verdict.py"
+   }
+  ],
+  [
+   {
+    "adds": 6,
+    "sec": 0.97,
+    "lines": 191,
+    "file": "test_diagnosis_honesty.py"
+   },
+   {
+    "adds": 3,
+    "sec": 22.18,
+    "lines": 437,
+    "file": "test_diff_accounting_readers.py"
+   },
+   {
+    "adds": 90,
+    "sec": 0.62,
+    "lines": 210,
+    "file": "test_diff_scope.py"
+   },
+   {
+    "adds": 3,
+    "sec": 2.42,
+    "lines": 478,
+    "file": "test_dispatch_identity.py"
+   },
+   {
+    "adds": 48,
+    "sec": 3.27,
+    "lines": 131,
+    "file": "test_doctor_access.py"
+   },
+   {
+    "adds": 28,
+    "sec": 51.79,
+    "lines": 346,
+    "file": "test_doctor_context.py"
+   },
+   {
+    "adds": 13,
+    "sec": 1.57,
+    "lines": 92,
+    "file": "test_driver_gate_unreadable.py"
+   },
+   {
+    "adds": 15,
+    "sec": 9.54,
+    "lines": 755,
+    "file": "test_driver_journal.py"
+   },
+   {
+    "adds": 6,
+    "sec": 1.72,
+    "lines": 153,
+    "file": "test_driver_reads_answers.py"
+   },
+   {
+    "adds": 7,
+    "sec": 13.3,
+    "lines": 102,
+    "file": "test_driver_resume_checkpoint.py"
+   },
+   {
+    "adds": 15,
+    "sec": 0.82,
+    "lines": 194,
+    "file": "test_env_evidence.py"
+   }
+  ],
+  [
+   {
+    "adds": 35,
+    "sec": 3.93,
+    "lines": 582,
+    "file": "test_env_selected_stand.py"
+   },
+   {
+    "adds": 29,
+    "sec": 1.62,
+    "lines": 155,
+    "file": "test_environment_create.py"
+   },
+   {
+    "adds": 22,
+    "sec": 0.87,
+    "lines": 71,
+    "file": "test_environment_lifecycle.py"
+   },
+   {
+    "adds": 92,
+    "sec": 7.05,
+    "lines": 318,
+    "file": "test_environment_record.py"
+   },
+   {
+    "adds": 28,
+    "sec": 1.07,
+    "lines": 138,
+    "file": "test_estimate_record.py"
+   },
+   {
+    "adds": 28,
+    "sec": 2.92,
+    "lines": 739,
+    "file": "test_event_store.py"
+   },
+   {
+    "adds": 75,
+    "sec": 2.57,
+    "lines": 447,
+    "file": "test_evidence_not_delivered.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.47,
+    "lines": 67,
+    "file": "test_evidence_ref_contract.py"
+   },
+   {
+    "adds": 25,
+    "sec": 1.82,
+    "lines": 239,
+    "file": "test_execution_fingerprint_records.py"
+   },
+   {
+    "adds": 19,
+    "sec": 0.83,
+    "lines": 73,
+    "file": "test_execution_metrics_adapter.py"
+   },
+   {
+    "adds": 11,
+    "sec": 1.63,
+    "lines": 442,
+    "file": "test_execution_pipeline.py"
+   },
+   {
+    "adds": 3,
+    "sec": 2.82,
+    "lines": 30,
+    "file": "test_execution_scheduler_cli.py"
+   },
+   {
+    "adds": 1,
+    "sec": 26.49,
+    "lines": 88,
+    "file": "test_exit_ask_tools.py"
+   }
+  ],
+  [
+   {
+    "adds": 14,
+    "sec": 2.07,
+    "lines": 239,
+    "file": "test_exit_gate_advice.py"
+   },
+   {
+    "adds": 28,
+    "sec": 0.87,
+    "lines": 347,
+    "file": "test_exit_gate_digest_source.py"
+   },
+   {
+    "adds": 34,
+    "sec": 1.07,
+    "lines": 232,
+    "file": "test_exit_gate_grounding.py"
+   },
+   {
+    "adds": 4,
+    "sec": 2.43,
+    "lines": 101,
+    "file": "test_exit_gate_lock_wait.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.38,
+    "lines": 142,
+    "file": "test_exit_gate_s7_investigation.py"
+   },
+   {
+    "adds": 71,
+    "sec": 2.84,
+    "lines": 315,
+    "file": "test_exit_gate_unreadable.py"
+   },
+   {
+    "adds": 12,
+    "sec": 29.8,
+    "lines": 232,
+    "file": "test_exit_limit_halt_answered.py"
+   },
+   {
+    "adds": 53,
+    "sec": 1.61,
+    "lines": 273,
+    "file": "test_exit_text_end.py"
+   },
+   {
+    "adds": 91,
+    "sec": 1.77,
+    "lines": 395,
+    "file": "test_exploration_identity.py"
+   },
+   {
+    "adds": 45,
+    "sec": 2.32,
+    "lines": 491,
+    "file": "test_exploratory_findings.py"
+   },
+   {
+    "adds": 29,
+    "sec": 0.47,
+    "lines": 255,
+    "file": "test_external_writes_bug_refusals.py"
+   },
+   {
+    "adds": 15,
+    "sec": 1.22,
+    "lines": 315,
+    "file": "test_factory_dashboard_joins.py"
+   }
+  ],
+  [
+   {
+    "adds": 7,
+    "sec": 17.56,
+    "lines": 580,
+    "file": "test_fb14_real_state.py"
+   },
+   {
+    "adds": 0,
+    "sec": 2.32,
+    "lines": 151,
+    "file": "test_field_producers.py"
+   },
+   {
+    "adds": 9,
+    "sec": 1.52,
+    "lines": 453,
+    "file": "test_file_lock.py"
+   },
+   {
+    "adds": 34,
+    "sec": 4.73,
+    "lines": 473,
+    "file": "test_fill_new_account.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.37,
+    "lines": 80,
+    "file": "test_finalization_flow.py"
+   },
+   {
+    "adds": 16,
+    "sec": 2.97,
+    "lines": 352,
+    "file": "test_findings_per_dispatch.py"
+   },
+   {
+    "adds": 38,
+    "sec": 1.17,
+    "lines": 133,
+    "file": "test_finish_unreadable.py"
+   },
+   {
+    "adds": 0,
+    "sec": 5.98,
+    "lines": 488,
+    "file": "test_fixes_13797.py"
+   },
+   {
+    "adds": 0,
+    "sec": 2.92,
+    "lines": 96,
+    "file": "test_form_at_stop.py"
+   },
+   {
+    "adds": 12,
+    "sec": 20.53,
+    "lines": 453,
+    "file": "test_form_view.py"
+   }
+  ],
+  [
+   {
+    "adds": 28,
+    "sec": 0.87,
+    "lines": 446,
+    "file": "test_frontend_reader.py"
+   },
+   {
+    "adds": 93,
+    "sec": 12.85,
+    "lines": 1445,
+    "file": "test_gap_points.py"
+   },
+   {
+    "adds": 1,
+    "sec": 3.42,
+    "lines": 357,
+    "file": "test_gate_a_settled_forks.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.47,
+    "lines": 72,
+    "file": "test_gate_a_two_documents.py"
+   },
+   {
+    "adds": 15,
+    "sec": 144.94,
+    "lines": 325,
+    "file": "test_gate_b_driver.py"
+   },
+   {
+    "adds": 46,
+    "sec": 28.13,
+    "lines": 890,
+    "file": "test_gate_brief_attachments.py"
+   }
+  ],
+  [
+   {
+    "adds": 0,
+    "sec": 22.08,
+    "lines": 340,
+    "file": "test_gate_decision_manual_pass.py"
+   },
+   {
+    "adds": 5,
+    "sec": 36.07,
+    "lines": 328,
+    "file": "test_gate_lines_over_approval.py"
+   },
+   {
+    "adds": 39,
+    "sec": 1.52,
+    "lines": 161,
+    "file": "test_gate_open_items.py"
+   },
+   {
+    "adds": 0,
+    "sec": 2.57,
+    "lines": 275,
+    "file": "test_gate_ordered_reporter.py"
+   },
+   {
+    "adds": 91,
+    "sec": 4.48,
+    "lines": 1243,
+    "file": "test_gate_preflight_integrations.py"
+   },
+   {
+    "adds": 57,
+    "sec": 7.73,
+    "lines": 876,
+    "file": "test_gate_question_form.py"
+   }
+  ],
+  [
+   {
+    "adds": 0,
+    "sec": 4.22,
+    "lines": 463,
+    "file": "test_gate_vocabulary.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.21,
+    "lines": 133,
+    "file": "test_grammar.py"
+   },
+   {
+    "adds": 26,
+    "sec": 10.09,
+    "lines": 442,
+    "file": "test_grounding_schema.py"
+   },
+   {
+    "adds": 65,
+    "sec": 13.05,
+    "lines": 371,
+    "file": "test_grounding_section.py"
+   },
+   {
+    "adds": 29,
+    "sec": 17.26,
+    "lines": 289,
+    "file": "test_grounding_share.py"
+   },
+   {
+    "adds": 14,
+    "sec": 0.67,
+    "lines": 533,
+    "file": "test_guard_command_text.py"
+   },
+   {
+    "adds": 11,
+    "sec": 0.26,
+    "lines": 99,
+    "file": "test_guard_secrets.py"
+   },
+   {
+    "adds": 21,
+    "sec": 7.24,
+    "lines": 305,
+    "file": "test_guard_window_identity.py"
+   },
+   {
+    "adds": 0,
+    "sec": 18.95,
+    "lines": 206,
+    "file": "test_halt_resume_door.py"
+   },
+   {
+    "adds": 16,
+    "sec": 5.9,
+    "lines": 394,
+    "file": "test_handed_to_person.py"
+   },
+   {
+    "adds": 5,
+    "sec": 9.56,
+    "lines": 137,
+    "file": "test_handoff_check_investigation.py"
+   }
+  ],
+  [
+   {
+    "adds": 9,
+    "sec": 11.74,
+    "lines": 264,
+    "file": "test_handoff_init_author.py"
+   },
+   {
+    "adds": 24,
+    "sec": 36.5,
+    "lines": 439,
+    "file": "test_handoff_inline_values.py"
+   },
+   {
+    "adds": 1,
+    "sec": 34.89,
+    "lines": 118,
+    "file": "test_handoff_rows_prefill.py"
+   },
+   {
+    "adds": 51,
+    "sec": 223.99,
+    "lines": 1663,
+    "file": "test_handoff_values.py"
+   },
+   {
+    "adds": 0,
+    "sec": 3.32,
+    "lines": 250,
+    "file": "test_harness_cwd_guard.py"
+   },
+   {
+    "adds": 7,
+    "sec": 1.97,
+    "lines": 258,
+    "file": "test_hook_lifecycle.py"
+   },
+   {
+    "adds": 4,
+    "sec": 0.41,
+    "lines": 121,
+    "file": "test_hook_notices.py"
+   },
+   {
+    "adds": 19,
+    "sec": 0.77,
+    "lines": 102,
+    "file": "test_hook_signal_rows.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.26,
+    "lines": 79,
+    "file": "test_hooklib_append_jsonl.py"
+   }
+  ],
+  [
+   {
+    "adds": 8,
+    "sec": 30.36,
+    "lines": 870,
+    "file": "test_hooklib_scan.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.21,
+    "lines": 86,
+    "file": "test_hooklib_sorted_paths.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.67,
+    "lines": 118,
+    "file": "test_hooklib_subagent_meta.py"
+   },
+   {
+    "adds": 5,
+    "sec": 0.37,
+    "lines": 232,
+    "file": "test_host_adapter.py"
+   },
+   {
+    "adds": 7,
+    "sec": 0.57,
+    "lines": 129,
+    "file": "test_host_launch_denial.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.47,
+    "lines": 173,
+    "file": "test_host_probe_handback.py"
+   },
+   {
+    "adds": 16,
+    "sec": 5.78,
+    "lines": 432,
+    "file": "test_http_client.py"
+   },
+   {
+    "adds": 12,
+    "sec": 3.98,
+    "lines": 838,
+    "file": "test_human_questions.py"
+   },
+   {
+    "adds": 14,
+    "sec": 2.98,
+    "lines": 357,
+    "file": "test_human_reading.py"
+   },
+   {
+    "adds": 3,
+    "sec": 1.37,
+    "lines": 257,
+    "file": "test_identity_proof_contract.py"
+   }
+  ],
+  [
+   {
+    "adds": 96,
+    "sec": 229.05,
+    "lines": 1139,
+    "file": "test_infra_failure.py"
+   },
+   {
+    "adds": 47,
+    "sec": 0.77,
+    "lines": 347,
+    "file": "test_inject_kinds_packet.py"
+   },
+   {
+    "adds": 30,
+    "sec": 1.82,
+    "lines": 331,
+    "file": "test_inject_notices.py"
+   },
+   {
+    "adds": 35,
+    "sec": 0.47,
+    "lines": 451,
+    "file": "test_install_manifest.py"
+   },
+   {
+    "adds": 59,
+    "sec": 13.0,
+    "lines": 844,
+    "file": "test_install_paths.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.62,
+    "lines": 139,
+    "file": "test_install_smoke_layout.py"
+   }
+  ],
+  [
+   {
+    "adds": 45,
+    "sec": 1.92,
+    "lines": 589,
+    "file": "test_instance_fingerprint.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.77,
+    "lines": 97,
+    "file": "test_instance_records.py"
+   },
+   {
+    "adds": 73,
+    "sec": 1.32,
+    "lines": 247,
+    "file": "test_judge_form.py"
+   },
+   {
+    "adds": 0,
+    "sec": 39.35,
+    "lines": 752,
+    "file": "test_judgment_census.py"
+   },
+   {
+    "adds": 98,
+    "sec": 55.33,
+    "lines": 1175,
+    "file": "test_launch_card.py"
+   },
+   {
+    "adds": 25,
+    "sec": 11.09,
+    "lines": 698,
+    "file": "test_launch_path_costs.py"
+   }
+  ],
+  [
+   {
+    "adds": 23,
+    "sec": 11.75,
+    "lines": 261,
+    "file": "test_launch_wrappers.py"
+   },
+   {
+    "adds": 14,
+    "sec": 3.43,
+    "lines": 1176,
+    "file": "test_launcher_argv.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.77,
+    "lines": 70,
+    "file": "test_ledger_matching.py"
+   },
+   {
+    "adds": 5,
+    "sec": 1.07,
+    "lines": 94,
+    "file": "test_lifecycle_integration.py"
+   },
+   {
+    "adds": 62,
+    "sec": 2.67,
+    "lines": 108,
+    "file": "test_lifecycle_transport.py"
+   },
+   {
+    "adds": 41,
+    "sec": 0.77,
+    "lines": 229,
+    "file": "test_line_endings.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.57,
+    "lines": 72,
+    "file": "test_lineage_root.py"
+   },
+   {
+    "adds": 39,
+    "sec": 1.77,
+    "lines": 105,
+    "file": "test_live_audit_contract.py"
+   },
+   {
+    "adds": 39,
+    "sec": 7.14,
+    "lines": 103,
+    "file": "test_login_recipe_apply.py"
+   },
+   {
+    "adds": 48,
+    "sec": 0.32,
+    "lines": 175,
+    "file": "test_make_fixture_repo.py"
+   },
+   {
+    "adds": 23,
+    "sec": 1.72,
+    "lines": 336,
+    "file": "test_manifest_put_keep_unsent.py"
+   },
+   {
+    "adds": 53,
+    "sec": 7.19,
+    "lines": 680,
+    "file": "test_manual_actor.py"
+   }
+  ],
+  [
+   {
+    "adds": 99,
+    "sec": 20.04,
+    "lines": 593,
+    "file": "test_manual_app.py"
+   },
+   {
+    "adds": 7,
+    "sec": 0.57,
+    "lines": 250,
+    "file": "test_manual_capture_login_unknown.py"
+   },
+   {
+    "adds": 24,
+    "sec": 2.09,
+    "lines": 278,
+    "file": "test_manual_fill_human.py"
+   },
+   {
+    "adds": 41,
+    "sec": 2.27,
+    "lines": 348,
+    "file": "test_manual_look.py"
+   },
+   {
+    "adds": 32,
+    "sec": 2.88,
+    "lines": 448,
+    "file": "test_manual_observations.py"
+   },
+   {
+    "adds": 9,
+    "sec": 1.92,
+    "lines": 212,
+    "file": "test_manual_projection.py"
+   },
+   {
+    "adds": 73,
+    "sec": 3.58,
+    "lines": 629,
+    "file": "test_manual_rejudge.py"
+   },
+   {
+    "adds": 17,
+    "sec": 1.77,
+    "lines": 298,
+    "file": "test_manual_requests_seen.py"
+   },
+   {
+    "adds": 0,
+    "sec": 3.58,
+    "lines": 125,
+    "file": "test_manual_seed_path.py"
+   }
+  ],
+  [
+   {
+    "adds": 76,
+    "sec": 2.47,
+    "lines": 850,
+    "file": "test_manual_step_errors.py"
+   },
+   {
+    "adds": 30,
+    "sec": 2.32,
+    "lines": 613,
+    "file": "test_manual_surprise.py"
+   },
+   {
+    "adds": 0,
+    "sec": 7.94,
+    "lines": 180,
+    "file": "test_manual_window.py"
+   },
+   {
+    "adds": 51,
+    "sec": 1.32,
+    "lines": 52,
+    "file": "test_metric_evidence.py"
+   },
+   {
+    "adds": 52,
+    "sec": 0.82,
+    "lines": 651,
+    "file": "test_metric_signals.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.42,
+    "lines": 59,
+    "file": "test_metrics_already_run.py"
+   },
+   {
+    "adds": 43,
+    "sec": 5.68,
+    "lines": 363,
+    "file": "test_metrics_contract.py"
+   },
+   {
+    "adds": 6,
+    "sec": 0.82,
+    "lines": 72,
+    "file": "test_migrate_coverage.py"
+   },
+   {
+    "adds": 21,
+    "sec": 2.47,
+    "lines": 757,
+    "file": "test_mixed_then_outcomes.py"
+   }
+  ],
+  [
+   {
+    "adds": 46,
+    "sec": 1.57,
+    "lines": 567,
+    "file": "test_mixed_then_precheck.py"
+   },
+   {
+    "adds": 57,
+    "sec": 56.56,
+    "lines": 404,
+    "file": "test_no_mr_entry.py"
+   },
+   {
+    "adds": 0,
+    "sec": 3.72,
+    "lines": 185,
+    "file": "test_no_real_claude.py"
+   },
+   {
+    "adds": 79,
+    "sec": 14.66,
+    "lines": 719,
+    "file": "test_null_outcomes.py"
+   },
+   {
+    "adds": 67,
+    "sec": 2.72,
+    "lines": 291,
+    "file": "test_obligation_join.py"
+   },
+   {
+    "adds": 10,
+    "sec": 0.47,
+    "lines": 280,
+    "file": "test_obligation_receipt_contract.py"
+   },
+   {
+    "adds": 8,
+    "sec": 0.26,
+    "lines": 131,
+    "file": "test_observation_contract.py"
+   },
+   {
+    "adds": 27,
+    "sec": 0.92,
+    "lines": 281,
+    "file": "test_oh3_23_queue.py"
+   },
+   {
+    "adds": 11,
+    "sec": 3.88,
+    "lines": 270,
+    "file": "test_onboarding_compaction.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.67,
+    "lines": 140,
+    "file": "test_onboarding_markers.py"
+   },
+   {
+    "adds": 9,
+    "sec": 1.68,
+    "lines": 124,
+    "file": "test_one_source_per_fact.py"
+   },
+   {
+    "adds": 6,
+    "sec": 3.03,
+    "lines": 171,
+    "file": "test_open_list_fields.py"
+   }
+  ],
+  [
+   {
+    "adds": 52,
+    "sec": 3.62,
+    "lines": 1113,
+    "file": "test_oracle_provenance.py"
+   },
+   {
+    "adds": 4,
+    "sec": 1.07,
+    "lines": 318,
+    "file": "test_orchestrator_share.py"
+   },
+   {
+    "adds": 68,
+    "sec": 52.26,
+    "lines": 820,
+    "file": "test_package_generation.py"
+   },
+   {
+    "adds": 70,
+    "sec": 3.82,
+    "lines": 208,
+    "file": "test_person_owned.py"
+   },
+   {
+    "adds": 22,
+    "sec": 12.65,
+    "lines": 331,
+    "file": "test_person_owned_paths.py"
+   },
+   {
+    "adds": 5,
+    "sec": 4.48,
+    "lines": 191,
+    "file": "test_person_word_stages.py"
+   }
+  ],
+  [
+   {
+    "adds": 70,
+    "sec": 38.53,
+    "lines": 804,
+    "file": "test_person_words.py"
+   },
+   {
+    "adds": 0,
+    "sec": 2.82,
+    "lines": 291,
+    "file": "test_pinned_lifecycle.py"
+   },
+   {
+    "adds": 36,
+    "sec": 5.78,
+    "lines": 310,
+    "file": "test_place_driver.py"
+   },
+   {
+    "adds": 54,
+    "sec": 3.32,
+    "lines": 460,
+    "file": "test_place_session.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.46,
+    "lines": 143,
+    "file": "test_plan_contract_text.py"
+   },
+   {
+    "adds": 3,
+    "sec": 1.77,
+    "lines": 94,
+    "file": "test_plan_warnings_info.py"
+   },
+   {
+    "adds": 80,
+    "sec": 2.68,
+    "lines": 522,
+    "file": "test_planning_contract_not_planned.py"
+   },
+   {
+    "adds": 21,
+    "sec": 0.47,
+    "lines": 150,
+    "file": "test_planning_policy.py"
+   },
+   {
+    "adds": 8,
+    "sec": 2.02,
+    "lines": 416,
+    "file": "test_playwright_identity_local1.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.31,
+    "lines": 100,
+    "file": "test_postcompact_reload.py"
+   }
+  ],
+  [
+   {
+    "adds": 77,
+    "sec": 1.87,
+    "lines": 543,
+    "file": "test_price_table_question.py"
+   },
+   {
+    "adds": 20,
+    "sec": 22.59,
+    "lines": 1206,
+    "file": "test_probe_binding.py"
+   },
+   {
+    "adds": 90,
+    "sec": 19.98,
+    "lines": 885,
+    "file": "test_probe_by_code_copy.py"
+   },
+   {
+    "adds": 38,
+    "sec": 1.57,
+    "lines": 284,
+    "file": "test_probe_container_answer.py"
+   },
+   {
+    "adds": 5,
+    "sec": 4.88,
+    "lines": 356,
+    "file": "test_probe_gap_door.py"
+   }
+  ],
+  [
+   {
+    "adds": 35,
+    "sec": 83.52,
+    "lines": 929,
+    "file": "test_probe_gap_word.py"
+   },
+   {
+    "adds": 13,
+    "sec": 2.42,
+    "lines": 593,
+    "file": "test_probe_marker.py"
+   },
+   {
+    "adds": 59,
+    "sec": 8.64,
+    "lines": 738,
+    "file": "test_probe_marker_judgment.py"
+   },
+   {
+    "adds": 3,
+    "sec": 0.82,
+    "lines": 189,
+    "file": "test_probe_plugin_param.py"
+   },
+   {
+    "adds": 8,
+    "sec": 1.47,
+    "lines": 281,
+    "file": "test_probe_target_fact.py"
+   },
+   {
+    "adds": 46,
+    "sec": 0.77,
+    "lines": 565,
+    "file": "test_profile_contract.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.32,
+    "lines": 237,
+    "file": "test_profile_gate.py"
+   }
+  ],
+  [
+   {
+    "adds": 21,
+    "sec": 13.45,
+    "lines": 625,
+    "file": "test_profile_reader.py"
+   },
+   {
+    "adds": 6,
+    "sec": 24.1,
+    "lines": 395,
+    "file": "test_profile_shape_gate.py"
+   },
+   {
+    "adds": 37,
+    "sec": 2.07,
+    "lines": 605,
+    "file": "test_profile_shared_root.py"
+   },
+   {
+    "adds": 17,
+    "sec": 2.62,
+    "lines": 300,
+    "file": "test_project_approach.py"
+   },
+   {
+    "adds": 28,
+    "sec": 4.53,
+    "lines": 634,
+    "file": "test_project_decisions_change_request.py"
+   },
+   {
+    "adds": 4,
+    "sec": 2.77,
+    "lines": 239,
+    "file": "test_project_decisions_doc_refs.py"
+   },
+   {
+    "adds": 11,
+    "sec": 9.35,
+    "lines": 238,
+    "file": "test_project_decisions_refs.py"
+   },
+   {
+    "adds": 64,
+    "sec": 48.2,
+    "lines": 558,
+    "file": "test_project_decisions_stand_facts.py"
+   }
+  ],
+  [
+   {
+    "adds": 0,
+    "sec": 0.47,
+    "lines": 127,
+    "file": "test_project_decisions_tables.py"
+   },
+   {
+    "adds": 46,
+    "sec": 2.52,
+    "lines": 618,
+    "file": "test_project_env.py"
+   },
+   {
+    "adds": 28,
+    "sec": 1.22,
+    "lines": 193,
+    "file": "test_project_gitignore.py"
+   },
+   {
+    "adds": 23,
+    "sec": 0.82,
+    "lines": 411,
+    "file": "test_project_inventory.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.77,
+    "lines": 139,
+    "file": "test_project_root.py"
+   },
+   {
+    "adds": 54,
+    "sec": 12.5,
+    "lines": 1778,
+    "file": "test_proof_level.py"
+   },
+   {
+    "adds": 40,
+    "sec": 0.57,
+    "lines": 108,
+    "file": "test_publication_gates.py"
+   }
+  ],
+  [
+   {
+    "adds": 58,
+    "sec": 1.92,
+    "lines": 411,
+    "file": "test_quality_demand.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.31,
+    "lines": 73,
+    "file": "test_question_bug_contract.py"
+   },
+   {
+    "adds": 28,
+    "sec": 1.82,
+    "lines": 174,
+    "file": "test_question_lines_unread.py"
+   },
+   {
+    "adds": 1,
+    "sec": 1.47,
+    "lines": 133,
+    "file": "test_question_register_near.py"
+   },
+   {
+    "adds": 74,
+    "sec": 0.47,
+    "lines": 610,
+    "file": "test_rate_precedence.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.72,
+    "lines": 114,
+    "file": "test_rc1_14_rule_lines.py"
+   },
+   {
+    "adds": 50,
+    "sec": 0.47,
+    "lines": 98,
+    "file": "test_reachability.py"
+   },
+   {
+    "adds": 5,
+    "sec": 14.67,
+    "lines": 596,
+    "file": "test_read_json.py"
+   },
+   {
+    "adds": 8,
+    "sec": 8.34,
+    "lines": 629,
+    "file": "test_receipts_per_function.py"
+   },
+   {
+    "adds": 4,
+    "sec": 0.26,
+    "lines": 139,
+    "file": "test_record_schema.py"
+   },
+   {
+    "adds": 17,
+    "sec": 5.49,
+    "lines": 251,
+    "file": "test_red_sandbox_node_ids.py"
+   }
+  ],
+  [
+   {
+    "adds": 62,
+    "sec": 82.07,
+    "lines": 963,
+    "file": "test_red_sandbox_probe.py"
+   },
+   {
+    "adds": 69,
+    "sec": 63.73,
+    "lines": 638,
+    "file": "test_red_window.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.22,
+    "lines": 144,
+    "file": "test_reducer_recovery.py"
+   },
+   {
+    "adds": 53,
+    "sec": 24.46,
+    "lines": 415,
+    "file": "test_refusal_ready_commands.py"
+   },
+   {
+    "adds": 34,
+    "sec": 7.14,
+    "lines": 204,
+    "file": "test_refusal_registry.py"
+   },
+   {
+    "adds": 4,
+    "sec": 3.17,
+    "lines": 209,
+    "file": "test_refuse_case.py"
+   },
+   {
+    "adds": 69,
+    "sec": 5.49,
+    "lines": 470,
+    "file": "test_regression_scope.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.32,
+    "lines": 26,
+    "file": "test_remedy_reporter_contract.py"
+   }
+  ],
+  [
+   {
+    "adds": 91,
+    "sec": 21.17,
+    "lines": 576,
+    "file": "test_repair_form_carry.py"
+   },
+   {
+    "adds": 6,
+    "sec": 4.08,
+    "lines": 181,
+    "file": "test_repair_marker.py"
+   },
+   {
+    "adds": 11,
+    "sec": 47.94,
+    "lines": 823,
+    "file": "test_repair_route.py"
+   },
+   {
+    "adds": 50,
+    "sec": 2.37,
+    "lines": 483,
+    "file": "test_repo_map.py"
+   },
+   {
+    "adds": 94,
+    "sec": 14.25,
+    "lines": 436,
+    "file": "test_report_adapt.py"
+   },
+   {
+    "adds": 32,
+    "sec": 4.53,
+    "lines": 605,
+    "file": "test_report_env.py"
+   },
+   {
+    "adds": 25,
+    "sec": 0.67,
+    "lines": 129,
+    "file": "test_report_hook_signals.py"
+   }
+  ],
+  [
+   {
+    "adds": 21,
+    "sec": 1.92,
+    "lines": 428,
+    "file": "test_report_manual_counted.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.26,
+    "lines": 183,
+    "file": "test_report_texts.py"
+   },
+   {
+    "adds": 5,
+    "sec": 4.83,
+    "lines": 255,
+    "file": "test_reporter_choice.py"
+   },
+   {
+    "adds": 4,
+    "sec": 1.12,
+    "lines": 147,
+    "file": "test_reporter_contract_format.py"
+   },
+   {
+    "adds": 34,
+    "sec": 0.72,
+    "lines": 1007,
+    "file": "test_reporters.py"
+   },
+   {
+    "adds": 39,
+    "sec": 2.32,
+    "lines": 324,
+    "file": "test_requirement_sources.py"
+   },
+   {
+    "adds": 52,
+    "sec": 60.77,
+    "lines": 306,
+    "file": "test_resume_closed_author.py"
+   },
+   {
+    "adds": 10,
+    "sec": 52.27,
+    "lines": 755,
+    "file": "test_resume_doors.py"
+   }
+  ],
+  [
+   {
+    "adds": 0,
+    "sec": 3.47,
+    "lines": 675,
+    "file": "test_resume_packet.py"
+   },
+   {
+    "adds": 19,
+    "sec": 1.12,
+    "lines": 770,
+    "file": "test_resume_story_isolation.py"
+   },
+   {
+    "adds": 4,
+    "sec": 3.73,
+    "lines": 156,
+    "file": "test_retro_always_full.py"
+   },
+   {
+    "adds": 26,
+    "sec": 1.17,
+    "lines": 322,
+    "file": "test_retro_numbers.py"
+   },
+   {
+    "adds": 30,
+    "sec": 2.22,
+    "lines": 784,
+    "file": "test_retro_orchestrator_driver.py"
+   },
+   {
+    "adds": 22,
+    "sec": 1.57,
+    "lines": 143,
+    "file": "test_retro_prior_tried.py"
+   },
+   {
+    "adds": 87,
+    "sec": 2.02,
+    "lines": 750,
+    "file": "test_retro_task_price.py"
+   }
+  ],
+  [
+   {
+    "adds": 11,
+    "sec": 3.33,
+    "lines": 220,
+    "file": "test_retry_reason.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.37,
+    "lines": 56,
+    "file": "test_retry_reason_contract.py"
+   },
+   {
+    "adds": 2,
+    "sec": 2.22,
+    "lines": 93,
+    "file": "test_rework_dispatch_files.py"
+   },
+   {
+    "adds": 4,
+    "sec": 0.77,
+    "lines": 338,
+    "file": "test_role_digest.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.97,
+    "lines": 134,
+    "file": "test_role_digest_notes.py"
+   },
+   {
+    "adds": 4,
+    "sec": 1.42,
+    "lines": 178,
+    "file": "test_role_digest_template.py"
+   },
+   {
+    "adds": 32,
+    "sec": 0.31,
+    "lines": 178,
+    "file": "test_role_permissions.py"
+   },
+   {
+    "adds": 2,
+    "sec": 4.91,
+    "lines": 283,
+    "file": "test_role_policy_reads.py"
+   },
+   {
+    "adds": 10,
+    "sec": 2.57,
+    "lines": 437,
+    "file": "test_row_fields.py"
+   },
+   {
+    "adds": 2,
+    "sec": 3.82,
+    "lines": 118,
+    "file": "test_rows_owed.py"
+   },
+   {
+    "adds": 69,
+    "sec": 1.02,
+    "lines": 321,
+    "file": "test_run_block_producer.py"
+   }
+  ],
+  [
+   {
+    "adds": 80,
+    "sec": 71.04,
+    "lines": 1464,
+    "file": "test_run_budget.py"
+   },
+   {
+    "adds": 3,
+    "sec": 0.87,
+    "lines": 197,
+    "file": "test_run_execution_metrics.py"
+   },
+   {
+    "adds": 16,
+    "sec": 3.13,
+    "lines": 585,
+    "file": "test_run_freshness.py"
+   },
+   {
+    "adds": 8,
+    "sec": 0.37,
+    "lines": 142,
+    "file": "test_run_history_identity.py"
+   },
+   {
+    "adds": 77,
+    "sec": 3.48,
+    "lines": 1013,
+    "file": "test_run_suite_reports.py"
+   }
+  ],
+  [
+   {
+    "adds": 3,
+    "sec": 43.05,
+    "lines": 525,
+    "file": "test_runtime_paths.py"
+   },
+   {
+    "adds": 4,
+    "sec": 3.28,
+    "lines": 233,
+    "file": "test_s0_close_order.py"
+   },
+   {
+    "adds": 29,
+    "sec": 25.81,
+    "lines": 312,
+    "file": "test_s0_key_form.py"
+   },
+   {
+    "adds": 23,
+    "sec": 1.83,
+    "lines": 512,
+    "file": "test_s1_s2_contract.py"
+   },
+   {
+    "adds": 7,
+    "sec": 9.52,
+    "lines": 619,
+    "file": "test_s3_remarks.py"
+   },
+   {
+    "adds": 46,
+    "sec": 34.87,
+    "lines": 616,
+    "file": "test_s3_s4_chain.py"
+   },
+   {
+    "adds": 32,
+    "sec": 13.8,
+    "lines": 436,
+    "file": "test_s3_strategist_rounds.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.32,
+    "lines": 45,
+    "file": "test_s4_findings_glob.py"
+   }
+  ],
+  [
+   {
+    "adds": 80,
+    "sec": 27.63,
+    "lines": 354,
+    "file": "test_s5_grown_windows.py"
+   },
+   {
+    "adds": 20,
+    "sec": 21.72,
+    "lines": 533,
+    "file": "test_s5_kind_readers.py"
+   },
+   {
+    "adds": 74,
+    "sec": 18.56,
+    "lines": 524,
+    "file": "test_s5_parallel_admission.py"
+   },
+   {
+    "adds": 20,
+    "sec": 9.63,
+    "lines": 659,
+    "file": "test_s5_plan.py"
+   },
+   {
+    "adds": 8,
+    "sec": 2.02,
+    "lines": 493,
+    "file": "test_s5_plan_grouping.py"
+   },
+   {
+    "adds": 2,
+    "sec": 8.29,
+    "lines": 395,
+    "file": "test_s5_plan_windows.py"
+   }
+  ],
+  [
+   {
+    "adds": 99,
+    "sec": 9.35,
+    "lines": 662,
+    "file": "test_s5_process.py"
+   },
+   {
+    "adds": 25,
+    "sec": 9.44,
+    "lines": 163,
+    "file": "test_s5_settled_oracle.py"
+   },
+   {
+    "adds": 6,
+    "sec": 3.94,
+    "lines": 184,
+    "file": "test_s5_window_scope.py"
+   },
+   {
+    "adds": 31,
+    "sec": 17.48,
+    "lines": 388,
+    "file": "test_s6_lane_admission.py"
+   },
+   {
+    "adds": 29,
+    "sec": 8.74,
+    "lines": 269,
+    "file": "test_s6_reprove_manual.py"
+   },
+   {
+    "adds": 29,
+    "sec": 33.16,
+    "lines": 665,
+    "file": "test_s7_investigation_driver.py"
+   },
+   {
+    "adds": 12,
+    "sec": 1.97,
+    "lines": 589,
+    "file": "test_s7_pretriage.py"
+   },
+   {
+    "adds": 0,
+    "sec": 2.93,
+    "lines": 208,
+    "file": "test_s7_reorder_fixture.py"
+   },
+   {
+    "adds": 30,
+    "sec": 34.03,
+    "lines": 356,
+    "file": "test_s7_repair_review.py"
+   }
+  ],
+  [
+   {
+    "adds": 22,
+    "sec": 2.68,
+    "lines": 713,
+    "file": "test_s8_reporting_regressions.py"
+   },
+   {
+    "adds": 7,
+    "sec": 0.62,
+    "lines": 120,
+    "file": "test_s9_summary_refresh.py"
+   },
+   {
+    "adds": 17,
+    "sec": 3.03,
+    "lines": 195,
+    "file": "test_scheduler_output_drain.py"
+   },
+   {
+    "adds": 22,
+    "sec": 0.87,
+    "lines": 63,
+    "file": "test_scoped_invalidation.py"
+   },
+   {
+    "adds": 20,
+    "sec": 0.87,
+    "lines": 748,
+    "file": "test_scoped_review_verdict.py"
+   },
+   {
+    "adds": 2,
+    "sec": 4.22,
+    "lines": 218,
+    "file": "test_screenshots_gate_b.py"
+   },
+   {
+    "adds": 3,
+    "sec": 41.07,
+    "lines": 139,
+    "file": "test_selftest_ran_nothing.py"
+   },
+   {
+    "adds": 87,
+    "sec": 6.18,
+    "lines": 264,
+    "file": "test_selftest_shard.py"
+   },
+   {
+    "adds": 30,
+    "sec": 1.77,
+    "lines": 224,
+    "file": "test_session_handoff.py"
+   },
+   {
+    "adds": 46,
+    "sec": 0.62,
+    "lines": 657,
+    "file": "test_session_identity.py"
+   }
+  ],
+  [
+   {
+    "adds": 91,
+    "sec": 1.52,
+    "lines": 387,
+    "file": "test_sizing_functions.py"
+   },
+   {
+    "adds": 7,
+    "sec": 0.77,
+    "lines": 149,
+    "file": "test_sizing_impact_scale.py"
+   },
+   {
+    "adds": 6,
+    "sec": 0.72,
+    "lines": 136,
+    "file": "test_slices_on_demand.py"
+   },
+   {
+    "adds": 35,
+    "sec": 2.32,
+    "lines": 44,
+    "file": "test_smoke_report.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.52,
+    "lines": 134,
+    "file": "test_source_peek.py"
+   },
+   {
+    "adds": 28,
+    "sec": 1.17,
+    "lines": 221,
+    "file": "test_source_prefix_probe.py"
+   },
+   {
+    "adds": 85,
+    "sec": 4.6,
+    "lines": 326,
+    "file": "test_source_preflight.py"
+   },
+   {
+    "adds": 1,
+    "sec": 1.43,
+    "lines": 125,
+    "file": "test_source_stage_integration.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.04,
+    "lines": 289,
+    "file": "test_stage_cards.py"
+   },
+   {
+    "adds": 14,
+    "sec": 0.97,
+    "lines": 128,
+    "file": "test_stage_clock.py"
+   },
+   {
+    "adds": 9,
+    "sec": 7.29,
+    "lines": 191,
+    "file": "test_stage_closure.py"
+   },
+   {
+    "adds": 41,
+    "sec": 43.4,
+    "lines": 358,
+    "file": "test_stage_critic_route.py"
+   },
+   {
+    "adds": 1,
+    "sec": 14.06,
+    "lines": 182,
+    "file": "test_stage_done.py"
+   },
+   {
+    "adds": 7,
+    "sec": 2.49,
+    "lines": 251,
+    "file": "test_stage_done_lock_order.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.57,
+    "lines": 119,
+    "file": "test_stage_joints_12586.py"
+   },
+   {
+    "adds": 20,
+    "sec": 0.87,
+    "lines": 326,
+    "file": "test_stage_of_dispatch.py"
+   }
+  ],
+  [
+   {
+    "adds": 16,
+    "sec": 2.32,
+    "lines": 269,
+    "file": "test_stage_review_person_pass.py"
+   },
+   {
+    "adds": 2,
+    "sec": 3.53,
+    "lines": 262,
+    "file": "test_stages.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.42,
+    "lines": 214,
+    "file": "test_stand_gap_contract.py"
+   },
+   {
+    "adds": 22,
+    "sec": 1.92,
+    "lines": 298,
+    "file": "test_stand_gap_remedy.py"
+   },
+   {
+    "adds": 37,
+    "sec": 3.74,
+    "lines": 873,
+    "file": "test_stand_gaps.py"
+   },
+   {
+    "adds": 74,
+    "sec": 3.89,
+    "lines": 419,
+    "file": "test_stand_lease.py"
+   },
+   {
+    "adds": 3,
+    "sec": 1.87,
+    "lines": 159,
+    "file": "test_stand_lease_walk.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.17,
+    "lines": 416,
+    "file": "test_state_exits.py"
+   },
+   {
+    "adds": 0,
+    "sec": 42.54,
+    "lines": 567,
+    "file": "test_state_portability.py"
+   }
+  ],
+  [
+   {
+    "adds": 11,
+    "sec": 3.88,
+    "lines": 230,
+    "file": "test_stop_after_config.py"
+   },
+   {
+    "adds": 65,
+    "sec": 0.72,
+    "lines": 111,
+    "file": "test_storage_visibility.py"
+   },
+   {
+    "adds": 52,
+    "sec": 5.49,
+    "lines": 314,
+    "file": "test_story_activity_price.py"
+   },
+   {
+    "adds": 78,
+    "sec": 3.88,
+    "lines": 286,
+    "file": "test_story_closure.py"
+   },
+   {
+    "adds": 86,
+    "sec": 23.78,
+    "lines": 1040,
+    "file": "test_story_root_class.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.92,
+    "lines": 60,
+    "file": "test_story_step.py"
+   },
+   {
+    "adds": 65,
+    "sec": 3.05,
+    "lines": 286,
+    "file": "test_story_step_card.py"
+   },
+   {
+    "adds": 8,
+    "sec": 27.86,
+    "lines": 193,
+    "file": "test_story_step_config.py"
+   },
+   {
+    "adds": 43,
+    "sec": 49.83,
+    "lines": 427,
+    "file": "test_story_step_decide.py"
+   }
+  ],
+  [
+   {
+    "adds": 56,
+    "sec": 58.46,
+    "lines": 774,
+    "file": "test_story_step_finish.py"
+   },
+   {
+    "adds": 15,
+    "sec": 61.04,
+    "lines": 492,
+    "file": "test_story_step_gate.py"
+   },
+   {
+    "adds": 93,
+    "sec": 34.79,
+    "lines": 775,
+    "file": "test_story_step_manual_block.py"
+   },
+   {
+    "adds": 18,
+    "sec": 5.49,
+    "lines": 150,
+    "file": "test_story_step_pause.py"
+   },
+   {
+    "adds": 0,
+    "sec": 15.37,
+    "lines": 258,
+    "file": "test_story_step_prompt.py"
+   },
+   {
+    "adds": 27,
+    "sec": 25.4,
+    "lines": 714,
+    "file": "test_story_step_start.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.21,
+    "lines": 26,
+    "file": "test_story_version.py"
+   },
+   {
+    "adds": 27,
+    "sec": 7.54,
+    "lines": 240,
+    "file": "test_stuck_facts.py"
+   }
+  ],
+  [
+   {
+    "adds": 34,
+    "sec": 19.92,
+    "lines": 622,
+    "file": "test_subagent_journal.py"
+   },
+   {
+    "adds": 46,
+    "sec": 3.92,
+    "lines": 541,
+    "file": "test_surfaces.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.26,
+    "lines": 114,
+    "file": "test_task_price_unestimated.py"
+   },
+   {
+    "adds": 14,
+    "sec": 0.26,
+    "lines": 167,
+    "file": "test_telemetry_rotation.py"
+   },
+   {
+    "adds": 2,
+    "sec": 0.21,
+    "lines": 114,
+    "file": "test_telemetry_sweep.py"
+   },
+   {
+    "adds": 9,
+    "sec": 0.67,
+    "lines": 365,
+    "file": "test_test_files.py"
+   },
+   {
+    "adds": 60,
+    "sec": 4.64,
+    "lines": 786,
+    "file": "test_test_repo_base.py"
+   },
+   {
+    "adds": 46,
+    "sec": 2.44,
+    "lines": 259,
+    "file": "test_test_source.py"
+   }
+  ],
+  [
+   {
+    "adds": 88,
+    "sec": 46.52,
+    "lines": 1072,
+    "file": "test_third_verdict.py"
+   },
+   {
+    "adds": 93,
+    "sec": 1.27,
+    "lines": 253,
+    "file": "test_ticket_query.py"
+   },
+   {
+    "adds": 0,
+    "sec": 1.72,
+    "lines": 92,
+    "file": "test_ticket_rework_stages.py"
+   },
+   {
+    "adds": 43,
+    "sec": 8.35,
+    "lines": 1042,
+    "file": "test_traceability.py"
+   },
+   {
+    "adds": 4,
+    "sec": 0.38,
+    "lines": 105,
+    "file": "test_traceability_contract.py"
+   },
+   {
+    "adds": 51,
+    "sec": 2.54,
+    "lines": 698,
+    "file": "test_traceability_report.py"
+   }
+  ],
+  [
+   {
+    "adds": 86,
+    "sec": 3.29,
+    "lines": 724,
+    "file": "test_tracker_route.py"
+   },
+   {
+    "adds": 79,
+    "sec": 0.97,
+    "lines": 551,
+    "file": "test_tracker_write_and_status.py"
+   },
+   {
+    "adds": 46,
+    "sec": 1.22,
+    "lines": 260,
+    "file": "test_triage_blocked.py"
+   },
+   {
+    "adds": 31,
+    "sec": 85.02,
+    "lines": 646,
+    "file": "test_triage_control.py"
+   },
+   {
+    "adds": 4,
+    "sec": 1.72,
+    "lines": 624,
+    "file": "test_triage_identity.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.62,
+    "lines": 79,
+    "file": "test_tried_table.py"
+   },
+   {
+    "adds": 22,
+    "sec": 2.82,
+    "lines": 436,
+    "file": "test_two_folders.py"
+   },
+   {
+    "adds": 57,
+    "sec": 4.43,
+    "lines": 280,
+    "file": "test_unprepared_outcome.py"
+   }
+  ],
+  [
+   {
+    "adds": 71,
+    "sec": 3.0,
+    "lines": 629,
+    "file": "test_user_path_failure_patterns.py"
+   },
+   {
+    "adds": 5,
+    "sec": 2.24,
+    "lines": 78,
+    "file": "test_validate_notices.py"
+   },
+   {
+    "adds": 1,
+    "sec": 1.32,
+    "lines": 540,
+    "file": "test_validator_class.py"
+   },
+   {
+    "adds": 14,
+    "sec": 0.32,
+    "lines": 164,
+    "file": "test_variant_shape.py"
+   },
+   {
+    "adds": 1,
+    "sec": 0.72,
+    "lines": 174,
+    "file": "test_verdict_reason_order.py"
+   },
+   {
+    "adds": 19,
+    "sec": 2.27,
+    "lines": 382,
+    "file": "test_version_coherence.py"
+   },
+   {
+    "adds": 71,
+    "sec": 43.31,
+    "lines": 1016,
+    "file": "test_waiver_release.py"
+   },
+   {
+    "adds": 52,
+    "sec": 3.9,
+    "lines": 479,
+    "file": "test_walk_batch.py"
+   }
+  ],
+  [
+   {
+    "adds": 34,
+    "sec": 3.06,
+    "lines": 152,
+    "file": "test_walk_brief.py"
+   },
+   {
+    "adds": 15,
+    "sec": 3.28,
+    "lines": 307,
+    "file": "test_walk_lanes.py"
+   },
+   {
+    "adds": 17,
+    "sec": 1.37,
+    "lines": 181,
+    "file": "test_walk_oracle.py"
+   },
+   {
+    "adds": 15,
+    "sec": 3.9,
+    "lines": 284,
+    "file": "test_walk_plan_fields.py"
+   },
+   {
+    "adds": 48,
+    "sec": 2.22,
+    "lines": 298,
+    "file": "test_walk_receipt.py"
+   },
+   {
+    "adds": 81,
+    "sec": 6.37,
+    "lines": 465,
+    "file": "test_walk_record.py"
+   },
+   {
+    "adds": 12,
+    "sec": 1.22,
+    "lines": 94,
+    "file": "test_walk_rows.py"
+   },
+   {
+    "adds": 0,
+    "sec": 0.72,
+    "lines": 143,
+    "file": "test_walk_two_actors.py"
+   },
+   {
+    "adds": 11,
+    "sec": 1.72,
+    "lines": 160,
+    "file": "test_walk_type_chain.py"
+   },
+   {
+    "adds": 4,
+    "sec": 1.37,
+    "lines": 322,
+    "file": "test_whole_identifier.py"
+   },
+   {
+    "adds": 12,
+    "sec": 3.83,
+    "lines": 591,
+    "file": "test_whole_list_sites.py"
+   },
+   {
+    "adds": 48,
+    "sec": 2.68,
+    "lines": 514,
+    "file": "test_window_artifacts.py"
+   }
+  ],
+  [
+   {
+    "adds": 5,
+    "sec": 0.36,
+    "lines": 115,
+    "file": "test_window_stage_contract.py"
+   },
+   {
+    "adds": 40,
+    "sec": 27.59,
+    "lines": 518,
+    "file": "test_words_carry.py"
+   },
+   {
+    "adds": 6,
+    "sec": 0.52,
+    "lines": 176,
+    "file": "test_worker_lifecycle.py"
+   },
+   {
+    "adds": 3,
+    "sec": 1.02,
+    "lines": 445,
+    "file": "test_worker_lifecycle_active.py"
+   }
+  ]
+ ],
+ "skipped": {
+  "story_run": [
+   "test_story_run_stand_b.py",
+   "test_story_run_s5_n1_frozen.py",
+   "test_story_run_deferred.py",
+   "test_story_run_monorepo.py",
+   "test_story_run_s5_parallel.py",
+   "test_story_run_stand_c.py",
+   "test_story_run_delivery_b.py",
+   "test_story_run_words.py",
+   "test_story_run_stand.py",
+   "test_story_run_s0_stand_trace.py",
+   "test_story_run_loop.py",
+   "test_story_run_wait.py"
+  ],
+  "live": [
+   "test_assertion_detectors.py",
+   "test_controller_rework.py",
+   "test_gate_b_orders.py"
+  ],
+  "gone": []
+ },
+ "live_refs_files": [
+  "driver-layers.json",
+  "judgment-census.json",
+  "test_assertion_detectors.py",
+  "test_controller_rework.py",
+  "test_controller_state.py",
+  "test_execution_request.py",
+  "test_gate_b_orders.py",
+  "test_guard_window_files.py",
+  "test_probe_every_check.py",
+  "test_s5_window_leftovers.py",
+  "test_story_run_s5_parallel.py",
+  "test_walk_claims.py"
+ ]
+}

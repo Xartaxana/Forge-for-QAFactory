@@ -167,7 +167,9 @@ CLI_SCRIPTS = {
     "claim_projector",   # the S3 planner's claim copied into the register by code (G1-13): the driver calls it after each S3 window; the S3 gate imports s3_claim_errors; no hook does
     "user_path_failures",  # places of the code that swallow a failure (G2-14): the S2 brief calls it, a role with a shell may run it; no hook does
     "artifact_supersede",  # the door of the rewrite guard (FR-57): set aside an unusable artifact of your own
+    "reference_snapshot",   # the old version's snapshot of an S-c story (t-2181 PC-9a): `put` is named in the runner's commands by PC-9b, `show` is run by a person and the conductor; no hook does
     "story_run",  # the driver (design/driver.md): the loop that replaces the orchestrator model
+    "interim_packet",  # the interim report of a story held for code (t-2181 PC-7): written by the driver on entering the wait; data only, no hook runs it
     "judge_form", "judge_run", "judge_code", "judge_results", "judge_reply", "judge_discovery", "judge_diff",
     # What every judged question actually did, over one project or several (references/judge.md).
     "judge_calibration",
@@ -215,8 +217,15 @@ CLI_SCRIPTS = {
     "test_novelty", "probe_debt", "source_exclusions", "report_facts",
     # The manual-agent evidence (t-250): the capture the agent runs, and the check of what it left.
     "manual_capture", "manual_evidence",
-    "explore_step",   # the exploration's one CLI (qa-explore): run by the conductor, the skill and a person; exploration.py is live through its import
+    "first_look",   # the first-look record, its attempt and the share/due questions (t-2277 FL-2): `first_look.py begin|end|put|show`, run by the driver and the walking role
+    "walk_session",   # the kept-session server of a manual walk (t-1957): `walk_session.py open|item|step|look|final|verdict|done|close|status`, run by the driver and the walking role
+    "walk_timing",   # what a manual walk cost per item (t-1957 N2): `walk_timing.py --task <KEY> [--summary] [--json]`, run by a person and the conductor; reads only
+    "driver_timing",   # where the time between two role calls goes (t-1937 P2): `driver_timing.py --task <KEY> [--json] [--check-hop-s N]`, run by a person and the conductor; reads only
+    "app_card",   # the app card of a manual walk (t-1957 N3): built by the driver from the project facts, read by the walking role
+    "explore_step",  # the exploration's one CLI (qa-explore): run by the conductor, the skill and a person; exploration.py is live through its import
     "branch_accounting",   # the S2 exit detector of branch accounting and its `--units` / `--unhomed` doors (G2-11): run by the gate, the tester and the conductor
+    "place_answers",   # the places of S7 and the analyst's answer per place (t-1991): `place_answers.py list|write|close-unsettled`, run by the analyst, the driver and the conductor; investigation imports it; no hook does
+    "bug_neighbours",   # the table of what the S7 failures, observations and drafts share (t-2187 N6): `bug_neighbours.py --task-root <T> [--json]`, run by the analyst, the driver and the conductor; reads only; no hook does
 }
 # `import x, y` / `from x import y` / `from x.y import z` — only the top-level module matters.
 IMPORT_RE = re.compile('^[ \\t]*(?:from[ \\t]+([A-Za-z_]\\w*)[\\w.]*[ \\t]+import\\b|import[ \\t]+([^\\n#]+))', re.M)
@@ -1618,6 +1627,8 @@ CONDUCTOR_SITES = {"conductor": ("Driver.conductor", "Driver.delivery"), "call":
 # one row per line and sorted, so that two nodes' edits merge line by line. The cap must equal the sum.
 NO_MOVE_BASELINE: dict = {
     ('story_run.py', 'Driver.__init__', 'S', 'Stop:?'): 1,
+    ('story_run.py', 'Driver._act_await_implementation', 'S', 'Stop:EXIT_DONE'): 1,
+    ('story_run.py', 'Driver._act_awaiting_stopped', 'S', 'Stop:EXIT_DONE'): 1,
     ('story_run.py', 'Driver._act_closed', 'S', 'Stop:EXIT_DONE'): 1,
     ('story_run.py', 'Driver._act_wait_existing_job', 'P', 'Person:?'): 1,
     ('story_run.py', 'Driver._act_wait_existing_job', 'P', 'Person:questions'): 1,
@@ -1629,6 +1640,8 @@ NO_MOVE_BASELINE: dict = {
     ('story_run.py', 'Driver._finish_saved_result', 'P', 'Person:halt'): 1,
     ('story_run.py', 'Driver._revoke_changed_carries', 'U', 'waiver.py'): 1,
     ('story_run.py', 'Driver.approve_by_option', 'P', 'builder:held_question'): 1,
+    ('story_run.py', 'Driver.arrival_record', 'P', 'Person:arrival_not_waiting'): 1,
+    ('story_run.py', 'Driver.arrival_record', 'S', 'Stop:EXIT_DONE'): 1,
     ('story_run.py', 'Driver.build_outcome', 'P', 'builder:build_person'): 2,
     ('story_run.py', 'Driver.check_run_mode', 'P', 'Person:package'): 1,
     ('story_run.py', 'Driver.gate', 'P', 'Person:?'): 1,
@@ -1661,7 +1674,7 @@ NO_MOVE_BASELINE: dict = {
     ('story_run.py', 'Driver.ticket_look_failed', 'P', 'builder:ticket_auth_person'): 1,
     ('story_run.py', 'Driver.words_file', 'S', 'Stop:EXIT_ERROR'): 1,
 }
-NO_MOVE_BASELINE_MAX = 51   # C1-7c (t-1239) on C1-7b: 57 -> 51, the 6 `U` sites of the other owners' functions (O1/O3 `halted` record `py_trace`, O2/O4 `running` record `check=True`, O5 the ledger `check=True` + the traceability door, O6 `delivery_summary` `check=True`). C1-7b (t-1214) on C1-6c: 68 -> 57, the 11 `U` sites of the stage functions (G1-G5 `check=True`, T1/T4/T5/T6 `py_trace`, W15 `owe_row`, L1/R1 doors); the B3 rule (F9) found no new site. C1-6c (t-1213) on C1-6b: 71 -> 68, the three `Person("conductor")` raises of `Driver.delivery` are the closed question `s8.delivery`. C1-6b fix round (t-1234): 72 -> 71, the stand answer's journal row is `answer_row` (owed on a failed write). C1-6b (t-1212) on C1-7a (t-1162): 78 -> 72, the two stand questions are seam questions with a door (-2 Person rows), their site-own executors are gone (-4 log_append rows). Before: C1-7a 102 -> 78, the 24 `U` sites that `owe_row` / `answer_row` / `py_trace` now read (CX1-15, t-1117: 101 -> 102, the ONE `Stop` of `Driver.__init__`)
+NO_MOVE_BASELINE_MAX = 55   # PC-7 (t-2181) raise 51 -> 55, reviewed: the four sites of the awaiting-code wait are each an ended run with exit 0 at the person's word (`arrival_record` stop, `_act_await_implementation`, `_act_awaiting_stopped`) or the closed question `arrival.not_waiting` with its three answers. C1-7c (t-1239) on C1-7b: 57 -> 51, the 6 `U` sites of the other owners' functions (O1/O3 `halted` record `py_trace`, O2/O4 `running` record `check=True`, O5 the ledger `check=True` + the traceability door, O6 `delivery_summary` `check=True`). C1-7b (t-1214) on C1-6c: 68 -> 57, the 11 `U` sites of the stage functions (G1-G5 `check=True`, T1/T4/T5/T6 `py_trace`, W15 `owe_row`, L1/R1 doors); the B3 rule (F9) found no new site. C1-6c (t-1213) on C1-6b: 71 -> 68, the three `Person("conductor")` raises of `Driver.delivery` are the closed question `s8.delivery`. C1-6b fix round (t-1234): 72 -> 71, the stand answer's journal row is `answer_row` (owed on a failed write). C1-6b (t-1212) on C1-7a (t-1162): 78 -> 72, the two stand questions are seam questions with a door (-2 Person rows), their site-own executors are gone (-4 log_append rows). Before: C1-7a 102 -> 78, the 24 `U` sites that `owe_row` / `answer_row` / `py_trace` now read (CX1-15, t-1117: 101 -> 102, the ONE `Stop` of `Driver.__init__`)
 
 DRIVER_ENTRY = "story_run.py"      # the driver's main file; the rest of the driver set is scripts/driver_*.py
 A27_CHECK = "A27 no move outside the seam"

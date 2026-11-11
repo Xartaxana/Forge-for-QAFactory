@@ -31,7 +31,10 @@ a unit that both guards and judges content counts as a breach (the safe directio
 
 BLIND SPOTS (printed with the totals): `meaning` is a hand label, and a unit that judges meaning but is labelled `word-list`
 or `shape` is invisible to `MEANING_CEILING` - the critic's question 11 and calibration check 41 (d) catch it. A unit with a
-check's meaning under a neutral name, with no judge call and no refusal site, is not seen either.
+check's meaning under a neutral name, with no judge call and no refusal site, is not seen either. A subclass of `ValueError`
+or `StateConflict` raised by its own name is invisible to `refusal_registry.sites` (it matches the literal names); legitimate
+when the subclass is caught and never reaches a role, but a subclass chosen to keep a ratchet down is not seen - the critic's
+question 11 and calibration check 41 catch it.
 
     python -B scripts/tests/test_judgment_census.py            # as a script (PASS/FAIL lines)
     python -B -m pytest scripts/tests/test_judgment_census.py -q -p no:cacheprovider
@@ -444,7 +447,10 @@ def totals_line(t: dict) -> str:
 
 
 BLIND_SPOT = ("blind spot: class `meaning` is a hand label; a unit that judges meaning but is labelled `word-list` or `shape` "
-              "is not seen by MEANING_CEILING - the critic's question 11 and calibration check 41 (d) catch it")
+              "is not seen by MEANING_CEILING - the critic's question 11 and calibration check 41 (d) catch it; "
+              "a subclass of `ValueError` or `StateConflict` raised by its own name is invisible to `refusal_registry.sites` "
+              "(it matches the literal names): legitimate when the subclass is caught and never reaches a role, but a subclass "
+              "chosen to keep a ratchet down is not seen - the critic's question 11 and calibration check 41 catch it")
 
 
 def load_census() -> dict:
@@ -712,6 +718,11 @@ def test_neg_stage_row_counts_once() -> None:
     assert r2["totals"]["blocking_units"] == 1, "the adviser does not block, the detector does"
 
 
+def blind_spot_names_subclass_gap() -> None:
+    assert "subclass" in BLIND_SPOT, "BLIND_SPOT must name the subclass gap of refusal_registry.sites"
+    assert "subclass" in load_census()["about"], "the census `about` must name the subclass gap"
+
+
 TESTS = [
     test_c1_every_unit_has_a_row_and_every_row_a_unit, test_c2_every_row_is_well_formed,
     test_c3_the_ratchet_is_dense_and_only_shrinks, test_c4_the_meaning_ceiling_is_the_tests_constant,
@@ -723,7 +734,7 @@ TESTS = [
     test_neg_nested_and_module_level_refusals_are_units, test_neg_unparsable_file_is_named_and_red,
     test_neg_stale_row_and_two_rows, test_neg_class_opinion_override_without_note_and_bad_form_are_c2,
     test_neg_raised_ceilings_roles_and_lowered_counts_are_c3, test_neg_vanished_top_level_ceiling_or_empty_ratchet_is_red,
-    test_neg_meaning_ceiling_is_not_data, test_neg_stage_row_counts_once,
+    test_neg_meaning_ceiling_is_not_data, test_neg_stage_row_counts_once, blind_spot_names_subclass_gap,
 ]
 
 

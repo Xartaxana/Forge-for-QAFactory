@@ -70,7 +70,7 @@ scope:
     reason: <= 80 characters>
     case: <case id>
     obligations: "<the obligation ids it discharges>"
-    executed: <fresh|reused>
+    executed: <fresh|reused|none>
     rerun_reason: <the exact fingerprint or provenance that moved, when this was rerun>
     evidence: <work/evidence/... - the artifact, not the claim>
     duration: <seconds, or a dash>
@@ -85,6 +85,7 @@ manual_observations:
     result: <passed|failed|inconclusive|manual_skipped>
     evidence: <path>
     why_inconclusive: <what the observation failed to settle, when it did>
+    surprises: "<the record's surprises[] (id, step, word, kind, fact, evidence) and surprise_detection, as built by code from the recorder's lines; a line an observation cites with `surprise: <id>` is judged inside that observation, every other line is a target `<case>#sur-<id>` for the analyst (at most 30; the rest are one `<case>#sur-overflow`). surprise_detection other than `on` means the page was not fully watched: no surprise is not 'nothing happened'>"
 
 # Rows blocked by the stand. Every one names the remedy - names only, never a value - and the
 # `env_probe.py` line that failed.
@@ -111,10 +112,20 @@ claims:
 expected_of_the_receiver:
   - "triage every `failed`, every `error`, and every `inconclusive` - an inconclusive check has
      an owner and a next step and never reaches gate B untouched"
-  - "a red instance carrying `contradicts_requirement` goes through your rule 2d. A red on an
+  - "a red instance carrying `contradicts_requirement` goes through your triage. A red on an
      extra or different value gets the control experiment first; the expectation is never
      adjusted to the code"
   - "a FLAKY verdict needs three isolated reruns of that one test and a named mechanism"
+
+# What you ran and saw, one line per window, with the path of your `tried.md` (spec t-1765 X7-7, E-14): the analyst reads it against
+# your Good outcome. Empty only with `tried_note` saying why nothing was tried. Distinct from `blocked.tried` below, which is what
+# failed while filling this form.
+tried:
+  - requirement: <the window: its case ids or its area>
+    technique: <what you ran in that window (the command or the steps)>
+    observation: <what you saw, in one line>
+    evidence: <the path of tried.md (and anchor) where it shows>
+tried_note: <why the table is empty, or a dash when it has rows>
 
 unresolved:
   - id: <instance or case id>

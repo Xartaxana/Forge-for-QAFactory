@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -91,6 +92,22 @@ def put_manifest(w, rows, **extra) -> dict:
     return w.manifest
 
 
+def stored_checks(w, node) -> list:
+    """t-2064 P4c: the `checks[]` rows an aggregate of `node` on the test file AS IT STANDS holds - one per check, with its `statement_sha`
+    and an `invert` entry whole (a stored model: a replay under S5 joins it, so the settle probes instead of leaving the item as "model
+    owed"). [] when the node is not a Python test that lists a check: such a record is an old one, and old records are owed (`record(...,
+    checks=[])` says it by hand)."""
+    try:
+        spec = PBC.parse_node(node, w.project)
+        data = (w.project / spec["file"]).read_bytes()
+        listed = PBC.checks_of(data, spec, PBC._reader_entry(spec), [], [], [])
+    except Exception:
+        return []
+    return [{"key": c["key"], "statement_sha": c["statement_sha"], "verdict": "intended_failure", "probe_kind": "invert",
+             "entry": {"check": c["key"], "instance": "", "alternative": "", "kind": "invert", "supposes": "",
+                       "invert": "the stored model of the fixture"}} for c in listed]
+
+
 def record(w, iid, *, verdict="intended_failure", measured=None, node=NODE_DEFAULT, mutation="invert",
            detail=None, moved=None, at="2026-09-30T05:02:39+00:00", published=False, **extra) -> Path:
     function = iid.split("[")[0].split("::")[-1]
@@ -101,6 +118,9 @@ def record(w, iid, *, verdict="intended_failure", measured=None, node=NODE_DEFAU
            "test_file_sha256": measured or OLD, "recorded_at": at, "publish": {"published": published}}
     if moved:
         rec["mutated_file"] = {"path": moved, "sha256": "x"}
+    rows = stored_checks(w, rec["test_node"]) if isinstance(rec["test_node"], str) and "::" in rec["test_node"] else []
+    if rows:        # a walk of the plan stores its models (`extra` may overrule: `checks=[]` is an old record)
+        rec["checks"] = rows
     rec.update(extra)
     return write(PL.probe_record_path(w.task_root, iid), rec)
 
@@ -173,6 +193,13 @@ def settle(w, stub, **kw) -> dict:
     kw.setdefault("stand", lambda: (False, ""))
     return D.settle(TASK, w.task_root, w.project, CRITIC, dispatch_record=w.controller["dispatches"][CRITIC],
                     runner=stub, clock=stub.clock, **kw)
+
+
+def fresh_settle(w, stub, **kw) -> dict:
+    """A settle with no memory: these tests change what the stubs answer between settles of the SAME bytes, which is
+    exactly what the refused-rebind memory (P2-2) would now skip; the memory itself is judged by the settle_* tests."""
+    (w.task_root / D.MEMORY_REL).unlink(missing_ok=True)
+    return settle(w, stub, **kw)
 
 
 # --- R11: the detector ---------------------------------------------------------------------------------
@@ -399,7 +426,7 @@ def find_writes_nothing():
         check_eq("FR-45 / R11: `find` writes nothing - not a receipt, not a manifest field, not the debt file",
                  tree(w.project), before)
         check("...and no receipt directory exists", not (w.task_root / "work" / "sensitivity-receipts").exists())
-        check("...nor the debt file", not (w.task_root / D.DEBT_REL).exists())
+        check("...nor the debt file", not (w.task_root / D.debt_rel(CRITIC)).exists())
         proc = run_script("probe_debt.py", "--task", TASK, "--json", cwd=w.project,
                           env=dict(os.environ, CLAUDE_PROJECT_DIR=str(w.project)))
         check_eq("the read-only CLI exits 0 and prints one JSON document (FR-14)",
@@ -431,16 +458,16 @@ def settle_sequence():
                  stub.calls[2][1], ["--task", TASK, "--dispatch", CRITIC, "--test", f"{TEST_REL}::test_a",
                                     "--instance", "test_a", "--mutation", "invert", "--json",
                                     "--timeout", str(D.SETTLE_BUDGET_S)])
-        check_eq("the second probe replays the mutation and the oracle of ITS record (V6)",
+        check_eq("the second probe replays the oracle of ITS record (V6), and its stored `expected` as `invert` (N7)",
                  stub.calls[3][1], ["--task", TASK, "--dispatch", CRITIC, "--test", f"{TEST_REL}::test_b",
-                                    "--instance", "test_b", "--mutation", "expected", "--oracle",
+                                    "--instance", "test_b", "--mutation", "invert", "--oracle",
                                     f"{HELPER_REL}::expect", "--json", "--timeout", str(D.SETTLE_BUDGET_S)])
         check_eq("both published: nothing is left", doc["left"], [])
         check_eq("every step is an outcome line", [(o["instance_id"], o["step"], o["result"]) for o in doc["outcomes"]],
                  [("test_a", "rebind", "rebound"), ("test_a", "probe", "published"), ("test_b", "probe", "published")])
         check_in("the outcome of a probe names the receipt", "work/sensitivity-receipts/r.json",
                  doc["outcomes"][1]["words"])
-        debt = json.loads((w.task_root / D.DEBT_REL).read_text(encoding="utf-8"))
+        debt = json.loads((w.task_root / D.debt_rel(CRITIC)).read_text(encoding="utf-8"))
         check_eq("R12.3: the outcomes are recorded in work/probe-debt.json", debt["outcomes"], doc["outcomes"])
         check_eq("...with the budget it ran under", (debt["budget"]["budget_s"], debt["budget"]["limit"],
                                                       debt["budget"]["probes_started"]), (D.SETTLE_BUDGET_S, 25, 2))
@@ -475,7 +502,7 @@ def rebind_writes_only_known_ids():
         # (c) a source-spelled id the manifest does not hold would be a ghost row beside the collected ones
         stub = Stub(w)
         stub.dry_ids = ["TC-1::test_a", "test_a[chromium]"]
-        doc = settle(w, stub)
+        doc = fresh_settle(w, stub)
         check_eq("(c) the dry run would write an unknown id: no write, no probe", stub.kinds(), ["dry"])
         check_eq("...the item stays, with the rebind reason", [(i["instance_id"], i["reason"]) for i in doc["left"]],
                  [("TC-1::test_a", "rebind")])
@@ -486,7 +513,7 @@ def rebind_writes_only_known_ids():
         # the same row under ANOTHER alias is the row: the write goes ahead
         stub = Stub(w)
         stub.dry_ids = ["test_a"]
-        doc = settle(w, stub)
+        doc = fresh_settle(w, stub)
         check_eq("a dry-run id that is an alias of a held row is known: write, then probe",
                  stub.kinds(), ["dry", "write", "probe:TC-1::test_a"])
         # a retracted row is not held
@@ -494,18 +521,18 @@ def rebind_writes_only_known_ids():
         record(w, "test_a", measured=STALE)
         stub = Stub(w)
         stub.dry_ids = ["test_a", "test_b"]
-        doc = settle(w, stub)
+        doc = fresh_settle(w, stub)
         check_eq("an id the manifest retracted does not count as held: no write", stub.kinds(), ["dry"])
         # a dry run that would not write this very instance rebinds nothing
         put_manifest(w, [row(w, "test_a", bound=STALE), row(w, "test_b")])
         stub = Stub(w)
         stub.dry_ids = ["test_b"]
-        doc = settle(w, stub)
+        doc = fresh_settle(w, stub)
         check_eq("a dry run that does not name the item's instance: no write, no probe", stub.kinds(), ["dry"])
         # no ids at all
         stub = Stub(w)
         stub.dry_ids = []
-        settle(w, stub)
+        fresh_settle(w, stub)
         check_eq("a dry run that would write nothing: no write, no probe", stub.kinds(), ["dry"])
     finally:
         cleanup(w.project)
@@ -525,7 +552,7 @@ def a_failed_rebind_means_no_probe():
                 ("the write 'succeeds' but the row is still bound to other bytes", lambda s: setattr(s, "binds", False))):
             stub = Stub(w)
             configure(stub)
-            doc = settle(w, stub)
+            doc = fresh_settle(w, stub)
             kinds = stub.kinds()
             check(f"{label}: no probe of the rebind item (bound != current would receipt other bytes)",
                   "probe:test_a" not in kinds, str(kinds))
@@ -534,13 +561,13 @@ def a_failed_rebind_means_no_probe():
             check_in(f"{label}: the words name the door", D.REBIND_LEFT, doc["left"][0]["reason_words"])
             check_eq(f"{label}: the reprobe item after it is still probed", "probe:test_b" in kinds, True)
         check_in("(iv) the dry run's own refusal words reach the item", "no marker in tests/test_x.py",
-                 settle(w, _with(Stub(w), dry_rc=2, dry_out=json.dumps({"ok": False, "refusal": "no marker in tests/test_x.py"})))
+                 fresh_settle(w, _with(Stub(w), dry_rc=2, dry_out=json.dumps({"ok": False, "refusal": "no marker in tests/test_x.py"})))
                  ["left"][0]["reason_words"])
         # no accepted automator dispatch to attribute the rebind to
         w.controller["dispatches"][AUTHOR]["status"] = "running"
         write(w.task_root / "state" / "controller.json", w.controller)
         stub = Stub(w)
-        doc = settle(w, stub)
+        doc = fresh_settle(w, stub)
         check_eq("no accepted S5 qa-automator dispatch: no rebind call, no probe of that item",
                  [k for k in stub.kinds() if k != "probe:test_b"], [])
         check_in("...and the words say so", "no accepted S5 qa-automator dispatch", doc["left"][0]["reason_words"])
@@ -551,7 +578,7 @@ def a_failed_rebind_means_no_probe():
         class Boom(Stub):
             def _manifest(self, args):
                 raise OSError("no such interpreter")
-        doc = settle(w, Boom(w))
+        doc = fresh_settle(w, Boom(w))
         check_eq("an OSError on the rebind is an outcome line, not a traceback",
                  [(o["instance_id"], o["step"], o["result"]) for o in doc["outcomes"]][:1], [("test_a", "rebind", "kept")])
     finally:
@@ -837,7 +864,7 @@ def an_item_is_not_probed_twice_on_the_same_bytes():
         check_eq("...the memory is carried forward as it was",
                  second["last_attempts"], first["last_attempts"])
         check_eq("...and is on disk for the next settle",
-                 json.loads((w.task_root / D.DEBT_REL).read_text(encoding="utf-8"))["last_attempts"],
+                 json.loads((w.task_root / D.MEMORY_REL).read_text(encoding="utf-8"))["last_attempts"],
                  first["last_attempts"])
         # other verdicts are not remembered: only what ended not_executed
         stub = Stub(w)
@@ -856,7 +883,7 @@ def an_item_is_not_probed_twice_on_the_same_bytes():
         check_eq("a changed file (a new sha) is probed again", stub.kinds(), ["probe:t1", "probe:t2"])
         check_eq("...and nothing is left nor remembered", (fourth["left"], fourth["last_attempts"]), ([], []))
         # a memory that cannot be read is no memory: probed again (an error errs toward running)
-        write(w.task_root / D.DEBT_REL, "{not json")
+        write(w.task_root / D.MEMORY_REL, "{not json")
         stub = Stub(w)
         settle(w, stub)
         check_eq("an unreadable debt file: both items are probed", stub.kinds(), ["probe:t1", "probe:t2"])
@@ -864,12 +891,280 @@ def an_item_is_not_probed_twice_on_the_same_bytes():
         stub = Stub(w)
         stub.probe["t1"] = not_executed
         settle(w, stub)
-        memory = json.loads((w.task_root / D.DEBT_REL).read_text(encoding="utf-8"))
+        memory = json.loads((w.task_root / D.MEMORY_REL).read_text(encoding="utf-8"))
         memory["last_attempts"][0]["current_sha"] = "0" * 64
-        write(w.task_root / D.DEBT_REL, memory)
+        write(w.task_root / D.MEMORY_REL, memory)
         stub = Stub(w)
         settle(w, stub)
         check_eq("an entry for other bytes is no memory of these", stub.kinds(), ["probe:t1", "probe:t2"])
+    finally:
+        cleanup(w.project)
+
+
+NO_FAILURE = (0, {"verdict": "no_failure", "restore": {"verified": True}, "notes": []})
+
+
+def _refused_world(w):
+    """Two rows: `ra` binds other bytes and its dry run would write nothing (the rebind is kept); `rb` binds the
+    current bytes and its probe says no_failure (left every time, so the settle never counts as 'nothing changed')."""
+    put_manifest(w, [row(w, "ra", bound=STALE), row(w, "rb")])
+    record(w, "ra", measured=STALE)
+    record(w, "rb")
+
+
+def _refused_stub(w):
+    stub = Stub(w)
+    stub.dry_ids = []
+    stub.probe["rb"] = NO_FAILURE
+    return stub
+
+
+def settle_skips_refused_rebind_on_same_bytes():
+    w = world()
+    try:
+        _refused_world(w)
+        stub = _refused_stub(w)
+        first = settle(w, stub)
+        check_eq("first settle: the dry run of ra is made and refuses, rb is probed", stub.kinds(), ["dry", "probe:rb"])
+        check_eq("...the kept rebind is remembered with its step",
+                 [(a["instance_id"], a["step"], a["result"]) for a in first["last_attempts"]], [("ra", "rebind", "kept")])
+        stub = _refused_stub(w)
+        second = settle(w, stub)
+        check_eq("second settle, same bytes: ra is NOT dry-run again, rb is probed", stub.kinds(), ["probe:rb"])
+        left = by_id(second["left"])
+        check_eq("...ra is left with its own word for a kept rebind", left["ra"]["reason"], "rebind_same_bytes")   # kept_rebind_has_own_word
+        check_in("...and the earlier words", D.REBIND_LEFT, left["ra"]["reason_words"])
+        check("...and its command is still there", bool(left["ra"]["command"]))
+        check_eq("...the memory is carried forward", second["last_attempts"], first["last_attempts"])
+        stub = _refused_stub(w)
+        settle(w, stub)
+        check_eq("third settle: still not dry-run", stub.kinds(), ["probe:rb"])
+        # the memory survives a settle that stops before the item is reached (the stand is busy)
+        stub = _refused_stub(w)
+        busy = settle(w, stub, stand=lambda: (True, "a run is going"))
+        check_eq("a busy stand starts nothing", stub.kinds(), [])
+        check_eq("...and ra stays remembered", [a["instance_id"] for a in busy["last_attempts"]], ["ra"])
+    finally:
+        cleanup(w.project)
+
+
+def settle_retries_when_bound_sha_changes():
+    w = world()
+    try:
+        _refused_world(w)
+        settle(w, _refused_stub(w))
+        # the author re-ran manifest_from_tests: the row binds ANOTHER old sha, the file is the same bytes
+        put_manifest(w, [row(w, "ra", bound="beef" + "0" * 60), row(w, "rb")])
+        stub = _refused_stub(w)
+        doc = settle(w, stub)
+        check_eq("same current_sha, a changed bound_sha: the rebind is tried again", stub.kinds(), ["dry", "probe:rb"])
+        check_eq("...and its new kept stamp holds the new bound sha",
+                 [s["bound_sha"] for s in doc["stamps"] if s["instance_id"] == "ra"], ["beef" + "0" * 60])
+        # a changed file (a new current_sha) is tried again too
+        (w.project / TEST_REL).write_text(TEST_SRC + "\n\ndef test_c():\n    assert 3 == 3\n", encoding="utf-8")
+        w.sha = sha((w.project / TEST_REL).read_bytes())
+        put_manifest(w, [row(w, "ra", bound="beef" + "0" * 60), row(w, "rb", bound=w.sha)])
+        stub = _refused_stub(w)
+        settle(w, stub)
+        check_eq("a new current_sha: the rebind is tried again", stub.kinds(), ["dry", "probe:rb"])
+    finally:
+        cleanup(w.project)
+
+
+def settle_retries_when_record_mtime_changes():
+    w = world()
+    try:
+        _refused_world(w)
+        settle(w, _refused_stub(w))
+        path = record(w, "ra", measured=STALE, mutation="expected",
+                      detail={"line": 2, "mutation": "expected"})   # the same sha, a new mutation
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+        stub = _refused_stub(w)
+        settle(w, stub)
+        check_eq("a record rewritten on the same shas: the rebind is tried again", stub.kinds(), ["dry", "probe:rb"])
+    finally:
+        cleanup(w.project)
+
+
+def settle_retries_when_manifest_ids_change():
+    """F8: `ra` is kept because its dry run would write an id the manifest does not hold; another window's manifest_put
+    adds that id (shas and record unchanged): the same dry run may pass now, so it is made again."""
+    w = world()
+    try:
+        _refused_world(w)
+        stub = _refused_stub(w)
+        stub.dry_ids = ["ghost"]
+        first = settle(w, stub)
+        check_eq("first: the dry run would write an unknown id, the rebind is kept and remembered",
+                 [(a["instance_id"], a["step"]) for a in first["last_attempts"]], [("ra", "rebind")])
+        stub = _refused_stub(w)
+        stub.dry_ids = ["ghost"]
+        settle(w, stub)
+        check_eq("control: nothing else changed - not dry-run again", stub.kinds(), ["probe:rb"])
+        put_manifest(w, [row(w, "ra", bound=STALE), row(w, "rb"), row(w, "ghost")])
+        stub = _refused_stub(w)
+        stub.dry_ids = ["ghost"]
+        settle(w, stub)
+        check_eq("the manifest now holds the id: the dry run is made again", stub.kinds(), ["dry", "probe:rb"])
+        # the stamp-level fact: the manifest ids are in the stamp, and they differ
+        a = D._manifest_ids({"tests": [row(w, "ra")]}, {"instance_id": "ra"})
+        b = D._manifest_ids({"tests": [row(w, "ra"), row(w, "ghost")]}, {"instance_id": "ra"})
+        check("the stamp's manifest_ids differ when a row is added", a and b and a != b, f"{a} {b}")
+        check_eq("...and are None when the row cannot be read", D._manifest_ids({}, {"instance_id": "ra"}), None)
+    finally:
+        cleanup(w.project)
+
+
+def settle_retries_after_a_dry_run_that_did_not_run():
+    """F9: a dry run that raised, an exit with no JSON, a refused write say nothing about the bytes: not remembered,
+    not 'nothing changed'. A JSON refusal is a fact about the bytes: remembered."""
+    w = world()
+    try:
+        put_manifest(w, [row(w, "ra", bound=STALE)])
+        record(w, "ra", measured=STALE)
+        stub = Stub(w)
+        stub.manifest_raise["dry"] = RuntimeError("the runner fell over")
+        first = settle(w, stub)
+        check_eq("runner raised: ra is left with reason rebind, nothing is remembered",
+                 ([i["reason"] for i in first["left"]], first["last_attempts"]), (["rebind"], []))
+        stub = Stub(w)
+        stub.dry_ids = []
+        second = settle(w, stub)
+        check_eq("second settle calls the dry run again (not 'nothing changed')", stub.kinds(), ["dry"])
+        check_eq("...and a dry run that would not write IS remembered", [a["instance_id"] for a in second["last_attempts"]], ["ra"])
+        for label, rc, out, remembered in (("an exit with no JSON", 1, "boom", False),
+                                            ("a JSON refusal", 2, json.dumps({"ok": False, "refusal": "no"}), True),
+                                            ("a JSON failure with no refusal", 1, json.dumps({"ok": False}), False)):
+            (w.task_root / D.MEMORY_REL).unlink(missing_ok=True)
+            stub = Stub(w)
+            stub.dry_rc, stub.dry_out = rc, out
+            doc = settle(w, stub)
+            check_eq(f"{label}: remembered={remembered}", bool(doc["last_attempts"]), remembered)
+            stub = Stub(w)
+            stub.dry_rc, stub.dry_out = rc, out
+            settle(w, stub)
+            check_eq(f"{label}: the next settle calls the dry run again={not remembered}", stub.kinds() == ["dry"], not remembered)
+        (w.task_root / D.MEMORY_REL).unlink(missing_ok=True)
+        stub = Stub(w)
+        stub.write_rc = 1
+        doc = settle(w, stub)
+        check_eq("a refused write is not remembered", (stub.kinds(), doc["last_attempts"]), (["dry", "write"], []))
+    finally:
+        cleanup(w.project)
+
+
+def settle_scope_of_a_new_dispatch_is_read_before_nothing_changed():
+    """F10: an item left for `rebind` by dispatch A, and critic B's scope excludes its case: `scope`, no subprocess."""
+    w = world()
+    try:
+        put_manifest(w, [row(w, "ra", bound=STALE)])
+        record(w, "ra", measured=STALE)
+        stub = Stub(w)
+        stub.dry_ids = []
+        settle(w, stub)
+        calls = []
+
+        def counting(argv, cwd=None, timeout=None):
+            calls.append(argv)
+            raise AssertionError("a subprocess was started")
+        later = "S5-qa-code-critic-3"
+        record_b = dict(w.controller["dispatches"][CRITIC], scope=["TC-2"])
+        doc = D.settle(TASK, w.task_root, w.project, later, dispatch_record=dict(record_b, scope=["TC-1"]),
+                       runner=counting, clock=Stub(w).clock, stand=lambda: (False, ""))
+        check_eq("control: the case in scope - nothing changed, 0 calls", (len(calls), bool(doc.get("unchanged_since"))), (0, True))
+        doc = D.settle(TASK, w.task_root, w.project, later, dispatch_record=record_b, runner=counting,
+                       clock=Stub(w).clock, stand=lambda: (False, ""))
+        check_eq("scope excludes the case: no subprocess", len(calls), 0)
+        check_eq("...the item is left for scope, with no rebind outcome",
+                 ([i["reason"] for i in doc["left"]], [o["result"] for o in doc["outcomes"]]),
+                 (["scope"], ["outside_scope"]))
+        check("...and it is not the 'unchanged' road", not doc.get("unchanged_since"), str(doc.get("unchanged_since")))
+    finally:
+        cleanup(w.project)
+
+
+def settle_nothing_changed_writes_no_subprocess():
+    w = world()
+    try:
+        put_manifest(w, [row(w, "ra", bound=STALE)])
+        record(w, "ra", measured=STALE)
+        stub = Stub(w)
+        stub.dry_ids = []
+        first = settle(w, stub)
+        check_eq("first settle: the dry run refuses", (stub.kinds(), [i["reason"] for i in first["left"]]),
+                 (["dry"], ["rebind"]))
+        calls = []
+
+        def counting(argv, cwd=None, timeout=None):
+            calls.append(argv)
+            raise AssertionError("a subprocess was started")
+        stood = []
+        later = "S5-qa-code-critic-3"
+        doc = D.settle(TASK, w.task_root, w.project, later, runner=counting, clock=Stub(w).clock,
+                       stand=lambda: stood.append(1) or (False, ""))
+        check_eq("nothing changed: the injected runner counts 0 calls, the stand is not asked", (len(calls), stood), (0, []))
+        check_eq("...the doc says which dispatch it stood on", doc.get("unchanged_since"), CRITIC)
+        check_eq("...and is addressed to the new one, commands included", (doc["dispatch"], doc["outcomes"]), (later, []))
+        left = doc["left"][0]
+        check_eq("...ra is still left, for its old reason", (left["instance_id"], left["reason"]), ("ra", "rebind"))
+        check_in("...with a command spelled with the new dispatch", later, left["command"])
+        disk = json.loads((w.task_root / D.debt_rel(later)).read_text(encoding="utf-8"))
+        check_eq("...and that is the file on disk", (disk["dispatch"], disk["unchanged_since"]), (later, CRITIC))
+        again = D.settle(TASK, w.task_root, w.project, later, runner=counting, clock=Stub(w).clock)
+        check_eq("...and again: still no call", (len(calls), again["unchanged_since"]), (0, later))
+        # a debt file of another story is no memory
+        disk["task"] = "OTHER-1"
+        write(w.task_root / D.MEMORY_REL, disk)
+        stub = Stub(w)
+        stub.dry_ids = []
+        settle(w, stub)
+        check_eq("a debt file of another story is ignored: the settle runs", stub.kinds(), ["dry"])
+        # an item that was left for a reason a repeat could change (a stand, a probe result) is run again
+        put_manifest(w, [row(w, "rb")])
+        record(w, "rb")
+        stub = Stub(w)
+        stub.probe["rb"] = NO_FAILURE
+        settle(w, stub)
+        stub = Stub(w)
+        stub.probe["rb"] = NO_FAILURE
+        settle(w, stub)
+        check_eq("a probe result may come out differently: not skipped", stub.kinds(), ["probe:rb"])
+        # no debt at all creates no file and is no 'nothing changed'
+        put_manifest(w, [])
+        PL.probe_record_path(w.task_root, "rb").unlink()
+        PL.probe_record_path(w.task_root, "ra").unlink()
+        (w.task_root / D.MEMORY_REL).unlink()
+        check_eq("no item, no info: no file", (settle(w, Stub(w)).get("unchanged_since"),
+                                                 (w.task_root / D.MEMORY_REL).exists()), (None, False))
+    finally:
+        cleanup(w.project)
+
+
+def settle_unreadable_memory_runs():
+    w = world()
+    try:
+        put_manifest(w, [row(w, "ra", bound=STALE)])
+        record(w, "ra", measured=STALE)
+        stub = Stub(w)
+        stub.dry_ids = []
+        settle(w, stub)
+        for label, text in (("not JSON", "{not json"), ("a list", "[1, 2]"), ("empty", "")):
+            write(w.task_root / D.MEMORY_REL, text)
+            stub = Stub(w)
+            stub.dry_ids = []
+            settle(w, stub)
+            check_eq(f"a debt file that is {label} is no memory: the dry run is made", stub.kinds(), ["dry"])
+        # a stamp with a field missing never matches
+        good = json.loads((w.task_root / D.MEMORY_REL).read_text(encoding="utf-8"))
+        good["stamps"][0].pop("record_mtime_ns")
+        for entry in good["last_attempts"]:
+            entry["stamp"].pop("record_mtime_ns")
+        write(w.task_root / D.MEMORY_REL, good)
+        stub = Stub(w)
+        stub.dry_ids = []
+        settle(w, stub)
+        check_eq("a stamp that lacks a field is no memory", stub.kinds(), ["dry"])
     finally:
         cleanup(w.project)
 
@@ -968,29 +1263,30 @@ def the_debt_file():
         put_manifest(w, [row(w, "test_a")])
         doc = settle(w, stub)
         check_eq("(i) no record, no item, no info: no file is written (the reader looks for one)",
-                 (doc["left"], doc["outcomes"], doc["info"], (w.task_root / D.DEBT_REL).exists()), ([], [], [], False))
+                 (doc["left"], doc["outcomes"], doc["info"], (w.task_root / D.debt_rel(CRITIC)).exists()), ([], [], [], False))
         put_manifest(w, [row(w, "test_a", required=False)])
         record(w, "test_a")
         settle(w, Stub(w))
-        debt = json.loads((w.task_root / D.DEBT_REL).read_text(encoding="utf-8"))
+        debt = json.loads((w.task_root / D.debt_rel(CRITIC)).read_text(encoding="utf-8"))
         check_eq("(i) an info row alone is enough to write it", [i["instance_id"] for i in debt["info"]], ["test_a"])
-        check_eq("...the shape: schema, task, dispatch, outcomes, left, info, last_attempts, budget", sorted(debt),
+        check_eq("...the shape: schema, task, dispatch, outcomes, left, info, last_attempts, stamps, budget", sorted(debt),
                  sorted(["schema_version", "task", "dispatch", "generated_at", "outcomes", "left", "info",
-                         "last_attempts", "budget"]))
+                         "last_attempts", "stamps", "budget"]))
         # Q2: a file an earlier settle left is REWRITTEN, empty, when a later settle finds nothing
         (w.task_root / "work" / "probes" / "test_a.json").unlink()
         doc = settle(w, Stub(w))
-        again = json.loads((w.task_root / D.DEBT_REL).read_text(encoding="utf-8"))
+        again = json.loads((w.task_root / D.debt_rel(CRITIC)).read_text(encoding="utf-8"))
         check_eq("an existing debt file is rewritten with empty lists when nothing is found",
                  (again["left"], again["outcomes"], again["info"]), ([], [], []))
         check("...and says when it was settled", bool(again.get("settled_at")), str(sorted(again)))
-        (w.task_root / D.DEBT_REL).unlink()
+        (w.task_root / D.debt_rel(CRITIC)).unlink()
+        (w.task_root / D.MEMORY_REL).unlink(missing_ok=True)
         settle(w, Stub(w))
-        check("...while an empty find creates no file where there was none", not (w.task_root / D.DEBT_REL).exists())
+        check("...while an empty find creates no file where there was none", not (w.task_root / D.debt_rel(CRITIC)).exists() and not (w.task_root / D.MEMORY_REL).exists())
         put_manifest(w, [row(w, "test_a")])
         record(w, "test_a", mutation="swap_operands")
         settle(w, Stub(w))
-        debt = json.loads((w.task_root / D.DEBT_REL).read_text(encoding="utf-8"))
+        debt = json.loads((w.task_root / D.debt_rel(CRITIC)).read_text(encoding="utf-8"))
         check_eq("a leave_to_critic item is in `left` with its command and reason",
                  [(i["instance_id"], i["reason"], bool(i["command"])) for i in debt["left"]], [("test_a", "critic", True)])
         # the settle itself writes no receipt and no manifest field
@@ -1053,7 +1349,7 @@ def arguments():
         check_eq("no story folder: exit 2", cli("--task", "NOPE-1").returncode, 2)
         check_eq("a task id that is a path: exit 2", cli("--task", "../x").returncode, 2)
         check_eq("no arguments: exit 2 (argparse)", cli().returncode, 2)
-        check("none of the refusals wrote the debt file", not (w.task_root / D.DEBT_REL).exists())
+        check("none of the refusals wrote the debt file", not (w.task_root / D.debt_rel(CRITIC)).exists())
     finally:
         cleanup(w.project)
 
@@ -1104,7 +1400,7 @@ def the_command_line_end_to_end_with_stub_tools():
         check_eq("...the probes carry the critic's dispatch", [c[c.index("--dispatch") + 1] for c in calls if c[0] == "probe"],
                  [CRITIC, CRITIC])
         check_eq("both are settled: nothing left", doc.get("left"), [])
-        check("work/probe-debt.json exists", (w.task_root / D.DEBT_REL).is_file())
+        check("work/probe-debt.json exists", (w.task_root / D.debt_rel(CRITIC)).is_file())
         proc = run_script("probe_debt.py", "--task", TASK, "--settle", "--dispatch", CRITIC, cwd=w.project, env=env)
         check_in("the human form prints the outcomes", "probe debt settle:", proc.stdout)
     finally:
@@ -1221,6 +1517,8 @@ def nv_scope_and_budget():
                     "test_file_sha256": OLD, "recorded_at": "2026-09-30T05:02:39+00:00"}
         write(PL.probe_record_path(task_root, "test_add"), standing)
         original = (root / "tests" / "test_calc.py").read_bytes()
+        import probe_entries as PE      # the model entry the probe owes for the check, written as every probing test does
+        PE.write_invert_entries(task_root, CRITIC, keys=["tests/test_calc.py:5"])
         record_out = PBC.probe(NV_TASK, CRITIC, "tests/test_calc.py::test_add", "test_add", "invert")
         check_eq("NV-1: through probe() the refusal is a `not_executed` run, with the refusal's words in its notes",
                  (record_out["verdict"], any("outside its scope" in n for n in record_out["notes"])), ("not_executed", True))
@@ -1272,10 +1570,15 @@ def a_not_executed_settle_keeps_the_debt():
         use_project(root)
         crash = write(scripts / "crash_run_suite.py", "import sys\nprint('stub: no summary today')\nsys.exit(1)\n")
         os.environ["PROBE_RUN_SUITE"] = str(crash)
+        # t-2064 P4c: a record with no `checks[]` is an old one and owes every check (the settle leaves it to the critic, nothing runs);
+        # a walk's record stores its models, so the standing record carries them, and the probe owes the critic's entry for the re-run
+        standing = types.SimpleNamespace(project=root)
         write(PL.probe_record_path(task_root, "test_add"), {
             "verdict": "intended_failure", "instance_id": "test_add", "case": "TC-100",
             "test_node": "tests/test_calc.py::test_add", "mutation": "invert", "test_file_sha256": OLD,
-            "recorded_at": "2026-09-30T05:02:39+00:00"})
+            "recorded_at": "2026-09-30T05:02:39+00:00", "checks": stored_checks(standing, "tests/test_calc.py::test_add")})
+        import probe_entries as PE      # the model entry the probe owes for the check, written as every probing test does
+        PE.write_invert_entries(task_root, CRITIC, keys=["tests/test_calc.py:5"])
 
         def in_process(argv, cwd=None, timeout=None):   # the real probe(), not a subprocess of it
             args = list(argv[3:])
@@ -1307,7 +1610,9 @@ def a_test_that_is_not_python_is_replayed_with_its_line():
     """B-373 c (K11, A12): a probe of a test in another language that was pointed at a line (`--at`: the
     assertion, or which of two declarations) is replayed with the SAME line - without it the replay would invert
     the first assertion again, which is not the one that probe proved; an `incomplete` answer is the generic
-    branch: nothing is settled, and the settle goes on (stop only for an unverified restore)."""
+    branch: nothing is settled, and the settle goes on (stop only for an unverified restore).
+    t-2064 P4c: `_replay_plan` still READS the anchor, but the replay is the walk of the whole plan and carries none: a record with
+    stored models replays with no `--at`, an old record (no `checks[]`) is `model owed` and stays with the critic."""
     args = D._probe_args("T-1", "S5-c-1", "tests/CalcTests.cs::CalcTests.Adds", "Adds", "invert", "")
     check_not_in("no --at when the probe had none", "--at", " ".join(args))
     check_eq("an empty or missing --at appends nothing", (D._probe_args("T", "D", "n::f", "i", "invert", "", ""),
@@ -1321,25 +1626,43 @@ def a_test_that_is_not_python_is_replayed_with_its_line():
     w = world()
     try:
         put_manifest(w, [row(w, "test_a")])
-        for at, wanted in ((15, "15"), (0, "0"), (None, ""), ("", ""), (True, ""), ("15", "")):
+        for at, wanted in ((15, "15"), (0, "0"), (None, ""), ("", ""), (True, ""), ("15", ""), ("tests/H.cs:15", "tests/H.cs:15")):
             record(w, "test_a", detail={"line": 2, "mutation": "invert", "style": "detector", "at": at})
             plan = D._replay_plan(json.loads(PL.probe_record_path(w.task_root, "test_a").read_text(encoding="utf-8")), w.project)
-            check_eq(f"_replay_plan reads mutation_detail.at ({at!r}): only an int is a line", plan[3], wanted)
+            check_eq(f"_replay_plan reads mutation_detail.at ({at!r}): an int or <file>:<line> is a line (t-2045 N1)", plan[3], wanted)
             item = D.find(w.task_root, w.manifest, w.project, CRITIC)["items"][0]
-            check_eq(f"...and the replayed command {'carries' if wanted else 'has no'} --at ({at!r})",
-                     f"--at {wanted}" in item["command"] if wanted else "--at" in item["command"], bool(wanted))
+            # t-2064 P4c: a replay is the walk of the whole plan, so it never carries a line anchor (`_item` ignores `_replay_plan`'s `at`)
+            check_eq(f"...and the replayed command has no --at, whatever the record's anchor ({at!r})",
+                     ("--at" in item["command"], item["action"]), (False, D.REPROBE))
+        record(w, "test_a", checks=[], detail={"line": 2, "mutation": "invert", "style": "detector", "at": 15})
+        item = D.find(w.task_root, w.manifest, w.project, CRITIC)["items"][0]
+        check_eq("an OLD record (no checks[]) that was aimed by --at is `model owed`: the critic's, nothing run, no command",
+                 (item["action"], item["command"], item["why"].startswith("model owed: the critic writes the entry for tests/test_x.py:2")),
+                 (D.LEAVE_TO_CRITIC, "", True))
         record(w, "test_a")
-        check_eq("a record that has no mutation_detail.at replays as before (no flag)",
+        check_eq("a record that has no mutation_detail.at replays with no flag",
                  "--at" in D.find(w.task_root, w.manifest, w.project, CRITIC)["items"][0]["command"], False)
-        # an oracle that lives in a file that is not Python is the critic's to name again (code replays only what it can locate)
+        # t-2045 N5 (S9): an oracle helper in another language is replayed by the probe's own reader of that language (`declared_once`: the
+        # entry's `helper_declaration`), so a helper declared once replays with --oracle, with no hand-named helper
         record(w, "test_a", detail={"line": 2, "mutation": "invert", "oracle_function": "ExpectSum", "file": "tests/Helpers.cs",
                                     "at": 3}, moved="tests/Helpers.cs")
         write(w.project / "tests" / "Helpers.cs", "class H { static void ExpectSum() { } }\n")
         item = D.find(w.task_root, w.manifest, w.project, CRITIC)["items"][0]
-        check_eq("an oracle helper in another language goes to the critic", item["action"], D.LEAVE_TO_CRITIC)
-        check_in("...saying why, in words that are not 'does not parse'", "is not a Python file", item["why"])
+        check_eq("an oracle helper in another language, declared once, is replayed", item["action"] != D.LEAVE_TO_CRITIC, True)
+        check_in("...with --oracle naming its file and function", "--oracle tests/Helpers.cs::ExpectSum", item["command"])
+        # ... and the critic's again when the reader cannot find it exactly once: gone, or a language with no entry (the data gap named)
+        write(w.project / "tests" / "Helpers.cs", "class H { static void Other() { } }\n")
+        item = D.find(w.task_root, w.manifest, w.project, CRITIC)["items"][0]
+        check_eq("an oracle helper that is gone from its file goes to the critic", item["action"], D.LEAVE_TO_CRITIC)
+        check_in("...saying why, by the table's own row", "no declaration of ExpectSum", item["why"])
         check_not_in("...and not a misleading parse error", "does not parse", item["why"])
         check_not_in("...and the command names no oracle it cannot replay", "--oracle", item["command"])
+        record(w, "test_a", detail={"line": 2, "mutation": "invert", "oracle_function": "helper", "file": "tests/notes.kt",
+                                    "at": 3}, moved="tests/notes.kt")
+        write(w.project / "tests" / "notes.kt", "fun helper() {}\n")
+        item = D.find(w.task_root, w.manifest, w.project, CRITIC)["items"][0]
+        check_eq("an oracle helper of a language with no entry goes to the critic", item["action"], D.LEAVE_TO_CRITIC)
+        check_in("...naming the data gap", "factory data gap", item["why"])
     finally:
         cleanup(w.project)
     # K11: `incomplete` is the generic branch of _classify - nothing settled, stop only when the restore is not verified
@@ -1371,7 +1694,52 @@ def a_test_that_is_not_python_is_replayed_with_its_line():
         cleanup(w.project)
 
 
+def oracle_from_probe_record_not_debt_file():
+    """t-2180 B: `record_files` reads the oracle file from the probe RECORD (the debt files never carry `_args`)."""
+    w = world()
+    try:
+        r1 = row(w, "t1")
+        put_manifest(w, [r1])
+        record(w, "t1", detail={"line": 2, "mutation": "invert", "oracle_function": "add", "file": "src\\calc.py"})
+        check_eq("test file and the oracle file (backslashes normalised, one spelling)", D.record_files(w.task_root, r1),
+                 {"tests/test_x.py", "src/calc.py"})
+        record(w, "t1", detail={"line": 2, "mutation": "invert", "oracle_function": "add"}, moved="src/moved.py")
+        check_eq("mutated_file.path wins over the test file", D.record_files(w.task_root, r1), {"tests/test_x.py", "src/moved.py"})
+        check_eq("_oracle_where is the one reader of the replay file", D._oracle_where(json.loads(
+            PL.probe_record_path(w.task_root, "t1").read_text(encoding="utf-8"))), "src/moved.py")
+        record(w, "t1", detail={"line": 2, "mutation": "invert", "oracle_function": ""})
+        check_eq("an empty oracle_function: the test file only", D.record_files(w.task_root, r1), {"tests/test_x.py"})
+        record(w, "t1", node="tests/test_y.py::A::test_b")
+        check_eq("several :: -> the part before the first", D.record_files(w.task_root, r1), {"tests/test_y.py"})
+        PL.probe_record_path(w.task_root, "t1").write_text("{not json", encoding="utf-8")
+        check_eq("an unreadable record adds nothing, no crash", D.record_files(w.task_root, r1), set())
+        PL.probe_record_path(w.task_root, "t1").unlink()
+        check_eq("an absent record adds nothing", D.record_files(w.task_root, r1), set())
+        check_eq("a row with no id adds nothing", D.record_files(w.task_root, {"case": "TC-1"}), set())
+        r2 = {"instance_id": "t2", "case": "TC-2"}       # no test file on the row, an oracle record
+        record(w, "t2", detail={"line": 2, "mutation": "invert", "oracle_function": "f", "file": "src/o.py"})
+        check_eq("a row with no test file but an oracle record", D.record_files(w.task_root, r2), {"tests/test_x.py", "src/o.py"})
+    finally:
+        cleanup(w.project)
+
+
+def gone_oracle_still_counted():
+    """t-2180 B: no `_oracle_gone` check - an oracle function that no longer exists still counts (the error direction is a wait)."""
+    w = world()
+    try:
+        r1 = row(w, "t1")
+        record(w, "t1", detail={"line": 2, "mutation": "invert", "oracle_function": "vanished", "file": "src/calc.py"})
+        check("the oracle file does not even exist in the project", not (w.project / "src" / "calc.py").exists())
+        check_in("a gone oracle file is still named", "src/calc.py", D.record_files(w.task_root, r1))
+        node, mutation, oracle, at, why = D._replay_plan(json.loads(PL.probe_record_path(w.task_root, "t1").read_text(encoding="utf-8")), w.project)
+        check("the replay itself leaves it to the critic (unchanged)", oracle == "" and "cannot be replayed" in why)
+    finally:
+        cleanup(w.project)
+
+
 def main():
+    oracle_from_probe_record_not_debt_file()
+    gone_oracle_still_counted()
     a_test_that_is_not_python_is_replayed_with_its_line()
     find_names_the_unpublished_probe()
     find_info_and_edges()
@@ -1386,6 +1754,14 @@ def main():
     budget_stand_and_limit()
     the_budget_bounds_the_whole_call()
     an_item_is_not_probed_twice_on_the_same_bytes()
+    settle_skips_refused_rebind_on_same_bytes()
+    settle_retries_when_bound_sha_changes()
+    settle_retries_when_record_mtime_changes()
+    settle_retries_when_manifest_ids_change()
+    settle_retries_after_a_dry_run_that_did_not_run()
+    settle_scope_of_a_new_dispatch_is_read_before_nothing_changed()
+    settle_nothing_changed_writes_no_subprocess()
+    settle_unreadable_memory_runs()
     the_count_cap_at_25_and_26()
     an_item_outside_the_dispatch_scope_is_left()
     hf8_18_c_k12_a_row_of_another_spelling_passes_the_outside_scope_door()

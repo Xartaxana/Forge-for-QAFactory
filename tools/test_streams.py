@@ -243,7 +243,10 @@ def test_g_a_guarded_file_runs_without_streams_and_uses_it_when_present(tmp_path
 
 # ---------------------------------------------------------------- S3 the census
 
-KEPT = {}      # file name -> the reason a deliberate copy of the reconfigure loop stays outside the chain
+KEPT = {       # file name -> the reason a deliberate copy of the reconfigure loop stays outside the chain
+    "language_sites.py": "its own copy (spec t-2065 2.7), inert until node N3 puts it into the mechanism chain "
+                         "(tools/mechanism_gate.py); REMOVE this row at N3",
+}
 
 
 def census(directory):

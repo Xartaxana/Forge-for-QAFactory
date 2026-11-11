@@ -46,19 +46,19 @@
     },
     {
       "field": "triage[].blocked_thens (work/triage.json)",
-      "producer": "the failure analyst (rule 2c of its role): one entry {then, blocking_check, detail} for each Then a red stops that cannot answer while another case's defect stands",
+      "producer": "the failure analyst (the 'One red, one triage' technique of its role): one entry {then, blocking_check, detail} for each Then a red stops that cannot answer while another case's defect stands",
       "readers": ["contract.triage_blocked_problems (the validator and the delivery check: the form, the Then of the case, not a red Then, a live blocker)", "contract.triage_blocked_rows -> contract.then_remainders (ledger, check_delivery.blocked_records: the 'Left with you' line)"],
       "why": "which Thens wait for another case's fix is the analyst's judgment about requirements and the defect, not a value code can compute; the optional key is absent in a triage that blocks nothing, and then nothing reads it"
     },
     {
       "field": "triage[].blocking_check (work/triage.json)",
-      "producer": "the failure analyst (rule 2c of its role): the case whose defect this row's own red is",
+      "producer": "the failure analyst (the 'One red, one triage' technique of its role): the case whose defect this row's own red is",
       "readers": ["contract.triage_blocked_problems (the form, and a blocker that is red in the current run)", "bug_records.pair_drafts (the row is covered by the blocker's draft when that draft lists the case in `cases`; handoff_check claim `no_bug_reaches_the_gate_without_a_draft_and_a_triage_row`)"],
       "why": "whose defect a red is, is the analyst's judgment; the key is optional and its absence leaves the row needing its own draft as before"
     },
     {
       "field": "triage[].reorder (work/triage.json)",
-      "producer": "the failure analyst (rule 2c of its role): `reorder: true` on the row of a red whose independent Thens stand behind it (with `blocked_thens`); absent for a row that asks for no reorder",
+      "producer": "the failure analyst (the 'One red, one triage' technique of its role): `reorder: true` on the row of a red whose independent Thens stand behind it (with `blocked_thens`); absent for a row that asks for no reorder",
       "readers": ["s7_reorder.wants_reorder / s7_reorder.row_problems (the driver's story_run.s7_repair_rows and the round's start/finish)", "handoff_check._null_outcome_view (a row that asks for a reorder is a repair: the empty `scope` is not accepted over it)"],
       "why": "whether the Thens after a red are independent of it is the analyst's judgment about the requirements, not a value code can compute; the optional key is absent in a triage that asks for no reorder, and then no round is run"
     },
@@ -70,7 +70,7 @@
     },
     {
       "field": "tests[].sensitivity_proof (automation-manifest.json)",
-      "producer": "probe_by_code.py (the check is live: one probe per new or changed test, per its code bytes); red_sandbox.py --probe (catches a broken product: on the critic's doubt, instead of probe_by_code for that instance); a probe of unchanged bytes is answered `already_probed`",
+      "producer": "probe_by_code.py (the check is live: one probe call per new or changed instance, every check of the test, per its code bytes); red_sandbox.py --probe (catches a broken product: on the critic's doubt; it proves the one check it names and the other checks stay owed, so the row takes its receipt only for a test whose checks the factory cannot list); a probe of unchanged bytes and the same entries is answered `already_probed`",
       "why": "THE instance of this rule, closed by the owner's decisions D-0010 and D-0012. `window_record.py` and the ledger demand a typed receipt with an immutable `receipt_ref` and a matching sha256 (contract.sensitivity_proof_receipt); until then only `red_sandbox.py --probe` emitted it while the code critic is permitted `probe_by_code.py`, which did not — nine instances stood `not_verified:missing_sensitivity_proof` on TP1-13797 and that alone held `delivery_ready: no` on a run where every case was green. Now `probe_by_code.py` writes the immutable live receipt for every new or changed test, and the product level is a rare exception on the critic's doubt (references/verification-levels.json is the vocabulary). The three checks that read it are `acceptance.validate_window`'s `sensitivity`, `semantic_sensitivity` and `probe_evidence`"
     },
     {

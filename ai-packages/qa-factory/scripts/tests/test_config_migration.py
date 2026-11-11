@@ -350,6 +350,23 @@ def k3_fixture() -> None:
               again["reordered"], again["changes"]), ([], [], ["/environment/access"], [], {}, [], []))
 
 
+def x9_retired_surprise_ignore() -> None:
+    """X9 (E2-1): a config that still carries the retired `manual_capture.surprise.ignore` loses it in the migration plan, with its old value
+    and a reason; the other `manual_capture` keys are untouched. Negative control: the table without that `removed` row keeps the key."""
+    old = fixture()
+    old["manual_capture"] = {"type_delay_ms": 50, "settle_ms": 300, "surprise": {"ignore": [{"kind": "status", "match": "*"}]}}
+    plan = plan_of(old, price_table_answer="builtin")
+    manual = plan["proposed_config"]["manual_capture"]
+    check_eq("X9: the retired `surprise` key is dropped from proposed_config, the two live keys stay", manual, {"type_delay_ms": 50, "settle_ms": 300})
+    row = {r["path"]: r for r in plan["removed"]}.get("/manual_capture/surprise", {})
+    check("X9: removed[] lists /manual_capture/surprise with its old value and a reason",
+          row.get("was") == {"ignore": [{"kind": "status", "match": "*"}]} and bool(row.get("reason")), str(row))
+    rows = {k: v for k, v in KEYS["removed"].items() if k != "manual_capture.surprise"}
+    kept = plan_of(old, price_table_answer="builtin", keys=table_with(removed=rows))
+    check("X9 negative control: without the `removed` row the key is kept (the check can fail)",
+          "surprise" in kept["proposed_config"]["manual_capture"], str(kept["proposed_config"]["manual_capture"]))
+
+
 def reinstall_equals_fresh() -> None:
     """Fresh = the template. An old config with keys missing, order reversed, older note texts and
     retired keys must end as the template, byte for byte."""
@@ -1622,13 +1639,127 @@ def install_command_key() -> None:
     check("K-4.2: the interview asks the topic that feeds it", "commands.install" in p2 and "environment to its lock" in p2)
 
 
+def parallel_windows_key() -> None:
+    """N-P1-3: dispatch.parallel_windows - template row, keys row, a reader with a default (AR-3)."""
+    check_eq("template carries dispatch.parallel_windows = 3", TEMPLATE["dispatch"].get("parallel_windows"), 3)
+    check_eq("the constant is 3", C.PARALLEL_WINDOWS_DEFAULT, 3)
+    check_in("config-keys.json has a row for it", "dispatch.parallel_windows", KEYS["keys"])
+    check_eq("the row says an absent key means the default",
+             KEYS["keys"]["dispatch.parallel_windows"].get("absent_means"), "default")
+    for label, cfg in (("no key", {"dispatch": {}}), ("no dispatch block", {}), ("config not an object", None),
+                       ("dispatch not an object", {"dispatch": 5})):
+        check_eq("missing key reads 3, no note: " + label, C.parallel_windows(cfg), (3, None))
+    check_eq("2 reads 2", C.parallel_windows({"dispatch": {"parallel_windows": 2}}), (2, None))
+    check_eq("1 reads 1 (a project may choose serial)", C.parallel_windows({"dispatch": {"parallel_windows": 1}}), (1, None))
+    for bad in (0, -1, "3", 1.5, True, None):
+        value, note = C.parallel_windows({"dispatch": {"parallel_windows": bad}})
+        check_eq(f"bad value {bad!r} reads the default", value, 3)
+        check(f"bad value {bad!r} gives exactly one note line",
+              isinstance(note, str) and note.startswith("note:") and "\n" not in note, note)
+
+
+def manual_walkers_key() -> None:
+    """t-2147 TR3-9d: manual.walkers - template row, keys rows, the interview line, and a config written before the block
+    migrates with no question (AR-3)."""
+    check_eq("template carries manual.walkers = 3", TEMPLATE["manual"].get("walkers"), 3)
+    check_eq("the constant is 3", C.MANUAL_WALKERS_DEFAULT, 3)
+    check_in("the template carries the note beside it", "manual_note", TEMPLATE)
+    check_in("config-keys.json has a row for the block", "manual", KEYS["keys"])
+    check_in("config-keys.json has a row for the key", "manual.walkers", KEYS["keys"])
+    check_eq("the row says an absent key means the default", KEYS["keys"]["manual.walkers"].get("absent_means"), "default")
+    check_eq("the note history ends with the template text", KEYS["notes"]["manual_note"]["note_history"][-1], TEMPLATE["manual_note"])
+    old = {k: v for k, v in TEMPLATE.items() if k not in ("manual", "manual_note")}
+    plan = C.migration_plan(old)
+    check_eq("a config with no `manual` block gets the template's block filled in (walkers 3 and, since TR3-10b, the two ways)",
+             (plan["proposed_config"] or {}).get("manual"), TEMPLATE["manual"])
+    check("...with no conflict and no re-asked question about it",
+          not any("manual" in json.dumps(row) for row in list(plan.get("conflicts") or []) + list(plan.get("reasked") or [])), plan)
+    p2 = (PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p2-interview.md").read_text(encoding="utf-8")
+    check_in("the interview names the key it writes", "`manual.walkers`", p2)
+    check_in("the interview says 1 is one at a time", "1 = one at a time", p2)
+
+
+def manual_supply_keys() -> None:
+    """t-2174 TR3-10b: manual.accounts_way / manual.data_way - template rows, keys rows, the note, and migration that fills the
+    defaults into a config written with only `walkers` and never overwrites a person's value (B.1)."""
+    block = TEMPLATE["manual"]
+    check_eq("template: accounts_way defaults", block.get("accounts_way"),
+             {"words": "not known", "self_sign_up": {}, "more_accounts": {}, "limit_by_role": {}})
+    check_eq("template: data_way defaults", block.get("data_way"), {"words": "not known", "pools": {}, "may": "not known"})
+    check_in("the template carries the supply note", "manual_supply_note", TEMPLATE)
+    for key in ("manual.accounts_way", "manual.data_way"):
+        check_in(f"config-keys.json has a row for {key}", key, KEYS["keys"])
+        check_eq(f"{key}: an absent key means the default", KEYS["keys"][key].get("absent_means"), "default")
+        check(f"{key}: a `since` per since_basis", bool(KEYS["keys"][key].get("since")))
+    check_eq("the supply note history ends with the template text", KEYS["notes"]["manual_supply_note"]["note_history"][-1],
+             TEMPLATE["manual_supply_note"])
+    old = copy.deepcopy(TEMPLATE)
+    old["manual"] = {"walkers": 2}
+    old.pop("manual_supply_note")
+    plan = C.migration_plan(old)
+    manual = (plan["proposed_config"] or {}).get("manual") or {}
+    check_eq("a config with only walkers keeps walkers 2 and gains both ways with defaults", manual,
+             {"walkers": 2, "accounts_way": block["accounts_way"], "data_way": block["data_way"]})
+    check("...with no conflict and no re-asked question about it",
+          not any("accounts_way" in json.dumps(r) or "data_way" in json.dumps(r)
+                  for r in list(plan.get("conflicts") or []) + list(plan.get("reasked") or [])), plan)
+    answered = copy.deepcopy(TEMPLATE)
+    answered["manual"] = {"walkers": 3, "accounts_way": {"words": "the app makes them", "self_sign_up": {"roles": ["default"]}},
+                          "data_way": {"may": "may create, never delete"}}
+    kept = ((C.migration_plan(answered)["proposed_config"] or {}).get("manual")) or {}
+    check_eq("a person's words are never overwritten by the default", kept["accounts_way"]["words"], "the app makes them")
+    check_eq("...nor a mapped sign-up role list", kept["accounts_way"]["self_sign_up"], {"roles": ["default"]})
+    check_eq("...nor the data-change answer", kept["data_way"]["may"], "may create, never delete")
+    check_eq("...and a missing sibling key of an answered block gets its default", kept["data_way"]["words"], "not known")
+
+
+def interview_asks_the_compile_question() -> None:
+    """TR3-12 F11: the interview asks once, in plain words, whether the build compiles the whole test folder."""
+    p2 = (PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p2-interview.md").read_text(encoding="utf-8")
+    check_in("the interview names the key it writes", "`dispatch.parallel_windows`", p2)
+    check_in("the note says windows run in parallel and serial on a yes", "windows run in parallel; serial if", p2)
+    check_in("the question is in plain words (P9), not a key name", "compiles every test file together", p2)
+    check_in("a person who does not answer stays at 3", "stays at 3", p2)
+
+
+def _seeded_dispatch(**kwargs):
+    import story_run_common as T
+    root, _task_root, _env = T.seed("TR312-1", **kwargs)
+    try:
+        return json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8")).get("dispatch")
+    finally:
+        cleanup(root)
+
+
+def seed_pins_one() -> None:
+    """TR3-12: `seed` pins `dispatch.parallel_windows` to 1; a caller's own dispatch block merges, its key wins."""
+    check_eq("seed pins one", (_seeded_dispatch() or {}).get("parallel_windows"), 1)
+    block = _seeded_dispatch(dispatch={"other_key": "kept"}) or {}
+    check_eq("a caller's other keys stay and the pin merges in", (block.get("other_key"), block.get("parallel_windows")), ("kept", 1))
+    check_eq("a caller that sets the key wins", (_seeded_dispatch(dispatch={"parallel_windows": 3}) or {}).get("parallel_windows"), 3)
+
+
+def seed_none_leaves_key_out() -> None:
+    """TR3-12: `parallel_windows=None` leaves the key out, so the reader's default (3) applies."""
+    block = _seeded_dispatch(parallel_windows=None) or {}
+    check("the key is absent", "parallel_windows" not in block, block)
+    check_eq("the reader then gives the default", C.parallel_windows({"dispatch": block}), (3, None))
+
+
 def main() -> None:
+    interview_asks_the_compile_question()
+    seed_pins_one()
+    seed_none_leaves_key_out()
     install_command_key()
     frontend_key_and_outcome()
     table_coverage()
+    parallel_windows_key()
+    manual_walkers_key()
+    manual_supply_keys()
     fixture_is_shape_only()
     value_migration_normaliser()
     k3_fixture()
+    x9_retired_surprise_ignore()
     reinstall_equals_fresh()
     notes()
     turns_note_history()

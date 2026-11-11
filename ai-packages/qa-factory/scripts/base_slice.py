@@ -150,11 +150,10 @@ def receipt_files(root: Path, iid) -> list:
 
 def _receipt_base(root: Path, entry, commit: str) -> str:
     """`diff_refs.base_sha` of the MR receipt of the manifest `entry`, when the receipt's `head_sha` is `commit`; else ''. Two receipts that
-    disagree give ''."""
+    disagree give ''. The receipt is looked up by the number `vcs_evidence.mr_iid` reads from the entry's `mr` (the one reader of that field)."""
     import vcs_evidence
-    try:
-        iid = vcs_evidence.parse_mr(entry.get("mr"))[2]
-    except (ValueError, TypeError, AttributeError):
+    iid = vcs_evidence.mr_iid(entry.get("mr") if isinstance(entry, dict) else None)
+    if not iid:
         return ""
     paths = receipt_files(root, iid)
     found = set()

@@ -26,17 +26,7 @@ import manual_evidence  # noqa: E402
 import onboard_apply as OA  # noqa: E402
 import project_gitignore as G  # noqa: E402
 
-PACKAGE = Path(__file__).resolve().parents[2]
 TASK = "qa-factory/artifacts/T-1"
-
-# E8: the literal keys of the texts, written BEFORE the first run (the doc-dispatch witness rule).
-TEXT_KEYS = (
-    ("skills/qa-onboarding/phases/p4-generate.md", "(the manual evidence stays on the tester's machine and never goes into a commit)"),
-    ("skills/qa-onboarding/phases/p4-generate.md", "`tracking.tracked_ignored`"),
-    ("skills/qa-story/phases/s8.md", "while excluding `evidence/`, `work/evidence/`, logs"),
-    ("skills/qa-story/phases/s9.md", "Evidence (raw runs and the exported copies under `evidence/`) remains excluded."),
-    ("references/manual-evidence.md", "The copies stay on this machine, never in a commit"),
-)
 
 IGNORED = ("evidence/runs/x/r.json", "evidence/abc123.png", "evidence/index.json", "evidence/runtime-provenance-1.json",
            "work/evidence/manual/TC-1/a1/x", "work/t-fragment-1.json", "work/impl-diff-1.txt")
@@ -421,16 +411,6 @@ def e7_tracking() -> None:
         cleanup(many)
 
 
-def e8_texts() -> None:
-    def has(text: str, key: str) -> bool:
-        return key in text
-    for rel, key in TEXT_KEYS:
-        check(f"E8: {rel} carries {key[:50]!r}", has((PACKAGE / rel).read_text(encoding="utf-8"), key))
-    check("E8 negative control: a text without a key fails it", not has("a text about something else", TEXT_KEYS[0][1]))
-    check("E8: the package stays English (FR-30): no Cyrillic in the files this node wrote",
-          not any(any(chr(0x400) <= ch <= chr(0x4FF) for ch in (PACKAGE / rel).read_text(encoding="utf-8")) for rel, _ in TEXT_KEYS))
-
-
 def main() -> None:
     e1_real_git()
     e2_manifest_lists_no_evidence()
@@ -439,7 +419,6 @@ def main() -> None:
     e4_git_add_by_manifest()
     e5_old_manifest_door()
     e7_tracking()
-    e8_texts()
     finish("test_evidence_not_delivered")
 
 

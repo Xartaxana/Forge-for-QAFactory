@@ -965,9 +965,54 @@ def ep1_41e_stands_words_and_doors() -> None:
         cleanup(root)
 
 
+def pc9b_a_reference_stand_is_not_asked() -> None:
+    """t-2181 PC-9b (AR-4, AR-11): a stand that runs the OLD version of a side of the story is never asked for its build identity - the
+    implicit stand pick skips it, the probe of a named reference stand compares nothing (`not_applicable`, `no_changed_file`) - while
+    the story's own stand is still asked, and a story with no reference reads exactly as before."""
+    import argparse
+    import runtime_probe as rp
+    from harness import use_project
+    root = temp_project("qa-pc9b-")
+    try:
+        use_project(root)
+        task = root / "qa-factory" / "artifacts" / "PC-1"
+        task.mkdir(parents=True)
+
+        def story(pipeline):
+            (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        cfg = {"environments": [{"name": "dev"}, {"name": "old"}], "profiles": []}
+        story({"ticket": "PC-1", "environment": "dev",
+               "sides": {"ui": {"reality": "real", "deliverable": True, "reference": "old", "source": "person"}}})
+        check_eq("the story's record names the reference stand and its side", SI.reference_stands(root, "PC-1"), {"old": "ui"})
+        check_eq("no story named: the registry alone, which holds no row here", SI.reference_stands(root, ""), {})
+        check("without the skip two stands cannot be told apart (the refusal as it was)", rp.pick_environment(cfg, "")[1] != "")
+        check_eq("the implicit pick skips the reference stand and returns the story's own", rp.pick_environment(cfg, "", "", {"old": "ui"}), ("dev", ""))
+        check_eq("a stand the caller NAMES is returned as named, reference or not", (rp.pick_environment(cfg, "old", "", {"old": "ui"}),
+                 rp.pick_environment(cfg, "dev", "", {"old": "ui"})), (("old", ""), ("dev", "")))
+
+        def ns(env):
+            return argparse.Namespace(environment=env, profile="api", container="", checkout="")
+        got = rp.reference_skip(ns("old"), task)
+        check("the probe of the reference stand compares nothing: not_applicable with the code every gate already passes",
+              got.get("result") == "not_applicable" and got.get("reason_code") == rp.NO_CHANGED_FILE and got.get("environment_id") == "old", str(got))
+        check_eq("the story's OWN stand is still asked (no skip record)", rp.reference_skip(ns("dev"), task), {})
+        check_eq("no stand named: nothing to skip", rp.reference_skip(ns(""), task), {})
+        story({"ticket": "PC-1", "environment": "old",
+               "sides": {"ui": {"reality": "real", "deliverable": True, "reference": "old", "source": "person"}}})
+        check_eq("a stand that is both the story's own and a reference is asked (the safe direction)", rp.reference_skip(ns("old"), task), {})
+        story({"ticket": "PC-1", "environment": "dev"})
+        check_eq("a story with no reference: nothing is skipped, the pick is as before",
+                 (rp.reference_skip(ns("old"), task), rp.pick_environment(cfg, "", "", SI.reference_stands(root, "PC-1"))[0]), ({}, ""))
+        (task / "pipeline.json").write_text("{not json", encoding="utf-8")
+        check_eq("an unreadable record reads no reference (ask more, never refuse on it)", SI.reference_stands(root, "PC-1"), {})
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
     if len(sys.argv) >= 4 and sys.argv[1] == "--worker":
         sys.exit(worker(sys.argv[2], sys.argv[3]))
+    pc9b_a_reference_stand_is_not_asked()
     fb8_confirm_content_records_kind()
     fb8_confirm_content_refusals()
     fb8_unconfirm_withdraws_content_word()

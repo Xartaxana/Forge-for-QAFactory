@@ -68,7 +68,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader; the controller below imports it anyway)
-from controller import MANUAL_WINDOW_CASES, manual_blocks, manual_done_cases  # noqa: E402  (t-329: the manual window size has ONE source, the controller's; FB-9: so do the split and the done set)
+from driver_chains import _CHAIN, ChainKind, DriverChains, ThreadSlot, once_on  # noqa: E402  (t-2147 A: the scheduler's own module; the names this file reads itself - a test reads the others from `driver_chains`)
+from controller import MANUAL_WINDOW_CASES, lane_keys, manual_blocks, manual_done_cases, walk_lanes  # noqa: E402  (t-329: the manual window size has ONE source, the controller's; FB-9: so do the split and the done set; t-1957 N5s: and the lanes)
 from role_cli import PERSON_MARKER, REPAIR_MARKER  # noqa: E402
 from question_register import EARLIER_ANSWER_MARK  # noqa: E402  (the join line of two answers at a gate has ONE text: the register reads it back, F-12)
 from source_inventory import normalize_url  # noqa: E402
@@ -291,6 +292,10 @@ OWN_TOKEN_RULE = ("A token from your own options is their choice: run that move 
 # every other word reaches the conductor, which offers the moves open at the gate. The conductor never records a gate decision
 # itself (I6): the driver records `approve` (cards applied first, FR-9), and `rework` goes through the controller with the words file.
 GATE_KINDS = ("gate_A", "gate_B")
+# TR3-10 D (t-2291, spec t-2174 item 13): the two situations that raise the `walk_account` question (the raise sites are another step's);
+# either is dropped from this one tuple, nowhere else. `no_pair`: a lane's role has no recorded login/password pair; `short_distinct`: the
+# cases need N distinct accounts of a role and fewer are recorded while the person said they will add accounts.
+WALK_ACCOUNT_TRIGGERS = ("no_pair", "short_distinct")
 GATE_FALLBACK = ("retry", "stop")        # the standing words that have an executor at a gate: `retry` shows the gate again
 # The floor at a gate (C2-7 §5.2): `approve` has an executor (`approve_by_option`) only when the original answer is on file, so the
 # floor is TWO texts and the one with `approve` is used only then; `rework` is not on the floor (the floor is where nothing is read)
@@ -367,6 +372,11 @@ def json_record(out: str) -> tuple:
     return doc, text[start + end:].strip()
 
 
+class WindowsUnreadable(ValueError):
+    """`Driver.s5_open_windows` could not read the windows, the dispatches or a scope (FR-59): the caller treats that as open, never as a
+    close. A ValueError for any reader that catches that; its own name so it is told from a programming error."""
+
+
 class Refusal(Exception):
     """A factory script said no. `text` is its message verbatim; `retry` re-runs the step.
 
@@ -382,6 +392,7 @@ class Refusal(Exception):
     # (`already completed`, `STORY BUDGET`, ...) cannot turn it into `continue` past an unwritten product. A class attribute, so a
     # refusal built before this field existed (or by any other raiser) reads True and keeps its move.
     known = True
+    chain = None            # TR3-17: a class default too, so a subclass that does not call `super().__init__` still reads None
 
     def __init__(self, text: str, retry=None, files=None, dispatch: str = "", findings=None, window_findings=None,
                  title: str = "", close=None):
@@ -403,6 +414,9 @@ class Refusal(Exception):
         # and they are never part of `text`.
         self.findings = [str(x) for x in (findings or [])]
         self.window_findings = [str(x) for x in (window_findings or [])]
+        # `chain` (TR3-17): the ChainRecord of the thread that raised this, None on the main thread and on the serial road. The seam's
+        # retry on the main thread adopts it (`Driver.adopt_chain`) so `boundary` and `last_dispatch` read the chain's, not main's.
+        self.chain = getattr(_CHAIN, "record", None)
 
 
 @dataclass(frozen=True)
@@ -479,6 +493,12 @@ class Person(Exception):
         # C1-7a (B-1): the ids of the owed rows a seam question is about, written into `asked` by `ask()`: the question's identity for
         # the pairing of the person's `go on` (`Driver.mark_rows_word`), never a clock.
         self.rows = ()
+        # B-16: the case keys of the S5 probe gap a seam question named (`window_record.probe_gap_cases`); written into `asked` by
+        # `ask()`; its `go on` records one `probe gap: <case key>` word for each (`seam_chosen`).
+        self.probe_gap_cases = ()
+        # t-1968 N5: the case keys of the S5 tests whose probe the code reviewer could not judge (`window_record.probe_judgment_cases`);
+        # written into `asked` by `ask()`; its `go on` records one `probe not proved: <case key>` word for each (`seam_chosen`).
+        self.probe_judgment_cases = ()
         # Set by `Driver.held_question` ALONE, and written into `asked` by `ask()`: the lead that helper put above the question's body,
         # so the next `held_question` takes exactly that off (the extent of a lead is kept, never read back by its words).
         self.held_lead = ""
@@ -549,14 +569,24 @@ def _read_json(path: Path, default=None):
 
 
 def _write_json(path: Path, data) -> None:
+    """The driver's JSON writer. Published by `event_store.atomic_json` (the package's one publisher: a unique temp name, and a replace
+    that rides out a reader holding the file on Windows), so a reader across processes (`dispatch_liveness`, `story_step`, ...) never
+    sees a torn file and never makes the write fail. A publisher that still fails is said in one note and the old in-place write
+    follows - the write that worked before; it is never raised from here for a reader's sake."""
+    import event_store
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        event_store.atomic_json(path, data)
+    except OSError as exc:
+        print(f"note: {path.name} could not be published atomically ({type(exc).__name__}); it is written in place", flush=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _append_jsonl(path: Path, record: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    """One row appended through the package's ONE appender (AR-15, axis 29): a torn tail gets its `\\n` first, the folder is made, an
+    `OSError` reaches the caller. `json.dumps` writes no raw line break, so `append_jsonl_line`'s `ValueError` cannot fire. TR4-11: the
+    line ends `\\n` on Windows too (the text-mode write ended `\\r\\n`); every reader splits on `\\n` or takes `\\r` as JSON whitespace."""
+    hooklib.append_jsonl_line(path, json.dumps(record, ensure_ascii=False))
 
 
 def _read_jsonl(path: Path) -> list:
@@ -576,6 +606,14 @@ def _read_jsonl(path: Path) -> list:
     except OSError:
         return []
     return rows
+
+
+def _read_answer(out: str):
+    """The ONE reader of a script's answer in `Driver.py` text (t-2020; AR-13, AR-18, AR-28): the LAST line of stdout+stderr that
+    parses as a JSON object. A warning a script prints to stderr before or after its answer (a path note, a deprecation) stays in
+    the text and does not hide the answer. No such line is `None` - the caller names what came back; it is never an empty answer.
+    The reader itself is `hooklib.read_answer`, shared with story_step.py."""
+    return hooklib.read_answer(out)
 
 
 # One source for the machine head above a question: `head_pattern` in references/human-text.json.
@@ -615,6 +653,7 @@ CODE_CLOSE_SITES = {
     "s6.reprobed": ("S6", "the tests ran on their current code, and the live checks of the tests that changed were proved again or left as they were"),
     "s6.manual_close": ("S6", "the checks done by hand are counted"),
     "s6.accepted": ("S6", "the failure analyst accepted the runner's handoff"),
+    "s7.accepted": ("S7", "the doc scribe accepted the failure analyst's triage"),
     "s7.no_failures": ("S7", "no test failed, so there is nothing to sort"),
     "s7.pretriaged": ("S7", "every failure already has a state the run recorded"),
     "s7.after_repairs": ("S7", "the repairs of the failed tests ended"),
@@ -622,8 +661,10 @@ CODE_CLOSE_SITES = {
     "s9.skip": ("S9", "the retro is skipped, as you asked"),
     "s9.numbers": ("S9", "the retro is the numbers only, as you asked"),
 }
+STUCK_REPEATS = 4        # the same `where` answer this many times in a row: the stuck seam (B-20 N5); the lead text names the number
 # The deferred record of a stage the code closed (`code_close_step`): at most this many idle turns before the person is asked.
 CODE_CLOSE_IDLE_CAP = 2
+BY_PERSON = "by: person"     # the quote prefix of a driver accept that a person's word made (`person_pass` writes it, `consumer_close_words` reads it)
 
 
 def question_body_sha(text: str) -> str:
@@ -1029,7 +1070,22 @@ def _token_count(value):
     return value if isinstance(value, int) and value >= 0 else None
 
 
-class Driver:
+def seam_rank(exc) -> int:
+    """The rank of a failed chain's exception at the seam (t-2147 A; was the closure of `s5_seam`): an `InfraStop` first, then a `Stop`,
+    then a `Refusal`, then a `Person`. F3: an exception that is none of the domain's (a TypeError, an OSError) is a crash, not a state
+    that re-arises from a saved result: it is ranked with `Stop`, ahead of a question."""
+    return 0 if isinstance(exc, InfraStop) else 1 if isinstance(exc, Stop) or not isinstance(exc, (Refusal, Person)) \
+        else 2 if isinstance(exc, Refusal) else 3
+
+
+class Driver(DriverChains):
+    # TR3-17 (B4 parts 1-2): `boundary` and `last_dispatch` were single slots; they are now per thread AND per driver, under the same
+    # names, so the 26 + 57 sites read and write them unchanged. The main thread's value is the one `__init__` and the serial road set.
+    # A thread that never set one: `boundary` raises AttributeError (a bug to show, no default); `last_dispatch` reads "" (its only
+    # silent default - and `getattr(self, "last_dispatch", "")` keeps answering "").
+    boundary = ThreadSlot("boundary", hint="boundary was read on a thread that never set it (a chain starts with `as_chain`)")
+    last_dispatch = ThreadSlot("last_dispatch", default="")
+
     def __init__(self, ns):
         self.task = ns.task
         self.dry = bool(ns.dry_run)
@@ -1199,6 +1255,9 @@ class Driver:
     # --- plumbing --------------------------------------------------------------------------
     def save_state(self) -> None:
         if not self.dry:
+            # TR3-6: published through `_write_json` (`event_store.atomic_json`), so a reader (`story_step`, the dashboard, the watchdog's
+            # `dispatch_liveness`) during a released `start` never sees a torn file and never makes the write fail; the caller holds
+            # `_book` on the parallel road (one writer at a time)
             _write_json(self.state_dir / "driver-state.json", self.state)
 
     def waiver_road(self, classed: bool = True) -> tuple:
@@ -1440,16 +1499,7 @@ class Driver:
         item of an earlier refusal is dropped, and the controller's sentence (the door of a later rework) is printed; the rework runs only
         by the person's word. The answer is the last line that is a JSON object; one that is none is printed (200 characters) and the
         decision stands (P1)."""
-        answer = {}
-        for text in reversed((out or "").splitlines()):
-            if text.strip().startswith("{"):
-                try:
-                    found = json.loads(text)
-                except ValueError:
-                    continue
-                if isinstance(found, dict):
-                    answer = found
-                    break
+        answer = _read_answer(out) or {}
         if not answer:
             if str(out or "").strip():
                 print(f"gate {gate}: the controller's answer could not be read as JSON: {str(out).strip()[:200]}")
@@ -1498,10 +1548,12 @@ class Driver:
         code, out = self.py("controller.py", *argv)
         if code:
             raise Refusal(f"controller {operation} (exit {code}):\n{out}")
-        try:
-            return json.loads(out.splitlines()[-1])
-        except (ValueError, IndexError):
-            return {"raw": out}
+        answer = _read_answer(out)
+        if answer is None:
+            # t-2020 (AR-28, FR-41): an answer nobody could read is an unknown, never an empty answer a caller would take for "nothing".
+            raise Refusal(f"controller {operation}: no line of its output is a JSON object (expected the controller's one-line answer; "
+                          f"the text that came back, first 300 characters): {' '.join(str(out).split())[:300] or 'nothing'}")
+        return answer
 
     def where(self) -> dict:
         out = self.step("where", "--task", self.task)
@@ -1519,7 +1571,18 @@ class Driver:
         return {s["id"]: s for s in hooklib.load_ref_json("stages.json")["stages"]}
 
     def journal_run(self, record: dict) -> None:
-        _append_jsonl(self.state_dir / "driver-runs.jsonl", dict(ts=_now(), **record))
+        row = dict(ts=_now(), **record)
+        _append_jsonl(self.state_dir / "driver-runs.jsonl", row)
+        # TR4-11: the calls THIS process launched and has seen no end row for - `person_stop_record` names them (`cut`). The ends are
+        # matched the way `collect_stall._k3_k4` matches them (an outcome row of the same key); a row that was not written is not kept.
+        open_calls = once_on(self, "_open_calls", set)
+        if row.get("kind") == "launched":
+            started = row.get("started_at") if row.get("started_at") is not None else row["ts"]
+            open_calls.add((str(row.get("dispatch_id") or row.get("call") or ""), str(started)))
+        elif any(k in row for k in ("is_error", "exit_code", "infra")):
+            ended = str(row.get("dispatch") or row.get("kind") or "")
+            for entry in [e for e in list(open_calls) if e[0] == ended]:
+                open_calls.discard(entry)
 
     def journal_conductor(self, **record) -> None:
         _append_jsonl(self.state_dir / "conductor.jsonl", dict(ts=_now(), boundary=self.boundary, **record))
@@ -1535,6 +1598,11 @@ class Driver:
             line = story_progress.progress(self.task_root, fresh_ok=True)["line"]
         except Exception as exc:
             line = f"not available ({type(exc).__name__}: {' '.join(str(exc).split())[:120]})"
+        view = getattr(self, "_s5_view", None)
+        if view is not None:      # TR3-6: only while the scheduler runs; no key in the state, nothing on the serial road
+            running = sorted(r.n for r in self._chains.values() if not r.done)
+            line += (f" · windows running: {','.join(str(n) for n in running) or 'none'} of {view['total']}"
+                     + (f" · closed {','.join(str(n) for n in sorted(view['closed']))}" if view["closed"] else ""))
         print(f"[progress] {line}", flush=True)
 
     def stand_remedy(self) -> str:
@@ -1838,7 +1906,20 @@ class Driver:
         if self.host != "claude" or "host" in self.state:
             self.state["host"] = self.host
 
+    def host_window_reason(self) -> str:
+        """The one reader of the host for the S5 scheduler: "" on Claude, else why S5 windows do not run side by side on this host
+        (the hook environment and the receipts of a window are measured on Claude only)."""
+        if self.host != "claude":
+            return "the host is not Claude, and the hook environment and the receipts of a window are not measured there"
+        return ""
+
     def launch(self, cmd: list, prompt: str, *, dispatch: str = "", resume: str = ""):
+        """`_launch` inside the scheduler's launch gate (TR3-6): on a chain thread the session waits for a running session of another
+        window that holds a file of its window; off a chain, or with no dispatch (the conductor, the delivery call), nothing changes."""
+        with self.session_running(dispatch):
+            return self._launch(cmd, prompt, dispatch=dispatch, resume=resume)
+
+    def _launch(self, cmd: list, prompt: str, *, dispatch: str = "", resume: str = ""):
         """Start one `claude -p` process and wait for it: `subprocess.run`'s own steps, taken apart so the process
         id can be written while it runs (B-268: a person, and `dispatch_liveness`, can tell a role at work from a
         record nobody closed). `dispatch` is a ROLE's dispatch id ('' for the conductor and the delivery call:
@@ -1848,20 +1929,69 @@ class Driver:
         a hard kill is exactly what reads as "the process is gone". The child also gets
         QA_FACTORY_DRIVER_RUN=<dispatch id> in its environment (B-250: the child's own tools can tell they run
         under the driver). A failed state write never stops the run (P1: code informs)."""
-        env = dict(self.claude_env, QA_FACTORY_DRIVER_RUN=dispatch) if dispatch else self.claude_env
+        import dispatch_identity
+        env = dict(self.claude_env, **{dispatch_identity.DRIVER_RUN_ENV: dispatch}) if dispatch else self.claude_env
+        import threading
+        import driver_timing
+        stop, watcher = threading.Event(), None
+        chain = getattr(_CHAIN, "record", None)
+        self.stop_if_interrupted()      # B1: the person stopped the run - no new process, whichever road asked (fresh attempt, resume, conductor)
         with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                               encoding="utf-8", errors="replace", cwd=str(self.project), env=env) as proc:
             try:
                 # inside the try (t-335 A-n6): a marking that raised outside it left the child waiting for a prompt
                 # nobody sends, and `with` then waited for the child forever
                 self.mark_in_flight(dispatch, proc.pid, resume)
-                out, err = proc.communicate(input=prompt)
+                if chain is not None:
+                    chain.proc = proc      # the interrupt kills it: a chain thread's own `proc.kill()` would never run on Ctrl-C
+                # R1: write first, read second (main: flag, then proc; here: proc, then flag) - one of the two sees the other, so a Ctrl-C that
+                # landed during Popen / mark_in_flight never leaves a child nobody kills (the `except` below kills it)
+                self.stop_if_interrupted()
+                if dispatch:
+                    # t-1937 P2-4 (F8 (a)): a silent wait is visible - ONE thread asks the transcript's silence every POLL_S and tells
+                    # it once per episode. INVARIANT: it only tells; nothing here kills or signals the process (a role that is
+                    # working is never stopped by the driver), and the thread ends with this call (`stop` is set in the `finally`).
+                    watcher = threading.Thread(target=driver_timing.watch, args=(self.project, dispatch, stop), daemon=True)
+                    watcher.start()
+                # TR3-6 (M1): `_book` is given up ONLY while the role's process works; the lock is back (exactly once, even on an exception)
+                # before `clear_in_flight` below, which runs under it
+                with self.unbooked(dispatch):
+                    out, err = proc.communicate(input=prompt)
+                # B1: a session the interrupt killed returns here as a plain result; it is never classified, booked or retried.
+                # What it leaves is the serial road's own record of a Ctrl-C: a `launched` row with no end row.
+                self.stop_if_interrupted()
             except BaseException:
                 proc.kill()
                 raise
             finally:
+                stop.set()
+                if watcher is not None:
+                    watcher.join(timeout=5)
                 self.clear_in_flight(dispatch)
+                if chain is not None:
+                    chain.proc = None
         return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+
+    def timed(self, step: str, dispatch: str = "", stage: str = ""):
+        """`with self.timed("bind", dispatch, stage):` - one line in `state/driver-timings.jsonl` when the block ends by any road (t-1937
+        P2-1). `time.monotonic` for the seconds, `_now()` for the ts; a block that raises still writes its line, with `error: <type>`; the
+        exception passes through. The returned object's `.dispatch` may be set inside the block."""
+        import driver_timing
+        return driver_timing.Timer(self.timing_write, step, dispatch, stage)
+
+    def timing_write(self, step: str, seconds: float, *, dispatch: str = "", stage: str = "", error: str = "") -> None:
+        """The ONE writer of `state/driver-timings.jsonl`: one line, one append (`hooklib.append_jsonl_line`, an O_APPEND write under a
+        lock - no read-modify-write, so chains writing at once do not lose a line). The console says `note: <step> took N s` only over 20 s,
+        flushed (FR-43). A line that cannot be written is said in one note and never stops the run (P1)."""
+        import driver_timing
+        try:
+            stage = stage or str(self.boundary or "").split(":")[0]
+            line = driver_timing.row(_now(), stage, dispatch, step, seconds, error)
+            hooklib.append_jsonl_line(self.state_dir / driver_timing.CARRIER, json.dumps(line, ensure_ascii=False))
+        except Exception as exc:  # noqa: BLE001
+            driver_timing.console(f"note: the timing of {step} could not be written ({type(exc).__name__})")
+        if seconds > driver_timing.NOTE_OVER_S:
+            driver_timing.console(f"note: {step} took {seconds:.0f} s")      # the original stdout: a redirect_stdout window loses nothing
 
     def mark_in_flight(self, dispatch: str, pid: int, resume: str = "") -> None:
         if not dispatch:
@@ -1939,6 +2069,7 @@ class Driver:
         base_resume, base_prompt, base_driver_resumed, base_why = attempt_resume, attempt_prompt, driver_resumed, why
         retries_used, fresh_after_loss = 0, False
         while True:
+            self.stop_if_interrupted()      # B1: before the `launched` row and the process, on every attempt of the loop
             cmd = self.claude_cmd(attempt_prompt, agent=role, resume=attempt_resume, tools=tools,
                                   system_file=system_file, max_turns=max_turns, plugin_agent=plugin_agent)
             if attempt_resume and kind == "role" and dispatch:
@@ -1968,6 +2099,8 @@ class Driver:
                                "with the tools the Codex host gives it", dispatch=dispatch)
             sent = self.host_prompt(attempt_prompt, agent=role, resume=attempt_resume, system_file=system_file)
             done = self.launch(cmd, sent, dispatch=dispatch if kind == "role" else "", resume=attempt_resume)
+            self.stop_if_interrupted()      # B1: a call the interrupt cut off is not parsed, journalled or stored
+            wall_ms = int((time.time() - started) * 1000)      # t-1937 P2-4: the driver's own clock, next to the CLI's `duration_ms`
             raw = (done.stdout or "").strip()
             if codex:
                 data = parse_codex_jsonl(raw, resume=attempt_resume)
@@ -2014,7 +2147,7 @@ class Driver:
             infra = infra_failure.classify(result, self.infra_rules, self.host)
             self.journal_run({"kind": kind, "role": role, "dispatch": dispatch, "stage": stage,
                               "session_id": result["session_id"], "num_turns": result["num_turns"],
-                              "total_cost_usd": result["total_cost_usd"], "duration_ms": result["duration_ms"],
+                              "total_cost_usd": result["total_cost_usd"], "duration_ms": result["duration_ms"], "wall_ms": wall_ms,
                               "resumed": bool(attempt_resume), "exit_code": done.returncode,
                               "is_error": result["is_error"], "model": self.model,
                               "subtype": result["subtype"], "infra": infra["kind"] if infra else None,
@@ -2022,6 +2155,10 @@ class Driver:
                               **({"host": self.host, "usage": result["usage"], "cost_basis": cost_basis,
                                   "call_cost_usd": call_cost} if codex else {}),
                               **({"resume_reason": why} if attempt_resume else {})})
+            import driver_timing
+            wall_said = driver_timing.wall_note(dispatch or kind, wall_ms, result["duration_ms"])
+            if wall_said:
+                driver_timing.console(wall_said)   # t-1937 P2-4: one line per call whose own count trails the wall clock by > 120 s
             # B-014, right after the journal line and before anything else sees the result. A call the
             # service cut off (`infra` set, classified or not) is not a session whose answer anyone
             # accepts: it is judged by the paths that already handle it, and a session that never got
@@ -2045,7 +2182,8 @@ class Driver:
                     delay = decision.get("delay_seconds", 0)
                     print(f"note: the model service answered with a broken response; the same call is tried "
                           f"again in {delay} seconds (retry {retries_used + 1} of 2)", flush=True)
-                    self.sleep(delay)
+                    with self.unbooked(dispatch):       # TR3-6: a backoff is waiting, not bookkeeping: the other chains go on meanwhile
+                        self.sleep(delay)
                     retries_used += 1
                     if worked and result["session_id"]:
                         attempt_resume, driver_resumed = result["session_id"], True
@@ -2198,12 +2336,14 @@ class Driver:
             text += "\n\nYour final message is the handoff form only:\n" + HANDOFF_FORM
         return text
 
-    def continue_command(self) -> str:
+    def continue_command(self, drop_absent=()) -> str:
         """The command that goes on after a stop: the story, the project and every flag this run was
         started with that differs from its default - a rerun with fewer flags is a different run
         (S0 reads `--mr` and the rest; `--until` would run past the gate). `--answer <file>` only while
         the question it answers is still open: an answer already taken is refused as "no question is
-        open" when it is offered again."""
+        open" when it is offered again. `drop_absent` (t-2181 PC-7 F7): the sides a story WAITS for - their `--side <s>=absent` pair is
+        left out, so the packet's restart line (`... --branch <the branch with the code>`) never says a side is absent and real in one
+        command; every other pair is repeated as before."""
         ns = self.flags
 
         def q(value) -> str:
@@ -2226,6 +2366,11 @@ class Driver:
                            ("ticket_file", "--ticket-file"), ("env", "--env"), ("branch_suffix", "--branch-suffix")):
             if getattr(ns, attr, None):
                 parts += [flag, q(getattr(ns, attr))]
+        for attr, flag in (("side", "--side"), ("reference", "--reference")):      # t-2181 PC-7: pairs, repeated, as the launch gave them
+            for name, word in getattr(ns, attr, None) or ():
+                if attr == "side" and word == "absent" and name in drop_absent:
+                    continue
+                parts += [flag, q(f"{name}={word}")]
         if getattr(ns, "ungrounded", False):
             parts.append("--ungrounded")
         if getattr(ns, "no_trace", False):
@@ -2344,7 +2489,7 @@ class Driver:
         return path
 
     # --- the handoff, checked the way the exit gate checks it ------------------------------
-    def exit_errors(self, role: str, digest: str) -> list:
+    def exit_errors(self, role: str, digest: str, dispatch: str | None = None) -> list:
         """The exit gate's blocking records for the role's handoff. A check that could NOT run (an `unreadable` record, or
         the gate itself raising) is not the role's work: it used to be a line in the list the role was resumed over, a paid
         resume over the factory's own defect (D14, RH1-5). Now it is ONE `Refusal` (title `gate_unreadable`, `known` False,
@@ -2356,7 +2501,11 @@ class Driver:
         crash = ""
         try:
             import exit_gate
-            blocking, _passed = exit_gate.all_errors(role, self.task, digest)
+            # the dispatch being gated is named to the gate (TR3-13): with two windows running the count cannot say which one it is.
+            # It is the PARAMETER (`handoff` has the id), never `last_dispatch` (another window's, or none, on a saved or resumed
+            # result). The hold wraps `all_errors` ONLY: it is a process global and `handoff` goes on to `run_claude` (t-2087 F1).
+            with exit_gate.holding_dispatch(dispatch):
+                blocking, _passed = exit_gate.all_errors(role, self.task, digest)
             blocking = list(blocking)
         except Exception as exc:
             blocking, crash = [], f"the exit gate could not run: {type(exc).__name__}: {exc}"
@@ -2398,11 +2547,10 @@ class Driver:
             return None, []
         code, out = self.py("handoff_check.py", "--file", str(form), "--task", self.task,
                             "--task-root", str(self.task_root), "--fix", *(["--shorten"] if shorten else []), "--json")
-        try:
-            report = json.loads(out)
-        except ValueError:
-            return None, ([] if code == 0 else [f"handover form: {(out or '').splitlines()[-1][:200]}"])
-        report = report if isinstance(report, dict) else {}
+        report = hooklib.read_document(out)  # t-2020: `handoff_check --json` prints a PRETTY object (indent=1): the document reader; a stderr warning does not hide it
+        if report is None:
+            # an answer nobody could read is an unknown, never a pass of the form gate (AR-28, FR-59), exit 0 or not
+            return None, [f"handover form: handoff_check gave no readable answer (exit {code}): {((out or '').splitlines() or ['no output'])[-1][:200]}"]
         required = bool((self.config.get("handoffs") or {}).get("required", True))
         if report.get("untouched") and not required:
             return report, []
@@ -2423,7 +2571,7 @@ class Driver:
         with the cut form's words: the exit side must be EMPTY, or the cut leaves the role woken over words code shortened
         (t-919 F-2, edge 6). The guard on the CHECK's side is in `handoff_check.shorten`: it cuts only when every problem of the
         form is a length problem. A failure of either only means "not cut" - today's road, the role."""
-        exit_side = self.exit_errors(role, digest)
+        exit_side = self.exit_errors(role, digest, dispatch)
         if any(not (assembly_follows and FINAL_MESSAGE_FORM_RE.search(e)) for e in exit_side):
             return 0
         cut = (self.form_report(dispatch, shorten=True)[0] or {}).get("shortened") or []
@@ -2475,21 +2623,21 @@ class Driver:
                           dispatch=dispatch)
         self.revoke_passes_of_dead()    # t-781 m4: before `exit_errors` reads the waiver rows - a dead dispatch's pass is not this one's
         digest = self.digest_of(result["result"])
-        errors = self.exit_errors(role, digest) + self.form_errors(dispatch)
+        errors = self.exit_errors(role, digest, dispatch) + self.form_errors(dispatch)
         # N10 (C2-9): a gap by default whose carrier is a collector receipt is collected again at every scout handover, with
         # or without errors - after the person restores a VPN the merge request simply arrives (FR-57: the door of a default).
         if role == "qa-scout" and (errors or self._defaulted_vcs()) and self.close_vcs_gaps(errors):
             # What code can collect, code collects, and it happens before any branch below decides
             # to ask a person or to resume the role: the material the ladder reaches is simply
             # there on the next read of the gate.
-            errors = self.exit_errors(role, digest) + self.form_errors(dispatch)
+            errors = self.exit_errors(role, digest, dispatch) + self.form_errors(dispatch)
         self.s1_person(role, errors, digest, stage, dispatch)
         # C2-4 (K9): a field over its limit is cut by code, not by a paid session (`shorten_form`). POSITION INVARIANT: AFTER the
         # S1 branches (a person's stop never waits for a cut, I5) and BEFORE the assembly and the resume below - a resume for a
         # count is the cost this removes; the cut happens only when length is the form's sole problem, so a set that also holds
         # judgement still wakes the role once, who can say it shorter itself.
         if errors and self.shorten_form(role, dispatch, digest):
-            errors = self.exit_errors(role, digest) + self.form_errors(dispatch)
+            errors = self.exit_errors(role, digest, dispatch) + self.form_errors(dispatch)
         # t-217 / F-cmp2-23 (FR-42, FR-48): the role is resumed ONCE per finding set on one dispatch+session, across
         # entries and relaunches. The saved result is handed to `handoff` again on every entry (`wait_existing_job`),
         # and every entry used to resume the role again over the same findings (eight resumes in cmp2, 04:27-04:34,
@@ -2508,7 +2656,7 @@ class Driver:
         if errors and all(FINAL_MESSAGE_FORM_RE.search(e) for e in errors):
             assembled, not_assembled = self.assemble_digest(role, stage, dispatch, result)
             if assembled:
-                left = self.exit_errors(role, assembled) + self.form_errors(dispatch)
+                left = self.exit_errors(role, assembled, dispatch) + self.form_errors(dispatch)
                 if not left:
                     self.keep_assembled_result(dispatch, result, assembled)
                     print(f"handoff: {dispatch}: the role's final message is not the handoff form; the form is "
@@ -2609,11 +2757,11 @@ class Driver:
             if again["result"].strip():
                 digest = self.digest_of(again["result"])
                 self.keep_resumed_result(dispatch, again, result)
-            errors = self.exit_errors(role, digest) + self.form_errors(dispatch)
+            errors = self.exit_errors(role, digest, dispatch) + self.form_errors(dispatch)
             # C2-4 (K9), POSITION INVARIANT: between the first resume's recompute and the third resume's condition - the third
             # resume is never spent on a length (a count code makes), and a set the cut empties returns the digest below.
             if errors and self.shorten_form(role, dispatch, digest, assembly_follows=False):
-                errors = self.exit_errors(role, digest) + self.form_errors(dispatch)
+                errors = self.exit_errors(role, digest, dispatch) + self.form_errors(dispatch)
             if errors and all(_mechanical(e) for e in errors):
                 # A second and last resume, and this one SHOWS the line instead of describing it.
                 # TP1-13797, 26.09: after one resume the critic still had two reasons of 81 and
@@ -2637,7 +2785,7 @@ class Driver:
                 if third["result"].strip():
                     digest = self.digest_of(third["result"])
                     self.keep_resumed_result(dispatch, third, again if again["result"].strip() else result)
-                errors = self.exit_errors(role, digest) + self.form_errors(dispatch)
+                errors = self.exit_errors(role, digest, dispatch) + self.form_errors(dispatch)
         # t-809 F-2: the S1 person branches are evaluated AGAIN on the set the resume left (POSITION INVARIANT: after the
         # resume's recompute, BEFORE the `Refusal` - a scout's source gap or review that survives it is the person's, so a mixed
         # set keeps `s1_gap` / `s1_review`; an empty set raises nothing and returns the digest)
@@ -2696,8 +2844,8 @@ class Driver:
         reported = ("What it reported:\n" + "\n".join(lines) if lines else
                     "It gave no reason in its report; its own words are in the file named below.")
         if stage == "S1" and self.s1_has_no_diff():
-            # F7: the scout's manifest says no change was found (`implementation.source: none`). Its three answers all go to the
-            # scout as words (the halt road, kind `halt`); the question is phases/s1.md's, priced. Like every halt kind it keeps
+            # F7: the scout's manifest says no change was found (`implementation.source: none`). Its answers all go to the
+            # scout as words (the halt road, kind `halt`; `not built yet` first records the side, see below); the question is phases/s1.md's, priced. Like every halt kind it keeps
             # what the role reported (FR-8/FR-35: the rows are the role's own verdict, the manifest only picks the question) and
             # says `again` when the role stopped a second time.
             return self.closed_question(
@@ -2709,9 +2857,10 @@ class Driver:
                  {"answer": "lives", "says": "name where it already lives: the stand and the repository in which the change is in "
                                               "place; the tests are grounded on the current code, not on a change",
                   "slots": {"role": f"the {words}", "what": "the stand and the repository"}},
-                 {"answer": "ungrounded", "says": "go on with the requirements only; tests for behaviour that is not implemented "
-                                                   "are written expected-red, and each one carries a \"not met\" bug at gate B",
-                  "slots": {"role": f"the {words}"}},
+                 {"answer": "ungrounded", "says": self.UNGROUNDED_SAYS, "slots": {"role": f"the {words}"}},
+                 # the twin of `s0.no_change` (AR-19): the same answer, the same words (one constant). Its executor is `take_answer`'s
+                 # `s1.no_diff` branch (`_answer_s1_not_built`, PC-7 B3): it records `pipeline.sides.product` absent and deliverable.
+                 {"answer": "not built yet", "says": self.NOT_BUILT_YET_SAYS, "slots": {"role": f"the {words}"}},
                  stop])
         held, block = self.halt_questions(stage, words)
         asked = self.closed_question(
@@ -2756,16 +2905,73 @@ class Driver:
         except Exception:
             return False
 
-    def stuck_text(self, stage: str, *, waits_on_person: bool = False) -> str:
-        """The driver asked `where` four times and got the same answer: it stops instead of
-        asking a fifth. The answer itself (a JSON line) goes to the details file."""
+    @staticmethod
+    def stuck_facts(controller_state, pipeline, stage: str, *, place=None, ids: bool = True) -> list:
+        """B-20 (t-1988 N5, AR-22/AR-17): what CODE can read about the stages before `stage` that are not completed - one line per stage:
+        its status, what the acceptance of its consumer says (awaited for a dispatch, or standing for it) and the controller's `reason`.
+        Pure data, no judgment (AR-29): the lines are facts for the conductor, not a verdict on why the step comes back. An unreadable
+        controller state or pipeline gives `[]` (FR-41: an unknown is not reported as a fact), and so does a story with no earlier stage open.
+        `ids=True` (default): the factory's own lines, dispatch ids and the raw `reason` included (the conductor's text and the details file).
+        `ids=False`: the PERSON's lines (F3, FR-6): the stage named by `place(stage)` (default `stage Sn`) and the role in plain words, no
+        dispatch id and no raw reason."""
+        import acceptance
+        if (not isinstance(controller_state, dict) or not isinstance(controller_state.get("stages"), dict)
+                or not isinstance(pipeline, dict) or not pipeline or not re.fullmatch(r"S\d+", stage or "")):
+            return []
+        lines = []
+        for number in range(int(stage[1:])):
+            name = f"S{number}"
+            entry = controller_state["stages"].get(name)
+            status = entry.get("status") if isinstance(entry, dict) else None
+            if not isinstance(status, str) or status in ("completed", "skipped"):
+                continue        # a stage whose row cannot be read is not reported as a fact
+            parts = [f"{name} {status}" if ids else f"{place(name) if place else f'stage {name}'} is {status}"]
+            consumer = acceptance.consumer_of(name)
+            if consumer:
+                who = consumer.removeprefix("qa-").replace("-", " ")
+                awaited = acceptance.awaits_acceptance(controller_state, name, pipeline)
+                author = acceptance.stage_author_dispatch(controller_state, acceptance.stage_def_of(name))
+                role = ((controller_state.get("dispatches") or {}).get(author) or {}).get("role") if author else None
+                work = f"the work of the {Driver.role_words(role)}" if role and not ids else "its author's work"
+                if awaited:
+                    parts.append(f"acceptance by the {who} is awaited for {awaited}; no accept record stands for it" if ids
+                                 else f"the {who} has not accepted {work} yet")
+                elif author and acceptance.accepted_for(pipeline, name, author):
+                    parts.append(f"acceptance by the {who} stands for {author}" if ids else f"the {who} accepted {work}")
+                else:
+                    parts.append(f"no accept record stands for the {who}'s acceptance" + (f" of {author}" if author else "") if ids
+                                 else f"no acceptance by the {who} is recorded")
+            if ids and isinstance(entry.get("reason"), str) and entry["reason"].strip():
+                parts.append(f"reason: {entry['reason'].strip()[:300]}")
+            lines.append("; ".join(parts))
+        return lines
+
+    def stuck_facts_for(self, stage: str) -> tuple:
+        """`(person lines, factory lines)` of `stuck_facts` for the live story: the first for the text a person reads, the second for the
+        conductor's text and the details file. A state that cannot be read gives `([], [])` (facts are an aid, not a gate)."""
+        try:
+            state, pipeline = self.controller_state(), self.pipeline()
+            return (self.stuck_facts(state, pipeline, stage, place=self.stage_place, ids=False),
+                    self.stuck_facts(state, pipeline, stage))
+        except Exception:  # noqa: BLE001
+            return [], []
+
+    def stuck_text(self, stage: str, *, waits_on_person: bool = False, facts=(), answered=None) -> str:
+        """The driver asked `where` four times (`STUCK_REPEATS`) and got the same answer: it stops instead of
+        asking a fifth. The answer itself (a JSON line) goes to the details file. `facts`: the lines of `stuck_facts`, put under the lead
+        instead of "I cannot tell from here" (none: today's lead). `answered`: the record `{answer, at}` of the person's earlier answer to
+        this very step (`state["stuck_asked"]`): said as new text, never the same question again (FR-7)."""
         at = f"at {self.stage_place(stage)}" if stage else "on this story"
         holding = ("I cannot tell from here what is holding it. The step's own answer is in the file named below, if you want it.")
+        if facts:
+            holding = "What the factory can read about the earlier stages:\n" + "\n".join(f"- {line}" for line in facts)
         if waits_on_person:      # t-698 sec. 21 (ii): S7 waits on the person's recorded `open_work`; the caller (the loop) reads it
             holding = ("What holds it: you decided to keep this stage open for more work, so the factory asks you before it closes it; "
                        "it does not close it over your word.")
-        return (f"The driver stopped {at}: the same step came back four times in a row with nothing "
-                "changing in between, so I stopped instead of repeating it.\n\n" + holding)
+        again = (f"You answered {answered['answer']} at {answered['at']}; the same step still comes back, so asking the same question again "
+                 "would not move it.\n\n" if isinstance(answered, dict) and answered.get("answer") else "")
+        return (f"The driver stopped {at}: the same step came back {({4: 'four'}).get(STUCK_REPEATS, STUCK_REPEATS)} times in a row with nothing "
+                "changing in between, so I stopped instead of repeating it.\n\n" + again + holding)
 
     def refused_text(self, stage: str) -> str:
         """Six refusals in a row at one boundary. Each refusal is written for the role or the
@@ -2774,21 +2980,27 @@ class Driver:
         # C2-7 §5.5: the story's own words for what is missing. The `cap` is raised at ANY boundary (a gate, a waiting job, a closed story
         # after the retro), so with no stage the lead says nothing about a stage (FR-41): only that the reasons are the factory's own.
         missing = f"{self.stage_place(stage)} has not finished, and the reasons it was" if stage else "the reasons it was"
+        facts = self.stuck_facts_for(stage)[0] if stage else []       # B-20 F3: the same person-safe facts as the stuck lead (no ids)
+        known = ("\n\nWhat the factory can read about the earlier stages:\n" + "\n".join(f"- {line}" for line in facts)) if facts else ""
         return (f"The driver stopped {at}: {REFUSALS_PER_BOUNDARY + 1} times in a row a check of the factory's own turned "
                 "the same move back, so I stopped instead of trying again.\n\n"
                 "I cannot put those reasons into the story's own words - they are written for the "
                 "script that met them, not for you. The last one is in the file named below, if you "
                 "want it.\n\n"
                 f"What the story is missing: {missing} turned back are written for the factory's own scripts, "
-                f"so I cannot tell which answer {'of that step ' if stage else ''}would move it.")
+                f"so I cannot tell which answer {'of that step ' if stage else ''}would move it." + known)
 
     # --- one role, start to finish ---------------------------------------------------------
     def run_role(self, stage: str, role: str, *, scope=None, extra=(), complete=None, purpose="",
-                 rework: dict | None = None, budget=READ_BUDGET) -> tuple:
+                 rework: dict | None = None, budget=READ_BUDGET, after=None) -> tuple:
         """start -> claude -p -> bind -> handoff -> finish. Returns (digest, next action).
         `complete`: None = the stage's own rule (its last role closes it), True/False forces.
         `rework`: an already-registered rework dispatch {id, scope, reason} instead of `start`.
-        `budget`: the repair budget the S5 loop read for this review, handed to the repair-limit gate as it is (t-729 F2)."""
+        `budget`: the repair budget the S5 loop read for this review, handed to the repair-limit gate as it is (t-729 F2).
+        `after`: `after(dispatch, result)`, code that runs once the role is over (t-1957 N5s, E5s.1/E5s.2). POSITION INVARIANT: after the result
+        exists (fresh or reused; `{}` when the role crashed or raised) and BEFORE `bind`, `handoff`, `question_threshold`, `repair_limit_gate`
+        and `finish`, so the dispatch is still `running` when it writes the records the exit check and `finish` read. A `finally`: a role
+        that crashes, is refused or returns nothing still gets its `after`. `None` = the run as it was."""
         stages = self.stages()
         scope = [s for s in (scope or []) if s]
         if rework:
@@ -2796,15 +3008,30 @@ class Driver:
             import story_step
             # A rework dispatch gets its brief too (files, commands, the person's words);
             # without it the role searches, and the plugin is closed to it.
-            brief, note = story_step._brief(self.task, stage, role, dispatch, self.task_root)
-            if note:
-                print(f"note: {note}")
+            form_file = self.task_root / story_step.FORM_REL.format(dispatch_id=dispatch)
+            card_file = story_step.launch_card.card_path(self.task_root, dispatch)
+            if not form_file.is_file() or not card_file.is_file():
+                # F1 (B-7, AR-14): the ONE writer of brief + form + card; `keep` never overwrites a file the role may have filled.
+                # A differing card is one note and the role still runs (P1: the prompt carries everything).
+                try:
+                    story_step._write_dispatch_files(self.task, stage, role, dispatch, self.task_root,
+                                                     ",".join(rework.get("scope") or scope), [], keep=True)
+                except ValueError as exc:
+                    print(f"note: {exc}")
+                brief = story_step._project_rel(self.task, story_step.BRIEF_REL, dispatch)
+            else:
+                brief, note = story_step._brief(self.task, stage, role, dispatch, self.task_root)
+                if note:
+                    print(f"note: {note}")
             # `line` is the whole line when the caller has one (a dispatch continued after an
             # infrastructure interruption is NOT a rework, and saying "Rework reason" would tell the
             # role its work was refused); `reason` is the rework's own.
             prompt = story_step._prompt(self.task, stages[stage], role, dispatch,
                                         [rework.get("line") or f"Rework reason: {rework.get('reason') or ''}"], brief)
         else:
+            # TR3-6: POSITION - before `start`; INVARIANT: a drain registers no new dispatch (a chain that gets here while another raised stops)
+            self.stop_if_drained()
+            self.count_launch()
             args = ["start", "--task", self.task, "--stage", stage, "--role", role]
             if scope:
                 args += ["--scope", ",".join(scope)]
@@ -2814,35 +3041,81 @@ class Driver:
                 # S6 is two packets: this call runs the automated half (the manual-agent one
                 # goes through run_manual_block, which registers its own dispatch).
                 args += ["--execution-kind", "automation"]
-            out = self.step(*args)
-            dispatch, prompt = parse_prompt(out)
+            if self.on_chain():
+                args.append("--parallel-window")        # only the scheduler's chains ask the controller to admit a window beside another
+            with self.timed("start", stage=stage) as lap:         # t-1937 P2-1; the dispatch is known once `start` has answered
+                if self.on_chain() and role == "qa-code-critic":
+                    # a critic's `start` settles its probe debt (up to 90 s): not under `_book`, one settle at a time
+                    # F2: the settle mutates test files in place, so for its length the chain counts as RUNNING to the launch gate
+                    # (`chain_overlap_running`): a sibling's session on a file of this window waits for it, and is woken at the end
+                    record = getattr(_CHAIN, "record", None)
+                    record.running = True
+                    try:
+                        with self.unbooked(settling=True):
+                            out = self.step(*args)
+                    finally:
+                        record.running = False
+                        self._cond.notify_all()
+                else:
+                    out = self.step(*args)
+                dispatch, prompt = parse_prompt(out)
+                lap.dispatch = dispatch
+            import driver_timing
+            for part, seconds in driver_timing.parse_lines(out):    # `start`'s own sub-steps: one reader, never printed raw
+                self.timing_write(part, seconds, dispatch=dispatch, stage=stage)
             for line in out.splitlines():
                 if line.startswith("note:"):
                     print(line)
         self.boundary = f"{stage}:{dispatch}"
+        saved = self.state_dir / "driver-runs" / f"{dispatch}.json"
+        result = _read_json(saved) if saved.is_file() else {}
+        if result.get("result") and self.retire_infra_result(saved, result, role=role, stage=stage, dispatch=dispatch):
+            result = {}      # an infrastructure failure saved by an older driver is not a result to reuse
+        if after is None:
+            # t-2016 F4: the walk hook has ONE site, this one, whoever called: a dispatch with a walk record (`state/walks/<dispatch>.json`) gets
+            # its session reopened when it is not ready (a continuation after an infrastructure cut, a launch that never happened) and the
+            # same `after` the first launch had. A dispatch with no record is not a walk: `after` stays None and nothing here ran.
+            # t-2022 N7: a saved result stands = no role runs = nothing is reopened (the saved result is read FIRST); `after` still runs
+            lane, reopened = self.walk_reopen(dispatch, reopen=not result.get("result"))
+            if lane:
+                after = lambda d, r, lane=lane: self.walk_after(lane, d, r)     # noqa: E731
+            elif dispatch in once_on(self, "survey_reopened", set):
+                after = self.survey_after       # t-2548 F1 (AR-25): a survey session reopened just above has no lane, but it is closed when the role ends
+            if reopened:        # a survey walk has no lane (no `after` of a case) but its reopened session is told to the role (batch 2b D)
+                extra = [*extra, reopened]
+        # t-1991 U3b (the ONE join point of every S7 triage dispatch; an investigation gets neither): the walk session opens only when the
+        # role will run (no saved result) and BEFORE the lines, which name the session or why there is none; it closes in the `finally` below.
+        triage = self.s7_is_triage(stage, role, dispatch, purpose)
+        opened = triage and not result.get("result") and self.s7_settle_session(dispatch)
         lines = [prompt]
         if scope:
             lines.append("Dispatch scope (one digest line per item): " + ", ".join(scope))
+        if triage:
+            lines += self.s7_place_lines(dispatch)         # E3b.1: the ONE site, before `extra`; fresh, scribe-reject and seam rework alike
+            lines += self.s7_neighbour_lines(dispatch)     # t-2187 N6: the neighbourhood hint, beside the place lines, the same triage dispatches
         lines += list(extra)
         lines.append(f"Plugin root: {self.plugin} — factory scripts are `python {self.scripts}/<name>.py`; "
                      "the rule layer is in your system prompt, do not read the plugin's files.")
         lines.append("Your final message is the handoff form only:\n" + HANDOFF_FORM)
         full_prompt = "\n".join(lines)
-        saved = self.state_dir / "driver-runs" / f"{dispatch}.json"
-        result = _read_json(saved) if saved.is_file() else {}
-        if result.get("result") and self.retire_infra_result(saved, result, role=role, stage=stage, dispatch=dispatch):
-            result = {}      # an infrastructure failure saved by an older driver is not a result to reuse
-        if not result.get("result"):
-            print(f"[{stage}] {role} → {dispatch}" + (f" scope={','.join(scope)}" if scope else ""))
-            self.progress_line()
-            result = self.run_claude("role", full_prompt, role=role, dispatch=dispatch, stage=stage,
-                                     system_file=self.system_file(role, dispatch, scope))
-            _write_json(saved, result)
-        else:
-            print(f"[{stage}] {dispatch}: reusing the saved result of session {result.get('session_id')}")
+        try:
+            if not result.get("result"):
+                print(f"[{stage}] {role} → {dispatch}" + (f" scope={','.join(scope)}" if scope else ""))
+                self.progress_line()
+                result = self.run_claude("role", full_prompt, role=role, dispatch=dispatch, stage=stage,
+                                         system_file=self.system_file(role, dispatch, scope))
+                _write_json(saved, result)
+            else:
+                print(f"[{stage}] {dispatch}: reusing the saved result of session {result.get('session_id')}")
+        finally:
+            if opened:
+                self.s7_settle_close(dispatch)          # E3b.2: a role that crashes or is refused leaves no session behind
+            if after is not None:
+                after(dispatch, result)
         if result["session_id"]:
-            code, out = self.py("story_step.py", "bind", "--task", self.task, "--dispatch-id", dispatch,
-                                "--agent-id", result["session_id"])
+            with self.timed("bind", dispatch, stage):
+                code, out = self.py("story_step.py", "bind", "--task", self.task, "--dispatch-id", dispatch,
+                                    "--agent-id", result["session_id"])
             if code and not rework:
                 raise Refusal(f"story_step bind (exit {code}):\n{out}", dispatch=dispatch)
         self.last_dispatch = dispatch     # the S5 loop reads this critic's typed form (B-007)
@@ -2857,7 +3130,11 @@ class Driver:
         form_rel = story_step.FORM_REL.format(dispatch_id=dispatch)
         dead = bool(result["is_error"]) and not result["result"].strip()
         early = role != "qa-scout" and not dead and story_step._declared_halt(self.task_root, form_rel, "")
-        digest = self.digest_of(result["result"]) if early else self.handoff(role, stage, dispatch, result)
+        if early:
+            digest = self.digest_of(result["result"])
+        else:
+            with self.timed("handoff", dispatch, stage):
+                digest = self.handoff(role, stage, dispatch, result)
         if early or story_step._declared_halt(self.task_root, form_rel, digest):
             # O1 (C1-7c, kind T as T1): the halt reaches the person either way (the Person below is raised whatever the write did) and
             # the role is NOT run again; a failed write is journalled as `trace_failed` and the story goes on to the halt's question
@@ -2907,7 +3184,8 @@ class Driver:
                 # it is a routine command, so code runs it and passes the file (no conductor).
                 window = f"work/windows/{dispatch}.json"
                 stamp = self.file_stamp(self.task_root / window)
-                wcode, wout = self.py("window_record.py", "--task", self.task, "--dispatch", dispatch)
+                with self.timed("window_record", dispatch, stage):
+                    wcode, wout = self.py("window_record.py", "--task", self.task, "--dispatch", dispatch)
                 if wcode:
                     window_gaps = self.window_note(dispatch, wcode, wout, stamp, self.file_stamp(self.task_root / window))
                 else:
@@ -2929,11 +3207,18 @@ class Driver:
             args.append("--not-complete")
             if open_pair:
                 args += ["--unresolved", open_pair[0], "--reason", open_pair[1]]
+            elif stage == "S5" and (self.on_chain() or self._chains):
+                # TR3-6 (B3): a finish that does not close S5 while other windows are open says so, so the controller does not refuse it as
+                # "no role to close it". Only a process whose scheduler has run passes it (a chain's finish, and the seam's retry of one on
+                # the main thread, where the cases come from the controller's record of the dispatch); the serial road's finish is as it was.
+                own = self.s5_cases_of(dispatch)
+                args +=self.s5_open_flag(own) if own else []
         if stage == "S9":
             # R-212.1: the report is rebuilt as the story's LAST step, and here the retro role has just
             # returned and this call is what closes S9 (`story_step finish` records the stage itself).
             self.rebuild_report()
-        code, out = self.py("story_step.py", *args)
+        with self.timed("finish", dispatch, stage):
+            code, out = self.py("story_step.py", *args)
         for line in out.splitlines():
             if line.startswith("note:") or line.startswith("accepted"):
                 print(line)
@@ -2958,6 +3243,10 @@ class Driver:
             # An author's finish (`--not-complete`) between two reviews of the same window never does: that is
             # exactly where cmp2-27 (automator-10, accepted) sat between critic-2 and critic-3.
             self.close_window_series(stage, dispatch)
+            if stage == "S5":
+                self.s5_release_of_dispatch(dispatch)       # Q1: S5 closed - the window that closed it frees its files on EVERY road
+        if complete is True and stage == "S5":
+            self.s5_release_completed()     # TR4-10 D5: after `story_step finish` exited 0, so the stage status read is the one this finish wrote
         self.revoke_passes_of_dead(dead=(dispatch,))     # t-764 A5: a person's word over its refusal does not outlive the dispatch it was for
         self.forget_resumes(dispatch)       # accepted: its resume record has nothing left to guard
         if saved.is_file():
@@ -3127,7 +3416,7 @@ class Driver:
 
     def resume_role(self, stage: str, role: str, dispatch: str, words: str, *, complete=None) -> tuple:
         """The person answered a halt or the S1 review: the same session goes on."""
-        sid = self.state["sessions"].get(dispatch) or (self.pipeline().get("stages", {}).get(stage, {}) or {}).get("agent_id")
+        sid = self.session_of(stage, dispatch)      # TR3-6: on a chain the dispatch's own session only
         self.boundary = f"{stage}:{dispatch}:resume"
         # t-113 B2 (R17, Q8): the words answer a threshold stop of THIS dispatch - a role that had
         # finished its work and was stopped by code, not one that stopped itself - so it gets its
@@ -3154,10 +3443,31 @@ class Driver:
                                             f"no session is known for {dispatch}")
             raise Refusal(f"no session is known for {dispatch}; the role cannot be resumed by the driver",
                           dispatch=dispatch)
+        # t-1957 N5s (E5s.6): a walk dispatch whose server is not `ready` gets it reopened BEFORE the words go in, and the words name the
+        # reopened session. POSITION INVARIANT: after the `sid` checks (a role that cannot be resumed opens nothing), before the role runs:
+        # a resumed walker never holds a dead `W`.
+        lane, reopened = self.walk_reopen(dispatch)
+        if reopened:
+            prompt += "\n" + reopened
+        # t-1991 U3b (E3b.5): a resumed S7 triage dispatch whose settle session is not ready gets it reopened BEFORE the words go in; the
+        # words name the session or why there is none. An investigation, and every other role, opens nothing.
+        triage = self.s7_is_triage(stage, role, dispatch)
+        opened = triage and self.s7_settle_session(dispatch, resume=True)
+        if triage and (said := self.s7_session_line(dispatch)):
+            prompt += "\n" + "\n".join(said)
         self.progress_line()            # t-323 B1: a role is launched again (a resume): where the story stands, as at any launch
-        result = self.run_claude("role", prompt, role=role, dispatch=dispatch, stage=stage, resume=sid,
-                                 resume_reason=("the person answered the question the role was stopped on"
-                                                if by_stop else "the person answered what the role stopped for"))
+        result = {}
+        try:
+            result = self.run_claude("role", prompt, role=role, dispatch=dispatch, stage=stage, resume=sid,
+                                     resume_reason=("the person answered the question the role was stopped on"
+                                                    if by_stop else "the person answered what the role stopped for"))
+        finally:
+            if opened:
+                self.s7_settle_close(dispatch)
+            if lane:        # E5s.1/E5s.6: the same `after` as `run_role`, before the handoff reads the records
+                self.walk_after(lane, dispatch, result)
+            else:           # t-2548 F1 (AR-25): a survey session reopened for this resume is closed with the role (a no-op for any other dispatch)
+                self.survey_after(dispatch, result)
         if by_stop and result.get("is_error") and not str(result.get("result") or "").strip():
             # The session is gone: the same dispatch goes on in a new one, with the words as its reason.
             return self.question_rework(stage, role, dispatch, words, complete,
@@ -3188,6 +3498,601 @@ class Driver:
         finished = self.finish(dispatch, digest, complete=complete, role=role, stage=stage)
         self.progress_line()            # t-323 B1: the resumed role returned and its work is recorded
         return finished
+
+    # --- the walk session around a manual lane: code before the walker starts and after it ends (t-1957 N5s, spec 3.5; E5s.1-E5s.9) ---------
+    # state key `walk_retry`: {case: {"refused": n, "open": bool, "reason": text}} - a build the walk refused is walked ONCE more
+
+    def walk_before(self, lane: list, dispatch: str, assigned=None) -> dict:
+        """Before the walker of `lane` starts (spec 3.5): `work/run-report.json` (else `finalize_task.py` over what is on disk, F30/F31), the app
+        card (`app_card.py build` rebuilds only when its inputs changed), then `walk_session.py open` for the lane's account. Returns
+        `{"walking": bool, "report_last": bool}`. E5s.3: no report and none can be made -> `report_last` (the brief names `finalize_task.py`
+        as the walker's last command - its Stop is never refused for a file it cannot make). E5s.4: `open` fails (exit 3), the account cannot
+        be named, or anything here raises -> `walking` False, the dead record is removed (no walk record), and the lane runs on today's road
+        (FR-57: nothing locks the role). POSITION INVARIANT: runs after the dispatch is registered and before the role starts, so the brief
+        the role reads is written with the walk record in place."""
+        out = {"walking": False, "report_last": False}
+        why = ""
+        try:
+            report = self.task_root / "work" / "run-report.json"
+            if not report.is_file():
+                code, text = self.py("finalize_task.py", str(self.task_root))
+                if code or not report.is_file():
+                    out["report_last"] = True
+                    print(f"S6: {dispatch}: there is no run-report.json and finalize_task.py could not make one (exit {code}); "
+                          "the walker's last command is finalize_task.py")
+            # remains: the card is a courtesy; a failed build is the printed last line, and the walker reads whatever card exists (P1)
+            _code, line = self.py("app_card.py", "build", "--task-root", str(self.task_root))
+            print(f"S6: {(line.splitlines() or ['app-card: no answer'])[-1]}")
+            key = lane_keys(self.task_root, lane).get(lane[0])
+            actors: list = []
+            if key is None:
+                why = f"the accounts of {lane[0]} could not be read from its request"
+            elif assigned:
+                # TR3-10d item 3: the assigned handles in the key's order; a guest or `obtain:` handle opens as `guest`, an `env:U/S` handle
+                # passes as is (the real gate is `sign_in_refusal`). Without an assignment (walkers 1, one lane) the code below is today's.
+                import walk_pool as WP
+                import walk_session as WS
+                actors = list(dict.fromkeys(WP.open_as(handle) for handle in assigned.values()))
+                limit = int(WS.data()["max_actors"])
+                if not actors or len(actors) > limit:
+                    actors, why = [], f"the lane names {len(actors)} accounts ({key}); a walk holds at most {limit}"
+            elif key == "":
+                actors = ["guest"]
+            else:
+                actors, why = self.walk_actors(lane[0], key)
+            if not why:
+                code, text = self.py("walk_session.py", "open", "--task-root", str(self.task_root), "--walk", dispatch,
+                                     "--items", ",".join(lane), "--actor", actors[0], *(["--actor2", actors[1]] if len(actors) > 1 else []),
+                                     # t-2147 C1 item 4(d): on the parallel road (a chain) the session may share the stand with the other walkers
+                                     *(["--max-shared", str(self.s6_walkers_cap())] if self.on_chain() else []))
+                out["walking"] = code == 0
+                why = "" if code == 0 else (text.splitlines() or [f"exit {code}"])[-1][:300]
+                if code == 0:       # TR1-4: a lane that walks leaves the old-road list (an earlier mark would keep it out of the medians)
+                    for case in lane:
+                        (self.state.get("walk_old_road") or {}).pop(case, None)
+        except Exception as exc:        # P1: code informs, it never stops the factory
+            why = f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}"
+        if not out["walking"]:
+            try:
+                (self.task_root / "state" / "walks" / f"{dispatch}.json").unlink()
+            except OSError:
+                pass
+            self.walk_settle_unopened(dispatch)     # TR3-10d R1: the records assigned to this lane's walk have an exit (dirty), never held forever
+            print(f"S6: {dispatch}: no walk session ({why}); the lane is walked on the recorder, as before")
+            # t-2016 F5: an item that left the walker is marked, so a figure taken from the old road never joins a walker's median
+            self.state.setdefault("walk_old_road", {}).update({case: why[:200] for case in lane})
+        return out
+
+    def walk_actors(self, case: str, key: str) -> tuple:
+        """`([handle, ...], why)` for the account set `key` of a lane (`lane_keys`), at most `walk_session.data()['max_actors']` handles in
+        the key's order: ONE account is `manual_capture.auto_actor`'s (its refusals and doors, unchanged); two are each resolved like
+        `auto_actor` resolves its one - a `stand_account` role whose note names two keys, or `default` - so `--actor` and `--actor2` are
+        the lane's two accounts (the walker acts as either with `--as`). `why` is non-empty when the lane cannot walk: more accounts than
+        a walk holds, or an account a machine cannot sign in as (today's road, with the reason). t-2174 TR3-10d (AR-15): the body is
+        `walk_pool.lane_handles`, the one copy the pool reads too."""
+        import walk_pool as WP
+        return WP.lane_handles(self.task_root, case, key)
+
+    def walk_env_pair(self, stand, value: str) -> tuple:
+        """`(role, why)` for an account named by ONE key `value` (the login key of `env:<key>`), TR1-4: `walk_pool.walk_env_pair`, the one
+        copy (TR3-10d, AR-15). ERROR DIRECTION: a doubt is never another account."""
+        import walk_pool as WP
+        return WP.walk_env_pair(stand, value)
+
+    def walk_settle_unopened(self, dispatch: str, state: str = "dirty") -> None:
+        """TR3-10d R1 (AR-25: a held row always has an exit): the records `walk_pool.assign_entities` held for the walk `dispatch` go to
+        `state` (`dirty`: the lane may have run on the recorder) when that walk never opened; a walk with a record is not touched
+        (`walk_session.settle_unopened`, the one writer). Never raises (P1): a failure is one printed note."""
+        try:
+            import walk_session as WS
+            _moved, problem = WS.settle_unopened(self.task_root, dispatch, state)
+            if problem:
+                print(f"note: {problem}")
+        except Exception as exc:  # noqa: BLE001 - settling never stops a lane
+            print(f"note: the records held for walk {dispatch} were not settled ({type(exc).__name__})")
+
+    def walk_next_id(self, dispatches, start: int, avoid=()) -> str:
+        """TR3-10d L1: the first `S6-qa-runner-<n>` from `n = start` that no controller dispatch carries and that is not in `avoid` (the ids other
+        lanes reserved). The one chooser: `walk_assign_step` reserves with it and `run_manual_lane` takes the first free number with it."""
+        taken = {str(k) for k in dispatches or ()} | {str(v.get("id")) for v in (dispatches or {}).values() if isinstance(v, dict)} | {str(a) for a in avoid}
+        number = max(1, int(start))
+        while f"S6-qa-runner-{number}" in taken:
+            number += 1
+        return f"S6-qa-runner-{number}"
+
+    def walk_lane_facts(self, lane) -> dict:
+        """TR3-10d (AR-13: the one reader of this entry's assignment): `{"n": the lane's number or None, "handles": {part: handle} - only when
+        EVERY part of the lane's key has one (else {}: today's key-based holds and actor, L3), "entries": {item: [entry]}, "id": the walk id
+        reserved for the lane or ""}`. Reads the state `walk_assign_step` wrote; an absent or odd key reads as no assignment (FR-59)."""
+        out: dict = {"n": None, "handles": {}, "entries": {}, "id": ""}
+        cases = [str(c) for c in lane or ()]
+        number = (self.state.get("walk_assign_cases") or {}).get(cases[0]) if cases else None
+        if not isinstance(number, int) or isinstance(number, bool):
+            return out
+        name = str(number)
+        out["n"] = number
+        handles = (self.state.get("walk_assign") or {}).get(name)
+        if isinstance(handles, dict) and handles and all(isinstance(h, str) and h for h in handles.values()):
+            out["handles"] = dict(handles)
+        entries = (self.state.get("walk_entities") or {}).get(name)
+        if isinstance(entries, dict):
+            out["entries"] = entries
+        reserved = (self.state.get("walk_ids") or {}).get(name)
+        out["id"] = reserved if isinstance(reserved, str) else ""
+        return out
+
+    def walk_account_gap(self, lane: list) -> str:
+        """The reason a lane cannot walk for its ACCOUNTS, else "" (TR1-4, B5: ONE road for every shape of the key; the old road is for a
+        failed `walk_session.py open` only). It reads `walk_actors`, the one reader `walk_before` opens the session by, so the lane is
+        refused here exactly when it could not open there. An empty key is a guest (walkable); a request that cannot be read, or a
+        reader that fails, is a reason too (FR-59: an unknown is never a pass). The text carries no flag or command (P9)."""
+        case = lane[0]
+        try:
+            key = lane_keys(self.task_root, lane).get(case)
+            if key is None:
+                return f"the accounts of {case} could not be read from its request"
+            if key == "":
+                return ""
+            return self.walk_actors(case, key)[1]
+        except ValueError:
+            return f"the account of {case} is not one a machine can sign in as"
+        except Exception as exc:
+            return f"the accounts of {case} could not be established ({type(exc).__name__})"
+
+    def refuse_case(self, plan, case: str, reason: str, door: str, by: str, by_first: bool = False) -> bool:
+        """TR4-3 (AR-14, AR-15): the ONE writer of `{"refused": {reason, door, by}}` in a case's request.json - the refusal a later reader
+        (the report, gate B, the delivery check) finds. With a `plan` the case also joins `plan["refused"]` as `(case, reason)`; `manual_close`
+        has no plan (its list is local) and passes None. A write that fails is swallowed: the caller's printed line still names the case and
+        the receipt still carries it. Nothing is checked here: an empty `door` or `by` and a case outside the plan are written as given, as
+        every caller did before. Returns True when the record was written, False when the write failed (`deferred_decision` says so). `by_first` keeps the key order of the one caller that wrote `by` before `door` (byte-equal records)."""
+        import manual_evidence as ME
+        if plan is not None:
+            plan["refused"].append((case, reason))
+        record = {"reason": reason, "by": by, "door": door} if by_first else {"reason": reason, "door": door, "by": by}
+        try:
+            _write_json(ME.request_path(self.task_root, case), {"refused": record})
+        except OSError:
+            return False        # the caller's printed line still names the case; a caller that must say it reads the False
+        return True
+
+    def walk_refuse_gaps(self, plan: dict) -> None:
+        """TR1-4: lanes of `plan["blocks"]` whose account has no pair are NOT walked on the old road: each case is refused `not walked:
+        <reason>` (request, `plan["refused"]`, printed), one finding per lane is filed, and the run goes on to the next lane with no
+        question. POSITION INVARIANT: before the dispatch of the first lane is registered, so a lane that cannot walk costs no role.
+
+        TR3-10d D3b-2 (item 13, trigger (i) `no_pair`; AR-25, AR-24): where the gap is a ROLE the stand records no pair for, the cases are closed
+        exactly as before (the finding unchanged: before an answer the behaviour is today's) and, AFTER the loop, the account question of that
+        role is raised (`walk_account_raise`, one per role); it holds the tied cases, so it waits like any case question. It applies at
+        `walkers` 1 too (D.5): the one place of Part D that does. The role is read BEFORE the cases are closed (a closed case's request no
+        longer carries its key)."""
+        kept, asking = [], {}
+        for lane in plan["blocks"]:
+            why = self.walk_account_gap(lane)
+            if not why:
+                kept.append(lane)
+                continue
+            role = self.walk_gap_role(lane) if "no_pair" in WALK_ACCOUNT_TRIGGERS else ""
+            if role:
+                asking.setdefault(role, []).extend(case for case in lane if case not in asking.get(role, []))
+            reason = f"not walked: {why}"
+            door = ("record the account's two keys on the stand (credentials_by_role: `<role>: <login key> / <password key>`), "
+                    "or check the case yourself")
+            for case in lane:
+                self.refuse_case(plan, case, reason, door, "left_unchecked", by_first=True)
+                print(f"S6: {case}: {reason}")
+            self.owe_row("project_decisions.py", "--root", str(self.project), "add-finding",
+                         "--essence", f"S6 lane of {', '.join(lane)} not walked: {why}"[:500], "--scope", "local-calibration",
+                         "--witness", f"walk lane {lane[0]}", "--idempotency-key", f"walk-account-gap:{self.task}:{lane[0]}",
+                         what="the finding about a lane whose account has no pair", stage="S6")
+        plan["blocks"] = kept
+        if asking:
+            self.walk_account_raise(asking)
+
+    def walk_gap_role(self, lane: list) -> str:
+        """The ROLE a lane that cannot walk lacks a pair for, else "" (trigger (i) `no_pair`; no guess). Only a one-part key `stand_account:
+        <role>` names one; a guest, `env:`, a many-account key, the reserved role `default`, a key that cannot be read, a role the stand
+        already records with a pair (the gap is then something else) and any failure are "" - today's close, no question. ERROR DIRECTION:
+        a doubt asks nothing."""
+        try:
+            import config_contract as CC
+            import gate_preflight as GP
+            import manual_capture as MC
+            key = lane_keys(self.task_root, lane).get(lane[0])
+            parts = [part for part in key.split("+") if part] if isinstance(key, str) else []
+            if len(parts) != 1 or not parts[0].startswith("stand_account:"):
+                return ""
+            role = parts[0].partition(":")[2].strip()
+            if not role or CC.reserved_role(role):
+                return ""
+            try:
+                cfg = MC.load_config(self.task_root)[0]
+            except ValueError:
+                cfg = {}
+            stand = next((e for e in (cfg.get("environments") if isinstance(cfg, dict) else None) or [] if isinstance(e, dict)), {})
+            roles = stand.get("credentials_by_role")
+            real = GP.account_role(roles, role) if isinstance(roles, dict) else None
+            if real is not None and len(GP.account_keys(roles[real])) == 2:
+                return ""
+            return role
+        except Exception:       # noqa: BLE001 - a doubt asks nothing: the lane closes as it always did
+            return ""
+
+    def walk_account_raise(self, asking: dict) -> None:
+        """TR3-10d D3b-2 (spec item 13; D.5, D.11): ONE `walk_account` question per role of `asking` (`{role: [tied cases]}`), after the
+        cases were closed. The row: `walk_ask_once` with the role's pointer `/environments/<stand>/credentials_by_role/<role>` (the pointer
+        `project_decisions.py stand-account` writes, so the conductor's `stand-account` reuses this open row and resolves it; FR-7). NOT asked
+        again: a role already in `walk_account_asked` / `walk_account_roles` (this story), or one whose cases a deferred `walk_account` item
+        holds. An `add` that fails, a stand the registry cannot name or a builder that refuses (a role with a space, non-ASCII) is ONE
+        note and today's close: the cases were closed before this runs, so none is left without an outcome. Every question but the last
+        is set aside (`defer_question`); the last is raised - or the first that `deferrable` says must be asked at once, the rest unasked
+        (their records dropped). INVARIANT: before any answer the behaviour is today's."""
+        import manual_capture as MC
+        try:
+            index = project_decisions._stand_of(MC.load_config(self.task_root)[0])[0]
+        except ValueError as exc:
+            print(f"note: S6: the account question was not raised ({' '.join(str(exc).split())[:200]}); the checks stay unchecked", flush=True)
+            return
+        held, seen = self.state.get("walk_account_asked"), self.state.get("walk_account_roles")
+        held, seen = held if isinstance(held, dict) else {}, seen if isinstance(seen, dict) else {}
+        waiting = {str(case) for item in self.deferred_items() if item.get("kind") == "walk_account" for case in item.get("holds") or []}
+        owed = []
+        for role, cases in asking.items():
+            if role in seen or any(isinstance(v, dict) and v.get("role") == role for v in held.values()) or waiting & set(cases):
+                continue
+            lines = self.case_lines(cases)
+            if not role or not str(role).isascii() or any(ch.isspace() for ch in str(role)):
+                # N4: the role is checked BEFORE the registry row is opened - an unaskable role leaves no open row; the same note as
+                # below, the same close (the refusal text itself stays in `walk_account_person`, which checks again at the build)
+                print(f"note: S6: the question about the {role} account was not raised (walk_account: the role {role!r} cannot be named as "
+                      "an account key (it is empty, has a space or a non-ASCII character); the account question was not raised); "
+                      "its checks stay unchecked", flush=True)
+                continue
+            try:
+                # remains: the closed question of the person's own account is built by design (item 13), not a state with no move; its executor is `_answer_walk_account`
+                build = lambda row, role=role, cases=cases, lines=lines: self.walk_account_person(row, role, cases, lines)
+                # remains: the closed question of the person's own account is raised by design (item 13), not a state with no move; its executor is `_answer_walk_account`
+                person = self.walk_ask_once(
+                    "walk_account", [f"/environments/{index}/credentials_by_role/{project_decisions._ptr(role)}"],
+                    f"the account of the role {role} on the stand",
+                    str(self.walk_account_text(role, cases, lines)), build)
+            except Person:
+                raise
+            except Exception as exc:    # noqa: BLE001 - D.11: the raise informs, it never stops S6; the cases are already closed
+                print(f"note: S6: the question about the {role} account was not raised ({' '.join(str(exc).split())[:200]}); "
+                      "its checks stay unchecked", flush=True)
+                continue
+            if person is not None:
+                owed.append((role, person))
+        for at, (role, person) in enumerate(owed):
+            if at == len(owed) - 1 or not self.deferrable(person):
+                for later, _person in owed[at + 1:]:
+                    self.state["walk_account_asked"] = {k: v for k, v in self.state["walk_account_asked"].items() if v.get("role") != later}
+                    self.state["walk_account_roles"].pop(later, None)
+                self.save_state()
+                raise person
+            self.defer_question(person)
+
+    def walk_reopen(self, dispatch: str, reopen: bool = True) -> tuple:
+        """`(items, words)` for a RESUMED dispatch (E5s.6): `items` are the walk's items (`[]` = this is no walk dispatch); `words` is the line
+        the resume prompt adds - the walk session reopened (`walk_session.py open`, same walk, same actors; items with a verdict are kept by
+        the server), or why it could not be. A server that is `ready` and alive is left alone and `words` is empty. `reopen=False` (a saved
+        result stands, so no role will run): the items only, nothing opened (t-2022 N7: a browser, a sign-in and the lease for no role)."""
+        record = _read_json(self.task_root / "state" / "walks" / f"{dispatch}.json")
+        place = str(record.get("place") or "case") if isinstance(record, dict) else "case"
+        if place == "survey":
+            # t-2277 batch 2b D (critic t-2513 F2): the survey walk of an optional dispatch (S1 reference window, S3 first look) is no case walk
+            # (no items come back, so no case lane is built over it) but the resumed role gets its session back, on the stand the record names.
+            # B1 (critic t-2548): a record that never reached `ready` (`open_walk` stamps it `did not start: ...`) is a walk that never began -
+            # no session to give back, and the packet of a failed window says "walk nothing" already (FR-10): nothing is reopened, nothing is said
+            if str(record.get("state") or "") != "ready" and str(record.get("reason") or "").startswith("did not start"):
+                return [], ""
+            return [], (self._survey_reopen(dispatch, record) if reopen else "")
+        if place != "case":
+            return [], ""       # t-2027 F1: a settle or control session's record (place ids as items) is no case walk; `s7_settle_session` reopens its own
+        items = [str(i) for i in record.get("items") or [] if str(i).strip()] if isinstance(record, dict) else []
+        if not items or not reopen:
+            return items, ""
+        try:
+            shared = int(record.get("max_shared") or 1)      # F4: a record without the field reads 1 (old records, C.12)
+        except (TypeError, ValueError):
+            shared = 1
+        return items, self._walk_reopen_open(dispatch, record, ["--items", ",".join(items)], ["--max-shared", str(shared)] if shared > 1 else [],
+                                             said="S6: {d}: the walk session", unwalked="which items you did not walk",
+                                             kept="items with a verdict are done; continue with the next.")[0]
+
+    def _walk_reopen_open(self, dispatch: str, record: dict, head: list, tail: list, *, said: str, unwalked: str, kept: str,
+                          where: str = "", cannot: str = "") -> tuple:
+        """`(line, opened)`: the COMMON body of a walk reopen (critic t-2548 F4), for the case lane (`walk_reopen`) and the survey walk
+        (`_survey_reopen`). `""` when the record's server is `ready` and alive; else `walk_session.py open` over the walk's own id with `head`
+        (what names the walk: items, place, stand) and `tail` (flags after the actors), the actors of the record (`guest` when it names none),
+        and the line the role is told: the failure (`cannot` is a reason known before any call: the open is not made, FR-41) or the reopened
+        session (`where` names a stand, `kept` what stays). `said` is the printed line's start (`{d}` = the dispatch). `opened` is True only
+        when the session was opened by THIS call. Never raises."""
+        try:
+            import walk_session as WS
+            alive = record.get("state") == "ready" and WS.alive(record)
+        except Exception:
+            alive = record.get("state") == "ready"
+        if alive:
+            return "", False
+        said = said.format(d=dispatch)
+        text, code = "", 0
+        if not cannot:
+            actors = [str(a) for a in record.get("actors") or [] if str(a).strip()] or ["guest"]
+            argv = ["open", "--task-root", str(self.task_root), "--walk", dispatch, *head, "--actor", actors[0],
+                    *(["--actor2", actors[1]] if len(actors) > 1 else []), *tail]
+            code, text = self.py("walk_session.py", *argv)
+        if cannot or code:
+            why = cannot or (text.splitlines() or [f"exit {code}"])[-1][:300]
+            print(f"{said} could not be reopened ({why})")
+            return (f"Your walk session could not be reopened ({why}); its commands will be refused. Stop here and say {unwalked}."), False
+        got = _read_answer(text) or {}      # exit 0 and no answer: the sentence below says "not signed in" and lands on the landing page (a hint only)
+        signed = "signed in" if got.get("signed_in") else "not signed in"
+        print(f"{said} was reopened")
+        return (f"Your walk session was reopened{where} ({signed}, landed on {got.get('landed_on') or 'the landing page'}); {kept}"), True
+
+    def _survey_reopen(self, dispatch: str, record: dict) -> str:
+        """The line a resumed role of a SURVEY walk is told (`walk_reopen`, t-2277 batch 2b D), or "" when the server is `ready` and alive.
+        The walk is opened again as it was (same walk id, place `survey`, the stand and the actors of the record; the items the walk
+        already recorded stay on disk). A record that does not name its stand (the server died before it wrote one) cannot be opened on
+        a guess: the line says so and the role is told to stop and say what it did not walk (FR-41, AR-28). A session this call opened is
+        remembered (`survey_reopened`): the role's end closes it (`survey_after`, AR-25). Never raises."""
+        stand = str(record.get("stand") or "").strip()
+        items = [str(i) for i in record.get("items") or [] if str(i).strip()] or ["free"]
+        line, opened = self._walk_reopen_open(dispatch, record, ["--place", "survey", "--env", stand, "--items", ",".join(items)], [],
+                                              said="{d}: the survey walk session", unwalked="what you did not walk",
+                                              kept="what you already captured is kept; continue where you stopped.",
+                                              where=f" on `{stand}`", cannot="" if stand else "its record names no stand")
+        if opened:
+            once_on(self, "survey_reopened", set).add(dispatch)
+        return line
+
+    def survey_after(self, dispatch: str, result=None) -> None:
+        """The close of a survey session this driver REOPENED for a resumed role (critic t-2548 F1, AR-25): `walk_session.py close`, as
+        `walk_after` does for a lane, so the stand lease (a `survey` session holds it in walk mode, up to `idle_s`) is let go when the role
+        ends. A dispatch whose session was not reopened here is left alone. Never raises: a failure is a printed note."""
+        opened = once_on(self, "survey_reopened", set)
+        if dispatch not in opened:
+            return
+        opened.discard(dispatch)
+        try:
+            # remains: the exit is read on the next line and said; a server that did not close ends by itself (idle/max/parent watchdog)
+            code, text = self.py("walk_session.py", "close", "--task-root", str(self.task_root), "--walk", dispatch)
+            if code:
+                print(f"note: walk_session.py close exit {code}: {(text.splitlines() or [''])[-1][:200]}; the server ends by itself")
+        except Exception as exc:
+            print(f"note: walk_session.py close raised {type(exc).__name__}; the server ends by itself")
+
+    def walk_pending(self, lane: list) -> bool:
+        """True when a case of `lane` was refused by the build of its record (`walk_after`): it is walked once more in a lane of the next
+        entry, or closed `left_unchecked` after a second refusal. Either way the lane that carried it never closes the stage (E5s.1)."""
+        retry = self.state.get("walk_retry") or {}
+        return any(isinstance(retry.get(case), dict) and (retry[case].get("open") or retry[case].get("refused", 0) > 1) for case in lane)
+
+    def walk_after(self, lane: list, dispatch: str, result) -> None:
+        """After the walker of `lane` is over (spec 3.5; `run_role` and `resume_role` call it through `after=`, BEFORE `bind`, `handoff` and
+        `finish`): `walk_session.py close`; per item `manual_evidence.record_from_walk` over its result record (a walker that ended with no
+        verdict gets `walk_session.write_verdict(..., None)`: every Then `inconclusive`, E5s.2); `finalize_task.py`; the form's values
+        `work/handoffs/<dispatch>.values.yaml`; the timing end line. A build the record refuses is re-queued ONCE (`walk_retry`, read by
+        `manual_plan`), the second refusal writes the case's request as refused `left_unchecked` (the `manual_close` road). IDEMPOTENT: the
+        items already handled stand in `work/walks/<W>/after.json` and are skipped, so a reused saved result runs it safely. Never raises
+        (P1): a failure is a printed note and the lane goes on to the checks that follow."""
+        T = self.task_root
+        try:
+            # remains: the exit is read on the next line and said; a server that did not close ends by itself (idle/max/parent watchdog)
+            code, text = self.py("walk_session.py", "close", "--task-root", str(T), "--walk", dispatch)
+            if code:
+                print(f"note: walk_session.py close exit {code}: {(text.splitlines() or [''])[-1][:200]}; the server ends by itself")
+        except Exception as exc:
+            print(f"note: walk_session.py close raised {type(exc).__name__}; the server ends by itself")
+        rows: dict = {}
+        try:
+            self.walk_case_records(lane, dispatch, rows)
+        except Exception as exc:
+            print(f"note: the records of walk {dispatch} were not all built ({type(exc).__name__}: {' '.join(str(exc).split())[:200]})")
+        try:
+            # TR3-10d item 5 (D.9, AR-25): a lane that took `obtain:<role>#n` and left no confirmed user of its cases behind. Every case of it
+            # WITHOUT a verdict is re-queued as ONE refusal (a second one closes it `left_unchecked` by the rule of `walk_refusal`), and the role
+            # gets no obtain lane for the rest of the story (`walk_assign_step` reads `obtain_failed`): no sign-up loop. A case that has a
+            # verdict stands. An obtain lane whose user WAS confirmed changes nothing. IDEMPOTENT: a re-queued case is `refused` in `rows`.
+            import manual_capture as MC
+            obtain = [str(h) for h in self.walk_lane_facts(lane)["handles"].values() if str(h).startswith("obtain:")]
+            names = _read_json(MC.created_names_path(T)) if obtain and MC.created_names_path(T).is_file() else {}
+            made = [r for r in (names.get("accounts") if isinstance(names, dict) else None) or [] if isinstance(r, dict)]
+            if obtain and not any(r.get("case") in lane and not r.get("status") for r in made):
+                retry = self.state.setdefault("walk_retry", {})
+                for case in lane:
+                    row = rows.get(case)
+                    if isinstance(row, dict) and row.get("missing") and row.get("state") != "refused":
+                        rows[case] = {**self.walk_refusal(case, "its walker could not get an account: the sign-up was not seen to land", retry),
+                                      "missing": True}
+                _write_json(T / "work" / "walks" / dispatch / "after.json", {"rows": rows})
+                failed = self.state.setdefault("obtain_failed", {})
+                for handle in obtain:
+                    failed[handle[len("obtain:"):].rsplit("#", 1)[0]] = True
+                self.save_state()
+        except Exception as exc:
+            print(f"note: the sign-up of walk {dispatch} could not be checked ({type(exc).__name__}: {' '.join(str(exc).split())[:200]})")
+        try:
+            # remains: the exit is read on the next line and said; the handoff check after the role refuses a form over a missing report (P1)
+            code, text = self.py("finalize_task.py", str(T))
+            if code:
+                print(f"note: finalize_task.py exit {code}: {(text.splitlines() or [''])[-1][:200]}")
+            self.walk_values(dispatch, rows)
+            timing = T / "work" / "walks" / dispatch / "timing.jsonl"
+            kept = []
+            if timing.is_file():
+                for line in timing.read_text(encoding="utf-8").splitlines():
+                    try:
+                        if line.strip() and "after_end" not in json.loads(line):
+                            kept.append(line)
+                    except ValueError:
+                        kept.append(line)       # a broken line is `walk_timing`'s to count and name (FR-41), not ours to drop
+            timing.parent.mkdir(parents=True, exist_ok=True)
+            import event_store      # Q-new-2: the rewrite is published whole (a reader of the timing never sees a torn file)
+            body = "".join(line + "\n" for line in [*kept, json.dumps({"after_end": _now()})])
+            try:
+                event_store.atomic_text(timing, body)
+            except OSError as exc:       # a reader held it past the retries: the write that worked before, with a note (as `_write_json`)
+                print(f"note: {timing.name} could not be published atomically ({type(exc).__name__}); it is written in place", flush=True)
+                timing.write_text(body, encoding="utf-8", newline="\n")
+        except Exception as exc:
+            print(f"note: the walk's closing steps did not all run ({type(exc).__name__}: {' '.join(str(exc).split())[:200]})")
+
+    def walk_case_records(self, lane: list, dispatch: str, rows: dict) -> None:
+        """The case record of every item of `lane` that has none yet, into `rows` (the state of `work/walks/<W>/after.json`, written after each
+        item). An item with no result record gets one for a MISSING verdict (`write_verdict(..., None)`, marked `missing_verdict`). IDEMPOTENT
+        and a resume's friend (t-2016 F4): an item stays handled once built, EXCEPT one handled for a missing verdict whose result record is a
+        real verdict now (the walker went on after a halt or a cut): that one is built again, its refusal count from the missing verdict
+        forgotten. A build the record refuses is re-queued ONCE (`walk_retry`, read by `manual_plan`); the second refusal writes the
+        case's request as refused `left_unchecked` (the `manual_close` road)."""
+        T = self.task_root
+        import manual_capture as MC
+        import manual_evidence as ME
+        import walk_session as WS
+        marker_path = T / "work" / "walks" / dispatch / "after.json"
+        marker = _read_json(marker_path)
+        rows.update(marker["rows"] if isinstance(marker.get("rows"), dict) else {})
+        retry = self.state.setdefault("walk_retry", {})
+        for case in lane:
+            found = T / "work" / "walks" / dispatch / f"{MC.case_dir_name(case)}.json"
+            walk_record = _read_json(found) if found.is_file() else {}
+            missing = not walk_record or bool(walk_record.get("missing_verdict"))
+            prior = rows.get(case)
+            if isinstance(prior, dict) and not (prior.get("missing") and not missing):
+                continue
+            if isinstance(prior, dict):
+                retry.pop(case, None)
+            try:
+                if not walk_record:
+                    walk_record = WS.write_verdict(T, dispatch, case, None)
+                built = ME.record_from_walk(T, case, walk_record)
+            except Exception as exc:
+                built = {"refused": f"{type(exc).__name__}: {' '.join(str(exc).split())[:300]}"}
+            if built.get("refused"):
+                rows[case] = {**self.walk_refusal(case, str(built["refused"]), retry), "missing": missing}
+            else:
+                if isinstance(retry.get(case), dict):
+                    retry[case]["open"] = False
+                word = "unprepared_walk" if built.get("unprepared") else {"pass": "passed", "fail": "failed"}.get(str(built.get("result")), "inconclusive")
+                rows[case] = {"state": word, "block": built.get("block"), "evidence": list(built.get("evidence") or []), "missing": missing}
+            _write_json(marker_path, {"rows": rows})
+            self.save_state()
+
+    def walk_refusal(self, case: str, refused: str, retry: dict) -> dict:
+        """Count a build refusal of `case` in `retry` and say it: the first is walked once more, the second closes the case `left_unchecked`.
+        Returns its row of `after.json`."""
+        entry = retry.get(case) if isinstance(retry.get(case), dict) else {"refused": 0}
+        entry = {"refused": int(entry.get("refused") or 0) + 1, "reason": refused[:400]}
+        entry["open"] = entry["refused"] == 1
+        retry[case] = entry
+        if entry["open"]:
+            print(f"S6: {case}: the record of its walk was refused ({entry['reason']}); it is walked once more in the next lane")
+        else:
+            reason = f"not checked by hand: the record of its walk was refused twice - {entry['reason']}"
+            self.refuse_case(None, case, reason, "walk the case again after the build is fixed (retry at gate B), or check it yourself",
+                             "left_unchecked", by_first=True)
+            print(f"S6: {case}: {reason}")
+        return {"state": "refused", "reason": entry["reason"], "n": entry["refused"]}
+
+    def walk_values(self, dispatch: str, rows: dict) -> None:
+        """`work/handoffs/<dispatch>.values.yaml`: EVERY required field of the form that code owns (a flat `path: value` JSON object, the one
+        `handoff_check.py` applies and renames), so the lane does not pay a resume for a form (t-2016 F3). Words of the records only (P27):
+        `header.verdict` is `ok` when every case stood and `concerns` otherwise; `header.window` the lane's cases; `run.*` from the stand
+        probes of the attempts and the run report; per case a `scope[]` row (its obligations from its request) and, for a built record, a
+        `manual_observations[]` row carrying the Thens verbatim from `request.json` and the record's own `actual`, `before_change` and
+        `surprises`; the claims code can count; one `tried[]` row from the walk's own figures. A value code cannot know is a named gap (`-`,
+        or words that say it was not established), never an invented one (FR-41): the `run.witness` count comes from the records (a
+        case with no recorder step was not walked); `scope[].executed` is `none` for a case that did not run. Written when the form is there and no values file was
+        applied to it already - or when one was and the rows have changed since (a late verdict rebuilt a record: the form must say what the
+        record says, t-2022 N9; `handoff_check --fix` applies the waiting file over the old words); a refused case is a `manual_skipped`
+        row with its reason."""
+        T = self.task_root
+        form = T / "work" / "handoffs" / f"{dispatch}.yaml"
+        if not form.is_file() or not rows:
+            return
+        values = {"header.verdict": "ok" if all(r.get("state") == "passed" for r in rows.values()) else "concerns",
+                  "header.window": ", ".join(rows)}
+        built = [(case, row) for case, row in rows.items() if row.get("state") != "refused"]
+        facts = {case: self.walk_facts(case, row) for case, row in built}
+        values.update(self.walk_run_values(dispatch, rows, facts))
+        for at, (case, row) in enumerate(rows.items()):
+            state = row.get("state")
+            values[f"scope[{at}].id"] = case
+            values[f"scope[{at}].case"] = case
+            values[f"scope[{at}].state"] = "manual_skipped" if state == "refused" else state
+            values[f"scope[{at}].reason"] = (f"walked: {state}" if state != "refused" else str(row.get("reason") or f"record refused {row.get('n')}x"))[:80]
+            values[f"scope[{at}].evidence"] = row.get("block") or f"work/evidence/manual/{case}/request.json"
+            values[f"scope[{at}].obligations"] = ", ".join(facts.get(case, {}).get("obligations") or []) or "-"
+            # t-2022 N8: `none` = nothing ran for this row (a refused or never-walked case); it is no evidence, the row's `state` and `evidence` say so
+            values[f"scope[{at}].executed"] = "fresh" if facts.get(case, {}).get("steps") else "none"
+        for at, (case, row) in enumerate(built):
+            fact = facts[case]
+            values[f"manual_observations[{at}].case"] = case
+            values[f"manual_observations[{at}].then"] = fact["then"]
+            values[f"manual_observations[{at}].observed"] = fact["actual"]
+            values[f"manual_observations[{at}].before_change"] = fact["before_change"]
+            values[f"manual_observations[{at}].result"] = {"passed": "passed", "failed": "failed"}.get(row.get("state"), "inconclusive")
+            values[f"manual_observations[{at}].evidence"] = row.get("block") or ""
+            values[f"manual_observations[{at}].surprises"] = fact["surprises"]
+        text = json.dumps(values, indent=1)
+        applied = form.with_name(f"{dispatch}.values.applied.yaml")
+        if applied.is_file() and applied.read_text(encoding="utf-8", errors="replace") == text:
+            return          # the words the form already holds: nothing changed since they were applied
+        form.with_name(f"{dispatch}.values.yaml").write_text(text, encoding="utf-8", newline="\n")
+
+    def walk_facts(self, case: str, row: dict) -> dict:
+        """What the built record of `case` says, read from its files: `then` (the Thens of its request, verbatim), `actual`, `before_change`,
+        `surprises`, `obligations`, the stand identity of its probes (`environment`, `build`, `probes` = the probes file) and its `steps`. A
+        word the files do not hold is a gap in words, never a guess."""
+        import manual_capture as MC
+        T = self.task_root
+        folder = (T / str(row["evidence"][0])).parent if row.get("evidence") else None
+        record = _read_json(folder / "record.json") if folder is not None and (folder / "record.json").is_file() else {}
+        request = _read_json(MC.case_root(T, case) / "request.json")
+        thens = request.get("thens") if isinstance(request.get("thens"), dict) else {}
+        start = next((p.get("probe") or {} for p in (MC.jsonl_rows(folder / "probes.jsonl") if folder is not None else []) if p.get("when") == "start"), {})
+        change = record.get("before_change")
+        surprises = record.get("surprises") if isinstance(record.get("surprises"), list) else []
+        ids = ", ".join(str(s.get("id")) for s in surprises[:30] if isinstance(s, dict))
+        return {"then": "; ".join(f"{n}. {thens[n]}" for n in sorted(thens, key=lambda k: int(k) if str(k).isdigit() else 0)) or f"no Then is listed in the request of {case}",
+                "actual": str(record.get("actual") or "").strip() or "the record holds no `actual`",
+                "before_change": json.dumps(change, sort_keys=True) if change is not None else "not_recorded: the record holds no before_change",
+                "surprises": f"{len(surprises)} line(s), surprise_detection {record.get('surprise_detection') or 'not recorded'}" + (f"; ids {ids}" if ids else ""),
+                "obligations": [str(o) for o in request.get("obligation_ids") or []],
+                "environment": str(start.get("environment_id") or ""), "build": str(start.get("observed_runtime_identity") or ""),
+                "probes": (folder / "probes.jsonl").relative_to(T).as_posix() if folder is not None and (folder / "probes.jsonl").is_file() else "",
+                "steps": len(MC.jsonl_rows(folder / "steps.jsonl")) if folder is not None else 0}
+
+    def walk_run_values(self, dispatch: str, rows: dict, facts: dict) -> dict:
+        """The `run.*`, `inputs_read[]`, `claims.*`, `tried[]` and `superseded` values of a walk's form (see `walk_values`). The run report's
+        own figures (`execution_status`, `window_totals`) are derived by `handoff_check --fix`; here is what the report cannot say of a manual lane."""
+        T = self.task_root
+        first = next(iter(facts.values()), {})
+        walked = [case for case, fact in facts.items() if fact["steps"]]          # N8: a case with a recorder step was walked; a refused or empty one was not
+        gap = "not established: no case record of this lane was built"
+        report = _read_json(T / "work" / "run-report.json")
+        provenance = sorted((T / "evidence").glob("runtime-provenance-*.json"))
+        return {
+            "run.witness": f"no automated run in this dispatch: {len(walked)} of {len(rows)} manual case(s) walked with the walk session {dispatch}",
+            "run.environment": first.get("environment") or gap,
+            "run.application_build": first.get("build") or gap,
+            "run.probe_before": first.get("probes") or gap, "run.probe_after": first.get("probes") or gap,
+            "run.totals": json.dumps(report.get("totals"), sort_keys=True) if report.get("totals") else "the report counted no automated test: manual walk only",
+            "inputs_read[0].version": "-", "inputs_read[0].instances_handed": "-",
+            "inputs_read[1].version": "-", "inputs_read[1].manual_cases_handed": str(len(rows)),
+            "inputs_read[2].path": f"evidence/{provenance[-1].name}" if provenance else "-",
+            "inputs_read[2].version": first.get("build") or "-",
+            "claims.every_row_carries_an_evidence_path": all(bool(r.get("block")) for r in rows.values()),
+            "claims.every_blocked_row_names_a_remedy_and_the_probe_line": True,             # a walk's form carries no `env_blocked` row
+            "claims.no_comparison_was_fabricated_where_before_evidence_is_missing": True,   # `before_change` is built by code from the register
+            "claims.handed_and_manual_human_cases_are_absent_by_design": True,              # a manual block holds manual-agent cases only
+            "claims.the_report_was_reduced_by_code_not_written": bool(report),
+            "superseded[0].row": "none", "superseded[0].superseded_by": "none",         # a manual lane reran no automated instance: no ghost row
+            "tried[0].requirement": ", ".join(rows),
+            "tried[0].technique": f"walk session {dispatch}: {sum(f['steps'] for f in facts.values())} recorder step(s) over {len(walked)} walked case(s)",
+            "tried[0].observation": "; ".join(f"{case} {row.get('state')}" for case, row in rows.items())[:300],
+            "tried[0].evidence": f"work/walks/{dispatch}/timing.jsonl"}
 
     # --- the question threshold: the stop and the resume (t-113 B2: R15, R16, R17, Q8) ---------------
     QUESTION_ANSWER_BY = "person"     # a value of question-vocabulary.json `by`: the words are the person's
@@ -3747,6 +4652,10 @@ class Driver:
                                        words_file=person.words_file, why=person.why, block=person.block)
             if person.rows:
                 self.state["asked"]["rows"] = list(person.rows)
+            if person.probe_gap_cases:
+                self.state["asked"]["probe_gap_cases"] = list(person.probe_gap_cases)
+            if person.probe_judgment_cases:
+                self.state["asked"]["probe_judgment_cases"] = list(person.probe_judgment_cases)
         if person.kind == "s1_gap":
             # POSITION INVARIANT: this kind ALONE gets the fields (a question of another kind never carries them, so the answer branch
             # of `s1_gap` cannot be reached by one), and a question the seam raised (`offered`) is never an `s1_gap`.
@@ -3863,7 +4772,13 @@ class Driver:
         a gate (a gate is the stop itself); it is not the conductor's `stop` (exit 4); its cases are not already held by another
         deferred question (E11: one open question per case); and the S6 scope has a case OUTSIDE `holds` (otherwise there is nothing to
         go on with: the question is asked at once, as before). ERROR DIRECTION: every doubt - no scope, an unreadable state - is False,
-        a question asked at once, never one withheld."""
+        a question asked at once, never one withheld.
+
+        TR3-10 D (item 10, edge D.1) POSITION: the FIRST line, before the `holds` test. The two questions that hold NO case (`walk_supply`,
+        `data_change`) set `no_hold`; only that kind WITH the flag passes - a `walk_supply` Person without it, and any other Person (a gate
+        among them) with the flag set by mistake, fall through to the test below and are asked at once."""
+        if getattr(person, "no_hold", False) and person.kind in ("walk_supply", "data_change"):
+            return True
         holds = {str(case) for case in getattr(person, "holds", ()) or ()}
         if not holds or person.kind in GATE_KINDS or person.code == EXIT_GAVE_UP:
             return False
@@ -3986,9 +4901,7 @@ class Driver:
             if not (isinstance(refused, dict) and refused.get("by") == "left_unchecked"
                     and str(refused.get("reason") or "").startswith("not checked yet: it waits for your answer")):
                 continue
-            try:
-                _write_json(path, {"refused": {"reason": reason, "door": door, "by": by}})
-            except OSError:
+            if not self.refuse_case(None, case, reason, door, by):
                 print(f"{case}: the decision could not be written to its request.json; the answer is on record")
             else:
                 print(f"S6: {case}: not checked by hand — {reason}")
@@ -4074,6 +4987,8 @@ class Driver:
         again.held_lead = lead.strip()
         again.why_person = PO.as_class(asked.get("why_person"))          # the same question keeps its class (`waiver_road`)
         again.rows = tuple(str(i) for i in asked.get("rows") or ())     # the same question: it keeps the rows it was about
+        again.probe_gap_cases = tuple(str(c) for c in asked.get("probe_gap_cases") or ())   # the same question keeps the cases it named
+        again.probe_judgment_cases = tuple(str(c) for c in asked.get("probe_judgment_cases") or ())   # (t-1968 N5) as the line above
         again.sources, again.classes = tuple(asked.get("sources") or ()), tuple(asked.get("classes") or ())    # an `s1_gap` keeps what it named
         return again
 
@@ -5094,6 +6009,8 @@ class Driver:
         person.words_file, person.why, person.block = str(state.get("words_file") or ""), str(state.get("why") or ""), str(state.get("block") or "")
         person.answer_note = str(state.get("answer_note") or "")
         person.rows = tuple(str(i) for i in state.get("rows") or ())
+        person.probe_gap_cases = tuple(str(c) for c in state.get("probe_gap_cases") or ())
+        person.probe_judgment_cases = tuple(str(c) for c in state.get("probe_judgment_cases") or ())
         # RN1-9: the class and the reading travel with the question; a priced fallback has none (counted `fallback`, never refused)
         person.why_person, person.checked = PO.normalize(state.get("why_person")), PO.checked_text(state.get("checked") or "")
         person.source = state.get("source") or "fallback"
@@ -5129,41 +6046,50 @@ class Driver:
         person.code = code
         return person
 
-    def fallback_person(self, state: dict, rule: str = "", code: int | None = None) -> Person:
+    def fallback_person(self, state: dict, rule: str = "", code: int | None = None, conductor_text: str = "") -> Person:
         """The priced fallback question (`fallback` of conductor-actions.json) for a state in which no conductor answer
         exists or is usable - or, when the site asked a closed question (`site_fallback`), THAT question again (`site_person`).
         `rule` (when the answer was unusable) is journalled as the factory's own defect; ONE per failure, with the reasons the
-        prices of the site's question could not be read added to it."""
+        prices of the site's question could not be read added to it. `conductor_text` (t-1936 F2.2 (a), FR-9, AR-17): the `question` of a
+        conductor answer whose options were refused - it reaches the person after the lead (`What the conductor found:`, cut at 1200
+        characters, a line for each word it quotes that is not offered), on every road below, the floor included; empty = as before."""
         stage = str(state.get("stage") or self.boundary.split(":")[0])
         lead = str(state.get("lead") or "") or self.question_from_refusal(None, stage)
         if code is None:
             code = EXIT_GAVE_UP if state.get("why") == "stop" else EXIT_PERSON
+        spec, site = NM.data(), state.get("site_doors") or ()
+        # the answers shown are not known yet on these roads (a site's own question, the floor): the text is shown, no token line is claimed
+        unknown = lambda: NM.conductor_lead(lead, conductor_text, None, spec, self.s0_normalize, site=site)
         if callable(state.get("site_fallback")):
-            person = self.site_person(state, lead, code, rule)       # files the ONE defect (the rule and the price reasons)
+            person = self.site_person(state, unknown(), code, rule)       # files the ONE defect (the rule and the price reasons)
             if person is not None:
                 return person
-            return self.last_resort(dict(state, site_fallback=None), "the question of the site could not be shown again", lead=lead, code=code)
+            return self.last_resort(dict(state, site_fallback=None), "the question of the site could not be shown again", lead=unknown(), code=code)
         if rule:
             self.no_move_defect(rule, ref=str(state.get("dispatch") or ""))
         verdicts = (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
         try:
             if str(state.get("kind") or "") in GATE_KINDS:
-                text, options = self.gate_fallback_question(state, lead, verdicts)
+                text, options = self.gate_fallback_question(state, lead, verdicts, conductor_text=conductor_text)
             else:
-                options = NM.fallback_options(NM.data(), verdicts, self.s0_normalize, keep=state.get("fallback"))
-                text = NM.render_question(lead, options, human_text.price_labels())
+                options = NM.fallback_options(spec, verdicts, self.s0_normalize, keep=state.get("fallback"))
+                facts = self.fallback_facts(state) if str(conductor_text).strip() else {}
+                text = NM.render_question(NM.conductor_lead(lead, conductor_text, [o["norm"] for o in options], spec, self.s0_normalize,
+                                                            facts=facts, site=site), options, human_text.price_labels())
             return self._person_of(state, text, options, code=code)
         except (NM.DataUnreadable, human_text.LabelsUnreadable, Refusal) as exc:
-            return self.last_resort(state, f"the fallback could not be rendered ({exc})", lead=lead, code=code)
+            return self.last_resort(state, f"the fallback could not be rendered ({exc})", lead=unknown(), code=code)
 
     NO_APPROVE_WORDS = "To approve, answer this gate in your own words; the choice alone has nothing to record."
 
-    def gate_fallback_question(self, state: dict, lead: str, verdicts: dict) -> tuple:
+    def gate_fallback_question(self, state: dict, lead: str, verdicts: dict, conductor_text: str = "") -> tuple:
         """`(text, options)` of the fallback question AT A GATE (t-722 C2-7 §5.1): the options of the ONE table `GATE_OPTIONS` that are open now (the
         conductor's own prices at this gate read the same rows, `gate_option_rows`, FR-10), each with its executor - `approve` (code,
         the original answer on file), `rework` (no `args`: the answer goes to the conductor with the person's words, which names the
         stage, P1), `retry`, `stop`. An option that is not offered is said in ONE line of the lead (FR-42). A fact that could not be
-        read removes its move and is never told as a reason (FR-59). Raises what the caller turns into the floor (`last_resort`)."""
+        read removes its move and is never told as a reason (FR-59). Raises what the caller turns into the floor (`last_resort`).
+        `conductor_text` (t-1936 F2.2 (a), E2.5): the conductor's refused `question`, shown after the lead with a line for each word it
+        quotes that these options do not carry; it offers nothing, so `go on` stays unoffered at a gate."""
         facts = self.fallback_facts(state)
         open_ids = NM.open_moves(facts, [move for _answer, move, _says, _slots in self.GATE_OPTIONS])
         notes = []
@@ -5177,6 +6103,8 @@ class Driver:
         rows = self.gate_option_rows(open_ids, facts)
         priced = NM.priced_options("gate_A" if state["kind"] == "gate_A" else "gate_B", rows, NM.data(), verdicts)
         options = [dict(row_priced, norm=self.s0_normalize(row["token"]), move=row["move"]) for row_priced, row in zip(priced, rows)]
+        lead = NM.conductor_lead(lead, conductor_text, [o["norm"] for o in options], NM.data(), self.s0_normalize, facts=facts,
+                                 site=state.get("site_doors") or ())
         return NM.render_question("\n\n".join([lead, *notes]), options, human_text.price_labels()), options
 
     def fallback_facts(self, state: dict) -> dict:
@@ -5314,20 +6242,28 @@ class Driver:
             print(f"conductor: {action} — {str(verdict.get('did') or '')[:300]}")
             if action in ("continue", "retry") and not verdict.get("options"):
                 return action
-            options, rule, again = self._verdict_rule(verdict, facts, open_ids, site, chosen, chosen_move)
+            try:
+                options, rule, again = self._verdict_rule(verdict, facts, open_ids, site, chosen, chosen_move)
+            except NM.DataUnreadable as unreadable:      # F2 (E2.2): a bad column of the move table is the factory's defect; the answer is not used
+                options, rule, again = None, f"the table of moves cannot be read ({unreadable})", False
             if not rule:
                 break
+            # t-1936 F2.2 (a): the question of a conductor that asked or stopped is the person's to read even when its options are refused
+            refused_text = str(verdict.get("question") or "") if action in ("ask_person", "stop") and verdict.get("options") else ""   # E2.4: no options, as before
             if not again or state.get("args_refused"):
                 # `continue`/`retry` with options keeps the code the state itself gives (`why=stop` -> EXIT_GAVE_UP), as before C2-6
                 raise self.fallback_person(state, rule, code=None if action in ("continue", "retry")
-                                           else EXIT_GAVE_UP if action == "stop" else EXIT_PERSON)
+                                           else EXIT_GAVE_UP if action == "stop" else EXIT_PERSON, conductor_text=refused_text)
             if chosen:                                  # a malformed answer to the person's CHOICE is the factory's defect, once (§4.3)
                 self.no_move_defect(rule, ref=str(state.get("dispatch") or ""))
             state = dict(state, args_refused=1)
             try:
                 verdict = self._ask_conductor(text + "\n\n## Your options were refused\n" + rule + "\n" + NM.rework_args_list(facts), state)
             except ConductorSpent:
-                raise self.fallback_person(state, rule) from None
+                raise self.fallback_person(state, rule, conductor_text=refused_text) from None
+        dropped = [str(o["token"]) for o in options if o.get("args_dropped")]
+        if dropped:                                     # F2 (Fork 3-B): `args` on a move that takes none was dropped, the option kept - said once
+            self.journal_conductor(stage=self.boundary.split(":")[0], action="args_dropped", args_dropped=dropped)
         if chosen and len(options) == 1:                # the `rework` decision of the person's choice: recorded, run next turn, no question
             return self.chosen_rework(state, options[0])
         raise self.options_person(state, verdict, options, action == "stop", EXIT_GAVE_UP if action == "stop" else EXIT_PERSON)
@@ -5761,7 +6697,7 @@ class Driver:
                           lambda: self.form_report(dispatch, shorten=True)))
         if stage == "S5" and role == "qa-code-critic":
             import story_step
-            if story_step._role_receipts(root, role):
+            if story_step._role_receipts(root, role, dispatch):
                 doors.append(("review receipt", root / "work" / "automation-manifest.json",
                               lambda: self.py("window_record.py", "--task", self.task, "--dispatch", dispatch, "--review-receipt")))
         inventory = root / "work" / "source-inventory.json"
@@ -5889,6 +6825,66 @@ class Driver:
             return self.window_id(stage, scope)
         return f"{stage}|{dispatch}" if dispatch else ""
 
+    PROBE_GAP_LEAD_LIMIT = 10
+
+    @classmethod
+    def probe_gap_lead(cls, pairs) -> str:
+        """B-16: the LEAD of the S5 seam question that offers the probe-gap word, in `human-questions.md` form (what the factory did, why
+        it cannot decide, whose gap, one question; no field, script, path or dispatch id). `pairs` = `window_record.probe_gap_cases`:
+        `[(case key, [instance ids])]`. The text is the owner's (05.11.2026 19:00): it says the word covers the whole CLASS of tests whose
+        check the tool could not read, because that is what the record does (`contract.probe_gap_class_word`). At most
+        `PROBE_GAP_LEAD_LIMIT` cases are listed, then `, and <k> more`; every case is still recorded by `seam_chosen`."""
+        shown = [f"{case} (the test \"{(ids or [''])[0]}\")" for case, ids in list(pairs)[:cls.PROBE_GAP_LEAD_LIMIT]]
+        more = len(pairs) - len(shown)
+        listed = "; ".join(shown) + (f", and {more} more" if more > 0 else "")
+        return (f"The review of this window of tests is finished. {len(pairs)} test case(s) ran green, but for each of them the factory "
+                "could not run the check that proves the test would catch a broken product, because its own tool cannot read these "
+                f"tests: {listed}. That is a gap in the factory's tool, not a flaw in the tests, and only you can accept it.\n\n"
+                "If you answer `go on`, the factory records your words once for each case named above. From then on your words cover "
+                "every test of this story whose check the tool could not read: the tests named here, other tests of the same cases, "
+                "and tests in later windows of this story. The tests themselves are not changed; they are only not checked that way.")
+
+    PROBE_JUDGMENT_LEAD_LIMIT = 10
+    PROBE_JUDGMENT_STATEMENT_LIMIT, PROBE_JUDGMENT_WHY_LIMIT = 120, 160
+
+    @classmethod
+    def probe_judgment_lead(cls, pairs) -> str:
+        """t-1968 N5: the LEAD of the S5 seam question for tests whose probe the code reviewer could not judge, in `human-questions.md`
+        form (what the factory did, why it cannot decide, whose decision, the answers; no field, script, path or dispatch id). `pairs` =
+        `window_record.probe_judgment_cases`: `[(case key, [{iid, line, statement_inverted, statement_after, printed, why, ...}])]`. The text is the spec's
+        (the owner's word 05.11.2026): it covers THESE cases only and says an earlier answer about tooling does not cover them. One entry per
+        TEST: the case, the test, the line of the broken check and the statement (at most 120 characters), what it printed (the lines
+        `window_record` kept) and the reviewer's reason (at most 160); at most `PROBE_JUDGMENT_LEAD_LIMIT` tests are listed, then `, and <k> more`.
+        An entry's missing datum is said plainly, never invented and never a crash. Pure."""
+
+        def cut(text, limit):
+            one = " ".join(str(text or "").split())
+            return one if len(one) <= limit else one[:limit - 1] + "…"
+
+        entries = [(str(case), item) for case, items in pairs for item in items or [] if isinstance(item, dict)]
+        shown = []
+        for case, item in entries[:cls.PROBE_JUDGMENT_LEAD_LIMIT]:
+            # the person reads the check as the plain inversion (`statement_inverted`), never the written statement with the factory's own
+            # marker expression in it (F5); a detail with no inversion text (a probe that wrote no marker) wrote the plain statement
+            line = item.get("line")
+            statement = cut(item.get("statement_inverted") or item.get("statement_after"),
+                            cls.PROBE_JUDGMENT_STATEMENT_LIMIT).replace("`", "'")
+            where = f"the check broken at line {line}" if line not in (None, "") else "the check it broke"
+            printed = cut(item.get("printed"), 10 ** 6)
+            said = cut(item.get("why"), cls.PROBE_JUDGMENT_WHY_LIMIT)
+            shown.append(f"{case}: the test \"{item.get('iid') or ''}\", {where}" + (f" (`{statement}`)" if statement else "")
+                         + (f", it printed \"{printed}\"" if printed else ", it printed nothing the factory kept")
+                         + f"; the reviewer said: {said or 'no reason was given'}")
+        more = len(entries) - len(shown)
+        listed = "; ".join(shown) + (f", and {more} more" if more > 0 else "")
+        return (f"The review of this window of tests is finished, but for {len(pairs)} test case(s) the factory could not prove that a "
+                "test would catch a broken product. It broke one check in each test and ran it; the test failed, and the code reviewer "
+                "could not tell whether it failed because of that check or for another reason: "
+                f"{listed}. Only you can decide what happens to these tests.\n\n"
+                "Answer `go on` to accept them as not proved: your words are recorded for these cases only, and the report lists them as "
+                "not proved. Answer `rework` to send them back to their author with your words. An earlier answer about tests the "
+                "factory's tool could not read does not cover these.")
+
     def window_round_gate(self, refusal: Refusal, stage: str) -> None:
         """F-cmp2-28c: a cap on the rework rounds the CONDUCTOR may start over one window. Returns to let the
         conductor have it, or raises Person.
@@ -5954,9 +6950,27 @@ class Driver:
                 print(f"{stage} window {scope}: the cap of {WINDOW_ROUND_CAP} rounds is spent — the person is asked")
                 lead = (f"The driver has sent this window back for rework {len(mine)} times already and does "
                         "not do it again.\n\n")
-            self.no_move({"why": "threshold", "kind": "refusal", "call": False, "stage": stage, "dispatch": dispatch,
-                          "lead": lead + self.question_from_refusal(refusal, stage), "lines": self.refusal_lines(refusal, items=source),
-                          "text": refusal.text + "\n\nThe findings of this round:\n- " + "\n- ".join(found)})
+            state = {"why": "threshold", "kind": "refusal", "call": False, "stage": stage, "dispatch": dispatch,
+                     "lead": lead + self.question_from_refusal(refusal, stage), "lines": self.refusal_lines(refusal, items=source),
+                     "text": refusal.text + "\n\nThe findings of this round:\n- " + "\n- ".join(found)}
+            if stage == "S5" and dispatch:
+                # B-16: the window's green tests whose probe the tool could not read: the question names their case keys and carries
+                # them in `asked` (the `rows` pattern); `seam_chosen` records `probe gap: <case key>` for each on `go on`. The record
+                # on disk is the one the driver rebuilt at the finish. No such case (red only, never run, no record): today's question.
+                import window_record
+                record = _read_json(self.task_root / "work" / "windows" / f"{dispatch}.json")
+                # t-1968 N5: the tests whose probe the code reviewer could not judge are read FIRST (the person's own question, the owner's
+                # word 05.11.2026); the probe-gap question below runs only when there are none. ONE question per seam (AR-16): the other
+                # kind comes at the next refusal, and no word is recorded for a token the person did not choose.
+                judged = window_record.probe_judgment_cases(record, self.task_root)
+                pairs = [] if judged else window_record.probe_gap_cases(record, self.task_root)
+                if judged:
+                    state["probe_judgment_cases"] = [case for case, _items in judged]
+                    state["lead"] = self.probe_judgment_lead(judged)
+                elif pairs:
+                    state["probe_gap_cases"] = [case for case, _ids in pairs]
+                    state["lead"] = self.probe_gap_lead(pairs)
+            self.no_move(state)
         series.append({"at": _now(), "dispatch": dispatch, "set": found, "outcome": "to_conductor", "cause": cause})
         self.save_state()
         number = len(mine) + 1
@@ -6285,13 +7299,22 @@ class Driver:
                    "between two lines of three dashes (key, type, status, parent) is welcome and not required")
     # The `stop` option of every priced closed question (S0, the halt, the threshold, the package questions): ONE definition.
     STOP_OPTION = {"answer": "stop", "token": "stop", "says": "stop the story here; nothing runs"}
+    # The `says` of the `ungrounded` and `not built yet` answers: the twins `s0.no_change` and `s1.no_diff` (AR-19) use ONE text.
+    UNGROUNDED_SAYS = ("go on with the requirements only, on the code the stand runs now; a test that goes red is judged like any red")
+    NOT_BUILT_YET_SAYS = ("the code for this story is not written yet: the tests are written now from the requirements, using what the "
+                          "project already has (page objects, locators of similar pages), and what cannot be known yet gets a "
+                          "named placeholder; the story stops after the tests are written and reviewed and tells you what is missing, "
+                          "and when the code exists you start the same story again with the merge request, branch or commit")
+    # The one reality word of a side that code reads as "real" (t-2181 PC-2): it must be in `references/side-realities.json`
+    # `realities` (test_no_mr_entry.py pins it). QUEUE: fold it into `contract` beside `PARKING_REALITY` once PC-3 is closed to it.
+    SIDE_REAL = "real"
     # The paste door of every S0 question that takes the ticket as text: ONE definition (t-684 F6). It has no token - the text
     # itself is the answer (`s0_is_text`) - and its price row is `paste`.
     PASTE_OPTION = {"answer": "paste", "says": f"{PASTE_SHAPE} - I use that instead", "slots": {"what": "paste the ticket"}}
     # The words every S0 stop takes as a door (the tokens of its blocks, see `s0_stop`): a one-word answer that
     # is one of them is the person's word to a stop, never a ticket (a `go on` pasted into `ticket_read`).
     S0_DOOR_WORDS = ("go on", "retry", "not needed", "read", "skip", "mr", "branch", "commit", "no ticket", "current code", "change",
-                     "ungrounded", "stop")
+                     "ungrounded", "not built yet", "ours", "another team's", "stop")
 
     def py_stdout(self, script: str, *args, echo: bool = True, timeout: float | None = None) -> tuple:
         """(exit code, stdout, stderr) of one factory script, the two streams kept apart.
@@ -6760,7 +7783,11 @@ class Driver:
                 break
             if mine:
                 return False
-            roles = [d.get("role") for d in dispatches.values() if d.get("stage") == stage and d.get("status") == "accepted"]
+            roles = [d.get("role") for d in dispatches.values() if d.get("stage") == stage and d.get("status") == "accepted"
+                     and (stage != "S3" or d.get("role") == "qa-test-strategist")    # a first look accepted after the strategist is not the author
+                     # B2 (critic t-2548): the S1 twin - the reference window's runner, accepted after the scout, is not the author either; the
+                     # scout is reworked and `rework` re-enters the window. A story with no reference has only the scout here: as before
+                     and (stage != "S1" or d.get("role") == (self.stages().get("S1", {}).get("roles") or [""])[0])]
             if roles and stage == "S3":
                 # G1-11: ONE paid dispatch labels and plans (a rework of S3 is never two); the table is prepared first
                 # (a pre-node S3 with no table gets it built), and the dispatch closes through the one S3 completion.
@@ -7057,7 +8084,9 @@ class Driver:
         text = peel(str(words or "").replace(cls.BOM, "").strip())
         if text[-1:] in (".", "!"):
             text = text[:-1].strip()
-        return " ".join(peel(text).split()).lower()
+        # a curly apostrophe INSIDE a word (`another team’s`: the default of a phone or Word keyboard) is the ASCII one, after the
+        # pairs are peeled (code points, as `_PEEL`)
+        return " ".join(peel(text).replace(chr(0x2019), "'").replace(chr(0x2018), "'").split()).lower()
 
     def s0_quote(self, words: str) -> str:
         """The person's words as one line, at most QUOTE_LIMIT characters; a cut shows as an ellipsis."""
@@ -7077,7 +8106,9 @@ class Driver:
         ns = self.flags
         given = {"mr": getattr(ns, "mr", None), "branch": getattr(ns, "branch", None),
                  "commit": getattr(ns, "commit", None), "ticket_file": getattr(ns, "ticket_file", None),
-                 "env": getattr(ns, "env", None), "ungrounded": bool(getattr(ns, "ungrounded", False))}
+                 "env": getattr(ns, "env", None), "ungrounded": bool(getattr(ns, "ungrounded", False)),
+                 # t-2181 PC-2: `--side <name>=<reality>` and `--reference <side>=<stand>` (pairs, repeated), kept as {name: word}
+                 "side": dict(getattr(ns, "side", None) or ()), "reference": dict(getattr(ns, "reference", None) or ())}
         self.state["launch"] = {key: value for key, value in given.items() if value}
         self.save_state()
 
@@ -7096,6 +8127,13 @@ class Driver:
         if getattr(ns, "ungrounded", False) and not launch.get("ungrounded"):
             launch["ungrounded"] = True
             changed = True
+        # t-2181 PC-2: a side or a reference word on a LATER entry (the relaunch that tells the factory a side is real now) is
+        # kept as the restart's own word, name by name: a later word for a name replaces the earlier one, the other names stay.
+        for key in ("side", "reference"):
+            given = dict(getattr(ns, key, None) or ())
+            if given and any((launch.get(key) or {}).get(name) != word for name, word in given.items()):
+                launch[key] = {**(launch.get(key) or {}), **given}
+                changed = True
         if changed:
             self.save_state()
 
@@ -7109,6 +8147,17 @@ class Driver:
         flags["ungrounded"] = bool(getattr(ns, "ungrounded", False) or kept.get("ungrounded"))
         # SS1-13: the person's answer to the no-change question (`s0_read_word`); no command-line flag carries it, only `launch`.
         flags["implementation_source"] = kept.get("implementation_source") or None
+        # t-2181 PC-2: the sides the person named at launch (this command line over what was kept, name by name) and the answer
+        # `not built yet` (`s0_read_word`); never None, so a reader asks `if flags["side"]`.
+        for key in ("side", "reference"):
+            flags[key] = {**(kept.get(key) or {}), **dict(getattr(ns, key, None) or ())}
+        flags["not_built_yet"] = bool(kept.get("not_built_yet"))
+        # `--side product=absent` IS the person's `not built yet` in flag form (F1): no change is read, so the scout does not halt on
+        # the missing diff and the no-change question is not asked (FR-7). With a change named it is only a record of the side.
+        import contract   # late, as the other uses in this file
+        if (flags["side"].get("product") == contract.PARKING_REALITY
+                and not (flags["mr"] or flags["branch"] or flags["commit"])):
+            flags["ungrounded"] = True
         return flags
 
     def s0_flags(self) -> dict:
@@ -7253,14 +8302,19 @@ class Driver:
             # SS1-13: the change is given on the command line of a NEW entry (`--mr`, `--branch`, `--commit`); there is no executor
             # in this process (a flag cannot be added to a running command), so the command is printed and the question is held (FR-9).
             raise self.s0_again(block, ask, self.NO_CHANGE_LEAD)  # remains: the person's own question comes back with the command printed (FR-9); nothing was accepted
-        elif block == "no_change" and door in ("current code", "ungrounded"):
+        elif block == "no_change" and door in ("current code", "ungrounded", "not built yet"):
             # SS1-13: the answer goes straight into `launch` (as the stand's `env`): `s0_note_launch` keeps only the FIRST entry's flags,
             # and the entry after this answer asks nothing again because the value is there (FR-7). The readers: `launch_flags`
             # (`ungrounded`), `role_lines` (the scout's line) and `s0_rest` (`pipeline.json`'s `implementation_source`).
             if door == "current code":
                 launch["implementation_source"] = "current-code"
             else:
-                launch["ungrounded"] = True
+                launch["ungrounded"] = True     # no change is read: the scout does not halt on the missing diff
+                if door == "not built yet":
+                    launch["not_built_yet"] = True      # `s0_sides_sets` records the side `absent` (t-2181 PC-2)
+        elif block.startswith("deliverable:") and door in ("ours", "another team's"):
+            # t-2181 PC-2 (F-12): whose a non-real side is; the block names the side (`deliverable:<side>`, the name is open, AR-2).
+            self._keep_sides_answer(block.partition(":")[2], door)
         elif block in ("ticket_read", "ticket_auth") and door == "not needed":
             # F3: the story's own ticket is "not needed". What that does is decided where the ticket is read
             # (`s0_ticket`): it goes on with a snapshot that is already there, and ends honestly without one.
@@ -7370,13 +8424,13 @@ class Driver:
         THE CALL STANDS OUTSIDE `if not kept` in `s0`: the entry after the answer finds the snapshot kept, and the answer is already in
         `launch` (FR-7: the question is not asked twice). Four answers (`current code` only where `code_repos` records a repository)."""
         if (flags.get("mr") or flags.get("branch") or flags.get("commit") or flags.get("ungrounded")
-                or flags.get("implementation_source")):
+                or flags.get("implementation_source") or flags.get("not_built_yet")):
             return
         if not self.s0_is_local() or not self.s0_references_allow_no_change():
             return
         repos = bool(self.config.get("code_repos"))
         options = []
-        doors = {"change": "change", "ungrounded": "ungrounded"}
+        doors = {"change": "change", "ungrounded": "ungrounded", "not built yet": "not built yet"}
         if repos:
             options.append({"answer": "current code", "token": "current code",
                             "says": "(Recommended) test the feature as it is now: what the code does is shown as how it behaves now, "
@@ -7384,9 +8438,9 @@ class Driver:
             doors["current code"] = "current code"
         options += [{"answer": "change", "token": "change",
                      "says": "give me the change: a merge request, a branch or a commit, and start the story again with it"},
-                    {"answer": "ungrounded", "token": "ungrounded",
-                     "says": "go on with the requirements only; tests for behaviour that is not implemented are written expected-red, "
-                             "and each one carries a \"not met\" bug at gate B"},
+                    {"answer": "ungrounded", "token": "ungrounded", "says": self.UNGROUNDED_SAYS},
+                    # t-2181 PC-2 (D2): the code is not written yet. Its twin is the `not built yet` option of `halt_text` (`s1.no_diff`, AR-19).
+                    {"answer": "not built yet", "token": "not built yet", "says": self.NOT_BUILT_YET_SAYS},
                     self.STOP_OPTION]
         why = ("" if repos else " This project records no code repository, so there is no code in place to test the story against.")
         self.s0_stop(
@@ -7399,6 +8453,168 @@ class Driver:
             doors, details=f"local story {self.task}: no --mr, --branch, --commit or --ungrounded; work/ticket-references.json holds no row "
                            "of a kind that is a change",
             answer_note="To give the change: start the story again with --mr <link>, --branch <name> or --commit <sha>.")
+
+    def _sides_entries(self, env=None) -> dict:
+        """`{"entries": {side name: {reality, source[, deliverable][, settles_by][, reference]}}, "problem": str, "names": [...],
+        "product_rows": bool}`.
+        `entries` is what the registry (t-2181 PC-1b: `contract.registry_sides`, for the stand SELECTED at S0 (`env`), else the one
+        the launch named with `--env`; later wins) and the person's launch words name, or {} when nothing makes a record owed (S13: an all-real launch with no reference
+        writes nothing, and every reader derives the default). `problem` is why the registry leg could not be read or holds a
+        malformed side row ("" when it read; those sides are left out of `entries`, never read as real); `names` are the side names
+        the registry records on any stand, for the case check (C15)."""
+        import contract   # late, as the other uses in this file
+        flags = self.launch_flags()
+        answers = (self.state.get("launch") or {}).get("sides_answers") or {}
+        read = contract.registry_sides(self.project, env or flags.get("env"))
+        entries = {}
+        for name, row in read["sides"].items():
+            if not row["reality"]:
+                continue
+            entry = {"reality": row["reality"], "source": "registry"}
+            if row["deliverable"] is not None:
+                entry.update(deliverable=row["deliverable"], settles_by=row["settles_by"])
+            if row["reference"]:
+                entry["reference"] = row["reference"]
+            entries[name] = entry
+        for name, word in flags["side"].items():
+            entries.setdefault(name, {})
+            entries[name].update(reality=word, source="launch")
+        if flags["not_built_yet"]:
+            entries["product"] = {"reality": contract.PARKING_REALITY, "deliverable": True, "source": "person"}
+        for name, stand in flags["reference"].items():
+            entries.setdefault(name, {"reality": self.SIDE_REAL, "source": "launch"})["reference"] = stand
+        for name, ours in answers.items():
+            if name in entries:
+                entries[name].update(deliverable=bool(ours), source="person")
+        if not any(entry["reality"] != self.SIDE_REAL or entry.get("reference") for entry in entries.values()):
+            entries = {}
+        return {"entries": entries, "problem": read["problem"], "names": read["names"], "product_rows": read["product_rows"]}
+
+    def s0_write_sides(self, environment=None) -> None:
+        """t-2181 PC-2: the question of the story's sides - `sides.deliverable` for a non-real side whose `deliverable` nothing says,
+        on a story that names a side other than `product` (a single-side story is never asked: the default is true). Called in `s0`,
+        after the stand is selected (`environment`, so a side known only from that stand's row is asked, never silently deliverable):
+        the question must stand BEFORE `pipeline.json`. The record itself is `s0_sides_sets`
+        (built into `pipeline.json` by `s0_rest`). Sides come from `--side <name>=<reality>`, `--reference <side>=<stand>`, the answer
+        `not built yet` and the answers kept by `_keep_sides_answer`; the registry's rows come first (PC-1b), so a side whose
+        `deliverable` a `product.sides` row says is not asked again (the second story of a project).
+        C15 (INVARIANT: a side is one name everywhere, so `UI` never lives beside a recorded `ui`): a `--side` / `--reference` name that
+        is not a recorded side name but equals one but for letter case is REFUSED, naming the recorded name; the offending name is
+        dropped from the kept launch first, so the corrected flag on the next start is the door (it is not met again)."""
+        got = self._sides_entries(environment)
+        entries = got["entries"]
+        flags = self.launch_flags()
+        recorded = set(got["names"])
+        for key in ("side", "reference"):
+            for name in flags[key]:
+                twins = sorted(r for r in recorded if r != name and r.casefold() == name.casefold()) if name not in recorded else []
+                if twins:
+                    launch = self.state.setdefault("launch", {})
+                    (launch.get(key) or {}).pop(name, None)
+                    self.save_state()
+                    raise Refusal(f"the side `{name}` given with --{key} is not a side of this project, but `{twins[0]}` is, and side "
+                                  f"names are compared exactly, so they would be two sides. Start again with --{key} using `{twins[0]}`, "
+                                  f"or have the conductor record `{name}` as a new side (project_knowledge.py side --name {name} "
+                                  "--deliverable yes|no --words-file <file>). Nothing was run for the story.")
+        if not entries or all(name == "product" for name in entries):
+            return
+        for name in sorted(entries):
+            if entries[name]["reality"] == self.SIDE_REAL or "deliverable" in entries[name]:
+                continue
+            self.s0_stop(
+                f"deliverable:{name}", "halt",
+                self.closed_question(
+                    "sides.deliverable",
+                    f"You started {self.task} with the side `{name}` marked as `{entries[name]['reality']}`. Whether this story "
+                    f"delivers `{name}` or another team does decides what the story waits for and what the report hands to whoever "
+                    "makes it real. Nothing has been run for it yet.\n\nWhose is it?",
+                    [{"answer": "ours", "token": "ours",
+                      "says": f"this story delivers `{name}`: the checks that need the real one wait until it exists"},
+                     {"answer": "another team's", "token": "another team's",
+                      "says": f"another team makes `{name}` real: this story does not wait for it, and the report lists what was not "
+                              "checked against it"},
+                     self.STOP_OPTION]),
+                {"ours": "ours", "another team's": "another team's"},
+                details=f"side {name}: reality {entries[name]['reality']}; no record says whether this story delivers it")
+
+    def s0_sides_sets(self, environment=None) -> dict:
+        """`{"sides.<name>.<attribute>": value}` for `pipeline.sides` - or {} when no record is owed (S13) - each value validated by the
+        writer's own check (`stage_done.coerce_value`, never a second validator). `s0_rest` applies it to the `pipeline` dict
+        (`stage_done.apply_facts`) BEFORE `pipeline.json` is written, so the file is born with its sides in ONE write and S0 is never
+        recorded done without them: a refused value is a `Refusal` there and S0 replays whole (INVARIANT: a side the person marked
+        non-real is recorded before any stage after S0 can read it, never recorded as real by this function, AR-28).
+        When the launch names a side and does not name `product`, the record also carries `product: real, deliverable: true,
+        source: default` so no reader loses the implicit side (the Lead's call, t-2378 (b))."""
+        import stage_done
+        got = self._sides_entries(environment)
+        entries, sets, now = got["entries"], {}, _now()
+        if got["problem"]:
+            # PC-1b (S12): a registry that could not be read, or a malformed side row, is written down as `sides_unknown` - the
+            # stamp carries it and the ledger never reads those Thens as proved; the unknown side itself is never recorded as real
+            try:
+                sets = {"sides_unknown.at": stage_done.coerce_value("sides_unknown.at", now),
+                        "sides_unknown.why": stage_done.coerce_value("sides_unknown.why", got["problem"])}
+            except ValueError as exc:
+                raise Refusal(f"the story's sides cannot be recorded: {exc}") from exc
+        if not entries:
+            return sets
+        if not got["product_rows"]:     # once a `product.sides` row exists `product` is not implied (as story_sides(root=) reads it)
+            entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "source": "default"})
+        try:
+            for name in sorted(entries):
+                entry = entries[name]
+                raw = {"reality": entry["reality"], "deliverable": "true" if entry.get("deliverable", True) else "false",
+                       "source": entry["source"], "at": now}
+                if entry.get("settles_by"):
+                    raw["settles_by"] = entry["settles_by"]
+                if entry.get("reference"):
+                    raw["reference"] = entry["reference"]
+                for attr, value in raw.items():
+                    key = f"sides.{name}.{attr}"
+                    sets[key] = stage_done.coerce_value(key, value)
+        except ValueError as exc:
+            raise Refusal(f"the story's sides cannot be recorded: {exc}") from exc
+        return sets
+
+    def _keep_sides_answer(self, name: str, door: str, words: str = "", where: str = "") -> list:
+        """t-2181 PC-2 (writer 2 of the sides): the person's answer to `sides.deliverable` for the side `name` is kept in the launch
+        record (`launch.sides_answers`), the one place that outlives the S0 stop; `s0_sides_sets` carries it into
+        `pipeline.sides` with `source: person`. The question is asked once per side, because the next entry finds the answer here.
+        t-2559 (W2 B3): `words` (the person's own words, default the closed answer) and `where` (what the answer was to) let the S5
+        hold's `not ours` answer use this ONE writer; `door == "ours"` is the only true. Returns the lines of this call that say the
+        registry did not take the answer (t-2562 F-1: the S5 caller carries them to `pipeline.warnings`, `s0_rest` reads the launch list)."""
+        launch = self.state.setdefault("launch", {})
+        launch.setdefault("sides_answers", {})[name] = (door == "ours")
+        self.save_state()
+        said: list = []
+
+        def not_kept(line: str) -> None:
+            # the line goes to stdout AND to `launch.sides_not_kept`, which `s0_rest` turns into `pipeline.warnings` (a carrier the
+            # report and gate A read; stdout is lost once the process ends)
+            print(line)
+            said.append(line)
+            lines = launch.setdefault("sides_not_kept", [])
+            if line not in lines:
+                lines.append(line)
+            self.save_state()
+        # PC-1b, writer 2 of the registry (`by: driver`, `source: person`): the project keeps the answer, so the next story is not
+        # asked. An experiment (`--no-trace`) records nothing (P8): the answer stays in this story's `pipeline.sides`, and one line
+        # says so. The words are the closed answer the person gave (the caller hands over the door, not the raw text).
+        if getattr(self.flags, "no_trace", False) or launch.get("no_trace"):
+            not_kept(f"your answer about {name} was kept for this story only (an experiment leaves no trace)")
+            return said
+        try:
+            import project_knowledge as PK
+            row, problem, _ = PK.record(self.project, key=PK.SIDES_KEY, environment="", element=name, state=PK.KNOWN, scope="project",
+                                        value={"deliverable": door == "ours", "settles_by": ""}, words=words or door, source="person",
+                                        story=self.task, by="driver",
+                                        where=where or "the answer to sides.deliverable at the start of the story")
+            if row is None:
+                not_kept(f"your answer about {name} was kept for this story only: the project's record of sides did not take it ({problem})")
+        except Exception as exc:    # the answer is kept in the story either way; the registry is a convenience for the next one
+            not_kept(f"your answer about {name} was kept for this story only: the project's record of sides could not be written "
+                     f"({type(exc).__name__})")
+        return said
 
     def s0_is_text(self, words: str) -> bool:
         """Is this answer a ticket pasted as text? Any non-empty text is (C9) - but a bare word that is a door
@@ -8129,27 +9345,31 @@ class Driver:
                   "line naming a commit or `branch:<name>` names it another way")
             return
         _label, checkout = found
-        try:
-            done = subprocess.run(["git", "-C", str(checkout), "ls-remote", "origin",
-                                   f"refs/merge-requests/{target['iid']}/head"], capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace", timeout=self.LS_REMOTE_SECONDS,
-                                  env=dict(self.env, GIT_TERMINAL_PROMPT="0"))
-        except subprocess.TimeoutExpired:
-            print(f"{name}: the remote did not answer within {self.LS_REMOTE_SECONDS} seconds, so the head commit "
-                  "of this merge request is not looked up; the word holds by the number")
-            return
-        except OSError as exc:
-            print(f"{name}: git could not be run ({type(exc).__name__}), so the head commit of this merge "
-                  "request is not looked up; the word holds by the number")
-            return
-        rows = [line.split()[0] for line in done.stdout.splitlines() if re.match(r"[0-9a-f]{40}\s", line)]
-        if done.returncode or not rows:
-            why = (done.stderr.strip().splitlines() or ["the merge request is not listed there (a merged or "
-                                                        "closed one is pruned)"])[0][:160]
+        head, why = self.ls_remote_head(checkout, f"refs/merge-requests/{target['iid']}/head",
+                                        "the merge request is not listed there (a merged or closed one is pruned)")
+        if not head:
             print(f"{name}: the head commit of this merge request could not be looked up ({why}); the word holds "
                   "by the number")
             return
-        target["head_sha"] = rows[0]
+        target["head_sha"] = head
+
+    def ls_remote_head(self, checkout, ref: str, missing: str = "the name is not listed there") -> tuple:
+        """THE one ask of a remote for one ref (AR-15): `git -C <checkout> ls-remote origin <ref>`, LS_REMOTE_SECONDS at most, no prompt.
+        `(sha, "")` or `("", why)`. Only the row of `ref` itself counts (`ls-remote` matches a pattern from the end of a name) and only
+        when it is a 40-hex commit id; a failed command gives the first line of git's own words, a clean answer with no such row gives
+        `missing`. The WORDS of `why` are the caller's to show or to put in plain words (a person never reads them as they are)."""
+        try:
+            done = subprocess.run(["git", "-C", str(checkout), "ls-remote", "origin", ref], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", timeout=self.LS_REMOTE_SECONDS,
+                                  env=dict(self.env, GIT_TERMINAL_PROMPT="0"))
+        except subprocess.TimeoutExpired:
+            return "", f"the remote did not answer within {self.LS_REMOTE_SECONDS} seconds"
+        except OSError as exc:
+            return "", f"git could not be run ({type(exc).__name__})"
+        rows = [line.split()[0] for line in done.stdout.splitlines() if re.fullmatch(r"[0-9a-f]{40}\s+" + re.escape(ref), line.strip())]
+        if done.returncode or not rows:
+            return "", (done.stderr.strip().splitlines() or [missing])[0][:160]
+        return rows[0], ""
 
     def s0_resolve_branch(self, entry: dict) -> None:
         """Best effort: the commit a `branch:<name>` word stands for, written into its target (`sha`), so that
@@ -8189,23 +9409,11 @@ class Driver:
         found, why = [], ""
         ref = f"refs/heads/{branch}"
         for checkout in checkouts:
-            try:
-                done = subprocess.run(["git", "-C", str(checkout), "ls-remote", "origin", ref], capture_output=True,
-                                      text=True, encoding="utf-8", errors="replace", timeout=self.LS_REMOTE_SECONDS,
-                                      env=dict(self.env, GIT_TERMINAL_PROMPT="0"))
-            except subprocess.TimeoutExpired:
-                why = why or f"the remote did not answer within {self.LS_REMOTE_SECONDS} seconds"
+            head, said = self.ls_remote_head(checkout, ref, "the branch is not listed there")
+            if not head:
+                why = why or said
                 continue
-            except OSError as exc:
-                why = why or f"git could not be run ({type(exc).__name__})"
-                continue
-            # `ls-remote` matches a pattern from the end of a name: only the branch itself counts.
-            rows = [line.split()[0] for line in done.stdout.splitlines()
-                    if re.fullmatch(r"[0-9a-f]{40}\s+" + re.escape(ref), line.strip())]
-            if done.returncode or not rows:
-                why = why or (done.stderr.strip().splitlines() or ["the branch is not listed there"])[0][:160]
-                continue
-            found.append(rows[0])
+            found.append(head)
         if len(set(found)) == 1:
             target["sha"] = found[0]
             return
@@ -8540,10 +9748,8 @@ class Driver:
               "accessibility, localization, compatibility, privacy) are out of scope in this version.")
         sel_args = ["--config", "qa-factory/config.json"] + (["--requested", flags["env"]] if flags["env"] else [])
         code, out = self.py("environment_selection.py", *sel_args)
-        try:
-            selection = json.loads(out.splitlines()[-1])
-        except (ValueError, IndexError):
-            selection = {"status": "unknown", "raw": out}
+        # a deliberate `raw`: no readable answer is the NAMED status `unknown` (never a pass), handled below like any other status
+        selection = _read_answer(out) or {"status": "unknown", "raw": out}
         status = selection.get("status")
         # t-017 D2 (B-005): `environment_pending` is true until a stand has ANSWERED the check -
         # "no stand is confirmed as usable", whether there is no name at all or a name whose probe
@@ -8595,6 +9801,10 @@ class Driver:
                                                                "the stage starts"} for name in names]
                     + [{"answer": "go on", "token": "go on", "says": "go on without a stand for now"}, self.STOP_OPTION]),
                 doors, details=f"environment selection answered: {out.strip()[-600:]}")
+        # t-2181 PC-2: the `sides.deliverable` question (the record is written in `s0_rest`). POSITION (PC-1b F2): after the stand is
+        # selected, so a side known only from that stand's `environments.sides` row is asked; INVARIANT: the question still stands
+        # BEFORE `pipeline.json` (written in `s0_rest`), and a side is never silently `deliverable: true`.
+        self.s0_write_sides(environment)
         # An experiment hands the flag to BOTH calls: neither probes the tracker's write right
         # (readiness.py --no-trace), so S0 asks a tracker nothing it is not going to be sent (FR-36).
         trace = ["--no-trace"] if no_trace else []
@@ -8687,6 +9897,10 @@ class Driver:
             # FIRST: gate A shows the first five warnings, and this is the one that says what the run is.
             warnings.insert(0, "this run is an experiment: nothing leaves the project — no merge request, "
                                "no tracker write; bugs stay as files")
+        # t-2181 PC-1b (F5): the lines of a side answer the registry did not take are lines of the story's record, right after the
+        # experiment line and the criteria line (gate A shows the first five warnings)
+        for offset, line in enumerate((self.state.get("launch") or {}).get("sides_not_kept") or []):
+            warnings.insert((1 if no_trace else 0) + (1 if criteria_line else 0) + offset, line)
         pipeline = {"ticket": self.task, "parent_feature": parent, "size": None, "environment": environment,
                     "environment_pending": pending, "implementation_source": source, "warnings": warnings,
                     "stages": {"S0": {"status": "done", "started": _now(), "finished": _now(), "role": None,
@@ -8694,6 +9908,12 @@ class Driver:
                     "gates": {}, "halts": []}
         if no_trace:
             pipeline["no_trace"] = True   # the record every reader of the experiment reads (closed_by_run)
+        # t-2181 PC-2 (B2): the story's sides are built into the dict BEFORE the file is written - `pipeline.json` is born with its
+        # sides, so S0 is never done without them; a refused value raises here and S0 replays whole (the writer's own functions, one writer)
+        sides = self.s0_sides_sets(environment)
+        if sides:
+            import stage_done
+            stage_done.apply_facts(pipeline, sides, [])
         _write_json(self.task_root / "pipeline.json", pipeline)
         # S0 is over: what it kept for the answers of its own stops goes. `launch` stays - it is
         # what the story was started with, as the person corrected it.
@@ -8866,7 +10086,7 @@ class Driver:
             return [f"implementation_source: {pipeline.get('implementation_source') or 'unknown'}",
                     f"context-bundle.json (read first): {base}work/context-bundle.json",
                     f"context-manifest.json (only referenced detail): {base}work/context-manifest.json",
-                    f"impl-diff.txt: {base}work/impl-diff.txt (absent when ungrounded)"]
+                    f"impl-diff.txt: {base}work/impl-diff.txt (absent when ungrounded or current-code)"]
         if role == "qa-test-strategist":
             return self.s3_strategist_lines(record) if stage == "S3" else [self.S3_PLAN_LINE]
         if role == "qa-runner":
@@ -8895,7 +10115,123 @@ class Driver:
 
     def stage_simple(self, stage: str) -> None:
         role = self.stages()[stage]["roles"][0]
-        self.run_role(stage, role, extra=self.role_lines(stage, role))
+        # S-c (t-2181 PC-9b): S1 of a story whose side carries a `reference` has ONE more dispatch after the scout, the runner's walk of the
+        # old version (`optional_dispatches` of references/stages.json, read through `stage_guard.optional_rows`, the ONE reader; purpose
+        # `reference_walk`). A story with no reference reads no stand name and takes the line below, byte for byte as before.
+        if stage != "S1":
+            return self.run_role(stage, role, extra=self.role_lines(stage, role))
+        window = self.s1_window_owed(stage)
+        if not window:
+            return self.run_role(stage, role, extra=self.role_lines(stage, role))
+        import controller as CT
+        import exit_gate
+        try:
+            mine = {k: v for k, v in (self.controller_state().get("dispatches") or {}).items()
+                    if isinstance(v, dict) and v.get("role") == role and v.get("status") not in CT.DISCOUNTED}
+            scout = exit_gate.stage_dispatch(mine, stage)
+        except Exception as exc:  # noqa: BLE001 - unreadable state: the scout runs again (the dearer direction), said once (N4)
+            print(f"S1: reference window: the scout's dispatch could not be read ({type(exc).__name__}); the scout runs again")
+            scout = None
+        if not (scout and scout.get("status") == "accepted"):
+            # the scout does NOT close S1 here: the runner's window is the stage's last dispatch (complete=True below)
+            self.run_role(stage, role, extra=self.role_lines(stage, role), complete=False)
+        self.s1_reference_window(stage, window)
+
+    def s1_window_owed(self, stage: str, role: str | None = None):
+        """`{"row", "references"}` when the S1 reference window is owed - the stage declares an optional `reference_walk` dispatch
+        (`stage_guard.optional_rows`) AND the story's sides carry a reference stand (`stand_identity.reference_stands`) - else None.
+        The ONE test of "has this story a window", read by `stage_simple` (the first make of S1), by `rework`, by the relaunch road
+        of a rework of the S1 scout and by `completion_for` (t-2277 batch 2b D): a story with no reference gets None and every road stays
+        as it was. `role` (N1, critic t-2548): when given, the window is owed only for the stage's AUTHOR (its first role, the scout) -
+        any other role of the stage gets None - so the one test of "the scout" lives here, not at each caller."""
+        if stage != "S1":
+            return None
+        if role is not None and role != (self.stages().get(stage, {}).get("roles") or [""])[0]:
+            return None
+        import controller as CT
+        import stage_guard as SG
+        rows = [r for r in SG.optional_rows(self.stages()[stage]) if r["purpose"] == CT.REFERENCE_WALK]
+        if not rows:
+            return None
+        import stand_identity as SI
+        references = SI.reference_stands(self.project, self.task)
+        return {"row": rows[0], "references": references} if references else None
+
+    def s1_reference_window(self, stage: str, window: dict) -> None:
+        """The runner's walk of the OLD version (the S1 reference window), after the scout's run: dispatch, survey walk on the reference
+        stand, the runner's `put` (with `--replace` over an old snapshot). The closing dispatch of S1 (`complete=True`). Whether the
+        scout's dispatch was ACCEPTED is checked by `stage_simple` (it runs the scout only when no accepted one exists); `rework` and
+        `_act_relaunch` call this right after `run_role` returned, whatever the scout's status is (N2, critic t-2548): this method itself
+        checks no status."""
+        import controller as CT
+        import stage_guard as SG
+        import event_store
+        row, references = window["row"], window["references"]
+        runner, purpose = row["role"], row["purpose"]
+        # one reference per story (the snapshot has one `reference_env`): the first by name is walked, every other is NAMED as a gap (F6, AR-28)
+        reference = sorted(references)[0]
+        unwalked = [f"the reference `{stand}` of the `{references[stand]}` side was not walked: one reference per story"
+                    for stand in sorted(references)[1:]]
+        for line in unwalked:
+            print(f"S1: reference window: {line}")
+        controller = CT.Controller(self.task_root, wait_seconds=event_store.LIFECYCLE_WAIT_SECONDS)
+        state = controller.state()
+        number = 1 + len([d for d in (state.get("dispatches") or {}).values() if isinstance(d, dict) and d.get("stage") == stage and d.get("role") == runner])
+        dispatch_id = f"{stage}-{runner}-{number}"
+        try:
+            # the purpose goes into `prepare` too: the controller admits a qa-runner packet with no `execution_kind` only by the purpose of an
+            # optional row of the stage (`controller.runner_kind_required`, B1) - the window runs no half of a plan
+            packet = controller.prepare({"stage": stage, "role": runner, "id": dispatch_id, "scope": [], "purpose": purpose})
+            controller.apply("dispatch", dict(packet["dispatch_request"], purpose=purpose))
+        except Exception as exc:
+            raise Refusal(f"{stage} reference window dispatch refused: {type(exc).__name__}: {exc}")
+        # the walk session of the OLD version: `survey` place on the reference stand, opened after the dispatch is registered and before the
+        # role starts (the record names the stand; `reference_snapshot.py put` takes the walk by code from the newest `reference_walk` dispatch).
+        # The actors are `first_look.walk_actors` - the ONE reader of the account list (F7, AR-13): accounts first, `guest` in a slot left over
+        import first_look as FL
+        import walk_session as WS
+        who = FL.walk_actors(self.project, self.config, reference, WS.data()["max_actors"])
+        actors = who["actors"]
+        code, text = self.py("walk_session.py", "open", "--task-root", str(self.task_root), "--walk", dispatch_id, "--place", "survey",
+                             "--env", reference, "--items", "free", "--actor", actors[0], *(["--actor2", actors[1]] if len(actors) > 1 else []))
+        out_rel = (SG.optional_outputs(row) or ("work/reference-snapshot.yaml",))[0]
+        replace = (self.task_root / out_rel).is_file()      # the story is made again over an old snapshot: `put` replaces it
+        put = (f"python \"{self.scripts}/reference_snapshot.py\" put --task-root {self.task_root} --reference {reference} --items-file <items.yaml>"
+               + (" --replace" if replace else ""))
+        shape = ("The file is block YAML: `items:` - one mapping per behaviour: id (plain id), area, user_path, observed, evidence (a list of "
+                 "{path, quote} from a capture of THIS walk) and/or old_test (<file>:<line>), locators_portable (yes | no | unknown) - and a "
+                 "`gaps:` list of lines. The snapshot contract - every key, the evidence form and what `put` refuses - is "
+                 f"`{self.plugin / 'references' / 'artifact-contract-reference.md'}`.")
+        extra_gaps = (" Put these lines in `gaps:`: " + "; ".join(f"\"{g}\"" for g in unwalked) + ".") if unwalked else ""
+        if code:
+            why = ((_read_answer(text) or {}).get("reason") or (text.splitlines() or [f"exit {code}"])[-1]).strip()[:300]
+            gaps = [f"the old version at {reference} could not be reached: {why}", *unwalked]
+            try:
+                import reference_snapshot as RS
+                RS.put_gap(self.task_root, reference, gaps, replace=replace)       # F5: the line is the driver's own, so the driver writes it
+                written = True
+            except Exception as exc:  # noqa: BLE001 - the runner writes it as before (P1)
+                print(f"S1: reference window: the gap-only snapshot was not written by the driver ({type(exc).__name__}); the runner writes it")
+                written = False
+            if written:
+                extra = [f"Reference window: the old version at `{reference}` could not be reached ({why}). The driver has already written "
+                         f"{out_rel} with that one gap line: walk nothing, write nothing, ask no one - hand over your form (S1 closes with this dispatch)."]
+            else:
+                extra = [f"Reference window: the old version at `{reference}` could not be reached: {why}. Walk nothing and ask no one: write the "
+                         f"snapshot with `items: []` and the gap line \"the old version at {reference} could not be reached: {why}\": `{put}`." + extra_gaps]
+        else:
+            who_line = (f"You walk as {', '.join(actors)}" + (f" (accounts not opened, the walk holds {len(actors)}: {', '.join(who['left'])})" if who["left"] else "")
+                        + ("; as `guest` you are not signed in" if "guest" in actors else "") + ". ")
+            extra = [f"Reference window: walk the OLD version at `{reference}` in walk session `{dispatch_id}` (place survey; items are ids you choose, "
+                     "plain letters, digits, - and _), the behaviours the story's requirements say must stay as they are. " + who_line
+                     + "Capture with the walk commands of your brief. Then write what you saw ONCE: `" + put + "`. " + shape + extra_gaps]
+
+        def record_then_role() -> None:
+            self.record_running(stage, runner, dispatch_id, retry=record_then_role)
+            self.run_role(stage, runner, complete=True, extra=extra, purpose=purpose,
+                          rework={"id": dispatch_id, "scope": [], "reason": "reference window"},
+                          after=(None if code else (lambda d, r: self.py("walk_session.py", "close", "--task-root", str(self.task_root), "--walk", dispatch_id))))
+        record_then_role()
 
     # --- S3 in two windows (G1-11, grounding/1) --------------------------------------------------------------------------------
     def stage_S3(self) -> None:
@@ -8905,6 +10241,7 @@ class Driver:
         there is nothing to label: one window as before, after the preparation wrote the null outcome."""
         import controller as CT
         import grounding_table as GT
+        self.first_look_step()       # t-2277 FL-5: before `s3_prepare` and window 1 of THIS pass; no strategist dispatch is registered ahead of it
         role = self.stages()["S3"]["roles"][0]
         critic = bool(self.stage_acceptor("S3"))
         if critic and self.s3_author_done():
@@ -8930,15 +10267,203 @@ class Driver:
         self.run_role("S3", role, purpose=CT.S3_LABELLING, extra=self.role_lines("S3", role, {"window": "labelling"}),
                       complete=self.s3_window_completion({"window": "labelling"}))
 
+    def first_look_step(self) -> None:
+        """The first look at the new version on the stand, before the plan (t-2277 FL-5; `first_look.py` is the one reader and writer of the
+        record, `walk_session.py` the walk, AR-14/AR-15). POSITION: the first call of `stage_S3`, before `s3_prepare` and window 1. INVARIANT:
+        no strategist dispatch of this pass is registered before the first look is decided - walked, skipped with a named reason, or answered.
+        1. `first_look.due` false WITH a reason -> `put --null <reason>` (a specific null already written for these heads is kept, never
+           replaced by the generic `walk_not_opened`), one line, the plan as today; false with none -> one line "already on these heads".
+           2. True -> `_first_look_walk`: the survey walk is opened for the register's requirements (`--env` of the story's stand; the
+           actors are `first_look.walk_actors`: accounts first, `guest` in a slot left over, J-18), THEN the optional dispatch of
+           stages.json S3 (`qa-runner`, purpose `first_look`) is registered and run (a failed open leaves no registered dispatch for the
+           controller to close): an open that fails ends the attempt, removes the walk record and writes the null reason, and the plan is
+           made as today (FR-57, no question). 3. Accepted = the dispatch closed by the controller AND `first_look.read` gives a fresh,
+           non-empty record of THIS walk (`_first_look_accepted`); not accepted -> the attempt keeps what it is (`written` stays; one
+           that is still `walking` ends `nothing_written`), a gap line, and S3 AT ONCE: no question over unaccepted work, the dispatch is
+           not repeated on these heads (`due`). 4. `_first_look_question`: an ACCEPTED record whose `first_look.share` is below the floor,
+           with something counted, no `continue` for these heads and register and no answer yet to this walk -> `first_look.dead`.
+           Never raises for a doubt (P1): what code cannot establish is one printed line and the plan as today."""
+        import first_look as FL
+        T = self.task_root
+        say = lambda text: print(f"S3: first look: {text}")      # noqa: E731
+        try:
+            pipeline = self.pipeline()
+            due, reason, why = FL.due(T, pipeline, self.config)
+        except Exception as exc:  # noqa: BLE001 - P1
+            say(f"the question whether to walk could not be asked ({type(exc).__name__}); the plan is made as before")
+            return
+        if not due:
+            if reason:
+                self._first_look_null(FL, reason, why)
+            else:
+                say(f"on these heads there was already one: {FL.read_attempt(T).get('outcome') or 'recorded'}")
+        elif not self._first_look_walk(FL, pipeline):
+            return              # not walked or not accepted: S3 at once (B3), nothing is asked over work nobody accepted
+        self._first_look_question(FL)
+
+    def _first_look_null(self, FL, reason: str, why: str) -> None:
+        """`put --null <reason>`, one line. A specific null of these heads (`no_reachable_surface`, `profile_not_chosen`) is not overwritten by
+        the generic `walk_not_opened` a later entry reaches through `due` (t-2277 FL-5 m3, AR-27): the reason the person reads is the
+        first one found."""
+        T = self.task_root
+        if reason == "walk_not_opened":
+            held = FL.read(T)
+            if held["null"] and held["null"] != reason and not held["stale"]:
+                print(f"S3: first look: none ({held['null'].replace('_', ' ')}): kept; {why}")
+                return
+        # remains: the exit code is read on the next lines - a record that was not written is printed with the reason, and the plan is made as before (P1)
+        code, out = self.py("first_look.py", "put", "--task-root", str(T), "--null", reason)
+        print(f"S3: first look: none ({reason.replace('_', ' ')}): {why}"
+              + (f"; the record of that was not written ({(str(out).strip().splitlines() or ['no output'])[-1][:200]})" if code else ""))
+
+    def _first_look_accepted(self, FL) -> bool:
+        """THE reader of "the first look of these heads was accepted" (AR-13): the attempt says `written`, the controller's dispatch of that
+        attempt is `accepted`, and `first_look.read` gives a current, non-null, non-empty record of THAT walk. A record `put` wrote under a
+        dispatch that was not accepted is not accepted work: it asks nothing and counts for nothing. Anything unreadable: False."""
+        try:
+            attempt = FL.read_attempt(self.task_root)
+            got = FL.read(self.task_root)
+            state = (self.controller_state().get("dispatches") or {}).get(attempt.get("dispatch")) or {}
+            return bool(attempt.get("outcome") == "written" and state.get("status") == "accepted" and not got["problem"] and not got["null"]
+                        and not got["stale"] and got["rows"] and got["walk"] == attempt.get("dispatch"))
+        except Exception:  # noqa: BLE001 - an unreadable state is not an acceptance (AR-28)
+            return False
+
+    def _first_look_give_up(self, FL, dispatch: str, null: str, said: str, *, refused: bool) -> None:
+        """The walk did not open (FR-57): the dead walk record goes and the null reason is written. The attempt ends `open_failed` (the next
+        entry may try once more) - except for a REFUSED cause (`walk_session.REFUSED_CAUSES`: the project has no surface), which cannot get
+        better by trying again and ends `nothing_written` (settled: `due` repeats nothing, m3)."""
+        T = self.task_root
+        # remains: the attempt's end is bookkeeping of a walk that is given up (P1): the plan is made as before whether or not it was written
+        self.py("first_look.py", "end", "--task-root", str(T), "--outcome", "nothing_written" if refused else "open_failed")
+        try:
+            (T / "state" / "walks" / f"{dispatch}.json").unlink()
+        except OSError:
+            pass
+        # remains: the null record only explains the missing look in the next line (P1): the plan is made as before whether or not it was written
+        self.py("first_look.py", "put", "--task-root", str(T), "--null", null)
+        print(f"S3: first look: none ({null.replace('_', ' ')}): the walk was not opened ({said}); the plan is made as before")
+
+    def _first_look_walk(self, FL, pipeline: dict) -> bool:
+        """Steps 2-3 of `first_look_step`: open the walk, register and run the optional dispatch, accept or not. True = ACCEPTED."""
+        import controller as CT
+        import grounding_table as GT
+        import stage_guard as SG
+        import walk_session as WS
+        T = self.task_root
+        say = lambda text: print(f"S3: first look: {text}")      # noqa: E731
+        last = lambda out: (str(out).strip().splitlines() or ["no output"])[-1][:200]      # noqa: E731
+        model = SG.stage_model()
+        stage = next((st for st in model.get("stages") or [] if st.get("id") == "S3"), {})
+        row = next((r for r in SG.optional_rows(stage) if r["purpose"] == CT.FIRST_LOOK), None)
+        if row is None:     # the one source of the dispatch's role and purpose is stages.json; without its row there is nothing to register
+            say("stages.json S3 names no optional dispatch of purpose first_look (gap); the plan is made as before")
+            return False
+        role, purpose = row["role"], row["purpose"]
+        stand = str(pipeline.get("environment") or "")
+        items = sorted(GT.register_info(T).ids, key=lambda r: (len(r), r))
+        known = (self.controller_state().get("dispatches") or {})
+        number = 1
+        while f"S3-{role}-{number}" in known:
+            number += 1
+        dispatch = f"S3-{role}-{number}"
+        who = FL.walk_actors(self.project, self.config, stand, WS.data()["max_actors"])
+        actors = who["actors"]
+        code, out = self.py("first_look.py", "begin", "--task-root", str(T), "--dispatch", dispatch, "--env", stand)
+        if code:
+            self._first_look_give_up(FL, dispatch, "walk_not_opened", f"first_look.py begin: {last(out)}", refused=False)
+            return False
+        code, out = self.py("walk_session.py", "open", "--task-root", str(T), "--walk", dispatch, "--place", "survey", "--env", stand,
+                            "--items", ",".join(items), "--actor", actors[0], *(["--actor2", actors[1]] if len(actors) > 1 else []))
+        if code:
+            cause = str((_read_answer(out) or {}).get("cause") or "")
+            self._first_look_give_up(FL, dispatch, cause if cause in (FL.data().get("null_reasons") or []) else "walk_not_opened", last(out),
+                                     refused=cause in WS.REFUSED_CAUSES)
+            return False
+
+        def close_walk(done: str, _result=None) -> None:
+            # remains: the exit code is read on the next line and printed as a note; the walk's server ends by itself
+            code2, out2 = self.py("walk_session.py", "close", "--task-root", str(T), "--walk", done)
+            if code2:
+                print(f"note: walk_session.py close exit {code2}: {last(out2)}; the server ends by itself")
+        try:
+            from controller import Controller
+            import event_store
+            controller = Controller(T, wait_seconds=event_store.LIFECYCLE_WAIT_SECONDS)
+            packet = controller.prepare({"stage": "S3", "role": role, "id": dispatch, "purpose": purpose})
+            controller.apply("dispatch", dict(packet["dispatch_request"], purpose=purpose))
+        except Exception as exc:  # noqa: BLE001 - nothing was registered or the registration failed: the walk is not left open
+            close_walk(dispatch)
+            self._first_look_give_up(FL, dispatch, "walk_not_opened",
+                                     f"the dispatch was not registered: {type(exc).__name__}: {' '.join(str(exc).split())[:160]}", refused=False)
+            return False
+        self.boundary = f"S3:{dispatch}"
+        if who["problem"]:
+            say(f"the record of project knowledge could not be read fully ({who['problem'][:120]}); the accounts it has are used")
+        print(f"S3: first look: {dispatch} walks {len(items)} requirement(s) on `{stand}` as {', '.join(actors)}"
+              + (f"; accounts not opened (the walk holds {len(actors)}): {', '.join(who['left'])}" if who["left"] else ""))
+
+        def launch() -> None:
+            self.record_running("S3", role, dispatch, retry=launch)
+            self.run_role("S3", role, scope=[], complete=False, after=close_walk,
+                          extra=self.role_lines("S3", role),
+                          rework={"id": dispatch, "scope": [], "reason": "first look",
+                                  "line": f"First look: survey walk {dispatch} on {stand} is open; your brief has the commands and the form."})
+        launch()
+        if self._first_look_accepted(FL):
+            return True
+        if FL.read_attempt(T).get("outcome") == "walking":      # the role wrote nothing; a record `put` wrote keeps its `written` (B3)
+            # remains: bookkeeping of an attempt that wrote nothing (P1): the line below says the plan is made without the look
+            self.py("first_look.py", "end", "--task-root", str(T), "--outcome", "nothing_written")
+        say(f"{dispatch} was not accepted with a record of this walk (gap); the plan is made without it and the look is not repeated on these heads")
+        return False
+
+    def _first_look_question(self, FL) -> None:
+        """Step 4 of `first_look_step`: `first_look.dead` over an ACCEPTED record below the floor, not yet continued and not yet answered."""
+        say = lambda text: print(f"S3: first look: {text}")      # noqa: E731
+        T = self.task_root
+        try:
+            if not self._first_look_accepted(FL) or FL.asked(T):
+                return
+            share = FL.share(T, self.config)
+            if not share["below"] or FL.continued(T, self.pipeline()):
+                return
+            record = FL.read(T)
+            import contract
+            sides = {n: s["reality"] for n, s in contract.story_sides(self.pipeline()).items() if s["reality"] != "real"}
+        except Exception as exc:  # noqa: BLE001 - P1: an unreadable look asks nothing
+            say(f"the share could not be read ({type(exc).__name__}); the plan is made as before")
+            return
+        import interim_packet
+        lines = [f"Before planning I looked at the stand `{record.get('stand') or self.pipeline().get('environment')}` once. It showed "
+                 f"{share['reachable']} of {share['counted']} requirements ({share['share']}%), under the {share['floor']}% from which I go on "
+                 f"by myself. Every requirement, by what the stand answered: {interim_packet.status_counts(record['rows'])}."]
+        stuck = [r for r in record["rows"] if r.get("status") not in (FL.data().get("reachable") or [])]
+        if stuck:
+            shown = [f"- {r.get('req')}: {' '.join(str(r.get('why') or 'no reason given').split())[:140]}" for r in stuck[:self.GROUNDING_NAMED_MAX]]
+            if len(stuck) > self.GROUNDING_NAMED_MAX:
+                shown.append(f"- and {len(stuck) - self.GROUNDING_NAMED_MAX} more")
+            lines.append("The stand did not show:\n" + "\n".join(shown))
+        if sides:
+            lines.append("Parts of the product that are not the real thing yet: " + ", ".join(f"{n} ({w})" for n, w in sides.items()) + ".")
+        if record.get("stand_build") == "not_established":
+            lines.append("Nobody has confirmed which build is on the stand, so the feature may be missing only because the build there is old.")
+        lines.append("What I need from you is one of these:")
+        options = [{"answer": "continue", "token": "continue",
+                    "says": "write the plan anyway; the plan reads what the stand showed as an observation, not as the truth"},
+                   {"answer": "stop", "token": "stop",
+                    "says": "stop the story here and wait until the build you want checked is on the stand; nothing runs. You can also tell me "
+                            "in your own words what to do instead"}]
+        # remains: a closed question over the story's own state, not a state without a move: every answer has an executor (`_first_look_answer`)
+        raise Person("first_look_dead", self.closed_question("first_look.dead", "\n\n".join(lines), options),
+                     "S3", answer_note="Write `continue`, `stop`, or your own words (the conductor reads them).")
+
     def s3_author_done(self) -> bool:
         """True when the newest S3 strategist dispatch that counts is ACCEPTED and is not window 1 (labelling): the plan is written and the
         stage critic's route is next (a restart of the process, or the author's repair round). Unreadable state: False."""
-        import controller as CT
         import exit_gate
         try:
-            records = (self.controller_state().get("dispatches") or {})
-            mine = {k: v for k, v in records.items() if isinstance(v, dict) and v.get("role") == "qa-test-strategist"
-                    and v.get("status") not in CT.DISCOUNTED}
+            mine = exit_gate.s3_strategist_records(self.controller_state().get("dispatches") or {})
         except Exception:
             return False
         newest = exit_gate.stage_dispatch(mine, "S3")
@@ -8951,9 +10476,7 @@ class Driver:
         import controller as CT
         import exit_gate
         try:
-            records = (self.controller_state().get("dispatches") or {})
-            mine = {k: v for k, v in records.items() if isinstance(v, dict) and v.get("role") == "qa-test-strategist"
-                    and v.get("status") not in CT.DISCOUNTED}
+            mine = exit_gate.s3_strategist_records(self.controller_state().get("dispatches") or {})
         except Exception:
             return "w1"
         newest = exit_gate.stage_dispatch(mine, "S3")
@@ -9259,48 +10782,264 @@ class Driver:
         """The role that accepts `stage` by meaning (`acceptance_by` in references/stages.json), or "" when the stage has none."""
         return str((self.stages().get(stage) or {}).get("acceptance_by") or "")
 
-    # --- X7-6: S6 is accepted by its CONSUMER (the failure analyst of S7); the runner's finish never closes it ---------------------
-    def s6_consumer(self) -> str:
-        """The consumer role that accepts S6 from S7 (`acceptance_by` outside S6's own roles), or "" (the world before X7-6)."""
-        import acceptance
-        return acceptance.consumer_of("S6")
+    # --- X7-6 / X7-6b / X7-6c: a stage accepted by its CONSUMER role - S6 by the failure analyst (who works in S7), S7 by the doc scribe (who works
+    # in S8). ONE table and ONE helper set (t-1860 Q8): the two stages differ only in the data below, so every fix is made once. ------------
+    CONSUMER_ROUTES = {
+        "S6": {"consumer_stage": "S7", "author": "qa-runner", "who": "failure analyst", "what": "the runner's handoff",
+               "closes_when": lambda closes: closes is True,
+               "awaits": "the runner stopped; S6 awaits the acceptance of {consumer}, which judges the run report and the case records from its own form",
+               "rework_complete": lambda driver: driver.consumer_awaits("S6", True)},
+        "S7": {"consumer_stage": "S8", "author": "qa-failure-analyst", "who": "doc scribe", "what": "the analyst's handoff",
+               "closes_when": lambda closes: closes is None,
+               "awaits": "the failure analyst stopped; S7 awaits the acceptance of {consumer}, which judges the triage and the bug drafts from its own form",
+               # read AFTER the role wrote: repairs still owed keep S7 open
+               "rework_complete": lambda driver: (lambda digest: driver.consumer_awaits("S7", driver.s7_open_work()))},
+    }
 
-    def s6_awaits(self, closes):
-        """The runner's `complete` under a consumer: a finish that WOULD close S6 (`closes` truthy) is the open-work word
-        `stage_awaits_acceptance` instead (POSITION: the author never closes the stage, X7-6); anything else is passed through as it was.
-        With no consumer, `closes` comes back unchanged (temporal: older pipelines behave as today)."""
-        consumer = self.s6_consumer()
-        if consumer and closes is True:
-            import acceptance
-            return OpenWork(acceptance.AWAITS_WORD, open_work_reason(
-                f"the runner stopped; S6 awaits the acceptance of {consumer}, which judges the run report and the case records from its own form", ""))
+    def consumer_awaits(self, stage: str, closes):
+        """The author's `complete` under a consumer: a finish that WOULD close `stage` (the table's `closes_when`) is the open-work word
+        `stage_awaits_acceptance` instead (POSITION: the author never closes the stage, §3); anything else is passed through as it was.
+        With no consumer `closes` comes back unchanged (temporal: older pipelines behave as today)."""
+        import acceptance
+        consumer, route = acceptance.consumer_of(stage), self.CONSUMER_ROUTES.get(stage) or {}
+        if consumer and route and route["closes_when"](closes):
+            return OpenWork(acceptance.AWAITS_WORD, open_work_reason(route["awaits"].format(consumer=consumer), ""))
         return closes
 
-    def s6_accepted_pending(self) -> bool:
-        """True when S6 has a consumer, is not completed, its author ran, and an `accept` record stands for the author's LAST accepted
-        dispatch: the stage is owed its close (a restart between the consumer's record and the close lands here)."""
+    def consumer_pending(self, stage: str) -> bool:
+        """True when `stage` has a consumer, is not completed, its author ran, and an `accept` record stands for the author's LAST dispatch of
+        the current life: the stage is owed its close (a restart between the consumer's record and the close lands here)."""
         import acceptance
-        if not self.s6_consumer():
+        if not acceptance.consumer_of(stage):
             return False
         state = self.controller_state()
-        if ((state.get("stages") or {}).get("S6") or {}).get("status") == "completed":
+        if ((state.get("stages") or {}).get(stage) or {}).get("status") == "completed":
             return False
-        author = acceptance.stage_author_dispatch(state, acceptance.stage_def_of("S6"))
-        record = acceptance.stage_acceptance(self.pipeline(), "S6") or {}
-        return bool(author and record.get("verdict") == "accept" and record.get("reviewed_dispatch") == author)
+        return acceptance.accepted_for(self.pipeline(), stage, acceptance.stage_author_dispatch(state, acceptance.stage_def_of(stage)))
 
-    def s6_need_record(self, site: str) -> None:
-        """The S6 close sites (`s6_reentry`, `s6_reprobed_close`, `manual_close`): with a consumer and an author that ran, a close needs the
-        `accept` record of the author's last dispatch. A Refusal names the missing record and the door (FR-1, FR-2); with no consumer, nothing."""
+    def consumer_close_words(self, stage: str) -> tuple:
+        """B-20 N4 (AR-27, FR-35): `(reason, digest)` of the close of a stage judged by its consumer, from the acceptance RECORD - never from a
+        refusal's words. A driver accept whose quote starts `by: person` for the author's LAST dispatch is the person's pass: the words say a
+        person's word accepted it. Any other record (the consumer role's own) and no record give the default words (`CODE_CLOSE_SITES`,
+        the consumer's name). INVARIANT: a person's pass is never reported as a role's verdict. An unreadable state gives the default."""
         import acceptance
-        if not self.s6_consumer() or self.s6_accepted_pending():
+        route = self.CONSUMER_ROUTES.get(stage) or {}
+        reason = CODE_CLOSE_SITES.get(f"{stage.lower()}.accepted", ("", "the consumer accepted the handoff"))[1]
+        digest = f"accepted by the {route.get('who', 'consumer')}"
+        try:
+            pipeline = self.pipeline()
+            author = acceptance.stage_author_dispatch(self.controller_state(), acceptance.stage_def_of(stage))
+            record = acceptance.stage_acceptance(pipeline, stage) or {}
+            by_person = (acceptance.accepted_for(pipeline, stage, author, acceptor=acceptance.DRIVER_ACCEPTOR)
+                         and str(record.get("quote") or "").startswith(BY_PERSON))
+        except Exception:  # noqa: BLE001 - a record that cannot be read names nobody: the default words
+            by_person = False
+        if by_person:
+            return f"a person's word passed the acceptance of {route.get('what', 'the handoff')}", "accepted by a person's word"
+        return reason, digest
+
+    def consumer_word_step(self) -> bool:
+        """B-20 (AR-24): the person's `stage acceptance` word reaches a stage that awaits its consumer from ANY driver position, before `where`
+        reads on. For each stage of `CONSUMER_ROUTES` that `acceptance.awaits_acceptance` names (the author's last dispatch is accepted and no
+        record stands - a dispatch that is running or was superseded awaits nothing, so no word binds to it), a live word that was written AFTER
+        that dispatch was accepted passes it through `consumer_person_pass` (the one writer, AR-14). A time that cannot be read is not honoured
+        (FR-4: a word never accepts work the person never saw). True when a pass was recorded (the turn is spent); False and nothing written
+        otherwise. It never asks and never stops the driver. Census: shape, owner intent - it carries a word, it does not read its meaning."""
+        import acceptance
+        moved = False
+        for stage in self.CONSUMER_ROUTES:
+            author = acceptance.awaits_acceptance(self.controller_state(), stage, self.pipeline())
+            if author and self.consumer_person_pass(stage, author):
+                moved = True
+        return moved
+
+    def accepted_at(self, author: str) -> str:
+        """When the dispatch `author` was last accepted, as `controller.stamp_utc` (the last `accept` event of the controller's store); `""`
+        when it cannot be read (no event, no store). The ONE reader of that time (B-20 F1): a word dated before it was said about work the
+        person had not yet seen."""
+        try:
+            from controller import Controller, stamp_utc
+            times = [e.get("created_at") for e in Controller(self.task_root).store.read()
+                     if e.get("type") == "accept" and (e.get("payload") or {}).get("id") == author]
+            return stamp_utc(times[-1]) if times else ""
+        except Exception:  # noqa: BLE001 - an acceptance time that cannot be read is the safe side: the word is not honoured
+            return ""
+
+    def consumer_person_pass(self, stage: str, author: str, answer: str = "") -> bool:
+        """P13 (M3 of t-1860): the person's word moves the factory. True when an `accept` record stands for `author` already, or when a
+        person's word passes the acceptance - `answer` (the words of a recorded `close` answer, given by the caller) or a live
+        `waiver.py --block` of the stage-acceptance phrase (`acceptance.STAGE_ACCEPTANCE_PHRASE`) of this stage (`waiver.split_overridden`, the one reader) - and then the pass is RECORDED
+        first: `stage_done.py --acceptance <the author's form> --acceptor driver --verdict accept --quote "by: person - <words>"`, the one
+        writer, so every reader of the record (the close sites, `awaits_acceptance`, `stage_done`) sees it. False: nothing passes it.
+        B-20 F1 (FR-4), at EVERY site: a live waiver is honoured only when its `at` is LATER than the acceptance of `author` (`accepted_at`);
+        a time that cannot be read is not honoured. `answer` is a fresh word (given by the caller this turn) and is exempt. A Refusal of the
+        recording carries the WHOLE pass as its `retry`, so the finding is filed after a retry too (P13)."""
+        import acceptance
+        if not author:
+            return False
+        if acceptance.accepted_for(self.pipeline(), stage, author):
+            return True
+        line = f"{acceptance.STAGE_ACCEPTANCE_PHRASE}: no accept record stands for {author}"
+        since = ""
+        if not " ".join(str(answer or "").split()):
+            since = self.accepted_at(author)
+            if not since:
+                return False
+        try:
+            heard = self.person_pass(stage, author, line, answer, since=since)
+        except Refusal as refusal:
+            refusal.retry = lambda: self.consumer_person_pass(stage, author, answer)
+            raise
+        if not heard:
+            return False
+        # P13: a pass by the person's word is a finding, filed once per stage and author dispatch (the key makes a second write safe)
+        self.owe_row("project_decisions.py", "--root", str(self.project), "add-finding",
+                     "--essence", f"{stage} acceptance of {author} passed on the person's word: {str(heard.get('decision') or '')[:500]}",
+                     "--scope", "local-calibration", "--witness", f"{stage} person's word at {heard.get('at') or ''}",
+                     "--idempotency-key", f"stage-acceptance-pass:{self.task}:{stage}:{author}",
+                     what="the finding about the stage acceptance you passed", stage=stage)
+        return True
+
+    def person_pass(self, stage: str, author: str, line: str, answer: str = "", since: str = "") -> dict:
+        """The body of the pass (F3, B-6): the person's word - `answer` (given by the caller) or a live `waiver.py --block` that passes `line`
+        (`waiver.split_overridden`, the ONE reader, AR-13) - is RECORDED as the driver accept of `author` for `stage` (the one writer,
+        `stage_done.py --acceptance`), and then True. `since` (non-empty): a waiver is honoured only when its `at` is LATER than `since` -
+        both read through `controller.stamp_utc`; an `at` or a `since` that cannot be read is not honoured (a word never accepts an author
+        dispatch the person never saw, FR-4). Returns the honoured entry (`{"decision": <words>, "at": <when or "">}`) once the pass is
+        recorded, `{}` when nothing passes: no `author` -> `{}`, no accept record without an author dispatch."""
+        import acceptance
+        if not author:
+            return {}
+
+        def stamp(value) -> str:
+            """One normal form for an `at` / `since`: `controller.stamp_utc` of the epoch second; `""` when it is no time (or has no zone)."""
+            from datetime import datetime
+            from controller import stamp_utc
+            if isinstance(value, str):
+                try:
+                    moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+                    return stamp_utc(moment.timestamp()) if moment.tzinfo is not None else ""
+                except (ValueError, OverflowError, OSError):
+                    return ""
+            return "" if isinstance(value, bool) or value is None else stamp_utc(value)
+        words = " ".join(str(answer or "").split())
+        heard = {}
+        if not words:
+            import waiver
+            _blocking, passed = waiver.split_overridden([line], self.pipeline(), stage)
+            if passed and since and not (stamp(passed[0].get("at")) > stamp(since) > ""):
+                passed = []
+            heard = dict(passed[0]) if passed else {}
+            words = " ".join(str(heard.get("decision") or "").split())
+        if not words:
+            return {}
+        if getattr(self, "dry", False):      # B-20 F2: `--dry-run` runs nothing and writes nothing - the pass is only said
+            print(f"{stage}: dry run - a person's word would pass the acceptance of {author}; nothing is recorded")
+            return {}
+        self.py("stage_done.py", "--task", self.task, "--stage", stage, "--acceptance", f"work/handoffs/{author}.yaml",
+                "--acceptor", acceptance.DRIVER_ACCEPTOR, "--verdict", "accept", "--quote", f"{BY_PERSON} - " + words[:500], check=True,
+                expect=f"the person's pass recorded as the acceptance of {stage} for {author}")
+        print(f"{stage}: a person's word passes the acceptance of {author}; recorded as a driver accept (by: person)")
+        return {"decision": words, "at": heard.get("at") or ""}
+
+    def consumer_need_record(self, stage: str, site: str) -> None:
+        """The close sites of a stage with a consumer (S6: `s6_reentry`, `s6_reprobed_close`, `manual_close`; S7: `s7_close`): with an author that
+        ran, a close needs the `accept` record of the author's LAST dispatch - or a person's pass (`consumer_person_pass`, M3). A Refusal names
+        the missing record and the door (FR-1, FR-2); with no consumer, no author dispatch, or the stage completed already, nothing."""
+        import acceptance
+        consumer = acceptance.consumer_of(stage)
+        if not consumer:
             return
         state = self.controller_state()
-        author = acceptance.stage_author_dispatch(state, acceptance.stage_def_of("S6"))
-        if author and ((state.get("stages") or {}).get("S6") or {}).get("status") != "completed":
-            raise Refusal(f"S6 cannot be closed at {site}: no accept record of {self.s6_consumer()} stands for {author}. The consumer judges the "
-                          f"runner's handoff from its own form (`stage_done.py --task {self.task} --stage S6 --acceptance "
-                          f"work/handoffs/<{self.s6_consumer()} dispatch>.yaml`), or a person's word passes it.")
+        if ((state.get("stages") or {}).get(stage) or {}).get("status") == "completed":
+            return
+        author = acceptance.stage_author_dispatch(state, acceptance.stage_def_of(stage))
+        if not author or self.consumer_pending(stage) or self.consumer_person_pass(stage, author):
+            return
+        raise Refusal(f"{stage} cannot be closed at {site}: no accept record of {consumer} stands for {author}. The consumer judges "
+                      f"{(self.CONSUMER_ROUTES.get(stage) or {}).get('what', 'the handoff')} from its own form (`stage_done.py --task {self.task} "
+                      f"--stage {stage} --acceptance work/handoffs/<{consumer} dispatch>.yaml`), or a person's word passes it (`waiver.py "
+                      f"--task {self.task} --stage {stage} --block \"{acceptance.STAGE_ACCEPTANCE_PHRASE}\"`).")
+
+    def consumer_counts(self, stage: str, reviewed: str) -> tuple:
+        """`(counted, cap)` of the author's repair rounds on the dispatch the consumer REVIEWED, as the controller counts them (`prepare` carries
+        `repair_budget` for `REPAIR_LOOP_ROLES`; the packet is asked for the reviewed dispatch's own scope and half, so the ledger key is the
+        first dispatch's). Read ONLY after a verdict `reject` is known (B1). `(None, None)` when the controller cannot say."""
+        dispatch = (self.controller_state().get("dispatches") or {}).get(reviewed) or {}
+        extra = ({"execution_kind": str(dispatch.get("execution_kind") or ""), "manual_case_ids": [str(c) for c in dispatch.get("manual_case_ids") or []]}
+                 if stage == "S6" else {})
+        budget = self.budget_or_none(stage, self.CONSUMER_ROUTES[stage]["author"], list(dispatch.get("scope") or []), ref=reviewed, **extra) or {}
+        return budget.get("counted"), budget.get("cap")
+
+    def consumer_exhausted(self, stage: str, record: dict, dispatch: str, form: str, counted, cap):
+        """A `reject` with no round left, or none that can be counted: the ONE seam (`stage_review_exhausted`), never a code decision. The text says
+        which of the two it is (FR-41: an unknown is not «no round is left»)."""
+        route = self.CONSUMER_ROUTES[stage]
+        text = ""
+        if not (isinstance(counted, int) and isinstance(cap, int)):
+            text = (f"the {route['who']} rejected {stage} and the factory could not count the repair rounds of {route['author']}, so none is "
+                    f"started: {record.get('quote') or ''}")
+        return self.stage_review_exhausted(stage, route["author"], dispatch, record, form, text=text)
+
+    def consumer_completion(self, stage: str, inner, dispatch_id=None):
+        """The `complete` callable of the consumer's finish while `stage` awaits it (the shape of `stage_critic_completion`): write the record from
+        the consumer's form FIRST (`stage_acceptance_write`, the one writer), then `accept` -> the consumer's own completion `inner` (a VALUE: a
+        callable is called); `reject` with a round left -> `OpenWork("stage_superseded")` (its work is stale, E-24); `reject` with none left (or
+        none countable) -> the conductor through the ONE seam. A verdict word the table does not know goes to the same seam. The repair budget
+        is read only on a reject (B1)."""
+        import acceptance
+        route = self.CONSUMER_ROUTES[stage]
+
+        def complete(digest: str):
+            def own():
+                return inner(digest) if callable(inner) else inner       # a VALUE: `finish` takes no callable from a callable
+            dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")
+            form = f"work/handoffs/{dispatch}.yaml" if dispatch else ""
+            if not dispatch or not self.stage_verdict_known(form):
+                return self.stage_review_exhausted(stage, route["author"], dispatch, None, form, unreadable=True)
+            self.stage_acceptance_write(stage, dispatch)
+            record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
+            if record.get("verdict") == "accept":
+                return own()
+            counted, cap = self.consumer_counts(stage, str(record.get("reviewed_dispatch") or ""))
+            if isinstance(counted, int) and isinstance(cap, int) and counted < cap:
+                return OpenWork(acceptance.SUPERSEDED_WORD, open_work_reason(
+                    f"the {route['who']} sent {route['what']} back: {record.get('quote') or ''}", f"... [list: {form}]"))
+            outcome = self.consumer_exhausted(stage, record, dispatch, form, counted, cap)
+            return own() if outcome is None else outcome
+        return complete
+
+    def consumer_settled(self, stage: str, state: dict, awaiting: str, done: bool, ran: bool = False) -> bool:
+        """What follows the consumer's finish while `stage` awaited it, and the recovery of a restart. True = this entry is done.
+        - an `accept` record for `awaiting`: `stage` closes by it on the loop's next entry; True on a recovery entry, False right after the
+          consumer ran (`ran`: its own stage is still to finish).
+        - a `reject` record: a person's pass (`consumer_person_pass`) takes it as the accept; else the author's repair round NOW, ONCE per
+          round, in a fresh context (`rework`: the controller reads the scope from the record, B2), within the repair cap (read only here, B1);
+          no round left -> the conductor through the ONE seam (`consumer_exhausted`); True.
+        - no record but an accepted, not superseded consumer dispatch CREATED AFTER `awaiting` (the finish died after the dispatch, M2): the
+          record is written from its form, then the cases above. Otherwise False: the consumer is still to be dispatched."""
+        import acceptance
+        route, consumer = self.CONSUMER_ROUTES[stage], acceptance.consumer_of(stage)
+        record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
+        mine = acceptance.consumer_dispatch(state, route["consumer_stage"], consumer, awaiting)
+        if record.get("reviewed_dispatch") != awaiting and done:
+            if not mine:
+                return False
+            self.stage_acceptance_write(stage, mine)
+            record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
+        if record.get("reviewed_dispatch") != awaiting:
+            return False
+        if record.get("verdict") == "accept" or self.consumer_person_pass(stage, awaiting):
+            return not ran
+        form = f"work/handoffs/{mine or getattr(self, 'last_dispatch', '')}.yaml"
+        counted, cap = self.consumer_counts(stage, awaiting)
+        if not (isinstance(counted, int) and isinstance(cap, int) and counted < cap):
+            self.consumer_exhausted(stage, record, mine, form, counted, cap)      # the ONE seam; a driver accept stands as a record
+            return True
+        self.rework(stage, route["author"], [], f"{route['who']}, acceptance record of {stage} for {awaiting}: " + str(record.get("quote") or ""),
+                    cause="test_defect", complete=route["rework_complete"](self),
+                    extra=[f"Repair round {counted + 1} of {cap}: the {route['who']}'s verdict is in {form}; change only what it names."])
+        return True
 
     def stage_S2(self) -> None:
         """S2: the tester, then the stage critic's route. A stage with no acceptor (the world before `acceptance_by`) stays `stage_simple`.
@@ -9419,23 +11158,50 @@ class Driver:
         read: a `driver` accept for this author dispatch -> `None`; a new author dispatch -> `OpenWork`; neither -> the seam's `Person`."""
         import acceptance
         quote = "" if record is None else str(record.get("quote") or "")
-        text = text or ("the stage critic's verdict word is unreadable" if unreadable else
-                        f"the stage critic rejected {stage} and no repair round is left: {quote}")
+        who = acceptance.consumer_of(stage) or "the stage critic"      # FR-37: the acceptor that judged, not always a stage critic (M1)
+        text = text or (f"the verdict word of {who} is unreadable" if unreadable else
+                        f"{who} rejected {stage} and no repair round is left: {quote}")
         files = ([self.task_root / form] if form else []) + [self.task_root / n for n in (self.stages()[stage].get("outputs") or [])
                                           if isinstance(n, str) and not n.startswith("project:") and (self.task_root / n).is_file()]
+        line = f"{acceptance.STAGE_ACCEPTANCE_PHRASE}: {text}"      # F3: the line `waiver.py --block` is verified against
         state = {"why": "stage_review_exhausted", "kind": "conductor", "stage": stage, "dispatch": critic_dispatch, "text": text,
                  "lead": text + f". Decide: accept {stage} with the gap, one more round on words you ground, or ask the person.",
-                 "files": [f for f in files if f.is_file()]}
+                 "files": [f for f in files if f.is_file()], "lines": [line]}
+        # F3 (B-6): a person's `go on` recorded AFTER this critic dispatch started closes the stage with a finding. No journalled start of the
+        # critic dispatch (`since == ""`) -> the pass is not consulted at all (the conductor / the person is asked).
+        try:
+            from controller import Controller, stamp_utc
+            since = stamp_utc(Controller(self.task_root)._dispatch_starts().get(critic_dispatch))
+        except Exception:  # noqa: BLE001 - a start that cannot be read is the safe side: no pass
+            since = ""
+
+        def person_closes(author_dispatch: str) -> bool:
+            heard = self.person_pass(stage, author_dispatch, line, since=since) if since and author_dispatch else {}
+            if not heard:
+                return False
+            self.owe_row("project_decisions.py", "--root", str(self.project), "add-finding",
+                         "--essence", f"{stage} closed on the person's word over: {line}", "--scope", "local-calibration",
+                         "--witness", f"{stage} person's word {str(heard.get('decision') or '')[:200]!r} at {heard.get('at')}",
+                         "--idempotency-key", f"stage-review-pass:{self.task}:{stage}:{critic_dispatch}",
+                         what="the finding about the stage review you passed", stage=stage)
+            return True
+        author_last = acceptance.stage_author_dispatch(self.controller_state(), acceptance.stage_def_of(stage))
+        if person_closes(author_last):
+            return None
         self.no_move(state)
         pipeline = self.pipeline()
-        now = acceptance.stage_acceptance(pipeline, stage) or {}
-        dispatches = [d for d in (self.controller_state().get("dispatches") or {}).values() if isinstance(d, dict) and d.get("stage") == stage]
         author_last = acceptance.stage_author_dispatch(self.controller_state(), acceptance.stage_def_of(stage))
-        if now.get("acceptor") == acceptance.DRIVER_ACCEPTOR and now.get("verdict") == "accept" and now.get("reviewed_dispatch") == author_last:
+        if acceptance.accepted_for(pipeline, stage, author_last, acceptor=acceptance.DRIVER_ACCEPTOR):
             return None
-        ids = [str(d.get("id")) for d in dispatches]
-        after = ids[ids.index(critic_dispatch) + 1:] if critic_dispatch in ids else []
-        if any(d.get("role") == author and str(d.get("id")) in after for d in dispatches):
+        if person_closes(author_last):
+            return None
+        # M1: «after» is anchored on the acceptor's OWN dispatch among ALL dispatches in creation order (a consumer's dispatch belongs to the
+        # next stage, so the stage's own list never held it); with none readable, on the reviewed author dispatch the record names.
+        every = [d for d in (self.controller_state().get("dispatches") or {}).values() if isinstance(d, dict)]
+        ids = [str(d.get("id")) for d in every]
+        anchor = critic_dispatch if critic_dispatch in ids else str((record or {}).get("reviewed_dispatch") or "")
+        after = ids[ids.index(anchor) + 1:] if anchor in ids else []
+        if any(d.get("stage") == stage and d.get("role") == author and str(d.get("id")) in after for d in every):
             word = "cases_in_repair" if stage == "S4" else "stage_in_repair"       # S4 keeps its own word (s4_repair_owed reads it)
             return OpenWork(word, open_work_reason(f"the conductor sent {stage} back for one more round", f"… [list: {form}]"))
         # The conductor made no move: the SEAM shows the priced fallback question (`call=False`: it was just asked, no second paid call).
@@ -9472,8 +11238,10 @@ class Driver:
         return (role_digest.parse(text).get("header") or {}).get("verdict", "")
 
     def s4_findings(self) -> Path | None:
-        """The case critic's findings file the S4 repair round reads (the newest `critic-findings*.md`), or None."""
-        return self.newest("work/test-cases/**/critic-findings*.md") or self.newest("work/**/critic-findings*.md")
+        """The case critic's findings file the S4 repair round reads (the newest `critic-findings*.md` under
+        `work/test-cases/`), or None. Never the S5 files `work/test-code/critic-findings-*.md` (AR-13, AR-22)."""
+        import findings_path
+        return self.newest(findings_path.S4_PATTERN)      # through `self.newest`: the slow story tests stand in for it
 
     def s4_critic_completion(self, scope, counted, cap, dispatch_id=None):
         """The `complete` callable of the S4 case critic's finish - the live stage and `completion_for` (the recovery road) call
@@ -9633,6 +11401,11 @@ class Driver:
             args += ["--cases", ",".join(cases)]
         if rows:
             args += ["--rows", ",".join(rows)]
+        # TR3-6: POSITION - before `controller rework`; INVARIANT: a drain registers no new dispatch
+        self.stop_if_drained()
+        self.count_launch()
+        if self.on_chain():
+            args.append("--parallel-window")
         try:
             packet = self.controller("rework", *args)
         except Refusal as exc:
@@ -9646,26 +11419,36 @@ class Driver:
         if words_path and len(reason) > 1500:        # the role is told WHERE the whole words are, never a cut of them (FR-8)
             given["line"] = (f"Rework reason: the person's words ({len(reason)} characters) are in {words_path}; "
                              "read the whole file before you start.")
-        return self.run_role(stage, role, scope=list(request.get("scope") or cases), extra=list(extra),
-                             complete=complete, rework=given, budget=budget)
+        # t-2277 batch 2b D (critic t-2513 F1): `rework S1` of a story with a reference stand re-enters the reference window - the scout's
+        # rework does not close S1 (the window is its last dispatch), then the runner walks the old version again and `put` replaces the
+        # snapshot (`--replace`, the file exists). POSITION: after the controller registered the rework, in the ONE method every code road of
+        # a rework passes. INVARIANT: a story with no reference (`s1_window_owed` None) runs `run_role` exactly as before.
+        window = self.s1_window_owed(stage, role)
+        done = self.run_role(stage, role, scope=list(request.get("scope") or cases), extra=list(extra),
+                             complete=False if window else complete, rework=given, budget=budget)
+        if window:
+            self.s1_reference_window(stage, window)
+        return done
 
-    def repair_budget(self, stage: str, role: str, scope) -> dict:
+    def repair_budget(self, stage: str, role: str, scope, **packet) -> dict:
         """The window's rounds as the controller counts them from the journal itself: counted, cap,
         mechanical, mechanical_cap. The driver keeps no counter of its own - a local one reset on every
         restart (B-007). Raises Refusal when the controller cannot answer; the caller closes the
-        window instead of guessing a number."""
-        packet = self.controller("prepare", input_data={"stage": stage, "role": role, "scope": list(scope or [])})
+        window instead of guessing a number. `packet`: the extra `prepare` options of a role whose packet needs them (the new-mode `qa-runner`:
+        `execution_kind`, and `manual_case_ids` of a manual block; X7-6c) - empty values are left out."""
+        options = {"stage": stage, "role": role, "scope": list(scope or []), **{k: v for k, v in packet.items() if v}}
+        packet = self.controller("prepare", input_data=options)
         budget = packet.get("repair_budget")
         if not isinstance(budget, dict):
             raise Refusal(f"controller prepare for {stage} {role} carries no repair_budget: " + json.dumps(packet)[:400])
         return budget
 
-    def budget_or_none(self, stage: str, role: str, scope, ref: str = "") -> dict | None:
+    def budget_or_none(self, stage: str, role: str, scope, ref: str = "", **packet) -> dict | None:
         """`repair_budget`, or None after saying so: the loops read None as "no round, close" and never
         substitute a number of their own. The controller that cannot count is the factory's own
         defect, so it is printed and filed (owner factory; `--ref` is mandatory in log_append)."""
         try:
-            return self.repair_budget(stage, role, scope)
+            return self.repair_budget(stage, role, scope, **packet)
         except Exception as exc:
             error = " ".join(str(getattr(exc, "text", "") or exc).split())[:300] or type(exc).__name__
             seen = getattr(self, "_budget_unknown", None)       # ONE defect per window per process: the loop and the seam's gate both read
@@ -10369,12 +12152,444 @@ class Driver:
         journal()
         print(lines["answer_recorded" if spec.get("runs") else "answer_retry"].format(**shown))
 
+    def s5_window_files(self, cases) -> set:
+        """The project-relative test files (`window_files.key_of` keys) of a window: the claims it holds, and the `tests[].file` of the
+        manifest rows that cover one of its cases (and the files such a row was generated from). The launch gate's one reader. An
+        unreadable manifest is the claims alone (the guard still stands)."""
+        import window_files
+        from probe_debt import bare_case_id
+        found = set(window_files.files_of(self.task_root, window_files.window_id("S5", cases)))
+        try:
+            import contract as C
+            import proof_level as PL
+            manifest = C.load_json(C.artifact(self.task_root, "automation-manifest.json"))
+            mine = {bare_case_id(c) for c in cases if bare_case_id(c)}
+            for test in C.manifest_tests(manifest) if isinstance(manifest, dict) else []:
+                if mine & {bare_case_id(c) for c in C.manifest_test_links(test)}:
+                    generated = test.get("generated_from")
+                    for name in [PL.test_file_of(test)] + ([f for f in generated if isinstance(f, str)] if isinstance(generated, list) else []):
+                        if name:
+                            found.add(window_files.key_of(name.replace("\\", "/").strip("/")))
+                    from probe_debt import record_files      # t-2180 B: what a replay of the row's recorded probe mutates
+                    for name in record_files(self.task_root, test):
+                        found.add(window_files.key_of(name.replace("\\", "/").strip("/")))
+        except Exception:       # noqa: BLE001 - the claims stand alone
+            pass
+        return found
+
+    def s5_parallel_cap(self) -> int:
+        """`dispatch.parallel_windows` through `config_contract.parallel_windows` (the one reader, AR-13); a bad value reads the default
+        with its note, printed once per story (`state["noted"]`)."""
+        import config_contract
+        value, note = config_contract.parallel_windows(self.config)
+        if note:
+            self.say_once("parallel_windows", note)
+        return value
+
+    def say_once(self, key: str, text: str) -> None:
+        """Print `text` once per story: the mark is `state["noted"]` (the one list the findings notes use), and never a stop (P5)."""
+        noted = self.state.setdefault("noted", [])
+        mark = f"{key}|{text}"
+        if mark in noted:
+            return
+        noted.append(mark)
+        print(text, flush=True)
+        self.save_state()
+
+    # The two reasons that are a state AT ENTRY and fall away once the windows they name have settled (spec 3.6, last row); every other
+    # reason (the host, `run.parallel`, a limit, an old story, an unreadable state) holds for the whole run.
+    S5_SETTLE_RUNNING = "dispatches of S5 are running or stopped at entry; they settle first and the rest goes side by side after"
+    S5_SETTLE_OWED = "a repair round or a debt is owed; it runs first"
+
+    def s5_settling_windows(self, windows: list) -> list:
+        """The windows among `windows` that the entry-state reasons name: those whose scope meets a running, blocked or paused S5
+        dispatch, and the window of an owed round or a debt. Empty when a dispatch names no case or meets no window (nothing is then
+        known to settle, and the caller keeps the whole run serial). Raises with the readers (the caller treats that as serial)."""
+        import dispatch_identity
+        from controller import s5_part_of
+        ctl = self.controller_state()
+        rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+        scopes = [{str(c) for c in r.get("scope") or [] if c} for r in rows
+                  if r.get("stage") == "S5" and r.get("status") in ("running", "blocked", "paused") and s5_part_of(r) != "plan"]
+        if any(not s for s in scopes):
+            return []
+        named = [w for w in windows if any({str(c) for c in w.get("scope") or []} & s for s in scopes)]
+        for window in (self.repair_owed(windows)[1], self.repair_debt_pending(windows)[1]):
+            if window is not None and window not in named:
+                named.append(window)
+        return named
+
+    def s5_serial_reason(self, windows: list) -> str:
+        """"" when S5 windows may run side by side, else the one reason they run one at a time (spec 3.6). Direction of error: it may say
+        serial needlessly on doubt; it must never let two windows run where a row below holds. The project's own word
+        (`parallel_windows: 1`) is not this function's: that is the old road itself."""
+        import dispatch_identity
+        host_reason = self.host_window_reason()
+        if host_reason:
+            return host_reason
+        run = self.config.get("run")
+        if isinstance(run, dict) and run.get("parallel") is True:
+            return ("the project runs its tests in parallel (`run.parallel: true`) and `test-results/` is shared; with "
+                    "`run.parallel: false` the runs queue on the stand and the windows go side by side")
+        if getattr(self, "_s5_cap_one", False):
+            return "the model service limited one window earlier in this run"
+        try:
+            ctl = self.controller_state()
+            rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+        except Exception:       # noqa: BLE001
+            return "the state of the S5 dispatches cannot be read"
+        if any(r.get("stage") == "S5" and r.get("status") in ("running", "blocked", "paused") for r in rows):
+            return self.S5_SETTLE_RUNNING
+        if self.repair_owed(windows)[0] or self.repair_debt_pending(windows)[0]:
+            return self.S5_SETTLE_OWED
+        root = self.task_root / "work"
+        legacy = (root / "test-code" / "critic-findings.md").is_file() or (root / "probe-debt.json").is_file()
+        per_dispatch = any((root / "test-code").glob("critic-findings-*.md")) or any((root / "probe-debt").glob("*.json"))
+        if legacy and not per_dispatch and any("qa-code-critic" in (w.get("accepted_by") or {}) for w in windows):
+            return "this story began before the windows kept their findings and probe debt per dispatch; its remainder reads the old files"
+        try:
+            self.s5_open_windows(())
+        except Exception:       # noqa: BLE001
+            return "the state or the scope of a window cannot be read"
+        return ""
+
+    def s5_open_windows(self, excluding=()) -> list:
+        """The case lists of the S5 windows that are still open, other than the window meeting `excluding`. Open = no accepted critic, OR
+        a running dispatch of the stage meets its scope, OR a round or a debt is owed for it, OR a live chain of this driver holds it, OR
+        the LAST non-discounted S5 dispatch meeting its scope came back `returned_unaccepted` (TR4-10 Q2: `_s5_last_round`; a later
+        accepted dispatch of the window closes it again, a person's release is dropped with the other discounted statuses), OR that last
+        round is an ACCEPTED qa-automator round whose stored cause is not `mechanical` (TR4-13: `_s5_author_awaits_critic`; its critic
+        has not reviewed it yet, and a mechanical round is closed by the author's own green run).
+        Read fresh. RAISES when the windows, the dispatches or a scope cannot be read (FR-59): the caller treats that as open and never as
+        a close; a returned S5 dispatch that names no cases is such a case. Callers: the close predicate of `s5_review` and
+        `s5_mechanical_round`, `completion_for` at `parallel_windows` != 1, the old body of `stage_S5` at `parallel_windows` != 1, and the
+        finish's `--open-windows`. At N == 1 the serial road does not read this function; a returned last round there is settled by the
+        controller's own return road (a named residual, D2)."""
+        import dispatch_identity
+        import controller as CT
+        from controller import s5_part_of
+        own = {str(c) for c in (excluding or ()) if c}
+        windows = self.stage_scope("S5").get("windows")
+        if not isinstance(windows, list):
+            raise WindowsUnreadable("stage-scope returned no list of windows")
+        ctl = self.controller_state()
+        dispatches = ctl.get("dispatches") if isinstance(ctl, dict) else None
+        if not isinstance(dispatches, (dict, list)):
+            raise WindowsUnreadable("the controller record holds no list of dispatches")
+        rows = dispatch_identity.records(dispatches)
+        running = [r for r in rows if r.get("stage") == "S5" and r.get("status") == "running" and s5_part_of(r) != "plan"]
+        if any(not r.get("scope") for r in running):
+            raise WindowsUnreadable("a running dispatch of S5 names no cases, so no window can be told from it")
+        if any(r.get("stage") == "S5" and r.get("status") == CT.RETURNED and s5_part_of(r) != "plan" and not r.get("scope") for r in rows):
+            raise WindowsUnreadable("a returned dispatch of S5 names no cases, so no window can be told from it")
+        live = [r for r in self._chains.values() if not r.done]
+        out = []
+        for window in windows:
+            if not isinstance(window, dict):
+                raise WindowsUnreadable("a window of stage-scope is not an object")
+            cases = {str(c) for c in window.get("scope") or [] if c}
+            if not cases:
+                raise WindowsUnreadable("a window of stage-scope names no cases")
+            if cases & own:
+                continue
+            owed = self.repair_owed([window])[0] or self.repair_debt_pending([window])[0]       # F4: the two predicates, not a copy
+            last_round = self._s5_last_round(rows, cases)
+            if ("qa-code-critic" not in (window.get("accepted_by") or {})
+                    or any(cases & {str(c) for c in r.get("scope") or []} for r in running)
+                    or owed or any(cases & {str(c) for c in r.cases} for r in live)
+                    or (last_round is not None and last_round.get("status") == CT.RETURNED)
+                    or self._s5_author_awaits_critic(last_round)):
+                out.append(sorted(cases))
+        return out
+
+    @staticmethod
+    def _s5_author_awaits_critic(last_round) -> bool:
+        """TR4-13 (FR-40, AR-25): True when the window's LAST round (`_s5_last_round`) is an ACCEPTED, non-mechanical author round: no
+        critic has looked at it, so the window is open and the critic reviews it next, though an earlier accepted critic is still in
+        `accepted_by`. The cause is read through the controller's one reader `repair_cause` (an absent or unknown cause is `test_defect`).
+        Error direction: a `mechanical` round completes the window as before; anything else costs one more critic entry, never a close
+        over an unreviewed round. ONE predicate for `s5_open_windows` and `s5_todo`."""
+        import controller as CT
+        return (isinstance(last_round, dict) and last_round.get("status") == "accepted" and last_round.get("role") == "qa-automator"
+                and CT.repair_cause(last_round) != "mechanical")
+
+    def s5_todo(self, windows: list) -> list:
+        """The windows `stage_S5` works next: those with no accepted critic, and those whose last round is an accepted author round no
+        critic has seen (`_s5_author_awaits_critic`, the clause `s5_open_windows` reads too). At `parallel_windows` == 1 nothing is read
+        (the frozen N == 1 road, a named residual of TR4-10), and a record that cannot be read leaves today's list."""
+        import dispatch_identity
+        todo = [w for w in windows if "qa-code-critic" not in (w.get("accepted_by") or {})]
+        if self.s5_parallel_cap() == 1:
+            return todo
+        try:
+            ctl = self.controller_state()
+            rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+            return [w for w in windows if w in todo or self._s5_author_awaits_critic(self._s5_last_round(rows, w.get("scope") or []))]
+        except Exception:       # noqa: BLE001 - unreadable: today's list, the refusal below stays reachable
+            return todo
+
+    @staticmethod
+    def _s5_last_round(rows: list, cases) -> dict | None:
+        """The LAST S5 window dispatch (not the plan) among `rows` (`dispatch_identity.records`, the controller's order = dispatch order)
+        whose scope meets `cases`, once the statuses in `controller.DISCOUNTED` are dropped; None when there is none. ONE walk for the
+        returned clause of `s5_open_windows` and for every reader of "what came back last in this window" (TR4-10)."""
+        import controller as CT
+        mine = {str(c) for c in (cases or ()) if c}
+        found = None
+        for row in rows:
+            if (row.get("stage") == "S5" and CT.s5_part_of(row) != "plan" and row.get("status") not in CT.DISCOUNTED
+                    and mine & {str(c) for c in row.get("scope") or [] if c}):
+                found = row
+        return found
+
+    def s5_last_fn(self, cases):
+        """The close predicate of a chain's window, as a callable: True only when no other window is open. Unreadable is open."""
+        def last() -> bool:
+            try:
+                return not self.s5_open_windows(excluding=cases)
+            except Exception:       # noqa: BLE001 - FR-59
+                return False
+        return last
+
+    def s5_open_flag(self, cases) -> list:
+        """`["--open-windows", <cases>]` for a finish that does not close S5 while other windows are open, else []. Unreadable windows:
+        the raw list of the other windows; if even that cannot be read, nothing (the controller refuses and the seam gets it)."""
+        try:
+            opened = self.s5_open_windows(excluding=cases)
+        except Exception:       # noqa: BLE001
+            try:
+                own = {str(c) for c in cases}
+                opened = [sorted({str(c) for c in w.get("scope") or []}) for w in self.stage_scope("S5").get("windows") or []
+                          if isinstance(w, dict) and not own & {str(c) for c in w.get("scope") or []}]
+            except Exception:       # noqa: BLE001
+                return []
+        names = sorted({c for w in opened for c in w})
+        return ["--open-windows", ",".join(names)] if names else []
+
+    def s5_release(self, cases) -> None:
+        """A window that closed frees its test files (`window_files.release`, under `_book` on a chain). With `parallel_windows: 1`
+        nothing was claimed and nothing is touched. A release that fails is a note; the entry sweep tries again."""
+        import config_contract
+        import window_files
+        if config_contract.parallel_windows(self.config)[0] == 1:
+            return
+        window = window_files.window_id("S5", cases)
+        left, why = [], ""
+        try:
+            window_files.release(self.task_root, window)
+            left = window_files.files_of(self.task_root, window)      # `release` never raises: a claim it could not remove is still there (F7)
+        except Exception as exc:       # noqa: BLE001
+            why = f" ({type(exc).__name__})"
+        if left or why:
+            print(f"note: the test files of window {', '.join(cases)} could not be released{why or f' ({len(left)} claim(s) left)'}; "
+                  "the next entry tries again")
+
+    def s5_cases_of(self, dispatch: str) -> list:
+        """The cases of an S5 dispatch: this chain's record, else the controller's record of `dispatch` ([] when it holds none). The ONE
+        reader (R3, AR-13) for `finish`'s open-windows flag and the release of a closing window."""
+        own = list(getattr(getattr(_CHAIN, "record", None), "cases", ()) or ())
+        if own:
+            return own
+        from dispatch_identity import records as _records
+        ctl = self.controller_state()
+        return next((list(r.get("scope") or []) for r in _records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+                     if r.get("id") == dispatch), [])
+
+    def s5_release_of_dispatch(self, dispatch: str) -> None:
+        """Q1: the window of the S5 critic `dispatch` whose finish just closed the stage frees its files. The chain road and the old body
+        release when `s5_window` returns; the road through the person's gate answer (`s5_close_debt`, the recovery finish, `guarded`) never
+        returns there, and a completed S5 is not entered again, so its claims would stay and refuse a later rework's automator. The
+        cases come from this chain's record, else from the controller's record of the dispatch. Costs nothing when nothing was claimed;
+        never stops the run (P1)."""
+        import window_files
+        folder = self.task_root / window_files.SUBDIR
+        if not folder.is_dir() or not any(folder.glob("*.json")):
+            return
+        try:
+            cases = self.s5_cases_of(dispatch)
+            if cases:
+                self.s5_release([str(c) for c in cases])
+        except Exception as exc:       # noqa: BLE001
+            print(f"note: the test files of the window of {dispatch} could not be released ({type(exc).__name__}); the next entry tries again")
+
+    def s5_release_completed(self) -> None:
+        """TR4-10 Q1 (D4, D5): S5 is `completed` - every claim of the stage is freed, whichever finish closed it. `s5_release_of_dispatch`
+        frees the window of the critic that closed S5; this frees the rest: a recovery process that finished window B's saved critic
+        `--not-complete` and then the last window A's `--complete` (B's claims stay: S5 is never entered again), and the live mechanical
+        round's finish. Called ONLY after `story_step finish` exited 0, so the stage status read is the one that finish wrote.
+        INVARIANT: a claim of a window that can still write is never freed: nothing is freed unless `stages.S5.status == "completed"` AND
+        no S5 dispatch is `running`, in `controller.STOPPED` or `controller.RETURNED` (a retry or a resume of the same role writes in
+        the same window). Absent or unreadable state, a status that is not text: nothing is freed (late is safe, early is two windows
+        on one file). At `parallel_windows: 1` nothing was claimed and nothing is read. A claim left behind is a note, never a stop (P1)."""
+        import config_contract
+        import controller as CT
+        import dispatch_identity
+        import window_files
+        if config_contract.parallel_windows(self.config)[0] == 1:
+            return
+        folder = self.task_root / window_files.SUBDIR
+        if not folder.is_dir() or not any(folder.glob("*.json")):
+            return
+        try:
+            ctl = self.controller_state()
+            if not isinstance(ctl, dict):
+                return
+            stages = ctl.get("stages")
+            stage = stages.get("S5") if isinstance(stages, dict) else None
+            if not isinstance(stage, dict) or stage.get("status") != "completed":
+                return
+            dispatches = ctl.get("dispatches")
+            if not isinstance(dispatches, (dict, list)):
+                return
+            busy = {"running"} | CT.STOPPED | {CT.RETURNED}
+            for row in dispatch_identity.records(dispatches):
+                status = row.get("status")
+                if row.get("stage") == "S5" and (not isinstance(status, str) or status in busy):
+                    return
+            window_files.release_stage(self.task_root, "S5")
+            # only a claim this release meant to free (a readable claim of a window of stage S5): a young empty claim `release` keeps on
+            # purpose, and any other stage's claim, are not "left"; `window_files.read_claim` is the claims' own reader
+            left = sum(1 for path in folder.glob("*.json")
+                       if window_files.window_of_stage((window_files.read_claim(path) or {}).get("window"), "S5"))
+        except Exception as exc:       # noqa: BLE001
+            print(f"note: the test files of S5 could not be released ({type(exc).__name__}); the next entry tries again")
+            return
+        if left:
+            print(f"note: the test files of S5 could not be released ({left} claim(s) left); the next entry tries again")
+
+    def s5_release_closed(self) -> None:
+        """The restart sweep: claims of windows that are closed (not in `s5_open_windows`) are released; it costs nothing when the story has
+        claimed nothing. An unreadable state releases nothing."""
+        import window_files
+        folder = self.task_root / window_files.SUBDIR
+        if not folder.is_dir() or not any(folder.glob("*.json")):
+            return
+        try:
+            opened = {tuple(w) for w in self.s5_open_windows(())}
+            windows = self.stage_scope("S5").get("windows") or []
+        except Exception as exc:       # noqa: BLE001
+            print(f"note: the claims of closed windows were left in place: the windows could not be read ({type(exc).__name__})")
+            return
+        for window in windows:
+            cases = sorted({str(c) for c in window.get("scope") or [] if c})
+            if cases and tuple(cases) not in opened:
+                self.s5_release(cases)
+
+    def s5_notes_line(self) -> str:
+        """The line that tells a window which notes of the earlier windows to read first: the old `work/s5-notes.md` (a story from before)
+        and the per-dispatch folder `work/s5-notes/`, each named only when it holds something."""
+        base = f"qa-factory/artifacts/{self.task}/work"
+        parts = []
+        if (self.task_root / "work" / "s5-notes.md").is_file():
+            parts.append(f"{base}/s5-notes.md")
+        if any((self.task_root / "work" / "s5-notes").glob("*.md")):
+            parts.append(f"every file of {base}/s5-notes/")
+        return f"Read {' and '.join(parts)} first." if parts else ""
+
+    # The door the guard's refusal of a claimed test file names (`guard_pre_tool.window_file_check`), written ONCE for both ownership lines.
+    S5_OWN_FILE_DOOR = ("put your test in a new file in the same directory; where a test lives stays your choice, "
+                        "and a test in a new file is judged the same.")
+
+    def s5_auto_extra(self, window: dict, cases: list, chain: bool = False) -> list:
+        """The lines every dispatch of an S5 window carries. On the parallel road (`chain`) two more tell the role what the scheduler
+        makes true: another window may own a test file, and a busy stand is not its failure. TR4-10 Q4 (D6): wherever the guard enforces
+        the claims (`config_contract.parallel_windows` != 1, the guard's own reader) the role is told of the ownership rule on the serial
+        body too, in a variant without the sentence that is false there (no other window is written at the same time); the stand line
+        stays `chain`-only. At N == 1 with `chain` False the list is as it was."""
+        import config_contract
+        cfg = getattr(self, "config", None)
+        enforced = config_contract.parallel_windows(cfg if isinstance(cfg, dict) else {})[0] != 1
+        extra = [f"Window: {', '.join(cases)} — {window.get('surface', 'other')} surface.",
+                 "Runs go through run_suite.py --mine <CASE>; the manifest is written with manifest_put.py. "
+                 "A test written to an approved case that fails against the implementation is handed over "
+                 "RED with unresolved reason contradicts_requirement, never adjusted to the code."]
+        notes = self.s5_notes_line()
+        if notes:
+            extra.append(notes)
+        if chain:
+            extra.append("Other windows of this story are written at the same time. A test file one of them wrote first refuses your "
+                         "Write or Edit: " + self.S5_OWN_FILE_DOOR)
+        elif enforced:
+            extra.append("A test file another window of this story wrote first refuses your Write or Edit: " + self.S5_OWN_FILE_DOOR)
+        if chain:
+            extra.append("A run that answers `stand busy` after some minutes waited for the stand queue: it is not a failure of your "
+                         "tests. Say so in your digest and run again.")
+        return extra
+
+    def s5_chain_kind(self) -> "ChainKind":
+        """What the scheduler's console and gate call an S5 chain (t-2147 A): a window, holding files; the gate reads `s5_window_files`
+        at call time, so a rig's override is seen."""
+        return ChainKind("S5", "window", "a file", lambda cases: self.s5_window_files(cases))
+
+    def s5_seam(self, records: list, cap: int) -> None:
+        """The seam after the drain (B4): see `run_chains`. A model-service `limit` in one chain, with more than one chain allowed, is not
+        a stop: the rest finished and booked, this run goes on at one window at a time (F13), said once. Any other kind stops as today."""
+        pick = self.chain_pick(records, self.s5_chain_kind(), seam_rank)
+        if pick is None:
+            return
+        exc = pick.exception
+        if isinstance(exc, InfraStop) and exc.kind == "limit" and cap > 1 and not getattr(self, "_s5_cap_one", False):
+            self._s5_cap_one = True
+            print("note: the model service limited a window; the others finished and are booked, and S5 goes on one window at a time "
+                  "for the rest of this run", flush=True)
+            return
+        self.adopt_chain(pick)
+        raise exc
+
+    def s5_launchable(self, record) -> bool:
+        """The gate at a chain's start: no running chain's window holds a file of this one."""
+        mine = self.s5_window_files(record.cases)
+        if not mine:
+            return True
+        return not any(mine & self.s5_window_files(r.cases) for r in self._chains.values() if r is not record and not r.done)
+
+    def s5_window_chain(self, record, window: dict) -> None:
+        """One window's chain, on its own thread: the stand and build checks (a Person there re-arises, state unchanged), the author when
+        it has not been accepted, then the loop `s5_window` runs; the window's files are freed when it closed."""
+        self.stop_if_drained()
+        cases = list(window["scope"])
+        self.boundary = "S5:" + ",".join(cases)
+        with self.timed("stand_check", stage="S5"):
+            self.stand_check("S5")
+        with self.timed("build_check", stage="S5"):
+            self.build_check("S5", cases=cases)
+        auto_extra = self.s5_auto_extra(window, cases, chain=True)
+        if "qa-automator" not in (window.get("accepted_by") or {}):
+            self.run_role("S5", "qa-automator", scope=cases, complete=False, extra=auto_extra)
+        self.s5_window(window, self.s5_last_fn(cases), auto_extra, None)
+        self.s5_release(cases)
+        view = getattr(self, "_s5_view", None)
+        if view is not None:
+            view["closed"].add(record.n)
+
+    def run_s5_windows(self, windows: list, todo: list, cap: int) -> None:
+        """The parallel road of `stage_S5`: one chain per open window, `cap` at a time."""
+        number = {tuple(sorted(w["scope"])): i + 1 for i, w in enumerate(windows)}
+        items = [(number[tuple(sorted(w["scope"]))], list(w["scope"]), w) for w in todo]
+        held = {tuple(sorted(w["scope"])) for w in todo}       # a window `s5_todo` holds (an accepted author round owed its critic) is not closed
+        self._s5_view = {"total": len(windows), "closed": {number[tuple(sorted(w["scope"]))] for w in windows
+                                                        if "qa-code-critic" in (w.get("accepted_by") or {})
+                                                        and tuple(sorted(w["scope"])) not in held}}      # `todo` may be a part of the open windows (F6)
+        try:
+            self.run_chains(items, self.s5_launchable, self.s5_window_chain, cap, kind=self.s5_chain_kind(), seam=self.s5_seam)
+        finally:
+            self._s5_view = None
+
+    def session_of(self, stage: str, dispatch: str):
+        """The stored session of `dispatch`; off a chain, else the stage's agent of the pipeline (the old fallback). On a chain the
+        per-dispatch record only: absent means no resume, a fresh attempt by today's rule (the stage's agent may be another window's)."""
+        sid = self.state["sessions"].get(dispatch)
+        if sid or self.on_chain():
+            return sid
+        return (self.pipeline().get("stages", {}).get(stage, {}) or {}).get("agent_id")
+
     def stage_S5(self) -> None:
-        scope = self.stage_scope("S5")
+        with self.timed("stage_scope", stage="S5"):
+            scope = self.stage_scope("S5")
         windows = scope.get("windows") or []
         if not scope.get("scope"):
             raise Refusal("S5: stage-scope returned no automate cases: " + json.dumps(scope)[:800])
-        todo = [w for w in windows if "qa-code-critic" not in (w.get("accepted_by") or {})]
+        todo = self.s5_todo(windows)
         owed, owed_window = self.repair_owed(windows)       # a round the person chose at the repair limit and not run yet (t-698 A4)
         # t-733: a `debt` that consumed an owed round leaves its critic's finish (`--not-complete`) to be completed; no role runs, so no stand or
         # build check is owed. POSITION INVARIANT: before the L5 refusal (which has no door for it) and before any review (a fresh critic would
@@ -10385,33 +12600,115 @@ class Driver:
         if pending and (not todo or "qa-code-critic" not in (pending_window.get("accepted_by") or {})):
             self.s5_close_debt(pending, pending_window)
             return
+        if not todo and not owed and self.s5_parallel_cap() != 1:
+            # TR4-10 D3 (Lead, option b): a window held open by a returned LAST round (`s5_open_windows` reads it open) is not "every window is
+            # accepted": the refusal below names the wrong door for it. The controller's `next` HIDES such a return behind later S5 work, so
+            # `_act_resolve_return` never runs for it: this block is the whole road. No words filed: the EXISTING `resolve_return` packet
+            # (`resolve_return_refusal`, the one builder `_act_resolve_return` raises too) names the dispatch and goes through the one seam to
+            # the conductor, who settles it or asks the person. Words filed for THAT dispatch: the stage resumes the role itself
+            # (`resume_with_filed_words`, the one move `_act_resolve_return` makes too; `resume_role` consumes the words) and the stage
+            # re-enters - the same packet is never raised twice for words already filed (AR-24). The resumed author's round completes by its
+            # repair cause, as the live road does (AR-28): a MECHANICAL round (the critic itself routed it, no critic follows) by the
+            # window's own rule, `s5_last_fn` (`s5_mechanical_round`); any other author round (`test_defect`, an absent or unknown cause,
+            # read through the controller's one reader `repair_cause`) never completes S5 - its critic reviews it first (`s5_author_round`
+            # passes `rework`'s default False). Error direction: False costs one more critic entry, True would close S5 over an
+            # unreviewed round. Any other role by `completion_for`.
+            # POSITION INVARIANT: before the refusal below, which stays reachable when no window has a returned last round, when the state is
+            # unreadable, or when the returned record is gone at the resume. Words filed for ANOTHER dispatch are not used.
+            returned, window_scope = None, []
+            try:
+                import controller as CT
+                import dispatch_identity
+                ctl = self.controller_state()
+                rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+                for w in windows:
+                    last_row = self._s5_last_round(rows, w.get("scope") or [])
+                    if last_row is not None and last_row.get("status") == CT.RETURNED:
+                        returned, window_scope = last_row, list(w.get("scope") or [])
+                        break
+            except Exception:       # noqa: BLE001
+                returned = None
+            if returned is not None and (self.state.get("pending_words") or {}).get(returned.get("id")):
+                def complete_for(stage, role, record):
+                    if role == "qa-automator":
+                        if CT.repair_cause(record) != "mechanical":
+                            return False
+                        window_last = self.s5_last_fn(window_scope)
+                        return lambda _digest: bool(window_last())
+                    return self.completion_for(stage, role, record)
+                stage_boundary = getattr(self, "boundary", "S5")
+                if self.resume_with_filed_words(str(returned.get("id")), complete_for):
+                    return
+                # the record is gone: the old refusal below, raised under the STAGE's boundary (the helper set `<stage>:<id>` for
+                # `_act_resolve_return`'s packet, which the conductor reads; nothing resumed here, so it is put back - Lead, option A)
+                self.boundary = stage_boundary
+                returned = None
+            if returned is not None:
+                from contract import retry_reason_for
+                raise self.resolve_return_refusal({
+                    "action": "resolve_return", "dispatch_id": returned.get("id"), "stage": returned.get("stage"),
+                    "role": returned.get("role"), "dispatch_status": returned.get("status"),
+                    "digest": returned.get("returned_digest") or "", "options": ["accept", "checkpoint", "rework"],
+                    "retry_reason": retry_reason_for(returned),
+                    "reason": returned.get("reason") or "the role stopped without acceptance; accept its evidence, record the block, or send "
+                                                        "the work back"})
         if not todo and not owed:
             raise Refusal("S5: every window is accepted by its author and its critic and S5 is still open. That is the "
                           "factory's own state, not a gap in the tests: run `controller.py --operation recover` first and "
                           "read what the controller holds.")
+        # TR3-6: the default is 3 windows at a time. `parallel_windows: 1`, ONE open window and an owed round take the body below, verbatim
+        # (no thread, no scheduler, no new state key): the owed round runs first through today's one-window code and the stage re-enters,
+        # so the remainder then goes side by side. The claims of closed windows are freed first (the restart sweep, F3 b).
+        parallel = self.s5_parallel_cap()
+        if parallel != 1:
+            self.s5_release_closed()
+            if len(todo) >= 2 and not owed:
+                reason = self.s5_serial_reason(windows)
+                if reason:
+                    self.say_once("s5-windows", f"note: S5 windows run one at a time: {reason}")
+                if reason in (self.S5_SETTLE_RUNNING, self.S5_SETTLE_OWED):
+                    # F6 (spec 3.6, last row): a reason that is a state AT ENTRY lasts only while it holds. The windows it names run one
+                    # at a time FIRST; when they have settled the reason is read again and the rest goes side by side in this same stage.
+                    # A reason that is not about the entry state (the host, `run.parallel`, a limit, an old story) keeps the whole run
+                    # serial, as does one that names no window. One round only: a dispatch that never settles cannot loop the stage.
+                    try:
+                        first = self.s5_settling_windows(todo)
+                    except Exception:       # noqa: BLE001 - unreadable: the whole run stays serial
+                        first = []
+                    if first and len(first) < len(todo):
+                        self.run_s5_windows(windows, first, 1)
+                        windows = self.stage_scope("S5").get("windows") or []
+                        todo = self.s5_todo(windows)
+                        if len(todo) < 2:
+                            return      # the stage re-enters: no window left, or one, which takes today's body
+                        reason = self.s5_serial_reason(windows)
+                        if reason:
+                            self.say_once("s5-windows", f"note: S5 windows run one at a time: {reason}")
+                return self.run_s5_windows(windows, todo, 1 if reason else min(parallel, len(todo)))
         window = owed_window if owed else todo[0]       # a pure choice: above the checks, so each stand check is followed at once by its build check
-        self.stand_check("S5")      # every window comes through here; a confirmed or passed stand costs no probe
-        self.build_check("S5", cases=list(window.get("scope") or []))     # t-300: the build of THIS window's profiles
+        with self.timed("stand_check", stage="S5"):
+            self.stand_check("S5")      # every window comes through here; a confirmed or passed stand costs no probe
+        with self.timed("build_check", stage="S5"):
+            self.build_check("S5", cases=list(window.get("scope") or []))     # t-300: the build of THIS window's profiles
         if owed:
             # POSITION INVARIANT (t-729 F3): AFTER the two checks (either can raise a Person and the owed round must still be owed on the
             # next entry) and BEFORE the first dispatch of the round (a crash costs one round, never two).
             owed["executed"] = True
             self.save_state()
         last = (not [w for w in todo if w.get("scope") != window.get("scope")]) if owed else len(todo) == 1
+        if last and parallel != 1:
+            # TR4-10 D1: at N != 1 the old body reads the same close rule as the chain road: no other window open (a running dispatch, an
+            # owed round, a live chain, a LAST round that came back unaccepted). Unreadable is open (FR-59). At N == 1 nothing is read.
+            last = self.s5_last_fn(window.get("scope") or [])()
         cases = list(window["scope"])
         self.boundary = "S5:" + ",".join(cases)
-        notes = self.task_root / "work/s5-notes.md"
-        auto_extra = [f"Window: {', '.join(cases)} — {window.get('surface', 'other')} surface.",
-                      "Runs go through run_suite.py --mine <CASE>; the manifest is written with manifest_put.py. "
-                      "A test written to an approved case that fails against the implementation is handed over "
-                      "RED with unresolved reason contradicts_requirement, never adjusted to the code."]
-        if notes.is_file():
-            auto_extra.append(f"Read qa-factory/artifacts/{self.task}/work/s5-notes.md first.")
+        auto_extra = self.s5_auto_extra(window, cases)      # TR3-6: the notes line names the per-dispatch notes too, not only the old file
         if "qa-automator" not in (window.get("accepted_by") or {}):
             self.run_role("S5", "qa-automator", scope=cases, complete=False, extra=auto_extra)
         before = getattr(self, "last_dispatch", "")
         try:
             self.s5_window(window, last, auto_extra, owed)
+            self.s5_release(cases)          # the window closed: its test files are free for a later one (a no-op at `parallel_windows: 1`)
         except ReworkRefused:
             if owed and getattr(self, "last_dispatch", "") == before:
                 # t-760 (t-758 finding 3): the controller refused to START the owed round (no role ran, `last_dispatch` is unchanged), so the
@@ -10420,10 +12717,10 @@ class Driver:
                 self.save_state()
             raise
 
-    S5_CRITIC_BRIEF = ["Static review first, then one probe per new/changed test: probe_by_code.py "
-                       "(red_sandbox.py --probe only when you doubt the check looks at the product, instead of "
-                       "probe_by_code.py for that test, with the reason in your findings); a probe of unchanged "
-                       "bytes is answered `already_probed`; write your findings file and the review_receipt_ref "
+    S5_CRITIC_BRIEF = ["Static review first, then probe_by_code.py once per instance, every check of the test: "
+                       "red_sandbox.py --probe (only when you doubt the check looks at the product, with the reason "
+                       "in your findings) proves only the one check it names, the others stay owed; a probe of unchanged "
+                       "bytes and the same entries is answered `already_probed`; write your findings file and the review_receipt_ref "
                        "on the manifest bindings; `cause:` on each finding."]
 
     def s5_window(self, window: dict, last: bool, auto_extra: list, owed: dict | None = None) -> None:
@@ -10464,7 +12761,7 @@ class Driver:
             self.s5_note_findings(route, form, critic)
             forms = f"work/handoffs/{critic}.yaml"
             if route["action"] == "test_defect":
-                after_round = self.s5_author_round(cases, budget, digest, forms, auto_extra)
+                after_round = self.s5_author_round(cases, budget, digest, forms, auto_extra, critic)
                 continue        # the loop dispatches the critic again on the new bytes
             if route["action"] == "mechanical":
                 self.s5_mechanical_round(cases, last, critic, form, auto_extra)
@@ -10497,9 +12794,13 @@ class Driver:
         dispatch with the cause the answer names, which spends none of the cap; otherwise the plain critic dispatch. The route is
         known BEFORE the critic's finish: the last window's critic closes S5 only when `s5_window_closed` says so - never while its
         author is owed a (mechanical) round, never over a seam reason the person has not answered."""
-        def closes(text: str) -> bool:
-            route, _form = self.route_of(text, budget)
-            return bool(last and self.s5_window_closed(route, self.repair_answer(cases, getattr(self, "last_dispatch", ""))))
+        def closes(text: str, dispatch: str = "") -> bool:
+            # TR3-17: the critic dispatch is read ONCE and handed to both readers; `finish` calls with the digest alone, so the default is
+            # this thread's `last_dispatch` (the serial road's value, byte for byte as before).
+            dispatch = dispatch or getattr(self, "last_dispatch", "")
+            route, _form = self.route_of(text, budget, dispatch)
+            # TR3-6: on the parallel road `last` is a callable (no other window open), read HERE, at the finish, under `_book`
+            return bool((last() if callable(last) else last) and self.s5_window_closed(route, self.repair_answer(cases, dispatch)))
         if step and step.get("cause"):
             digest, _next = self.rework("S5", "qa-code-critic", cases, step.get("reason") or "the person asked for a new review",
                                         cause=step["cause"], complete=closes, extra=self.S5_CRITIC_BRIEF, budget=budget)
@@ -10537,9 +12838,14 @@ class Driver:
         if fresh:
             self.save_state()
 
-    def s5_author_round(self, cases: list, budget, digest: str, forms: str, auto_extra: list):
-        """The author's test_defect round over the critic's findings; returns the `counted` it was dispatched at."""
-        findings = self.newest("work/test-code/critic-findings*.md") or self.newest("work/**/critic-findings*.md")
+    def s5_author_round(self, cases: list, budget, digest: str, forms: str, auto_extra: list, critic: str = ""):
+        """The author's test_defect round over the critic's findings (`critic`: the dispatch whose review sent the window back);
+        returns the `counted` it was dispatched at. The findings are that critic's file `work/test-code/critic-findings-<critic>.md`,
+        else the one file of a story from before findings went one per dispatch (`critic-findings.md`), else the digest: never "the
+        newest on disk" and never `work/**` (with two windows that was the other window's file, or the S4 critic's; t-1937 TR3-5)."""
+        import findings_path
+        found = findings_path.resolve(self.task_root, critic)
+        findings = (self.task_root / found) if found else None
         reason = (findings.read_text(encoding="utf-8", errors="replace")[:1200] if findings else digest)
         self.rework("S5", "qa-automator", cases, "critic round: " + reason, cause="test_defect",
                     extra=[f"Repair round {budget['counted'] + 1} of {budget['cap']}: the critic's form is {forms} and "
@@ -10555,7 +12861,7 @@ class Driver:
         ids = ", ".join(f["id"] for f in repair_route.findings(form) if f["blocking"] and f["cause"] == "mechanical")
         forms = f"work/handoffs/{critic}.yaml"
         self.rework("S5", "qa-automator", cases, f"mechanical fixes of review {critic}: {ids}",
-                    cause="mechanical", complete=last,
+                    cause="mechanical", complete=((lambda _digest: bool(last())) if callable(last) else last),
                     extra=[f"Mechanical round of the review {critic} (its form is {forms}): fix only the findings "
                            f"{ids}; no critic is dispatched after it - your green run on the new bytes closes the "
                            f"round. Write `mechanical_round` on the window record with window_record.py "
@@ -10576,8 +12882,10 @@ class Driver:
     @staticmethod
     def window_id(stage: str, cases) -> str:
         """`<stage>|<the cases, sorted and joined by commas>`: THE window key - the conductor's per-window round cap (`window_key`)
-        and the repair-limit answers (`repair_key`) share this one formatter (t-729 S2), so b2's S7 asks the same way."""
-        return f"{stage}|" + ",".join(sorted({str(c) for c in cases if c}))
+        and the repair-limit answers (`repair_key`) share this one formatter (t-729 S2), so b2's S7 asks the same way. The
+        formatter is `window_files.window_id` (the claim files of TR3-16 name windows by it too: one reader)."""
+        import window_files
+        return window_files.window_id(stage, cases)
 
     @classmethod
     def repair_key(cls, cases, stage: str = "S5") -> str:
@@ -10674,7 +12982,7 @@ class Driver:
             if recovering:
                 self.owe_route(dispatch, cases, route)
             return
-        if route["code"] != "unknown" and self.repair_passes(budget) is None:
+        if route["code"] not in ("unknown", "untyped") and self.repair_passes(budget) is None:
             self.repair_older_controller("S5", dispatch, budget, "were sent back")
         self.repair_limit_raise(self.repair_limit_facts(dispatch, cases, route, form, budget))
 
@@ -10706,6 +13014,10 @@ class Driver:
                                  "tooling": ("s5.nobody_tooling", ["debt", "stop"], "")}[first]
         elif code == "unknown":
             offer = ["debt", "stop"]
+        elif code == "untyped":
+            # F4 (d): the verdict sent the window back and the form holds no typed finding - the existing closed question
+            # `s5.nobody_review` (no new key, no conductor call); `review` spends none of the repair limit
+            key, offer, cause = "s5.nobody_review", ["review", "debt", "stop"], "reviewer_error"
         where = ", ".join(cases)
         opening = {
             "cap": f"For {where}: the critic sent the tests back {counted} times; the factory's limit for that is {cap} rounds, "
@@ -10717,6 +13029,8 @@ class Driver:
                        "left out of the answers below.",
             "sent_back": f"For {where}: the critic sent the tests back without naming a blocking finding, so there is nothing "
                          "specific for the test writer to repair.",
+            "untyped": f"For {where}: the critic sent the tests back but wrote no finding the test writer can act on; the critic "
+                       "can review again and name them.",
             "nobody": {"environment": f"For {where}: the critic could not finish judging the tests because the stand got in the "
                                       "way, and the test writer cannot repair a stand.",
                        "reviewer_error": f"For {where}: the critic sent the tests back, but the doubt is about the critic's own review, "
@@ -10729,7 +13043,9 @@ class Driver:
         lead = "\n".join([opening, *(["", "What the critic still asks for:", *lines] if lines else []), "", "Which of these should happen?"])
         passes = self.repair_passes(budget)     # None is refused by the gate before this point, except for `unknown` (which offers no `round`)
         reason = next((f["problem"] for f in blocking if f["cause"] == cause), "") if cause else ""
-        return {"dispatch": dispatch, "cases": cases, "key": key, "offer": offer, "code": code, "lead": lead, "cause": cause,
+        # the review debt's reason is the ledger's closed list (`ledger.DEBT_REASONS`, which holds `untyped`)
+        return {"dispatch": dispatch, "cases": cases, "key": key, "offer": offer, "code": code,
+                "lead": lead, "cause": cause,
                 "passes": passes or {}, "counted": counted, "cap": cap, "round_counted": round_counted, "round_cap": round_cap,
                 "reason": reason, "by_cause": (budget.get("by_cause") if isinstance(budget, dict) else None) or {}}
 
@@ -10862,6 +13178,303 @@ class Driver:
                   "rounds": {"counted": ask["counted"], "cap": ask["cap"], "by_cause": ask["by_cause"]},
                   "choice": {"token": "debt", "words_file": words_file, "at": _now()}}
         return ledger.write_review_debt(self.task_root, window) is not None
+
+    # --- TR3-10 D (t-2283): the way question of S6, `walk_supply` (spec t-2174 Part D items 9-11, section 4, L5) -----------------------
+    # The site's own closed question: asked once per project, set aside (`no_hold`: it holds no case) and put to the person at gate B.
+    # Built like `repair_limit_person` (a priced `closed_question`, NO `offered`); a token has an executor, any other word goes to the
+    # conductor once through `unread`. The raise site writes the registry row first and hands its id to `walk_supply_person`.
+    # The tokens and the sentence each one records (the `answer` ids of `s6.walk_supply` in question-prices.json; insertion order = option order).
+    WALK_SUPPLY_SENTENCES = {
+        "the app makes them": ("each extra walker signs up a new user on the app's own sign-up page and makes the records it changes "
+                               "through the app, on stands the project's settings allow the factory to change"),
+        "one at a time": ("use only the accounts already recorded; checks that share an account or a record run one after another"),
+        "I will add accounts": ("the person adds more accounts to the project's environment file and names their keys; until they are "
+                                "recorded, checks that share an account run one after another")}
+
+    def walk_supply_text(self, short: list) -> "Priced":
+        """The way question (spec section 4; `human-questions.md`): what the factory did, why it cannot decide, one question, the three
+        priced answers of `s6.walk_supply`; no option is recommended (the choice is the person's intent). `short` is `walk_pool.short_parts`'s
+        list `[(part, lanes waiting, pool size)]`; a part is named by the role as the stand lists it (`default` is the stand's main
+        account). Empty `short` (a data shortage raised it): the same question about records alone."""
+        shared = []
+        for part, waiting, _size in short or []:
+            who = "the stand's main account" if part in ("", "default") else f"the stand's {part} account"
+            shared.append(f"{who}: {waiting} group{'' if waiting == 1 else 's'} of checks had to wait for another")
+        what = ("sign in as the same account (" + "; ".join(shared) + "), so they ran one after another — two walkers in one account would "
+                "see each other's work" if shared else "work on the same records, so they ran one after another — two walkers changing "
+                "one record would disturb each other's work")
+        lead = (f"Some manual checks of this story {what}. Nothing was skipped; this story's checks already ran, only slower. Your "
+                "project's settings do not say how it gets more test accounts, or which records walkers may share, and the factory does "
+                "not guess. Your answer is kept for this project, so you are asked this once.\n\n"
+                "How should walkers get their own accounts and records on this project?")
+        sentences = self.WALK_SUPPLY_SENTENCES
+        return self.closed_question("s6.walk_supply", lead, [
+            {"answer": "the app makes them", "token": "the app makes them",
+             "says": sentences["the app makes them"] + "; from the next story these checks run side by side, and the users they make "
+                     "are named in the report and left on the stand"},
+            {"answer": "one at a time", "token": "one at a time",
+             "says": sentences["one at a time"] + "; manual checks keep taking longer"},
+            {"answer": "I will add accounts", "token": "I will add accounts", "slots": {"what": "adding the accounts to the project's environment file"},
+             "says": ("you put more accounts in the project's environment file and tell me, in your own words, the names of their keys (and, "
+                      "if you like, which records walkers may share); until they are recorded the checks run one after another")}])
+
+    def walk_supply_person(self, row_id: str, short: list) -> Person:
+        """The way question as a `Person` (kind `walk_supply`, stage S6): NO `offered` (L5), `holds = ()` and `no_hold = True` (read by
+        `deferrable`: it waits, holds no case and is put at gate B). `row_id` is the registry row the raise site opened; it is kept in
+        `state["walk_supply_asked"]` (the one producer of what `_answer_walk_supply` reads) together with the roles of the short parts
+        (`state["walk_supply_roles"]`, what `the app makes them` records). `ask()` saves the state."""
+        self.state["walk_supply_asked"] = str(row_id)
+        self.state["walk_supply_roles"] = list(dict.fromkeys(str(part) for part, _waiting, _size in short or [] if str(part).strip()))
+        person = Person("walk_supply", self.walk_supply_text(short), "S6", answer_note=(
+            "Write one of `the app makes them`, `one at a time`, `I will add accounts`, or your own words "
+            "(they are read by the conductor and recorded for the project)."))
+        person.holds, person.no_hold = (), True
+        return person
+
+    def _resolve_decision_row(self, kind: str, row: str, values: dict) -> None:
+        """The ONE body of "resolve a registry row with the person's words" (AR-15; the S6 account/data questions share it): runs
+        `project_decisions.py resolve` with the answer's words file and the pointer -> value map. No words file, or an exit != 0, is a
+        `Refusal` naming the row and the exit: the question stays and the words are on record in `driver-answers.jsonl` (FR-41)."""
+        file = self.answer_file()
+        if not file:
+            raise Refusal(f"{kind}: the answer has no words file, so row {row} was not resolved; the question stays")
+        code, out = self.py("project_decisions.py", "--root", str(self.project), "resolve", "--id", row, "--words-file", str(self.task_root / file),
+                            "--resolution-ref", f"{self.task} S6", "--field-values", json.dumps(values, ensure_ascii=False))
+        if code:
+            raise Refusal(f"{kind}: project_decisions.py resolve of row {row} failed (exit {code}); the question stays and the person's "
+                          f"words are on record in driver-answers.jsonl:\n{out[-300:]}")
+
+    def _answer_walk_supply(self, words: str, qtext: str, stage: str, dispatch: str) -> None:
+        """The answer to the way question (FR-9: each token has an executor; FR-12 / AR-2: the three tokens are the whole closed set, code
+        never parses any other word). A token runs `project_decisions.py resolve` on the registry row with the person's words file; the
+        value at each pointer is the project's CURRENT object there with only this answer's keys replaced (merge on write: a hand-added
+        `more_accounts` survives). Any other words - empty, none of the tokens, words that name a password - go to the conductor ONCE,
+        whole, with the registry row named. A failed `resolve` is a `Refusal` naming the row and the exit: the question stays (FR-41),
+        the words are on record in `driver-answers.jsonl`."""
+        row = str(self.state.get("walk_supply_asked") or "")
+        by_norm = {self.s0_normalize(token): (token, sentence) for token, sentence in self.WALK_SUPPLY_SENTENCES.items()}
+        picked = by_norm.get(self.s0_normalize(words))
+        if picked is None or not row:
+            note = f"This question is row {row} of the project's decision registry (the id the recording command takes).\n\n" if row else ""
+            self.unread("walk_supply", stage, dispatch, note + qtext, words=words, doors=tuple(self.WALK_SUPPLY_SENTENCES),
+                        lead=self.unread_lead(words), again=lambda said: self.held_question(said))
+            return
+        token, sentence = picked
+        said = words.replace(self.BOM, "").strip()
+        recorded = f"{sentence}. The person answered: \"{said}\""
+        import manual_capture as MC
+        try:
+            config = MC.load_config(self.task_root)[0]
+        except ValueError as exc:
+            raise Refusal(f"walk_supply: the project's settings cannot be read ({exc}), so row {row} was not resolved; the question stays")
+
+        import config_contract as CC
+        raw = CC.walk_supply_raw(config)        # the raw objects, used only to write them back whole (the deciding readers use `walk_supply`)
+
+        def merged(slot: str, **keys) -> dict:
+            return {**raw[slot], **keys}
+        # TR3-10d D3b-2 (item 2): `walk_supply_roles` holds PART names (`stand_account:user`, `default`, `env:<login key>`); `self_sign_up.roles` is
+        # read back as ROLE names (`walk_pool.obtain_roles_of`). A part is reduced by the readers that exist - the role after `stand_account:`,
+        # `default`, the role `walk_pool.walk_env_pair` finds for an `env:` login key - and one none of them reads is left out and NAMED, never guessed.
+        sign_up, left_out = [], []
+        if token == "the app makes them":
+            import walk_pool as WP
+            stand = next((e for e in (config.get("environments") if isinstance(config, dict) else None) or [] if isinstance(e, dict)), {})
+            for part in (str(p) for p in self.state.get("walk_supply_roles") or []):
+                kind, _, value = part.partition(":")
+                if part == "default" or (kind == "stand_account" and value.strip()):
+                    role = "default" if part == "default" else value.strip()
+                else:
+                    role = WP.walk_env_pair(stand, value)[0] if kind == "env" and value.strip() else ""
+                if not role:
+                    left_out.append(part)
+                elif role not in sign_up:
+                    sign_up.append(role)
+        accounts = {"words": recorded, **({"self_sign_up": {"roles": sign_up}} if token == "the app makes them" else {})}
+        names = CC.walk_supply_keys()
+        values = {f"/manual/{names['accounts']}": merged("accounts", **accounts), f"/manual/{names['data']}": merged("data", words=recorded)}
+        self._resolve_decision_row("walk_supply", row, values)
+        self.state.pop("walk_supply_roles", None)
+        self.answer_row("S6 walk supply: ", said, what="your answer about how walkers get their accounts and records")
+        print(f"S6: the answer `{token}` is recorded for this project")
+        if left_out:
+            print(f"S6: these accounts could not be read as roles of the stand, so they are not on the list of roles a walker may sign up as: "
+                  f"{', '.join(left_out)}")
+        if token == "I will add accounts":
+            print("S6: you said you will add accounts; until they are in the project's settings the checks that share an account run "
+                  "one after another")
+
+    # --- TR3-10 D3a step 2 (t-2290): the data-change question `data_change` (spec t-2174 Part D item 12) -------------------------------
+    # Whether the factory may make and remove records on the stand for the pools; asked once per project, set aside like `walk_supply`
+    # (`no_hold`), a token has an executor (`_answer_data_change`), any other word goes to the conductor once. The raise site writes the
+    # registry row first and hands its id to `data_change_person`. The keys ARE the three sentences `config_contract.DATA_MAY_OPTIONS` reads
+    # back (the `answer` ids of `s6.data_change`; a test pins the two together); the value is what the option means to the person.
+    DATA_CHANGE_SAYS = {
+        "only use what exists": ("the factory never makes or removes records; checks that need their own record run one after another, "
+                                 "and these checks keep taking longer"),
+        "may create, never delete": ("a walker makes its own record for such a check; the record stays on the stand and the report names it; "
+                                     "later each such walker spends a few steps making a record"),
+        "may create and delete": ("a walker makes its own record for such a check and removes it when the check is done; a few more steps "
+                                  "per such check")}
+
+    def data_change_text(self, kinds: list, may_change: bool = True) -> "Priced":
+        """The data-change question (spec item 12; `human-questions.md`): the kinds in the story's words (empty `kinds`: "a record"),
+        that the answer applies to the stand the person's settings name, that this story's checks already ran one after another (D.4),
+        and - when `may_change` is False - that the settings do not mark the stand as one that may be changed. No option is recommended."""
+        names = [str(k).strip() for k in kinds or [] if str(k).strip()]
+        things = [("an " if n[0].lower() in "aeio" else "a ") + n for n in names] or ["a record"]
+        what = things[0] if len(things) == 1 else ", ".join(things[:-1]) + " and " + things[-1]
+        stand = ("" if may_change else " Your settings do not mark this stand as one that may be changed, so until you answer the factory "
+                                         "only uses what exists.")
+        lead = (f"Some manual checks of this story change {what} that other checks also use, and the project's list has no free one for each "
+                "walker, so those checks ran one after another; nothing was skipped and this story's checks already ran, only slower. "
+                f"Your answer applies to the stand your settings name.{stand} Your answer is kept for this project, so you are asked this once.\n\n"
+                "May the factory make records on the stand for them, and remove them afterwards?")
+        return self.closed_question("s6.data_change", lead, [
+            {"answer": token, "token": token, "says": says} for token, says in self.DATA_CHANGE_SAYS.items()])
+
+    def data_change_person(self, row_id: str, kinds: list, may_change: bool = True) -> Person:
+        """The data-change question as a `Person` (kind `data_change`, stage S6): NO `offered`, `holds = ()`, `no_hold = True` (read by
+        `deferrable`). `row_id` is the registry row the raise site opened; it is kept in `state["data_change_asked"]` (the one producer of
+        what `_answer_data_change` reads, and the raise site's "once per story" test). `ask()` saves the state."""
+        self.state["data_change_asked"] = str(row_id)
+        person = Person("data_change", self.data_change_text(kinds, may_change), "S6", answer_note=(
+            "Write one of `only use what exists`, `may create, never delete`, `may create and delete`, or your own words "
+            "(they are read by the conductor and recorded for the project)."))
+        person.holds, person.no_hold = (), True
+        return person
+
+    def _answer_data_change(self, words: str, qtext: str, stage: str, dispatch: str) -> None:
+        """The answer to the data-change question (FR-9: each token has an executor; FR-12 / AR-2: the three tokens are the whole closed
+        set, code never parses another word). A token runs `project_decisions.py resolve` with `{"/manual/data_way/may": <the sentence>}`;
+        any other words go to the conductor ONCE, whole, the registry row named. No `data_change_asked` in state, or a failed `resolve`,
+        is a `Refusal` naming what is missing / the row and the exit: the question stays."""
+        row = str(self.state.get("data_change_asked") or "")
+        if not row:
+            raise Refusal("data_change: the state has no `data_change_asked` (the registry row of this question), so the answer cannot be "
+                          "recorded; the question stays and the person's words are on record in driver-answers.jsonl")
+        picked = {self.s0_normalize(token): token for token in self.DATA_CHANGE_SAYS}.get(self.s0_normalize(words))
+        if picked is None:
+            self.unread("data_change", stage, dispatch,
+                        f"This question is row {row} of the project's decision registry (the id the recording command takes).\n\n" + qtext,
+                        words=words, doors=tuple(self.DATA_CHANGE_SAYS), lead=self.unread_lead(words), again=lambda said: self.held_question(said))
+            return
+        self._resolve_decision_row("data_change", row, {"/manual/data_way/may": picked})
+        self.answer_row("S6 data change: ", words.replace(self.BOM, "").strip(), what="your answer about what the factory may do with records")
+        print(f"S6: the answer `{picked}` is recorded for this project")
+
+    # --- TR3-10 D (t-2291): the account question of S6, `walk_account` (spec t-2174 item 13; sibling of `stand_login_gate`, AR-15) ----------
+    # Asked for the data of ONE account the project does not have, one question per role; it holds the tied cases (deferrable through the
+    # EXISTING rule: no `no_hold`). Built like `walk_supply_person` (a priced `closed_question`, NO `offered`). `by hand` / `go on` are carried
+    # out here as `stand_login_gate` does; `added` and every other word go to the conductor (it records key NAMES, code never parses words).
+    def walk_account_text(self, role: str, cases: list, lines: list) -> "Priced":
+        """The account question (`human-questions.md`): what is missing, in the project's words, what the factory did (the other checks go
+        on), one question, the three priced answers of `s6.walk_account`. `lines` are the formed case lines (`case_lines`: title and id);
+        `role` is named as the stand lists it. No key path and no file of ours in the body: the project's environment file is the person's
+        own and is named only because the question asks them to edit it."""
+        who = "main" if role in ("", "default") else role
+        lead = (f"These checks need a {who} account that the project's settings do not have yet:\n" + "\n".join(lines)
+                + f"\nI have not started {'it' if len(cases) == 1 else 'them'}. Nothing else waits for it: the other checks go on. "
+                "Put the account's login and password in your project's environment file (never in this chat) and tell me the names "
+                "of the two keys.\n\nWhat should happen with these checks?")
+        return self.closed_question("s6.walk_account", lead, [
+            {"answer": "added", "token": "added", "slots": {"what": "adding the account's login and password to your project's environment file"},
+             "says": ("you put the account's login and password in the environment file and tell me the names of the two keys; I record the "
+                      "names, check that the account signs in, and the next run of the story checks these cases")},
+            {"answer": "by hand", "token": "by hand", "slots": {"what": "the checks named above"},
+             "says": "you will check these yourself; I leave them out and the report says so, in your words"},
+            {"answer": "go on", "token": "go on",
+             "says": "leave them unchecked; the report carries them as not checked"}])
+
+    def walk_account_person(self, row_id: str, role: str, cases: list, case_lines: list) -> Person:
+        """The account question as a `Person` (kind `walk_account`, stage S6): NO `offered` (L5), `holds` = the tied cases and NO `no_hold`
+        (`deferrable` sets it aside through its existing case test). `case_lines` are the lines the raise site formed (it lives above
+        `Driver.case_lines`' layer). The one producer of `state["walk_account_asked"][row_id] = {"role", "cases"}`, which
+        `_answer_walk_account` reads. A role the code cannot hand to the conductor as a key (empty, with a space, non-ASCII), no tied case or no
+        registry row is a `Refusal` that says what is missing: nothing is asked, nothing guessed."""
+        role, row_id = str(role or ""), str(row_id or "")
+        tied = [str(case) for case in cases or [] if str(case).strip()]
+        if not role or not role.isascii() or any(ch.isspace() for ch in role):
+            raise Refusal(f"walk_account: the role {role!r} cannot be named as an account key (it is empty, has a space or a non-ASCII "
+                          "character); the account question was not raised")
+        if not tied:
+            raise Refusal(f"walk_account: no case is tied to the {role} account, so the question has nothing to hold; it was not raised")
+        if not row_id:
+            raise Refusal(f"walk_account: no registry row for the {role} account was given, so the answer could not be recorded; the question "
+                          "was not raised")
+        held = self.state.get("walk_account_asked")
+        self.state["walk_account_asked"] = held = held if isinstance(held, dict) else {}
+        # TR3-10d D3b-2 (fix a): ONE live row per role - a stale row of this role under another id goes, so a later answer never meets two
+        for stale in [key for key, val in held.items() if key != row_id and isinstance(val, dict) and val.get("role") == role]:
+            held.pop(stale)
+        held[row_id] = {"role": role, "cases": tied}
+        seen = self.state.get("walk_account_roles")
+        self.state["walk_account_roles"] = seen = seen if isinstance(seen, dict) else {}
+        seen[role] = row_id        # kept for the story (never popped): the raise site asks a role once per story
+        person = Person("walk_account", self.walk_account_text(role, tied, [str(line) for line in case_lines or []]), "S6", answer_note=(
+            "Write `added` and the two key names (for example `added: <LOGIN KEY> and <PASSWORD KEY>`; never the password itself), "
+            "`by hand` or `go on`, or your own words (they are read by the conductor)."))
+        person.holds = tuple(tied)
+        return person
+
+    def _answer_walk_account(self, words: str, qtext: str, stage: str, dispatch: str) -> None:
+        """The answer to the account question (FR-9: each token has an executor; FR-12 / AR-2: three tokens, never a phrase). `by hand` ->
+        `refuse_case(..., "person_checks")`, `go on` -> `refuse_case(..., "left_unchecked")` for every tied case, as `stand_login_gate`
+        does. A BARE `added` (no key name for the conductor to record) is asked again ONCE (`state["walk_account_again"][role]`) with the
+        reason "you said the account is added, but did not name the two keys" (D3b-2: not "the keys you named are not in the environment
+        file" - that is for a probe that found no keys), then treated as `go on` (one recorded decision per class, P5). `added`
+        with names and every other word go to the conductor ONCE, whole: it records key names. The words are never copied into a text
+        built here (a password may stand in them). The question's role and cases come from `state["walk_account_asked"]`: the entry whose
+        cases are the deferred item's `holds`, else the only entry; none or several that cannot be told apart is a `Refusal`."""
+        entries = self.state.get("walk_account_asked")
+        entries = {str(key): val for key, val in entries.items() if isinstance(val, dict) and val.get("role") and val.get("cases")} \
+            if isinstance(entries, dict) else {}
+        if not entries:
+            raise Refusal("walk_account: the record of this question (its role and tied cases, `walk_account_asked`) is missing, so the "
+                          "answer was not carried out; the question stays and the person's words are on record in driver-answers.jsonl")
+        asked = self.state.get("asked") or {}
+        chosen = None
+        if asked.get("deferred_n") is not None:
+            item = next((i for i in self.deferred_items() if i["n"] == asked["deferred_n"]), None)
+            held = sorted(str(case) for case in (item or {}).get("holds") or [])
+            same = [key for key, val in entries.items() if sorted(str(case) for case in val["cases"]) == held]
+            chosen = same[0] if len(same) == 1 else None
+        if chosen is None and len(entries) == 1:
+            chosen = next(iter(entries))
+        if chosen is None:
+            raise Refusal("walk_account: " + str(len(entries)) + " account questions are recorded and none of them is the one answered, so "
+                          "the answer was not carried out; the question stays and the person's words are on record in driver-answers.jsonl")
+        row, role, cases = chosen, str(entries[chosen]["role"]), [str(case) for case in entries[chosen]["cases"]]
+        again = self.state.get("walk_account_again")
+        self.state["walk_account_again"] = again = again if isinstance(again, dict) else {}
+        token = self.s0_normalize(words)
+        reason = ""
+        if token == "added" and not again.get(role):
+            again[role] = 1
+            # remains: the person's own question comes back once with what is missing (the two key names); a second "added" closes as `go on`
+            raise self.held_question("You said the account is added, but did not name the two keys. Tell me the names of the two variables "
+                                     "in your environment file that hold its login and password, or answer `by hand` or `go on`.")
+        if token == "added":
+            token, reason = "go on", "you said the account is added but did not name its two keys, after you were asked twice"
+        if token in ("by hand", "go on"):
+            by = "person_checks" if token == "by hand" else "left_unchecked"
+            reason = ("not checked by an agent: the " + role + " account it needs is not in the project's settings"
+                      + (f"; you answered `{token}`" if not reason else f"; {reason}"))
+            door = "put the account's login and password in the project's environment file and name the keys; the next run checks it by hand"
+            for case in cases:
+                if self.refuse_case(None, case, reason, door, by):
+                    print(f"S6: {case}: not checked by hand — {reason}")
+                else:
+                    print(f"S6: {case}: the decision could not be written to its request.json; the answer is on record")
+            entries_left = self.state.get("walk_account_asked")
+            entries_left.pop(row, None)
+            again.pop(role, None)
+            self.answer_row("S6 walk account: ", token, what=f"your answer about the {role} account")
+            return
+        note = (f"This question is row {row} of the project's decision registry (the id the recording command takes). It asks for the "
+                f"account of the role `{role}` (the key of the account in the project's settings) for these cases: {', '.join(cases)}.\n\n")
+        self.unread("walk_account", stage, dispatch, note + qtext, words=words, doors=("added", "by hand", "go on"),
+                    lead=self.unread_lead(words), again=lambda said: self.held_question(said))
 
     # --- an exit-gate refusal that survives the resume limit: the ONE seam (conductor/1, C1-5d; t-698 §12-§14, t-764) -----------
     # The class (FR-42, P22): the role was resumed once on this finding set (t-217) and the set came back; `rework` has nothing to
@@ -11069,24 +13682,35 @@ class Driver:
                        "the plan gate (gate A) lists them among what you decided" if rows and stage == "S1" else
                        f"what the check named stays undone and is kept with your words; {self.exit_next_gate(stage)} lists it among what you decided")
         shown = "the step closes as it is: " + consequence
+        halt = self.halt_key(digest) if halting and sid and why != "session_gone" else ""
         says = {"round": (f"{who} gets one more turn in its own session, with the check's exact words and your answer as its instruction; "
                           "then the check looks again", {"role": who}),
                 "fresh": (f"{who}'s session is set aside and the role starts this step again from its brief, with the check's words and your "
                           "answer; what it wrote stays on disk for it to read", {"stages": f"{who}'s whole work at {place}"}),
                 "go on": (shown, {})}
+        if halt:
+            says["go on"] = (shown + f"; first {who} reads your words once in its own session and hands its work over again, because it "
+                             "also said it cannot go on", {"role": who})
         offer = [t for t in ("round", "fresh", "go on") if t not in absent] + ["stop"]
         options = [dict(self.STOP_OPTION) if t == "stop" else {"answer": t, "token": t, "says": says[t][0], "slots": says[t][1]} for t in offer]
         details = (text.strip() or "The check's lines, whole:\n- " + "\n- ".join(lines)) + (f"\n\nThe resume's own error:\n{error}" if error else "")
         details += f"\n\nThe role's last words:\n{digest.strip()}" if digest.strip() else ""
         return {"stage": stage, "dispatch": dispatch, "lead": lead, "options": options, "offer": offer, "shown": shown,
-                "details": details, "form": len(form)}
+                "details": details, "form": len(form), "halt": halt}
+
+    @staticmethod
+    def halt_key(digest: str) -> str:
+        """The identity of the halt a person was shown: a hash of the digest's words (whitespace-normalised); "" for no digest."""
+        norm = " ".join(str(digest or "").split())
+        return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16] if norm else ""
 
     def exit_limit_person(self, ask: dict, said: str = "") -> Person:
         """The question from its facts: `said` (an unread answer's lead, else the account itself) above the account, then the priced
         answers of `exit.resume_limit`. ONE literal `closed_question` (the census of question ids reads it)."""
         lead = ask["lead"] if not said.strip() or said.strip() == ask["lead"].strip() else said.strip() + "\n\n" + ask["lead"]
-        return Person("exit_limit", self.closed_question("exit.resume_limit", lead, ask["options"]), ask["stage"], ask["dispatch"],
-                      details=ask["details"])
+        text = (self.closed_question("exit.resume_limit_halted", lead, ask["options"]) if ask.get("halt")
+                else self.closed_question("exit.resume_limit", lead, ask["options"]))
+        return Person("exit_limit", text, ask["stage"], ask["dispatch"], details=ask["details"])
 
     def _answer_exit_limit(self, words: str, qtext: str, stage: str, dispatch: str, *, words_file: str = "") -> bool:
         """The answer to the exit-limit question (FR-9: each token has an executor; FR-12: tokens only). `round` records the one
@@ -11166,20 +13790,37 @@ class Driver:
                      "--scope", "local-calibration", "--witness", f"exit gate {dispatch}: " + str((rec.get("lines") or [""])[0])[:200],
                      "--idempotency-key", f"exit-pass:{self.task}:{dispatch}:{str(rec.get('key'))[:12]}",
                      what="the finding about the exit gate you passed", stage=stage)
+        shown = (rec.get("ask") or {}).get("halt")
+        if shown and shown == self.halt_key(self.digest_of(self.saved_result(dispatch).get("result") or "")):
+            try:
+                said = (self.task_root / file).read_text(encoding="utf-8").strip()
+            except OSError:
+                said = ""
+            self.state["pending_words"][dispatch] = said or words
+            print(f"{stage}: {dispatch} also said it cannot go on; it reads your words once in its own session, and the question it "
+                  "stopped on is not asked again")
 
     def stage_S6(self) -> None:
+        import acceptance
         auto = self.stage_scope("S6", "automation")
         manual = self.stage_scope("S6", "manual")
+        for kind, got in (("automation", auto), ("manual", manual)):
+            if not isinstance(got.get("scope"), list):
+                # t-2020 (AR-28, FR-41): an answer without a scope is an UNKNOWN scope, not an empty one; "nothing to execute" below
+                # is a close by code and is reached only over a scope the controller said was empty.
+                raise Refusal(f"S6: the controller's stage-scope answer for the {kind} half has no `scope` list (expected "
+                              f"`{{\"scope\": [...]}}`; got keys: {', '.join(sorted(map(str, got))) or 'none'}); the stage is not closed "
+                              "over a scope nobody could read - run the step again, and if it repeats, read the controller's output")
         state = self.controller_state()
         done = [d for d in (state.get("dispatches") or {}).values() if d.get("stage") == "S6" and d.get("status") == "accepted"]
         auto_done = any(d.get("execution_kind") == "automation" or not d.get("execution_kind") for d in done)
         auto_scope, manual_scope = list(auto.get("scope") or []), list(manual.get("scope") or [])
-        if self.s6_accepted_pending() and not manual_scope and "s6_probe_after" not in self.state:
+        if self.consumer_pending("S6") and not manual_scope and "s6_probe_after" not in self.state:
             # X7-6. POSITION: the consumer's `accept` record stands and nothing more is owed to S6 (no live check to prove again, no manual
             # half): S6 closes HERE, by the record - never by the runner's own finish. A mark `s6_probe_after` or a manual half left
-            # falls through to the flow below, whose close sites find the record (`s6_need_record`).
-            self.close_by_code("S6", "the failure analyst accepted the runner's handoff", ["work/run-report.json"], finalize=False,
-                               site="s6.accepted", digest="accepted by the failure analyst")
+            # falls through to the flow below, whose close sites find the record (`consumer_need_record`).
+            reason, digest = self.consumer_close_words("S6")        # N4: who accepted, from the record (the analyst, or the person's word)
+            self.close_by_code("S6", reason, ["work/run-report.json"], finalize=False, site="s6.accepted", digest=digest)
             return
         if not auto_scope and not manual_scope:
             # t-305 N1 (Q19 a): the reduction comes FIRST, as in the freshness branch below and in `manual_close` -
@@ -11250,9 +13891,9 @@ class Driver:
                 for line in left:
                     print(f"S6: {line}")
             # X7-6: with a consumer the final runner window (no manual half) stops AWAITING its acceptance, `owed` included (the proofs
-            # then run in `s6_reentry` after the record, whose close site finds it); `s6_awaits` is the identity with no consumer.
+            # then run in `s6_reentry` after the record, whose close site finds it); `consumer_awaits` is the identity with no consumer.
             self.run_role("S6", "qa-runner", scope=auto_scope,
-                          complete=(self.s6_awaits(True) if not manual_scope else False) if self.s6_consumer() else (not manual_scope and not owed),
+                          complete=(self.consumer_awaits("S6", True) if not manual_scope else False) if acceptance.consumer_of("S6") else (not manual_scope and not owed),
                           extra=["Execution kind: automation — run only instances whose evidence is missing or stale; "
                                  "reuse fresh receipts; then `finalize_task.py <task root>` writes run-report.json."]
                                 + self.s6_freshness_lines(fresh) + left + self.role_lines("S6", "qa-runner"))
@@ -11440,16 +14081,17 @@ class Driver:
             args = ["--task", self.task, *context, "--test", replay["test"], "--instance", replay["instance"],
                     "--mutation", replay["mutation"], "--json"] + (["--oracle", replay["oracle"]] if replay.get("oracle") else [])
             code, out = self.py("probe_by_code.py", *args)
-            try:
-                record = json.JSONDecoder().raw_decode(out[out.index("{"):])[0]
-            except ValueError:
-                record = {}
-            record = record if isinstance(record, dict) else {}
+            record = hooklib.read_document(out) or {}      # t-2020: pretty-printed answer; a warning with a `{` in it is skipped
             path = record.get("record")
             if isinstance(path, str) and re.fullmatch(r"work/probes/(?:product/)?[^/\\]+\.json", path) and path not in records:
                 records.append(path)
             if not code and record.get("verdict") == "intended_failure":
                 proved += 1
+            elif record.get("verdict") == "incomplete" and record.get("cause") == "judgment":
+                # t-1968 N2 (R6, E2.11): no critic window follows the S6 close, so nobody judges this record; it is said as NOT
+                # proved (FR-41), asks no question, and S6 still closes. The delivery reason is `check_delivery`'s (`PL.reached`)
+                lines.append(f"{iid}: the probe failed at the mutated line with a text the factory cannot read; nobody judges it at "
+                             "the S6 close, so the test is not proved again")
             elif code:
                 lines.append(f"{iid}: not proved again (probe_by_code exit {code}): "
                              + cut(record.get("error") or (out.splitlines()[-1] if out else "") or "it printed nothing"))
@@ -11467,7 +14109,7 @@ class Driver:
         the way the other closes of S6 refuse - the runner is no longer to come). The mark `s6_probe_after` is dropped.
         The receipt's evidence is the manifest, the jobs and each probe record this pass went through (HF3-6: the close
         names what it stands on)."""
-        self.s6_need_record("s6_reprobed_close")        # X7-6: BEFORE the proofs, so a refusal leaves nothing proved for nothing
+        self.consumer_need_record("S6", "s6_reprobed_close")        # X7-6: BEFORE the proofs, so a refusal leaves nothing proved for nothing
         lines, _proved, _seconds, records = self.s6_reprove(probes, cases, no_stand=no_stand, unrun=unrun)
         for line in lines:
             print(f"S6: {line}")
@@ -11496,7 +14138,7 @@ class Driver:
         changed = self.s6_changed(cases)
         probes = self.s6_probes(changed)
         if owed or probes:
-            self.s6_need_record("s6_reentry")      # X7-6: a close below needs the consumer's record (a no-op with no consumer)
+            self.consumer_need_record("S6", "s6_reentry")      # X7-6: a close below needs the consumer's record (a no-op with no consumer)
         unrun = self.s6_unrun(changed, self.s6_accepted(self.state.get("s6_probe_after")))
         if not owed and (not probes or unrun):
             return
@@ -11597,24 +14239,37 @@ class Driver:
             return given
 
     def manual_prepare(self, case: str) -> tuple:
-        """([obligation ids], "") for a case the agent may check by hand, ([], the refusal in words) otherwise.
+        """([obligation ids], "", "") for a case the agent may check by hand, ([], the refusal in words, "") otherwise, and
+        (ids, "", <reason>) for a case the FACTORY failed to prepare (F5(c): it is walked unprepared, never dropped).
         The body is `manual_evidence.prepare_for_block`, which `story_step.py start` calls too (FB-9, AR-15)."""
         import manual_evidence as ME
         return ME.prepare_for_block(self.task_root, case)
 
     def manual_plan(self, cases: list, skip=()) -> dict:
-        """{"blocks": [[case, ...], ...], "refused": [(case, words), ...]} for the cases not yet done (and not in `skip`).
-        Prepares each of them (see `manual_prepare`); the blocks are the prepared ones, plan-row order, at most
-        MANUAL_BLOCK_MAX each (the window: 1 by default). 3 -> [1, 1, 1]; with a size of 5: 6 -> [5, 1]; none prepared -> no block."""
-        gone = self.manual_done() | {str(c) for c in skip}
-        ready, refused = [], []
+        """{"blocks": [[case, ...], ...], "refused": [(case, words), ...], "unprepared": [(case, reason), ...]} for the cases not
+        yet done (and not in `skip`). Prepares each of them (see `manual_prepare`); the blocks are the prepared ones AND the
+        unprepared ones (F5(c): the factory never stands - an unprepared case is walked, listed beside its block), plan-row
+        order, at most MANUAL_BLOCK_MAX each (the window: 3), the cases of one account set together (`walk_lanes`: guests form one lane;
+        a case whose request cannot be read is a lane of one). Four guest cases -> [3, 1]; with a size of 5: 6 -> [5, 1]; none
+        prepared -> no block."""
+        # t-1957 N5s: a case whose walk record the build refused once stands in an accepted lane and is walked once more (`walk_after`)
+        again = {case for case, entry in ((getattr(self, "state", None) or {}).get("walk_retry") or {}).items()
+                 if isinstance(entry, dict) and entry.get("open")}
+        gone = (self.manual_done() - again) | {str(c) for c in skip}
+        ready, refused, unprepared = [], [], []
         for case in [c for c in self.manual_order(cases) if c not in gone]:
-            ids, why = self.manual_prepare(case)
+            got = self.manual_prepare(case)
+            why, walk = got[1], got[2]
             if why:
                 refused.append((case, why))
             else:
                 ready.append(case)
-        return {"blocks": manual_blocks(ready, self.MANUAL_BLOCK_MAX), "refused": refused}
+                if walk:
+                    unprepared.append((case, walk))
+        # t-1957 N5s (E5s.8, E5s.9): the lanes - one account set to a lane, plan-row order, at most MANUAL_BLOCK_MAX - by the one function
+        # the door and the progress line use; a request that cannot be read leaves its case a lane of one
+        return {"blocks": walk_lanes(ready, lane_keys(getattr(self, "task_root", None), ready), self.MANUAL_BLOCK_MAX),
+                "refused": refused, "unprepared": unprepared}
 
     GATE_A_DRY_BLOCK = "gate A recorded dry"       # a name `references/block-names.json` holds (reader: `manual_gate_note`)
 
@@ -11694,21 +14349,15 @@ class Driver:
         no runner - the receipt is `code_only`, written over a `run-report.json` the reducer has just written (the same
         order as the freshness branch of `stage_S6`), then `stage_done`. The words say how many were checked and which
         were not. A reducer that fails is a refusal: nothing is closed over a report nobody could build."""
-        self.s6_need_record("manual_close")             # X7-6: the manual half closes by the consumer's record (a no-op with no consumer)
+        self.consumer_need_record("S6", "manual_close")             # X7-6: the manual half closes by the consumer's record (a no-op with no consumer)
         gone = self.manual_done()
         done = [case for case in cases if case in gone]
         # RN1-24: the cases a deferred question holds are closed over as NOT checked, in the safe default `left_unchecked` (no new value of
         # `by`), with the question's number in the reason; the answer, asked before gate B, decides what happens to them next (`retry`
         # sends them back to S6, `prepare` then writes their request again)
-        import manual_evidence as ME
         for case, n in self.deferred_waiting(cases):
             held_reason = f"not checked yet: it waits for your answer to question {n}, asked before gate B"
-            try:
-                _write_json(ME.request_path(self.task_root, case),
-                            {"refused": {"reason": held_reason, "door": "answer the question about this check that comes before gate B",
-                                         "by": "left_unchecked"}})
-            except OSError:
-                pass            # the receipt below still names the case
+            self.refuse_case(None, case, held_reason, "answer the question about this check that comes before gate B", "left_unchecked")
             refused = list(refused) + [(case, held_reason)]
         reason = (f"the manual half of S6: {len(done)} case(s) checked by an agent by hand, {len(refused)} not checked"
                   + (": " + ", ".join(case for case, _why in refused) if refused else ""))
@@ -11787,7 +14436,19 @@ class Driver:
         # EP1-41f (N-18): a block whose cases are ALL on a device stand signs in with no default web account, so only that block
         # is skipped; the accounts the cases name are still asked for below. POSITION: after `login_declared_none`, before the
         # default account is read.
-        if not self._cases_all_on_driver(cfg, cases):
+        # PK0-5 (AR-19): the default account is read only when the ONE rule of gate A says the story needs it
+        # (`gate_preflight.default_login_needed`; a doubt is "needed"). POSITION: after `login_declared_none` and the device clause, before
+        # `read_login` - a story that needs no default login is never refused over keys nothing will use.
+        import gate_preflight as GP
+        import stand_gaps
+        on_driver = self._cases_all_on_driver(cfg, cases)
+        asked_default = []
+
+        def read_default() -> tuple:
+            """("", "") or the refusal; read at most once (also for a case whose request cannot be read: its capture signs in as default)."""
+            if asked_default:
+                return "", ""
+            asked_default.append(True)
             try:
                 login = MC.read_login(cfg, root)
             except MC.LoginMaterialMissing as exc:
@@ -11798,33 +14459,49 @@ class Driver:
             if login is None:
                 return "no_file", ("the project's settings name no file for the stand's login (environment.env_file)"
                                    f"\n\n{self.STAND_LOGIN_KEYS}")
+            return "", ""
+        if not on_driver and GP.default_login_needed(self.task_root, cfg):
+            problem = read_default()
+            if problem[0]:
+                return problem
         # HF5-3: the accounts the screen cases of the block name in their requests (`manual_evidence.request_actors`, the one
         # reader of the field). POSITION: after the default account, and `cases` are the screen cases only - the caller
         # returns before this when there is none, so an http-only block asks nothing (its capture refuses by key name).
         # A `stand_account` role is read as `read_login(..., actor=role)` reads it; an account named by one `env` key must
         # have that key set in the env file (the pair is the capture's `--as env:U/S`; here the one key is read twice).
-        # A request that is absent or unreadable adds nothing: the default account, read above, is what its capture
-        # signs in as. The details name the case and the account, never a value.
+        # A request that is absent or unreadable adds nothing of its own: its capture signs in as the default account, which the loop
+        # reads (once) for it when the rule above did not. The details name the case and the account, never a value.
+        import config_contract
         import manual_evidence as ME
+        chosen = stand_gaps.stand_name(self.task_root)       # loop-invariant: the chosen stand, the entry of that name (or None)
+        chosen_stand = next((e for e in cfg.get("environments") or [] if isinstance(e, dict) and str(e.get("name") or "") == chosen), None)
         for case in cases or []:
             actors, why = ME.request_actors(self.task_root, case)
             if why or not ME.request_path(self.task_root, case).is_file():
                 print(f"S6: {case}: {why or 'its prepared request is not there'}; the stand's default account is checked "
                       "for it", file=sys.stderr)
+                if not on_driver:
+                    problem = read_default()
+                    if problem[0]:
+                        return problem
             for actor in actors:
                 check = actor.get("check") if isinstance(actor.get("check"), dict) else {}
                 kind, value = next(iter(check.items()), ("", ""))
                 if kind not in ("stand_account", "env"):
                     continue
-                # GW1-27: the role is what the gate reads (`gate_preflight.account_role`): the value is trimmed, and the stand is
-                # the first one whose roles the value could mean (a spelling differing in case, `_`, `-` or spaces included).
-                # A twin on that stand is `resolve_actor`'s refusal - the search does not go on to another stand, so a doubt is
-                # never another stand's account. `default` needs no stand.
-                import gate_preflight as GP
+                # GW1-27: the role is what the gate reads (`gate_preflight.account_role`): the value is trimmed, and a spelling
+                # differing in case, `_`, `-` or spaces is read as `resolve_actor` reads it. PK0-5 (S11 c): the stand is the CHOSEN one
+                # (`stand_gaps.stand_name`, the entry of that name, found above the loop) - an account answered for `dev` is never read
+                # on `stage`, and no other stand is searched; a role with no chosen stand is refused with the reason, never read on a
+                # guessed one. The reserved forms (`default`, `env:...`, `created:...`) need no stand: they are not refused for its absence.
                 value = str(value).strip() if kind == "stand_account" else value
                 as_actor = str(value) if kind == "stand_account" else f"env:{value}/{value}"
-                stand = next((e for e in cfg.get("environments") or [] if isinstance(e, dict)
-                              and GP.role_candidates(e.get("credentials_by_role"), value)), None)
+                stand = chosen_stand
+                if kind == "stand_account" and not config_contract.reserved_role(value) and stand is None:
+                    return "missing_key", (f"{case}: the story has no chosen stand, so the account {actor.get('id')} ({value}) cannot "
+                                           f"be read on it\n\n{self.STAND_LOGIN_KEYS}")
+                if value == "default":
+                    stand = None
                 try:
                     MC.read_login(cfg, root, actor=as_actor, stand=stand, task_root=self.task_root)
                 except ValueError as exc:      # LoginMaterialMissing is one, and so is every refusal of `resolve_actor`
@@ -11929,7 +14606,6 @@ class Driver:
             # RN1-24: the screen cases wait for the answer; the other ready cases do not (`Driver.run` may set the question aside)
             person.holds = tuple(screens)
             raise person
-        import manual_evidence as ME
         said = " ".join(str(passed[0].get("decision") or "").split())
         reason = ("not checked by an agent: the stand's sign-in account is not set up for the factory; the person said: "
                   f"\"{said}\"")
@@ -11941,14 +14617,272 @@ class Driver:
         by = ("person_checks" if choice.get("token") == "by hand" and choice.get("words") == said.replace(self.BOM, "").strip()
               else "left_unchecked")      # the record is bound to THE pass it was made for: its words are the pass's words
         for case in screens:
-            plan["refused"].append((case, reason))
-            try:
-                _write_json(ME.request_path(self.task_root, case), {"refused": {"reason": reason, "door": door, "by": by}})
-            except OSError:
-                pass            # the line below still says it; the report then reads the receipt's own words
+            self.refuse_case(plan, case, reason, door, by)
             print(f"S6: {case}: not checked by hand — {reason}")
         left = [case for case in ready if case not in set(screens)]
         plan["blocks"] = manual_blocks(left, self.MANUAL_BLOCK_MAX)
+
+    def manual_lane_plan(self, cases: list) -> tuple:
+        """`(plan, waiting)` for the manual cases of S6 at this entry (t-2147 C1: the plan half of the old `run_manual_block`, unchanged): the
+        cases a deferred question holds, the dry-gate note, `manual_plan`, the stand-login gate, the lanes cut again, the cases whose walk
+        record was refused twice named beside the refused ones, and the lanes whose account has no pair refused. Its lines and its order are
+        the old road's; `plan["blocks"]` are the lanes."""
+        # RN1-24: the cases a deferred question holds are not prepared, not asked about again and not dispatched; the dry-gate note
+        # is not raised a second time while ITS question waits (E11: one open question per case; `deferrable` read the same record).
+        waiting = self.deferred_waiting(cases)
+        if not any(item.get("kind") == "gate_a_dry" for item in self.deferred_items()):
+            self.manual_gate_note()
+        plan = self.manual_plan(cases, skip=[case for case, _n in waiting])
+        for case, why in plan["refused"]:
+            print(f"S6: {case}: not checked by hand — {why}")
+        for case, why in plan.get("unprepared") or []:
+            print(f"S6: {case}: unprepared - {why}; the manual agent walks it without a prepared request and records no result")
+        self.stand_login_gate(plan)      # t-292: the account for the screen cases, BEFORE any block is registered
+        # t-1957 N5s: the gate re-chunks what a pass leaves by the plain split; cut the cases that are left into lanes again (the same
+        # function), and name the cases whose walk record was refused twice (closed `left_unchecked`) beside the refused ones
+        plan["blocks"] = walk_lanes([case for lane in plan["blocks"] for case in lane],
+                                    lane_keys(self.task_root, [case for lane in plan["blocks"] for case in lane]), self.MANUAL_BLOCK_MAX)
+        for case, entry in (self.state.get("walk_retry") or {}).items():
+            if case in cases and isinstance(entry, dict) and entry.get("refused", 0) > 1 and case not in [c for c, _w in plan["refused"]]:
+                plan["refused"].append((case, str(entry.get("reason") or "the record of its walk was refused twice")))
+        self.walk_refuse_gaps(plan)     # TR1-4: a lane whose account has no pair is not walked, and does not stop the next lane
+        # TR3-10d item 1 (D.5): the account and record assignment is for the PARALLEL road only - more than one lane and `manual.walkers`
+        # not 1. INVARIANT: on the old road no pool is read and no state key is written; a key left by an earlier entry is cleared (its
+        # reservations settled) so that a lane never runs under an assignment that is not this entry's. POSITION: after `walk_refuse_gaps`
+        # (a lane that cannot walk costs no handle) and before any dispatch of this entry is registered.
+        if self.s6_walkers_cap() != 1 and len(plan["blocks"]) >= 2:
+            self.walk_assign_step(plan)
+        else:
+            self.walk_assign_clear()
+        return plan, waiting
+
+    def walk_assign_clear(self) -> None:
+        """TR3-10d L4 (AR-25): the assignment of an EARLIER entry goes before a new one is made, or when this entry makes none. A reserved walk
+        id that no controller dispatch took was never walked: its records are settled `free` (`walk_settle_unopened`; no walker touched the
+        account or the record); the five `walk_*` assignment keys of the state are dropped. A walk that a dispatch took is left to `walk_before`
+        / the verdict (`settle_unopened` never moves a walk that has a record). ERROR DIRECTION: when the controller's dispatches cannot be read
+        nothing is settled and nothing is dropped (an unknown is never a free). Reads nothing when the state holds no key (the old road)."""
+        if not ("walk_assign" in self.state or "walk_assign_cases" in self.state or "walk_entities" in self.state
+                or "walk_ids" in self.state or "walk_alone" in self.state):
+            return
+        try:
+            dispatches = (self.controller_state() or {}).get("dispatches")
+            if not isinstance(dispatches, dict):
+                print("note: S6: the controller record holds no dispatches; the held records of the lanes stay as they are", flush=True)
+                return
+            taken = {str(k) for k in dispatches} | {str(v.get("id")) for v in dispatches.values() if isinstance(v, dict)}
+            running = ({str(k) for k, v in dispatches.items() if isinstance(v, dict) and v.get("status") == "running"}
+                       | {str(v.get("id")) for v in dispatches.values() if isinstance(v, dict) and v.get("status") == "running"})
+        except Exception as exc:       # noqa: BLE001 - P1/FR-59: unreadable stays as it is (held, never free), with one note
+            print(f"note: S6: the controller record could not be read ({type(exc).__name__}); the held records of the lanes stay as they are",
+                  flush=True)
+            return
+        for did in [str(i) for i in (self.state.get("walk_ids") or {}).values() if i]:
+            if did not in taken:
+                self.walk_settle_unopened(did, "free")
+            elif did not in running:
+                # TR3-10d N3 (AR-25): a dispatch registered but no longer running whose walk has no record is the crash between the
+                # registration and `walk_before`; the lane may have run on the recorder, so `dirty` (never free). A walk with a record is
+                # not moved (`settle_unopened`), a running dispatch is left alone.
+                self.walk_settle_unopened(did, "dirty")
+        self.state.pop("walk_assign", None)
+        self.state.pop("walk_assign_cases", None)
+        self.state.pop("walk_entities", None)
+        self.state.pop("walk_ids", None)
+        self.state.pop("walk_alone", None)
+        self.save_state()
+
+    def walk_assign_step(self, plan: dict) -> dict:
+        """TR3-10d item 1 (AR-13, AR-15, AR-28; the parallel road only): which account each lane signs in as and which record of an exclusive kind
+        it uses, decided ONCE per entry before any dispatch. Reads `walk_supply` (the one reader; its notes said once), the doubts, a pool per key
+        part (`walk_pool.pool_of`), `assign_lanes`, and `assign_entities` (the `in_use` records are written there, under the ids reserved here).
+        State (all keyed by the lane number as text, re-made at every entry): `walk_assign` {n: {part: handle}} - ONLY a lane whose EVERY part has
+        a handle (L3: any other lane keeps today's key-based holds and actor); `walk_assign_cases` {first case: n} for every lane; `walk_entities`
+        {n: {item: [entry]}}; `walk_ids` {n: reserved walk id} (L1: `run_manual_lane` takes it, so the id the claims store holds is the id the
+        walk opens under); `walk_alone` [first case, ...] - the lanes that run alone in the serial first round (item 7; ERROR DIRECTION toward
+        alone: a lane whose request carries `walk_global`; with no data words, a lane that needs an exclusive kind with no free instance or with no
+        pool at all; a claims store that cannot be used). Never raises (P1): a failure is one note and the lanes keep today's holds. Returns
+        the facts the way question will need: `{"short": [(part, lanes waiting, pool size)], "alone_kinds": [kind text], "supply": the supply,
+        "may_change": whether the stand may be changed}`. TR3-10 D3b: at its end it RAISES the one question owed (`walk_supply_raise`), the only
+        `Person` that leaves it; walkers 1 or one lane never reach it (D.5)."""
+        import config_contract as CC
+        import manual_capture as MC
+        import manual_evidence as ME
+        import walk_pool as WP
+        T = self.task_root
+        facts: dict = {"short": [], "alone_kinds": [], "supply": {}}
+        try:
+            self.walk_assign_clear()
+            supply, notes = CC.walk_supply(self.config)
+            facts["supply"] = supply
+            for note in notes:
+                self.say_once("walk_supply", note)
+            lanes = [[str(c) for c in lane] for lane in plan.get("blocks") or ()]
+            flat = [case for lane in lanes for case in lane]
+            keys = lane_keys(T, flat) if flat else {}
+            doubts = MC.account_doubts(T)
+            try:
+                cfg, _root = MC.load_config(T)
+            except ValueError:
+                cfg = {}                # no stand records at all: no pool, today's refusals
+            stand = WP._stand_of(cfg)
+            pools: dict = {}
+            for lane in lanes:
+                key = keys.get(lane[0]) if lane else None
+                for part in (key.split("+") if isinstance(key, str) else []):
+                    if part and part not in pools:
+                        pools[part], more = WP.pool_of(T, cfg, lane[0], part, supply, doubts)
+                        notes.extend(more)
+            may_change = MC._stand_may_change(stand, MC.spec()["safe_to_break_no"])
+            facts["may_change"] = may_change
+            obtain, more = WP.obtain_roles_of(supply, MC._roles_of(stand))
+            notes.extend(more)
+            failed = self.state.get("obtain_failed") or {}
+            obtain = [role for role in obtain if not failed.get(role)]
+            if obtain and not may_change:
+                self.say_once("walk_obtain_stand", "note: S6: you said a walker may make its own user, but your settings do not mark this "
+                                                   "stand as one that may be changed; walkers use the accounts that exist")
+            assignment, more = WP.assign_lanes(lanes, pools, obtain, may_change, keys)
+            notes.extend(more)
+            requests: dict = {}
+            for case in flat:
+                try:
+                    requests[case] = _read_json(ME.request_path(T, case))
+                except ValueError:
+                    requests[case] = {}
+            # L1: one walk id per lane that needs a record, taken from the numbers no dispatch has; `run_manual_lane` takes it back
+            dispatches = (self.controller_state() or {}).get("dispatches")
+            if not isinstance(dispatches, dict):
+                # an early exit, not a raise caught below: the same note, the lanes keep today's holds; no question is owed on this path
+                # (`short` and `alone_kinds` are still empty, so `walk_supply_raise` would return None)
+                print("note: S6: the accounts and records of the lanes were not assigned (ValueError: the controller record holds no "
+                      "dispatches); the lanes run as before", flush=True)
+                return facts
+            needs = WP._needs(lanes, requests)
+            start = len([d for d in dispatches.values() if isinstance(d, dict) and d.get("stage") == "S6" and d.get("role") == "qa-runner"]) + 1
+            reserved: dict = {}
+            for n in needs:
+                reserved[n] = self.walk_next_id(dispatches, start, reserved.values())
+            data = supply["data"]
+            entities, more = WP.assign_entities(lanes, requests, data["pools"], T, reserved, data["may"])
+            notes.extend(more)
+            # the records are written now: their ids and the lanes' numbers go into the state at once, so a failure below can never leave a
+            # held record that no entry will settle (the next entry's `walk_assign_clear` reads `walk_ids`)
+            self.state["walk_assign_cases"] = {lane[0]: n for n, lane in enumerate(lanes, 1) if lane}
+            self.state["walk_ids"] = {str(n): reserved[n] for n, found in entities.items() if found.get("state") == "given" and n in reserved}
+            self.save_state()
+            for note in dict.fromkeys(notes):
+                self.say_once("walk_pool", note if note.startswith("note:") else f"note: S6: {note}")
+            by_handle: dict = {}
+            for n, parts in assignment.items():
+                for handle in dict.fromkeys(parts.values()):
+                    by_handle.setdefault(handle, []).append(n)
+            for handle, numbers in by_handle.items():
+                if len(numbers) > 1:
+                    pool = next((p for p in pools.values() if handle in p), [handle])
+                    role = getattr(pool, "role", "") or handle
+                    self.say_once("walk_shared:" + handle, f"S6: {len(numbers)} lanes wait for each other: the project's list holds {len(pool)} "
+                                                           f"account(s) for {role}")
+            short, more = WP.short_parts(assignment, pools, supply, self.s6_walkers_cap())
+            facts["short"] = short
+            for note in more:
+                self.say_once("walk_pool", f"note: S6: {note}")
+            assigned: dict = {}
+            for n, parts in assignment.items():
+                key = keys.get(lanes[n - 1][0])
+                wanted = [p for p in key.split("+") if p] or [""]
+                if all(p in parts for p in wanted):
+                    assigned[str(n)] = {p: parts[p] for p in wanted}
+            known = bool(data["known"])
+            store_failed = any(note.startswith("records were not assigned") for note in notes)
+            alone, kinds = [], []
+            for n, lane in enumerate(lanes, 1):
+                if not lane:
+                    continue
+                state = (entities.get(n) or {}).get("state")
+                wanted = [(k, t) for item in (needs.get(n) or {}).values() for k, t in item]
+                nopool = [t for k, t in wanted if k not in data["pools"]]
+                gone = [t for k, t in wanted if k in data["pools"]] if state in ("wait", "alone") else []
+                every = any(isinstance(requests.get(c), dict) and isinstance(requests[c].get("walk_global"), str)
+                            and requests[c]["walk_global"].strip() for c in lane)
+                if every or (n in needs and store_failed) or (not known and (nopool or gone)):
+                    alone.append(lane[0])
+                    if not every and not known:
+                        kinds.extend(k for k in nopool + gone if k not in kinds)
+            facts["alone_kinds"] = kinds
+            self.state["walk_assign"] = assigned
+            self.state["walk_entities"] = {str(n): found["entries"] for n, found in entities.items() if found.get("state") == "given"}
+            self.state["walk_alone"] = alone
+            self.save_state()
+        except Exception as exc:        # noqa: BLE001 - P1: the assignment informs, it never stops S6; the lanes keep today's holds
+            print(f"note: S6: the accounts and records of the lanes were not assigned ({type(exc).__name__}: {' '.join(str(exc).split())[:200]}); "
+                  "the lanes run as before", flush=True)
+        # TR3-10 D3b (spec items 9 and 12; D.2, D.3, D.11): the way question or the data-change question, ONE per entry. POSITION: here, at the
+        # end of the assignment step, before any dispatch of this entry is registered - the question is set aside (`no_hold`, it holds no
+        # case) and the next entry runs the lanes in turn. INVARIANT: a `Person` leaves this step only here; any other failure of the raise
+        # block is one note and the lanes go on (P1: a question never stops S6).
+        try:
+            # remains: the way question is the person's intent, set aside (`no_hold`) and raised once per entry by design (D.2, D.3); not a state with no move
+            person = self.walk_supply_raise(facts)
+        except Person:
+            raise
+        except Exception as exc:        # noqa: BLE001 - P1/D.11: the raise informs, it never stops S6
+            print(f"note: S6: the question about test accounts and records was not raised ({type(exc).__name__}: "
+                  f"{' '.join(str(exc).split())[:200]}); the lanes go on in turn", flush=True)
+            person = None
+        if person is not None:
+            raise person
+        return facts
+
+    def walk_asked(self, kind: str) -> bool:
+        """Is the S6 question `kind` already owed or asked in this story (D.3)? A deferred item of that kind, or its `<kind>_asked` row id in
+        the state (set by the question's builder, kept for the story)."""
+        row = self.state.get("walk_supply_asked") if kind == "walk_supply" else self.state.get("data_change_asked")
+        return any(item.get("kind") == kind for item in self.deferred_items()) or bool(row)
+
+    def walk_supply_raise(self, facts: dict):
+        """The ONE question this entry owes, or None (items 9 and 12). Reads only `walk_assign_step`'s facts: `walk_supply` first - the short
+        parts of a pool while `supply.accounts.known` is False, or a lane made alone by a data shortage while `supply.data.known` is False; else
+        `data_change` - a lane made alone for lack of a free record while `supply.data.may_known` is False. Each is skipped when its question
+        is already deferred or asked in this story (`walk_asked`); an answered half is `known` in the supply and never reaches here. The other
+        question waits for the next entry (D.3: two questions never ask the same thing)."""
+        supply, short, kinds = facts.get("supply") or {}, facts.get("short") or [], [str(k) for k in facts.get("alone_kinds") or [] if str(k).strip()]
+        accounts, data = supply.get("accounts") or {}, supply.get("data") or {}
+        if ((short and not accounts.get("known")) or (kinds and not data.get("known"))) and not self.walk_asked("walk_supply"):
+            # remains: the way question is the person's intent with its three closed answers (L5), not a state with no move; `_answer_walk_supply` executes them
+            return self.walk_ask_once("walk_supply", ["/manual/accounts_way", "/manual/data_way"],
+                                      "how this project gets more test accounts and which records walkers may share",
+                                      str(self.walk_supply_text(short)), lambda row: self.walk_supply_person(row, short))
+        if kinds and not data.get("may_known") and not self.walk_asked("data_change"):
+            may_change = bool(facts.get("may_change", True))
+            # remains: the data-change question is the person's permission with its closed answers, not a state with no move; `_answer_data_change` executes them
+            return self.walk_ask_once("data_change", ["/manual/data_way/may"],
+                                      "whether the factory may make and remove records on the stand for the walkers' data pools",
+                                      str(self.data_change_text(kinds, may_change)), lambda row: self.data_change_person(row, kinds, may_change))
+        return None
+
+    def walk_ask_once(self, kind: str, field_refs: list, essence: str, asked: str, build) -> "Person | None":
+        """The ONE body of "open the registry row, then build the question" for the S6 supply questions (AR-15). `project_decisions.py add`
+        (scope project, owner `user`; an open row of the same refs is returned and reused, FR-7); the row's id goes to `build(row_id)`, which
+        keeps it in the state (`<kind>_asked`) - the state is saved BEFORE the person is returned to be raised. An `add` that exits non-zero or
+        prints no row is one note, said once, and None: no question, the lanes go on in turn, the next story tries again (D.11, FR-59)."""
+        args = ["--root", str(self.project), "add", *[a for ref in field_refs for a in ("--field-ref", ref)],
+                "--essence", essence, "--asked", asked, "--scope", "project", "--owner", "user"]
+        code, out = self.py("project_decisions.py", *args)
+        row = None
+        if not code:
+            try:
+                row = json.loads(out)
+            except ValueError:
+                row = None
+        row_id = str(row.get("id") or "") if isinstance(row, dict) else ""
+        if not row_id:
+            self.say_once(kind + "_add", "note: S6: the question about test accounts and records could not be written to the project's decision "
+                                         "registry, so it is not asked now; the checks go on in turn and the next story tries again")
+            return None
+        person = build(row_id)
+        self.save_state()
+        return person
 
     def run_manual_block(self, cases: list) -> None:
         """qa-runner for the manual-agent cases, ONE block per entry: the dispatch is registered in-process (FB-9: `story_step start
@@ -11958,36 +14892,221 @@ class Driver:
         controller completes S6 over its derived scope by ACCEPTED dispatches (`_s6_completion_problems`), a case that
         was never dispatched is outside that cover, and a completion over it is refused. When refused cases exist, the
         last block goes `--not-complete` and the next entry (no block left) closes the manual half code-only, as the
-        edge of this change says for "no case could be prepared"."""
-        # RN1-24: the cases a deferred question holds are not prepared, not asked about again and not dispatched; the dry-gate note
-        # is not raised a second time while ITS question waits (E11: one open question per case; `deferrable` read the same record).
-        waiting = self.deferred_waiting(cases)
-        if not any(item.get("kind") == "gate_a_dry" for item in self.deferred_items()):
-            self.manual_gate_note()
-        plan = self.manual_plan(cases, skip=[case for case, _n in waiting])
-        for case, why in plan["refused"]:
-            print(f"S6: {case}: not checked by hand — {why}")
-        self.stand_login_gate(plan)       # t-292: the account for the screen cases, BEFORE any block is registered
+        edge of this change says for "no case could be prepared".
+
+        t-2147 C1: with `manual.walkers` 1, one lane, or a serial reason (`s6_serial_reason`) this is the old road, one lane per entry
+        (`run_manual_lane(None, lane)`: no thread, no new state key, no flag on the request). Otherwise the lanes go side by side on the
+        window scheduler (`run_s6_lanes`); the lanes that meet a running or stopped dispatch, or whose account cannot be read, run first
+        at one lane at a time and the stage re-enters for the rest (the F6 road of `stage_S5`, one round)."""
+        plan, waiting = self.manual_lane_plan(cases)
         if not plan["blocks"]:
             self.manual_close(cases, plan["refused"])
             return
-        block = plan["blocks"][0]
-        complete = len(plan["blocks"]) == 1 and not plan["refused"] and not waiting      # a held case is outside the cover, as a refused one is
-        if self.s6_consumer():
-            # X7-6: the LAST block stops awaiting the consumer's acceptance (a refused or held case is then closed by `manual_close`, whose
-            # site finds the record); an earlier block is not complete, as today.
-            complete = self.s6_awaits(True) if len(plan["blocks"]) == 1 else False
-        print(f"S6: manual block of {len(block)} case(s)" + (f", {len(plan['blocks']) - 1} more block(s) after it"
-                                                              if len(plan["blocks"]) > 1 else "")
-              + f": {', '.join(block)}")
+        lanes = plan["blocks"]
+        walkers = self.s6_walkers_cap()
+        self._s6_view = {"plan": plan, "waiting": waiting, "cases": [case for lane in lanes for case in lane]}
+        try:
+            if walkers != 1 and len(lanes) >= 2:
+                reason = self.s6_serial_reason()
+                if reason:
+                    self.say_once("s6-lanes", f"note: S6 lanes run one at a time: {reason}")
+                if not reason or reason == self.S6_SETTLE_RUNNING:
+                    try:
+                        first = self.s6_settling_lanes(lanes)
+                    except Exception:       # noqa: BLE001 - unreadable: the unknown stays serial (FR-59; the S5 twin does the same)
+                        first = []
+                        reason = reason or "the lanes that settle first cannot be read"
+                    if first:
+                        return self.run_s6_lanes(plan, 1, first)       # the stage re-enters for the rest
+                    if not reason:
+                        return self.run_s6_lanes(plan, min(walkers, len(lanes)))
+            self.run_manual_lane(None, lanes[0])
+        finally:
+            self._s6_view = None
+
+    S6_SETTLE_RUNNING = "dispatches of S6 are running or stopped at entry; they settle first and the rest goes side by side after"
+
+    def s6_walkers_cap(self) -> int:
+        """`manual.walkers` through `config_contract.walkers` (the one reader, AR-13); a bad value reads the default with its note, said once."""
+        import config_contract
+        value, note = config_contract.walkers(self.config)
+        if note:
+            self.say_once("manual_walkers", note)
+        return value
+
+    def s6_serial_reason(self) -> str:
+        """"" when the S6 lanes may run side by side, else the one reason they run one at a time (t-2147 C1 item 7; it tells, it never stops).
+        ERROR DIRECTION: it may say serial needlessly on doubt, and must never let two lanes run where a row below holds. The project's own
+        word (`manual.walkers: 1`) is not this function's: that is the old road itself. Reads the entry's plan through `_s6_view`."""
+        import config_contract
+        import dispatch_identity
+        view = getattr(self, "_s6_view", None) or {}
+        host_reason = self.host_window_reason()
+        if host_reason:
+            return host_reason
+        try:
+            mode = ((config_contract.effective_config(self.config).get("execution") or {}).get("parallel") or {}).get("mode")
+        except Exception:       # noqa: BLE001
+            mode = None
+        if mode == "serial":
+            return "the project asks for serial execution (`execution.parallel.mode: serial`), so one walker uses the stand at a time"
+        if getattr(self, "_s6_cap_one", False):
+            return "the model service limited one lane earlier in this run"
+        try:
+            ctl = self.controller_state()
+            rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+        except Exception:       # noqa: BLE001
+            return "the state of the S6 dispatches cannot be read"
+        if any(r.get("stage") == "S6" and r.get("status") in ("running", "blocked", "paused") for r in rows):
+            return self.S6_SETTLE_RUNNING
+        if view.get("waiting"):
+            return "a question about a check, asked before gate B, holds a case of the plan"
+        try:
+            self.s6_open_lanes(())
+        except Exception:       # noqa: BLE001
+            return "the state or the plan of the lanes cannot be read"
+        return ""
+
+    def s6_settling_lanes(self, lanes: list) -> list:
+        """The lanes among `lanes` that run FIRST at one at a time (t-2147 C1 items 2b and 6): those whose cases meet a running, blocked or
+        paused S6 dispatch at entry, then those whose account cannot be read from the request. Empty when a dispatch names no case (nothing
+        is then known to settle). Raises with the readers (the caller treats that as nothing to settle)."""
+        import dispatch_identity
+        ctl = self.controller_state()
+        rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
+        scopes = [{str(c) for c in r.get("scope") or [] if c} for r in rows
+                  if r.get("stage") == "S6" and r.get("status") in ("running", "blocked", "paused")]
+        if any(not s for s in scopes):
+            return []
+        named = [lane for lane in lanes if any({str(c) for c in lane} & s for s in scopes)]
+        unreadable = [lane for lane in lanes if lane not in named and self.s6_lane_account(lane) is None]
+        # TR3-10d L2 (item 7): a lane the assignment marked ALONE joins the serial first round. INVARIANT: an alone lane never runs beside
+        # another lane (the holds are intersection-only, so they cannot say "conflicts with everything")
+        alone = {str(c) for c in self.state.get("walk_alone") or ()}
+        loners = [lane for lane in lanes if lane not in named and lane not in unreadable and lane and str(lane[0]) in alone]
+        return named + unreadable + loners
+
+    def s6_lane_account(self, lane) -> "str | None":
+        """The account key of a lane (its first case, `lane_keys`, the one reader): a string (`""` = guest) or None when it cannot be read.
+        ONE spelling of unreadable for the S6 lanes (t-2239 F3)."""
+        cases = [str(c) for c in lane or ()]
+        if not cases:
+            return None
+        key = lane_keys(self.task_root, cases).get(cases[0])
+        return key if isinstance(key, str) else None
+
+    def s6_lane_holds(self, cases) -> set:
+        """What a lane holds while its session runs (t-2147 C1 item 3): its cases and ONE `account:<part>` per part of its account key (the
+        key joins parts with `+`; lanes whose part sets meet hold a common string, so they run in turn). A guest key (`""`) holds
+        `account:guest`; a key that cannot be read holds `account:?<first case>`, which no other lane holds."""
+        cases = [str(c) for c in cases or ()]
+        if not cases:
+            return set()
+        key = self.s6_lane_account(cases)
+        data: set = set()
+        facts = self.walk_lane_facts(cases)
+        if key is None:
+            accounts = {"account:?" + cases[0]}
+        elif facts["handles"]:
+            # TR3-10d item 2/6: one hold per ASSIGNED handle (a guest lane's own `guest#<n>`, an obtain lane's own user): lanes whose handle
+            # sets meet run in turn, lanes with distinct handles side by side; and one `data:<kind>:<instance>` per record given to the lane
+            accounts = {"account:" + handle for handle in facts["handles"].values()}
+            import walk_session as WS
+            data = {f"data:{WS.fold_kind(entry['kind'])}:{entry['instance']}" for found in facts["entries"].values() for entry in found
+                    if isinstance(entry, dict) and entry.get("how") == "existing"}
+        else:
+            accounts = {"account:" + part for part in key.split("+") if part} or {"account:guest"}
+        return {"case:" + case for case in cases} | accounts | data
+
+    def s6_chain_kind(self) -> "ChainKind":
+        """What the scheduler's console and gate call an S6 chain (t-2147 C1 item 2): a lane (`[L<n>]`), holding a case or an account."""
+        return ChainKind("S6", "lane", "a case or an account", lambda cases: self.s6_lane_holds(cases), tag="L")
+
+    def s6_open_lanes(self, excluding=()) -> list:
+        """The cases of this entry's S6 manual plan that are not accepted yet, other than those of the lane `excluding` (t-2147 C1 item 5;
+        `manual_done_cases` is the one reader of the accepted ones, AR-13). Read fresh. RAISES when the plan of the entry or the controller's
+        dispatches cannot be read (FR-59): the caller treats that as open and never as a close."""
+        view = getattr(self, "_s6_view", None)
+        if not isinstance(view, dict) or not isinstance(view.get("cases"), list):
+            raise ValueError("the manual plan of this entry is not known")
+        ctl = self.controller_state()
+        if not isinstance(ctl, dict) or not isinstance(ctl.get("dispatches"), dict):
+            raise ValueError("the controller record holds no dispatches")
+        own = {str(c) for c in (excluding or ()) if c}
+        done = manual_done_cases(ctl)
+        return [case for case in view["cases"] if case not in done and case not in own]
+
+    def s6_seam(self, records: list, cap: int) -> None:
+        """The seam after the drain (t-2147 C1 item 8; AR-17): see `run_chains`. A model-service `limit` in one lane, with more than one lane
+        allowed, is not a stop: the others finished and booked, and this run goes on at one lane at a time, said once. Any other kind stops."""
+        pick = self.chain_pick(records, self.s6_chain_kind(), seam_rank)
+        if pick is None:
+            return
+        exc = pick.exception
+        if isinstance(exc, InfraStop) and exc.kind == "limit" and cap > 1 and not getattr(self, "_s6_cap_one", False):
+            self._s6_cap_one = True
+            print("note: the model service limited a lane; the others finished and are booked, and S6 goes on one lane at a time "
+                  "for the rest of this run", flush=True)
+            return
+        self.adopt_chain(pick)
+        raise exc
+
+    def run_s6_lanes(self, plan: dict, cap: int, lanes=None) -> None:
+        """The parallel road of the manual half of S6 (t-2147 C1 item 2): one chain per lane of `lanes` (default: every lane of the plan),
+        `cap` at a time, on the generic scheduler. ONE lane is the old body (no thread, C.2). A lane does not start while a live lane holds
+        one of its cases or its account (`chain_launchable`)."""
+        lanes = list(plan["blocks"] if lanes is None else lanes)
+        if len(lanes) == 1:
+            return self.run_manual_lane(None, lanes[0])
+        number = {tuple(lane): i + 1 for i, lane in enumerate(plan["blocks"])}
+        items = [(number[tuple(lane)], list(lane), lane) for lane in lanes]
+        self.run_chains(items, self.chain_launchable, self.run_manual_lane, max(1, min(int(cap), len(items))),
+                        kind=self.s6_chain_kind(), seam=self.s6_seam)
+
+    def run_manual_lane(self, record, lane: list) -> None:
+        """One lane's dispatch, walk and role (the dispatch half of the old `run_manual_block`; t-2147 C1 item 4). `record` is the lane's
+        chain record on the parallel road and None on the old road. The entry's plan comes through `_s6_view`. Differences of the parallel
+        road only: the request carries `walk_lane` and `walk_actor`; `complete` is a callable read at the finish, under `_book`; a lane that
+        ends before `run_role` closed its walk closes it here."""
+        import acceptance
+        self.boundary = "S6"
+        self.stop_if_drained()      # C.7: a drained lane registers nothing (a no-op off a chain)
+        view = getattr(self, "_s6_view", None) or {}
+        plan, waiting = view["plan"], view["waiting"]
+        parallel = record is not None
+        block = lane
+        if parallel:
+            complete = None         # read at the finish (below)
+            print(f"S6: manual block of {len(block)} case(s): {', '.join(block)}")
+        else:
+            complete = len(plan["blocks"]) == 1 and not plan["refused"] and not waiting      # a held case is outside the cover, as a refused one is
+            if acceptance.consumer_of("S6"):
+                # X7-6: the LAST block stops awaiting the consumer's acceptance (a refused or held case is then closed by `manual_close`, whose
+                # site finds the record); an earlier block is not complete, as today.
+                complete = self.consumer_awaits("S6", True) if len(plan["blocks"]) == 1 else False
+            print(f"S6: manual block of {len(block)} case(s)" + (f", {len(plan['blocks']) - 1} more block(s) after it"
+                                                                  if len(plan["blocks"]) > 1 else "")
+                  + f": {', '.join(block)}")
         from controller import Controller
         import event_store
         # A lifecycle command, like every CLI main: it waits for an in-flight writer instead of
         # failing at once. Read at call time, so a test can shorten it.
         controller = Controller(self.task_root, wait_seconds=event_store.LIFECYCLE_WAIT_SECONDS)
+        # t-2147 C1 (C.9, POSITIONAL): the count that names the id, the registration below and the walk record of `walk_before` follow one
+        # another in ONE booked step - a chain holds `_book` from its start and gives it up only around a role's `claude` (`unbooked`), so
+        # no other lane counts or registers between them. INVARIANT: two lanes never take one dispatch id, and the walk record is in place
+        # before the role starts.
         state = controller.state()
         prior = [d for d in state.get("dispatches", {}).values() if d.get("stage") == "S6" and d.get("role") == "qa-runner"]
-        dispatch_id = f"S6-qa-runner-{len(prior) + 1}"
+        # TR3-10d L1: the id `assign_entities` wrote into the claims store is the id this walk opens under; a lane with no reservation takes
+        # the first number that no dispatch has and no other lane reserved (without any reservation this is `len(prior) + 1`, as before)
+        facts = self.walk_lane_facts(block)
+        reserved = {str(i) for i in (self.state.get("walk_ids") or {}).values() if i}
+        if facts["id"] and facts["id"] not in state.get("dispatches", {}):
+            dispatch_id = facts["id"]
+        else:
+            dispatch_id = self.walk_next_id(state.get("dispatches", {}), len(prior) + 1, reserved)
+        assigned = facts["handles"] or None
         # t-289 (live S6 rehearsal, cmp2r): a story in `plan_contract_mode: new` has `prepare` itself demand the
         # `execution_kind` of a qa-runner packet and run `validate_manual_runner_block` over the block, so BOTH go in
         # with the options (they were added to the request only after `prepare`, which died with a ValueError and a
@@ -11999,6 +15118,15 @@ class Driver:
                                          "execution_kind": "manual", "manual_case_ids": list(block)})
             request = dict(packet["dispatch_request"], execution_kind="manual", manual_case_ids=list(block),
                            purpose="manual")
+            if parallel:
+                # AR-22: `walk_lane` and `walk_actor` are read by `controller._lane_beside_running` (the admission of a lane beside a running
+                # one); the actor is the lane's account key as a string (`""` = guest), a key that cannot be read is `?<case>` (never equal)
+                # F3: an unreadable key puts neither on the request (the controller then admits nothing beside a running lane, FR-59)
+                key = self.s6_lane_account(block)
+                if isinstance(key, str):
+                    # TR3-10d item 2: with an assignment the actor is the `+`-joined sorted handles (a guest lane's `guest#<n>`); the
+                    # controller seam compares whole strings and the driver's holds keep the overlap of handle SETS unreachable
+                    request.update(walk_lane=True, walk_actor="+".join(sorted(set(assigned.values()))) if assigned else key)
             controller.apply("dispatch", request)
         except Exception as exc:
             raise Refusal(f"S6 manual block dispatch refused: {type(exc).__name__}: {exc}")
@@ -12010,16 +15138,98 @@ class Driver:
         # WITHOUT these lines (the execution kind, the prepared request paths, `role_lines`) and with `completion_for` instead of this
         # block's `complete`. INVARIANT: the registered dispatch is never left for that path without the instructions. A conductor's
         # `continue` (no retry) keeps the `where` road - the 13797-run-3 path, which the driver can run because it knows the record.
+        # t-1957 N5s (E5s.4): the walk session is opened AFTER the dispatch is registered and BEFORE the role starts (the brief is written
+        # with the walk record in place); a lane whose session did not open runs on today's road below, brief lines and all
+        # TR3-10d N7: an ASSIGNED lane whose walk failed to open (`walking` False) falls back to the old road, which signs in with the CASE's
+        # own account key, not the assigned handle. That is safe only because the recorder takes the stand lease EXCLUSIVE
+        # (`manual_capture._hold_stand`, mode default) and so never runs beside a walk; a shared lease for the recorder would put two
+        # lanes in one account - change it together with this site.
+        walk = self.walk_before(block, dispatch_id, assigned) if assigned else self.walk_before(block, dispatch_id)
+        walking = walk["walking"]
+        if parallel:
+            def run_complete(digest) -> object:
+                """C.6, read at the finish under `_book` (the S6 twin of `s5_last_fn`): True only when this lane leaves no case of the entry's
+                plan open, no refusal or held case stands and no walk record is waiting for a second walk; an unreadable state is open (FR-59)."""
+                try:
+                    base = ((not self.walk_pending(block) if walking else True)
+                            and not self.walk_pending(view.get("cases") or block) and not self.s6_open_lanes(excluding=block))
+                except Exception:       # noqa: BLE001 - FR-59: an unknown is never a close
+                    base = False
+                if acceptance.consumer_of("S6"):
+                    # X7-6 (AR-25): the last lane awaits the consumer whatever is refused or held; `manual_close` closes those later, and its
+                    # site finds the accept record
+                    return self.consumer_awaits("S6", base)
+                return base and not plan["refused"] and not waiting
+        else:
+            run_complete = (lambda _digest, base=complete: False if self.walk_pending(block) else base) if walking else complete
+
         def record_then_role() -> None:
             self.record_running("S6", "qa-runner", dispatch_id, retry=record_then_role)
-            self.run_role("S6", "qa-runner", scope=block, complete=complete,
-                          extra=["Execution kind: manual — execute the approved manual-agent cases in this block, "
-                                 "record each observation as manual evidence, then `finalize_task.py <task root>`.",
-                                 "Prepared requests, one per case (read the one of each case; never rebuild it): "
-                                 + ", ".join(self.manual_request_paths(block))]
-                                + self.role_lines("S6", "qa-runner"),
-                          rework={"id": dispatch_id, "scope": block, "reason": "manual block"})
-        record_then_role()
+            if walking:
+                # the walker has the commands of its session in its brief; the driver closes it and builds the records (`walk_after`),
+                # so no `finalize_task.py` line - unless no run report exists and none could be made (E5s.3)
+                extra = [f"Execution kind: manual — walk the items of walk session {dispatch_id} (the `Walk:` line of your brief) with the "
+                         "commands of your brief; the factory closes the session and builds the case records when you end."
+                         + (f" Your last command: `finalize_task.py {self.task_root}` (no run report exists yet)."
+                            if walk["report_last"] else "")]
+                if assigned:
+                    # TR3-10d item 4 (D.10): an ASSIGNED parallel lane only (walkers 1, one lane, a part with no handle: no new line, the
+                    # prompt is as before). The sentences are the ones of `walk-charter.md`; the person's data words go whole, unless they look
+                    # like a secret (an unreadable pattern list masks them too: FR-59, an unknown is never shown)
+                    if any(str(h).startswith("obtain:") for h in assigned.values()):
+                        extra.append("Before your first item, make your own user on the app's sign-up page with `fill-new-account` steps, then "
+                                     "sign in with `fill-account <selector> created:<name> user|secret`. If that step is refused because the "
+                                     "sign-up 'was not seen to land' but you saw the app accept it (a success message on the same page), say "
+                                     "`account created:<name> confirmed \"<what you saw>\"` and sign in again. If the sign-up did not succeed, "
+                                     "say `account created:<name> unconfirmed \"<what you saw>\"` and end without walking the items.")
+                    extra.append("Before you change a record other walkers could also use, claim it: `walk_session.py claim --kind <what it is> "
+                                 "--instance <its id>` (`--all` when your check reads the whole list); a claim held by another walker waits a "
+                                 "little, then tells you what to do.")
+                    import walk_pool as WP
+                    extra.extend(WP.entity_lines(facts["entries"]))
+                    try:
+                        import config_contract as CC
+                        import guard_secrets
+                        import manual_capture as MC
+                        data = CC.walk_supply(self.config)[0]["data"]
+                        words = str(data.get("words") or "")
+                        if data.get("known") and words.strip():
+                            try:
+                                cfg = MC.load_config(self.task_root)[0]
+                            except ValueError:
+                                cfg = {}
+                            try:
+                                hit = MC.secret_pattern_hit(words, {"secret_content_patterns": guard_secrets._patterns(
+                                    cfg, "secret_content_patterns", list(guard_secrets.DEFAULT_SECRET_CONTENT_PATTERNS))}) is not None
+                            except ValueError:
+                                hit = True
+                            extra.append("How this project handles shared records, in the person's words: \""
+                                         + ("(not shown: they look like a secret)" if hit else words) + "\"")
+                    except Exception:       # noqa: BLE001 - P1: a line the lane cannot have is no stop; the lane walks without it
+                        pass
+            else:
+                extra = (["Execution kind: manual — execute the approved manual-agent cases in this block, "
+                          "record each observation as manual evidence, then `finalize_task.py <task root>`.",
+                          "Prepared requests, one per case (read the one of each case; never rebuild it): "
+                          + ", ".join(self.manual_request_paths(block))]
+                         + [f"{case}: unprepared - {why}; walk it yourself with the recorder (manual_capture.py) or the "
+                            "browser and record every doubtful place; a seed the recorder cannot do by API is done through the "
+                            "screens, and a capture the factory refuses for its own gap halts nothing; close the case with "
+                            f"`manual_evidence.py unprepared --task-root {self.task_root} --case {case} "
+                            "--observations-file <file>` (add `--not-walked \"<why>\"` when nothing was walked with the "
+                            "recorder); record no pass or fail"
+                            for case, why in plan.get("unprepared") or [] if case in block])
+            self.run_role("S6", "qa-runner", scope=block, complete=run_complete, extra=extra + self.role_lines("S6", "qa-runner"),
+                          rework={"id": dispatch_id, "scope": block, "reason": "manual block"})     # `run_role` owns the walk hook (F4)
+        if not parallel:
+            record_then_role()
+            return
+        try:
+            record_then_role()
+        except BaseException:       # noqa: BLE001 - C.3: a lane that ends before `run_role` closed its walk closes it here (idempotent, never raises)
+            if walking:
+                self.walk_after(block, dispatch_id, {})
+            raise
 
     def failures_to_triage(self) -> str:
         report = _read_json(self.task_root / "work/run-report.json")
@@ -12063,16 +15273,16 @@ class Driver:
         state = self.controller_state()
         # P2 M3: an accepted INVESTIGATION is never a triage (case 1: with no triage file `analyst_done` would read True and a
         # re-triage of a story with no failure would start)
-        import controller as CT
         import acceptance
         # X7-6: an analyst dispatch whose finish carried `stage_superseded` (S6's consumer REJECTED the runner's handoff) is stale work on
-        # a handoff that was not accepted: it is not a triage, and a new analyst is owed after the runner's repair (E-24, AR-28).
-        analyst_done = any(d.get("stage") == "S7" and d.get("status") == "accepted" and CT.s7_part_of(d) != "investigation"
-                           and "stage_superseded" not in json.dumps(d.get("unresolved"))
-                           for d in (state.get("dispatches") or {}).values())
+        # a handoff that was not accepted: it is not a triage, and a new analyst is owed after the runner's repair (E-24, AR-28). An accepted
+        # INVESTIGATION is no triage either: `author_dispatches` is the one reading of both (M4 of t-1860).
+        analyst_done = any(d.get("status") == "accepted" for d in acceptance.author_dispatches(state, acceptance.stage_def_of("S7")))
         awaiting = acceptance.awaits_acceptance(state, "S6", self.pipeline())      # the runner's last dispatch when S6 awaits its consumer
+        if self.s7_closed_by_scribe(state):
+            return
         if awaiting:
-            if self.s7_consumer_settled(state, awaiting, analyst_done):
+            if self.consumer_settled("S6", state, awaiting, analyst_done):
                 return
         if analyst_done and not self.s7_fresh():
             # t-698 §20 N1 (FRESHNESS): an accepted analyst is only as fresh as the controller's staling, and a person-word rework of an
@@ -12089,6 +15299,7 @@ class Driver:
             if not reasons and not awaiting:
                 # P2 M3 (the investigation before a close by code). POSITION INVARIANT: after `failures_to_triage` (a halted run raises
                 # before any register write) and before the receipt (which hashes the register the pass wrote).
+                self.s7_close_places(self.s7_gap_reason("no_failures"))      # t-1991 U3a: BEFORE the gate (a place is never both gaps)
                 verdict, suffix = self.s7_investigation_gate()
                 if verdict == "wait":
                     return
@@ -12120,6 +15331,7 @@ class Driver:
             if pre.get("closes") and not awaiting:
                 said = f"every failure has a state the run already recorded: {len(pre['kept'])} written by code"
                 # P2 M3. POSITION INVARIANT: after the pre-triage wrote its rows (the targets' triage context reads them), before the receipt.
+                self.s7_close_places(self.s7_gap_reason("pretriaged"))       # t-1991 U3a: BEFORE the gate (a place is never both gaps)
                 verdict, suffix = self.s7_investigation_gate()
                 if verdict == "wait":
                     return
@@ -12142,75 +15354,76 @@ class Driver:
             if awaiting:
                 # X7-6. POSITION: the record is written from the analyst's FINISH, BEFORE the controller accepts it as S7 work, and never by
                 # the runner's own finish; the analyst is let in by the controller while S6 awaits (`awaits_acceptance`, one reader).
-                budget = self.budget_or_none("S6", "qa-runner", []) or {}
-                complete = self.s7_consumer_completion(complete, budget.get("counted"), budget.get("cap"))
+                complete = self.consumer_completion("S6", complete)      # the repair budget is read only if the verdict is a reject (B1)
             self.run_role("S7", "qa-failure-analyst", complete=complete,
                           extra=self.role_lines("S7", "qa-failure-analyst") + told
                           + ([f"You also accept or return the runner's handoff ({awaiting}): the verdict is `header.verdict` of your form, "
                               "and `inputs_read` names the runner's form work/handoffs/" + awaiting + ".yaml."] if awaiting else []))
             if awaiting:
-                self.s7_consumer_settled(self.controller_state(), awaiting, True)
+                self.consumer_settled("S6", self.controller_state(), awaiting, True, ran=True)
                 return          # S6 closes by the record (or the runner repairs) BEFORE S7's own repairs run
         self.s7_repairs()
 
-    # --- X7-6: the failure analyst accepts the runner's handoff (S6) -------------------------------------------------------------
-    def s7_consumer_completion(self, inner, counted, cap, dispatch_id=None):
-        """The `complete` callable of the analyst's finish while S6 awaits it (the shape of `stage_critic_completion`): write the record from the
-        analyst's form FIRST (`stage_acceptance_write`, the one writer), then `accept` -> the analyst's own completion `inner`; `reject` with a round
-        left -> `OpenWork("stage_superseded")` (its work is stale, E-24); `reject` on the last round -> the conductor through the ONE seam
-        (`stage_review_exhausted`, `no_move`) - never a code decision. A verdict word the table does not know goes to the same seam."""
-        import acceptance
-        last_round = not (isinstance(counted, int) and isinstance(cap, int) and counted < cap)
-
-        def complete(digest: str):
-            dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")
-            form = f"work/handoffs/{dispatch}.yaml" if dispatch else ""
-            if not dispatch or not self.stage_verdict_known(form):
-                return self.stage_review_exhausted("S6", "qa-runner", dispatch, None, form, unreadable=True)
-            self.stage_acceptance_write("S6", dispatch)
-            record = acceptance.stage_acceptance(self.pipeline(), "S6") or {}
-            if record.get("verdict") == "accept":
-                return inner
-            quote = str(record.get("quote") or "")
-            if not last_round:
-                return OpenWork("stage_superseded", open_work_reason(f"the failure analyst sent the runner's handoff back: {quote}", f"... [list: {form}]"))
-            outcome = self.stage_review_exhausted("S6", "qa-runner", dispatch, record, form)
-            return inner if outcome is None else outcome
-        return complete
-
-    def s7_consumer_settled(self, state: dict, awaiting: str, analyst_done: bool) -> bool:
-        """What follows the analyst's finish while S6 awaited it, and the recovery of a restart. True = this entry of S7 is done.
-        - an `accept` record for `awaiting`: S6 closes by it on the loop's next entry (`stage_S6`); True.
-        - a `reject` record for `awaiting`: the runner's repair round NOW, in a fresh context, through `rework` (reuse), within the repair
-          cap (`budget_or_none`); the last round spent goes to the conductor (`stage_review_exhausted`); True.
-        - no record but an accepted, not superseded analyst dispatch (the finish died after the dispatch): the record is written from its form,
-          then the two cases above. Otherwise False: the analyst is still to be dispatched."""
-        import acceptance
-        record = acceptance.stage_acceptance(self.pipeline(), "S6") or {}
-        if record.get("reviewed_dispatch") != awaiting and analyst_done:
-            mine = [str(d.get("id")) for d in (state.get("dispatches") or {}).values()
-                    if isinstance(d, dict) and d.get("stage") == "S7" and d.get("role") == self.s6_consumer() and d.get("status") == "accepted"
-                    and "stage_superseded" not in json.dumps(d.get("unresolved"))]
-            if not mine:
-                return False
-            self.stage_acceptance_write("S6", mine[-1])
-            record = acceptance.stage_acceptance(self.pipeline(), "S6") or {}
-        if record.get("reviewed_dispatch") != awaiting:
+    # --- X7-6b / X7-6c: S7 is accepted by its CONSUMER (the doc scribe of S8); the analyst's finish never closes it. The helpers shared with S6
+    # are the `consumer_*` set above. ------------------------------------------------------------------------------------------------------
+    def s7_closed_by_scribe(self, state: dict) -> bool:
+        """X7-6b. POSITION: S7 closes HERE, by the consumer's (the doc scribe's) `accept` record of the analyst's LAST dispatch - never by the
+        analyst's own finish (§3). INVARIANT: no record, a reject or a record for an earlier dispatch closes nothing; a failure of the current
+        run report with no triage row (`s7_fresh`) closes nothing either and falls through to the re-triage. The close only CLOSES: the
+        reduction ran when S7 went awaiting (`s7_await_scribe`, B3), so no second `finalize_task` (`finalize=False`)."""
+        if not self.consumer_pending("S7"):
             return False
-        if record.get("verdict") == "accept":
-            return True
-        budget = self.budget_or_none("S6", "qa-runner", []) or {}
-        counted, cap = budget.get("counted"), budget.get("cap")
-        judged = [str(d.get("id")) for d in (state.get("dispatches") or {}).values()
-                  if isinstance(d, dict) and d.get("stage") == "S7" and d.get("role") == self.s6_consumer()]
-        form = f"work/handoffs/{judged[-1] if judged else getattr(self, 'last_dispatch', '')}.yaml"
-        if not (isinstance(counted, int) and isinstance(cap, int) and counted < cap):
-            self.stage_review_exhausted("S6", "qa-runner", judged[-1] if judged else "", record, form)      # the ONE seam; a driver accept stands as a record
-            return True
-        scope = list(self.stage_scope("S6", "automation").get("scope") or []) + list(self.stage_scope("S6", "manual").get("scope") or [])
-        self.rework("S6", "qa-runner", scope, "failure analyst: " + str(record.get("quote") or ""), cause="test_defect",
-                    complete=self.s6_awaits(True),
-                    extra=[f"Repair round {counted + 1} of {cap}: the failure analyst's verdict is in {form}; change only what it names."])
+        reason, digest = self.consumer_close_words("S7")            # N4: who accepted, from the record (the scribe, or the person's word)
+        return bool(self.close_by_code("S7", reason, ["work/triage.json", "work/run-report.json"],
+                                       finalize=False, site="s7.accepted", digest=digest, fresh=self.s7_fresh))
+
+    def s7_open_words(self, life: str) -> str:
+        """The person's words of the recorded `close` answer to the open-work question of this life (`state["s7_open_work"][life]`, the file
+        `_answer_open_work` kept); `""` when there is no such answer. A recorded answer whose file cannot be read still passes (its token is
+        the word): the text then says so."""
+        if not self.s7_open_answer(life):
+            return ""
+        rec = (self.state.get("s7_open_work") or {}).get(life) or {}
+        try:
+            text = (self.task_root / str(rec.get("words_file") or "")).read_text(encoding="utf-8", errors="replace") if rec.get("words_file") else ""
+        except OSError:
+            text = ""
+        return text.strip() or "close (the answer to the open-work question; its words could not be read)"
+
+    def s7_await_scribe(self, person_words: str = "") -> bool:
+        """The end of S7's repairs under a consumer (X7-6b): with a consumer, an analyst dispatch that ran and NO accept record for its LAST one,
+        S7 is left AWAITING the scribe. True = `s7_close` is done for this entry (nothing is closed, nothing is refused); False: no consumer, no
+        analyst dispatch, S7 completed, or an accept record stands (a person's pass included: `person_words` - the recorded `close` answer - or a
+        live waiver of `stage acceptance` is recorded as the accept by `consumer_person_pass`, M3, so the close goes on below).
+        B3 (the Lead's decision): the reduction runs HERE, when S7 goes awaiting - BEFORE the marker and before S8 builds its ledger and report
+        over it: `finalize_task`, then `s7_fresh`; a failure of the current run report with no triage row writes NO marker and S7 stays open for
+        the re-triage (as at the close by code). The marker `pipeline["acceptance_awaits"]["S7"] = <the analyst's last dispatch>` (THE carrier
+        `awaits_acceptance` reads; the controller, `next` and `rule_order` let the scribe in by it) is bound to a dispatch, so a scribe reject that
+        reworks the analyst makes a NEW dispatch and this runs again at the next awaiting."""
+        import acceptance
+        if not acceptance.consumer_of("S7"):
+            return False
+        state = self.controller_state()
+        if ((state.get("stages") or {}).get("S7") or {}).get("status") == "completed":
+            return False
+        author = acceptance.stage_author_dispatch(state, acceptance.stage_def_of("S7"))
+        if not author or self.consumer_person_pass("S7", author, person_words):
+            return False
+        pipeline = self.pipeline()
+        if acceptance.awaits_acceptance(state, "S7", pipeline) != author:
+            code, out = self.py("finalize_task.py", str(self.task_root))
+            if code:
+                raise Refusal(f"S7 awaiting the scribe: finalize_task.py exit {code}: " + (out.splitlines()[-1] if out else ""))
+            if not self.s7_fresh():
+                print("S7: a failure of the current run report has no row in work/triage.json after the repairs; S7 stays open "
+                      "and the failure analyst triages again on the next turn")
+                return True
+            from event_store import atomic_json
+            pipeline = self.pipeline()
+            marks = pipeline.get("acceptance_awaits") if isinstance(pipeline.get("acceptance_awaits"), dict) else {}
+            pipeline["acceptance_awaits"] = dict(marks, S7=author)
+            atomic_json(self.task_root / "pipeline.json", pipeline)
+        print(f"S7: the repairs ended; S7 awaits the acceptance of {acceptance.consumer_of('S7')} for {author} (the scribe is let in; its record closes S7)")
         return True
 
     # --- S7 stays OPEN until its repairs end and is closed by code (C1-5b2, t-698 §18-§20) ----------------------------------------
@@ -12516,10 +15729,20 @@ class Driver:
         analyst's digest and what happened to the repairs). A current failure with no triage row (checked after finalize, before the
         receipt) leaves S7 open for the next entry, which triages again (N1)."""
         # P2 M3: the investigation of what the run left open comes FIRST. POSITION INVARIANT: after every repair row of the life ended
-        # (this is reached only from the end of `s7_repairs`), before finalize and the receipt. `wait`: no close, the next `where` resumes.
+        # (this is reached only from the end of `s7_repairs`), before the acceptance stop, finalize and the receipt. `wait`: no close, the next `where` resumes.
+        # t-1991 U3a. POSITION INVARIANT: the places nobody settled are gapped BEFORE the investigation gate, so a place is never both a
+        # settle gap and an investigation gap (`close_unsettled` never writes a plain open target; its `by` is outside `code:investigation.`).
+        self.s7_close_places(self.s7_gap_reason())
         verdict, suffix = self.s7_investigation_gate()
         if verdict == "wait":
             return
+        # X7-6b. POSITION INVARIANT: after the investigation (`author_dispatches` leaves it out: it is no triage), before the close by code: with a
+        # consumer and no accept record the end of the repairs is «S7 awaits the scribe» (the reduction runs there, B3), never a close and never a
+        # refusal; the record closes S7 at `s7.accepted` on the next entry. Both closing roads (the end of the repairs, the person's `close`
+        # answer) come through here; a recorded `close` answer or a waiver is the person's pass (M3) and closes by the person's word below.
+        if self.s7_await_scribe(self.s7_open_words(life)):
+            return
+        self.consumer_need_record("S7", "s7_close")        # the invariant: past this line a record stands (or there is no consumer); a bare close is refused
         ended = [self.s7_outcome(life, ident) for _row, ident, _tests, _bound in plan]
         debts = [self.s7_test_name(item[0]) for item, end in zip(plan, ended) if end == "debt"]
         fixed, stopped = ended.count("repaired"), ended.count("no_progress")
@@ -12543,6 +15766,257 @@ class Driver:
                                   fresh=self.s7_fresh):
             print("S7: a failure of the current run report has no row in work/triage.json after the repairs; S7 stays open "
                   "and the failure analyst triages again on the next turn")
+
+    def s7_place_lines(self, dispatch) -> list:
+        """t-1991 U3a (the analyst settles the places): the brief lines of the places of S7 - each place with its sources, state and the
+        expectation the record names, the four answers and the four sources, the capture case `settle-<place id>`, the commands. The ONE
+        formatter is `place_answers._list_lines` (what `place_answers.py list` prints); more places than `brief_places_max` are cut with
+        a pointer. A list that could not be computed whole says so in the brief and in ONE printed line, never "none" (AR-28). The
+        brief only TELLS the analyst an answer is owed; whether a place is answered is the register's business at the close (P1)."""
+        base = f"qa-factory/artifacts/{self.task}/"
+        py = '`python "${CLAUDE_PLUGIN_ROOT}/scripts/'
+        try:
+            import place_answers
+            data = place_answers._data()
+            found = place_answers.places(self.task_root)
+            states = {p["id"]: place_answers.settled_answer(self.task_root, p["id"]) for p in found["places"]}
+            listed = place_answers._list_lines(found, states)
+        except Exception as exc:
+            print(f"S7: the places to settle could not be listed ({type(exc).__name__}: {exc})")
+            return [f"The list of places to settle could not be computed whole ({type(exc).__name__}: {exc}): run {py}place_answers.py\" list "
+                    f"--task-root {base}` and settle what it lists."] + self.s7_session_line(dispatch)
+        if found["unreadable"]:
+            print("S7: the places to settle could not be computed whole: " + "; ".join(f"{rec}: {why}" for rec, why in found["unreadable"]))
+        count = len(found["places"])
+        if not count and not found["unreadable"]:
+            return listed + self.s7_session_line(dispatch)      # "Places to settle: none in this run"
+        head, rows = listed[:len(listed) - count], listed[len(listed) - count:]
+        cap = int(data["brief_places_max"])
+        lines = head + rows[:cap] + ([f"[and {count - cap} more: place_answers.py list]"] if count > cap else [])
+        disp = str(dispatch) if dispatch else "<your dispatch id>"
+        lines += ["An answer is owed for every place that is not settled: `answer` is one of " + ", ".join(f"`{a}`" for a in data["answers"])
+                  + "; name beside it where your expectation comes from, `expectation.source` one of "
+                  + ", ".join(f"`{s}`" for s in data["sources"]) + ".",
+                  "The answer file is one JSON object: `place`; `answer`; `expectation` {`source`, `id`, `quote`}; `seen` {`capture`: the path "
+                  "the recorder wrote, `quote`: words that capture holds}; and by answer `question` (requirement_silent), `why` (not_a_bug, "
+                  "impossible), `draft` (bug: the file name of your draft under work/bug-drafts/, whose `reproduction` holds "
+                  "`{kind: walk, evidence: evidence/place-answer-<place id>.json, observed: what you saw}` and whose `confirmation` is "
+                  "`unconfirmed`). `place_answers.py write --help` lists the rest.",
+                  f"Capture each place under its own case `settle-<place id>`: {py}manual_capture.py\" ui|http --task-root {base} "
+                  "--case settle-<place id>` (`ui` also needs `--steps-file`, `http` needs `--method` and `--url`; the capture is the evidence "
+                  "your answer quotes).",
+                  f"Commands: {py}place_answers.py\" list --task-root {base}` prints the places with their states; {py}place_answers.py\" write "
+                  f"--task-root {base} --dispatch {disp} --place <place id> --file <your answer, a JSON file>` records one answer "
+                  "(`--replace` replaces an answer you gave)."]
+        return lines + self.s7_session_line(dispatch)
+
+    def s7_neighbour_lines(self, dispatch) -> list:
+        """t-2187 N6: the brief lines of the neighbourhood hint of an S7 triage dispatch - the groups of failures, observations, rows and
+        drafts that share a requirement, case, test file, code line or seen value, cut to `brief_neighbours_max` groups (the data row of
+        `references/place-answers.json`) with the command for the rest. `bug_neighbours` formats and counts; this only hands it over (FR-15).
+        A table that could not be computed whole says so in the brief and in ONE printed line, never "none" (AR-28). A hint: the brief
+        does not ask the analyst to merge anything (AR-29)."""
+        command = f'`python "${{CLAUDE_PLUGIN_ROOT}}/scripts/bug_neighbours.py" --task-root qa-factory/artifacts/{self.task}/`'
+        try:
+            import bug_neighbours
+            import place_answers
+            found = bug_neighbours.neighbours(self.task_root)
+            shown = bug_neighbours.lines(found, int(place_answers._data()["brief_neighbours_max"]))
+        except Exception as exc:
+            print(f"S7: the neighbourhood table could not be computed ({type(exc).__name__}: {exc})")
+            return [f"The neighbourhood table could not be computed whole ({type(exc).__name__}: {exc}): run {command} for it."]
+        if found["unreadable"]:
+            print("S7: the neighbourhood table could not be computed whole: " + "; ".join(f"{item[0]}: {item[1]}" for item in found["unreadable"]))
+        return shown + [f"Command: {command} prints the whole table."]
+
+    # --- t-1991 U3b: the walk session of an S7 triage dispatch (lane `settle`); opened and closed by `run_role` / `resume_role` -------------
+    S7_SETTLE_ITEMS = "free"       # the item word when the run has no place at all (control walks only); otherwise the place ids
+    S7_SETTLE_ACTOR = "guest"       # the spec names no account for a place: no sign-in by code is needed to open (returned as a question)
+
+    def s7_is_triage(self, stage: str, role: str, dispatch: str, purpose: str = "") -> bool:
+        """True for an S7 `qa-failure-analyst` dispatch that is NOT an investigation (`controller.s7_part_of` of its record, else the
+        `purpose` of a request not yet a record). INVARIANT: an investigation never gets the place lines or the session; a record that
+        cannot be read answers False (the investigation's side), with one printed line."""
+        if stage != "S7" or role != "qa-failure-analyst" or purpose == "investigation":
+            return False
+        try:
+            import controller as CT
+            records = (self.controller_state().get("dispatches") or {}).items()
+            record = next((d for key, d in records if isinstance(d, dict) and str(d.get("id") or key) == str(dispatch)), {})
+            return CT.s7_part_of(record) != "investigation"
+        except Exception as exc:
+            print(f"S7: the kind of dispatch {dispatch} could not be read ({type(exc).__name__}: {exc}); it gets no place lines and no walk session")
+            return False
+
+    def s7_session_line(self, dispatch) -> list:
+        """The brief line about the walk session of `dispatch` from `state["s7_walk"][dispatch]`: the session and its reopen door, or
+        'no walk session: <why>' with the road that needs none. `[]` when no record exists (nothing was opened or tried)."""
+        record = (self.state.get("s7_walk") or {}).get(str(dispatch)) if dispatch else None
+        if not isinstance(record, dict):
+            return []
+        base = f"qa-factory/artifacts/{self.task}/"
+        py = '`python "${CLAUDE_PLUGIN_ROOT}/scripts/'
+        door = (f"capture with {py}manual_capture.py\" ui|http --task-root {base} --case settle-<place id>`")
+        if record.get("failed"):
+            return [f"no walk session: {record.get('why') or record['failed']}; capture with `manual_capture.py ui|http --case settle-<place>`"
+                    f" ({py}manual_capture.py\" ui|http --task-root {base} --case settle-<place id>`), or answer `impossible` with that why."]
+        if record.get("state") != "ready":
+            return []                   # closed with its dispatch: nothing to offer
+        items = ",".join(record.get("items") or [self.S7_SETTLE_ITEMS])
+        skipped = [str(i) for i in record.get("skipped") or []]
+        out = [f"The walk session `{dispatch}` is open (its items are the place ids: `{items}`): {py}walk_session.py\" step|look|final "
+               f"--task-root {base} --walk {dispatch} --item <place id> --line \"<one step>\"` (or `--steps-file <file>`), one step or a short "
+               f"obvious run per call; its captures are under settle-<place id>, where your answer's `seen.capture` points. If a call says "
+               f"it ended: {py}walk_session.py\" open --task-root {base} --walk {dispatch} --place settle --items {items} "
+               f"--actor {self.S7_SETTLE_ACTOR} --parent-pid {os.getpid()}` reopens it for the same walk; if it cannot open, {door}, or "
+               "answer `impossible` with why 'the walk session could not be opened'."]
+        if skipped:
+            out.append("Places the session cannot carry (their id is no plain id): " + ", ".join(f"`{i}`" for i in skipped)
+                       + f"; capture each with {py}manual_capture.py\" ui|http --task-root {base} --case settle-<place id>`.")
+        return out
+
+    def s7_settle_session(self, dispatch: str, resume: bool = False) -> bool:
+        """Opens the settle walk session of an S7 triage dispatch (`walk_session.py open --place settle --walk <dispatch> --items <the place ids>`; `free` only when the run has no place)
+        and records `state["s7_walk"][dispatch]` = `{"state": "ready"}` or `{"failed": "stand"|"session", "why"}` (`s7_gap_reason` reads
+        it). Returns True when a session is ready and this call's caller must close it. NEVER raises (P1): a session that cannot open is
+        a record and a printed line, and the role runs on the `manual_capture` road. `resume`: a server that is `ready` and alive is left
+        alone (E3b.5); any other is reopened for the same walk. `stand` when `open`'s answer carries `cause: stand_busy` (the exit and the
+        answer, never a word in the text; t-2027 F11), else `session`. Places whose id the lane cannot carry are left out of the session and
+        named in the brief line (t-2027 F9)."""
+        walks = self.state.setdefault("s7_walk", {})
+        why, cause, skipped = "", "", []
+        if resume and isinstance(walks.get(dispatch), dict):
+            skipped = [str(i) for i in walks[dispatch].get("skipped") or []]
+        try:
+            if resume:
+                record = _read_json(self.task_root / "state" / "walks" / f"{dispatch}.json")
+                import walk_session as WS
+                if isinstance(record, dict) and record.get("state") == "ready" and WS.alive(record):
+                    walks[dispatch] = {"state": "ready", "items": [str(i) for i in record.get("items") or []]}
+                    return True
+                items = [str(i) for i in (record or {}).get("items") or []] if isinstance(record, dict) else []
+            if not resume or not items:
+                import place_answers
+                found = place_answers.places(self.task_root)
+                if found["unreadable"]:         # AR-28: a list not read whole opens no session (the place ids are the items)
+                    why = "ValueError: the places to settle could not be listed whole: " + "; ".join(f"{r}: {w}" for r, w in found["unreadable"])
+                else:
+                    import walk_session as WS
+                    ids = [p["id"] for p in found["places"]]
+                    items = [i for i in ids if WS.lane_item_ok(i)] or [self.S7_SETTLE_ITEMS]
+                    skipped = [i for i in ids if not WS.lane_item_ok(i)]
+            if not why:
+                code, text = self.py("walk_session.py", "open", "--task-root", str(self.task_root), "--walk", dispatch, "--place", "settle",
+                                     "--items", ",".join(items), "--actor", self.S7_SETTLE_ACTOR)
+                if code:
+                    got = _read_answer(text) or {}
+                    cause = str(got.get("cause") or "")
+                    why = str(got.get("reason") or "").strip()[:300] or (text.splitlines() or [f"exit {code}"])[-1][:300]
+        except Exception as exc:        # P1: code informs, it never stops the factory
+            why = f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}"
+        if why:
+            walks[dispatch] = {"failed": "stand" if cause == "stand_busy" else "session", "why": why, **({"skipped": skipped} if skipped else {})}
+            print(f"S7: {dispatch}: no walk session ({why}); the analyst captures with manual_capture.py or answers `impossible`")
+        else:
+            walks[dispatch] = {"state": "ready", "items": items, **({"skipped": skipped} if skipped else {})}
+        try:
+            self.save_state()
+        except Exception as exc:
+            print(f"note: the walk record of {dispatch} was not saved ({type(exc).__name__})")
+        return not why
+
+    def s7_settle_close(self, dispatch: str) -> None:
+        """Closes the settle session of `dispatch` (`walk_session.py close`). Never raises: a server that did not close ends by itself
+        (parent check, `max_s`); the failure is one printed line."""
+        try:
+            # remains: the exit is read on the next line and said; a server that did not close ends by itself (parent check, max_s)
+            code, text = self.py("walk_session.py", "close", "--task-root", str(self.task_root), "--walk", dispatch)
+            if code:
+                print(f"note: walk_session.py close exit {code}: {(text.splitlines() or [''])[-1][:200]}; the server ends by itself")
+        except Exception as exc:
+            print(f"note: walk_session.py close raised {type(exc).__name__}; the server ends by itself")
+        record =(self.state.get("s7_walk") or {}).get(dispatch)
+        if isinstance(record, dict) and record.get("state") == "ready":
+            record["state"] = "closed"
+
+    def s7_gap_reason(self, kind: str = "") -> str:
+        """t-1991 U3a: the text the driver gives `place_answers.close_unsettled` (`references/place-answers.json` `gap_reason_names`, five texts picked by name).
+        `kind` `no_failures` / `pretriaged` -> those names (no analyst ran). Otherwise `unanswered` - true whether or not the dispatch was told -
+        unless the record U3b writes for the last S7 triage dispatch (`state["s7_walk"][<id>]["failed"]`) names `stand` or `session`. `""` when the texts cannot be read: `close_unsettled` then refuses and `s7_close_places` prints one line."""
+        try:
+            import place_answers
+            texts = place_answers._data()["gap_reason_names"]           # chosen by NAME: a reorder of the list cannot give a false text
+            if kind in ("no_failures", "pretriaged"):
+                return texts[kind]
+            import controller as CT
+            ids = [str(d.get("id") or key) for key, d in (self.controller_state().get("dispatches") or {}).items()
+                   if isinstance(d, dict) and d.get("stage") == "S7" and d.get("role") == "qa-failure-analyst" and CT.s7_part_of(d) != "investigation"]
+            walk = (self.state.get("s7_walk") or {}).get(ids[-1]) if ids else None
+            failed = str((walk or {}).get("failed") or "") if isinstance(walk, dict) else ""
+            return texts["stand"] if failed == "stand" else texts["session"] if failed == "session" else texts["unanswered"]
+        except Exception as exc:
+            print(f"S7: the reason for the places nobody settled could not be chosen ({type(exc).__name__}: {exc})")
+            return ""
+
+    def s7_close_places(self, why: str) -> list:
+        """t-1991 U3a: ONE call at each of the three S7 code closers, BEFORE `s7_investigation_gate` (INVARIANT: a place is never both a settle
+        gap and an investigation gap; `close_unsettled` never writes a plain `open` place, and its `by` is outside the investigation's
+        prefix). The ids of the register lines written. The list that could not be read whole is one printed line and the close still runs
+        on what was read; an exception is one printed line and S7 goes on - it never reads as "no places" (P1, AR-28)."""
+        try:
+            import place_answers
+            found = place_answers.places(self.task_root)
+            if found["unreadable"]:
+                print("S7: the places to settle could not be computed whole: " + "; ".join(f"{rec}: {w}" for rec, w in found["unreadable"]))
+            printed: list = []
+            written = place_answers.close_unsettled(self.task_root, why, printed, found=found)
+        except Exception as exc:
+            print(f"S7: the places nobody settled could not be recorded as gaps ({type(exc).__name__}: {exc}); S7 goes on")
+            return []
+        for line in printed:
+            print(f"S7: {line}")
+        if written:
+            print(f"S7: {len(written)} place(s) nobody settled were recorded as coverage gaps: {why}")
+        return written
+
+    def s7_places_scribe_line(self) -> list:
+        """t-1991 U3a: the ONE line the S8 scribe gets about the places of S7 - settled ones with the answer and the source of its
+        expectation (where `expectation.source` reaches a reader beside `answer_problems`), unsettled ones with their state. At most
+        `scribe_line_max` characters (the data row of `references/place-answers.json`); more is cut with "[and <n> more: place_answers.py list]". Returning the triage
+        for them is the scribe's judgment; this line only shows the facts."""
+        try:
+            import place_answers
+            cap = int(place_answers._data()["scribe_line_max"])
+            found = place_answers.places(self.task_root)
+            rows = [(p["id"],) + tuple(place_answers.settled_answer(self.task_root, p["id"])) for p in found["places"]]
+        except Exception as exc:
+            print(f"S7: the places for the scribe could not be listed ({type(exc).__name__}: {exc})")
+            return [f"Places of S7: the list could not be computed whole ({type(exc).__name__}: {exc}); run place_answers.py list"]
+        if found["unreadable"]:
+            print("S7: the places for the scribe could not be computed whole: " + "; ".join(f"{rec}: {why}" for rec, why in found["unreadable"]))
+        if not rows and not found["unreadable"]:
+            return ["Places of S7: none in this run"]
+        done, left = [], []
+        for pid, record, state, _why in rows:
+            if state == "settled":
+                src = (record.get("expectation") or {}) if isinstance(record, dict) else {}
+                done.append(f"{pid}: {record.get('answer')} (expectation: {src.get('source') or 'none'}"
+                            + (f" {src.get('id')}" if src.get("id") else "") + ")")
+            else:
+                left.append(f"{pid} ({state})")
+        entries = done + left
+        whole = f" (not computed whole: {', '.join(rec for rec, _w in found['unreadable'])[:200]})" if found["unreadable"] else ""
+
+        def render(keep: int) -> str:
+            shown_done, shown_left = done[:keep], left[:max(0, keep - len(done))]
+            parts = ([f"settled {len(done)}" + (" — " + "; ".join(shown_done) if shown_done else "")] if done else []) \
+                + ([f"not settled {len(left)}" + (": " + ", ".join(shown_left) if shown_left else "")] if left else [])
+            text = f"Places of S7 ({len(rows)}){whole}: " + "; ".join(parts)
+            return text + (f" [and {len(entries) - keep} more: place_answers.py list]" if keep < len(entries) else "")
+        for keep in range(len(entries), -1, -1):
+            if len(render(keep)) <= cap or keep == 0:
+                return [render(keep)]
+        return [render(0)]
 
     def s7_investigation_gate(self) -> tuple:
         """What S7 does about the observations the run left open BEFORE it closes by code (P2 M3): `(verdict, suffix)`, verdict
@@ -12660,6 +16134,7 @@ class Driver:
                   "`unverified` (k of R) / `unresolved_question` / `coverage_gap`.",
                   "Record what the product does; never compare it with an expected value; never write a bug or a triage row; only "
                   "`investigation_probe.py` reaches the stand.",
+                  "The places of `place_answers.py list` were the triage's to settle; you do not walk the page for them and do not answer them.",
                   "Your hand-back is the usual S7 form `s7-analyst-to-automator` with `scope: []` and no `not_for_repair` rows, and it is checked "
                   "whole. Fill: the `inputs_read` row [0] for `work/run-report.json` with its `version` and `failures` (what you read); the "
                   "`inputs_read` row [1] the template lists (the runtime provenance record, its `path` and `version`); the three `claims.*` "
@@ -12695,9 +16170,32 @@ class Driver:
         if fresh is not None and not fresh():
             return False
         receipt = self.close_receipt(site, stage, reason, evidence)
+        self.file_passed_over(stage, receipt)
         self.record_close(site, stage, "--status", "done", *(["--role", role] if role else []),
                           "--digest", digest or reason, *([] if journal else ["--no-journal"]), tail=tail, receipt=receipt)
         return True
+
+    def file_passed_over(self, stage: str, receipt) -> None:
+        """TR1-9 B4 (AR-27): the work a code close passed over (`stages[stage].passed_over`, written by the controller's `code_only`
+        receipt: `returned, never accepted`, `abandoned`, `stopped, never accepted`) is a FINDING, one per dispatch, idempotent by
+        (task, stage, dispatch). Position: right after the receipt, before the stage record, so a refused record cannot lose the name;
+        the report reads the same names from the stage entry (`report_facts._passed_over_gap`). An unreadable state files nothing here
+        and the stage entry still carries the names."""
+        state = self.controller_state()
+        stages = state.get("stages") if isinstance(state, dict) else None
+        entry = stages.get(stage) if isinstance(stages, dict) else None
+        rows = state.get("dispatches") if isinstance(state, dict) and isinstance(state.get("dispatches"), dict) else {}
+        named = entry.get("passed_over") if isinstance(entry, dict) else None
+        for item in named if isinstance(named, list) else []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            ident = str(item["id"])
+            who = str((rows.get(ident) or {}).get("role") or "a role") if isinstance(rows.get(ident), dict) else "a role"
+            self.owe_row("project_decisions.py", "--root", str(self.project), "add-finding",
+                         "--essence", f"{stage} was closed by code over the work of {who} ({ident}): {item.get('label') or 'never accepted'}"[:500],
+                         "--scope", "local-calibration", "--witness", f"close receipt {receipt}",
+                         "--idempotency-key", f"close-passed-over:{self.task}:{stage}:{ident}",
+                         what="the finding about work a code close passed over", stage=stage)
 
     def s7_repair_test(self, row: dict, ident: str, tests: list, bound: bool, life: str) -> None:
         """The repair rounds of ONE failing test, until it is green, the count stops growing, or the repair limit is answered `debt`.
@@ -12845,6 +16343,9 @@ class Driver:
         if route["action"] in ("test_defect", "mechanical"):
             print(f"S7: {test} - the critic sent the {thing} back ({route['reason']}); one more round")
             return "retry"
+        if route["code"] == "untyped":      # F4 (e): no round on a cause nobody wrote; the debt stays in the triage row
+            print(f"S7: {test} - the critic sent the {thing} back without a typed finding; the round is stopped")
+            return "no_progress"
         if route["code"] == "cap":
             print(f"S7: {test} - the critic sent the {thing} back and the repair cap is spent; the limit question decides")
             return "retry"          # the loop's top meets counted >= cap: `s7_limit` asks the person (spec 5.7 p.4), never a silent stop
@@ -12929,7 +16430,8 @@ class Driver:
         (`manual_evidence.py rejudge`, nothing is captured again) through `rework` of S6 on the one case, inside the open S7 - the
         way back into S7 is this function returning (`rework` is synchronous; the stage `completed` S6 stays so, `set_stage` is
         monotonic). The result is not read from the digest: `s7_close` -> `finalize_task` -> `fresh` judge the new record.
-        THE LIMIT (not the controller's: `qa-runner` is no `REPAIR_LOOP_ROLES` member, so `repair_budget` cannot be read at S6):
+        THE LIMIT (not the controller's: these rounds are `reviewer_error` rounds, which spend none of the controller's repair cap, though
+        `qa-runner` is a `REPAIR_LOOP_ROLES` member since X7-6c; the cap that counts is the consumer's `test_defect` rounds):
         `repair_cycles` rounds per (case, ROOT of the attempt), counted in `state["s7_rejudge"]` ACROSS lives - a new analyst
         life is a new triage, not a new dispute over the same captures; a re-capture is a new attempt and counts from zero. At
         the limit no round and no question: `outcome="limit"`, the red stands (`failed:RUNNER_MISREAD_EVIDENCE`, `no`, owner the
@@ -13068,6 +16570,12 @@ class Driver:
                 "by_cause": (budget.get("by_cause") if isinstance(budget, dict) else None) or {}}
 
     def stage_S8(self) -> None:
+        import acceptance
+        # X7-6b: the analyst's last dispatch when S7 awaits its consumer (the one reader, AR-13). POSITION: the scribe is let in by the controller
+        # while S7 awaits; a verdict (or a scribe that already worked) left by a restart is settled BEFORE the scribe is dispatched again.
+        awaiting = acceptance.awaits_acceptance(self.controller_state(), "S7", self.pipeline())
+        if awaiting and self.consumer_settled("S7", self.controller_state(), awaiting, True):
+            return
         root = f"qa-factory/artifacts/{self.task}"
         # The three scripts, in this order (a later one reads an earlier one's product; a G refusal in the middle makes `retry` run the
         # WHOLE step again, E1). L1: check_traceability writes nothing (M1, t-1214: `walk` only reads; `main` only prints), and its exit 1
@@ -13092,7 +16600,18 @@ class Driver:
         if word is None:
             raise gate_refusal("check_delivery.py", code, out, "work/ledger.json written with the delivery verdict (a readable word)",
                                retry=self.stage_S8)
-        self.run_role("S8", "qa-doc-scribe", complete=True, extra=self.role_lines("S8", "qa-doc-scribe"))
+        complete, extra = True, self.role_lines("S8", "qa-doc-scribe")
+        if awaiting:
+            # X7-6b. POSITION: the record is written from the scribe's FINISH, BEFORE the controller accepts it as S8 work, and never by the
+            # analyst's own finish. `True` (today's close of S8) is the scribe's own completion on an accept.
+            complete = self.consumer_completion("S7", True)      # the repair budget is read only if the verdict is a reject (B1)
+            extra += [f"You also accept or return the analyst's handoff ({awaiting}): the verdict is `header.verdict` of your form (`ok` accepts it; "
+                      "`concerns` sends it back and needs the section `stage_acceptance`), and `inputs_read` names the analyst's form "
+                      "work/handoffs/" + awaiting + ".yaml. A concern about the report itself belongs in `unresolved`."]
+            extra += self.s7_places_scribe_line()        # t-1991 U3a: settled / unsettled places, with the source of each expectation
+        self.run_role("S8", "qa-doc-scribe", complete=complete, extra=extra)
+        if awaiting and self.consumer_settled("S7", self.controller_state(), awaiting, True, ran=True):
+            return          # the analyst repairs in a fresh context; the scribe's report is stale and is written again after the new accept
         # t-204 F6 (R-212.1): the code-owned blocks of the report are rendered right here, once the scribe has
         # returned and BEFORE gate B is asked (the next boundary reads the report to build its packet), so the
         # person reads a code-checked report and not the scribe's own arithmetic. POSITION INVARIANT: after the
@@ -14116,8 +17635,7 @@ class Driver:
             critics = ", ".join(found["critics"])
             print(f"gate {gate} repair: the case designer reworks the {len(scope)} case(s) the critic did not "
                   f"approve in {critics}: {', '.join(scope)} (designer round {found['counted'] + 1} of {found['cap']})")
-            findings_file = (self.newest("work/test-cases/**/critic-findings*.md")
-                             or self.newest("work/**/critic-findings*.md"))
+            findings_file = self.s4_findings()
             role, move = "qa-case-designer", "designer_rework"
             reason = ("critic round: " + findings_file.read_text(encoding="utf-8", errors="replace")[:1200]
                       if findings_file else
@@ -14270,7 +17788,7 @@ class Driver:
             out.append(f"- (and {len(lines) - len(shown)} more in the rehearsal below)")
         if gate == "A" and any(item["check"] == "gate_decision" for item in fixable):
             # the case critic reviews at gate A only (at B the same check id is about the delivery decision)
-            findings_file = self.newest("work/test-cases/**/critic-findings*.md") or self.newest("work/**/critic-findings*.md")
+            findings_file = self.s4_findings()
             if findings_file:
                 out += ["", "The case critic's own findings: "
                         f"qa-factory/artifacts/{self.task}/{findings_file.relative_to(self.task_root).as_posix()}"]
@@ -14434,6 +17952,15 @@ class Driver:
             # already given, never sees the plan move (F-13) - and before `gate_entry_steps` and the rehearsal. A rework that is owed
             # ends the call as a repair round does: the loop goes back to `where`, the step runs it, the gate is rehearsed again.
             return dict(shown, ran=True)
+        if gate == "A":
+            # t-2142 PK0-3 (AR-21, AR-28): a role the strategist named that the project does not know yet is recorded as noticed, not
+            # confirmed. POSITION INVARIANT: after the open-packet return (iii) and the kept-answer returns (iv) - nothing is written
+            # once the person has spoken - and before the rehearsal that builds the packet, which shows the noticed rows. Never raises.
+            try:
+                import project_knowledge
+                project_knowledge.notice_from_handoff(self.project, self.task_root, str(self.pipeline().get("ticket") or self.task))
+            except Exception as exc:
+                print(f"project_knowledge: noticed roles were not recorded ({type(exc).__name__}: {str(exc)[:120]})", file=sys.stderr)
         self.gate_entry_steps(gate)
         try:
             result = self.rehearse(gate)
@@ -14621,11 +18148,495 @@ class Driver:
                 + f" (at most {GATE_REPAIR_CAP} rounds)")
 
     # --- the loop --------------------------------------------------------------------------
+    # t-2181 PC-7, the arrival road (§3.2): one road for "a side became real". Position 1 `arrival_keep` (before the freshness look, resumed
+    # stories only), position 2 `arrival_record` (after `accept_no_trace`, before the loop; on the answer run of the changed-ticket question,
+    # BEFORE `ticket_rework_step`), then `arrival_rework_step` in the loop turns (step 2, 3 and 5 of §3.2; step 4 is PC-8's).
+    ARRIVAL_TOKENS = ("re-ground", "ignore", "stop")       # the three answers of `arrival.not_waiting`; `_answer_arrival_not_waiting` reads them
+    ARRIVAL_STAGES = ["S1", "S2", "S5"]                    # data on the record: FL-6 changes the list by cause, not the step
+    ARRIVAL_STAGES_FIRST_LOOK = ["S1", "S2"]               # t-2277 FL-6: the list of an arrival after `first_look_stop` (S3 on, no bind round)
+
+    def arrival_keep(self) -> None:
+        """Position 1: keeps this command line's launch word - `--mr/--branch/--commit` and `--side <s>=real` - through
+        `s0_keep_late_launch`, and records what is NEW as a pending arrival in `launch["arrival"]` (`{source, side}`; it lives until
+        `arrive` is written, so it outlives a question asked in this process). A source flag is new when the story is held (awaiting or
+        stopped) or the value differs from the one kept. `--side <s>=real` is an arrival word only for a side the story RECORDED and that
+        is not real yet (F2): any other name - an unrecorded one, a case variant, a side already real - is said in one line and kept as
+        nothing. A STOPPED story given no word prints its line and ends the run (`_act_awaiting_stopped` raises `Stop`, exit 0)."""
+        if not (self.task_root / "pipeline.json").is_file():
+            return
+        import contract
+        ns, launch, pipeline = self.flags, self.state.setdefault("launch", {}), self.pipeline()
+        hold, sides = contract.awaiting(pipeline), contract.story_sides(pipeline)
+        held = hold["state"] != "none"
+        source = {key: getattr(ns, key) for key in ("mr", "branch", "commit")
+                  if getattr(ns, key, None) and (held or getattr(ns, key) != launch.get(key))}
+        side = {}
+        for name, word in dict(getattr(ns, "side", None) or ()).items():
+            if word != "real":
+                continue
+            if name in sides and sides[name]["reality"] != "real":
+                side[name] = word
+            else:
+                print(f"{self.task}: `{name}` is not a part of this story's product that was waiting; nothing changed for it")
+        self.s0_keep_late_launch()
+        if source or side:
+            pending = launch.setdefault("arrival", {})
+            pending["source"] = {**(pending.get("source") or {}), **source}
+            pending["side"] = {**(pending.get("side") or {}), **side}
+            self.save_state()
+        if hold["state"] == "stopped" and not launch.get("arrival"):
+            self._act_awaiting_stopped({"action": "awaiting_stopped", "cause": hold["cause"], "held_from": hold["held_from"],
+                                        "at": (hold.get("stopped") or {}).get("at"), "words": (hold.get("stopped") or {}).get("words")})
+
+    @staticmethod
+    def side_set_args(name: str, **attrs) -> list:
+        """`["sides.<name>.<attr>=<value>", ...]` - the `stage_done.py --set` items of ONE side's record (the one spelling for the arrival
+        and for the S1 `not built yet` answer; the twin of `s0_sides_sets`, which applies the same keys before `pipeline.json` exists)."""
+        return [f"sides.{name}.{attr}={value}" for attr, value in attrs.items()]
+
+    def sides_reread(self) -> None:
+        """t-2181 PC-1b (E-U1, AR-25): a relaunch re-reads the project's record of sides when S0 could not (`pipeline.sides_unknown`).
+        Nothing happens for a story that is not marked (no `pipeline.json`, or no mark). The registry is read for the story's own stand
+        (`pipeline.environment`); a read that still fails or holds a malformed row keeps the mark and says why in one line. A clean
+        read clears the mark and, when the story has no `pipeline.sides` yet, records the registry's non-real or referenced sides
+        (`source: registry`) in the SAME `stage_done` call, so the clear and the record land together. The Thens proven while the mark
+        stood keep their stamp (PC-5 owns that). INVARIANT: an unreadable registry is never read as real, and the mark never clears
+        without a clean read."""
+        if not (self.task_root / "pipeline.json").is_file():
+            return
+        pipeline = self.pipeline()
+        if not pipeline.get("sides_unknown"):
+            return
+        import contract
+        read = contract.registry_sides(self.project, pipeline.get("environment"))
+        if read["problem"]:
+            print(f"{self.task}: the project's sides are still unknown ({read['problem']})")
+            return
+        sets, now = ["sides_unknown="], _now()
+        if not pipeline.get("sides"):
+            entries = {}
+            for name, row in sorted(read["sides"].items()):
+                if row["reality"] and (row["reality"] != self.SIDE_REAL or row["reference"]):
+                    entries[name] = row
+            if entries:
+                if not read["product_rows"]:
+                    entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "settles_by": "", "reference": None})
+                for name, row in entries.items():
+                    attrs = {"reality": row["reality"], "source": "registry", "at": now}
+                    if row["deliverable"] is not None:
+                        attrs.update(deliverable="true" if row["deliverable"] else "false")
+                        if row.get("settles_by"):
+                            attrs.update(settles_by=row["settles_by"])
+                    if row["reference"]:
+                        attrs.update(reference=row["reference"])
+                    sets += self.side_set_args(name, **attrs)
+        self.py("stage_done.py", "--task", self.task, *[part for item in sets for part in ("--set", item)], check=True)
+        print(f"{self.task}: the project's sides were read again; the mark `sides_unknown` is cleared")
+
+    def arrival_record(self) -> None:
+        """Position 2: a pending arrival is recorded - `implementation_source` and the sides through `stage_done.py --set`
+        (`source: arrival`), then the controller event `arrive`, which clears the hold - and the rework it owes is put on the record
+        (`state["arrival_rework"]`, §3.2 steps 2, 3, 5) in the SAME save that spends the pending word, so a crash anywhere replays from
+        one of the two records. A bare source flag makes real the sides that are `absent` and this story's own; `--side` names the
+        others. A story with every side real and nothing held asks `arrival.not_waiting` first (E-A5 b): the flag is never silently
+        dropped and never silently re-grounds a finished story; the answer is read from `launch["arrival"]["answer"]`, which
+        `_answer_arrival_not_waiting` writes (FR-7: the question is not asked again with the same text). `becomes` and the hold's
+        `since` are stored on the pending word BEFORE the first write (F3), so a replay after a partial crash records the same sides
+        under the same key."""
+        if not (self.task_root / "pipeline.json").is_file():
+            return
+        import contract
+        launch, pipeline = self.state.setdefault("launch", {}), self.pipeline()
+        hold, sides = contract.awaiting(pipeline), contract.story_sides(pipeline)
+        pending = launch.get("arrival")
+        if not pending:
+            return
+        source, named = dict(pending.get("source") or {}), dict(pending.get("side") or {})
+        if "becomes" not in pending and hold["state"] == "none" and all(s["reality"] == "real" for s in sides.values()) and not named:
+            # E-A5 (b): nothing is held, every side is real. A word recorded here (`becomes`) is past this question: a replay never asks it.
+            answer = str(pending.get("answer") or "")
+            if answer == "ignore":
+                launch.pop("arrival", None)
+                self.save_state()
+                return
+            if answer == "stop":
+                launch.pop("arrival", None)
+                self.save_state()
+                raise Stop(EXIT_DONE, f"{self.task}: stopped at your word; nothing was run and nothing was changed")
+            if answer != "re-ground":
+                raise Person("arrival_not_waiting", self.closed_question(
+                    "arrival.not_waiting",
+                    f"You started {self.task} again with the code that is to be tested ({', '.join(sorted(source))} given), but the story "
+                    "was not waiting for code: every part of the product it tests is already real, and it has been tested against "
+                    "what existed. Nothing has been run for this word yet.\n\nWhat should the code you named do?",
+                    [{"answer": "re-ground", "token": "re-ground", "slots": {"stages": "the reading of the code, the requirements and the tests"},
+                      "says": "treat it as new code for this story: the story is read again against it"},
+                     {"answer": "ignore", "token": "ignore",
+                      "says": "drop the word and go on with the story as it stands"},
+                     {"answer": "stop", "token": "stop", "says": "stop here: nothing runs now and the story stays as it is"}]), "S0")
+        if "becomes" not in pending:
+            # the sides that become real: the ones named (`--side <s>=real`), else - a bare source flag - the absent sides this story delivers
+            pending["becomes"] = sorted(named) or sorted(name for name, s in sides.items()
+                                                         if s["reality"] == contract.PARKING_REALITY and s["deliverable"] is True)
+            pending["since"] = str(hold.get("since") or "")
+            pending["cause"] = str(hold.get("cause") or "")        # t-2277 FL-6: stored with `becomes`, so a replay owes the same stages
+            self.save_state()
+        becomes, since = list(pending["becomes"]), str(pending.get("since") or "")
+        sets, now = [], _now()
+        for name in becomes:
+            sets += self.side_set_args(name, reality="real", source="arrival", at=now)
+        if source:
+            sets.append("implementation_source=diff")
+        if sets:
+            self.py("stage_done.py", "--task", self.task, *[part for item in sets for part in ("--set", item)], check=True)
+        self._arrive(becomes, source, [becomes, source, since])
+        # §3.2 steps 2, 3, 5: the stages that were made without the code are made again - S1 and S2 over it, then the bind round of S5.
+        # Written with the spend of the pending word in ONE save; `before` holds the earlier `source_arrived` reworks, so a second
+        # arrival is owed its own. The stage list is data on the record (FL-6 selects it by cause).
+        reason = ("the code this story waits for has arrived (" + ", ".join(f"{key} {value}" for key, value in sorted(source.items()))
+                  + (", " if source and becomes else "") + (", ".join(becomes) + " now real" if becomes else "")
+                  + "): read the story again against it")
+        # t-2277 FL-6 (B2): the code that arrives after the first look stopped the story re-reads the story (S1, S2) and goes on from S3 -
+        # no bind round (S5 never ran) and no affected rows (steps 4-5 of §3.2 do not apply); the stage list is data chosen by the hold's cause
+        import controller as CT
+        stages = list(self.ARRIVAL_STAGES_FIRST_LOOK if pending.get("cause") == CT.FIRST_LOOK_STOP else self.ARRIVAL_STAGES)
+        self.state["arrival_rework"] = {
+            "stages": stages, "reason": reason, "at": _now(),
+            "before": sorted(self.rework_dispatches(self.controller_state().get("dispatches") or {}, "source_arrived", by_person=False))}
+        launch.pop("arrival", None)             # the record is written: the pending word is spent
+        self.save_state()
+        print(f"{self.task}: the code arrived ({', '.join(becomes) or 'no side named'} real); "
+              + ("the hold is lifted" if hold["state"] != "none" else "recorded") + "; the stages that ran without it are made again from it")
+
+    def arrival_rework_step(self) -> bool:
+        """One move of the rework the arrival owes (`state["arrival_rework"]`, §3.2 steps 2, 3, 5), or False when none is owed. Run each
+        turn of the loop right AFTER `ticket_rework_step` (a changed ticket stays first, E-A2) and before `seam_rework_step`. The shape
+        of `ticket_rework_step`, one stage per turn, by cause `source_arrived`: the stage's primary role (`stages.json`) goes back over
+        its accepted work (S1, S2 with `complete=True`; S5 with `purpose="bind"`: the round that settles the provisional rows and runs the
+        pending instances). A stage with no accepted work of its role gets one line and is skipped; one set aside before it was accepted
+        ends the list with one line. After the last stage the record is dropped and `where` reads on (E-A3: a side still absent parks the
+        story again). True: this turn moved something, ask `where` on the next one. Step 4 (the affected rows) is PC-8's: an absent
+        `affected` list of the tester reads as none affected, said once in the line that ends the list."""
+        owed = self.owed_rework("arrival_rework")
+        if owed is None:
+            return False
+        pending, dispatches = owed
+        import controller as C
+        set_aside = C.DISCOUNTED - {C.NEVER_STARTED}
+        stages = list(pending.get("stages") or [])
+        while stages:
+            stage = stages[0]
+            role = str((self.stages().get(stage) or {}).get("role") or "")
+            mine = [d for did, d in self.rework_dispatches(dispatches, "source_arrived", by_person=False, stage=stage).items()
+                    if did not in (pending.get("before") or [])]
+            status = mine[-1].get("status") if mine else None
+            if status == "accepted":
+                stages.pop(0)
+                pending["stages"] = stages
+                self.save_state()
+                continue
+            if mine and status in set_aside:
+                print(f"{self.task}: the re-run of {stage} for the arrived code was set aside before it was accepted; nothing more is "
+                      "made again for it")
+                stages = []
+                pending["stages"] = stages
+                self.save_state()
+                break
+            if mine:
+                return False
+            if not any(d.get("stage") == stage and d.get("role") == role and d.get("status") == "accepted" for d in dispatches.values()):
+                print(f"{self.task}: {stage} has no accepted work to make again for the arrived code; skipped")
+                stages.pop(0)
+                pending["stages"] = stages
+                self.save_state()
+                continue
+            if self.dry:
+                print("dry run: the rework the arrival owes is not started")
+                return False
+            reason = str(pending.get("reason") or "the code this story waits for has arrived: read the story again against it")
+            if stage == "S5":
+                self.rework(stage, role, [], reason, cause="source_arrived", purpose="bind")
+            else:
+                self.rework(stage, role, [], reason, cause="source_arrived", complete=True)
+            return True
+        print(f"{self.task}: the stages are made again for the arrived code; the tester's list of the rows it affects is not read here "
+              "(a later step), so no row is reopened and gate A stands")
+        self.drop_record("arrival_rework")
+        return True
+
+    def _arrive(self, sides: list, source: dict, key_parts: list) -> None:
+        """t-2562 F-2 (AR-13, AR-15): THE `arrive` request of the driver - the sides that become real or substituted, the source flags, the
+        revision of now and an idempotency key over `key_parts` (each caller owns its parts, so a replay finds the same key). The hold's
+        `since` is read by the callers through `contract.awaiting`, never from the raw controller state."""
+        state = self.controller_state()
+        self.controller("arrive", input_data={"sides": sides, "source": source, "expected_revision": state.get("revision", 0),
+                                              "idempotency_key": "arrive:" + hashlib.sha256(
+                                                  json.dumps(key_parts, sort_keys=True).encode()).hexdigest()[:16]})
+
+    def _act_await_implementation(self, action: dict) -> None:
+        """`await_implementation` (S5 is done and a side this story delivers is absent: record the wait) and `awaiting_implementation`
+        (the wait is recorded; E-A4: a relaunch with no flag re-prints and dispatches nothing). The packet `interim-report.md` is
+        assembled by code from data (`interim_packet.py`, rebuilt each time: a ticket rework while waiting may have rewritten tests)
+        and printed; the run then ends with exit 0. No gate B, no verdict, no bug (D2). The packet is chosen by the cause (t-2277 FL-6):
+        `first_look_stop` prints `first_look_packet` (what the stand showed), any other cause the S5 packet. A bare relaunch of a
+        `first_look_stop` hold first asks `first_look_code_look` whether the code moved: True = the arrival is recorded and the loop goes on
+        (INVARIANT: no role of a stage from S3 on starts before an arrival or a `continue`)."""
+        import contract
+        import controller as CT
+        import interim_packet
+        first_look = action.get("cause") == CT.FIRST_LOOK_STOP
+        if first_look and action.get("action") == "awaiting_implementation" and self.first_look_code_look(action):
+            return
+        waiting = {name for name, side in contract.story_sides(self.pipeline()).items()
+                   if side["reality"] == contract.PARKING_REALITY and side["deliverable"] is True}
+        write = interim_packet.write_first_look if first_look else interim_packet.write
+        path = write(self.task_root, self.continue_command(drop_absent=waiting))         # F7: no `--side <s>=absent` beside `--branch`
+        if action.get("action") == "await_implementation":
+            state = self.controller_state()
+            # F8: the S5 dispatch the wait is about is the newest ACCEPTED one (a superseded, stale or rejected round is no basis)
+            s5 = [did for did, d in (state.get("dispatches") or {}).items()
+                  if isinstance(d, dict) and d.get("stage") == "S5" and d.get("status") == "accepted"]
+            # (e): the cause and the place the hold starts at travel from the action when it names them (the controller emits them)
+            self.controller("await", input_data={"packet": path.name, "s5_dispatch": s5[-1] if s5 else None,
+                                                 **{key: action[key] for key in ("cause", "held_from") if action.get(key)},
+                                                 "expected_revision": state.get("revision", 0),
+                                                 "idempotency_key": f"await:{state.get('revision', 0)}"})
+        print(path.read_text(encoding="utf-8"))
+        if not first_look and waiting:
+            # t-2559 (W2 B3, t-2562 B-1/B-2): on BOTH actions (the hold was just recorded, or it is met again) the factory says what it waits
+            # for and asks whose a missing side is, ONE question per side not yet answered for THIS hold (`_absent_side_next`, keyed by the
+            # hold's `opened`), so the `not ours` door the packet and `next` name exists on every road (a crash, a lost question file,
+            # a bare relaunch). FR-7 is kept by a changed lead, never by silence.
+            # remains: a closed question over the story's own state (the `first_look.same_code` shape); every answer has an executor (`_answer_absent_side`)
+            person = self._absent_side_next(waiting, str(action.get("held_from") or "S6"))
+            if person is not None:
+                raise person
+        raise Stop(EXIT_DONE, f"{self.task} is waiting for the code; nothing runs until it arrives "
+                              f"(the report is qa-factory/artifacts/{self.task}/{path.name})")
+
+    def _act_awaiting_stopped(self, action: dict) -> None:
+        """`awaiting_stopped`: the person ended the wait; nothing is relaunched. Prints the stopped line with the doors and ends the run
+        with exit 0 (E-W1). A relaunch with the code (`arrive`) or a rework of the stages before `held_from` with words is the way out."""
+        held = str(action.get("held_from") or "S6")
+        said = " ".join(str(action.get("words") or "").split())[:200]
+        import controller as CT
+        if action.get("cause") == CT.FIRST_LOOK_STOP:
+            # t-2277 FL-6 (J-9 does not apply: the person ended this wait): the line names the first look, not a missing side
+            print(f"{self.task}: this story was stopped on {str(action.get('at') or '')[:10] or 'an earlier day'} after the first look, "
+                  "when the feature did not work" + (f": \"{said}\"" if said else "") + ". Nothing runs. To check new code, start the story "
+                  "again with --mr <link>, --branch <name> or --commit <sha>.")
+            # remains: the person ended this wait (J-9 does not apply); the line is the answer and the run ends with exit 0, as the stop below
+            raise Stop(EXIT_DONE, f"{self.task} is stopped; no stage runs")
+        print(f"{self.task}: the wait for the code was ended on {str(action.get('at') or '')[:10] or 'an earlier day'}"
+              + (f" at your word: \"{said}\"" if said else "") + f". Nothing from {self.stage_place(held)} on runs. "
+              "To take it up again, start the story again and name where the code is, or ask for the earlier stages to be made again, "
+              "with your words.\n\nHow to start it again: --mr <link>, --branch <name> or --commit <sha>; for one part of the product "
+              "only, --side <name>=real.")
+        raise Stop(EXIT_DONE, f"{self.task} is stopped; no stage runs")
+
+    # --- the code look of a story held after the first look (t-2277 FL-6, J-9 (b), N3) ----------------------------------------------
+    def first_look_code_look(self, action: dict) -> bool:
+        """A relaunch with NO flag of a story held for `first_look_stop`: did the code move since the first look? True = it did (or the
+        manifest names an implementation the record does not): the arrival is recorded with the earlier source (`arrival_record`, the road of
+        a flag) and the caller returns, so the loop owes S1, S2 and then S3. False = nothing more is owed here: the caller prints the packet
+        and ends the run (exit 0). Otherwise the closed question `first_look.same_code` is raised (`Person`).
+        RULE (N3, FR-59, AR-28): ANY repository moved (recorded and live are both commits and differ) or a NEW entry -> arrive; else a
+        repository whose recorded or live head is not a commit (`unmeasured`, network, checkout, timeout) or that the story no longer names ->
+        the question with ONE line per such repository, never "moved"; else (all equal) the question with no such line. The person
+        decided in THIS process (`answer_kind`): the `stop` of `first_look.dead` ends at once (False); `wait` ends with the packet (False),
+        `source` prints the restart command and ends (Stop) - the question is not asked again over the answer just taken (FR-7)."""
+        import first_look as FL
+        kind = self.answer_kind
+        if kind == "first_look_dead":
+            return False
+        if kind == "first_look_same_code":
+            said = [row for row in _read_jsonl(self.state_dir / "driver-answers.jsonl") if row.get("kind") == "first_look_same_code"]
+            if said and said[-1].get("token") == "source":      # the FIRST line of the answer: `_same_code_answer` records it so
+                import contract
+                import interim_packet
+                waiting = {n for n, s in contract.story_sides(self.pipeline()).items() if s["reality"] == contract.PARKING_REALITY and s["deliverable"] is True}
+                print("\n".join(interim_packet.restart_lines(self.continue_command(drop_absent=waiting))))
+                # remains: the person chose `source` - the restart command is the whole answer and the run ends with exit 0 (the hold stands)
+                raise Stop(EXIT_DONE, f"{self.task} waits for the code; nothing runs until it arrives")
+            return False
+        found = self._first_look_heads(FL)
+        if found["moved"] or found["new"]:
+            launch = self.state.setdefault("launch", {})
+            pending = launch.setdefault("arrival", {})
+            pending["source"] = {**(pending.get("source") or {}), **{key: launch[key] for key in ("mr", "branch", "commit") if launch.get(key)}}
+            pending.setdefault("side", {})
+            self.save_state()
+            print(f"{self.task}: the code changed since the first look ({', '.join(found['moved'] + found['new'])}); it arrives")
+            self.arrival_record()
+            return True
+        # remains: a closed question over the story's own state (the `first_look.dead` shape): every answer has an executor (`_same_code_answer`)
+        raise self._first_look_same_code_person(FL, found)
+
+    def _first_look_heads(self, FL) -> dict:
+        """The comparison the rule of `first_look_code_look` stands on, for EVERY repository of the first look's record: `{moved, new,
+        same, unknown: [(repo, why)], recorded, record, details}`. The record is read through `first_look.read` (one reader, AR-13), the
+        implementation entries through `first_look.source_entries` (the one naming of them). Every `why` is plain words (human-questions.md);
+        the factory's own words behind it (git's refusal, a stored value) are in `details`, which the question carries as its details file.
+        A merge request's live head is asked by `git ls-remote origin refs/merge-requests/<number>/head` in the checkout of that repository
+        (`repo_of_project`, `ls_remote_head`), a branch's the same way with `refs/heads/<branch>`; a commit does not move. Nothing raises:
+        a doubt is a line."""
+        record = FL.read(self.task_root)
+        out = {"moved": [], "new": [], "same": [], "unknown": [], "recorded": dict(record["source_head"]), "record": record, "details": []}
+        entries = FL.source_entries(self.task_root)
+        if record["problem"] and not record["source_head"]:
+            out["unknown"].append(("the repositories", "the record of the first look cannot be read"))
+            out["details"].append(f"the record of the first look: {record['problem'][:160]}")
+            return out
+        for key, was in sorted(out["recorded"].items()):
+            entry = entries.get(key)
+            if entry is None:
+                out["unknown"].append((key, "the story's record of the code no longer names this repository" if entries
+                                       else "the story's record of the code is empty or cannot be read"))
+                continue
+            live, why, raw = self._first_look_live_head(entry, key)
+            if not live:
+                out["unknown"].append((key, why))
+                out["details"] += [f"{key}: {raw}"] if raw else []
+            elif not FL.COMMIT.fullmatch(was):
+                out["unknown"].append((key, "the first look did not record which commit it saw"))
+                out["details"].append(f"{key}: the recorded head is `{was[:120]}`")
+            elif live != was:
+                out["moved"].append(key)
+            else:
+                out["same"].append(key)
+        out["new"] = [key for key in entries if key not in out["recorded"]]
+        return out
+
+    def _first_look_live_head(self, entry: dict, key: str) -> tuple:
+        """`(commit, "", "")` or `("", why, raw)`: the head the source of ONE implementation entry has NOW. `why` is plain words for the
+        person, `raw` the factory's own words behind it (for the details file). A merge request (`mr`: a number or a link) is asked of the
+        remote in the repository's one checkout (`ls_remote_head`, `refs/merge-requests/<n>/head`); when that gives nothing, the entry's own
+        `branch` is asked the same way (a link no number can be read from goes straight to the branch); a `commit` alone is itself. An entry
+        that names a merge request or a branch NEVER falls back to its `commit`: the commit is what was seen, it cannot say the code is
+        unchanged (AR-28). Any failure is the reason, never a move."""
+        import first_look as FL
+        import vcs_evidence
+        mr, branch, commit = (str(entry.get(name) or "").strip() for name in ("mr", "branch", "commit"))
+        iid = vcs_evidence.mr_iid(mr)       # AR-13: the one reader of the manifest's `mr` (the base slice reads its receipt by the same number)
+        if iid or branch:
+            unusable: list = []
+            found = self.repo_of_project(str(entry.get("repo_id") or entry.get("repo") or key), why=unusable)
+            if not found:
+                return "", "no checkout of it is set up on this machine", "; ".join(unusable) or f"no local checkout of `{key}` is configured"
+            asks = ([(f"merge request {iid}", f"refs/merge-requests/{iid}/head", "the merge request is not listed there")] if iid else []) \
+                + ([(f"branch {branch}", f"refs/heads/{branch}", "the branch is not listed there")] if branch else [])
+            raws = []
+            for label, ref, missing in asks:
+                head, raw = self.ls_remote_head(found[1], ref, missing)
+                if head:
+                    return head, "", ""
+                raws.append(f"{label}: {raw}")
+            return "", f"the remote did not give the current commit of its {'merge request' if iid else 'branch'}", "; ".join(raws)
+        if mr:
+            return "", "the link to its merge request is not one this machine can read", f"no merge request number in `{mr[:120]}`"
+        if FL.COMMIT.fullmatch(commit):
+            return commit, "", ""
+        return "", "the story's record names no merge request, branch or commit to ask about", ""
+
+    def _first_look_same_code_person(self, FL, found: dict) -> "Person":
+        """The closed question `first_look.same_code` as a `Person` (kind `first_look_same_code`, held from S3): the day the story stopped, the
+        counts of the record, the heads by repository and, for each repository whose head could not be established, one line saying so
+        (FR-59). After an earlier `wait` the text carries its day - read from the rows of answered questions the driver keeps
+        (`driver-answers.jsonl`, the carrier `already_answered` reads); a row that does not read gives a question without the line."""
+        import contract
+        import interim_packet
+        pipeline = self.pipeline()
+        hold = contract.awaiting(pipeline)
+        since = str(hold.get("since") or "")[:10] or "an earlier day"
+        record = found["record"]
+        lines = []
+        if record["problem"] and not record["rows"]:
+            lines.append(f"You stopped this story on {since} after the first look at the stand. The record of that look cannot be read now.")
+        else:
+            share = FL.share(self.task_root, self.config)
+            lines.append(f"You stopped this story on {since} after the first look at the stand `{record.get('stand') or pipeline.get('environment')}`: "
+                         f"it showed {share['reachable']} of {share['counted']} requirements"
+                         + (f" ({share['share']}%)" if share["share"] is not None else "")
+                         + f". Every requirement, by what the stand answered: {interim_packet.status_counts(record['rows'])}.")
+        waits = [row for row in _read_jsonl(self.state_dir / "driver-answers.jsonl")
+                 if row.get("kind") == "first_look_same_code" and row.get("token") == "wait"]
+        day = str(waits[-1].get("ts") or "")[:10] if waits else ""
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            lines.append(f"On {day} you chose to wait" + ("." if found["unknown"] else "; the code has not changed since."))
+        heads = [f"{repo} {interim_packet.short_head(was)}" for repo, was in sorted(found["recorded"].items())]
+        lines.append("The code the first look was about, by repository: " + ("; ".join(heads) if heads else "none is recorded") + ".")
+        lines += [f"I could not find out whether the code in {repo} has changed: {why}." for repo, why in found["unknown"]]
+        lines.append("What I need from you is one of these:")
+        options = [{"answer": "wait", "token": "wait",
+                    "says": "keep the story stopped and show you the same summary again; nothing runs"},
+                   {"answer": "source", "token": "source",
+                    "says": "tell me where the new code is: I print the command that starts the story again with it"},
+                   {"answer": "continue", "token": "continue",
+                    "says": "go on with the plan as it is; the plan reads what the stand showed as an observation, not as the truth"}]
+        return Person("first_look_same_code", self.closed_question("first_look.same_code", "\n\n".join(lines), options), "S3",
+                      details="\n".join(found["details"]), answer_note="Write `wait`, `source`, `continue`, or your own words (the conductor reads them).")
+
+    ABSENT_SIDE_TOKENS = ("not ours", "relaunch")        # the two answers of `awaiting.absent_side`; `_answer_absent_side` reads them
+    SIDE_SUBSTITUTED = "substituted"                      # a word of side-realities.json (the writer refuses any other)
+
+    def _absent_side_next(self, waiting: set, held_from: str) -> "Person | None":
+        """t-2562 (B-1, B-2): the question of the hold's next absent side, or None. The answers are kept per hold in
+        `state["absent_side_answers"]` = {opened, sides: {name: {token, at}}}; `opened` is the hold's identity (`contract.awaiting`, the
+        `await` event's number; a record without it reads as the empty key, so the hold still asks). A side with no answer for this hold is
+        asked, the first by name (a crash before the question file was written leaves no answer, so it is asked again). Every side answered
+        `relaunch`: in the process of that answer nothing is asked (the exit 0 of old); in a LATER process the first is offered again with
+        a lead that names the earlier answer (FR-7: never the same text twice). INVARIANT: a side the person called not ours is never
+        waiting, so it is never asked; no waiting side, no question."""
+        import contract
+        hold = contract.awaiting(self.pipeline())
+        opened = "" if hold.get("opened") is None else str(hold["opened"])
+        record = self.state.get("absent_side_answers")
+        if not (isinstance(record, dict) and record.get("opened") == opened and isinstance(record.get("sides"), dict)):
+            record = {"opened": opened, "sides": {}}
+            self.state["absent_side_answers"] = record
+            self.save_state()
+        answers = record["sides"]
+        fresh = [name for name in sorted(waiting) if name not in answers]
+        if fresh:
+            return self._absent_side_person(fresh[0], held_from)
+        if getattr(self, "_absent_answered_here", False):
+            return None
+        again = [name for name in sorted(waiting) if isinstance(answers.get(name), dict) and answers[name].get("token") == "relaunch"]
+        if not again:
+            return None
+        return self._absent_side_person(again[0], held_from, earlier=str(answers[again[0]].get("at") or ""))
+
+    def _absent_side_person(self, name: str, held_from: str, earlier: str = "") -> "Person":
+        """t-2559 (W2 B3): the closed question `awaiting.absent_side` as a `Person` (kind `absent_side`) over the side `name`: what the
+        factory waits for, and whose the side is. The name is kept in `state["absent_side"]` for the executor (never read back out of the
+        question's text, FR-12). `earlier` (the date of an earlier `relaunch` for this hold) changes the lead (FR-7). Plain words only
+        (human-questions.md): no stage code, field or path."""
+        self.state["absent_side"] = name
+        self.save_state()
+        if earlier:
+            lead = (f"On {earlier} you said you would start {self.task} again when the code exists; the code for the part of the product "
+                    f"called `{name}` is still not named, and the story still waits for it. Nothing has been delivered. Whether `{name}` is "
+                    f"this team's to make or another team's decides whether the story keeps waiting.\n\nWhat should happen with `{name}`?")
+        else:
+            lead = (f"The tests for {self.task} are written and reviewed, but the part of the product called `{name}` does not exist yet, and "
+                    f"this story is the one that delivers it, so the story waits for its code. Nothing has been delivered. Whether `{name}` is "
+                    f"this team's to make or another team's decides whether the story keeps waiting.\n\nWhat should happen with `{name}`?")
+        options = [{"answer": "not ours", "token": "not ours",
+                    "says": f"`{name}` is another team's: the story does not wait for it, the tests go on against a stand-in for it "
+                            "(mocks), and the report lists what was not checked against the real one"},
+                   {"answer": "relaunch", "token": "relaunch",
+                    "says": "you start the story again when the code exists and say where it is; until then nothing runs"}]
+        return Person("absent_side", self.closed_question("awaiting.absent_side", lead, options), held_from,
+                      answer_note="Write `not ours`, `relaunch`, or your own words (the conductor reads them).")
+
     def until_reached(self, action: dict) -> bool:
         if not self.until:
             return False
         stage = str(action.get("stage") or "")
-        return stage in UNTIL_PAST[self.until] or action.get("action") in ("stop", "complete")
+        # F1 (PC-7 critic): `await_implementation`, `awaiting_implementation` and `awaiting_stopped` are NOT here. Their handlers
+        # already end the run with exit 0 (`Stop(EXIT_DONE)`), and checked here BEFORE the dispatch they would end `--until gate_B`
+        # without the packet and without the `await` record (the story would read "not awaiting" to every reader).
+        return (stage in UNTIL_PAST[self.until] or action.get("action") in ("stop", "complete"))
 
     def dispatch_action(self, action: dict) -> None:
         """One handler per action kind (t-667 D15). The `kind == "..."` forms stay literal: the census of
@@ -14648,6 +18659,12 @@ class Driver:
             return self._act_relaunch(action)
         if kind == "resolve_return":
             return self._act_resolve_return(action)
+        if kind == "await_implementation":
+            return self._act_await_implementation(action)
+        if kind == "awaiting_implementation":
+            return self._act_await_implementation(action)
+        if kind == "awaiting_stopped":
+            return self._act_awaiting_stopped(action)
         if kind == "observe_environment_job":
             self.environment_job(action)
             return
@@ -14874,6 +18891,11 @@ class Driver:
 
     def _finish_saved_result(self, saved: dict, role: str, stage: str, dispatch: str, record: dict) -> None:
         """t-667 D15: the role's saved result finishes the dispatch (the tail `run_role` twins). Returns None (the branch's `return`)."""
+        # t-2022 N6: a walk dispatch gets its `after` on THIS road too (a driver killed after the saved result was written and before `walk_after`
+        # ended comes back here): idempotent (`after.json`), BEFORE `handoff` and `finish` like `run_role`'s, so the form has its values
+        lane, _ = self.walk_reopen(dispatch, reopen=False)          # the items of the walk record only; nothing is opened
+        if lane:
+            self.walk_after(lane, dispatch, saved)
         digest = self.handoff(role, stage, dispatch, saved)
         # The saved result may be one a refusal resumed (t-217 `resume_on_refusal`) and the role halted in
         # its answer: `run_role` hears a halt before `finish`, and so must the entry that finishes a saved
@@ -14928,7 +18950,7 @@ class Driver:
             # (this whole step, the G3 pattern of `record_running`), and the words stay in `pending_words`. No known session, or
             # another status (`incomplete`: its agent is gone, the road is the retry packet): nothing is run and the road is as
             # it was - the driver never invents an agent.
-            sid = self.state["sessions"].get(dispatch) or (self.pipeline().get("stages", {}).get(stage, {}) or {}).get("agent_id")
+            sid = self.session_of(stage, dispatch)      # TR3-6: on a chain the dispatch's own session only
             if record.get("status") in ("blocked", "paused") and sid:
                 try:
                     self.py("story_step.py", "resume", "--task", self.task, "--dispatch-id", dispatch, "--agent-id", sid,
@@ -14987,9 +19009,14 @@ class Driver:
             self.record_running(stage, role, request["id"], retry=record_then_role, relaunched=True,
                                 rework_of=str(request.get("rework_of") or ""))
             record = (self.controller_state().get("dispatches") or {}).get(request["id"]) or {}
+            # t-2277 batch 2b D (critic t-2513 F1, axis 5): the person's `rework S1` reaches the driver as this relaunch; the scout's rework
+            # leaves S1 open and the reference window follows it, the same road as `rework()` (None for any other dispatch or no reference)
+            window = self.s1_window_owed(stage, role) if request.get("rework_of") else None
             self.run_role(stage, role, scope=scope, extra=self.role_lines(stage, role, record),
-                          complete=self.completion_for(stage, role, record),
+                          complete=False if window else self.completion_for(stage, role, record),
                           rework={"id": request["id"], "scope": scope, "reason": self.relaunch_reason(request, action)})
+            if window:
+                self.s1_reference_window(stage, window)
         record_then_role()
 
     def s3_record_lines(self, stage: str, role: str, record: dict) -> list:
@@ -15052,7 +19079,16 @@ class Driver:
         # The person's word decides accept/checkpoint/rework, but only the ROLE can write
         # its own digest, so the move is the one `resume_checkpoint` already makes: hand
         # the words back to the role and let it close itself.
-        dispatch = action.get("dispatch_id", "")
+        if self.resume_with_filed_words(action.get("dispatch_id", ""), self.completion_for):
+            return
+        raise self.resolve_return_refusal(action)
+
+    def resume_with_filed_words(self, dispatch: str, complete_for) -> bool:
+        """The ONE move on a returned dispatch whose person's words are filed (TR4-10 B1): hand the words back to the role so it closes its own
+        window. Called by `_act_resolve_return` (the controller offered the return) and by `stage_S5` (the controller hides it behind later S5
+        work). `complete_for(stage, role, record)` answers the completion rule of the resume. True when the role was resumed (`resume_role`
+        spends the words); False when no words are filed for `dispatch` (empty text counts as none, a blank one as words - as before), or
+        its record is gone, or names no stage or role: nothing ran and the caller takes its refusal."""
         record = (self.controller_state().get("dispatches") or {}).get(dispatch) or {}
         words = self.state["pending_words"].get(dispatch)
         stage, role = str(record.get("stage") or ""), str(record.get("role") or "")
@@ -15060,10 +19096,15 @@ class Driver:
         if words and stage and role:
             print(f"{dispatch}: returned without acceptance — resuming the role with the "
                   f"person's words so it closes its own window")
-            self.resume_role(stage, role, dispatch, words,
-                             complete=self.completion_for(stage, role, record))
-            return
-        raise Refusal(f"resolve_return: {json.dumps(action)[:1200]}", dispatch=dispatch)
+            self.resume_role(stage, role, dispatch, words, complete=complete_for(stage, role, record))
+            return True
+        return False
+
+    @staticmethod
+    def resolve_return_refusal(action: dict) -> "Refusal":
+        """The `resolve_return` packet as a Refusal naming the dispatch: ONE builder for `_act_resolve_return` (no words filed) and for
+        `stage_S5` (a window held open by a returned last round, TR4-10 D3)."""
+        return Refusal(f"resolve_return: {json.dumps(action)[:1200]}", dispatch=action.get("dispatch_id", ""))
 
     # --- the three actions that are about somebody else's machinery -------------------------
     def environment_job(self, action: dict) -> None:
@@ -15176,6 +19217,17 @@ class Driver:
     def completion_for(self, stage: str, role: str, record: dict):
         if stage == "S8" and role == "qa-doc-scribe":
             return True
+        if stage == "S1" and role == "qa-runner" and (record.get("request_binding") or {}).get("purpose") == "reference_walk":
+            # t-2181 PC-9b (critic t-2513 F2, axis 5): the S1 reference window closes the stage - the live road (`stage_simple`) finishes the
+            # runner with `complete=True`; the recovery roads (`wait_existing_job`, `resume_role`) get the same answer here, or "the stage's
+            # last role closes it" would make the scout the last role and leave S1 open for a SECOND window. POSITION: before every rule below
+            return True
+        if stage == "S1" and self.s1_window_owed(stage, role):
+            # t-2277 batch 2b D (critic t-2548 F2): the S1 scout of a story with a reference does NOT close S1 on any road that finishes it -
+            # a relaunch with no `rework_of`, the no-packet fallback, `wait_existing_job` over a saved result, `resume_role`: S1 stays open and
+            # the next `where` -> `stage_simple` skips the accepted scout and runs the window (its `complete=True` closes S1). POSITION: after the
+            # runner's own rule above (the window closes the stage), before every other rule. A story with no reference gets None here: unchanged
+            return False
         if stage in ("S2", "S3") and record.get("repair_cause") == "ticket_changed":
             # B-364 (F12 / Change 10): the ticket re-run of S2 and S3 closes as COMPLETE, which re-captures the plan baseline.
             # Finished through `wait_existing_job` (the restart route) it must say so too: the `rework_of` rule at the end
@@ -15205,18 +19257,24 @@ class Driver:
             # t-261 (C4, the same recovery class as S5 below): a saved result finished through `wait_existing_job` got no
             # answer here, so it took the controller's default and closed S6 over a half nobody had run. The rule is the
             # one `stage_S6` applies when it dispatches: the automation runner closes the stage only when no manual half
-            # is left; a manual block closes it only when no other case could still be dispatched or was refused (the
-            # controller refuses a completion over a case no accepted dispatch carried).
+            # is left; a manual block closes it only when no other case could still be dispatched. A refused case stops
+            # the close only WITHOUT a consumer (the controller refuses a completion over a case no accepted dispatch
+            # carried); under a consumer the stage awaits it and manual_close closes the refused case later (X7-6).
             try:
                 scope = self.stage_scope("S6", "manual").get("scope") or []
                 if record.get("execution_kind") == "manual":
                     mine = [str(c) for c in record.get("manual_case_ids") or record.get("scope") or []]
+                    if self.walk_pending(mine):
+                        # t-2022 N5: the SAME guard the live road has (`run_manual_block`: `walk_pending(block)`): a case of this lane whose walk
+                        # record the build refused is walked once more or closed `left_unchecked`, and the lane that carried it never closes the
+                        # stage. POSITION INVARIANT: BEFORE `manual_plan(skip=mine)`, which skips the lane's own cases and so cannot see them
+                        return False
                     plan = self.manual_plan(scope, skip=mine)
-                    # X7-6: with a consumer the last block stops AWAITING the acceptance whatever was refused (a refused case is then
-                    # closed by `manual_close`), the rule of the live `run_manual_block`; an earlier block answers False. With no
-                    # consumer `s6_awaits` passes the value through, so a refused case still keeps the old False (the controller refuses).
-                    return self.s6_awaits(not plan["blocks"] and (bool(self.s6_consumer()) or not plan["refused"]))
-                return self.s6_awaits(not scope)
+                    # X7-6: with a consumer the last block stops AWAITING the acceptance (as the live `run_manual_block` does)
+                    # t-2239 B1 (X7-6): a refused case does not keep the last block from awaiting; `manual_close` closes it later
+                    import acceptance
+                    return self.consumer_awaits("S6", not plan["blocks"] and (True if acceptance.consumer_of("S6") else not plan["refused"]))
+                return self.consumer_awaits("S6", not scope)
             except Exception:
                 return False       # a doubt never closes a stage
         if stage == "S5":
@@ -15231,11 +19289,20 @@ class Driver:
             except Exception:
                 return False
             mine = set(record.get("scope") or [])
-            for window in windows:
-                if set(window.get("scope") or []) == mine:
-                    continue
-                if "qa-code-critic" not in (window.get("accepted_by") or {}):
+            if self.s5_parallel_cap() != 1:
+                # TR3-6: other windows through `s5_open_windows` (a running dispatch, an owed round or a live chain keep a window open as
+                # well as a missing acceptance); unreadable is open, never a close (FR-59). `mine == scope` is still skipped there.
+                try:
+                    if self.s5_open_windows(excluding=mine):
+                        return False
+                except Exception:       # noqa: BLE001
                     return False
+            else:
+                for window in windows:
+                    if set(window.get("scope") or []) == mine:
+                        continue
+                    if "qa-code-critic" not in (window.get("accepted_by") or {}):
+                        return False
             # t-698 A4/L6: the last critic closes S5 only by the SAME rule the loop applies - the route of ITS review (read after the
             # role wrote the form: `finish` evaluates the callable) and the person's answer for THIS critic dispatch.
             cases, dispatch = list(record.get("scope") or []), str(record.get("id") or getattr(self, "last_dispatch", ""))
@@ -15261,7 +19328,8 @@ class Driver:
             # t-698 §18 (C1-5b2): S7 stays OPEN while repair rows remain. POSITION INVARIANT: BEFORE the `rework_of` rule below, whose
             # silent False would let a reworked analyst be refused by the controller (or close S7 over rows): no finish of the S7
             # closing role closes S7 while `s7_repair_rows()` is non-empty (or unreadable).
-            return lambda digest: self.s7_open_work()
+            # X7-6b: with a consumer (the doc scribe) the analyst's finish that WOULD close S7 stops AWAITING its acceptance instead.
+            return lambda digest: self.consumer_awaits("S7", self.s7_open_work())
         if (stage == "S3" and role == "qa-test-strategist" and not record.get("rework_of")
                 and record.get("purpose") != "repair_verify"):
             # G1-11 (t-909 F-4 class): the recovery road decides an S3 strategist dispatch by the SAME function as the live stage.
@@ -15281,7 +19349,41 @@ class Driver:
         return None
 
     def run(self) -> int:
+        self.run_started = _now()       # TR4-11: when THIS process began; the stop record names it (`since`)
         self.progress_line()            # the log header: where the story stands as this process starts
+        if not self.state.get("asked"):
+            self.state.pop("stuck_pending", None)       # B-20 F6: a mark left by a process that died in the conductor belongs to no open question
+        # TR4-11 (F-3): the OUTER try. Ctrl-C reaches here from the loop AND from the run-level handlers of the inner try (a `Refusal` handed
+        # to `funnel` can be a paid conductor call): a sibling `except` of the inner try would not see the second kind.
+        try:
+            return self._run_guarded()
+        except KeyboardInterrupt:
+            self.person_stop_record()
+            raise
+
+    def person_stop_record(self) -> None:
+        """TR4-11: the person stopped the run (Ctrl-C, either road): ONE row of `driver-runs.jsonl`, through `journal_run`, so that the
+        collector tells the calls THIS process cut off from a driver that died on its own (`collect_stall` K3).
+
+        `{"kind": "stopped_by_person", "who": "person", "at", "since": <run_started>, "cut": [<call id>...]}`; a call id is
+        `<dispatch_id or call>@<started_at>` of a `launched` row this process wrote and has seen no end row for (`journal_run` keeps
+        the set), so K3 clears exactly those rows and no row of any other process. No `dispatch`, `session_id`, cost, `exit_code`,
+        `is_error` or `infra`: every reader that binds sessions, prices or outcomes passes the row by, as it passes a `launched` row.
+
+        Edges: no story folder yet -> nothing is written (Ctrl-C never creates it, and no call was launched); a failed write -> one
+        `note:` line; a second Ctrl-C while writing -> the row may be absent (K3 then reads a dead driver: the safe side), the first
+        interrupt still goes on. Nothing is printed otherwise; the caller re-raises."""
+        try:
+            if not self.state_dir.is_dir():
+                return
+            cut = sorted(f"{key}@{at}" for key, at in list(once_on(self, "_open_calls", set)))
+            self.journal_run({"kind": "stopped_by_person", "who": "person", "at": _now(), "since": self.run_started, "cut": cut})
+        except OSError as exc:
+            print(f"note: the stop by the person could not be journalled ({type(exc).__name__}); it goes on", flush=True)
+        except KeyboardInterrupt:
+            pass
+
+    def _run_guarded(self) -> int:
         try:
             repaired = self.reconcile_question()
             if repaired:
@@ -15298,7 +19400,14 @@ class Driver:
             self.check_run_mode()
             self.report_gap_class_problem()
             self.skip_sources_late()
-            if not (self.task_root / "pipeline.json").is_file():
+            # t-2181 PC-7 POSITION (S11): the launch word of a RESUMED story is kept here - after `skip_sources_late`, BEFORE the freshness
+            # branch below. INVARIANT: a source word given on this command line survives a question asked in this same process (the
+            # changed-ticket question: the answer run carries `--answer`, not `--branch`, and still arrives); a stopped story given no
+            # word ends here with its line (`Stop`, exit 0), so no freshness look and no dispatch happen for it.
+            resumed = (self.task_root / "pipeline.json").is_file()
+            if resumed:
+                self.arrival_keep()
+            if not resumed:
                 print(f"{self.task}: fresh story — S0 by code")
                 import story_step
                 story_step.keep_config_copy(self.project, self.task_root, self.task)
@@ -15307,6 +19416,12 @@ class Driver:
                 # B-364 R4/R12: the run that carries the answer to the changed-ticket question does not look at the
                 # ticket again (the person has just chosen); what they chose starts here, as it does at the top of
                 # every loop turn below.
+                # B4 POSITION INVARIANT (S11): the arrival is recorded BEFORE this rework opens. The answer just taken wrote
+                # `ticket_rework` (S2/S3 owed), and `ticket_rework_step` runs the S2 tester on the new text; run first, it would put a
+                # role on the story while `pipeline.sides` still says absent and `implementation_source` is not the diff. The person's
+                # ticket answer is already taken, so "no role before the ticket answer" still holds; the call after `accept_no_trace`
+                # below is then a no-op (the pending word is spent).
+                self.guarded(self.arrival_record, {"action": "arrival"})
                 self.guarded(self.ticket_rework_step, {"action": "ticket_rework"})
             else:
                 # B-364 R4 (D-0027): a resumed story is the one most likely to have been overtaken by an edit in the
@@ -15319,6 +19434,12 @@ class Driver:
             # story S0 has just written with the flag already carries it, and this is a no-op.
             self.boundary = "no_trace"
             self.guarded(self.accept_no_trace, {"action": "accept_no_trace"})
+            # t-2181 PC-7 POSITION (S11): the arrival is recorded AFTER the freshness branch and `accept_no_trace`, BEFORE the loop.
+            # INVARIANT: a changed ticket is asked first (one road: `ticket_changed` and `ticket_rework_step`); no role is dispatched on the
+            # new code before the person's answer about a changed ticket is taken; the arrival is on the record before any rework opens,
+            # so a crash in between replays from the record (the kept word stays pending until `arrive` is written).
+            self.guarded(self.arrival_record, {"action": "arrival"})
+            self.guarded(self.sides_reread, {"action": "sides_reread"})   # PC-1b E-U1: a relaunch re-reads the sides S0 could not read
             repeats, previous = 0, None
             for _ in range(self.max_boundaries):
                 # B-364 R12: a ticket rework the person chose is owed BEFORE anything `where` could say - the loop
@@ -15329,6 +19450,12 @@ class Driver:
                 moved: list = []
                 self.guarded(lambda: moved.append(self.ticket_rework_step()), {"action": "ticket_rework"})
                 if not moved or moved[0]:
+                    continue
+                # t-2181 PC-7 (§3.2 steps 2, 3, 5): the rework the ARRIVAL owes comes right after the ticket's (a changed ticket stays
+                # first, E-A2) and before the seam's, by the same rule
+                arrived: list = []
+                self.guarded(lambda: arrived.append(self.arrival_rework_step()), {"action": "arrival_rework"})
+                if not arrived or arrived[0]:
                     continue
                 # t-722 C2-6: the rework the person chose at the seam is owed right after the ticket's and before `where`, by the same rule
                 seamed: list = []
@@ -15347,6 +19474,12 @@ class Driver:
                 self.guarded(lambda: written.append(self.code_close_step()), {"action": "code_close"})
                 if not written or written[0]:
                     continue
+                # B-20: the person's `stage acceptance` word for a stage that awaits its consumer is recorded from any position, after the
+                # reworks above (a rework may change the author the word binds to) and before `where` (the router sees the record this turn)
+                worded: list = []
+                self.guarded(lambda: worded.append(self.consumer_word_step()), {"action": "consumer_word"})
+                if not worded or worded[0]:
+                    continue
                 try:
                     action = self.where()
                 except Refusal as refusal:
@@ -15356,14 +19489,32 @@ class Driver:
                 signature = json.dumps(action, sort_keys=True)
                 repeats = repeats + 1 if signature == previous else 0
                 previous = signature
-                if repeats >= 4:
-                    # `where` said the same four times: the seam (one call under the cap), then the loop looks again
+                if repeats >= STUCK_REPEATS:
+                    # `where` said the same `STUCK_REPEATS` times: the seam (one call under the cap), then the loop looks again
                     # `keep` (Q2): the place the stuck text names goes above the conductor's prose when that prose drops it. The cap
                     # site below (`call: False`) has none: `keep` is read only on the conductor's road (G15).
-                    self.no_move({"why": "threshold", "kind": "refusal", "stage": str(action.get("stage") or ""), "dispatch": "",
-                                  "lead": self.stuck_text(str(action.get("stage") or ""), waits_on_person=(
-                                      action.get("stage") == "S7" and "open_work" in self.s7_decided())), "text": signature,
-                                  "keep": [self.stage_place(str(action.get("stage") or ""))]})
+                    # B-20 N5 (AR-22, AR-17, FR-7): the lead carries the facts code can read about the earlier open stages (`stuck_facts`)
+                    # and, when the person already answered THIS step, says so instead of putting the same question again. The record
+                    # `stuck_asked[signature]` is written by `take_answer` from `stuck_pending`, which lives only while the question is open.
+                    stuck_stage = str(action.get("stage") or "")
+                    told = (self.state.get("stuck_asked") or {}).get(signature)
+                    told = told if isinstance(told, dict) and told.get("answer") else None
+                    facts, raw_facts = self.stuck_facts_for(stuck_stage)    # the person's lines / the factory's lines (F3: ids stay out of the lead)
+                    keep = [self.stage_place(stuck_stage)] + ([str(told["answer"])] if told else [])
+                    self.state["stuck_pending"] = {"signature": signature, "stage": stuck_stage, "kind": "refusal"}
+                    try:
+                        self.no_move({"why": "threshold", "kind": "refusal", "stage": stuck_stage, "dispatch": "",
+                                      "lead": self.stuck_text(stuck_stage, waits_on_person=(
+                                          action.get("stage") == "S7" and "open_work" in self.s7_decided()), facts=facts, answered=told),
+                                      "text": signature + ("\n\nWhat the factory can read, with its own ids and words:\n"
+                                                           + "\n".join(f"- {line}" for line in raw_facts) if raw_facts else ""),
+                                      "keep": keep})
+                    except Person:
+                        raise               # the question is open: `stuck_pending` waits for its answer (`take_answer`)
+                    except BaseException:
+                        self.state.pop("stuck_pending", None)
+                        raise
+                    self.state.pop("stuck_pending", None)       # the conductor moved: no question is open
                     repeats, previous = 0, None
                     continue
                 if action.get("action") in ("stop", "complete"):
@@ -15474,6 +19625,34 @@ class Driver:
             rec["pending"] = rec["pending"] if (rec["pending"] or {}).get("receipt") == mark.get("receipt") else {
                 "site": site, "args": list(mark.get("args") or []), "tail": list(mark.get("tail") or []),
                 "receipt": str(mark.get("receipt") or ""), "idle": 0}
+        # B-20 (t-1988 N3, AR-25/AR-9/AR-17): the close is refused because an EARLIER stage is not closed - not the factory's defect and no
+        # word of the person's to refuse. POSITION: after the S9 `recover` above (unchanged) and BEFORE `file_defect`; INVARIANT: the
+        # driver never closes a stage over an open earlier stage, and never says "no word of yours passes" when the earlier stage accepts
+        # a word. The refusal is the controller's own fixed message; WHICH stage is behind comes ONLY from `code_close_facts` (the one
+        # reading), never from the words. Another conflict (running work, already completed) and an unreadable state keep today's road.
+        ctl = self.controller_state()
+        if (rec["key"] != "code_close.factory_file" and "required prior logical stage incomplete" in refusal.text
+                and isinstance(ctl, dict) and isinstance(ctl.get("stages"), dict) and isinstance(ctl.get("dispatches"), dict)):
+            import acceptance
+            from controller import code_close_facts
+            facts = code_close_facts(ctl, stage)
+            # B2: "is something still running" is the CONTROLLER's verdict (it reads the liveness of each row), carried by its sentence; the
+            # default facts here read every `running` row as holding, so a dead row would put the close on the defect road again
+            if facts["behind"] and "checkpoint active work" not in refusal.text and not facts["completed"]:
+                behind = facts["behind"][0]
+                waits = acceptance.awaits_acceptance(ctl, behind, self.pipeline())
+                at = f"{behind}@{ctl.get('revision')}"
+                held = rec.get("behind_seen") if isinstance(rec.get("behind_seen"), dict) else {}
+                nth = (int(held.get("n") or 0) if held.get("at") == at else 0) + 1       # this refusal, counted per (behind, revision)
+                rec.update(key="code_close.behind", behind=behind, awaits=bool(waits), block="", behind_seen={"at": at, "n": nth})
+                if not waits and nth < CODE_CLOSE_IDLE_CAP:
+                    # (a) the earlier stage waits for nobody: the driver's own move - go back to it (`where` routes there). The bound is
+                    # the seam's `CODE_CLOSE_IDLE_CAP` (F3): refusal 1 of a revision is a silent retry, refusal 2 at the SAME revision
+                    # (nothing moved) is asked below.
+                    self.save_state()
+                    print(f"{stage}: closed after {behind}, which is not closed yet; the factory goes back to it")
+                    return "retry"
+                return self.code_close_ask(stage, rec, refusal.text, lines=self.refusal_lines(refusal))
         found = f"{site}:{finding_key(refusal.text.splitlines())}"
         if found not in rec["filed"]:
             rec["filed"].append(found)
@@ -15486,7 +19665,7 @@ class Driver:
         """Fix the options of the question from the facts (`NM.code_close_offer`), keep them and the lead in the state (the answer reads them),
         and raise the question through the seam."""
         tokens, absent = NM.code_close_offer(rec["key"], {"block": rec["block"], "passed": rec["passed"], "refused": rec["refused"],
-                                                           "idle_cap": cap})
+                                                           "idle_cap": cap, "awaits": bool(rec.get("awaits"))})
         rec.update(offer=tokens, lead=self.code_close_lead(stage, rec, absent, cap), details=details, at=_now())
         self.save_state()
         return self.no_move({"why": "refusal", "kind": "code_close", "call": False, "stage": stage, "dispatch": "", "lead": rec["lead"],
@@ -15495,9 +19674,23 @@ class Driver:
 
     def code_close_lead(self, stage: str, rec: dict, absent: list, cap: bool) -> str:
         """The words above the options (human-questions.md items 1-6): what is decided, why the factory cannot, what the person can do."""
-        what = CODE_CLOSE_SITES[rec["site"]][1]
+        what = (self.consumer_close_words(stage)[0] if rec["site"] in ("s6.accepted", "s7.accepted")       # N4: who accepted, from the record
+                else CODE_CLOSE_SITES[rec["site"]][1])
         place = self.stage_place(stage)
         said = "".join(line + "\n" for line in absent)
+        if rec["key"] == "code_close.behind":
+            behind = str(rec.get("behind") or "")
+            route = self.CONSUMER_ROUTES.get(behind) or {}
+            bplace = self.stage_place(behind)
+            head = (f"The story is at {place}. No role works at this step: the factory closes it by itself ({what}), but {bplace} is not "
+                    "closed yet, and the factory closes the stages in order. ")
+            if rec.get("awaits"):
+                return (head + f"{bplace[:1].upper() + bplace[1:]} is finished on the factory's side and waits for one thing: the "
+                        f"{route.get('who', 'next role')} has not "
+                        f"yet accepted {route.get('what', 'its handoff')}. A word of yours can give that acceptance in the "
+                        f"{route.get('who', 'next role')}'s place. Which of these should happen?")
+            return (head + f"The factory went back to {bplace} and nothing moved.\n{said}The factory cannot finish this step by itself. "
+                    "Which of these should happen?")
         if rec["key"] == "code_close.factory_file":
             cause = ("its own description of which failed tests to repair cannot be read, and going past it would leave failed tests "
                      "unrepaired" if rec["step"] == "entry" else f"the file that shows that {what} is not on disk")
@@ -15528,9 +19721,19 @@ class Driver:
                 "go on": ("the retro is recorded as closed as it is, on your word; your words are kept as the reason", {}),
                 "full retro": ("the retro analyst does the retro of this story after all, and its finish closes this step",
                                {"role": "the retro analyst"})}
+        if rec["key"] == "code_close.behind":
+            route = self.CONSUMER_ROUTES.get(str(rec.get("behind") or "")) or {}
+            who = route.get("who", "next role")
+            says = {"retry": ((f"you deal with what is in the way, or the {who} accepts {route.get('what', 'its handoff')}, then the factory "
+                               "records the close again" if rec.get("awaits") else
+                               "you deal with what is in the way, then the factory records the close again"), {}),
+                    "go on": (f"your word accepts {route.get('what', 'its handoff')} in the {who}'s place, your words are kept as the reason, "
+                              "and the factory records the close again", {})}
         options = [dict(self.STOP_OPTION) if t == "stop" else {"answer": t, "token": t, "says": says[t][0], "slots": says[t][1]}
                    for t in rec["offer"]]
-        if rec["key"] == "code_close.closed_story":
+        if rec["key"] == "code_close.behind":
+            text = self.closed_question("code_close.behind", lead, options)
+        elif rec["key"] == "code_close.closed_story":
             text = self.closed_question("code_close.closed_story", lead, options)
         elif factory_file:
             text = self.closed_question("code_close.factory_file", lead, options)
@@ -15567,6 +19770,28 @@ class Driver:
             if rec.get("pending"):
                 rec["pending"]["idle"] = 0
             print(f"{stage}: nothing is passed; the step runs again")
+        elif token == "go on" and rec.get("key") == "code_close.behind":
+            # B-20 (N3): the person's word accepts the EARLIER stage in its consumer's place - recorded by the one path every such pass takes
+            # (`consumer_person_pass`: the driver accept `by: person` and its finding) - and then the close runs again, as after `retry`.
+            import acceptance
+            behind = str(rec.get("behind") or "")
+            author = acceptance.awaits_acceptance(self.controller_state(), behind, self.pipeline())
+            lead = "Your word could not be recorded as the acceptance, so nothing was passed."
+            try:
+                passed = self.consumer_person_pass(behind, author, answer=words) if author else True      # nothing waits any more: just try again
+            except Refusal as refusal:       # a state with no move of its own: the seam asks the same question again, with the facts (AR-17)
+                self.no_move({"why": "refusal", "kind": "code_close", "call": False, "stage": stage, "dispatch": "", "lead": lead,
+                              "text": refusal.text, "block": rec.get("block", ""),
+                              "site_fallback": lambda said: self.code_close_person(stage, said)})
+            if not passed:
+                self.no_move({"why": "refusal", "kind": "code_close", "call": False, "stage": stage, "dispatch": "", "lead": lead,
+                              "text": lead, "block": rec.get("block", ""),
+                              "site_fallback": lambda said: self.code_close_person(stage, said)})
+            rec["recovered"] = False
+            rec.pop("behind_seen", None)       # the record stands now (the pass is a record, the controller revision may not move): the next refusal is a fresh count
+            if rec.get("pending"):
+                rec["pending"]["idle"] = 0
+            print(f"{stage}: going on on the person's word for {behind}; the step runs again")
         elif token == "go on":
             block = rec["block"]
             try:
@@ -15748,11 +19973,29 @@ class Driver:
         rel, said = given
         option = next((o for o in asked.get("options") or [] if isinstance(o, dict) and str(o.get("token")) == token), {})
         block = str(asked.get("block") or "")
-        if move == "go_on_as_is" and block:
-            self.pass_block(stage, block, rel or self.answer_file(), "Your word could not be recorded as the pass, so nothing was passed.")
-            if block == JOURNAL_ROWS_BLOCK:
-                self.mark_rows_word(asked, stage)       # B-1: AFTER the pass is recorded, and only the rows of THIS question
-            print(f"{stage}: going on on the person's word; recorded")
+        gap_cases = [str(c) for c in asked.get("probe_gap_cases") or () if str(c).strip()]
+        judged_cases = [str(c) for c in asked.get("probe_judgment_cases") or () if str(c).strip()]    # t-1968 N5; absent in an `asked` of any other question (E5.7)
+        if move == "go_on_as_is" and (block or gap_cases or judged_cases):
+            # POSITION INVARIANT (B-16, E1.6): only the token the person chose records anything; the existing `block` pass runs FIRST
+            if block:
+                self.pass_block(stage, block, rel or self.answer_file(), "Your word could not be recorded as the pass, so nothing was passed.")
+                if block == JOURNAL_ROWS_BLOCK:
+                    self.mark_rows_word(asked, stage)       # B-1: AFTER the pass is recorded, and only the rows of THIS question
+                print(f"{stage}: going on on the person's word; recorded")
+            import contract as C   # late, as every other site of this module
+            for case in gap_cases:
+                # the keys come from the question (`probe_gap_cases` of the window record), never typed here; a refusal is HELD (E1.4)
+                self.pass_block(stage, f"{C.PROBE_GAP_MATCH_PREFIX} {case}", rel or self.answer_file(),
+                                f"Your word could not be recorded as the probe gap of {case}, so nothing more was passed.")
+            if gap_cases:
+                print(f"{stage}: the probe gap of {', '.join(gap_cases)} is recorded on your word")
+            for case in judged_cases:
+                # one `probe not proved: <case key>` word per case the question named, never a `probe gap:` word (E5.1); a refusal is
+                # HELD (E5.5): the words recorded before it stay (append-only), the later ones are not tried, nothing is printed as recorded
+                self.pass_block(stage, f"{C.PROBE_NOT_PROVED_PREFIX} {case}", rel or self.answer_file(),
+                                f"Your word could not be recorded as not proved for {case}, so nothing more was passed.")
+            if judged_cases:
+                print(f"{stage}: {', '.join(judged_cases)} stay not proved on your word")
         elif move == "release_and_restart":
             self.restart_by_option(stage, dispatch, rel or self.answer_file())
         elif move == "rework_stage" and isinstance(option.get("args"), dict):
@@ -16773,12 +21016,15 @@ class Driver:
             gap = entry["gap"]
             row = gap.get("property") if isinstance(gap.get("property"), dict) else {}
             name = stand_gaps._label(gap)
-            code, text = self.py("environment_record.py", "revoke", "--id", str(row.get("id")),
+            registry = bool(stand_gaps.pk_property_of(gap))      # PK0-9: a row of the project-knowledge registry, taken back by its own tool
+            code, text = self.py("project_knowledge.py" if registry else "environment_record.py", "revoke", "--id", str(row.get("id")),
                                  *stand_gaps.words_args(self.words_file, entry["line"], "ask-again"))
             if code:
                 why = " ".join(text.split())[-160:]
-                print(f"gate {gate}: {name}: the record for this environment could not be taken back ({why})")
-                out.append({"line": entry["line"], "why": f"the person asked for this again, and its record for the environment "
+                held = "its entry in the record of earlier answers" if registry else "its record for the environment"
+                print(f"gate {gate}: {name}: " + ("the entry in the record of earlier answers" if registry
+                                                  else "the record for this environment") + f" could not be taken back ({why})")
+                out.append({"line": entry["line"], "why": f"the person asked for this again, and {held} "
                                                           f"could not be taken back ({why}): nothing was changed"})
                 continue
             stand_gaps.revoke_environment_overrides(self.task_root, self.task, gap, self.py, self.words_file, print)
@@ -16788,9 +21034,10 @@ class Driver:
             if isinstance(self.state.get("stand_accept_remedies"), dict):
                 self.state["stand_accept_remedies"] = {c: r for c, r in self.state["stand_accept_remedies"].items() if c not in cases}
             gone_ids.add(str(gap.get("id")))
-            print(f"gate {gate}: {name}: taken back from the environment record ({row.get('id')}); it is asked again")
-            out.append({"line": entry["line"], "why": "the person asked for this again; its record for the environment is taken "
-                                                      "back: show them its card"})
+            print(f"gate {gate}: {name}: taken back from the {'record of earlier answers' if registry else 'environment record'} "
+                  f"({row.get('id')}); it is asked again")
+            out.append({"line": entry["line"], "why": "the person asked for this again; its " + (
+                "entry in the record of earlier answers" if registry else "record for the environment") + " is taken back: show them its card"})
         shown = (self.state.get("shown_gaps") or {}).get(gate)
         if gone_ids and isinstance(shown, dict):
             # a gap taken back is an OPEN gap of this story again (no word, so none of its cases is blocked or carried)
@@ -17068,6 +21315,19 @@ class Driver:
             # t-698 (C1-5b1): the site's own question at an S5 repair limit - its tokens have executors (`_answer_repair_limit`), any
             # other word goes to the seam once. Raised by the gate in front of a critic's finish, so it carries no `offered`.
             self._answer_repair_limit(words, qtext, stage, dispatch)
+        elif kind == "walk_supply":
+            # TR3-10 D (item 14): the way question - its three tokens have executors (`_answer_walk_supply`), any other word goes to the
+            # conductor once. POSITION INVARIANT: before the generic `offered` branch below (these questions carry no `offered`: L5);
+            # the site's executors run, never the generic offered road.
+            self._answer_walk_supply(words, qtext, stage, dispatch)
+        elif kind == "data_change":
+            # TR3-10 D (item 14): the data-change question - same position and invariant as `walk_supply` above (no `offered`: L5).
+            self._answer_data_change(words, qtext, stage, dispatch)
+        elif kind == "walk_account":
+            # TR3-10 D (item 14): the account question - `by hand` / `go on` have executors (`_answer_walk_account`), `added` and any other
+            # word go to the conductor once. POSITION INVARIANT: right after `walk_supply`, before the generic `offered` branch below
+            # (this question carries no `offered`: L5); the site's executors run, never the generic offered road.
+            self._answer_walk_account(words, qtext, stage, dispatch)
         elif kind == "open_work":
             # t-698 §22 FX-2 (C1-5b2): the site's own question at the end of an S7 `open_work` life - `close` / `stop` have executors
             # (`_answer_open_work`), any other word goes to the seam once (the `repair_limit` shape: this kind carries no `offered`).
@@ -17094,6 +21354,29 @@ class Driver:
             # the rest goes to the seam. POSITION INVARIANT: only kind `ticket_auth` (raised by `ticket_look_failed` alone), before
             # the generic seam branch below, so an answer to it is never recorded as another question's token.
             self.take_ticket_auth_answer(words, qtext, stage, dispatch)
+        elif kind == "arrival_not_waiting":
+            # t-2181 PC-7 B2 (FR-9, FR-7, AR-22): the code was named for a story that was not waiting for it - `re-ground` / `ignore` /
+            # `stop` have ONE executor (`_answer_arrival_not_waiting`: the token goes to `launch.arrival.answer`, read by `arrival_record`
+            # in this same process), any other word goes to the conductor once. POSITION INVARIANT: only kind `arrival_not_waiting`
+            # (raised by `arrival_record` alone, no `offered`), before the generic `offered` branch. A token sets `seam_token`.
+            seam_token = self._answer_arrival_not_waiting(words, qtext, stage)
+        elif kind == "first_look_dead":
+            # t-2277 FL-5 (FR-9, FR-12, AR-24): the first look's `continue` / `stop` have ONE executor (`_first_look_answer`: the keys of now to
+            # `first_look_continue`, the controller `await` for `stop`), any other word goes to the conductor once. POSITION INVARIANT: only kind
+            # `first_look_dead` (raised by `first_look_step` alone, no `offered`), before the generic `offered` branch, so its tokens are never
+            # read as another question's. A token sets `seam_token`.
+            seam_token = self._first_look_answer(words, qtext, stage)
+        elif kind == "first_look_same_code":
+            # t-2277 FL-6 (FR-9, FR-12, AR-24): `wait` / `source` / `continue` have ONE executor (`_same_code_answer`; `continue` is the
+            # operation of `first_look.dead`), any other word goes to the conductor once. POSITION INVARIANT: only kind
+            # `first_look_same_code` (raised by `first_look_code_look` alone, no `offered`), before the generic `offered` branch. A token
+            # sets `seam_token`: the answers row keeps it, and the code look of this process reads it (`wait` / `source`).
+            seam_token = self._same_code_answer(words, qtext, stage)
+        elif kind == "absent_side":
+            # t-2559 (W2 B3, FR-9, FR-12, AR-24, AR-25): `not ours` / `relaunch` have ONE executor (`_answer_absent_side`), any other word goes
+            # to the conductor once. POSITION INVARIANT: only kind `absent_side` (raised by `_act_await_implementation` alone, no `offered`),
+            # before the generic `offered` branch, so its tokens are never read as another question's. A token sets `seam_token`.
+            seam_token = self._answer_absent_side(words, qtext, stage)
         elif kind == "closed_held":
             # B-331 (C1-6a): the closed story's never-started work - `run again` / `leave` / `stop` have executors
             # (`_take_closed_held_answer`), any other word goes to the seam once. POSITION INVARIANT: only kind `closed_held`
@@ -17157,6 +21440,12 @@ class Driver:
             # A threshold stop (t-113 B2, R17): tokens are recorded by code and the words go to the
             # role's own session - no conductor, no judge. Only this kind reaches it.
             self.take_question_answer(stage, dispatch, words)
+        elif kind == "halt" and stage == "S1" and self.s0_normalize(words) == "not built yet" and self.s1_has_no_diff():
+            # t-2181 PC-7 B3 (FR-9, AR-19): the `not built yet` answer of `s1.no_diff` - the twin of the `s0.no_change` answer - records the
+            # side before the words go to the scout. POSITION INVARIANT: only kind `halt` at S1 with the manifest's `none` source, the WHOLE
+            # answer (`not built yet please` is other words and takes the unread road below); before `judged_reply` / `unread`, so the
+            # story parks after S5 instead of reading the default `product: real`.
+            self._answer_s1_not_built(words, dispatch)
         elif kind == "halt" and self.s0_normalize(words) == "stop":
             # The halt question's one token (`halt` / `s1.no_diff` of question-prices.json). POSITION INVARIANT: only kind `halt`,
             # the WHOLE answer, and BEFORE `judged_reply` / `unread` - the conductor is not called and the words are not filed
@@ -17220,6 +21509,12 @@ class Driver:
         # Cleared the way it was opened: the flag, then the file. Between the two the question
         # reads as answered-but-not-filed, which is the half `reconcile_question` files; the
         # other order would re-ask a question already recorded.
+        # B-20 N5 (AR-22): the producer of `stuck_asked`; its reader is the stuck seam of the loop. Only the answer to the stuck question itself
+        # (same stage, same kind) is recorded under its step's signature; any other answer drops a stale pending mark.
+        pending = self.state.pop("stuck_pending", None)
+        if isinstance(pending, dict) and pending.get("stage") == stage and pending.get("kind") == kind:
+            self.state.setdefault("stuck_asked", {})[str(pending.get("signature") or "")] = {
+                "answer": " ".join(words.split())[:100], "at": _now()}
         self.state["asked"] = {}
         self.save_state()
         self.drop_standing()                   # E3: the question about the refusal is closed (the answer was read above)
@@ -17250,6 +21545,156 @@ class Driver:
         self.state["pending_words"]["S0"] = words
         self.answer_row(f"S0 {block}: ", words, what="your answer at the start of the story")
         print(f"S0 {block}: the answer is kept and read in the next S0 step")
+
+    def _answer_arrival_not_waiting(self, words: str, qtext: str, stage: str) -> bool:
+        """t-2181 PC-7 B2: the answer to `arrival.not_waiting` (FR-9: each token has an executor; FR-12: code reads a token, never a
+        meaning). The FIRST non-empty line is the token (`s0_normalize`); the whole answer is the person's words, by FILE. A token is
+        written to `launch["arrival"]["answer"]` and `arrival_record` carries it out in the same process (`re-ground`: the arrival and the
+        rework it owes; `ignore`: the word is dropped; `stop`: nothing runs, exit 0) - the question is never asked again with the same
+        text (FR-7). A token with no pending word (nothing waits for it any more) is said and taken. Any other answer is new words:
+        the seam, with `re-ground` / `ignore` as its doors. True = a token was taken."""
+        first = next((line for line in str(words).splitlines() if line.strip()), "")
+        token = self.s0_normalize(first)
+        if token not in self.ARRIVAL_TOKENS:
+            self.unread("arrival_not_waiting", stage, "", qtext, words=words, doors=("re-ground", "ignore"),
+                        lead=self.unread_lead(words), again=lambda said: self.held_question(said))
+            return False
+        pending = (self.state.get("launch") or {}).get("arrival")
+        if not isinstance(pending, dict):
+            print(f"{self.task}: no word about the code is waiting any more; your answer ({token}) changes nothing")
+            return True
+        pending["answer"] = token
+        self.save_state()
+        return True
+
+    def _first_look_answer(self, words: str, qtext: str, stage: str) -> bool:
+        """t-2277 FL-5: the answer to `first_look.dead` (FR-9: each token has an executor; FR-12: code reads a token, never a meaning). The
+        FIRST non-empty line is the token (`s0_normalize`), the whole answer is the person's words, by FILE. `continue`: `controller.py
+        --operation first_look_continue --words-file <the words> --source-head H --register-hash R` with `(H, R) =
+        first_look.current_keys` - the keys of NOW, so a later head or register asks again (FR-7). `stop`: the controller `await` with cause
+        `first_look_stop` held from S3, through the one body of the hold (`_act_await_implementation`, which prints the first look's own
+        packet for that cause, FL-6); its `Stop` is taken here (take_answer files the answer and clears the question first) and the loop's next `where` answers
+        `awaiting_implementation` and ends the run, exit 0. Any other answer is new words for the conductor, once (`unread`). A command the
+        controller refuses brings the question back with its words (`held_question`). True = a token was taken. ANY answer marks the walk as
+        asked (`first_look.mark_asked`): the question is not put again for this walk, whatever the words were (B3, FR-7) - it is marked HERE and
+        not when it is raised, so a question nobody has answered yet still comes back after a restart (AR-25)."""
+        import first_look as FL
+        FL.mark_asked(self.task_root)
+        token = self.s0_normalize(next((line for line in str(words).splitlines() if line.strip()), ""))
+        if token not in ("continue", "stop"):
+            self.unread("first_look_dead", stage, "", qtext, words=words, doors=("continue", "stop"),
+                        lead=self.unread_lead(words), again=lambda said: self.held_question(said))
+            return False
+        self.answer_row(f"{stage} first look ({token}): ", words.strip(), what="your answer about the first look")
+        try:
+            if token == "continue":
+                self._first_look_continue(stage)
+            else:
+                try:
+                    self._act_await_implementation({"action": "await_implementation", "cause": "first_look_stop", "held_from": "S3"})
+                except Stop:
+                    pass
+        except Refusal as refusal:
+            # remains: the person's own question comes back with the reason (a refused carrying-out); nothing was changed
+            raise self.held_question("Your answer could not be carried out, so nothing changed.", refusal.text)
+        return True
+
+    def _same_code_answer(self, words: str, qtext: str, stage: str) -> bool:
+        """t-2277 FL-6: the answer to `first_look.same_code` (FR-9: each token has an executor; FR-12: code reads a token, never a meaning).
+        The FIRST non-empty line is the token (`s0_normalize`), the whole answer is the person's words, by FILE. `continue` is the SAME
+        operation as the `continue` of `first_look.dead` (`first_look_continue` with the keys of now, PC-6); `wait` and `source` change
+        nothing here: `first_look_code_look` of this same process reads the row this answer leaves in `driver-answers.jsonl` and prints
+        the packet / the restart command (exit 0). Any other answer is new words for the conductor, once (`unread`). A command the
+        controller refuses brings the question back with its words (`held_question`). True = a token was taken. The row of the answer
+        carries that first-line token (F1, critic t-2528), so a second line of the person's words changes nothing about the executor."""
+        token = self.s0_normalize(next((line for line in str(words).splitlines() if line.strip()), ""))
+        if token not in ("wait", "source", "continue"):
+            self.unread("first_look_same_code", stage, "", qtext, words=words, doors=("wait", "source", "continue"),
+                        lead=self.unread_lead(words), again=lambda said: self.held_question(said))
+            return False
+        self.answer_row(f"{stage} first look, the code ({token}): ", words.strip(), what="your answer about the code")
+        # F1: the row carries the token THIS executor read (the first line), never the whole normalized answer: `first_look_code_look`
+        # and the date line of the next question read the row by that token, so `source` + a second line still prints the command
+        self.record_answer_row(token)
+        if token == "continue":
+            try:
+                self._first_look_continue(stage)
+            except Refusal as refusal:
+                # remains: the person's own question comes back with the reason (the `_first_look_answer` pattern); nothing was changed
+                raise self.held_question("Your answer could not be carried out, so nothing changed.", refusal.text)
+        return True
+
+    def _answer_absent_side(self, words: str, qtext: str, stage: str) -> bool:
+        """t-2559 (W2 B3): the answer to `awaiting.absent_side` (FR-9: each token has an executor; FR-12: code reads a token, never a
+        meaning). The FIRST non-empty line is the token (`s0_normalize`), the whole answer is the person's words, by FILE. `relaunch`: nothing
+        changes - the hold stands and the loop's next `where` prints the packet and ends with exit 0, as before. `not ours`: `_side_not_ours`.
+        Any other answer is new words for the conductor, once (`unread`). A refused carrying-out brings the question back with its words
+        (`held_question`), nothing half-done is lost (every step is repeatable). True = a token was taken."""
+        token = self.s0_normalize(next((line for line in str(words).splitlines() if line.strip()), ""))
+        if token not in self.ABSENT_SIDE_TOKENS:
+            self.unread("absent_side", stage, "", qtext, words=words, doors=self.ABSENT_SIDE_TOKENS,
+                        lead=self.unread_lead(words), again=lambda said: self.held_question(said))
+            return False
+        self.answer_row(f"{stage} absent side ({token}): ", words.strip(), what="your answer about the missing part")
+        self.record_answer_row(token)
+        name = str(self.state.get("absent_side") or "")
+        if token == "not ours":
+            try:
+                self._side_not_ours(name, words.strip())
+            except Refusal as refusal:
+                # remains: the person's own question comes back with the reason (the `_same_code_answer` pattern); nothing was lost
+                raise self.held_question("Your answer could not be carried out, so nothing changed.", refusal.text)
+        else:
+            # `relaunch` (t-2562 B-1/B-2): recorded for THIS hold only, so the loop's next `where` asks the next side with no answer and a
+            # later process re-offers with a changed lead; nothing else changes. This process asks nothing more once every side answered.
+            record = self.state.get("absent_side_answers")
+            if isinstance(record, dict) and isinstance(record.get("sides"), dict) and name:
+                record["sides"][name] = {"token": token, "at": _now()[:10]}
+            self._absent_answered_here = True
+        self.state.pop("absent_side", None)
+        return True
+
+    def _side_not_ours(self, name: str, words: str) -> None:
+        """t-2559 (W2 B3): the side `name` is another team's. In THIS order, each step repeatable on a replay: (1) the project's record
+        through `_keep_sides_answer` (the one writer of the registry row, by the person's words; `--no-trace` keeps it in the story only, an
+        unreadable registry is said in words and the answer stays in the story, AR-28); (2) the story's record - `deliverable false`, reality
+        `substituted`, `source person` through ONE `stage_done.py` call (the writer of `pipeline.sides`, AR-14), which also carries the
+        lines of (1) as `--warn`, so the report and gate A read them (t-2562 F-1, AR-22); the story no longer parks;
+        (3) the hold is lifted by the controller's own `arrive` naming this side (no source: no code arrived). Other sides are untouched (they
+        park the story again on the next `where`, one question each). A write that is refused is a `Refusal`."""
+        if not name:
+            raise Refusal("the part of the product this answer is about is not recorded, so nothing was changed; start the story again")
+        import contract
+        since = str(contract.awaiting(self.pipeline()).get("since") or "")
+        lines = self._keep_sides_answer(name, "another team's", words=words, where="the answer to the question about the missing side after S5")
+        sets = self.side_set_args(name, reality=self.SIDE_SUBSTITUTED, deliverable="false", source="person", at=_now())
+        self.py("stage_done.py", "--task", self.task, *[part for item in sets for part in ("--set", item)],
+                *[part for line in lines for part in ("--warn", line)], check=True)
+        self._arrive([name], {}, ["not ours", name, since])
+        print(f"{self.task}: `{name}` is another team's at your word; the wait is over and the tests go on against a stand-in for it")
+
+    def _first_look_continue(self, stage: str) -> None:
+        """THE `continue` of the first look (FR-9, AR-15), for both of its questions (`first_look.dead`, `first_look.same_code`): the
+        controller operation `first_look_continue` with the person's words (by FILE) and the keys of NOW (`first_look.current_keys`), so a
+        later head or register asks again (FR-7). A missing words file or a refusal of the controller is a `Refusal` the caller turns into the
+        held question."""
+        import first_look as FL
+        file = self.answer_file()
+        if not file:
+            raise Refusal("first look: the answer has no words file, so `continue` was not recorded; the question stays")
+        heads, register = FL.current_keys(self.task_root)
+        self.controller("first_look_continue", "--words-file", str(self.task_root / file), "--source-head", heads, "--register-hash", register)
+        print(f"{stage}: first look: your `continue` is recorded for these heads and this register")
+
+    def _answer_s1_not_built(self, words: str, dispatch: str) -> None:
+        """t-2181 PC-7 B3: the `not built yet` answer of `s1.no_diff`, the twin of the `s0.no_change` one (AR-19). The side `product` is
+        recorded absent, deliverable, `source: person` through `stage_done.py --set` (the writer of `pipeline.sides`, AR-14; the keys of
+        `s0_sides_sets`), so the story parks after S5; then the words go to the scout as on every halt (`pending_words`): it goes on with
+        the requirements only. A refused write is a `Refusal` (the seam asks), and nothing was filed for the scout."""
+        import contract
+        sets = self.side_set_args("product", reality=contract.PARKING_REALITY, deliverable="true", source="person", at=_now())
+        self.py("stage_done.py", "--task", self.task, *[part for item in sets for part in ("--set", item)], check=True)
+        self.state["pending_words"][dispatch] = words
 
     def _unread_halt_or_review(self, kind: str, stage: str, dispatch: str, qtext: str, words: str) -> None:
         """t-667 D14: the answer to a halt or an S1 source review that no executor of code reads: the conductor records it, the
@@ -17670,6 +22115,32 @@ def main() -> int:
     ap.add_argument("--branch")
     ap.add_argument("--commit")
     ap.add_argument("--ungrounded", action="store_true")
+
+    def pair(value: str, what: str, door: str) -> tuple:
+        """`<name>=<word>` as a pair, or an argparse refusal that names the form (FR-1, FR-2: the door is the corrected flag)."""
+        name, sep, word = str(value).partition("=")
+        name, word = name.strip(), word.strip()
+        if not (sep and name and word) or "." in name:
+            raise argparse.ArgumentTypeError(f"`{value}` is not {what}. {door}")
+        return name, word
+
+    def side_flag(value: str) -> tuple:
+        name, word = pair(value, "a side and its reality", "Give --side <name>=<reality>, the name without a dot.")
+        import stage_done      # the ONE reader of the reality words (`references/side-realities.json`) is the writer's own check
+        try:
+            stage_done.coerce_value(f"sides.{name}.reality", word)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"--side {value}: {exc}. Start again with --side {name}=<one of those words>.")
+        return name, word
+
+    def reference_flag(value: str) -> tuple:
+        return pair(value, "a side and the stand that runs its old version", "Give --reference <side>=<stand>, the side without a dot.")
+
+    ap.add_argument("--side", action="append", type=side_flag, metavar="NAME=REALITY",
+                    help="a side of the product that is not real on this stand, e.g. backend=substituted (repeatable); "
+                         "the words are those of references/side-realities.json")
+    ap.add_argument("--reference", action="append", type=reference_flag, metavar="SIDE=STAND",
+                    help="the stand that still runs the OLD version of a side, to be walked as the reference (repeatable)")
     ap.add_argument("--ticket-file")
     ap.add_argument("--env")
     ap.add_argument("--branch-suffix", default="")

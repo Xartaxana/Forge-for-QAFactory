@@ -17,7 +17,10 @@ you.
    dispatch-context-manifest) IN FULL: the text is CLAUDE.md rule 11
    with its row R11-f (the manifest as header lines, `owns:` with
    absolute paths); a builder DoD's verification scope in this
-   repository is `plans/builder-rules.md` 7b. A spec silent on an edge
+   repository is `plans/builder-rules.md` 7b: the DoD names
+   `scenario_walk.py --witness-for <owns>`; a DoD never asks for a new
+   test file outside the keep rows of `test-layers.json`; a new case is
+   a variant/table row. A spec silent on an edge
    that its own requirements create is a spec defect. (Host
    adaptation 2, D-0021.) Every named edge also states
    the INVARIANT its behavior protects — what must stay unreachable or
@@ -64,3 +67,18 @@ you.
    the 25-line limit does not apply. Acceptance of the draft belongs
    to the Lead; spec defects found in an accepted draft are journaled
    with `failure_class=spec` against the designer.
+6. One action, one road (PROJECT.md P31, the owner's word 06.11.2026). A spec
+   that lets a language, a project or a case reach a shared mechanism by
+   another road, or not reach it at all, is a spec defect, whatever the reason
+   given. A case counts only then: an ordinary condition of the task is no
+   exception, however it is branched on. A real difference has three legal
+   forms: a data row with a default, read by a capability key, never by the
+   language's name (AR-1); one step the role judges on every side alike
+   (AR-2); or the owner's word, quoted with its carrier beside the line.
+   Anything else ("Non-goals: Python path", "not supported for X" written as a
+   fact, an "unchanged" row for one language) goes on the forks list with the
+   one-road option recommended and what covering the left-out side costs;
+   the Lead takes it to the owner. A slice is no exclusion when the rest is a
+   named node of the same spec. A residual of this class is a node with owns
+   and a test; a line "tell the owner" closes nothing. Siblings: SIBLING_MAP
+   axis 34.

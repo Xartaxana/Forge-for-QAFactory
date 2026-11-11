@@ -254,6 +254,7 @@ def main():
         t()
         print(f"PASS {t.__name__}")
     print("PASS test_activity_session_identity")
+    print(f"=== test_activity_session_identity: {len(tests)}/{len(tests)} ok ===")
 
 
 if __name__ == "__main__":

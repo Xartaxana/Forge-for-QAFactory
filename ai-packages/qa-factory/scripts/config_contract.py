@@ -549,6 +549,292 @@ def canonical_template() -> dict:
     return json.loads(template_path().read_text(encoding="utf-8"))
 
 
+PARALLEL_WINDOWS_DEFAULT = 3
+
+
+def parallel_windows(config) -> tuple[int, str | None]:
+    """`dispatch.parallel_windows` as (value, note): how many S5 windows may run their role
+    sessions at once. An absent key (every config written before the key existed), an absent
+    `dispatch` or a config that is not an object reads the default 3 with no note; a value that
+    is not an int >= 1 (0, -1, '3', 1.5, true, null) reads the default with ONE `note:` line and
+    never a stop (P1, AR-3). The caller prints the note."""
+    block = config.get("dispatch") if isinstance(config, dict) else None
+    if not isinstance(block, dict) or "parallel_windows" not in block:
+        return PARALLEL_WINDOWS_DEFAULT, None
+    value = block["parallel_windows"]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return PARALLEL_WINDOWS_DEFAULT, (
+            f"note: dispatch.parallel_windows is {json.dumps(value)}, not a whole number of 1 or more; "
+            f"S5 windows run {PARALLEL_WINDOWS_DEFAULT} at a time (the default) until it is corrected in "
+            "qa-factory/config.json")
+    return value, None
+
+
+MANUAL_WALKERS_DEFAULT = 3
+
+
+def walkers(config) -> tuple[int, str | None]:
+    """`manual.walkers` as (value, note): how many S6 manual walkers (lanes) may run at once (t-2147 TR3-9d). THE reader for the
+    driver and the controller (AR-13). An absent key (every config written before the key existed), an absent `manual` or a config
+    that is not an object reads the default 3 with no note; a value that is not an int >= 1 (0, -1, '3', 1.5, true, null) reads the
+    default with ONE `note:` line and never a stop (P1, AR-3). The caller prints the note."""
+    block = config.get("manual") if isinstance(config, dict) else None
+    if not isinstance(block, dict) or "walkers" not in block:
+        return MANUAL_WALKERS_DEFAULT, None
+    value = block["walkers"]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return MANUAL_WALKERS_DEFAULT, (
+            f"note: manual.walkers is {json.dumps(value)}, not a whole number of 1 or more; "
+            f"{MANUAL_WALKERS_DEFAULT} manual walkers run at a time (the default) until it is corrected in "
+            "qa-factory/config.json (1 runs one walker at a time)")
+    return value, None
+
+
+# t-2174 TR3-10b: `manual.accounts_way` and `manual.data_way` - how the project gets more test accounts and which records walkers
+# may share or make. THE reader is `walk_supply` (AR-13); it judges SHAPE only (AR-29), tells and never stops (P1), and never
+# consults the stand's breakability mark (P13: a recorded answer is returned as given).
+WALK_SUPPLY_NOT_KNOWN = "not known"
+# the three option sentences of the data-change question (the `answer` texts of `s6.data_change` in question-prices.json;
+# test prices_data_change_three_options pins the two together) -> the value `walk_supply` returns for `data.may`
+DATA_MAY_OPTIONS = {"only use what exists": "existing_only", "may create, never delete": "create",
+                    "may create and delete": "create_and_delete"}
+_WALK_SUPPLY_NAME_MAX = 40
+
+
+def _supply_defaults() -> dict:
+    return {"accounts": {"words": WALK_SUPPLY_NOT_KNOWN, "known": False, "self_sign_up_roles": [], "more_accounts": {},
+                         "limit_by_role": {}},
+            "data": {"words": WALK_SUPPLY_NOT_KNOWN, "known": False, "pools": {}, "may": "existing_only", "may_known": False}}
+
+
+def _supply_name(text) -> str:
+    return str(text)[:_WALK_SUPPLY_NAME_MAX]
+
+
+def _supply_secret_hit(text: str, patterns: list) -> bool:
+    """Does `text` match one of the project's `secret_content_patterns`? A pattern that does not compile is skipped (the reader never
+    raises; guard_secrets reports the broken pattern where it is used)."""
+    for pattern in patterns:
+        try:
+            if re.search(pattern, text):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+def _supply_words(block: dict, label: str, notes: list) -> tuple:
+    """(words, known): the person's words whole, `not known` when absent, not a string or blank."""
+    if "words" not in block:
+        return WALK_SUPPLY_NOT_KNOWN, False
+    value = block["words"]
+    if not isinstance(value, str) or not value.strip():
+        # the TYPE, never the value: a non-string `words` can hold anything, a credential included
+        shown = type(value).__name__ if not isinstance(value, str) else "blank"
+        notes.append(f"note: {label}.words is {shown}, not the person's words; it reads `{WALK_SUPPLY_NOT_KNOWN}` "
+                     "until the question is answered")
+        return WALK_SUPPLY_NOT_KNOWN, False
+    return value, value.strip().casefold() != WALK_SUPPLY_NOT_KNOWN
+
+
+def _supply_accounts(block: dict, patterns: list, notes: list) -> dict:
+    out = _supply_defaults()["accounts"]
+    out["words"], out["known"] = _supply_words(block, "manual.accounts_way", notes)
+    label = "manual.accounts_way"
+    sign_up = block.get("self_sign_up", {})
+    if sign_up != {}:
+        roles = sign_up.get("roles") if isinstance(sign_up, dict) else None
+        if isinstance(roles, list) and all(isinstance(r, str) and r.strip() for r in roles):
+            for role in roles:
+                if role.strip() not in out["self_sign_up_roles"]:
+                    out["self_sign_up_roles"].append(role.strip())
+        else:
+            notes.append(f"note: {label}.self_sign_up is not {{\"roles\": [a role or default, ...]}}; it reads as not mapped")
+    more = block.get("more_accounts", {})
+    if not isinstance(more, dict):
+        notes.append(f"note: {label}.more_accounts is not an object of role -> env key pairs; it reads as empty")
+    else:
+        env_name = _sibling("gate_preflight")._ENV_NAME_RE
+        for role, entries in more.items():
+            if not isinstance(role, str) or not role.strip():
+                notes.append(f"note: {label}.more_accounts has an entry with no role name; it was left out")
+                continue
+            if not isinstance(entries, list):
+                notes.append(f"note: {label}.more_accounts for role `{_supply_name(role)}` is not a list of env:USER_KEY/SECRET_KEY "
+                             "handles; the role was left out")
+                continue
+            kept = []
+            for entry in entries:
+                user, slash, secret = entry[4:].partition("/") if isinstance(entry, str) and entry.startswith("env:") else ("", "", "")
+                if (isinstance(entry, str) and _supply_secret_hit(entry, patterns)) or not (
+                        slash and env_name.match(user) and env_name.match(secret)):
+                    notes.append(f"note: {label}.more_accounts for role `{_supply_name(role)}` holds an entry that is not an "
+                                 "env:USER_KEY/SECRET_KEY handle of two key names (or looks like a secret); it was left out")
+                    continue
+                if entry not in kept:
+                    kept.append(entry)
+            if kept:
+                out["more_accounts"][role.strip()] = kept
+    limits = block.get("limit_by_role", {})
+    if not isinstance(limits, dict):
+        notes.append(f"note: {label}.limit_by_role is not an object of role -> a whole number of 1 or more; it reads as empty")
+    else:
+        for role, count in limits.items():
+            if not isinstance(role, str) or not role.strip() or isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                notes.append(f"note: {label}.limit_by_role for role `{_supply_name(role)}` is not a whole number of 1 or more; "
+                             "the entry was left out")
+                continue
+            out["limit_by_role"][role.strip()] = count
+    return out
+
+
+def _supply_pools(raw, patterns: list, notes: list) -> dict:
+    """The shape-checked pools: `{kind (strip + casefold): {"existing": [...], ["create_request": text], ["delete_request": text]}}`."""
+    label = "manual.data_way.pools"
+    pools: dict = {}
+    if raw == {}:
+        return pools
+    if not isinstance(raw, dict):
+        notes.append(f"note: {label} is not an object of kind -> {{existing, create_request, delete_request}}; it reads as empty")
+        return pools
+    for kind, spec in raw.items():
+        name = kind.strip().casefold() if isinstance(kind, str) else ""
+        if not name or not isinstance(spec, dict):
+            notes.append(f"note: {label} has a kind `{_supply_name(kind)}` that is not an object with a kind name; it was left out")
+            continue
+        existing = []
+        listed = spec.get("existing", [])
+        if not isinstance(listed, list):
+            notes.append(f"note: {label} kind `{_supply_name(name)}`: `existing` is not a list of instance ids; it reads as empty")
+            listed = []
+        for item in listed:
+            if not isinstance(item, str) or not item.strip():
+                notes.append(f"note: {label} kind `{_supply_name(name)}` holds an instance id that is not a non-empty text; it was left out")
+            elif _supply_secret_hit(item, patterns):
+                notes.append(f"note: {label} kind `{_supply_name(name)}` holds an instance id that looks like a secret; it was left out")
+            elif item.strip() not in existing:
+                existing.append(item.strip())
+        entry: dict = {"existing": existing}
+        for field in ("create_request", "delete_request"):
+            if field not in spec:
+                continue
+            text = spec[field]
+            if not isinstance(text, str) or not text.strip():
+                notes.append(f"note: {label} kind `{_supply_name(name)}`: `{field}` is not a non-empty text; it was left out")
+            elif _supply_secret_hit(text, patterns):
+                notes.append(f"note: {label} kind `{_supply_name(name)}`: `{field}` looks like a secret; it was left out")
+            else:
+                entry[field] = text
+        if not entry["existing"] and "create_request" not in entry:
+            notes.append(f"note: {label} kind `{_supply_name(name)}` has neither an `existing` list nor a `create_request`; it was left out")
+            continue
+        if name in pools:
+            for item in entry["existing"]:
+                if item not in pools[name]["existing"]:
+                    pools[name]["existing"].append(item)
+            for field in ("create_request", "delete_request"):
+                if field in entry and field not in pools[name]:
+                    pools[name][field] = entry[field]
+                elif field in entry and entry[field] != pools[name][field]:
+                    notes.append(f"note: {label} kinds that differ only in case or spaces (`{_supply_name(name)}`) carry two different "
+                                 f"`{field}`s; the first is kept")
+        else:
+            pools[name] = entry
+    return pools
+
+
+def _supply_data(block: dict, patterns: list, notes: list) -> dict:
+    out = _supply_defaults()["data"]
+    out["words"], out["known"] = _supply_words(block, "manual.data_way", notes)
+    if "may" in block:
+        value = block["may"]
+        sentence = value.strip().casefold() if isinstance(value, str) else None
+        if sentence in DATA_MAY_OPTIONS:
+            out["may"], out["may_known"] = DATA_MAY_OPTIONS[sentence], True
+        elif sentence != WALK_SUPPLY_NOT_KNOWN:
+            notes.append("note: manual.data_way.may is not one of the three answers (" + ", ".join(f"`{s}`" for s in DATA_MAY_OPTIONS)
+                         + f"); it reads `{WALK_SUPPLY_NOT_KNOWN}` and walkers only use records that exist")
+    pools = _supply_pools(block.get("pools", {}), patterns, notes)
+    may = out["may"]
+    withheld = []
+    for field, allowed in (("create_request", may in ("create", "create_and_delete")),
+                           ("delete_request", may == "create_and_delete")):
+        if allowed:
+            continue
+        for kind in sorted(kind for kind, entry in pools.items() if field in entry):
+            del pools[kind][field]
+            withheld.append(f"`{field}` of `{_supply_name(kind)}`")
+    if withheld:
+        notes.append(f"note: manual.data_way.pools {', '.join(withheld)} not carried: the data-change answer reads `{may}`, "
+                     "which does not allow it")
+    out["pools"] = pools
+    return out
+
+
+def walk_supply(config) -> tuple[dict, list]:
+    """`manual.accounts_way` and `manual.data_way` as (value, notes), THE reader of both (t-2174 TR3-10b, AR-13):
+    `({"accounts": {"words", "known", "self_sign_up_roles", "more_accounts", "limit_by_role"},
+       "data": {"words", "known", "pools", "may", "may_known"}}, [note, ...])`.
+    Shape only (AR-29): `known` is a recorded answer, `data.may` is `existing_only` / `create` / `create_and_delete` and `existing_only`
+    with `may_known: False` for anything else (FR-59: the safe default, never a pass); the pools carry only the requests the answer
+    allows (AR-28); a value that looks like a secret (the config's `secret_content_patterns`) is dropped and never printed (the guard's default patterns plus the config's, even when the config list is empty).
+    the stand's breakability mark is never consulted (P13). An absent `manual`, either block or key reads the defaults with no note; a bad value
+    reads its default with ONE `note:` line; it never raises (a failure reads the defaults with one note naming the exception class).
+    Shares nothing with `walkers`: a bad block here never changes it, nor the reverse. The caller prints the notes."""
+    notes: list = []
+    try:
+        if not isinstance(config, dict) or "manual" not in config:
+            return _supply_defaults(), notes
+        manual = config["manual"]
+        if not isinstance(manual, dict):
+            return _supply_defaults(), ["note: manual is not an object; manual.accounts_way and manual.data_way read their defaults"]
+        # the guard's own list (its defaults plus the project's), so `secret_content_patterns: []` never leaves a text unscanned;
+        # a project pattern that does not compile is named once and left out (never silently skipped)
+        guard = _sibling("guard_secrets")
+        raw = config.get("secret_content_patterns")
+        project = [p for p in raw if isinstance(p, str) and p] if isinstance(raw, list) else []
+        broken = []
+        for index, pattern in enumerate(project):
+            try:
+                re.compile(pattern)
+            except re.error:
+                broken.append(index)
+        if broken:
+            notes.append(f"note: secret_content_patterns[{', '.join(str(i) for i in broken)}] does not compile; "
+                         "manual.* values were not scanned against it")
+        project = [p for i, p in enumerate(project) if i not in broken]
+        patterns = guard._patterns({"secret_content_patterns": project}, "secret_content_patterns",
+                                   list(guard.DEFAULT_SECRET_CONTENT_PATTERNS))
+        result = _supply_defaults()
+        for key, build, slot in (("accounts_way", _supply_accounts, "accounts"), ("data_way", _supply_data, "data")):
+            if key not in manual:
+                continue
+            block = manual[key]
+            if not isinstance(block, dict):
+                notes.append(f"note: manual.{key} is not an object; it reads its defaults")
+                continue
+            result[slot] = build(block, patterns, notes)
+        return result, notes
+    except Exception as exc:  # P1: a reader of the person's own config tells, never stops
+        return _supply_defaults(), [f"note: manual.accounts_way and manual.data_way could not be read ({type(exc).__name__}); they read "
+                                    f"their defaults (nothing known, only records that exist)"]
+
+
+def walk_supply_keys() -> dict:
+    """The config key names of the two supply blocks under `manual`, keyed by the slot `walk_supply` uses (AR-13: they stand here alone)."""
+    return {"accounts": "accounts_way", "data": "data_way"}
+
+
+def walk_supply_raw(config) -> dict:
+    """`{"accounts": <manual.accounts_way as the config holds it or {}>, "data": <manual.data_way likewise or {}>}`: RAW - unknown and
+    hand-added keys kept, nothing renamed or dropped (a deep copy). A missing or non-dict node reads `{}`; a non-dict config reads both `{}`.
+    INVARIANT: used ONLY where an object is written back whole (merge on write); every reader that decides something keeps using the
+    normalized `walk_supply`."""
+    manual = config.get("manual") if isinstance(config, dict) else None
+    manual = manual if isinstance(manual, dict) else {}
+    return {slot: copy.deepcopy(manual[key]) if isinstance(manual.get(key), dict) else {} for slot, key in walk_supply_keys().items()}
+
+
 def _merge_missing(target: dict, defaults: dict) -> dict:
     result = copy.deepcopy(target)
     for key, value in defaults.items():
@@ -2032,14 +2318,15 @@ def _unended_copy_notes(own: Path, sha: str) -> list:
     """The stories of this project that kept a copy at their start, never restored it, and whose copy is not the file now (a killed
     story: no `stop`, no S9). A note, nothing more: whether the difference is the person's is theirs to say."""
     notes = []
-    for other in _siblings(own):
+    for other in siblings(own):
         held, _ = _read_object(_snapshot_file(other))
         if held and "sha256" in held and "restored_at" not in held and held.get("sha256") != sha:
             notes.append(f"config.json differs from the copy {other.name} kept at its start, and {other.name} did not end")
     return notes
 
 
-def _siblings(own: Path) -> list:
+def siblings(own: Path) -> list:
+    """The other story folders beside `own` (this story and `_archive` / `archive` are never among them); `[]` when the parent cannot be listed."""
     try:
         folders = sorted(p for p in Path(own).parent.iterdir() if p.is_dir())
     except OSError:
@@ -2219,7 +2506,7 @@ def _other_story_problem(task_root, since: float) -> str:
     """"" when no other story of the project is in flight or ran inside this one's window (B5); else the sentence that says so. The
     in-flight check comes first and is on the story's own state (not only an open dispatch); a story whose last activity is not before
     `since` ran inside the window, and what it changed is not this story's to give back."""
-    for story in _siblings(task_root):
+    for story in siblings(task_root):
         verdict = _activity_of(story)
         if verdict is None:
             continue
@@ -2228,7 +2515,7 @@ def _other_story_problem(task_root, since: float) -> str:
             return (f"another story of this project is still in flight ({story.name}"
                     + (f": {unknown}" if unknown else "") + "), and a revert now could undo or restore its changes; config.json was left as it is. "
                     f"If {story.name} is abandoned, archive it (archive_task.py) so the next story's revert is not held back by it")
-    for story in _siblings(task_root):
+    for story in siblings(task_root):
         verdict = _activity_of(story)
         if verdict is not None and verdict[1] is not None and verdict[1] >= since:
             return f"another story ran inside this one's window ({story.name}), so its changes to config.json cannot be told from this one's"

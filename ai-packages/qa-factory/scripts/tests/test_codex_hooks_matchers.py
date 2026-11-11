@@ -40,7 +40,6 @@ import host_adapter as H  # noqa: E402
 import host_probe  # noqa: E402
 
 CODEX = PLUGIN_ROOT / "hooks" / "codex.json"
-CLAUDE = PLUGIN_ROOT / "hooks" / "hooks.json"
 
 # Names Claude sends, which the Codex manifest keeps guarded; and the ones that are pure waiting.
 CLAUDE_GUARDED = ["Agent", "Task", "SendMessage", "Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit",
@@ -73,11 +72,6 @@ def hook_with(wiring: dict, event: str, script: str) -> str:
              if any(h["command"].split(" telemetry_hook.py ", 1)[-1].strip() == script for h in e["hooks"])]
     check(f"{event} wires `{script}` exactly once", len(found) == 1, repr(found))
     return found[0] if found else ""
-
-
-def entries(wiring: dict, event: str) -> list:
-    return [(e.get("matcher", ""), [h["command"].split(" telemetry_hook.py ", 1)[-1].strip() for h in e["hooks"]])
-            for e in wiring["hooks"].get(event, [])]
 
 
 def census(matcher: str, guarded) -> tuple:
@@ -154,66 +148,13 @@ def matchers_part() -> None:
     check_eq(f"probe matcher: {tried} generated spellings, full match = search = the probed families", wrong, [])
     cost = hook_with(codex, "PostToolUse", "cost_capture.py --debounced")
     check_eq("the debounced cost sample is as it was (empty matcher: async, and a role that never dispatches keeps its cost)", cost, "")
-    check_eq("the context injection matcher is as it was", hook_with(codex, "PreToolUse", "inject_context.py"),
-             "Agent|Task|SendMessage|.*spawn_agent|.*send_input|.*send_message|.*followup_task")
-    check_eq("validate_artifacts is as it was", hook_with(codex, "PostToolUse", "validate_artifacts.py"), ".*apply_patch|Write|Edit")
-    check_eq("host_dispatch is as it was", hook_with(codex, "PostToolUse", "host_dispatch.py"), "Agent|.*spawn_agent")
-    check_eq("the only PreToolUse/PostToolUse entry with an empty matcher is the cost sample",
-             [m for ev in ("PreToolUse", "PostToolUse") for m, scripts in entries(codex, ev) if m == ""
-              for _ in scripts], [""])
-    rest = {event: entries(codex, event) for event in ("SubagentStop", "Stop", "PreCompact", "SessionStart", "PostCompact", "SubagentStart")}
-    check_eq("the lifecycle hooks of codex.json are as they were", rest, {
-        "SubagentStop": [("", ["exit_gate.py", "subagent_journal.py", "cost_capture.py"])],
-        "Stop": [("", ["cost_capture.py"])],
-        "PreCompact": [("", ["precompact_guard.py"])],
-        "SessionStart": [("startup|resume|compact", ["postcompact_reload.py"])],
-        "PostCompact": [("", ["postcompact_reload.py"])],
-        "SubagentStart": [("", ["native_context.py"])]})
-    check_eq("codex.json declares the same events as before", sorted(codex["hooks"]),
-             ["PostCompact", "PostToolUse", "PreCompact", "PreToolUse", "SessionStart", "Stop", "SubagentStart", "SubagentStop"])
-    claude = json.loads(CLAUDE.read_text(encoding="utf-8"))
-    pinned = [(event, m, scripts) for event in claude["hooks"] for m, scripts in entries(claude, event)]
-    check_eq("hooks/hooks.json (Claude) is as it was", pinned, [
-        ("PreToolUse", "Write|Edit|NotebookEdit", ["guard_pre_tool.py"]),
-        ("PreToolUse", "Bash|PowerShell", ["guard_pre_tool.py"]),
-        ("PreToolUse", "Read", ['"${CLAUDE_PLUGIN_ROOT}/hooks/run-py.cmd" guard_pre_tool.py']),
-        ("PreToolUse", "Grep|Glob", ['"${CLAUDE_PLUGIN_ROOT}/hooks/run-py.cmd" guard_pre_tool.py']),
-        ("PreToolUse", "Agent|Task|SendMessage", ["inject_context.py"]),
-        ("PostToolUse", "", ["cost_capture.py --debounced"]),
-        ("PostToolUse", "Write|Edit", ["validate_artifacts.py"]),
-        ("PostToolUse", "Bash|PowerShell", ["host_probe.py --hook"]),
-        ("PostToolUse", "Agent|Task", ["agent_autobind.py"]),        # SC2-38 (1): the bind of a fresh dispatch (named raise, F-4 b)
-        ("SubagentStop", "", ["exit_gate.py", "subagent_journal.py", "cost_capture.py --debounced"]),
-        ("Stop", "", ["activity_capture.py", "conductor_stop.py", "gate_shown.py", "cost_capture.py"]),   # HF8-15 (1b): the conductor wake; RN1-4: the gate-A card shown
-        ("PreCompact", "", ["precompact_guard.py"]),
-        ("SessionStart", "startup|resume|clear|compact", ["session_env.py"]),
-        ("SessionStart", "compact", ["postcompact_reload.py"])])
-    # HF2-9 (K4, F-2 (a)): the `async` value of EVERY hook of the Claude manifest. The Stop entry of cost_capture.py is
-    # asynchronous (the host's turn no longer waits for the capture; its "started" marker and the catch-up cover a Stop
-    # the host cuts off), activity_capture.py stays synchronous, and no other value moved.
-    launcher, shim = '"${CLAUDE_PLUGIN_ROOT}/hooks/run-py.cmd" ', "telemetry_hook.py "
-    flags = [(event, e.get("matcher", ""), h["command"].replace(launcher, "").replace(shim, ""), h.get("async"))
-             for event in claude["hooks"] for e in claude["hooks"][event] for h in e["hooks"]]
-    check_eq("hooks/hooks.json (Claude): (event, matcher, script, async) of every hook - only the Stop cost capture is newly async", flags, [
-        ("PreToolUse", "Write|Edit|NotebookEdit", "guard_pre_tool.py", False),
-        ("PreToolUse", "Bash|PowerShell", "guard_pre_tool.py", False),
-        ("PreToolUse", "Read", "guard_pre_tool.py", False),
-        ("PreToolUse", "Grep|Glob", "guard_pre_tool.py", False),
-        ("PreToolUse", "Agent|Task|SendMessage", "inject_context.py", False),
-        ("PostToolUse", "", "cost_capture.py --debounced", True),
-        ("PostToolUse", "Write|Edit", "validate_artifacts.py", False),
-        ("PostToolUse", "Bash|PowerShell", "host_probe.py --hook", False),
-        ("PostToolUse", "Agent|Task", "agent_autobind.py", False),
-        ("SubagentStop", "", "exit_gate.py", False),
-        ("SubagentStop", "", "subagent_journal.py", False),
-        ("SubagentStop", "", "cost_capture.py --debounced", True),
-        ("Stop", "", "activity_capture.py", False),
-        ("Stop", "", "conductor_stop.py", False),
-        ("Stop", "", "gate_shown.py", False),
-        ("Stop", "", "cost_capture.py", True),
-        ("PreCompact", "", "precompact_guard.py", False),
-        ("SessionStart", "startup|resume|clear|compact", "session_env.py", False),
-        ("SessionStart", "compact", "postcompact_reload.py", False)])
+    # HF2-9 K4, narrowed (TD-14.5 fix): an async guard's decision is ignored by the host, so the gate would open silently
+    claude = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    guards = [(e.get("matcher", ""), h) for e in claude["hooks"].get("PreToolUse", []) for h in e["hooks"] if "guard_pre_tool.py" in h["command"]]
+    check_eq("hooks/hooks.json: every guard_pre_tool.py hook is synchronous", [m for m, h in guards if h.get("async")], [])
+    for tool in ("Write", "Edit", "Bash", "Read", "Grep", "Glob"):
+        check(f"hooks/hooks.json: guard_pre_tool.py is wired on {tool}", any(re.fullmatch(m, tool) for m, _h in guards),
+              f"matchers wired: {[m for m, _h in guards]}")
 
 
 def shell_family_part() -> None:

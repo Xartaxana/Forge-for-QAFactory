@@ -97,7 +97,7 @@ class Replay:
         self.env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
         for key in ("STORY_RUN_CLAUDE", "STUB_CONTROL", "STUB_LOG"):
             self.env.setdefault(key, str(self.root / "unused"))
-        self.saved = {name: getattr(story_run.Driver, name) for name in ("run_claude", "form_errors", "run_role", "close_by_code", "s7_repairs", "s7_close")}
+        self.saved = {name: getattr(story_run.Driver, name) for name in ("run_claude", "form_errors", "run_role", "close_by_code", "s7_repairs", "s7_close", "s7_await_scribe")}
         self.saved_inv = {name: getattr(investigation, name) for name in ("project", "close_gaps")}
         self.claude_calls, self.order, self.stub = [], [], {}
         self.driver = None
@@ -217,6 +217,22 @@ class Replay:
             return inner
         story_run.Driver.s7_repairs = wrapped("s7_repairs", self.saved["s7_repairs"])
         story_run.Driver.s7_close = wrapped("s7_close", self.saved["s7_close"])
+        real_await = self.saved["s7_await_scribe"]
+
+        def await_scribe(d, person_words=""):
+            """X7-6c: S7 closes only over the consumer's (scribe's) `accept` record of the analyst's LAST triage dispatch; the stub scribe has
+            judged it (the record written the way `stage_done.py --acceptance` writes it), so the repairs' end goes on to the close by code."""
+            import acceptance
+            author = acceptance.stage_author_dispatch(replay.state(), acceptance.stage_def_of("S7"))
+            pipeline_path = replay.task_root / "pipeline.json"
+            pipeline = json.loads(pipeline_path.read_text(encoding="utf-8")) if pipeline_path.is_file() else {}
+            if author and not acceptance.accepted_for(pipeline, "S7", author):
+                pipeline.setdefault("acceptance", {})["S7"] = [{"stage": "S7", "role": "qa-failure-analyst", "acceptor": "qa-doc-scribe",
+                                                                "reviewed_dispatch": author, "verdict": "accept", "failure_class": None, "quote": "",
+                                                                "witness_paths": [], "at": "t"}]
+                pipeline_path.write_text(json.dumps(pipeline), encoding="utf-8")
+            return real_await(d, person_words)
+        story_run.Driver.s7_await_scribe = await_scribe
         story_run.Driver.run_role = wrapped(lambda d, stage, role, **kw: f"run_role:{stage}:{role}:{kw.get('purpose')}", self.saved["run_role"])
         story_run.Driver.close_by_code = wrapped(lambda d, stage, reason, evidence, **kw: f"close_by_code:{kw.get('site')}", self.saved["close_by_code"])
         investigation.project = wrapped("project", self.saved_inv["project"])

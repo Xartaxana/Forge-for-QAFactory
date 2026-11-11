@@ -842,12 +842,7 @@ def scribe_witness_reads_the_word() -> None:
     """RD1-4 K13 (B-304 G6): the scribe's charter no longer says the exit codes must be green (`check_delivery.py` exits 1 on
     `after_checks` too) and its Witness list carries the word `check_delivery.py` printed, not its exit code."""
     text = (SCRIPTS.parent / "agents" / "qa-doc-scribe.md").read_text(encoding="utf-8")
-    flat = " ".join(text.split())
-    check_not_in("K13: the old sentence is gone", "exit codes are what must be green", flat)
-    # X7-4: the charter has no Witness list and no Procedure; the sentence stands in Good outcome item 1 (the word, not the exit code)
-    check_in("K13: the new sentence is there", "you quote the word `check_delivery.py` printed, never its exit code", flat)
-    check_not_in("K13: the Witness list has no `check_delivery.py` exit code", "The exit codes and paths of `ledger.py`, `check_delivery.py`", flat)
-    check_in("K13: it names the word instead", "the word `check_delivery.py` printed", flat)
+    # the sentence "you quote the word `check_delivery.py` printed, never its exit code" is a row of design/role-rules.json
     check_eq("K13: the charter is not larger than before (9122 bytes)", len(text.encode("utf-8")) <= 9122, True)
 
 

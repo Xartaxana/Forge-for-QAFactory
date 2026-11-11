@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from harness import (  # noqa: E402
-    FIXTURES, PLUGIN_ROOT, check, check_eq, check_in, cleanup, finish, run_script, temp_project, use_project,
+    FIXTURES, check, check_eq, check_in, cleanup, finish, run_script, temp_project, use_project,
 )
 
 import config_contract as C  # noqa: E402
@@ -444,28 +444,9 @@ def k8_the_cli_and_the_phase_files() -> None:
         check_eq("K8 a second config-restore: already_restored, no line", (again["state"], "line" in again), ("already_restored", False))
     finally:
         project.done()
-    skills = PLUGIN_ROOT / "skills" / "qa-story" / "phases"
-
-    def has(text: str, key: str) -> bool:
-        return key in text
-    s0, s9 = (skills / "s0.md").read_text(encoding="utf-8"), (skills / "s9.md").read_text(encoding="utf-8")
-    check("K8 s0.md carries the config-snapshot command", has(s0, 'story_step.py" config-snapshot --task <TICKET>'))
-    check("K8 s9.md carries the config-restore command", has(s9, 'story_step.py" config-restore --task <TICKET>'))
-    restore_key = 'story_step.py" config-restore --task <TICKET>'
-    check("K8 s9.md restores BEFORE the report rebuild (F4)", 0 <= s9.find(restore_key) < s9.find("report_facts.py\" --task <TICKET> --write"))
-    for name in ("s4.md", "s8.md"):       # the skill path's `stop` exits (F3)
-        check(f"K8 {name} carries the config-restore command at the stop exit", has((skills / name).read_text(encoding="utf-8"), restore_key))
-    check("K8 (negative control) a stop exit text without the command fails the key",
-          not has((skills / "s4.md").read_text(encoding="utf-8").replace("config-restore", "x"), restore_key))
-    check("K8 (negative control) the key check fails on a text without the command", not has(s0.replace("config-snapshot", "x"), "config-snapshot --task <TICKET>"))
 
 
 def k9_one_atomic_writer() -> None:
-    source = (PLUGIN_ROOT / "scripts" / "config_contract.py").read_text(encoding="utf-8")
-    body = source.split("def _write_config", 1)[1].split("\ndef _replace_bytes", 1)[0]
-    check("K9 _write_config writes the config and its backup through _replace_bytes", body.count("_replace_bytes(") == 2 and "os.replace" not in body and "write_text" not in body)
-    restore = source.split("def _restore(", 1)[1].split("\ndef revert_line", 1)[0]
-    check("K9 restore_config writes through _replace_bytes and has no writer of its own", "os.replace" not in restore and "write_text" not in restore and "write_bytes" not in restore)
     project = Project()
     try:
         C._write_config(project.root, config_of(project), dict(config_of(project), default_environment="local-docker"), "h1", "onboarding:x")
@@ -608,11 +589,6 @@ def k11_fix_round_t1546() -> None:
     check_eq("K11 F5 _moment is contract._answer_moment (a naive time is UTC, junk is None)",
              (C._moment("2026-01-01T00:00:00"), C._moment("2026-01-01T00:00:00Z"), C._moment("junk")),
              (C._moment("2026-01-01T00:00:00+00:00"),) * 2 + (None,))
-    # F7: the approvals log goes through the one writer too (a mutation: a hand-rolled writer back in either function)
-    source = (PLUGIN_ROOT / "scripts" / "config_contract.py").read_text(encoding="utf-8")
-    approvals = source.split("def record_approval(", 1)[1].split("\ndef unanswered_pointers", 1)[0]
-    check("K11 F7 record_approval and record_fold write through _replace_bytes", approvals.count("_replace_bytes(") == 2 and "mkstemp" not in approvals and "os.replace" not in approvals)
-    check("K11 F8 a report adaptation is named as one", '"source": "report adaptation"' in source)
 
 
 def k12_a_stand_fact_recorded_at_a_gate_outlives_the_story() -> None:

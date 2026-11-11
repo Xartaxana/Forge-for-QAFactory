@@ -5,6 +5,7 @@ import os
 import tempfile
 from pathlib import Path
 import hooklib
+import stand_identity as SI
 from event_store import atomic_json, content_hash
 from detector_verdict import one_of
 from role_cli import RefusingParser, command_from_argv, epilog, refuse, run_guarded
@@ -48,7 +49,8 @@ def prepare(kind):
             # `confirmation` is offered here rather than added to BUG_REQUIRED: a bug filed
             # before TP1-15045 taught the rule carries none and reads as confirmed
             # (contract.bug_confirmation), and only a bug written NOW must state it.
-            keys += ['source_draft', 'gate_b_decision_id', 'confirmation', 'cases', 'requirements', 'no_case_reason']
+            keys += ['source_draft', 'gate_b_decision_id', 'confirmation', 'cases', 'requirements', 'no_case_reason',
+                     'red_test', 'red_test_none']
         return {'frontmatter': dict.fromkeys(keys), 'body': None}
     raise ValueError('unknown artifact kind')
 
@@ -122,7 +124,15 @@ def validate(kind, data, task_root=None, not_checked=None):
                 errors.append('frontmatter.status must be one of ' + one_of(V.BUG_STATUS))
             if fm.get('severity') not in V.BUG_SEVERITY:
                 errors.append('frontmatter.severity must be one of ' + one_of(V.BUG_SEVERITY))
-            V.check_bug_form(Path('BUG-draft.md'), fm, render(data), errors)
+            draft = None
+            if source_draft and not Path(source_draft).is_absolute() and '..' not in Path(source_draft).parts:
+                if task_root is not None:
+                    # t-2187 N4: the draft the bug names, through the one reader (an unreadable one is `{}`: said, never a pass)
+                    import bug_records as BR
+                    draft = BR._draft_of(Path(task_root), source_draft)
+                elif not_checked is not None:
+                    not_checked.append('the manifestations of the source draft were not checked (no task root)')
+            V.check_bug_form(Path('BUG-draft.md'), fm, render(data), errors, draft)
         else:
             if fm.get('status') not in V.CASE_STATUS:
                 errors.append('frontmatter.status must be one of ' + one_of(V.CASE_STATUS))
@@ -222,7 +232,7 @@ def publish(root, kind, data, relative, expected_hash=None):
     allowed = target.is_relative_to(root / 'work')
     if kind == 'bug':
         allowed = allowed or target.is_relative_to(root / 'bugs')
-    if not allowed or any(x in target.parts for x in ('run-blocks', 'manual-blocks', 'baseline-receipts')):
+    if not allowed or any(x in target.parts for x in SI.PROTECTED_RECEIPT_FOLDERS):
         raise ValueError('author artifact must be under task/work, outside evidence receipts')
     if kind in NAMES and target.name != NAMES[kind]:
         raise ValueError('canonical artifact filename required')

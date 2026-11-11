@@ -39,6 +39,7 @@ import story_run  # noqa: E402
 
 TASK = "QA-9"
 NO_FAILURES = "no failures — nothing to triage"
+# t-1991 U3b: the place lines (and "Places to settle: none in this run", Q4/AR-23) are appended by `run_role`, not by `stage_S7`: `told` is the driver's own words
 
 
 def write(task_root: Path, rep=None, man=None, triage=None) -> None:
@@ -209,13 +210,13 @@ def k5_stage_s7_asks_code_before_the_analyst() -> None:
         # (h) the analyst already answered (an accepted S7 dispatch): code is not asked at all, only the repairs run
         row = {"case": "TC-9", "verdict": "NOT_EXECUTED", "fix_result": "not_fixed"}
         write(task_root, report(manual=[check_row("TC-9")]), {"tests": [], "unresolved": []}, {"schema_version": 2, "triage": [row]})
-        driver, moves, launched = rig(root, env, dispatches={"S7-qa-failure-analyst-1": {"stage": "S7", "status": "accepted"}})
+        driver, moves, launched = rig(root, env, dispatches={"S7-qa-failure-analyst-1": {"stage": "S7", "role": "qa-failure-analyst", "status": "accepted"}})
         with Verdict(True):
             quietly(driver.stage_S7)
         check_eq("an accepted S7 dispatch over a FRESH triage: no pre-triage, no role, no close - S7 goes to its repairs",
                  (rows_of(task_root), launched, moves), ([row], [], [("s7_repairs", [])]))
         write(task_root, report(manual=[check_row("TC-9")]), {"tests": [], "unresolved": []}, {"schema_version": 2, "triage": []})
-        driver, moves, launched = rig(root, env, dispatches={"S7-qa-failure-analyst-1": {"stage": "S7", "status": "accepted"}})
+        driver, moves, launched = rig(root, env, dispatches={"S7-qa-failure-analyst-1": {"stage": "S7", "role": "qa-failure-analyst", "status": "accepted"}})
         with Verdict(True):
             quietly(driver.stage_S7)
         check_eq("N1: an accepted analyst over a failure with NO row is not trusted: code answers what it can and S7 is not closed over the rest",
@@ -620,7 +621,8 @@ def r7_the_reorder_round() -> None:
     # silent `no_progress` (spec 5.7 p.4: another round or the limit question)
     for label, digest in (("concerns + a `rejected` row", "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected\nwork/x.md"),
                           ("concerns + an `approved_with_fixes` row", "qa-code-critic S5 TC-1 · concerns\nTC-1 · approved_with_fixes\nwork/x.md")):
-        raised, outcome, log = run_round([digest])
+        # the critic's form carries one typed finding (the form gate refuses a send-back without it); the untyped road is K4/K8a/K8b
+        raised, outcome, log = run_round([digest], form=FORM)
         check_eq(f"K-R7-7: {label} is sent back (retry), not `no_progress`: two rounds spend the cap, then the limit question names the "
                  "test, and nothing is marked", (type(raised).__name__, outcome, "marked" in log, authors(log), run_round.asks),
                  ("Person", None, False, 2, [["inst_r"]]))
@@ -707,14 +709,12 @@ def r7_the_reorder_round() -> None:
 
 
 def r7_the_conductor_text() -> None:
-    """K-R7-11: the Repair section of s7.md names both commands of the round and the person's word with its price."""
+    """K-R7-11: the Repair section of s7.md names the commands and words code reads (the brief-lines sentences are rows of design/role-rules.json)."""
     text = (PLUGIN_ROOT / "skills" / "qa-story" / "phases" / "s7.md").read_text(encoding="utf-8")
     repair = text.split("## Repair", 1)[1].split("## No repair", 1)[0]
-    for key in ("s7_reorder.py\" start", "s7_reorder.py\" finish", "s7_reorder.py\" mark-fixed", "append the brief lines `start` printed",
-                "appending the brief lines `finish` printed", "S7 reorder review", "plan before windows", "--words-file",
-                "controller.py\" --operation rework", "story_step.py\" materialize"):
+    for key in ("s7_reorder.py\" start", "s7_reorder.py\" finish", "s7_reorder.py\" mark-fixed", "S7 reorder review", "plan before windows",
+                "--words-file", "controller.py\" --operation rework", "story_step.py\" materialize"):
         check_in(f"K-R7-11: the Repair section carries {key!r}", key, repair)
-    check_not_in("...and no bare Agent(qa-automator) launch", 'subagent_type: "qa-automator"', repair)
 
 
 def rl8_asked_once_per_test_and_count() -> None:
@@ -788,7 +788,7 @@ def s7_fresh_rig(report_rows, triage_rows):
     """A K5 rig with an ACCEPTED analyst dispatch and the real freshness check over `report_rows` / `triage_rows`."""
     root, task_root, env = seed(TASK)
     write(task_root, report(report_rows), {"tests": [], "unresolved": []}, {"schema_version": 2, "triage": triage_rows})
-    driver, moves, launched = rig(root, env, dispatches={"S7-qa-failure-analyst-1": {"stage": "S7", "status": "accepted"}})
+    driver, moves, launched = rig(root, env, dispatches={"S7-qa-failure-analyst-1": {"stage": "S7", "role": "qa-failure-analyst", "status": "accepted"}})
     driver.s7_repairs = lambda: moves.append(("s7_repairs", []))
     return root, task_root, driver, moves, launched
 
@@ -962,7 +962,8 @@ def e9_the_s7_rule_stands_before_rework_of() -> None:
             return rule("digest") if callable(rule) else rule
         check_eq("E9: with a repair row a reworked analyst's finish is OpenWork (S7 stays open)", type(ruled(complete)).__name__, "OpenWork")
         write(rig_.task_root, triage={"triage": [{"case": "TC-1", "instance_id": "inst_1", "verdict": "APP_BUG"}]})
-        check_eq("E9: with nothing to repair the same call answers None (today's road)", ruled(complete), None)
+        # X7-6: with nothing to repair the finish is not "today's road" (None) any more: it awaits the consumer (the scribe), never closes S7
+        check_eq("E9: with nothing to repair the same call awaits the scribe's acceptance (X7-6)", getattr(ruled(complete), "unresolved", None), "stage_awaits_acceptance")
         check_eq("E9 control: another stage's rework still answers False", rig_.driver.completion_for("S5", "qa-automator", {"rework_of": "x"}), False)
     finally:
         rig_.done()

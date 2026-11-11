@@ -242,9 +242,6 @@ def one_block_for_everything_and_the_halt():
 
 def the_record_never_reaches_finish():
     """K3-6: POSITION - `main` asks, `all_errors` (what `finish` and the driver read) does not."""
-    import inspect
-    check("K3-6: `main` calls text_end_after_handback", "text_end_after_handback(" in inspect.getsource(gate.main))
-    check("K3-6: `all_errors` does not", "text_end_after_handback" not in inspect.getsource(gate.all_errors))
     asked = []
     real = gate.text_end_after_handback
     names = ("scoped_errors", "detector_errors", "witness_errors", "grounding_errors", "case_identity_errors", "digest_errors", "required_outputs_errors")

@@ -159,7 +159,29 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--tail", type=_positive_int, default=DEFAULT_TAIL)
     st = sub.add_parser("start")
     st.add_argument("--ref", default="main")
+    # the inputs of the dispatched run, the form the GitLab reader took for its pipeline variables (exp-final cmd_start):
+    # KEY=VALUE, repeatable; the backend's check refuses a bad pair before the token is read
+    st.add_argument("--var", action="append", default=[], metavar="KEY=VALUE")
+    st.add_argument("--workflow", default=None, metavar="FILE",
+                    help="the workflow file to dispatch (the backend's default when absent)")
     return ap
+
+
+VAR_FORM = "--var expects KEY=VALUE (a non-empty KEY, e.g. --var TEST_REDUNDANCY=1)"
+
+
+def parse_vars(pairs) -> dict:
+    """{KEY: VALUE} of the repeated --var KEY=VALUE; the value may be empty (KEY= sends ""), it may contain "=". A pair
+    without "=", an empty KEY or a KEY given twice raises Refusal naming the expected form (exit 2, before any request)."""
+    out = {}
+    for pair in pairs or []:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            raise Refusal("start: %s; got %s" % (VAR_FORM, sanitize_own(repr(pair))))
+        if key in out:
+            raise Refusal("start: --var %s is given twice; expected each KEY once" % sanitize_own(key))
+        out[key] = value
+    return out
 
 
 def execute(args, backend: Backend) -> int:

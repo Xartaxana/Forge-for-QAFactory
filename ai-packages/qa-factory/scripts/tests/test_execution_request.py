@@ -1017,8 +1017,8 @@ def hf3_6a_the_s6_close_context() -> None:
                             ("two", [runner, critic])):
             put("state/controller.json", state(dispatches={r["id"]: r for r in rows}))
             text = refusal()
-            check(f"A-K2 {label} running: the refusal names every id and `--dispatch`",
-                  all(r["id"] in text for r in rows) and f"`--dispatch {rows[0]['id']}`" in text, text)
+            check(f"A-K2 {label} running: the refusal names every id and `--dispatch`",   # every holder's door (t-2183 F2): none by position
+                  all(r["id"] in text and f"`--dispatch {r['id']}`" in text for r in rows), text)
         # A-K3: S6 closed, by code (the receipt) or by its runner
         put("state/controller.json", state(stages={**done, "S6": {"status": "completed", "code_only": True,
                                                                   "receipt_id": "S6-code-only-1"}}))
@@ -1030,7 +1030,7 @@ def hf3_6a_the_s6_close_context() -> None:
         # a sentence of the predicate this reader does not know is still a refusal, in the controller's own words
         import controller as controller_module
         known = controller_module.code_close_conflicts
-        controller_module.code_close_conflicts = lambda s, st: [(ValueError, "a new kind of conflict")]
+        controller_module.code_close_conflicts = lambda s, st, v=None: [(ValueError, "a new kind of conflict")]   # TR4-7 passes `verdicts`
         try:
             put("state/controller.json", state())
             check_in("edge: an unknown conflict is refused with its own sentence", "(a new kind of conflict)", refusal())
@@ -1084,15 +1084,15 @@ def hf3_6a_the_s6_close_context() -> None:
         known_facts = controller_module.code_close_facts
         try:
             put("state/controller.json", state())
-            controller_module.code_close_facts = lambda s, st: {"running": ["zz-9"], "behind": None, "completed": False}
+            controller_module.code_close_facts = lambda s, st, v=None: {"running": ["zz-9"], "behind": None, "completed": False}   # t-2113: the caller passes `verdicts` since TR1-9
             text = refusal()
             check("F-1 a running dispatch the facts name (and the state does not) is named, with its door",
                   "(zz-9)" in text and "`--dispatch zz-9`" in text, text)
-            controller_module.code_close_facts = lambda s, st: {"running": [], "behind": ("S3", "blocked"), "completed": False}
+            controller_module.code_close_facts = lambda s, st, v=None: {"running": [], "behind": ("S3", "blocked"), "completed": False}
             check_in("F-1 the stage behind and its status come from the facts", "S6 has not started: S3 is blocked", refusal())
-            controller_module.code_close_facts = lambda s, st: {"running": [], "behind": ("S3", None), "completed": False}
+            controller_module.code_close_facts = lambda s, st, v=None: {"running": [], "behind": ("S3", None), "completed": False}
             check_in("F-1 ...and a status the facts do not know is `not recorded`", "S3 is not recorded", refusal())
-            controller_module.code_close_facts = lambda s, st: {"running": [], "behind": None, "completed": True}
+            controller_module.code_close_facts = lambda s, st, v=None: {"running": [], "behind": None, "completed": True}
             check_in("F-1 completed from the facts", "S6 is already closed (by its runner)", refusal())
         finally:
             controller_module.code_close_facts = known_facts
@@ -1812,6 +1812,61 @@ def ep1_37_build_mine_request_role_wins() -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def pc9b_c8_a_reference_stand_run_is_a_sample() -> None:
+    """C8 (t-2181 PC-9b, rewritten t-2277 W1, owner 11.11.2026): a request whose probe names a stand that runs the OLD version of a side of
+    the story is NOT refused: `validate_request` passes it and `run_suite.py --request` launches it; the run block is written as a sample
+    (`reference_run` mark, in `work/reference-runs`, never in `work/run-blocks`, so no evidence reader sees it). NEGATIVE CONTROLS: the
+    same request on the story's own stand is a plain run (no mark, `work/run-blocks`); a story with no reference is a plain run; the
+    record that names the story's own stand ALSO as the reference is still refused (a data contradiction, not C8)."""
+    story_dir = ROOT / "qa-factory" / "artifacts" / "REQ-1"
+    story = story_dir / "pipeline.json"
+    sides = {"ui": {"reality": "real", "deliverable": True, "reference": "qa", "source": "person"}}
+
+    def run(key: str, stand: str = "qa") -> tuple:
+        request = base_request(key)
+        request["input_fingerprint"] = "sha256:" + key           # bytes no earlier run holds: a repeat is answered, never launched
+        request["runtime_provenance"]["environment_id"] = stand
+        before = {p.name for p in (story_dir / "work").rglob("*.json")} if (story_dir / "work").exists() else set()
+        out = invoke(request)
+        samples = sorted((story_dir / "work" / "reference-runs").glob("*.json")) if (story_dir / "work" / "reference-runs").exists() else []
+        plain = sorted((story_dir / "work" / "run-blocks").glob("*.json")) if (story_dir / "work" / "run-blocks").exists() else []
+        return request, out, [p for p in samples if p.name not in before], [p for p in plain if p.name not in before]
+    try:
+        story.write_text(json.dumps({"ticket": "REQ-1", "environment": "dev", "sides": sides}), encoding="utf-8")
+        request = base_request("c8-reference")                       # its probe says environment_id `qa`: the reference stand
+        check_eq("C8: validate_request no longer refuses a run aimed at the reference stand", refusal(request), "")
+        counter = ROOT / "launch-count.txt"
+        launched = counter.read_text() if counter.exists() else "0"
+        _, out, samples, plain = run("c8-reference-run")
+        check("C8: run_suite --request on the reference stand goes (exit 0, not run_refused, the runner launched)",
+              out.returncode == 0 and "run_refused" not in out.stdout and counter.exists() and counter.read_text() != launched,
+              f"{out.returncode} {out.stdout[-300:]} {out.stderr[-300:]}")
+        check_eq("C8: its run block is a sample - one block in work/reference-runs, none in work/run-blocks", (len(samples), len(plain)), (1, 0))
+        block = json.loads(samples[0].read_text(encoding="utf-8")) if samples else {}
+        check_eq("C8: the block carries the mark (stand, side, not the story's code)",
+                 {k: (block.get("reference_run") or {}).get(k) for k in ("stand", "side", "story_code")},
+                 {"stand": "qa", "side": "ui", "story_code": False})
+        check_in("C8: and the mark's words say it is a sample, not the story's result", "a sample, not the story's result",
+                 str((block.get("reference_run") or {}).get("words")))
+        import finalize_task as FT
+        reduced = FT.reduce(story_dir)[0]
+        check_eq("C8: the reducer (the one reader of the story's evidence) holds no row of the sample (earlier runs of the story stay)",
+                 [r for r in reduced.get("results") or [] if r.get("attempt_id") == block.get("attempt_id")], [])
+        _, out, samples, plain = run("c8-own-run", "dev")
+        check_eq("C8 negative control: the same request on the story's own stand is a plain run (no sample, a run block)",
+                 (out.returncode, len(samples), len(plain)), (0, 0, 1))
+        check_eq("C8 negative control: and its block has no mark", "reference_run" in json.loads(plain[0].read_text(encoding="utf-8")) if plain else None, False)
+        story.write_text(json.dumps({"ticket": "REQ-1", "environment": "dev"}), encoding="utf-8")
+        _, out, samples, plain = run("c8-none-run")
+        check_eq("C8: a story with no reference never reads the rule (a plain run, as before)", (out.returncode, len(samples), len(plain)), (0, 0, 1))
+        story.write_text(json.dumps({"ticket": "REQ-1", "environment": "qa", "sides": sides}), encoding="utf-8")
+        why = refusal(base_request("c8-contradiction"))
+        check("C8: the record that names the story's own stand also as the reference is still refused (a contradiction)",
+              "both as its own stand" in why and "sides.ui.reference" in why, why)
+    finally:
+        story.write_text(json.dumps({"ticket": "REQ-1"}), encoding="utf-8")
+
+
 def main() -> None:
     ep1_1_b371_instance_file_is_looked_for_in_the_run_directory_first()
     ep1_28_stand_probe_spec()
@@ -2090,6 +2145,7 @@ def main() -> None:
         n2_f1_b220_the_report_placeholder_may_sit_inside_one_token(request)
         t300_k33_a_freshness_read_is_a_rehearsal_end_to_end()
         hf3_6a_the_s6_close_context()
+        pc9b_c8_a_reference_stand_run_is_a_sample()
         hf2_10_spell_as_collected_proves_only_what_it_found()
         rh1_5_one_reading_of_the_selected_profiles()
     finally:

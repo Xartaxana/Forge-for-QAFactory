@@ -20,12 +20,51 @@ def write_task(root: Path, done: bool = True) -> Path:
     return task
 
 
+def test_held_ledger_lock_is_refused_not_hung():
+    """TR4-2 C: a ledger lock held past the wait does not hang the CLI: it prints one `invalid_estimate` object whose
+    error is the helper's sentence (the lock file, the holder), exit 2, and the ledger is untouched."""
+    import estimate_record as ER
+    import event_store as ES
+    from event_store import take_file_lock
+    import io
+    import os
+    from contextlib import redirect_stdout
+    with tempfile.TemporaryDirectory(prefix="qa-estimate-held-") as td:
+        root = Path(td)
+        write_task(root)
+        facts = root / "facts.json"
+        facts.write_text(json.dumps({"forecast": {"size_initial": "S"}, "actual": {"n": 1}}), encoding="utf-8")
+        import runtime_paths as RP
+        holder = take_file_lock(RP.state_file(root, "estimation-ledger.lock"), 0, purpose="test holder", record_holder=True)
+        saved, argv = ES.SHORT_RMW_LOCK_WAIT_S, sys.argv
+        ES.SHORT_RMW_LOCK_WAIT_S = 0.2
+        sys.argv = ["estimate_record.py", "--project-root", str(root), "--task", "T-1", "--facts", str(facts)]
+        out = io.StringIO()
+        try:
+            try:
+                with redirect_stdout(out):
+                    ER.main()
+                code = 0
+            except SystemExit as stop:
+                code = stop.code
+        finally:
+            ES.SHORT_RMW_LOCK_WAIT_S, sys.argv = saved, argv
+            holder.release()
+        printed = json.loads(out.getvalue())
+        assert code == 2 and printed["status"] == "invalid_estimate", (code, printed)
+        assert "held by process %d" % os.getpid() in printed["error"].lower(), printed
+        assert "estimation-ledger.lock" in printed["error"], printed
+        assert not (root / "qa-factory" / "records" / "estimation-ledger.jsonl").exists()
+
+
 def main() -> int:
     failures = 0
+    total = 0
     def check(name, condition):
-        nonlocal failures
+        nonlocal failures, total
         print(("PASS " if condition else "FAIL ") + name)
         failures += not condition
+        total += 1
     facts = {"forecast": {"size_initial": "S", "size_final": "M"},
              "actual": {"scenario_count": 4}, "drivers": ["dependency"]}
     with tempfile.TemporaryDirectory(prefix="qa-estimate-") as td:
@@ -89,6 +128,9 @@ def main() -> int:
         check("N2-E: the CLI prints one JSON object whose error is the compound",
               ran.returncode == 2 and out["status"] == "invalid_estimate" and len(split_items(out["error"])) == 2
               and len(ran.stdout.splitlines()) == 1)
+    test_held_ledger_lock_is_refused_not_hung()
+    check("TR4-2 C: a held ledger lock is refused as invalid_estimate naming the holder, not hung", True)
+    print(f"\n=== test_estimate_record: {total - failures}/{total} ok ===")   # the tally the selftest reads as "ran"
     return 1 if failures else 0
 
 

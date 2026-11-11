@@ -221,6 +221,21 @@ def probe_debt_settle_checks(root: Path) -> None:
     _, out, _ = run_start(task, "S5", "qa-code-critic", settle_writing(owed))
     check_in("stale: a file stamped with THIS dispatch is given", line, out)
 
+    # P2-2 start_reports_settle_not_run_when_nothing_changed: the settle re-addressed the file and started nothing
+    fresh()
+    code, out, _ = run_start(task, "S5", "qa-code-critic", settle_writing(dict(owed, unchanged_since="S5-qa-code-critic-0")))
+    check_eq("start_reports_settle_not_run_when_nothing_changed: the start goes through", code, 0)
+    check_in("start_reports_settle_not_run_when_nothing_changed: one note names the dispatch it stood on",
+             "note: probe_debt --settle: nothing changed since S5-qa-code-critic-0, not run", out)
+    check_in("...and the debt is still an input", line, out)
+    reasons = sorted({str(l.get("reason")) for l in owed["left"] if l.get("reason")})
+    check("F10a: the owed fixture has a reason to name", bool(reasons), str(owed["left"]))
+    check_in("F10a: the note says why each item stays as it was (the reasons it was left for)",
+             "(each item stays as it was left: " + ", ".join(reasons) + ")", out)
+    fresh()
+    _, out, _ = run_start(task, "S5", "qa-code-critic", settle_writing(owed))
+    check_not_in("a settle that ran says nothing of the kind", "nothing changed since", out)
+
     # edge i: the settle fails - a note, and the critic still starts (P1)
     fresh()
     code, out, log = run_start(task, "S5", "qa-code-critic",

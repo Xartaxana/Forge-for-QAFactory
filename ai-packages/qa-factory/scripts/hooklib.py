@@ -659,6 +659,38 @@ def load_ref_json(name: str) -> dict:
         return {}
 
 
+def read_answer(out):
+    """THE reader of a script's one-line JSON answer in its stdout+stderr text (t-2020; AR-13, AR-18, AR-28): the LAST line that
+    parses as a JSON object, else None. A warning a script prints to stderr before or after the answer stays in the text and does not
+    hide it; no readable answer is `None`, never an empty dict (the caller names what came back)."""
+    for text in reversed(str(out or "").splitlines()):
+        if text.strip().startswith("{"):
+            try:
+                found = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(found, dict):
+                return found
+    return None
+
+
+def read_document(out):
+    """The same for a script whose answer is a PRETTY-PRINTED object (several lines, `indent=`): the first object that starts a line
+    at column 0 and parses (raw decode from there; text after it is left alone), else None. A warning with a `{` inside a line is
+    skipped, and so is one that is no object."""
+    text, offset = str(out or ""), 0
+    for line in text.splitlines(keepends=True):
+        if line.startswith("{"):
+            try:
+                found = json.JSONDecoder().raw_decode(text[offset:])[0]
+            except ValueError:
+                found = None
+            if isinstance(found, dict):
+                return found
+        offset += len(line)
+    return None
+
+
 def read_json(path, default=None, *, errors=(OSError, ValueError), kind=None):
     """THE JSON file reader of the package (B-309 e: ten private `_read_json` copies became this one). The parsed value, or
     `default` when `path` cannot be read: absent, a directory, unreadable (OSError), not UTF-8 or not JSON (ValueError).

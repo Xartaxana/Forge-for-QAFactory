@@ -82,6 +82,14 @@
       "read_by_section": "grounding",
       "why": "the grounding table: rows, requirements and claims are the strategist's; code fills the index sections when the skeleton is built (each node that adds such a script names it in `machinery` in its own commit)"
     },
+    "work/reference-snapshot.yaml": {
+      "writer": "reference_snapshot.py",
+      "why": "the old version of an S-c story as the S1 reference walk saw it; `put` validates that every item cites a capture of that walk or an old test, `--replace` is the door for a new walk"
+    },
+    "work/reference-behaviours.md": {
+      "writer": "gate_brief.py",
+      "why": "every behaviour of the old version the factory saw, by its words, marked carried over / differs / used by no test case; `write_gate_message` writes it beside gate A's message from the same facts as the block's count line, for a story whose reference snapshot was read; the person reads it, nobody edits it"
+    },
     "work/blast-radius.json": {
       "writer": "blast_radius.py",
       "why": "the blast-radius index of the implementation diff, built by code from git objects of the recorded commit; `ensure` is the one writer (the CLI and brief_pack are its callers), the table copies it and the strategist only reads it"
@@ -104,7 +112,23 @@
     },
     "work/test-code/critic-findings.md": {
       "writer": "qa-code-critic (the role)",
-      "why": "the S5 twin of the S4 findings file (handoffs/s5-critic-to-automator.yaml); listed before its neighbours so a directory key never claims it"
+      "why": "the old single findings file (a story from before)"
+    },
+    "work/test-code/critic-findings-*.md": {
+      "writer": "qa-code-critic (the role)",
+      "why": "the S5 critic's findings of ONE dispatch"
+    },
+    "work/s5-notes/S5-qa-code-critic-*.md": {
+      "writer": "qa-code-critic (the role)",
+      "why": "the notes of ONE critic dispatch"
+    },
+    "work/s5-notes/S5-qa-automator-*.md": {
+      "writer": "qa-automator (the role)",
+      "why": "the notes of ONE automator dispatch"
+    },
+    "work/s5-notes/": {
+      "writer": "qa-automator (the role)",
+      "why": "the S5 notes folder, one file per dispatch"
     },
     "work/test-cases/": {
       "writer": "qa-case-designer (the role)",
@@ -127,7 +151,7 @@
       "machinery": [
         "s5_plan.py"
       ],
-      "why": "the plan for every case of S5 is the automator's decision (levels, shapes, consolidation); `s5_plan.py --init` writes only the skeleton (cases, S3 rows, Then clauses) and moves a stale plan to work/s5-plan.prev.json; a plan rework grows it in place (`s5_plan.refresh`: rows of new cases, current hashes); the critic and the windows only read it (`s5_plan.load`)"
+      "why": "the plan for every case of S5 is the automator's decision (levels, shapes, consolidation); `s5_plan.py --init` writes only the skeleton and moves a stale plan to work/s5-plan.prev.json; a rework grows it in place; the critic and the windows only read it"
     },
     "work/s5-plan-reviews.json": {
       "writer": "s5_plan.py",
@@ -135,7 +159,7 @@
     },
     "work/probe-models/": {
       "writer": "qa-code-critic (the role)",
-      "why": "the critic's model of a reading B, one file per instance, case and alternative; the probe copies it into its record"
+      "why": "the critic's models: a file per dispatch, an entry per check (`alternative` on a reading's)"
     },
     "work/probes/alternative/": {
       "writer": "probe_by_code.py",
@@ -162,9 +186,63 @@
       "machinery": [
         "manual_evidence.py",
         "manual_capture.py",
+        "walk_session.py",
         "runtime_probe.py"
       ],
       "why": "every writer here writes its OWN receipt file, never another's"
+    },
+    "state/driver-timings.jsonl": {
+      "writer": "story_run.py",
+      "machinery": [
+        "driver_timing.py"
+      ],
+      "why": "t-1937 P2-1: one line per timed driver step ({ts, stage, dispatch, step, seconds, error?}), appended by Driver.timing_write (one O_APPEND write, no read-modify-write); driver_timing.py is its one reader and prints the hops; a missing file means no timings recorded, never 0 s of overhead"
+    },
+    "state/walks/": {
+      "writer": "walk_session.py",
+      "why": "the kept-session server of a manual walk: its record state/walks/<W>.json (pid, port, token, state), its log, its profile folders under state/walks/<W>/sessions/, and the full answer of every step call under state/walks/<W>/batches/; nothing else writes here"
+    },
+    "state/window-files/": {
+      "writer": "window_files.py",
+      "why": "first-write ownership of a test file by an S5 window: one claim file per test file (`O_CREAT|O_EXCL`, so of two racing sessions one wins), written by the guard's `window_file_check` through `window_files.claim` and freed by `window_files.release` (the driver at a window's close; `window_files.py --task <task root> --release <window>` for the conductor); guard state, not a stage output (no stage lists it, so no dispatch hashes a claim as evidence); no role writes here and nothing else does"
+    },
+    "work/walks/": {
+      "writer": "walk_session.py",
+      "why": "the result record of each walked item work/walks/<W>/<item>.json (the verdict checked against the item's attempt, the final snapshot, the observations) and work/walks/<W>/timing.jsonl, written by the server when the walker sends its verdict (or by the driver's after-step for an item that never got one); the case record is reduced from it by manual_evidence.py record_from_walk and walk_timing.py only reads it; nothing else writes here"
+    },
+    "work/evidence/manual/settle-*/": {
+      "writer": "manual_capture.py",
+      "machinery": [
+        "walk_session.py"
+      ],
+      "why": "the one root of every capture of a place the failure analyst settles (case `settle-<place id>`, attempts aN): `manual_capture.py ui|http --case settle-<place id>` and the walk session's `settle` lane (`walk_session.py open --place settle`) write attempts here side by side, each its next aN; evidence on disk is never rewritten; the analyst never writes here by hand"
+    },
+    "work/evidence/manual/survey-*/": {
+      "writer": "walk_session.py",
+      "machinery": [
+        "manual_capture.py"
+      ],
+      "why": "the attempts of a first look walked in the session's `survey` lane (`walk_session.py open --place survey`, item `R-n` or an element id of the snapshot): work/evidence/manual/survey-<item>/aN/, each attempt its next aN, evidence on disk never rewritten; `capture_cited` reads them to tie a quote to the walk that took it. The role never writes here by hand"
+    },
+    "work/first-look.yaml": {
+      "writer": "first_look.py",
+      "why": "the record of the first look at the new version on the stand (t-2277 FL-2): `first_look.py put` writes it whole, from the walker's rows checked against the register and the walk (`walk_session.capture_cited`), with the fields only code owns (walk, stand, stand_build, source_head, register_hash, sides_met); `first_look.read` is its one reader. The walker never edits it by hand"
+    },
+    "state/first-look-attempt.json": {
+      "writer": "first_look.py",
+      "why": "the attempt that walks the first look (`first_look.py begin|end`, and `put` marks it written): the dispatch, the walk, the stand, the heads and the register hash it was opened on, the outcome and the failures to open; `due` reads it so a paid walk of the same code and register is not repeated. Nothing else writes it"
+    },
+    "evidence/control-*/": {
+      "writer": "walk_session.py",
+      "why": "the attempts of a control experiment walked in the session's `control` lane (`walk_session.py open --place control`): evidence/control-<id>/aN/, the folder a triage row's `control.evidence` names a file of. The DIRECTORY only: no `evidence/control-*.json` file exists and nothing writes one"
+    },
+    "evidence/place-answer-*.json": {
+      "writer": "place_answers.py",
+      "why": "the record of the failure analyst's answer for one place (`place_answers.py write`): code sets `writer`, `written_at`, `dispatch`, `replaces`; the analyst never writes it"
+    },
+    "work/evidence/manual/<case>/tried.md": {
+      "writer": "qa-runner (the role)",
+      "why": "the exploration log of a manual window: one row per cell the runner took, with the capture that shows it; the recorder's `build` reads it for citations and never writes it"
     },
     "work/triage.json": {
       "writer": "qa-failure-analyst (the role)",
@@ -182,6 +260,10 @@
     "work/bug-drafts/": {
       "writer": "qa-failure-analyst (the role)",
       "why": "a draft is not a bug; the reporter files it after gate B"
+    },
+    "work/place-answers/": {
+      "writer": "qa-failure-analyst (the role)",
+      "why": "your scratch for an answer, one file per place, passed to `place_answers.py write --file`; keys: `place`, `answer` (bug|not_a_bug|requirement_silent|impossible), `expectation` {`source` (requirement|question|person|none; not none for a bug), `id`, `quote`}, `seen` {`quote`, `capture`}, `question` (requirement_silent), `why` (impossible, not_a_bug), `draft` (bug), `walk` (optional)"
     },
     "project:bugs/": {
       "writer": "qa-bug-reporter (the role)",
@@ -227,6 +309,10 @@
     "work/digests/": {
       "writer": "exit_gate.py",
       "why": "the digest of every handoff the exit gate passed, filed under its dispatch id (`<id>.txt`; the role's own text beside it as `<id>.original.txt` when code mended the form); `story_step finish --digest -` reads it, no role writes it"
+    },
+    "interim-report.md": {
+      "writer": "interim_packet.py",
+      "why": "the packet a person reads while a story waits for the code (t-2181 PC-7); assembled by code from the sides, the manifest, the run blocks and the provisional rows, rebuilt on every entry to the wait; the driver calls it, no role writes it"
     },
     "retro.md": {
       "writer": "qa-retro-analyst (the role)",

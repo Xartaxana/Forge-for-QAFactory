@@ -182,7 +182,7 @@ def one_source_per_count() -> None:
         check_eq("the facts carry their own keys", sorted(facts), sorted(
             ["task", "unknown", "bugs", "requirements", "manual", "cases", "tests", "changes", "probe_debt", "person_build", "ledger",
              "questions", "delivery", "gate_a", "gate_b", "size", "where", "not_proven", "skipped", "regression", "verdict",
-             "over_cap_windows", "collect_gaps", "quality_not_run", "exploratory", "integrations", "owed_rework", "branches", "attachments", "grounding"]))
+             "over_cap_windows", "collect_gaps", "quality_not_run", "exploratory", "integrations", "owed_rework", "branches", "attachments", "grounding", "passed_over", "reference_runs"]))   # passed_over: TR1-9, the work a code close passed over (report_facts.py `_passed_over_gap`)
         check_eq("a story with every source has no unknown entry", facts["unknown"], {})
         blocks = RF.render(facts)
         # (a) the bug count is the bug reader's: the ledger of this story has no failed row at all, and the
@@ -2376,7 +2376,7 @@ def person_build_line() -> None:
         report = (task / "test-report.md").read_text(encoding="utf-8")
         mine = lines_of(report)[0]
         probes = (("the critic's probe: the lead, then other text and several spans",
-                   "On a build you confirmed, see `cv_x`, `--skip_cache` and `scripts/check_delivery.py`"),
+                   "On a build you confirmed, see `cv_1a2b`, `--skip_cache` and `scripts/check_delivery.py`"),
                   ("a second span after the date", mine.replace(")", ") and `--other_flag work/y`", 1)),
                   ("the lead followed by different text", "On a build you confirmed, the api tests ran on `work/x` (2026-10-03)."),
                   ("several spans, the first not followed by the date", "On a build you confirmed, the api tests ran: `a` and `work/x` (2026-10-03)."),
@@ -2394,7 +2394,7 @@ def person_build_line() -> None:
             check(f"K-F7.6 {label}: the report check refuses it", bool(forbidden_errors(task)), str(forbidden_errors(task)))
         (task / "test-report.md").write_text(report, encoding="utf-8", newline="\n")
         check("K-F7.6 the probe line is refused by the shape rows too (a flag, a script name)",
-              not RF._clean_line("On a build you confirmed, see `cv_x`, `--skip_cache` and `scripts/check_delivery.py`"))
+              not RF._clean_line("On a build you confirmed, see `cv_1a2b`, `--skip_cache` and `scripts/check_delivery.py`"))
         check("K-F7.6 ... and the rendered line with a second span after the date is refused by `_clean_line`",
               not RF._clean_line(mine.replace(")", ") and `--other_flag work/y`", 1)))
         check_eq("K-F7.6 the real line with `--skip_cache from work/build` still passes the report check", forbidden_errors(task), [])
@@ -3058,8 +3058,10 @@ def r_5_to_r_9() -> None:
         RF.write(task)
         text = (task / "test-report.md").read_text(encoding="utf-8")
         body = G.find_blocks(text)["left-branches"][2]
-        check_in("R-8 the words that pass stay, a word with `ti_` in it (multi_tenant) or a `network/` path goes", "To check: is closed for. Needed: see and first", body)
-        check_not_in("R-8 ... the words that fail are not there", "multi_tenant", body)
+        # the shape reader (validate_artifacts.report_id_shape_hit, AR-13) flags a `work/` path, a `cv_`/`ti_` + 4 hex digits hash and the
+        # summary marker, on a word boundary: `network/ingress` and `multi_tenant` are not those shapes and stay; `work/log.txt` and `cv_ab12` go
+        check_in("R-8 the words that pass stay (network/ingress, multi_tenant); a `work/` path and a `cv_` hash go", "To check: network/ingress is closed for multi_tenant. Needed: see and first", body)
+        check_not_in("R-8 ... the words that fail are not there", "cv_ab12", body)
         check_in("R-8 all cut: the wording is in the ticket", "the wording is in the ticket; find it by the branches of this story", body)
         errors: list = []
         V.check_report_forbidden(task / "test-report.md", errors)
@@ -3126,7 +3128,9 @@ def r_10_11_size_and_pictures() -> None:
         body = size_of(task, view(["n%d.png" % i for i in range(12)], ["T-1: n%d.png" % i for i in range(12)]), True)
         check_in("R-10 at most report_units_shown names, then `and <k> more`", "(n0.png, n1.png, n2.png, n3.png, n4.png, n5.png, n6.png, n7.png, n8.png, n9.png, and 2 more)", body)
         body = size_of(task, view(["network/map.png"], ["T-1: network/map.png"]), True)
-        check_not_in("R-10 a name with `network/` is cut by `_shown`", "network/", body)
+        check_in("R-10 a name with `network/` is not a forbidden shape (the shape reader's boundary), so `_shown` keeps it", "network/map.png", body)
+        body = size_of(task, view(["work/map.png"], ["T-1: work/map.png"]), True)
+        check_not_in("R-10 (control) a name that IS the `work/` shape is cut by `_shown`", "work/map.png", body)
         report_path = task / "test-report.md"
         legacy_report(task)
         GB.attachments_data = view(["network/map.png"], ["T-1: network/map.png"])
@@ -3384,7 +3388,833 @@ def g2_5_what_the_change_touches() -> None:
         cleanup(task.parents[2])
 
 
+def one_bug_many_manifestations_in_the_report() -> None:
+    """t-2187 N3a (5.9, 8.3): `_r_bugs` prints, under a bug that shows in 2+ ways, its cause (how it was confirmed, in words), EVERY way
+    (none cut), the claims nobody verified as "Not verified:" and a possible same cause by the NUMBER of another row; a bug with one way
+    and no link prints byte-for-byte what it printed before the keys existed (golden); no file name and no field name in any line."""
+    def rec(i, title, cases, **over):
+        base = {"id": i, "title": title, "severity": "minor", "state": "unconfirmed", "confirmation": "unconfirmed", "reproduced_how": [],
+                "reproduction_problems": [], "requirements": ["R-8"], "cases": cases, "homes": [], "filing": None, "gate_b_not_chosen": False,
+                "gate_b_words": ""}
+        return dict(base, **over)
+
+    def facts(*records):
+        return {"bugs": {"records": list(records), "confirmed": 0, "reproduced": 0, "unconfirmed": len(records), "unreadable": 0,
+                         "outside_home": [], "sources": []}, "unknown": {}}
+    ways = [f"way {n}; start: state {n}; seen: {n}" for n in range(1, 8)]
+    cause = {"status": "confirmed", "statement": "the field replaces it with 1.", "why": "", "by_code": True, "runs": 2, "by_person": False,
+             "unverified": ["pasting -1 behaves like typing it"]}
+    old = RF._r_bugs(facts(rec("qty", "Quantity changes", ["TC-1"])))
+    key_free = {k: v for k, v in rec("qty", "Quantity changes", ["TC-1"]).items()}
+    check_eq("R-N3a golden: a bug with the new keys empty prints the same bytes as a bug without them", old,
+             RF._r_bugs(facts(dict(key_free, manifestations=[], cause={}, same_cause_as=[], draft_names=[]))))
+    check_in("R-N3a ... and that is the old row line, alone under its heading", "1. **minor · R-8 · TC-1** — Quantity changes (qty) (unconfirmed", old)
+    one = RF._r_bugs(facts(rec("qty", "Quantity changes", ["TC-1"], manifestations=ways[:1], cause=cause)))
+    check_eq("R-N3a one way, whatever the cause says: no new line", one, old)
+    merged = RF._r_bugs(facts(rec("qty", "Quantity changes", ["TC-1"], manifestations=ways, cause=cause, draft_names=["qty-coerced"]),
+                              rec("cart", "Cart keeps one digit", ["TC-2"], same_cause_as=["qty-coerced"], draft_names=["cart-digit"])))
+    lines = merged.splitlines()
+    first = next(i for i, ln in enumerate(lines) if ln.startswith("1. "))
+    check_eq("R-N3a the cause line, how it was confirmed (code and two starting states, the count as a word like the packet)", lines[first + 1],
+             "   One cause (by the line of the application code that does it and by trying it from two starting states): the field replaces it with 1.")
+    check_eq("R-N3a every one of 7 ways has its line, none cut", lines[first + 2: first + 10], ["   Shows as:"] + [f"   - {w}" for w in ways])
+    check_eq("R-N3a the unverified claim is said as not verified", lines[first + 10], "   Not verified: pasting -1 behaves like typing it.")
+    check_eq("R-N3a m1 the first bug shows the link too: the cart draft names it, so each row names the other", lines[first + 11],
+             "   Possibly the same cause as 2 (not verified).")
+    check_eq("R-N3a the second bug names the first by its row number, not by a file", lines[first + 13], "   Possibly the same cause as 1 (not verified).")
+    check_not_in("R-N3a no file name in the text", ".json", merged)
+    check_not_in("R-N3a no draft stem in a link line", "qty-coerced", merged)
+    # the cause that does not stand, is unverified or unknown, and a link to a row that is not in the report
+    for label, change, said in (
+            ("not standing", {"status": "unknown", "why": "the evidence behind it could not be re-read"},
+             "   Cause not established: the evidence behind it could not be re-read."),
+            ("the person's word", {"by_code": False, "runs": 0, "by_person": True}, "   One cause (on your word at gate B): the field replaces it with 1."),
+            ("unverified", {"status": "unverified", "why": "only one start state was run"}, "   Possibly one cause (not verified: only one start state was run): the field replaces it with 1."),
+            ("unknown", {"status": "unknown", "why": "no access to the code", "statement": ""}, "   Cause not established: no access to the code."),
+            ("no word", {"status": "", "why": ""}, "   Cause not established."),
+            ("a code line only", {"runs": 0}, "   One cause (by the line of the application code that does it): the field replaces it with 1."),
+            ("runs only, one state", {"by_code": False, "runs": 1}, "   One cause (by trying it from one starting state): the field replaces it with 1.")):
+        text = RF._r_bugs(facts(rec("qty", "Quantity changes", ["TC-1"], manifestations=ways[:2], cause=dict(cause, **change))))
+        check_in(f"R-N3a cause {label}", said + "\n", text)
+        if label in ("not standing", "unverified", "unknown", "no word"):
+            check_not_in(f"R-N3a cause {label}: never the line of a confirmed cause", "One cause (", text)
+    dangling = RF._r_bugs(facts(rec("cart", "Cart keeps one digit", ["TC-2"], same_cause_as=["no-such-draft"])))
+    check_not_in("R-N3a a link to a draft that is no row of the report prints nothing", "Possibly", dangling)
+    selfish = RF._r_bugs(facts(rec("qty", "Quantity changes", ["TC-1"], same_cause_as=["qty"], draft_names=["qty"])))
+    check_not_in("R-N3a a bug is never said to share a cause with itself", "Possibly", selfish)
+
+
+def pc_10_sides_measure() -> None:
+    """t-2181 §8 (PC-10): `facts["sides_measure"]` carries the counters of a story with a sides record, read through the existing readers.
+    KILLS: an unknown printed as 0 (the manifest, the controller record, the journal, the ledger each absent); a key on a story with no sides
+    record (old stories stay byte-stable); a second parser of the provisional rows or of the journal."""
+    import driver_journal as DJ
+    sides = {"ui": {"reality": "real", "deliverable": True}, "backend": {"reality": "substituted", "deliverable": False}}
+    plain = story()
+    try:
+        before = RF.build(plain)
+        check_not_in("PC-10 a story with no sides record has no sides counters key", "sides_measure", sorted(before))
+        blocks_before = RF.render(before)
+        check_not_in("PC-10 ... and the JSON of the facts does not name it", "sides_measure", json.dumps(before, default=str))
+    finally:
+        cleanup(plain.parents[2])
+    task = story(pipeline={"ticket": "T-1", "size": None, "gates": {"A": {"authorization_source": GATE_A}},
+                           "stage_overrides": [{"stage": "S2", "match": "size", "decision": "test it as one story"}], "sides": sides})
+    try:
+        facts = RF.build(task)
+        measure = facts["sides_measure"]
+        check_eq("PC-10 the report's blocks are byte-stable when only the sides record is added", RF.render(facts), blocks_before)
+        check_eq("PC-10 no provisional rows: 0 of 0, measured (the manifest was read)", measure["provisional"],
+                 {"settled_matched": 0, "total": 0, "by_status": {}, "skipped": 0})
+        check_in("PC-10 test_body_edits_at_bind has no producer: unmeasured with its why", "unmeasured: ", measure["test_body_edits_at_bind"])
+        check_in("PC-10 green_after_bind_only has no producer: unmeasured with its why", "unmeasured: ", measure["green_after_bind_only"])
+        check_in("PC-10 no controller record: phase 2 unmeasured, not 0", "unmeasured: ", measure["phase2_cost"])
+        check_in("PC-10 ... and phase 1 too", "unmeasured: ", measure["phase1_cost"])
+        check_in("PC-10 ... and the conductor's cost", "unmeasured: ", measure["conductor_cost"])
+        check_eq("PC-10 no sides_unknown flag: False, carried", measure["sides_unknown"], False)
+        check_eq("PC-10 a ledger with no sides state counts 0 and 0 (measured)", (measure["on_substitute_count"], measure["sides_unknown_count"]), (0, 0))
+        check_eq("PC-10 the non-real side is named, read through story_sides", measure["non_real_sides"], ["backend"])
+        check_eq("PC-10 no hold: awaiting none", measure["awaiting"], {"state": "none", "since": ""})
+        # the manifest: two provisional rows, one settled_matched; one malformed row is counted as skipped, never as a row
+        manifest = dict(MANIFEST, provisional=[{"id": "P-1", "status": "settled_matched"}, {"id": "P-2", "status": "open"}, "junk"])
+        write(task / "work" / "automation-manifest.json", manifest)
+        check_eq("PC-10 provisional: 1 settled_matched of 2, 1 row skipped",
+                 RF.build(task)["sides_measure"]["provisional"],
+                 {"settled_matched": 1, "total": 2, "by_status": {"open": 1, "settled_matched": 1}, "skipped": 1})
+        # phase 2: dispatches by cause `source_arrived` or purpose `bind`; phase 1 = the dispatches made before the first of them
+        def controller(extra=None):
+            records = {
+                "S5-qa-automator-1": {"id": "S5-qa-automator-1", "stage": "S5", "dispatched_seq": 1},
+                "S1-qa-scout-2": {"id": "S1-qa-scout-2", "stage": "S1", "repair_cause": "source_arrived", "dispatched_seq": 5},
+                "S5-qa-automator-3": {"id": "S5-qa-automator-3", "stage": "S5", "dispatched_seq": 6,
+                                      "request_binding": {"purpose": "bind"}},
+                "S6-qa-executor-4": {"id": "S6-qa-executor-4", "stage": "S6", "dispatched_seq": 7}}
+            records.update(extra or {})
+            write(task / "state" / "controller.json", {"dispatches": records})
+
+        def journal(jrows):
+            (task / "state" / DJ.JOURNAL_NAME).write_text("".join(json.dumps(r) + "\n" for r in jrows), encoding="utf-8")
+
+        def row(dispatch, session, cost, role="qa-automator"):
+            return {"kind": "dispatch", "role": role, "dispatch": dispatch, "session_id": session, "total_cost_usd": cost}
+
+        controller()
+        rows = [row("S5-qa-automator-1", "s1", 1.0), row("S1-qa-scout-2", "s2", 0.5, "qa-scout"), row("S5-qa-automator-3", "s3", 0.25),
+                row("S6-qa-executor-4", "s4", 2.0), row("", "s5", 0.1, "conductor")]
+        journal(rows)
+        got = RF.build(task)["sides_measure"]
+        check_eq("PC-10 phase 2 is the two arrival dispatches' journal cost", got["phase2_cost"], {"dispatches": 2, "cost_usd": 0.75})
+        check_eq("PC-10 phase 1 is the dispatches BEFORE the first phase-2 one: the S6 dispatch after the bind round is not in it",
+                 got["phase1_cost"], {"dispatches": 1, "cost_usd": 1.0})
+        check_eq("PC-10 the conductor's pair is in neither phase: it is carried apart, in the same shape",
+                 got["conductor_cost"], {"dispatches": 0, "cost_usd": 0.1})
+        rows[1]["total_cost_usd"] = "n/a"
+        journal(rows)
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 a pair whose cost the journal marks unknown makes phase 2 unmeasured, not a smaller sum", "unmeasured: ", got["phase2_cost"])
+        check_eq("PC-10 ... and phase 1, whose pairs are all known, stays measured", got["phase1_cost"], {"dispatches": 1, "cost_usd": 1.0})
+        # F1: an empty journal, a phase-2 dispatch with no pair, a phase-1 dispatch with no pair: unknown, never 0
+        journal([])
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 F1 an empty journal: phase 2 is absent with its reason, not $0", "absent: the driver journal names no session", got["phase2_cost"])
+        check_in("PC-10 F1 ... phase 1 unmeasured, not $0", "unmeasured: ", got["phase1_cost"])
+        check_in("PC-10 F1 ... the conductor unmeasured, not $0", "unmeasured: ", got["conductor_cost"])
+        journal([row("S5-qa-automator-1", "s1", 1.0), row("S6-qa-executor-4", "s4", 2.0)])
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 F1 a phase-2 dispatch with no journal pair: unmeasured, naming it", "S1-qa-scout-2", got["phase2_cost"])
+        check_in("PC-10 F1 ... unmeasured, not '0 dispatches'", "unmeasured: ", got["phase2_cost"])
+        journal([row("S1-qa-scout-2", "s2", 0.5, "qa-scout"), row("S5-qa-automator-3", "s3", 0.25)])
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 F1 a phase-1 dispatch with no journal pair: phase 1 unmeasured, naming it", "S5-qa-automator-1", got["phase1_cost"])
+        check_eq("PC-10 F1 NEGATIVE control: the same journal with its phase-2 pairs present keeps phase 2 measured",
+                 got["phase2_cost"], {"dispatches": 2, "cost_usd": 0.75})
+        # F2: a per-call root (one session's total falls) is not money, as factory_dashboard.journal_records reads it
+        journal([row("S5-qa-automator-1", "s1", 1.0), row("S5-qa-automator-1", "s1", 0.5),
+                 row("S1-qa-scout-2", "s2", 0.3, "qa-scout"), row("S1-qa-scout-2", "s2", 0.8, "qa-scout"),
+                 row("S5-qa-automator-3", "s3", 0.25), row("S6-qa-executor-4", "s4", 2.0)])
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 F2 a per-call root: phase 1 is unmeasured, not the 0.5 of a falling total", "unmeasured: ", got["phase1_cost"])
+        check_in("PC-10 F2 ... phase 2 too (session s2 has several rows under a falling root)", "unmeasured: ", got["phase2_cost"])
+        # F3: a record with no integer dispatched_seq makes phase 1 unmeasured
+        controller({"S6-qa-executor-4": {"id": "S6-qa-executor-4", "stage": "S6"}})
+        journal([row("S5-qa-automator-1", "s1", 1.0), row("S1-qa-scout-2", "s2", 0.5, "qa-scout"), row("S5-qa-automator-3", "s3", 0.25),
+                 row("S6-qa-executor-4", "s4", 2.0)])
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 F3 a dispatch with no sequence: phase 1 unmeasured", "a dispatch has no sequence", got["phase1_cost"])
+        check_eq("PC-10 F3 ... phase 2 is still measured", got["phase2_cost"], {"dispatches": 2, "cost_usd": 0.75})
+        # F3 edge: a story with no phase-2 dispatch: phase 2 absent with its reason, phase 1 is every dispatch
+        write(task / "state" / "controller.json", {"dispatches": {
+            "S5-qa-automator-1": {"id": "S5-qa-automator-1", "stage": "S5", "dispatched_seq": 1},
+            "S6-qa-executor-4": {"id": "S6-qa-executor-4", "stage": "S6", "dispatched_seq": 2}}})
+        journal([row("S5-qa-automator-1", "s1", 1.0), row("S6-qa-executor-4", "s4", 2.0)])
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 F3 no phase-2 dispatch: the counter is absent with its reason", "absent: the story has no phase-2 dispatch", got["phase2_cost"])
+        check_eq("PC-10 F3 ... phase 1 is every dispatch", got["phase1_cost"], {"dispatches": 2, "cost_usd": 3.0})
+        # F4: the cause is read through controller.repair_cause: a word outside REPAIR_CAUSES is not `source_arrived`
+        controller({"S6-qa-executor-4": {"id": "S6-qa-executor-4", "stage": "S6", "dispatched_seq": 7, "repair_cause": "source_arrived_x"}})
+        journal([row("S5-qa-automator-1", "s1", 1.0), row("S1-qa-scout-2", "s2", 0.5, "qa-scout"), row("S5-qa-automator-3", "s3", 0.25),
+                 row("S6-qa-executor-4", "s4", 2.0)])
+        check_eq("PC-10 F4 a cause word outside controller.REPAIR_CAUSES is not phase 2",
+                 RF.build(task)["sides_measure"]["phase2_cost"], {"dispatches": 2, "cost_usd": 0.75})
+        controller()
+        # the ledger's own state words, and the verdict the calibration check reads
+        write(task / "work" / "ledger.json", ledger(rows=[
+            {"ref": "TS-1", "kind": "plan_row", "state": "not_verified:on_substitute", "detail": "TS-1"},
+            {"ref": "TS-2", "kind": "plan_row", "state": "not_verified:sides_unknown", "detail": "TS-2"},
+            {"ref": "TS-3", "kind": "plan_row", "state": "not_verified:on_substitute", "detail": "TS-3"},
+            test_row()]))
+        got = RF.build(task)["sides_measure"]
+        check_eq("PC-10 on_substitute and sides_unknown plan rows are counted", (got["on_substitute_count"], got["sides_unknown_count"]), (2, 1))
+        check_eq("PC-10 the verdict word is the ledger's (not ready here)", got["verdict"], "no")
+        (task / "work" / "ledger.json").unlink()
+        got = RF.build(task)["sides_measure"]
+        check_in("PC-10 no ledger: the counts are unmeasured, not 0", "unmeasured: ", got["on_substitute_count"])
+        check_in("PC-10 ... both of them", "unmeasured: ", got["sides_unknown_count"])
+        (task / "work" / "automation-manifest.json").write_text("{not json", encoding="utf-8")
+        check_in("PC-10 an unreadable manifest: provisional unmeasured", "unmeasured: ", RF.build(task)["sides_measure"]["provisional"])
+        (task / "work" / "automation-manifest.json").unlink()
+        check_in("PC-10 an absent manifest: provisional unmeasured", "unmeasured: ", RF.build(task)["sides_measure"]["provisional"])
+        # F5: sides_unknown alone is a record and is carried; an unreadable side table reads unmeasured, not []
+        flagged = story(pipeline={"ticket": "T-1", "sides_unknown": True})
+        try:
+            got = RF.build(flagged)["sides_measure"]
+            check_eq("PC-10 F5 sides_unknown with no sides record: the flag is carried", got["sides_unknown"], True)
+            check_eq("PC-10 F5 ... and the default side is real, so no non-real side is claimed", got["non_real_sides"], [])
+            import contract as C
+            saved = C.SIDE_REALITIES_PATH
+            C.SIDE_REALITIES_PATH = Path(flagged) / "no-such-table.json"
+            try:
+                got = RF.build(flagged)["sides_measure"]
+                check_in("PC-10 F5 an unreadable side-realities table: non_real_sides unmeasured, not []", "unmeasured: ", got["non_real_sides"])
+            finally:
+                C.SIDE_REALITIES_PATH = saved
+        finally:
+            cleanup(flagged.parents[2])
+        # F4 negative control: the default side alone is not a sides record (no key)
+        bare = story(pipeline={"ticket": "T-1"})
+        try:
+            check_not_in("PC-10 F4 the default side alone is not a sides record", "sides_measure", sorted(RF.build(bare)))
+        finally:
+            cleanup(bare.parents[2])
+        # a hold alone is a sides record: the hold is read through contract.awaiting
+        held = story(pipeline={"ticket": "T-1", "awaiting": {"since": "2026-11-01T10:00:00", "stopped": True}})
+        try:
+            check_eq("PC-10 a stopped hold is read, since carried", RF.build(held)["sides_measure"]["awaiting"],
+                     {"state": "stopped", "since": "2026-11-01T10:00:00"})
+        finally:
+            cleanup(held.parents[2])
+    finally:
+        cleanup(task.parents[2])
+
+
+# --- FL-8 (t-2277): the price and the USE of the first look and of the registry --------------------------------------------------
+# KILLS: an unknown counted as 0 (briefs, journal, homes, probes, gate A each absent); a counter that refuses or judges; a second reader of
+# the usage; a zero-question line without its counter-metrics; an "unread" finding on a null or absent record.
+
+FL8_STARTED = "2026-11-05T09:00:00+00:00"       # the fixture story's start
+FL8_ROW_AT = "2026-11-01T10:00:00+00:00"        # a registry row recorded before it
+FL8_ROWS = [
+    {"req": "R-1", "status": "confirms", "why": "the Pay button is under the total", "evidence": ["work/evidence/manual/survey-R-1/a1/001.txt"],
+     "quote": "Pay",
+     "path": {"url": "/cart", "steps": ["open the cart"], "locators": [{"what": "Pay button", "selector": "button#pay", "seen": "yes"}],
+              "api": [{"method": "GET", "path": "/api/cart", "auth": "none", "seen": "yes",
+                       "sample": {"request": "GET /api/cart", "status": "200", "response": "total 12"}}],
+              "stand_needs": ["a seeded cart", "a user with a card"]}},
+    {"req": "R-2", "status": "missing", "blocked_by": "product", "why": "the discount field is not on the page",
+     "path": {"locators": [{"what": "discount field", "selector": "input#code", "seen": "no"}], "stand_needs": ["a coupon"]}}]
+
+
+def fl8_story(rows=None, pipeline=None, home=None, record=True, **frame):
+    """A story with a first-look record of the CURRENT keys (so it is not stale); `home` is the text of the S5 test file the manifest names."""
+    import first_look as FL
+    import grounding_table as GT
+    task = story(pipeline=pipeline)
+    started = json.loads((task / "pipeline.json").read_text(encoding="utf-8"))
+    if "created_at" not in started:           # the story's start: the registry rows a story KNEW are those recorded before it (B3)
+        write(task / "pipeline.json", dict(started, created_at=FL8_STARTED))
+    if record:
+        heads, reg_hash = FL.current_keys(task)
+        body = {"walk": "w1", "stand": "dev", "stand_build": "not_established", "source_head": json.loads(heads), "register_hash": reg_hash,
+                "rows": FL8_ROWS if rows is None else rows, "gaps": ["the discount screen was not found"]}
+        body.update(frame)
+        GT.write_yaml(task / "work" / "first-look.yaml", body)
+    if home is not None:
+        write(task.parents[2] / "tests" / "api" / "test_a.py", home)
+    return task
+
+
+def fl8_briefs(task: Path, **by_dispatch) -> None:
+    for name, text in by_dispatch.items():
+        write(task / "work" / "briefs" / f"{name.replace('_', '-')}.md", text)
+
+
+def fl8_controller(task: Path, dispatches: dict) -> None:
+    write(task / "state" / "controller.json", {"dispatches": dispatches})
+
+
+def fl8_journal(task: Path, rows: list) -> None:
+    import driver_journal as DJ
+    (task / "state" / DJ.JOURNAL_NAME).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+
+def fl8_registry_role(task: Path, role: str = "auditor", at: str = None) -> None:
+    """A known role recorded BEFORE the story began (`at`, default FL8_ROW_AT; "" leaves the row with no time)."""
+    import project_knowledge as PK
+    row, problem, _ = PK.record(task.parents[2], key=PK.ROLES_KEY, environment="", element=role, state="known", scope="project",
+                                value={"sign_in": "account"}, words="the person said so", source="person", story="T-0", by="conductor")
+    assert row is not None, problem
+    fl8_row_time(task, row["id"], FL8_ROW_AT if at is None else at)
+
+
+def fl8_row_time(task: Path, pk_id: str, at: str) -> None:
+    """Set (or, for "", remove) the `at` of a registry row: `PK.record` stamps now, which is after every fixture story's start."""
+    path = task.parents[2] / "qa-factory" / "records" / "project-knowledge.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for fact in data["facts"]:
+        if fact["id"] == pk_id:
+            if at:
+                fact["at"] = at
+            else:
+                fact.pop("at", None)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def fl8_strategist_form(task: Path, roles: list) -> None:
+    fl8_controller(task, {"S3-qa-test-strategist-1": {"id": "S3-qa-test-strategist-1", "stage": "S3", "role": "qa-test-strategist",
+                                                      "status": "accepted"}})
+    body = "scope:\n  - id: R-1\n" + ("product_roles:\n" + "".join(f"  - role: {r}\n    sign_in: account\n" for r in roles) if roles else "product_roles: []\n")
+    write(task / "work" / "handoffs" / "S3-qa-test-strategist-1.yaml", body)
+
+
+def first_look_cost_from_story_journal() -> None:
+    task = fl8_story()
+    try:
+        dispatch = {"id": "S1-qa-scout-1", "stage": "S1", "dispatched_seq": 1, "request_binding": {"purpose": "first_look"}}
+        other = {"id": "S3-qa-test-strategist-2", "stage": "S3", "dispatched_seq": 2}
+        row = lambda d, s, c: {"kind": "dispatch", "role": "r", "dispatch": d, "session_id": s, "total_cost_usd": c}   # noqa: E731
+        check_in("FL-8 no controller record: the cost is unmeasured, not 0", "unmeasured: ", RF.build(task)["first_look_measure"]["cost"])
+        fl8_controller(task, {"S3-qa-test-strategist-2": other})
+        check_in("FL-8 a story with no first-look dispatch: absent with its reason", "absent: the story has no first-look dispatch",
+                 RF.build(task)["first_look_measure"]["cost"])
+        fl8_controller(task, {"S1-qa-scout-1": dispatch, "S3-qa-test-strategist-2": other})
+        check_in("FL-8 no driver journal: unmeasured, not $0", "unmeasured: the story has no driver journal", RF.build(task)["first_look_measure"]["cost"])
+        fl8_journal(task, [row("S1-qa-scout-1", "s1", 0.5), row("S3-qa-test-strategist-2", "s2", 4.0)])
+        check_eq("FL-8 the cost is the journal's pair of the first-look dispatch ALONE", RF.build(task)["first_look_measure"]["cost"],
+                 {"dispatches": 1, "cost_usd": 0.5})
+        fl8_journal(task, [row("S3-qa-test-strategist-2", "s2", 4.0)])
+        check_in("FL-8 a first-look dispatch with no journal pair: unmeasured, naming it", "S1-qa-scout-1", RF.build(task)["first_look_measure"]["cost"])
+        fl8_journal(task, [row("S1-qa-scout-1", "s1", "n/a"), row("S3-qa-test-strategist-2", "s2", 4.0)])
+        check_in("FL-8 a pair of unknown cost: unmeasured, not a smaller sum", "unmeasured: ", RF.build(task)["first_look_measure"]["cost"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def first_look_share_and_answers_counted() -> None:
+    import first_look as FL
+    task = fl8_story()
+    try:
+        got = RF.build(task)["first_look_measure"]
+        check_eq("FL-8 the share is first_look.share's (1 of 2 reachable, the floor 30)", got["share"], {"reachable": 1, "counted": 2, "share": 50.0, "floor": 30})
+        check_in("FL-8 no attempt: whether the question was asked is unmeasured, not False", "unmeasured: ", got["questions"]["dead_asked"])
+        check_in("FL-8 the same-code question has no carrier on this build: unmeasured", "unmeasured: ", got["questions"]["same_code_asked"])
+        check_eq("FL-8 no word of the person: none", got["questions"]["answer"], "none")
+        FL.begin(task, "w1", "dev")
+        check_eq("FL-8 an attempt that was not marked: the question was not asked", RF.build(task)["first_look_measure"]["questions"]["dead_asked"], False)
+        FL.mark_asked(task)
+        check_eq("FL-8 the attempt marked asked: counted", RF.build(task)["first_look_measure"]["questions"]["dead_asked"], True)
+        heads, reg_hash = FL.current_keys(task)
+        write(task / "pipeline.json", {"ticket": "T-1", "first_look_continue": {"source_head": heads, "register_hash": reg_hash}})
+        check_eq("FL-8 the word `continue` for these keys is counted as continue", RF.build(task)["first_look_measure"]["questions"]["answer"], "continue")
+        write(task / "pipeline.json", {"ticket": "T-1", "awaiting": {"cause": "first_look_stop", "held_from": "S3", "since": "2026-11-01T10:00:00"}})
+        check_eq("FL-8 a first_look_stop hold is counted as stop", RF.build(task)["first_look_measure"]["questions"]["answer"], "stop")
+        (task / "work" / "first-look.yaml").write_text("garbage: [\n", encoding="utf-8")
+        check_in("FL-8 an unreadable record: the share is unmeasured, not 0%", "unmeasured: ", RF.build(task)["first_look_measure"]["share"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def first_look_attempt_outcome_counted() -> None:
+    import first_look as FL
+    task = fl8_story()
+    try:
+        check_in("FL-8 no attempt: the outcome is unmeasured", "unmeasured: ", RF.build(task)["first_look_measure"]["attempt"])
+        FL.begin(task, "w1", "dev")
+        check_eq("FL-8 a walk opened: walking, no failure", RF.build(task)["first_look_measure"]["attempt"], {"outcome": "walking", "open_failures": 0})
+        FL.end(task, "open_failed")
+        check_eq("FL-8 an open that failed is counted", RF.build(task)["first_look_measure"]["attempt"], {"outcome": "open_failed", "open_failures": 1})
+        FL.end(task, "written")
+        check_eq("FL-8 the written outcome", RF.build(task)["first_look_measure"]["attempt"]["outcome"], "written")
+    finally:
+        cleanup(task.parents[2])
+
+
+def use_locators_and_routes_in_s5_homes_counted() -> None:
+    task = fl8_story()
+    try:
+        u1 = lambda: RF.build(task)["first_look_measure"]["use"]["u1_locators_and_routes_in_s5_homes"]      # noqa: E731
+        check_in("FL-8 u1 CONTROL: the manifest names a test file that cannot be read: unmeasured, not 0", "unmeasured: ", u1())
+        write(task.parents[2] / "tests" / "api" / "test_a.py", "def test_a():\n    page.click('button#pay')\n")
+        check_eq("FL-8 u1 a seen locator in the home counts, an unseen one (seen: no) and a route not in it do not",
+                 u1(), {"locators_seen": 1, "locators_found": 1, "routes_seen": 1, "routes_found": 0, "found": 1})
+        write(task.parents[2] / "tests" / "api" / "test_a.py", "def test_a():\n    page.click('button#pay')\n    api.get('/api/cart')\n    page.fill('input#code')\n")
+        check_eq("FL-8 u1 the route stands in an API client string too (a string compare); `input#code` was seen: no, so it is not counted",
+                 u1()["found"], 2)
+        write(task / "work" / "automation-manifest.json", {"tests": []})
+        check_in("FL-8 u1 a manifest naming no home: unmeasured", "unmeasured: ", u1())
+    finally:
+        cleanup(task.parents[2])
+
+
+def use_s4_cases_citing_walked_path_counted() -> None:
+    task = fl8_story(home="x")
+    try:
+        u2 = lambda: RF.build(task)["first_look_measure"]["use"]["u2_cases_citing_the_walked_path"]       # noqa: E731
+        check_eq("FL-8 u2 cases are read and none cites the walked path: 0 (measured)", u2(), 0)
+        case = task / "work" / "test-cases" / "billing" / "TC-001.md"
+        case.write_text(case.read_text(encoding="utf-8") + "\nStep: open the cart (first_look:R-1)\n", encoding="utf-8")
+        check_eq("FL-8 u2 one case cites first_look:R-1", u2(), 1)
+        for path in (task / "work" / "test-cases").rglob("*.md"):
+            path.unlink()
+        check_in("FL-8 u2 no case file at all: unmeasured, not 0", "unmeasured: ", u2())
+    finally:
+        cleanup(task.parents[2])
+
+
+def use_probes_on_seen_elements_counted_or_unmeasured() -> None:
+    import investigation_probe as IP
+    task = fl8_story(home="x")
+    real = IP.capture_lines
+    try:
+        u3 = lambda: RF.build(task)["first_look_measure"]["use"]["u3_probes_on_seen_elements"]      # noqa: E731
+        check_in("FL-8 u3 no S5 probe record keeps the selector: unmeasured NAMING the missing S5 carrier, not 0",
+                 "unmeasured: no S5 automator probe record keeps the probe's selector", u3())
+        calls = []
+        def seen_by_s7(t):
+            calls.append(t)
+            return [{"selector": "button#pay"}, {"selector": "input#code"}]
+        IP.capture_lines = seen_by_s7
+        check_in("FL-8 u3 F4: S7 investigation captures that DO keep a selector are never read under an S5 label - still unmeasured",
+                 "unmeasured: no S5 automator probe record", u3())
+        check_eq("FL-8 u3 F4: ... and the S7 capture reader was not called", calls, [])
+    finally:
+        IP.capture_lines = real
+        cleanup(task.parents[2])
+
+
+def unread_record_is_finding_line() -> None:
+    task = fl8_story(home="def test_a():\n    pass\n")
+    try:
+        facts = RF.build(task)
+        lines = RF.finding_lines(facts)
+        check_in("FL-8 zero by u1 and u2 over a non-empty record: a finding line, not a refusal", "The first-look record was not read", lines)
+        check_eq("FL-8 ... and `check` has no problem of its own for it", [p for p in RF.check(task) if "first-look" in p.lower()], [])
+        case = task / "work" / "test-cases" / "billing" / "TC-001.md"
+        case.write_text(case.read_text(encoding="utf-8") + "\nStep: (first_look:R-1)\n", encoding="utf-8")
+        check_not_in("FL-8 CONTROL: one case cites the path: no unread line", "was not read", RF.finding_lines(RF.build(task)))
+        case.write_text(case.read_text(encoding="utf-8").replace("(first_look:R-1)", ""), encoding="utf-8")
+        write(task.parents[2] / "tests" / "api" / "test_a.py", "x")
+        (task.parents[2] / "tests" / "api" / "test_a.py").unlink()
+        check_not_in("FL-8 an UNMEASURED u1 (the home cannot be read) is not zero: no unread line", "was not read", RF.finding_lines(RF.build(task)))
+    finally:
+        cleanup(task.parents[2])
+
+
+def null_record_no_unread_finding() -> None:
+    import grounding_table as GT
+    task = fl8_story(record=False)
+    try:
+        check_eq("FL-8 a story with no first look at all has no measure key and no table", ("first_look_measure" in RF.build(task), RF.retro_lines(RF.build(task))),
+                 (False, []))
+        GT.write_yaml(task / "work" / "first-look.yaml", {"null": "no_stand", "rows": [], "gaps": ["no stand is named"]})
+        facts = RF.build(task)
+        check_eq("FL-8 a null record: its rows are 0 (declared), its gap line is counted", (facts["first_look_measure"]["record"]["rows"], facts["first_look_measure"]["gaps"]), (0, 1))
+        check_not_in("FL-8 a null record gives no `unread` finding line", "was not read", RF.finding_lines(facts))
+        (task / "work" / "first-look.yaml").unlink()
+        import first_look as FL
+        FL.begin(task, "w1", "dev")
+        facts = RF.build(task)
+        check_eq("FL-8 an absent record beside an attempt: no unread line, the counts are unmeasured, not 0",
+                 ("was not read" in "\n".join(RF.finding_lines(facts)), facts["first_look_measure"]["gaps"].startswith("unmeasured: ")), (False, True))
+        (task / "work" / "first-look.yaml").write_text("garbage: [\n", encoding="utf-8")
+        facts = RF.build(task)
+        check_in("FL-8 an unreadable record is a gap line, not a crash", "could not be read", RF.finding_lines(facts))
+        check_in("FL-8 ... and its stand needs are unmeasured", "unmeasured: ", facts["first_look_measure"]["stand_needs"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def stand_needs_and_gaps_are_read() -> None:
+    task = fl8_story(home="x")
+    try:
+        got = RF.build(task)["first_look_measure"]
+        check_eq("FL-8 the record's `stand_needs` have a reader: 2 + 1 named", got["stand_needs"], 3)
+        check_eq("FL-8 the record's `gaps` have a reader: 1 named", got["gaps"], 1)
+        check_in("FL-8 the retro lines show both", "stand needs named 3; gaps named 1", RF.retro_lines(RF.build(task)))
+    finally:
+        cleanup(task.parents[2])
+
+
+def counts_never_refuse() -> None:
+    task = story()
+    try:
+        before = RF.check(task)
+        facts_before = RF.build(task)
+        check_not_in("FL-8 an older story's facts carry no counters (byte-stable)", "knowledge_use", json.dumps(facts_before, default=str))
+    finally:
+        cleanup(task.parents[2])
+    task = fl8_story(home="def test_a():\n    pass\n")
+    try:
+        fl8_registry_role(task)
+        (task.parents[2] / "qa-factory" / "records" / "project-knowledge.json").write_text("{not json", encoding="utf-8")
+        facts = RF.build(task)
+        check_in("FL-8 an unreadable registry is named, never a crash and never an empty table", "cannot be read", "; ".join(facts["knowledge_use"]["problems"]))
+        check_eq("FL-8 the counters change nothing `check` says (the same problem lines with a record, a registry and no briefs)", RF.check(task), before)
+        check_eq("FL-8 the facts of the counters are plain JSON", json.loads(json.dumps(facts, default=str))["first_look_measure"]["record"]["kind"], "ok")
+    finally:
+        cleanup(task.parents[2])
+
+
+def knowledge_use_counts_registry_and_first_look_in_one_table() -> None:
+    task = fl8_story(home="page.click('button#pay')")
+    try:
+        fl8_registry_role(task)
+        fl8_briefs(task, S3_qa_test_strategist_1="[knowledge:product.roles]\n- R-1 confirms: x [first-look:R-1]\n")
+        facts = RF.build(task)
+        use = facts["knowledge_use"]
+        check_eq("FL-8 ONE table: the registry role and both first-look rows", [(e["source"], e["key"]) for e in use["entries"]],
+                 [("registry", "product.roles"), ("first_look", "R-1"), ("first_look", "R-2")])
+        check_eq("FL-8 the facts carry knowledge_use's own return (no second count)", use, RF.knowledge_use(task, task.parents[2]))
+        row = {e["key"]: e for e in use["entries"] if e["source"] == "first_look"}
+        check_eq("FL-8 R-1: reached the strategist, used (its locator stands in the home)", (row["R-1"]["reached"], row["R-1"]["used"]), (["qa-test-strategist"], True))
+        check_eq("FL-8 R-2: in no brief, its parts all measured zero", (row["R-2"]["reached"], row["R-2"]["used"]), ([], False))
+        check_in("FL-8 the retro table has a line per knowledge", "- first_look R-1: reached qa-test-strategist; used", RF.retro_lines(facts))
+        src = (Path(RF.__file__)).read_text(encoding="utf-8")
+        check_eq("FL-8 AR-13: the usage has ONE reader function in the file", src.count("\ndef knowledge_use("), 1)
+    finally:
+        cleanup(task.parents[2])
+
+
+def known_role_reached_strategist_and_case_critic() -> None:
+    task = fl8_story(home="x")
+    try:
+        fl8_registry_role(task)
+        fl8_briefs(task, S3_qa_test_strategist_1="roster\n- auditor [knowledge:product.roles]\n",
+                   S4_qa_case_critic_1="roster\n- auditor [knowledge:product.roles]\n", S4_qa_case_designer_1="no roster here\n",
+                   S4_qa_case_critic_1_decisions="[knowledge:product.roles] a side file is not a brief\n")
+        entry = RF.knowledge_use(task)["entries"][0]
+        check_eq("FL-8 the known role reached the strategist AND the case critic, not the designer", entry["reached"], ["qa-case-critic", "qa-test-strategist"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def known_credential_not_reasked_counts_used() -> None:
+    import gate_preflight as GP
+    import project_knowledge as PK
+    task = fl8_credential_story()
+    try:
+        used = lambda: [e["used"] for e in RF.knowledge_use(task)["entries"] if e["key"] == PK.ACCOUNTS_KEY]       # noqa: E731
+        check_in("FL-8 F5: no driver state (a conductor-run story): unmeasured, never `used`", "unmeasured: the story has no driver state", used()[0])
+        fl8_shown_gaps(task, None)
+        check_in("FL-8 F5: a driver state that never showed gate A: unmeasured", "unmeasured: gate A was not shown yet", used()[0])
+        fl8_shown_gaps(task, [])
+        check_eq("FL-8 F5: gate A shown with no card of the known pair: not asked again, counted USED", used(), [True])
+        fl8_shown_gaps(task, [{"id": GP.role_gap_id("dev", "another"), "case_id": "TC-1", "cases": ["TC-1"]}])
+        check_eq("FL-8 F5: a card of ANOTHER role on that stand does not count as asking about this pair", used(), [True])
+        fl8_shown_gaps(task, [{"id": GP.role_gap_id("dev", "auditor"), "case_id": "TC-1", "cases": ["TC-1"]}])
+        check_eq("FL-8 F5 CONTROL: gate A SHOWED the card of that pair (asked again, even if answered `go on`): not used", used(), [False])
+        write(task / "pipeline.json", {"ticket": "T-1", "created_at": FL8_STARTED, "gates": {"A": {"authorization_source": "Gate A: approved, go on."}}})
+        check_eq("FL-8 F5: the words do not matter, the SHOWN card does (the error does not go toward the good outcome)", used(), [False])
+    finally:
+        cleanup(task.parents[2])
+
+
+def fl8_credential_story() -> Path:
+    """A story whose project knows the account pair dev / auditor (config + registry row recorded before the story's start)."""
+    import project_knowledge as PK
+    task = fl8_story(record=False)
+    root = task.parents[2]
+    cfg_path = root / "qa-factory" / "config.json"
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["environments"] = [{"name": "dev", "base_url": "http://x", "credentials_by_role": {"auditor": "QA_A_EMAIL / QA_A_PASSWORD"}}]
+    write(cfg_path, cfg)
+    write(root / PK.RECORD_REL, {"schema_version": 1, "facts": [
+        {"id": "PK-1", "key": PK.ACCOUNTS_KEY, "environment": "dev", "element": "auditor", "state": "known", "scope": "stand", "value": None,
+         "provenance": {"source": "person", "words": "w", "story": "S-1", "by": "conductor", "where": ""}, "at": FL8_ROW_AT}]})
+    return task
+
+
+def fl8_shown_gaps(task: Path, gaps) -> None:
+    """The driver's record of what gate A SHOWED (`state/driver-state.json` `shown_gaps.A.gaps`); None = a state that shows no gate A."""
+    write(task / "state" / "driver-state.json", {"shown_gaps": {} if gaps is None else {"A": {"gaps": gaps, "covered": []}}})
+
+
+def a_used_credential_is_not_a_fact_that_missed_the_decision() -> None:
+    """B1: the account mark lives in the gate-A note, never in a brief - a USED pair read as `in no brief` was a false finding on every
+    story of a project with a known account and kept briefs."""
+    import gate_preflight as GP
+    import project_knowledge as PK
+    task = fl8_credential_story()
+    try:
+        fl8_shown_gaps(task, [])
+        fl8_briefs(task, S3_qa_test_strategist_1=f"- auditor [knowledge:product.roles]\nnote {GP.ACCOUNT_MARK}\n")
+        check_eq("FL-8 B1: the producer's own token names the registry's key by ONE normalisation",
+                 RF._key_of_mark(GP.ACCOUNT_MARK.strip("[]").split(":", 1)[1]), PK.ACCOUNTS_KEY)
+        check_eq("FL-8 B1: ... a full key is itself, an unknown token matches nothing", (RF._key_of_mark(PK.ROLES_KEY), RF._key_of_mark("sides")),
+                 (PK.ROLES_KEY, "sides"))
+        entry = [e for e in RF.knowledge_use(task)["entries"] if e["key"] == PK.ACCOUNTS_KEY][0]
+        check_eq("FL-8 B1: used, its reach has no brief carrier: unmeasured with the reason", (entry["used"], entry["reached"]),
+                 (True, "unmeasured: " + RF.NO_ACCOUNT_REACH))
+        facts = RF.build(task)
+        check_eq("FL-8 B1: a used credential gives NO `did not reach a decision` line", [l for l in RF.finding_lines(facts) if "credentials" in l], [])
+        metrics = facts["knowledge_use"]["counter_metrics"]
+        check_eq("FL-8 B1: ... and counter-metric (2) is 0 beside kept briefs", (metrics["known_not_reached"], metrics["known_not_reaching_a_decision"]), (0, 0))
+        fl8_shown_gaps(task, [{"id": GP.role_gap_id("dev", "auditor"), "case_id": "TC-1", "cases": ["TC-1"]}])
+        check_eq("FL-8 B1 CONTROL: asked again at gate A (not used), its reach still unmeasured: no `did not reach` line either",
+                 [l for l in RF.finding_lines(RF.build(task)) if "credentials" in l], [])
+    finally:
+        cleanup(task.parents[2])
+
+
+def an_unreadable_registry_makes_the_counter_metric_unmeasured_not_zero() -> None:
+    """B2 (AR-28, FR-41): `known facts no brief carried: 0` beside a registry that could not be read is the very case the counter-metrics expose."""
+    task = fl8_story(home="x")
+    try:
+        fl8_registry_role(task)
+        fl8_briefs(task, S3_qa_test_strategist_1="- auditor [knowledge:product.roles]\n")
+        registry = task.parents[2] / "qa-factory" / "records" / "project-knowledge.json"
+        good = registry.read_text(encoding="utf-8")
+        registry.write_text("{not json", encoding="utf-8")
+        facts = RF.build(task)
+        metrics = facts["knowledge_use"]["counter_metrics"]
+        check_eq("FL-8 B2: unreadable registry + kept briefs: the three counters are `unmeasured`, not 0",
+                 [str(metrics[k]).startswith("unmeasured: ") for k in ("known_not_reached", "available_unused", "known_not_reaching_a_decision")],
+                 [True, True, True])
+        check_in("FL-8 B2: ... naming the registry problem", "cannot be read", metrics["known_not_reached"])
+        line = RF.question_count_line(0, facts)
+        check_in("FL-8 B2: `zero questions` is printed WITH the unmeasured counter-metric", "Questions put to the person: 0; known facts no brief carried: unmeasured: ", line)
+        check_in("FL-8 B2: the retro table says the registry was not read", "- unmeasured: ", "\n".join(RF.retro_lines(facts)))
+        registry.write_text(json.dumps({"schema_version": 1, "facts": []}), encoding="utf-8")
+        empty = RF.build(task)["knowledge_use"]
+        check_eq("FL-8 B2 CONTROL: a registry that reads and holds no row is a MEASURED zero, not unmeasured",
+                 (empty["problems"], empty["counter_metrics"]["known_not_reached"]), ([], 0))
+        registry.write_text(good, encoding="utf-8")
+        check_eq("FL-8 B2 CONTROL: the readable registry with the role in a brief is measured 0",
+                 RF.build(task)["knowledge_use"]["counter_metrics"]["known_not_reached"], 0)
+    finally:
+        cleanup(task.parents[2])
+
+
+def a_fact_the_story_taught_is_not_one_it_ignored() -> None:
+    """B3: a registry fact is known to the story only if the registry recorded it BEFORE the story's start."""
+    task = fl8_story(record=False)
+    try:
+        fl8_registry_role(task, "auditor", at="2026-11-06T10:00:00+00:00")           # recorded AFTER the story began (this story taught it)
+        fl8_briefs(task, S3_qa_test_strategist_1="roster written before the row existed\n")
+        facts = RF.build(task)
+        check_eq("FL-8 B3: a row recorded after the story began is no entry and gives no `did not reach` line, and no key",
+                 ("knowledge_use" in facts, RF.finding_lines(facts)), (False, []))
+        fl8_registry_role(task, "guest")                                               # recorded before it
+        facts = RF.build(task)
+        check_eq("FL-8 B3: ... a row recorded BEFORE the start is an entry (the key appears)",
+                 [e["element"] for e in facts["knowledge_use"]["entries"]], ["guest"])
+        check_in("FL-8 B3: ... and, in no brief, a finding line naming it ALONE", "A known fact did not reach a decision: product.roles guest was in no brief",
+                 RF.finding_lines(facts))
+        check_not_in("FL-8 B3: ... never the one this story taught", "auditor", "\n".join(RF.finding_lines(facts)))
+    finally:
+        cleanup(task.parents[2])
+    task = story()          # an older story: no first look; the project gained a registry LATER
+    try:
+        import project_knowledge as PK
+        row, problem, _ = PK.record(task.parents[2], key=PK.ROLES_KEY, environment="", element="auditor", state="known", scope="project",
+                                    value={"sign_in": "account"}, words="w", source="person", story="T-9", by="conductor")
+        assert row is not None, problem
+        write(task / "pipeline.json", dict(json.loads((task / "pipeline.json").read_text(encoding="utf-8")), created_at=FL8_STARTED))
+        fl8_row_time(task, row["id"], "2026-12-01T10:00:00+00:00")
+        check_not_in("FL-8 B3: an older story + a registry of only later rows: its facts carry no counters (byte-stable)", "knowledge_use",
+                     json.dumps(RF.build(task), default=str))
+        fl8_row_time(task, row["id"], FL8_ROW_AT)
+        check_in("FL-8 B3 CONTROL: the same story with a row known before its start gets the key", "knowledge_use", RF.build(task))
+    finally:
+        cleanup(task.parents[2])
+
+
+def a_fact_with_no_time_or_a_story_with_no_start_is_unmeasured() -> None:
+    """B3 edges: unknown is `unmeasured`, never known and never not-reached."""
+    task = fl8_story(record=False)
+    try:
+        fl8_registry_role(task, "auditor", at="")
+        fl8_briefs(task, S3_qa_test_strategist_1="roster without it\n")
+        use = RF.knowledge_use(task)
+        entry = use["entries"][0]
+        check_eq("FL-8 B3: a row with no time: reach and use `unmeasured`, naming why", (entry["reached"], entry["used"]),
+                 ("unmeasured: " + RF.NO_ROW_TIME,) * 2)
+        check_eq("FL-8 B3: ... no finding line, and counter-metric (2) is not raised by it", (RF.finding_lines({"knowledge_use": use}),
+                 use["counter_metrics"]["known_not_reached"], use["counter_metrics"]["used_unmeasured"]), ([], 0, 1))
+        check_in("FL-8 B3: ... the fact is not hidden: the key is there", "knowledge_use", RF.build(task))
+        fl8_registry_role(task, "guest")
+        write(task / "pipeline.json", {"ticket": "T-1"})
+        entries = {e["element"]: e for e in RF.knowledge_use(task)["entries"]}
+        check_eq("FL-8 B3: a story with no start time: EVERY registry fact is unmeasured, none known",
+                 {k: v["reached"] for k, v in entries.items()}, {"auditor": "unmeasured: " + RF.NO_START, "guest": "unmeasured: " + RF.NO_START})
+    finally:
+        cleanup(task.parents[2])
+
+
+def reached_is_per_element_not_per_key() -> None:
+    """F3 (rule 15): the marker and the element on ONE line; a capped roster and the empty-roster line prove nothing of an element."""
+    task = fl8_story(record=False)
+    try:
+        fl8_registry_role(task, "auditor")
+        fl8_registry_role(task, "guest")
+        fl8_briefs(task, S3_qa_test_strategist_1="Product roles:\n- auditor: an account on dev (the person, T-0) [knowledge:product.roles]\n+1 more\n")
+        reached = {e["element"]: e["reached"] for e in RF.knowledge_use(task)["entries"]}
+        check_eq("FL-8 F3: a capped roster naming only `auditor`: `guest` is NOT reached", reached, {"auditor": ["qa-test-strategist"], "guest": []})
+        check_in("FL-8 F3: ... and its `did not reach` line is not hidden", "product.roles guest was in no brief", RF.finding_lines(RF.build(task)))
+        check_not_in("FL-8 F3: ... while auditor's is not raised", "product.roles auditor", "\n".join(RF.finding_lines(RF.build(task))))
+        fl8_briefs(task, S3_qa_test_strategist_1="Product roles: none recorded yet (a project learns them story by story). [knowledge:product.roles]\n")
+        check_eq("FL-8 F3: the EMPTY-roster line carries the mark and reaches no element",
+                 {e["element"]: e["reached"] for e in RF.knowledge_use(task)["entries"]}, {"auditor": [], "guest": []})
+        fl8_briefs(task, S3_qa_test_strategist_1="- Auditor [knowledge:product.roles]\n")
+        check_eq("FL-8 F3: the element is compared by the key's form (`Auditor` is `auditor`)",
+                 {e["element"]: e["reached"] for e in RF.knowledge_use(task)["entries"]}, {"auditor": ["qa-test-strategist"], "guest": []})
+    finally:
+        cleanup(task.parents[2])
+
+
+def the_error_shape_of_the_first_look_measure_has_a_reader() -> None:
+    """F2: `build` writes only `{"record": {...}}` when the measure itself fails; the retro lines must not crash on it."""
+    facts = {"first_look_measure": {"record": {"kind": "error", "rows": "unmeasured: x", "stale": False, "problem": "ValueError: x"}}}
+    lines = RF.retro_lines(facts)
+    check_in("FL-8 F2: retro_lines on the error shape: unmeasured words, no KeyError", "First look: stand needs named unmeasured: ", "\n".join(lines))
+    check_in("FL-8 F2: ... and the finding line says the record could not be read", "could not be read", RF.finding_lines(facts))
+
+
+def the_plan_rows_are_counted_by_one_helper() -> None:
+    """F6: `placeholder_open` and the delivery counters share one plan-row count."""
+    import ledger as L
+    rows = [{"kind": "plan_row", "state": L.PLACEHOLDER_OPEN_STATE}, {"kind": "plan_row", "state": L.PLACEHOLDER_OPEN_STATE},
+            {"kind": "plan_row", "state": L.ON_SUBSTITUTE_STATE}, {"kind": "other", "state": L.PLACEHOLDER_OPEN_STATE}, "junk"]
+    check_eq("FL-8 F6: one count by state over the plan rows only", RF._plan_row_counts({"rows": rows}, (L.PLACEHOLDER_OPEN_STATE, L.ON_SUBSTITUTE_STATE)),
+             {L.PLACEHOLDER_OPEN_STATE: 2, L.ON_SUBSTITUTE_STATE: 1})
+    check_eq("FL-8 F6: a ledger with no rows counts 0 per state", RF._plan_row_counts({}, (L.PLACEHOLDER_OPEN_STATE,)), {L.PLACEHOLDER_OPEN_STATE: 0})
+    src = Path(RF.__file__).read_text(encoding="utf-8")
+    check_eq("FL-8 F6: the file counts a ledger's plan rows by state in ONE place (not once per counter)",
+             src.count('isinstance(r, dict) and r.get("kind") == "plan_row"'), 1)
+    task = fl8_story(home="x")
+    try:
+        facts = RF.build(task)
+        check_eq("FL-8 F6: the measure reads placeholder_open through it (the fixture ledger has no placeholder row: a measured 0)",
+                 facts["first_look_measure"]["placeholder_open"], 0)
+    finally:
+        cleanup(task.parents[2])
+
+
+def the_retro_knowledge_facts_are_one_assembly_with_build() -> None:
+    """F1 (AR-22: a produced field has a reader): the retro reads `knowledge_facts`/`question_count`, the same assembly `build` uses."""
+    task = fl8_story(home="x")
+    try:
+        fl8_registry_role(task)
+        facts = RF.build(task)
+        read = RF.knowledge_facts(task)
+        check_eq("FL-8 F1: knowledge_facts is what build put in the facts (one assembly)",
+                 {k: facts[k] for k in ("knowledge_use", "first_look_measure")}, read)
+        (task / "work" / "requirements-readiness.json").unlink()
+        check_in("FL-8 F1: no register: the question count is unmeasured, never 0", "unmeasured: ", str(RF.question_count(task)))
+        write(task / "work" / "requirements-readiness.json", {"open_questions": []})
+        check_eq("FL-8 F1: a register read with no question: a MEASURED zero", RF.question_count(task), 0)
+        write(task / "work" / "requirements-readiness.json", {"open_questions": [
+            {"id": "Q1", "text": "a", "options": ["a", "b"]}, {"id": "Q2", "text": "b", "options": ["a", "b"]}]})
+        check_eq("FL-8 F1: two questions in the register are counted", RF.question_count(task), 2)
+    finally:
+        cleanup(task.parents[2])
+    old = story()
+    try:
+        check_eq("FL-8 F1: an older story (no first look, no registry) has no knowledge facts", RF.knowledge_facts(old), {})
+    finally:
+        cleanup(old.parents[2])
+
+
+def known_fact_not_reaching_decision_is_finding_line() -> None:
+    task = fl8_story(record=False)
+    try:
+        fl8_registry_role(task)
+        fl8_briefs(task, S3_qa_test_strategist_1="roster without the marker\n")
+        lines = RF.finding_lines(RF.build(task))
+        check_in("FL-8 a known fact that was in no brief: a finding line naming it", "A known fact did not reach a decision: product.roles auditor was in no brief", lines)
+        fl8_briefs(task, S3_qa_test_strategist_1="- auditor [knowledge:product.roles]\n")
+        fl8_strategist_form(task, ["guest"])
+        metrics = RF.knowledge_use(task)["counter_metrics"]
+        check_in("FL-8 reached a role but not in its product_roles: a finding line, available_unused counted",
+                 "reached qa-test-strategist and was not used", RF.finding_lines(RF.build(task)))
+        check_eq("FL-8 counter-metric (2) is the sum of both kinds", (metrics["known_not_reached"], metrics["available_unused"], metrics["known_not_reaching_a_decision"]), (0, 1, 1))
+        fl8_strategist_form(task, ["Auditor"])
+        check_eq("FL-8 CONTROL: the strategist named the role (by its form): no finding line", RF.finding_lines(RF.build(task)), [])
+        check_in("FL-8 counter-metrics (1) and (3) have no carrier: unmeasured with the step 0 reason", "unmeasured: answer scope is not recorded",
+                 RF.knowledge_use(task)["counter_metrics"]["answer_scope_applied_as_rule"])
+        check_in("FL-8 ... and (1)", "invented_not_asked", RF.knowledge_use(task)["counter_metrics"]["invented_not_asked"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def briefs_not_kept_reads_unmeasured() -> None:
+    task = fl8_story(home="x")
+    try:
+        fl8_registry_role(task)
+        use = RF.knowledge_use(task)
+        check_eq("FL-8 no briefs on disk: the reach is `unmeasured: briefs are not kept`", use["entries"][0]["reached"], "unmeasured: briefs are not kept")
+        check_eq("FL-8 ... the briefs word says so", use["briefs"], "unmeasured: briefs are not kept")
+        check_in("FL-8 ... counter-metric (2) is unmeasured, not 0", "unmeasured: briefs are not kept", use["counter_metrics"]["known_not_reaching_a_decision"])
+        check_not_in("FL-8 ... and no `was in no brief` finding (unknown is not `not reached`)", "was in no brief", RF.finding_lines(RF.build(task)))
+        write(task / "work" / "briefs" / "S3-qa-test-strategist-1.md", "x")
+        (task / "work" / "briefs" / "S3-qa-test-strategist-1.md").unlink()
+        check_eq("FL-8 an empty briefs folder is `not kept` too", RF.knowledge_use(task)["briefs"], "unmeasured: briefs are not kept")
+    finally:
+        cleanup(task.parents[2])
+
+
+def zero_questions_printed_with_counter_metrics() -> None:
+    task = fl8_story(home="x")
+    try:
+        fl8_registry_role(task)
+        fl8_briefs(task, S3_qa_test_strategist_1="- auditor [knowledge:product.roles]\n")
+        facts = RF.build(task)
+        zero = RF.question_count_line(0, facts)
+        check_in("FL-8 zero questions is printed together with the counter-metrics", "Questions put to the person: 0; known facts no brief carried: 0", zero)
+        check_in("FL-8 ... all four, the two without a carrier unmeasured", "answer invented where a question was owed: unmeasured: ", zero)
+        check_eq("FL-8 zero with no counter-metrics to print: the zero is NOT printed, it is unmeasured", RF.question_count_line(0, {}),
+                 "unmeasured: zero questions is not printed without its counter-metrics")
+        check_eq("FL-8 a count over zero stands alone when there are no counter-metrics", RF.question_count_line(3, {}), "Questions put to the person: 3")
+    finally:
+        cleanup(task.parents[2])
+
+
 def main() -> None:
+    first_look_cost_from_story_journal()
+    first_look_share_and_answers_counted()
+    first_look_attempt_outcome_counted()
+    use_locators_and_routes_in_s5_homes_counted()
+    use_s4_cases_citing_walked_path_counted()
+    use_probes_on_seen_elements_counted_or_unmeasured()
+    unread_record_is_finding_line()
+    null_record_no_unread_finding()
+    stand_needs_and_gaps_are_read()
+    counts_never_refuse()
+    knowledge_use_counts_registry_and_first_look_in_one_table()
+    known_role_reached_strategist_and_case_critic()
+    known_credential_not_reasked_counts_used()
+    known_fact_not_reaching_decision_is_finding_line()
+    briefs_not_kept_reads_unmeasured()
+    zero_questions_printed_with_counter_metrics()
+    a_used_credential_is_not_a_fact_that_missed_the_decision()
+    an_unreadable_registry_makes_the_counter_metric_unmeasured_not_zero()
+    a_fact_the_story_taught_is_not_one_it_ignored()
+    a_fact_with_no_time_or_a_story_with_no_start_is_unmeasured()
+    reached_is_per_element_not_per_key()
+    the_error_shape_of_the_first_look_measure_has_a_reader()
+    the_plan_rows_are_counted_by_one_helper()
+    the_retro_knowledge_facts_are_one_assembly_with_build()
+    pc_10_sides_measure()
+    one_bug_many_manifestations_in_the_report()
     g2_5_what_the_change_touches()
     red_test_is_not_not_probed()
     coverage_owner_in_the_verdict()
@@ -4075,9 +4905,10 @@ def review_gaps_every_open_row_and_one_filter() -> None:
     check_in("... and among the runs", "- `test_5` (TC-005) — the run failed; the run's reason: boom", twice.split("### Runs left failing", 1)[-1])
     # F2
     hostile = {"id": "F-1", "problem": "it asserts nothing in work/out.txt after ti_ab12 ran", "expected": "the flag reads cancelled", "fix": "cv_1a2b"}
-    nothing_left = {"id": "F-2", "problem": "ti_1", "expected": "cv_2", "fix": "work/z"}
+    # the shape reader flags `cv_`/`ti_` + 4 hex digits and a `work/` path (validate_artifacts.report_id_shape_hit, AR-13): the fixture words are those shapes
+    nothing_left = {"id": "F-2", "problem": "ti_1a2b", "expected": "cv_2c3d", "fix": "work/z"}
     window_word = dict(REMARK, id="F-3", problem="see work/log.txt", expected="x", fix="y")
-    rows = [dict(gap_row(1, remarks=(hostile, hostile)), function="test_multi_tenant"), gap_row(2, remarks=(nothing_left,))]
+    rows = [dict(gap_row(1, remarks=(hostile, hostile)), function="cv_9f8e7d"), gap_row(2, remarks=(nothing_left,))]
     windows = [dict(S5_WINDOW, remarks=[window_word])]
     block = gap_block(rows, windows)
     note = "(a path in the critic's words was shortened)"

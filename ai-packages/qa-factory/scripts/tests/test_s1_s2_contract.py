@@ -216,83 +216,6 @@ def an_empty_stand_list_is_not_an_empty_question():
 # The phase files and the contract say what story_run.py does. The keys below are the DoD's own words,
 # fixed BEFORE the run; the negative control proves the check can fail.
 
-def _flat(path: Path) -> str:
-    return " ".join(path.read_text(encoding="utf-8").split())
-
-
-def _missing(text: str, keys: list) -> list:
-    return [key for key in keys if key not in text]
-
-
-D2_DOC_KEYS = {
-    "skills/qa-story/phases/s0.md": [
-        "| stand probe fails | Not a halt:",
-        "keep the name, set `environment_pending: true`, record a warning",
-        "S5 and S6 check the stand again before anything runs on it",
-        "`environment_pending: true` and S5/S6 check it again before tests run",
-        "S5/S6) asks once before it starts, and one word passes both",
-    ],
-    # R3: naming a stand is `environment_pending=true`; `false` only after a probe that exits 0
-    "skills/qa-story/phases/s0.md#R3": [
-        "when the person only NAMES a stand",
-        "`environment_pending=false` is written only after `env_probe.py` on that stand exits 0",
-        "`environment_pending` is `false` only when `env_probe.py` exited 0 for the named stand",
-    ],
-    "skills/qa-story/phases/s1.md#R3": [
-        "--set environment_pending=true` in the same call",
-        "`false` is written only after `env_probe.py` on it exits 0",
-    ],
-    # R7: skill mode has the same step before its first dispatch
-    "skills/qa-story/phases/s5.md": [
-        "## The stand, before the first dispatch",
-        "`stage_overrides[]` already holds a person's word on the block `stand not confirmed`",
-        "or `go on` to go without a stand",
-        "Dispatch nothing until one of these holds.",
-    ],
-    "skills/qa-story/phases/s6.md": [
-        "## The stand, before the first dispatch",
-        "a person's word on the block `stand not confirmed`",
-        "A stage with nothing to run asks nothing.",
-    ],
-    "skills/qa-story/phases/s1.md": [
-        "The stand `<name>` did not answer when I checked it; planning goes on, I check it again before "
-        "the tests run; name another stand here if you want one.",
-        "this project records no stand, so nothing is run on one yet; before the tests run I will ask again "
-        "(`/qa-factory:qa-onboarding` adds one).",
-    ],
-    "references/artifact-contract-json.md": [
-        "`environment_pending` bool? (`true` = no stand is confirmed as usable:",
-        "or the name kept after a failed probe; checked before S5/S6",
-    ],
-}
-
-
-def the_stand_docs_say_what_the_driver_does():
-    plugin = SCRIPTS.parent
-    for rel, keys in D2_DOC_KEYS.items():
-        rel = rel.split("#")[0]
-        text = _flat(plugin / rel)
-        check_eq(f"D2 docs: {rel} carries every key of the DoD", _missing(text, keys), [])
-        # the negative control: with one key taken out of the text the same check names it
-        check_eq(f"D2 docs: {rel} - the check fails when a key is absent (control)",
-                 _missing(text.replace(keys[0], "", 1), keys), [keys[0]])
-    s0 = _flat(plugin / "skills/qa-story/phases/s0.md")
-    # a negative claim needs its positive control in the same shape: the old sentence's neighbour is there
-    check_in("D2 docs: control - the search finds a sentence known to be in s0.md",
-             "Name the line that blocks and its cause", s0)
-    check_not_in("D2 docs: s0.md no longer says the probe's failure stops the story",
-                 "Only `liveness: dead`, `login: failed` or a missing login key stops the story", s0)
-    s1 = _flat(plugin / "skills/qa-story/phases/s1.md")
-    check_in("D2 docs: control - the search finds the exit step of s1.md", "in the same call when the", s1)
-    check_not_in("D2 docs: s1.md no longer writes a NAMED stand as confirmed",
-                 "--set environment=<id> --set environment_pending=false", s1)
-    check_not_in("D2 docs: nor does s0.md's resume line", "--set environment=<id> --set environment_pending=false`.", s0)
-    check_not_in("D2 docs: nor does s0.md's pipeline example write pending false for every story",
-                 '"environment_pending": false,', s0)
-    check_not_in("D2 docs: nor that S5/S6 stop on it later, unasked",
-                 "Every stand-dependent execution (S5/S6) stops on it later", s0)
-
-
 # --- A-F12: a bad source ref is a refusal, not a traceback --------------------------------
 
 def a_bad_source_ref_is_refused_in_words():
@@ -370,77 +293,8 @@ def the_no_diff_source_is_one_reader_of_three_shapes():
         check_eq(f"NEGATIVE: {label} reads as ''", read(bad), "")
 
 
-def the_halts_table_names_the_halt_question():
-    """C1-3 (P12, P13): s1.md and s2.md name the driver's halt question and its options, not a bare "halt and stop"."""
-    s1 = (SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s1.md").read_text(encoding="utf-8")
-    s2 = (SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s2.md").read_text(encoding="utf-8")
-    check_in("s1.md: a capability that is unavailable is the halt question with its options", "The halt question, with its options (the driver asks it: answer in words, or `stop`).", s1)
-    check_not_in("s1.md: and no longer 'Verbatim, stop.'", "| Verbatim, stop. |", s1)
-    check_in("s2.md: a second `blocked` is the halt question again, with its options", "A second `blocked` | The halt question again, with its options", s2)
-    check_not_in("s2.md: and no longer 'Halt: name the questions still unanswered and stop.'", "Halt: name the questions still unanswered and stop.", s2)
-
-
 # --- G1-10 (grounding/1): the role text says what the code does, one verdict per place ------
-# The keys are the DoD's own words (spec t-1211 section 3, K1-K15), fixed BEFORE the run. Each site's text points to the ONE
-# check that carries its verdict; `present` keys are the new words, `absent` keys are the old sentences that promised a
-# check nobody ran or named a value nobody reads.
-
-G1_10_DOC_KEYS = {
-    "references/artifact-contract-grounding.md": {
-        "present": [
-            # K1: site 1 - the observable's `source` is read by the S2 cell-prefix check, not by the manifest check
-            "An observable's `source` is not checked here: the requirements tester copies it into the register's "
-            "`observable` cell, and the S2 check refuses a cell that does not start with one of the closed words or `none`.",
-            "every `related` entry carries a `kind`",  # K2: the control key, unchanged
-            "`requirement` empty for diff behaviour no requirement names",  # K4: site 2, the shape
-        ],
-        "absent": ["every observable carries a `source` from the closed list"],
-    },
-    "agents/qa-scout.md": {
-        "present": [
-            "an empty `requirement`",  # K3: site 2
-            "Write `implementation.source: none` in work/context-manifest.json and return the halt digest; "  # K12: site 5
-            "the orchestrator records the pipeline value after the person's answer.",
-        ],
-        "absent": ["`derived: mr-diff`", "Set `implementation_source: none`"],
-    },
-    "agents/qa-requirements-tester.md": {
-        "present": [
-            # K5: site 2, the reader of the empty `requirement` - spec t-1765 X1 (B-D, "moved"): the charter no longer has the sentence
-            # "A manifest observable with an empty `requirement` is diff behaviour no source names: a `derived` row, and a behaviour
-            # claim."; the closest sentence of the charter is pinned (Good outcome 4), the tester's card (below) holds the `derived` rule
-            "Behaviour only the diff states sits under `## Behaviour claims`",
-        ],
-        "absent": ["`implementation_source: none`"],
-    },
-    "skills/qa-story/phases/s2.md": {
-        # K13: site 5, the pipeline word - moved (spec t-1765 X1, B-D) from the charter to the phase file that names it
-        "present": ["`implementation_source: ungrounded` changes nothing about the dispatch"],
-        "absent": [],
-    },
-    "design/factory-rules-debt.md": {
-        "present": [
-            "**narrowed 20.10 (grounding G1-3)**",  # K6: site 3
-            "`skipped` maps to `planned_skip` (`none`), and nothing asks whether a row was skipped because the product has "  # K7
-            "no such surface",
-            "**FR-21, half - the product's missing behaviour now blocks**",  # K8
-        ],
-        "absent": ["check_delivery.py:568"],
-    },
-    "references/ahead-cards.json": {
-        "present": ["a `derived` row only the diff speaks to also gets its `## Behaviour claims` row."],  # K11: the tester card
-        "absent": [],
-    },
-    "skills/qa-story/phases/s1.md": {
-        "present": ["## Digest `halt` — `implementation.source: none`"],  # K14: site 5
-        "absent": ["## Digest `halt` — `implementation_source: none`"],
-    },
-    "skills/qa-story/evals/evals.json": {
-        "present": ["its manifest says implementation.source: none."],  # K15: site 5
-        "absent": ["halt digest with implementation_source: none"],
-    },
-}
-
+# The role texts of K1-K15 (spec t-1211 section 3) are rows of design/role-rules.json; the couplings to code data stay here.
 
 def fr21_row_mismatch(row: str, doc: dict) -> list:
     """Does the FR-21 debt row claim what the kinds file says? The row claims the `pending_implementation` half when it holds
@@ -462,17 +316,6 @@ def role_text_says_what_the_code_does():
     import delivery_verdict as DV
     import stage_done
     plugin = SCRIPTS.parent
-    for rel, keys in G1_10_DOC_KEYS.items():
-        text = _flat(plugin / rel)
-        present, absent = keys["present"], keys["absent"]
-        check_eq(f"G1-10: {rel} carries every new key", _missing(text, present), [])
-        # the negative controls: the same check names a key taken out, and the absent-check names a key put back
-        check_eq(f"G1-10: {rel} - the presence check fails when a key is taken out (control)",
-                 _missing(text.replace(present[0], ""), [present[0]]), [present[0]])
-        for key in absent:
-            check_eq(f"G1-10: {rel} no longer says {key!r}", [k for k in [key] if k in text], [])
-            check_eq(f"G1-10: {rel} - the absence check fails when the old sentence is back (control)",
-                     [k for k in [key] if k in text + key], [key])
     # coupling (a): the FR-21 row against the kinds file (a constant read, not a phrase; hygiene 7 (d): a COPY is corrupted)
     doc, problem = DV.load_kinds()
     check_eq("G1-10: the kinds file is readable", problem, "")
@@ -499,11 +342,9 @@ def main():
     a_bug_ticket_is_sized_as_a_bug()
     the_roles_size_override_survives_the_detector_rerun()
     an_empty_stand_list_is_not_an_empty_question()
-    the_stand_docs_say_what_the_driver_does()
     a_bad_source_ref_is_refused_in_words()
     an_agent_read_route_is_refused_with_the_one_that_works()
     the_no_diff_source_is_one_reader_of_three_shapes()
-    the_halts_table_names_the_halt_question()
     role_text_says_what_the_code_does()
     finish("S1-S2 contract")
 

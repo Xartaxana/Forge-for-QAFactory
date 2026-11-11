@@ -93,7 +93,8 @@ class Rig:
 
     def spy_py(self, script, *args, **kwargs):
         self.log["py"].append((script, list(args)))
-        return 0, ""
+        # the production controller prints ONE JSON object line for every operation (t-2020: no readable answer is a refusal)
+        return 0, "{}" if script == "controller.py" else ""
 
     def waivers(self):
         return [a[a.index("--block") + 1] for s, a in self.log["py"] if s == "waiver.py"]

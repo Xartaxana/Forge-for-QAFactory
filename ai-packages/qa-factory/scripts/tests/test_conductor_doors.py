@@ -167,7 +167,7 @@ def the_size_stays_under_the_cap() -> None:
 # a live run only.
 ROLE_RULE = ("- Never run the test suite yourself, never start a role's session yourself and never edit by hand an "
              "artifact a role owns; the factory commands named in this file are the exceptions (the stray case file "
-             "named by the S4 exit-gate refusal, `handoff.py fill`, `critic_rollcall --apply-fixes`). A role is called "
+             "named by the S4 exit-gate refusal, `handoff_check.py --set`, `critic_rollcall --apply-fixes`). A role is called "
              "only through the controller — `rework` sends a stage's accepted work back to its role, `release` frees a "
              "dispatch nobody is doing — or through `story_step.py start` where a phase file names it; the driver runs "
              "the role's session in all three.")
@@ -631,27 +631,37 @@ REPAIR_LIMIT_KEYS = ("s5.repair_limit", "s5.nobody_review", "s5.nobody_environme
 # C1-5b1 (S5) took the four `s5.*` keys off this list: their sites are `Driver.repair_limit_person`, pinned in
 # test_story_run_repair_limit.py (PINNED_ELSEWHERE below). `s7.repair_limit` was listed here until C1-5b2 wrote the S7 site (`Driver.repair_limit_person`
 # through `s7_limit`); it is in PINNED_ELSEWHERE now (RL8), and a key listed here that the code already raises is a defect of THIS list.
-AWAITING_ITS_SITE: set = set()
+AWAITING_ITS_SITE: set = {"awaiting.stop"}  # PC-7 (t-2181): the row is data and priced (test_human_reading.py H9); no driver site asks it yet - the stop of a wait is the person's word through `controller.py --operation stop_waiting`. TR3-10 part D: `s6.walk_supply`, `s6.data_change` (test_walk_supply.py) and `s6.walk_account` (test_walk_account.py) have their builders and branches; the census counts them as raised
 # Keys the code raises that this process cannot drive; each is raised, and its question text pinned, by the named file.
 PINNED_ELSEWHERE = {"package.copies": "test_package_generation.py (D3)", "s0.flags": "test_story_run_s0.py",
                     "s0.key_form": "test_s0_key_form.py", "s0.no_change": "test_no_mr_entry.py",
+                    "sides.deliverable": "test_no_mr_entry.py (not_built_yet_and_the_sides_at_launch: the question, its form, ours / another team's)",
                     "s0.stand": "test_story_run_s0_stand_trace.py", "s0.readiness": "test_story_run_s0.py",
                     "questions": "test_question_stop.py (T1..T5)",
                     "questions.blocking": "test_story_run_loop_b.py (HF2-7 K2: the blocking stop's priced options and unverified line)",
                     "s5.repair_limit": "test_story_run_repair_limit.py (RL1-RL4, RL6)", "s5.nobody_review": "test_story_run_repair_limit.py (RL5)",
                     "s5.nobody_environment": "test_story_run_repair_limit.py (RL5)", "s5.nobody_tooling": "test_story_run_repair_limit.py (RL5)",
                     "exit.resume_limit": "test_story_run_exit_limit.py (EL1-EL7, EL10, EL14)", "s7.repair_limit": "test_story_run_repair_limit.py (RL8)",
+                    "exit.resume_limit_halted": "test_exit_limit_halt_answered.py (t-1955 N4: the halted variant of the exit-limit question)",
                     "s7.open_work": "test_story_run_s7_live.py (FX-2)",
                     "code_close.stage": "test_story_run_refusals.py (CC1, CC8)", "code_close.closed_story": "test_story_run_refusals.py (CC13)",
                     "code_close.factory_file": "test_story_run_refusals.py (CC14)",
+                    "code_close.behind": "test_code_close_behind.py (t-1988 N3: the close refused behind an earlier stage)",
                     "closed.held": "test_story_closed.py (C1-6a: the question and its three executors)",
                     "s6.stand_login": "test_story_run_s6.py (C1-6b: C16b stand_login, 3 x 3 lines, two records)",
+                    "s6.walk_account": "test_walk_account.py (TR3-10 D3a step 3: the account question, its tokens and executors)",
+                    "s6.walk_supply": "test_walk_supply.py (TR3-10 D3a: the way question, its tokens and executors)",
+                    "s6.data_change": "test_walk_supply.py (TR3-10 D3a step 2: the data-change question, its tokens and executor)",
                     "s6.stand_confirm": "test_story_run_s6.py (C1-6b: C16b stand_confirm, the price section and the executors)",
                     "s6.gate_a_dry": "test_story_run_s6.py (C1-6b: C16b gate A dry, reapprove / go on / stop, edge 10)",
                     "s3.grounding_coverage": "test_grounding_coverage.py (G2-2: the coverage stop, go on / stop)",
                     "s3.grounding_coverage.not_known": "test_grounding_coverage.py (G2-2: only unknown outside the count)",
                     "s3.grounding_coverage.nothing_asked": "test_grounding_coverage.py (G2-2: N = 0)",
                     "s3.grounding_refactoring": "test_grounding_coverage.py (G2-2: the refactoring stop after the coverage one)",
+                    "arrival.not_waiting": "test_story_run_arrival.py (A9: the question, its three tokens and their executors)",
+                    "awaiting.absent_side": "test_story_sides.py (t-2559 W2 B3: the question at the S5 hold, its two tokens and their executors)",
+                    "first_look.dead": "test_first_look_step.py (FL-5: below_floor_asks_once, the question and its tokens)",
+                    "first_look.same_code": "test_first_look_code_look.py (FL-6: bare_relaunch_head_same_asks_same_code, the question and its answers)",
                     "explore.frame": "test_exploration.py (frame_text_passes_form, frame_prices)"}
 
 
@@ -929,7 +939,7 @@ def c27_go_on_as_is_names_the_closed_block() -> None:
     """t-722 C2-7 (F-5d (a)): the `go_on_as_is` row names, word for word, what its `--block` may be - one of the standing refusal's
     lines, whole - and that `waiver.py` refuses any other, so the row and the writer (C2-5) say one thing. The negative control is the
     same scan over the row with the sentence taken out."""
-    wanted = "the block: one of the refusal's lines, whole; waiver.py refuses any other"
+    wanted = "the block: one of the refusal's lines, whole, or a named block such as `probe gap: <case key>`; waiver.py refuses anything else"
     row = next(m for m in json.loads(ACTIONS.read_text(encoding="utf-8"))["moves"] if m["id"] == "go_on_as_is")
     check_in("C27: the go_on_as_is row carries the closed-block sentence, verbatim", wanted, row["run"])
     check_not_in("C27 negative control: the same scan fails on the old `<the block>` row", wanted, row["run"].replace(wanted, "the block"))
@@ -953,7 +963,170 @@ def k_n4_2a_the_install_row_exists_and_names_its_check() -> None:
     check_eq("K-N4-2a: the script in its run exists and takes the flags it names", problems, [])
 
 
+# --- t-1936 F2 (N3): the conductor's own text always reaches the person, even when its options are refused -----------------------------------
+# Plain `test_*` functions with asserts (pytest collects them; `f2_run` runs them in the script mode of this file too). The driver rig is
+# the seam test's: a stubbed conductor on an in-process Driver.
+from story_run_common import seam_option  # noqa: E402
+from test_no_move_seam import raised, rig, verdict  # noqa: E402
+
+import harness as _harness  # noqa: E402
+import no_move as _NM  # noqa: E402
+
+LIVE_FACTS = {"dispatch_status": "blocked", "session": True, "running": False, "closed": False, "attempts": 0, "rework_stages": [],
+              "stand_authorized": False, "live_exclusions": False, "gate": "", "gate_decided": None}
+RESUME_OPTIONS = (("resume", "resume_with_words"), ("retry", "person_does"))     # `resume_with_words` is never an option: the set is refused
+
+
+def refused_person(question, tokens=RESUME_OPTIONS, state=None, answers=None, facts=None, **extra):
+    """Drive the seam with a conductor answer whose options are refused; `(person, driver, conductor.jsonl rows)` (the rig is cleaned up)."""
+    root, task_root, driver = rig(answers=answers or [verdict(tokens, question=question, **extra)])
+    try:
+        driver.boundary = "S2:S2-qa-case-critic-1"
+        driver.no_move_facts = lambda state: dict(facts or LIVE_FACTS)
+        _, person = raised(driver, dict({"why": "refusal", "text": "the details", "lead": "THE LEAD OF THE SITE", "stage": "S2"}, **(state or {})))
+        journal = driver.state_dir / "conductor.jsonl"
+        return person, driver, ([json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()] if journal.exists() else [])
+    finally:
+        _harness.cleanup(root)
+
+
+def test_refused_options_keep_conductor_question() -> None:
+    question = "The critic finished with ok, but its form names no tester handoff. How do you want to go on?"
+    person, driver, lines = refused_person(question)
+    text = person.text
+    at = [text.find(part) for part in ("THE LEAD OF THE SITE", "What the conductor found:\n" + question, "## What each answer costs and does")]
+    assert min(at) >= 0 and at == sorted(at), (at, text)
+    assert list(person.offered) == ["retry", "go on", "stop"] and person.source == "fallback", (person.offered, person.source)
+    assert len(driver.defects) == 1 and len([row for row in lines if row.get("action") == "unusable"]) == 1, (driver.defects, lines)
+    assert "never an option" in " ".join(driver.defects[0]), driver.defects
+    # E2.4: an empty conductor question, or an answer with no options, is today's behaviour: no conductor block
+    person, driver, _ = refused_person("")
+    assert "What the conductor found:" not in person.text and "THE LEAD OF THE SITE" in person.text, person.text
+    person, driver, _ = refused_person(question, answers=[dict(verdict(), options=None, question=question)])
+    assert "What the conductor found:" not in person.text and len(driver.defects) == 1, person.text
+    # `stop` with refused options is the same: the question reaches the person, the code stays the gave-up one
+    person, driver, _ = refused_person(question, answers=[dict(verdict(RESUME_OPTIONS, question=question), action="stop")])
+    assert "What the conductor found:\n" + question in person.text and person.code == story_run_exit_gave_up(), person.code
+
+
+def story_run_exit_gave_up() -> int:
+    import story_run
+    return story_run.EXIT_GAVE_UP
+
+
+def test_conductor_text_cut_at_1200() -> None:
+    limit = _NM.CONDUCTOR_TEXT_LIMIT
+    assert limit == 1200
+    for length, cut in ((limit - 1, False), (limit, False), (limit + 1, True), (limit + 300, True)):
+        person, _driver, _ = refused_person("x" * length)
+        shown = person.text.split("What the conductor found:\n", 1)[1].split("\n\n", 1)[0]
+        assert (shown == "x" * length) is (not cut) and len(shown) == min(length, limit), (length, len(shown))
+        assert shown.endswith("…") is cut and (not cut or shown == "x" * (limit - 1) + "…"), (length, shown[-3:])
+    # E2.7: the token lines are computed on the WHOLE text - a token past the cut is still named as not offered
+    person, _driver, _ = refused_person("y" * (limit + 50) + " and then `restart` would free it")
+    shown = person.text.split("What the conductor found:\n", 1)[1]
+    assert "`restart` would free it" not in shown and "\n`restart` is not offered here: " in shown, shown[-400:]
+
+
+def test_unoffered_token_named_in_one_line() -> None:
+    question = "Restart the critic? `restart` frees it, `restart` again, `retry` looks again, and `ok` was its word."
+    person, _driver, _ = refused_person(question, state={"stage": "S2"})
+    lines = [line for line in person.text.splitlines() if " is not offered here: " in line]
+    assert len(lines) == 1 and lines[0].startswith("`restart` is not offered here: "), lines       # once; `retry` is offered; `ok` is no token
+    # the pure half: the reason is the story's state where the move is closed, the generic words where the move is open or unread
+    spec, normalize = _NM.data(), story_run_normalize()
+    closed = {"rework_stages": [], "running": False, "closed": False, "attempts": 0}
+    block, found = _NM.conductor_found("Send it back with `rework`, or `stop`.", ["retry", "stop"], spec, normalize, facts=closed)
+    assert found == ["`rework` is not offered here: sending a stage back is not open now: " + _NM.rework_closed_reason(closed)], found
+    _, found = _NM.conductor_found("Send it back with `rework`.", ["retry"], spec, normalize, facts=None)
+    assert found == [f"`rework` is not offered here: {_NM.UNOFFERED_GENERIC}"], found
+    _, found = _NM.conductor_found("Send it back with `rework`.", None, spec, normalize, facts=closed)
+    assert found == [], found                                                 # the shown answers unknown: no line is claimed (FR-41)
+    assert _NM.conductor_found("   ", ["retry"], spec, normalize) == ("", []), "an empty text adds nothing"
+
+
+def story_run_normalize():
+    import story_run
+    return story_run.Driver.s0_normalize
+
+
+def test_gate_fallback_keeps_conductor_text() -> None:
+    question = "Do you approve this gate? I would `go on` past it, or `stop`, but `approve` records nothing without your words."
+    person, driver, _ = refused_person(question, state={"kind": "gate_A", "stage": "S4", "why": "unread_answer", "words": "w"},
+                                       facts=dict(LIVE_FACTS, gate="A", gate_decided=False))
+    assert person.kind == "gate_A", person.kind
+    assert "What the conductor found:\n" + question in person.text, person.text
+    assert "go on" not in person.offered and list(person.offered) == ["retry", "stop"], person.offered          # E2.5: the added text offers nothing
+    lines = [line for line in person.text.splitlines() if " is not offered here: " in line]
+    assert "`go on` is not offered here: " + _NM.UNOFFERED_CLOSED in lines, lines              # at a gate the one pass is `approve`
+    assert any(line.startswith("`approve` is not offered here: ") for line in lines), lines                       # no words file: approve is not a row
+    assert len(driver.defects) == 1, driver.defects
+
+
+# The arm B run (LOCAL-1, 05.11.2026, state/conductor.jsonl): the conductor asked or stopped 7 times and `validate_options` answered
+# `unusable` each time, so the person was shown the generic words. Each row: the first characters of the conductor's `question`
+# VERBATIM from that file, its `why_person`, and the options its answer carried, rebuilt from the refusal the file records (`args` on
+# `restart` / `go on`, or the token `resume` for `resume_with_words`). The eighth `unusable` line (the conductor cap) has no question.
+ARM_B = (
+    ("process_decision", "restart", "The S2 critic finished its review with the verdict `ok`, but its form still lists a placeholder instead of the tester's real handoff file (S2-qa-requirements-tester-1.yaml) as an input it read, so the factory won't close S2. I can"),
+    ("gate_word", "go on", "The S2 stage critic's second round did not leave a readable verdict. The tester's register has not changed since the critic's first review, which said ok. That review had one non-blocking finding, F-1, and one place not looked at:"),
+    ("gate_word", "resume", "The test plan the strategist wrote (S3) is refused on all 20 rows. Each row carries `coverage_schema_version: 2`, but the factory reads `schema_version: 2`, so it counts every row as an old-format row. Nothing else in the plan was"),
+    ("team_agreement", "go on", "The S3 plan critic approved the plan (verdict ok, all of R-1..R-14 covered, nothing to ask you). Its handoff form still has an unfilled template question row, which the register refuses, and the factory's fill command can't clear "),
+    ("stage_override", "restart", "The case critic approved the S4 cases (10 of 10 reviewed), but its form does not name the case designer's form it reviewed, so the stage cannot be recorded. The designer's form is work/handoffs/S4-qa-case-designer-1.yaml (sha256 c"),
+    ("gate_word", "restart", "The test plan for LOCAL-1 was refused at the S3 exit gate. In row TS-6, the new question Q5 has two readings, and each reading's source label doesn't start with an allowed prefix (acceptance_criteria, description, comment, parent_"),
+    ("risk", "go on", "The code critic's review of TC_001 and TC_002 (the add-to-cart UI tests) cannot be closed on its own. The tool that probes whether a test really fails when the product is broken could not do it for three tests: the in-stock add te"),
+)
+
+
+def test_arm_b_unusable_lines_reach_the_person() -> None:
+    """The replay: every one of the 7 arm B conductor questions reaches the person - as the conductor's own options when the answer is now
+    usable (`args` dropped), else verbatim after `What the conductor found:` - and none is replaced by the generic words alone."""
+    moves = {"restart": "release_and_restart", "go on": "go_on_as_is", "resume": "resume_with_words"}
+    shown_by = {"conductor": 0, "fallback": 0}
+    for why_person, bad, question in ARM_B:
+        tokens = [(bad, moves[bad])] + [(t, m) for t, m in (("restart", "release_and_restart"), ("go on", "go_on_as_is")) if t != bad] + [("stop", "stop_here")]
+        options = [dict(seam_option(token, move), args={"dispatch": "S2-x-1", "stage": "S2"}) if token == bad and bad != "resume" else seam_option(token, move)
+                   for token, move in tokens]
+        answer = dict(verdict(), question=question, why_person=why_person, options=options)
+        person, driver, lines = refused_person(question, answers=[answer, answer])         # twice: a refused class is told to the conductor once
+        question = question.strip()                                  # the seam strips a conductor question before it shows it
+        assert question in person.text, (why_person, bad, person.text[:300])
+        assert not [row for row in lines if row.get("action") == "args_dropped" and bad in ("resume",)], lines
+        shown_by[person.source] += 1
+        if bad == "resume":
+            assert person.source == "fallback" and "What the conductor found:\n" + question in person.text, (bad, person.source)
+        elif person.source == "conductor":
+            assert bad in person.offered and all("args" not in option for option in person.options), person.options
+            assert any(row.get("action") == "args_dropped" and bad in row["args_dropped"] for row in lines), lines
+        else:                                               # the class `process_decision` / `stage_override` is no class of person-owned.json: the text still arrives
+            assert "What the conductor found:\n" + question in person.text and why_person in ("process_decision", "stage_override"), why_person
+    assert sum(shown_by.values()) == len(ARM_B) == 7, shown_by
+    # the eighth line is the conductor cap: no answer, so no question - today's priced fallback, no block (E2.4)
+    root, task_root, driver = rig()
+    try:
+        driver.boundary = "S2:S2-qa-case-critic-1"
+        driver.conductor_calls[driver.boundary] = __import__("story_run").CONDUCTOR_CALLS_PER_BOUNDARY
+        _, person = raised(driver, {"why": "refusal", "text": "t"})
+        assert "What the conductor found:" not in person.text and list(person.offered) == ["retry", "go on", "stop"], person.text
+    finally:
+        _harness.cleanup(root)
+
+
+F2_DOOR_TESTS = (test_refused_options_keep_conductor_question, test_conductor_text_cut_at_1200, test_unoffered_token_named_in_one_line,
+                 test_gate_fallback_keeps_conductor_text, test_arm_b_unusable_lines_reach_the_person)
+
+
+def f2_run() -> None:
+    for scenario in F2_DOOR_TESTS:
+        try:
+            scenario()
+            check(f"F2 {scenario.__name__}", True)
+        except AssertionError as exc:
+            check(f"F2 {scenario.__name__}", False, str(exc)[:600])
+
+
 def main() -> None:
+    f2_run()
     k_n4_2a_the_install_row_exists_and_names_its_check()
     c27_go_on_as_is_names_the_closed_block()
     c26_the_rework_option_carries_args_and_a_chosen_call_may_decide()

@@ -150,6 +150,8 @@ def main() -> None:
         key_w3_decision()
         key_w3_pass_members()
         key_w3_cli()
+        key_settled_open_target_not_reinvestigated()
+        key_project_skips_settled_bug()
         check_eq("the fixture tree is byte-identical after the run (no test wrote it)", tree_hash(FIXTURE), before_fixture)
     finally:
         for root in ROOTS:
@@ -957,6 +959,51 @@ def key_w3_cli() -> None:
                                            .read_text(encoding="utf-8"))["never_empty"]}
     check_eq("K-W3-5 NE28 is the register's null-outcome row (a validator on the evidence refs)",
              (rows["NE28"]["kind"], rows["NE28"]["guard"]), ("validator", "exploratory_findings.py::append"))
+
+
+def key_settled_open_target_not_reinvestigated() -> None:
+    """t-1991 U1 (iv): a target the analyst settled on the stand (record + carrier line) is resolved and listed under `settled`; the
+    investigation does not dispatch for it and `close_gaps` does not gap it. `test_place_answers.py` holds the full set of edges."""
+    import hashlib
+    import place_answers as PA
+    task = story()
+    folder = task / "work" / "evidence" / "manual" / "settle-case-TC-006" / "a1"
+    folder.mkdir(parents=True)
+    (folder / "001-page.txt").write_text("the page shows no timestamp", encoding="utf-8")
+    capture = (folder / "001-page.txt").relative_to(task).as_posix()
+    (folder / "captures.jsonl").write_text(json.dumps({"path": capture, "kind": "page", "content_hash": hashlib.sha256(
+        (folder / "001-page.txt").read_bytes()).hexdigest()}) + "\n", encoding="utf-8")
+    record = {"place": "case-TC-006", "answer": "requirement_silent", "expectation": {"source": "none", "id": "", "quote": ""},
+              "seen": {"quote": "no timestamp", "capture": capture}, "question": "Should the page show a timestamp?"}
+    PA.write(task, "S7-qa-failure-analyst-1", "case-TC-006", record)
+    found = INV.open_targets(task, INV.load_budget()[0])
+    check("W-U1 the settled target is resolved, listed under `settled`, and no longer unresolved",
+          "case-TC-006" not in ids({"targets": found["unresolved"]}) and ids({"targets": found["settled"]}) == ["case-TC-006"])
+    check_eq("W-U1 ... why names the dispatch and the answer", dict(found["resolved"])["case-TC-006"],
+             "settled by S7-qa-failure-analyst-1: requirement_silent")
+    gaps = INV.close_gaps(task, GAP_WHY, budget=INV.load_budget()[0])
+    check("W-U1 close_gaps never gaps a settled place as `not investigated`",
+          all(EF.read(task)["active"].get("case-TC-006", {}).get("kind") != "coverage_gap" for _ in [0]) and "case-TC-006" not in
+          [EF.target_of(line) for line in EF.read(task)["lines"] if line["id"] in gaps])
+
+
+def key_project_skips_settled_bug() -> None:
+    """t-1991 fix round F3: `project` puts no `owner_question` line on a target the analyst settled (here a `bug`, which writes no line of
+    its own); a reader that cannot be asked projects it as before. `test_place_answers.py` holds the same edge with a real bug answer."""
+    import place_answers as PA
+    task = story()
+    saved = PA.settled_answer
+    try:
+        PA.settled_answer = lambda root, place: ({"answer": "bug"}, "settled" if place == "case-TC-006" else "open", "")
+        out = INV.project(task, "S7-qa-failure-analyst-1")
+        check("F3 the settled target has no register line and is skipped", "case-TC-006" in out["skipped"]
+              and EF.read(task)["active"].get("case-TC-006") is None)
+        check("F3 the other targets are projected as ever", EF.read(task)["active"].get("case-TC-007") is not None)
+        PA.settled_answer = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        INV.project(task, "S7-qa-failure-analyst-1")
+        check("F3 a reader that raises asks the question as before", EF.read(task)["active"].get("case-TC-006") is not None)
+    finally:
+        PA.settled_answer = saved
 
 
 if __name__ == "__main__":

@@ -385,11 +385,6 @@ def k8_no_new_writer_of_the_config() -> None:
     check_eq("K8: config_contract.py has the operations it had and no new one", options,
              sorted(["--root", "--migration-plan", "--apply", "--record-approval", "--approval-ref", "--evidence-ref", "--fold", "--validate",
                      "--price-table-answer", "--answers", "--model-id", "--check-environment"]))
-    import ast
-    tree = ast.parse((harness.SCRIPTS / "onboarding_probe.py").read_text(encoding="utf-8"))
-    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
-    check("K8: the probe module never calls apply_plan, record_approval or writes config.json itself",
-          not names & {"apply_plan", "record_approval", "record_fold"}, str(sorted(names & {"apply_plan", "record_approval"})))
     root = project()
     try:
         before = (root / "qa-factory" / "config.json").read_bytes()
@@ -447,8 +442,6 @@ def b220_the_apply_runs_the_report_probe_itself() -> None:
         ui = probe["profiles"][2]
         check_in("F2: the raw tail of the run stays a CODE field (`report.detail`)", "Executed 1 of 1 SUCCESS", ui["report"]["detail"])
         check_not_in("F2: and is not in the sentence for the LLM either (`says`)", "Executed 1 of 1 SUCCESS", ui["says"])
-        check_in("F2 (negative twin): the cure row's own `words` as a body line breaks the rules - that is why the person text is not built from it",
-                 "flag", " ".join(p["rule"] for p in human_text.problems(ui["cure"]["words"] + "\n\n---\nAnswer: x\n")))
         check_eq("F10: the apply's do_it text IS the sentence rendered from the sealed file (one renderer)",
                  texts[0]["text"], C.command_question(json.loads(Path(probe["profiles"][0]["proposal"]["path"]).read_text(encoding="utf-8"))))
         # F10 key: the text is read back from the SEALED FILE. A file edited after the probe makes the person text a refusal
@@ -489,24 +482,6 @@ def b220_the_apply_runs_the_report_probe_itself() -> None:
         cleanup(twin)
         answers.unlink(missing_ok=True)
         twin_answers.unlink(missing_ok=True)
-
-
-def f1_the_p4_text_shows_a_proposal_only_after_the_launch_check() -> None:
-    """The apply prints the probe at `--phase early`, BEFORE the launch check. A yes applied before a launch-check repair is lost in
-    the repair's in-place rewrite, and no code refuses that: the text is the only guard, so it is pinned (F1)."""
-    flat = " ".join((harness.PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p4-generate.md").read_text(encoding="utf-8").split())
-    must = ("that print comes BEFORE the launch check above",
-            "Show nothing from it, and ask nothing, until the launch check has run.",
-            "A proposal is shown only after the launch check;",
-            "if the launch check repaired a profile (rewrote its argvs), run the probe below again FIRST and show that output, never the earlier one",
-            "a yes applied before a repair would be lost in the in-place rewrite")
-    for sentence in must:
-        check_in(f"F1: p4 says `{sentence[:60]}...`", sentence, flat)
-    check("F1: the instruction to relay `person_text` comes AFTER the launch-check condition, not before it",
-          0 < flat.index(must[1]) < flat.index("relay each entry of `report_probe.person_text` as it stands"))
-    check("F1 (twin): the earlier text - relay as it stands, no condition - is not there any more",
-          "relay each entry of `report_probe.person_text` as it stands, one proposal at most per round. You run the probe yourself only" not in flat)
-    check_in("F4: p4 names the door that writes one key and says onboard_apply refuses a command proposal", "`onboard_apply.py --apply` refuses such a file", flat)
 
 
 def f2_the_probe_failure_is_one_sentence_the_person_hears() -> None:
@@ -641,21 +616,10 @@ def b416_f20_a_report_adaptation_is_written_by_the_one_writer_and_nothing_else()
         check_eq("F20: an EMPTY recorded kind (\"\") is not a recorded kind: it is set", config_of(root)["profiles"][0]["reporter"]["kind"], "trx")
     finally:
         cleanup(root)
-    # FR-17: ONE writer of the config - `apply_plan` and `apply_adaptation` both end in `_write_config`, and nothing else replaces the file
-    import ast
-    tree = ast.parse((harness.SCRIPTS / "config_contract.py").read_text(encoding="utf-8"))
-    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
-    calls = lambda name: {c.func.id for c in ast.walk(functions[name]) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}  # noqa: E731
-    check("FR-17: apply_plan and apply_adaptation both call the one private writer", "_write_config" in calls("apply_plan") and "_write_config" in calls("apply_adaptation"))
-    replacing = sorted(n for n, f in functions.items() if any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "replace"
-                                                              and isinstance(c.func.value, ast.Name) and c.func.value.id == "os" for c in ast.walk(f)))
-    check_eq("FR-17: the functions that os.replace a file in config_contract.py are the writer and the approvals/fold appenders - not apply_adaptation",
-             "apply_adaptation" in replacing or "apply_plan" in replacing, False)
 
 
 def main() -> None:
     b416_f20_a_report_adaptation_is_written_by_the_one_writer_and_nothing_else()
-    f1_the_p4_text_shows_a_proposal_only_after_the_launch_check()
     f2_the_probe_failure_is_one_sentence_the_person_hears()
     b220_the_apply_runs_the_report_probe_itself()
     ko6_the_maker_changes_one_key_and_seals_it()

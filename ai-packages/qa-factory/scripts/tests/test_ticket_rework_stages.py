@@ -83,8 +83,47 @@ def ticket_rework_stays_at_s2_and_s3():
         cleanup(root)
 
 
+def ticket_rework_of_s3_targets_the_strategist():
+    """t-2277 small-1 A: an accepted first-look runner dispatch of S3 that comes AFTER the strategist's never becomes the rework's role.
+    KILLS: `roles[-1]` of S3 taken over every accepted S3 dispatch (the runner is reworked instead of the plan's author)."""
+    root = temp_dir("qa-small1-ticket-")
+    try:
+        (root / "controller.json").write_text("{}", encoding="utf-8")
+        dispatches = {"d2": accepted("S2", "d2"), "d3": accepted("S3", "d3"),
+                      "S3-qa-runner-2": {"id": "S3-qa-runner-2", "stage": "S3", "role": "qa-runner", "status": "accepted",
+                                         "request_binding": {"purpose": "first_look"}}}
+        controller = {"stages": {f"S{n}": {"status": "completed"} for n in range(0, 4)}, "dispatches": dispatches}
+        calls = []
+        d = story_run.Driver.__new__(story_run.Driver)
+        d.task, d.task_root, d.state_dir, d.state = "QA-1", root, root, {}
+        d.controller_state = lambda: controller
+        d.save_state = lambda: None
+        d.py_stdout = lambda *a, **k: (0, "", "")
+        d.ticket_record_words = lambda *a, **k: None
+        d.s3_prepare = lambda: None
+        d.s3_ticket_completion = lambda: True
+        d.s3_strategist_lines = lambda extra: []
+
+        def rework(stage, role, cases, words, **kw):
+            calls.append((stage, role))
+            did = f"re-{stage}-{len(calls)}"
+            dispatches[did] = accepted(stage, did, repair_cause="ticket_changed")
+
+        d.rework = rework
+        d.ticket_reopen_gate_a = lambda pending: None
+        d.take_ticket_answer("new text", "the ticket changed", "S0", "")
+        for _ in range(6):
+            if not d.ticket_rework_step() or "ticket_rework" not in d.state:
+                break
+        check_eq("small-1 A: S3 is reworked by the strategist, not by the first look accepted after it",
+                 calls, [("S2", "qa-requirements-analyst"), ("S3", "qa-test-strategist")])
+    finally:
+        cleanup(root)
+
+
 def main():
     ticket_rework_stays_at_s2_and_s3()
+    ticket_rework_of_s3_targets_the_strategist()
     finish("test_ticket_rework_stages")
 
 

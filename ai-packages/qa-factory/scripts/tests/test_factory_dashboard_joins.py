@@ -276,6 +276,32 @@ class BasisTests(unittest.TestCase):
             cleanup(root)
 
 
+class BugRowTests(unittest.TestCase):
+    """t-2187 (5.18): a draft that speaks for several cases lists them all on its board row."""
+
+    MERGED = {"title": "Quantity changes", "case": "TC-001", "cases": ["TC-001", "TC-002"],
+              "manifestations": [{"action": "a", "start_state": "s", "seen": "x", "case": "TC-003"}]}
+
+    def test_a_merged_draft_lists_case_cases_and_every_manifestations_case(self):
+        rows = D.story_bug_rows([], [self.MERGED], {"TC-003"}, "QA-1")
+        self.assertEqual([r["cases"] for r in rows], ["TC-001, TC-002, TC-003"])
+
+    def test_a_case_named_only_by_a_manifestation_joins_the_story(self):
+        self.assertEqual(len(D.story_bug_rows([], [self.MERGED], {"TC-003"}, "QA-1")), 1)
+        self.assertEqual(D.story_bug_rows([], [self.MERGED], {"TC-009"}, "QA-1"), [])
+
+    def test_an_old_draft_reads_as_before(self):
+        self.assertEqual([r["cases"] for r in D.story_bug_rows([], [{"title": "x", "case": "TC-002"}], {"TC-002"}, "QA-1")], ["TC-002"])
+        self.assertEqual([r["cases"] for r in D.story_bug_rows([], [{"title": "x", "cases": ["TC-004", "TC-005"]}], None, "QA-1")],
+                         ["TC-004, TC-005"])
+        # a draft that names no case at all was never listed (the empty set is "all filed"): unchanged
+        self.assertEqual(D.story_bug_rows([], [{"title": "x"}], None, "QA-1"), [])
+
+    def test_a_draft_with_every_case_filed_is_not_listed_again(self):
+        filed = [{"id": "BUG-1", "title": "t", "task": "QA-1", "found_by": "TC-001 TC-002 TC-003"}]
+        self.assertEqual([r["id"] for r in D.story_bug_rows(filed, [self.MERGED], {"TC-001"}, "QA-1")], ["BUG-1"])
+
+
 class RemovedWidgetsTests(unittest.TestCase):
     def test_the_blocks_the_owner_removed_are_gone(self):
         source = (Path(__file__).resolve().parents[1] / "factory_dashboard.py").read_text(encoding="utf-8")

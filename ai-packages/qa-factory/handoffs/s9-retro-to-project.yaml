@@ -87,6 +87,16 @@ claims:
   the_feedback_answer_is_verbatim_or_declined: <true|false>
   the_dashboard_was_rebuilt: <true|false>
 
+# Where you looked for the cause of each thing that went wrong or dear in the run (spec t-1765 X7-7): the project reads it against
+# your Good outcome. Empty only with `tried_note` saying why nothing was looked for. Distinct from `blocked.tried` below, which is
+# what failed while filling this form.
+tried:
+  - requirement: <the thing that went wrong or dear>
+    technique: <where you looked for the cause (the journal, a log, a record)>
+    observation: <what you found, in one line>
+    evidence: <the path (and anchor) where it shows>
+tried_note: <why the table is empty, or a dash when it has rows>
+
 unresolved:
   - id: <obligation or fold row>
     reason: <one of vocabulary.unresolved_reasons>

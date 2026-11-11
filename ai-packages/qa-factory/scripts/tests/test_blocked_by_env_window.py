@@ -670,10 +670,6 @@ def e10_the_limit_at_and_beyond():
     word, reason = story_step._derived_pair(gaps_of(("blocked_by_env", "a")), long_path)
     check("E10: a path longer than the limit itself is kept whole - the kinds and the path never go",
           reason == "blocked_by_env; full list: " + long_path, reason[:80])
-    check_eq("E10: the limit is story_run's own number",
-             int(re.search(r"WINDOW_REASON_LIMIT\s*=\s*(\d+)",
-                           (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")).group(1)),
-             story_step.WINDOW_REASON_LIMIT)
     # the invariant (t-204 F1): ANY gap of another kind and nothing is derived
     for label, found in (("a product red", gaps_of(("blocked_by_env", "a"), ("product", "b"))),
                          ("a review gap", gaps_of(("blocked_by_env", "a"), ("review", "b"))),

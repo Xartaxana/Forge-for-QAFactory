@@ -278,11 +278,13 @@ class Readers(unittest.TestCase):
         agents = Path(__file__).resolve().parents[2] / "agents"
         analyst = " ".join((agents / "qa-failure-analyst.md").read_text(encoding="utf-8").split())
         runner = " ".join((agents / "qa-runner.md").read_text(encoding="utf-8").split())
+        # X7-3: both are charters now; `charter_errors` holds the size (150 lines), the verdict words are the vocabulary slice's
+        # (the f8 test above), and `head` is recorded by run_suite, not told by the role file (pin rows R-drop).
         for words in ("never fetch or infer history just for metrics", "never a second full coverage review",
-                      "`detail` (optional: a row without it is not refused)", "`NO_DEFECT` — backed by evidence"):
+                      "`detail` (optional: a row without it is not refused)", "a green one too"):
             self.assertIn(words, analyst)
-        self.assertIn("`head` is recorded on every run (or says it could not be found)", runner)
-        self.assertLessEqual((agents / "qa-runner.md").stat().st_size, 9500, "the runner's own ceiling (test_manual_observe K7)")
+        self.assertIn("nothing reported as checked", runner)
+        self.assertNotIn("a green one too", runner)                     # control: the phrase is the analyst's, not in every file
 
     def test_f11_one_text_for_the_cut_body_words_and_a_true_help_for_session(self):
         """t-1747 F11: `manual_evidence` finds a cut capture by `manual_capture.CUT_WORDS` (no copy), which is inside the sentence the

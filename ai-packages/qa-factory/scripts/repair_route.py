@@ -81,10 +81,11 @@ def route(verdict, form, budget) -> dict:
 
     `code` is the seam reason of a close over a rejection (the R-codes, t-698 §2): "cap" (the test_defect cap is spent),
     "unknown" (the budget cannot be read), "mech_cap" (the mechanical cap is spent), "nobody" (the blocking findings are no
-    author's round), "sent_back" (the verdict sent the window back naming no blocking finding); "" for every other route.
+    author's round), "sent_back" (the verdict sent the window back naming no blocking finding), "untyped" (the verdict sent the window
+    back and the form holds no typed finding at all - or no readable form); "" for every other route.
 
-    First match wins: (a) no typed findings to read -> the legacy rule (a test_defect round while
-    the cap allows, and only when the verdict sends the window back); (b) the verdict sends back
+    First match wins: (a) no typed findings to read -> a close with code "untyped" when the verdict sends the
+    window back (no cause is assumed), a plain close otherwise; (b) the verdict sends back
     and a blocking test_defect stands -> a test_defect round (blocking mechanical ones ride along);
     (c) a blocking mechanical finding, whatever the verdict -> the author's mechanical round (also
     when (b) found the test_defect cap used up: a window is never closed while its author is owed a
@@ -108,11 +109,12 @@ def route(verdict, form, budget) -> dict:
         return answer("close", "cap reached", note, "cap")
 
     if form is None or (not rows and sends_back):
-        # nothing typed to read: an approving verdict has nothing to send back, a sending-back one
-        # goes the way it always went (this is what a form written before `cause` looks like)
+        # nothing typed to read: an approving verdict has nothing to send back. A sending-back one with no typed
+        # finding is a close the site question settles (code "untyped"): no cause is ever assumed, so no round
+        # is dispatched on one nobody wrote (F4, AR-28, FR-59).
         if not sends_back:
             return answer("close", "the review does not send the window back")
-        return test_defect_round("no typed findings", "no typed findings; cause assumed test_defect")
+        return answer("close", "no typed findings", code="untyped")
     at_cap = ""
     if sends_back and any(f["cause"] == "test_defect" for f in blocking):
         found = test_defect_round("blocking test_defect finding")

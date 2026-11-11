@@ -7,7 +7,6 @@ is already running.  Project-wide worker/resource leases survive coordinator fai
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import subprocess
@@ -17,7 +16,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from event_store import atomic_json
+import event_store
+from event_store import LockBroken, LockBusy, atomic_json, hold_file_lock
 from execution_request import JobStore, RequestError, request_digest, validate_request
 
 
@@ -80,31 +80,6 @@ def _same_process(pid: int, started: str) -> bool:
         return False
 
 
-@contextlib.contextmanager
-def _file_lock(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as stream:
-        stream.seek(0, 2)
-        if stream.tell() == 0:
-            stream.write(b"0")
-            stream.flush()
-        stream.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(stream, fcntl.LOCK_EX)
-            yield
-        finally:
-            stream.seek(0)
-            if os.name == "nt":
-                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(stream, fcntl.LOCK_UN)
-
-
 class LeaseRegistry:
     """Project-level, OS-locked worker/resource registry."""
 
@@ -123,12 +98,15 @@ class LeaseRegistry:
         except (json.JSONDecodeError, ValueError) as exc:
             raise SchedulerError(f"corrupt execution lease registry: {exc}") from exc
 
+    def _locked(self, purpose: str):
+        return hold_file_lock(self.lock_path, event_store.SHORT_RMW_LOCK_WAIT_S, purpose=purpose, record_holder=True)
+
     def snapshot(self) -> dict:
-        with _file_lock(self.lock_path):
+        with self._locked("lease registry read"):
             return self._read()
 
     def acquire(self, lease: dict, worker_budget: int, capacities: dict[str, int]) -> bool:
-        with _file_lock(self.lock_path):
+        with self._locked("lease acquire"):
             state = self._read()
             if any(row.get("job_id") == lease["job_id"] for row in state["leases"]):
                 return False
@@ -153,7 +131,7 @@ class LeaseRegistry:
             return False
         if pid and _same_process(pid, started):
             return False
-        with _file_lock(self.lock_path):
+        with self._locked("lease release"):
             state = self._read()
             before = len(state["leases"])
             state["leases"] = [row for row in state["leases"] if row.get("job_id") != job_id]
@@ -554,6 +532,32 @@ def _child_row(item: dict, output: _ChildOutput, code, output_error) -> dict:
         **answering, **extra)
 
 
+def _abandon_started_child(registry: "LeaseRegistry", proc, item: dict, output: _ChildOutput, child_started: str,
+                           why: Exception, grace_s: float) -> dict:
+    """The lease registry could not be locked after the child began: the child is killed and drained, the group is
+    `failed` with the lock sentence, and the lease taken for it is released when that can be done (the registry may
+    still be locked: then the row says `lease_released: false`, as for a child that keeps its lease)."""
+    _kill_tree(proc)
+    try:
+        code = proc.wait(timeout=grace_s)
+    except subprocess.TimeoutExpired:
+        code = proc.poll()
+    deadline = time.monotonic() + grace_s
+    while not output.done() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    row = _group_row(item["request"], "failed", item["job_id"], exit_code=code, workers=item["workers"],
+                     resource_keys=sorted(item["resources"]), reason=item["reason"], error=str(why),
+                     stdout_tail=[], stderr_tail=[])
+    try:
+        released = registry.release(item["job_id"], proc.pid, child_started)
+    except (LockBusy, LockBroken) as exc:
+        released = False
+        row["lease_error"] = str(exc)   # the helper's sentence, said on the row, not swallowed
+    if not released:
+        row["lease_released"] = False
+    return row
+
+
 def execute_schedule(document: dict, project_root: Path, run_suite_path: Path,
                      pipe_grace_s: float = PIPE_GRACE_S) -> dict:
     plan = prepare_schedule(document, project_root)
@@ -598,13 +602,23 @@ def execute_schedule(document: dict, project_root: Path, run_suite_path: Path,
                                     env=child_env)
             output = _drain_child(proc)
             # Lease the child runner identity; a dead coordinator must not free a live child.
-            with _file_lock(registry.lock_path):
-                state = registry._read()
-                for row in state["leases"]:
-                    if row.get("job_id") == item["job_id"]:
-                        row["pid"], row["process_started_at"] = proc.pid, _started(proc.pid)
-                atomic_json(registry.path, state)
-            active.append((proc, item, _started(proc.pid), output))
+            child_started = _started(proc.pid)
+            try:
+                with registry._locked("lease child identity"):
+                    state = registry._read()
+                    for row in state["leases"]:
+                        if row.get("job_id") == item["job_id"]:
+                            row["pid"], row["process_started_at"] = proc.pid, child_started
+                    atomic_json(registry.path, state)
+            except (LockBusy, LockBroken) as exc:
+                # The child is ALREADY running under a lease that still names this coordinator: never leave it
+                # alive there. Kill and drain it, say why on its group row, free the lease we took, go on.
+                results.append(_abandon_started_child(registry, proc, item, output, child_started, exc,
+                                                      pipe_grace_s))
+                pending.remove(item)
+                completed = True
+                continue
+            active.append((proc, item, child_started, output))
             pending.remove(item)
             launched = True
             if not plan["parallel"]:
@@ -617,12 +631,20 @@ def execute_schedule(document: dict, project_root: Path, run_suite_path: Path,
             # A child that printed an answer instead of running (`reused`, `already_run`, `run_refused`) is
             # that group's own status, with the job that answered it; only a child that ran is `completed`
             # or `failed`. The lease is released whatever happens while the row is built.
+            lease_error = None
             try:
                 row = _child_row(item, output, code, output_error)
             finally:
-                released = registry.release(item["job_id"], proc.pid, child_started)
+                try:
+                    released = registry.release(item["job_id"], proc.pid, child_started)
+                except (LockBusy, LockBroken) as exc:
+                    # The registry could not be locked: the group row is kept and says so; the receipt and the
+                    # other children's coordination go on (a lease never released stays until recover()).
+                    released, lease_error = False, str(exc)
             if not released:
                 row["lease_released"] = False   # a live or unverifiable child keeps its lease: said, not hidden
+            if lease_error:
+                row["lease_error"] = lease_error
             results.append(row)
             active.remove(entry)
             completed = True

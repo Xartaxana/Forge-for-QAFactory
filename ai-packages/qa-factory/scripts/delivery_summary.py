@@ -77,7 +77,7 @@ def _limit_words(text, table):
     return str(table.get('unknown_limit') or 'the factory cannot say what limits this summary'), False
 
 
-def _bug_confirmation(task, data, source_ref):
+def _bug_confirmation(task, data, source_ref, draft=False):
     """`confirmation` of one bug: the local `bugs/BUG-n.md` first (it is the source of truth),
     then the proposal or the draft that stands in for it.
 
@@ -87,7 +87,7 @@ def _bug_confirmation(task, data, source_ref):
 
     Returns `(word, kinds, problems)` - `bug_records.confirmation_of`, THE reader of the step (HF8-16, AR-13): the word is never
     read from the file by this module alone. A `.md` that says `reproduced_by_factory` is checked against the draft the
-    proposal names in `source_draft`."""
+    proposal names in `source_draft`. `draft=True` (the caller read a DRAFT file): a draft with no word is `unconfirmed`."""
     import contract as C
     import bug_records as BR
     data = data if isinstance(data, dict) else {}
@@ -102,7 +102,7 @@ def _bug_confirmation(task, data, source_ref):
                 if match:
                     return BR.confirmation_of(task, {'confirmation': match.group(1).strip().strip('"'),
                                                      'source_draft': data.get('source_draft') or ''})
-    return BR.confirmation_of(task, data)
+    return BR.confirmation_of(task, data, draft=draft)
 
 
 def _gap_records(task):
@@ -327,7 +327,7 @@ def build(task, ledger=None):
     for path in BR.draft_paths(task):
         ref = path.relative_to(task).as_posix()
         if ref not in known:
-            word, kinds, problems = _bug_confirmation(task, C.load_json(path), ref)
+            word, kinds, problems = _bug_confirmation(task, C.load_json(path), ref, draft=True)
             row = {'ref': ref, 'state': 'selected' if ref in selected else 'draft',
                    'confirmation': word, 'reproduced_how': kinds, 'reproduction_problems': problems}
             filed = filed_by_path.get(Path(path).resolve())

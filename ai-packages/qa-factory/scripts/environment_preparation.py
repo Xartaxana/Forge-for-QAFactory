@@ -16,8 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from event_store import atomic_json
-from execution_scheduler import _file_lock, _same_process, _started
+import event_store
+from event_store import atomic_json, hold_file_lock
+from execution_scheduler import _same_process, _started
 from profile_contract import validate_runtime_provenance
 from hooklib import sorted_paths
 
@@ -227,8 +228,9 @@ class EnvironmentJobs:
             return
         try:
             from controller import Controller
-            controller = Controller(task_root)
-            with controller.store.lock():
+            from event_store import LIFECYCLE_WAIT_SECONDS
+            controller = Controller(task_root, wait_seconds=LIFECYCLE_WAIT_SECONDS)
+            with controller.store.lock(LIFECYCLE_WAIT_SECONDS):   # waits for a sibling window's commit; busy after 10 s: the marker below
                 controller.project(controller.store.read())
             (task_root / "state" / "environment-projection-stale.json").unlink(missing_ok=True)
         except (OSError, ValueError) as exc:
@@ -261,7 +263,8 @@ class EnvironmentJobs:
 
     def claim(self, request: dict, plan: dict) -> tuple[str, dict]:
         """Atomically suppress the same key and every live/unknown job for the environment."""
-        with _file_lock(self.directory / "claims.lock"):
+        with hold_file_lock(self.directory / "claims.lock", event_store.SHORT_RMW_LOCK_WAIT_S,
+                            purpose="environment claim", record_holder=True):
             return self._claim_locked(request, plan)
 
     def _claim_locked(self, request: dict, plan: dict) -> tuple[str, dict]:

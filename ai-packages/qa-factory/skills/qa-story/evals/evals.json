@@ -27,7 +27,7 @@
     {
       "id": 2,
       "prompt": "Run qa-story QA-1 --ticket-file ai-packages/qa-factory/evals/fixtures/tickets/QA-1.md --env local with no --mr, no --branch, no --commit and no --ungrounded, in a repository where no diff for QA-1 exists.",
-      "expected_output": "qa-scout returns a halt digest and its manifest says implementation.source: none. The orchestrator does not search for the change itself. It presents the fixed three-option halt — (1) give an MR, branch or commit; (2) name the environment and repository where the change already lives, for current-code grounding; (3) pass --ungrounded for requirements-only, expected-red tests — records the answer in the journal, and re-dispatches qa-scout once with the chosen mode. It never reaches S2 before that answer.",
+      "expected_output": "qa-scout returns a halt digest and its manifest says implementation.source: none. The orchestrator does not search for the change itself. It presents the fixed four-option halt — (1) give an MR, branch or commit; (2) name the environment and repository where the change already lives, for current-code grounding; (3) pass --ungrounded for requirements only, on the code the stand runs now; (4) say it is not built yet (tests written from the requirements, the story stops after them) — records the answer in the journal, and re-dispatches qa-scout once with the chosen mode. It never reaches S2 before that answer.",
       "files": [
         "ai-packages/qa-factory/skills/qa-story/phases/s1.md",
         "ai-packages/qa-factory/agents/qa-scout.md"
@@ -35,7 +35,7 @@
       "assertions": [
         {
           "name": "three-option-halt-not-a-search",
-          "description": "On a no-diff halt the skill asks the three fixed options rather than searching branches, commits or merge requests on its own initiative."
+          "description": "On a no-diff halt the skill asks the four fixed options (change, lives, ungrounded, not built yet) rather than searching branches, commits or merge requests on its own initiative."
         },
         {
           "name": "answer-journaled-then-one-redispatch",

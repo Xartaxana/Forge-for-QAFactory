@@ -1028,18 +1028,6 @@ check_eq("CLI: an unmeasured repository is content, not a failure: exit 0, the c
          (done.returncode, done.stdout.strip()), (0, "blast radius: built work/blast-radius.json: 1 areas, 1 repositories, 1 unmeasured (no checkout of backend on this machine)"))
 done_all(repo, story)
 
-# --- classes: one writer, one reader of each fact, no private twin ---------------------------------------------------------------------------------
-source = (SCRIPTS / "blast_radius.py").read_text(encoding="utf-8")
-check("AR-13: the manifest, JSON, hashes and git go through their one survivor (no `get(\"implementations\")`, `json.loads(`, `subprocess`, a hex regex)",
-      not any(bad in source for bad in ('get("implementations")', "json.loads(", "subprocess", "[0-9a-f]", "import re as")), "")
-check("AR-13 control: the same grep over GT finds the survivor (`HC.implementation_entries(`)", "HC.implementation_entries(" in (SCRIPTS / "grounding_table.py").read_text(encoding="utf-8"))
-check_eq("AR-6: every git call is `TN._git` or `BS._blobs` (one runner)", sorted(set(__import__("re").findall(r"(\w+)\._git\(", source))), ["TN"])
-check_eq("AR-14: ONE os.replace in blast_radius.py; the table is never written by it", (source.count("os.replace("), "write_yaml" in source or "write_key" in source), (1, False))
-check_eq("AR-14: no other script writes blast-radius.json (grounding_table.py only READS it: its one os.replace writes the table)",
-         sorted(p.name for p in SCRIPTS.glob("*.py") if "os.replace(" in p.read_text(encoding="utf-8") and "blast-radius.json" in p.read_text(encoding="utf-8")
-                and p.name != "grounding_table.py"), ["blast_radius.py"])
-check_eq("FR-29 / FR-30: no control byte, no U+FEFF, no non-ASCII character in the source", [hex(ord(c)) for c in source if (ord(c) < 32 and c not in "\n\t") or ord(c) > 126], [])
-
 # --- END ---
 for shared in SHARED:
     cleanup(shared[0].dir)

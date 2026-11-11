@@ -373,12 +373,6 @@ def test_a_project_that_keeps_bugs_local_is_never_nagged() -> None:
         cleanup(root)
 
 
-def s0_rule_lines(text: str) -> list:
-    """The lines of the S0 rule that say what `not_a_defect` does to `warnings[]`."""
-    return [" ".join(line.split()) for line in text.splitlines()
-            if "not_a_defect" in line and "warnings[]" in line]
-
-
 def test_a_recorded_markdown_choice_is_a_fact_not_a_warning() -> None:
     """HF8-13 (t-300; K-13.2, K-13.3). The capability row of a project that keeps its bugs in the
     repository carries remedy.kind `not_a_defect`, S0 reads that field and writes no warning, and
@@ -411,17 +405,6 @@ def test_a_recorded_markdown_choice_is_a_fact_not_a_warning() -> None:
         check_eq("...its row is a gap, not a non-defect", row["remedy"]["kind"] != "not_a_defect", True)
     finally:
         cleanup(root)
-    s0 = (SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s0.md").read_text(encoding="utf-8")
-    check_in("S0 names the field it reads", "not_a_defect", s0)
-    check_in("S0 says the first message and warnings[] skip applicable: false",
-             "neither in the first message nor in\n`warnings[]`", s0)
-    rule = s0_rule_lines(s0)
-    check("the warnings[] list rule names `not_a_defect`", len(rule) >= 1)
-    check_in("the list rule exempts the three capabilities",
-             "does not go into `warnings[]` (`tracker_write`, `case_store`, `external_writes`)",
-             " ".join(s0.split()))
-    check("negative control: the helper finds nothing in text without the rule",
-          s0_rule_lines("`warnings[]` is where every line goes") == [])
 
 
 def test_a_non_object_external_writes_is_nothing_recorded_not_a_crash() -> None:

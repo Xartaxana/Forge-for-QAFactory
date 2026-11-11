@@ -411,3 +411,6 @@ def test_a_second_section_lands_inside_its_own_block():
     doc = HC.record_judged(doc, [{"kind": "proposed", "field": "a", "word": "w-1", "why": "a long enough reason"}])
     doc = HC.record_judged(doc, [{"kind": "suggested", "field": "b", "as_written": "y", "nearest": "found", "confidence": 1, "judgment": "j"}])
     assert [r["field"] for r in doc.data["suggested"]] == ["a", "b"] and len(doc.data["proposed"]) == 1
+
+
+if __name__ == "__main__": raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

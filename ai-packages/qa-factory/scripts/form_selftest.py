@@ -361,7 +361,7 @@ def case_bug(fx: SimpleNamespace) -> list:
     bug_dir = fx.tmp / "bugs"
     case(results, fx.proj, "bug new ok", bug_dir / "BUG-901.md", BUG_NEW_OK, True)
     case(results, fx.proj, "bug new bad: severity != impact, violates is not an oracle, no section",
-         bug_dir / "BUG-901.md", BUG_NEW_BAD, False, "not per the oracle grammar")
+         bug_dir / "BUG-901.md", BUG_NEW_BAD, False, "is not one of the oracle kinds")  # X7-5: S8 validators are shape-only; the fixture is refused for its oracle kind and the missing section
     case(results, fx.proj, "bug old ok (before cutoff)", bug_dir / "BUG-902.md", BUG_OLD_OK, True)
     return results
 

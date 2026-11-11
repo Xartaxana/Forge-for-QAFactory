@@ -35,7 +35,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
-from hooklib import sorted_paths  # noqa: E402
 
 # One line on one screen. Longer than this and it stops being a status line and starts being
 # the wall of text the rule exists to stop.
@@ -128,11 +127,13 @@ def rounds_spent(task_root: Path, stage: str = "", role: str = "") -> int | None
     return len([d for d in same if _is_repair_round(d)]) or None
 
 
-def findings_count(task_root: Path) -> int | None:
+def findings_count(task_root: Path, stage: str = "", dispatch: str = "") -> int | None:
     """How many findings the critic returned — from its own file, never from its prose.
 
     The review receipt the manifest names is the machine-readable form; a markdown findings
-    file is the fallback, counted by its table rows or its numbered items."""
+    file is the fallback, counted by its numbered items. The file is the returning critic's own, read through
+    `findings_path` (t-2106 X3, AR-13): S4 the case critic's files, any other stage the file of `dispatch` (else the old
+    single file of a one-window story) - never "the first findings file under work/", which at S5 was the S4 file."""
     manifest = _read_json(task_root / "work" / "automation-manifest.json", {}) or {}
     ref = str(manifest.get("review_receipt_ref") or "").strip()
     if ref:
@@ -141,7 +142,12 @@ def findings_count(task_root: Path) -> int | None:
             rows = (receipt or {}).get(key)
             if isinstance(rows, list) and rows:
                 return len(rows)
-    files = sorted_paths((task_root / "work").rglob("*findings*.md")) if (task_root / "work").is_dir() else []
+    import findings_path
+    if stage == "S4":
+        files = findings_path.s4_files(task_root)
+    else:
+        own = findings_path.resolve(task_root, dispatch)
+        files = [task_root / own] if own else []
     for path in files:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -212,8 +218,12 @@ def line(task_root, event: str, **facts) -> str:
         raise ValueError("event must be one of: " + ", ".join(EVENTS))
     role = _clean(facts.get("role") or "", 40)
     stage = _clean(facts.get("stage") or "", 8)
-    counted = repairs_count if stage == "S7" else findings_count
-    count = _int(facts.get("findings")) if facts.get("findings") is not None else counted(task_root)
+    if facts.get("findings") is not None:
+        count = _int(facts.get("findings"))
+    elif stage == "S7":
+        count = repairs_count(task_root)
+    else:
+        count = findings_count(task_root, stage, _clean(facts.get("dispatch") or "", 80))
     spent = _int(facts.get("round")) if facts.get("round") is not None \
         else rounds_spent(task_root, stage, role or "qa-automator")
     cap = _int(facts.get("cap")) or round_cap(task_root, role)

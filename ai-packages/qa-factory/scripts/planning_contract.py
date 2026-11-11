@@ -103,6 +103,35 @@ def _validate_coverage_delta(row):
     return errors
 
 
+WALK_DATA_EXAMPLE = '"walk_data": [{"kind": "book", "exclusive": true, "changes": "deletes one book"}], "walk_global": "the Then counts every book"'
+
+
+def _validate_walk_fields(row):
+    """TR3-10 E: the SHAPE of the optional `walk_data` / `walk_global` of ANY plan row that carries them, and nothing else.
+    `walk_data`: a list of {kind: non-blank text, exclusive: true|false, changes: text}; `walk_global`: non-blank text. ABSENT
+    (and `walk_data: []`) is not said = no constraint, so older plans stay valid. Whether what the strategist wrote is RIGHT is the
+    S3 critic's judgment, never this check's (AR-29). Each problem names the row, the field and the right shape (FR-1, FR-38)."""
+    rid = row.get("id", "<unknown>")
+    errors = []
+    if "walk_data" in row:
+        if not isinstance(row["walk_data"], list):
+            errors.append(f"{rid}: walk_data must be a list of objects, e.g. {WALK_DATA_EXAMPLE}")
+        for i, entry in enumerate(row["walk_data"] if isinstance(row["walk_data"], list) else []):
+            if not isinstance(entry, dict):
+                errors.append(f"{rid}: walk_data[{i}] must be an object {{kind, exclusive, changes}}, e.g. {WALK_DATA_EXAMPLE}")
+                continue
+            if not isinstance(entry.get("kind"), str) or not entry["kind"].strip():
+                errors.append(f"{rid}: walk_data[{i}].kind must be non-blank text naming the kind of record, e.g. \"book\"")
+            if not isinstance(entry.get("exclusive"), bool):
+                errors.append(f"{rid}: walk_data[{i}].exclusive must be true or false (a JSON boolean, not text), e.g. \"exclusive\": true")
+            if not isinstance(entry.get("changes"), str):
+                errors.append(f"{rid}: walk_data[{i}].changes must be text saying what the walk does to it, e.g. \"deletes one book\"")
+    if "walk_global" in row and (not isinstance(row["walk_global"], str) or not row["walk_global"].strip()):
+        errors.append(f"{rid}: walk_global must be non-blank text giving the reason, e.g. \"the Then counts every book\"; "
+                      "leave the field out when nothing is global")
+    return errors
+
+
 def _needs_design_review(row) -> bool:
     """The ONE statement of when a row must carry `design_review_required: true` (`validate_plan` and the
     `variant_errors` hint both ask it)."""
@@ -180,6 +209,7 @@ def validate_plan(rows, require_v2=False):
                     errors.append(f"{rid}: baseline_required needs nonempty {field}")
         if row.get("coverage_contract_revision") == "coverage-observation-v1":
             errors.extend(_validate_coverage_delta(row))
+        errors.extend(_validate_walk_fields(row))      # TR3-10 E: any row that carries the optional fields (the carrier takes every owner row)
     from coverage_contract import validate_obligations
     return errors + validate_obligations(rows, require_v2=require_v2)
 
@@ -376,6 +406,14 @@ def detector_stage_named() -> str:
     """The stage the exit gate NAMED (stripped), or "" when it named none. "" is "no stage named": the detector then infers as it
     always did. A named stage is a fact the gate holds: it wins over any inference (FR-59, AR-28)."""
     return (os.environ.get(DETECTOR_STAGE_ENV) or "").strip()
+
+
+# The third word the exit gate hands a detector (TR3-13): the dispatch id of the finisher (`story_step finish` and the driver hold it,
+# `exit_gate.holding_dispatch`). Written by `exit_gate._detector_env` ONLY beside a named story; read by `dispatch_identity.named`
+# (AR-13: the one reader of "which dispatch am I"), first, before `QA_FACTORY_DRIVER_RUN`.
+import dispatch_identity as _dispatch_identity   # noqa: E402
+
+DETECTOR_DISPATCH_ENV = _dispatch_identity.DETECTOR_DISPATCH_ENV   # ONE definition (AR-13), re-exported for `exit_gate._detector_env`
 
 
 def story_plan_path(task_root):
@@ -3047,10 +3085,35 @@ NEW_ENTRY_FORM = ("question, source_says (a list of {quote, where}), readings (t
                   "severity, owner_role")
 
 
+def question_owners() -> tuple:
+    """The `owner_role` words of an open question: `question_owners` of `handoffs/vocabulary.yaml` (FR-13), read through
+    `handoff.allowed` (the existing reader, AR-13), THE one list for `check_witness` (readiness form) and `_new_question_flaws`.
+    () when the file cannot be read or holds no word: a package defect, which `owner_role_flaw` then names (never a pass, AR-28)."""
+    try:
+        import handoff
+        return tuple(handoff.allowed("question_owners"))
+    except Exception:  # noqa: BLE001
+        return ()
+
+
+def owner_role_flaw(value) -> str:
+    """`""` when `value` is one of `question_owners()`, else ONE sentence, the same text for every caller. An empty value is a flaw
+    too (each caller keeps its own wording of the empty case and asks this only for a non-empty one)."""
+    owners = question_owners()
+    if not owners:
+        return ("owner_role cannot be checked: `question_owners` of handoffs/vocabulary.yaml is unreadable or empty "
+                "(a package defect: tell the conductor)")
+    if str(value or "") in owners:
+        return ""
+    return f"owner_role {str(value or '')!r} is not one of {'|'.join(owners)} (vocabulary.question_owners)"
+
+
 def _new_question_flaws(entry: dict) -> list:
     """What is wrong with one `new_questions` entry as a question, as plain sentences ([] when a person can answer it)."""
     flaws = list(contract.question_errors(dict(entry, id="Q0")))
     flaws += [f"{field} is empty" for field in ("severity", "owner_role") if not str(entry.get(field) or "").strip()]
+    if str(entry.get("owner_role") or "").strip():     # an empty one is named above; a listed word is the one list's (`question_owners`)
+        flaws += [flaw for flaw in (owner_role_flaw(entry.get("owner_role")),) if flaw]
     return flaws
 
 

@@ -770,7 +770,6 @@ KEYS = [
     ("T5", PH / "p2-interview.md", "Record a batch before sending it (`onboarding_notes.py --root . ask`), and record the reply, as given, before doing anything else (`onboarding_notes.py --root . answer --words-file <file>`)."),
     ("T6", PH / "p2-interview.md", "A batch the notes show as asked with no reply recorded is asked once more, saying why: the context was compacted before the reply was written down."),
     ("T7", PH / "p3-summary-gate.md", "Build the summary from the notes (`onboarding_notes.py --root . status` names their folder), not from memory."),
-    ("T8", PH / "p4-generate.md", "Close the notes once the audit is clean, before the commit: `onboarding_notes.py --root . close --approval-ref <ref>`."),
     ("P1 p2", PH / "p2-interview.md", "`onboarding_notes.py --root . phase --set p2`"),
     ("P1 p2b", PH / "p2b-rediscovery.md", "`onboarding_notes.py --root . phase --set p2b`"),
     ("P1 p3", PH / "p3-summary-gate.md", "`onboarding_notes.py --root . phase --set p3`"),

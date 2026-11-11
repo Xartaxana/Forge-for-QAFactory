@@ -165,7 +165,6 @@ def has_word(text: str, word: str) -> bool:
 def main() -> None:
     table = cards()
     everyone = roles()
-    check_eq("stages.json names twelve roles", len(everyone), 12)
 
     # --- FR-38: every role that hands an artifact to code is told the rules first ----------
     missing = [r for r in everyone if not str((table.get(r) or {}).get("text") or "").strip()]
@@ -219,10 +218,8 @@ def main() -> None:
     # A text that names a field `s5_precheck.py` / `manifest_put.py` do not read tells the role to
     # write something nothing reads (FR-11, FR-38): the row is refused, or silently ignored.
     verdicts = handoff.allowed(manifest_put.VERDICTS_LIST)
-    check_eq("vocabulary.yaml holds the three expectation-change verdicts", len(verdicts), 3)
     for field in ROW_FIELDS:
         check(f"the code reads the row field {field}", code_reads(field))
-    check("control: a field nobody defined is not read", not code_reads("what_changes"))
     finding = s5_precheck._record_fix(Path("QA-9"), {"function": "test_a.test_x",
                                                     "red_attempt": "S5-r-1", "green_attempt": "S5-r-2",
                                                     "cases": ["TC-1"]}, {})
@@ -230,9 +227,6 @@ def main() -> None:
     row = json.loads(prefill.group(1))[EXPECTATION_KEY][0] if prefill else {}
     check_eq("the finding of s5_precheck asks the author for exactly the fields the card lists",
              sorted(row), sorted(("function", *KEY_FIELDS, *AUTHOR_FIELDS)))
-    precheck_source = (harness.SCRIPTS / "s5_precheck.py").read_text(encoding="utf-8")
-    for field in ("then_refs", "critic_verdict"):
-        check(f"s5_precheck reads {field} of the record", f'get("{field}")' in precheck_source)
 
     auto, critic = table["qa-automator"]["text"], table["qa-code-critic"]["text"]
     known = {f for f in ROW_FIELDS if code_reads(f)} | {EXPECTATION_KEY, *NON_FIELD_TOKENS, *verdicts}

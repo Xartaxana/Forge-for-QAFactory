@@ -177,10 +177,10 @@ def _clean_line(line: str) -> bool:
     path); what is left - the profile, the date, the caveat - must pass the shape rows of `human_text` (kind `report`), the
     validator's forbidden needles (`G.REPORT_FORBIDDEN`) and a bare decision id (`G.REPORT_BARE_DECISION_RE`)."""
     import human_text
+    import validate_artifacts as V
     own = human_text.without_quoted_words(line)
-    low = own.lower()
     return (not human_text.shape_problems(own, kind="report")
-            and not any(needle.lower() in low for needle in G.REPORT_FORBIDDEN)
+            and not V.report_id_shape_hit(own)
             and not G.REPORT_BARE_DECISION_RE.search(own))
 
 
@@ -188,14 +188,14 @@ def _shows_clean(text: str) -> bool:
     """May this text of ours or a role's stand in the report as it is? No spelling the validator forbids (`G.REPORT_FORBIDDEN`:
     a `work/` path, a `cv_` / `ti_` hash, ...) and no selector-hash instance id. THE one filter: the reds of the verdict and
     the review-gaps block (function names, the critic's words) both call it, so the report cannot refuse its own text."""
-    low = text.lower()
-    return not any(needle.lower() in low for needle in G.REPORT_FORBIDDEN) and not re.search(r"(?<![\w-])ti_[0-9a-f]+", text)
+    import validate_artifacts as V
+    return not V.report_id_shape_hit(text)
 
 
 def _shown(text) -> tuple:
     """(the words the report may print, whether some were left out). Text that passes `_shows_clean` stands whole; otherwise the
     words that fail are left out one by one and what is left is printed if it passes as a whole - a needle that spans words
-    (`look here first`) takes the text with it, never a half of it. Nothing left is `""` with `True`: the caller says so."""
+    takes the text with it, never a half of it. Nothing left is `""` with `True`: the caller says so."""
     flat = _words(text)
     if _shows_clean(flat):
         return flat, False
@@ -304,14 +304,20 @@ def build(task_root, project_root=None) -> dict:
     facts["cases"] = _cases(facts["requirements"], trace, case_index, plan_rows, manifest, unknown, art,
                             unconfirmed, [c for c in (facts["manual"] or {}).get("cases", []) if c["refused"]])
     facts["tests"] = _tests(art, ledger, manifest, facts["requirements"], case_index, unknown)
+    facts["reference_runs"] = _reference_runs(art)
     _count_by_tests(facts["requirements"], facts["tests"], manifest, trace)
     facts["changes"] = _changes(art, manifest, case_index, pipeline, facts["tests"], unknown)
     facts["probe_debt"] = _probe_debt(art, qa, manifest, unknown)
     facts["person_build"] = _person_build(art, unknown)
     facts["ledger"] = _ledger_facts(ledger)
     _count_bookkeeping(facts["requirements"], facts["ledger"], trace)
+    measure = _sides_measure(art, pipeline, manifest, ledger)     # t-2181 §8 (PC-10): a key only for a story with a sides record
+    if measure is not None:
+        facts["sides_measure"] = measure
+    facts.update(_knowledge_facts(art, qa.parent, pipeline, ledger))
     facts["integrations"] = _integrations(art, unknown)
     facts["owed_rework"] = _owed_rework_gap(art)
+    facts["passed_over"] = _passed_over_gap(art)
     facts["regression"] = _regression(art, project_root)
     facts["collect_gaps"] = _collect_gaps(art, unknown)
     facts["quality_not_run"] = _quality_not_run(art, project_root, unknown)
@@ -614,6 +620,12 @@ def _bugs(qa: Path, art: Path, unknown: dict):
                         "requirements": sorted(set(record.get("requirements") or []), key=T._numeric_key),
                         "cases": sorted(set(record.get("cases") or []), key=T._numeric_key),
                         "homes": sorted(record.get("homes") or []),
+                        # t-2187 (5.9): one bug, many ways it shows - the lines, the cause and the draft stems a possible
+                        # same cause is named by; `draft_names` is how a row finds the bug a draft became
+                        "manifestations": [_words(m) for m in record.get("manifestations") or []],
+                        "cause": dict(record.get("mechanism") or {}),
+                        "same_cause_as": [str(s) for s in record.get("possibly_same_cause") or []],
+                        "draft_names": [str(s) for s in record.get("draft_names") or []],
                         # HF8-21: where the bug lies and whether the tracker has it (`bug_records.filing_of`, derived by code), and
                         # a FACT of the gate B decision for a draft nobody filed (never a reading of the person's words, FR-12)
                         "filing": BR.filing_of(art, record),
@@ -926,18 +938,51 @@ def created_accounts_line(art: Path) -> str:
     `manual_capture.py http` - NAMES only): `Users this story created on the stand: a, b, ..., +K more; they are left in
     place.` ("" when none was made). The file is there but cannot be read: said as unknown, never as none (FR-41). The
     users are test data of the stand, owned by the factory (FR-53); cleaning them up is not done here."""
-    from manual_capture import created_names_path      # the ONE path of the file (the store that writes it owns it)
+    from manual_capture import UNCONFIRMED, created_names_path      # the ONE path of the file (the store that writes it owns it)
     path = created_names_path(art)
     data, problem = _read_object(path)
     if problem == "missing":
         return ""
     if problem:
         return "Users this story created on the stand: unknown - the record of them cannot be read."
-    names = list(dict.fromkeys(str(r["name"]) for r in data.get("accounts") or [] if isinstance(r, dict) and r.get("name")))
+    rows = [r for r in data.get("accounts") or [] if isinstance(r, dict) and r.get("name")]
+    # F15: a sign-up that was never confirmed made no user the report may promise; it is counted, and listed by `unconfirmed_accounts_line`
+    unconfirmed = list(dict.fromkeys(str(r["name"]) for r in rows if r.get("status") == UNCONFIRMED))
+    # a name confirmed by the walker's word, not by the code's proof (`confirmed_by` set and not `code`), carries that word: FR-41, AR-22
+    said = {str(r["name"]): " ".join(str(r.get("why") or "no reason recorded").split())
+            for r in rows if r.get("confirmed_by") not in (None, "", "code") and r.get("status") != UNCONFIRMED}
+    names = [n + (f" (on the walker's word: {said[n]})" if n in said else "")
+             for n in dict.fromkeys(str(r["name"]) for r in rows) if n not in unconfirmed]
+    k = len(unconfirmed)
+    left = f"; {k} sign-up(s) not confirmed" if k else ""
     if not names:
-        return ""
+        if not k:
+            return ""
+        return f"Users this story tried to create on the stand: none was confirmed ({k} sign-up(s) not confirmed)."
     more = f", +{len(names) - CREATED_SHOWN} more" if len(names) > CREATED_SHOWN else ""
-    return f"Users this story created on the stand: {', '.join(names[:CREATED_SHOWN])}{more}; they are left in place."
+    return f"Users this story created on the stand: {', '.join(names[:CREATED_SHOWN])}{more}; they are left in place{left}."
+
+
+def unconfirmed_accounts_line(art: Path) -> str:
+    """The line about accounts the checks could not confirm (TR3-10 A): the users the story made whose sign-up stayed `unconfirmed` (with
+    their reason) and the given accounts a walker doubted (`manual_capture.account_doubt_rows`, with its why): `Accounts the checks could not
+    confirm (not used to sign in): <name> (created: <why>), the stand's account <handle> (given: <why>), ..., +K more`. "" when there is
+    none; a record that cannot be read is said as unknown (FR-41)."""
+    from manual_capture import UNCONFIRMED, account_doubt_rows, created_names_path
+    data, problem = _read_object(created_names_path(art))
+    doubts, doubt_problem = account_doubt_rows(art)
+    if problem not in ("", "missing") or doubt_problem:
+        return "Accounts the checks could not confirm: unknown - the record of them cannot be read."
+    items = []
+    for row in (data.get("accounts") or []) if data else []:
+        if isinstance(row, dict) and row.get("name") and row.get("status") == UNCONFIRMED:
+            items.append(f"{row['name']} (created: {' '.join(str(row.get('reason') or 'no reason recorded').split())})")
+    for row in doubts:
+        items.append(f"the stand's account {row['handle']} (given: {' '.join(str(row.get('why') or 'no reason recorded').split())})")
+    if not items:
+        return ""
+    more = f", +{len(items) - CREATED_SHOWN} more" if len(items) > CREATED_SHOWN else ""
+    return f"Accounts the checks could not confirm (not used to sign in): {', '.join(items[:CREATED_SHOWN])}{more}."
 
 
 def _export_path(ref: dict) -> str:
@@ -1206,6 +1251,9 @@ def _manual_guarded(art: Path, plan_rows: list, case_index, key_of, unknown: dic
         line = created_accounts_line(art)      # the users the checks made, a line of the block that lists the checks (HF5-3)
         if line:
             out["created_accounts"] = line
+        doubted = unconfirmed_accounts_line(art)      # the accounts the checks could not confirm: the person can fix them (A.2, AR-27)
+        if doubted:
+            out["unconfirmed_accounts"] = doubted
         return out
     except Exception as exc:   # a report never crashes over this block (P1); it says what it could not read (FR-41)
         unknown["manual"] = f"the checks made by hand could not be listed ({_why(exc)})"
@@ -1371,6 +1419,8 @@ def _r_manual_checks(facts: dict) -> str:
         out += ["", line]
     if m.get("created_accounts"):
         out += ["", m["created_accounts"]]
+    if m.get("unconfirmed_accounts"):
+        out += ["", m["unconfirmed_accounts"]]
     return "\n".join(out) + "\n"
 
 
@@ -1388,6 +1438,31 @@ def manual_checks_text(task_root) -> str:
         return "## Checked by hand — unknown\n\nUnknown which cases were checked by hand — " + _why(exc) + ".\n"
 
 
+def _ledger_has_marks(ledger) -> bool:
+    """t-2277 W3: does this ledger carry `real_or_mock` on any test row? A ledger written before the field existed carries it on none - then no
+    line renders a mark (the legacy line, as the report's other generation checks)."""
+    return any(isinstance(r, dict) and r.get("kind") == "test" and "real_or_mock" in r for r in (ledger or {}).get("rows") or [])
+
+
+def _test_mark(row, has_marks: bool, owed: bool) -> str:
+    """THE words of where a test's result came from, for ONE ledger test row (AR-13: every renderer of a test line - Proven, the rejected
+    tests, the runs left failing - reads them here, from the row `ledger.real_or_mock` wrote; nothing is re-derived). "" on a ledger with no
+    marks (legacy). A row on a marked ledger without a reading is `real or mock: not established`, never `real code` (AR-28) - when it
+    `owed` one (it has a run: Proven, a run left failing); a test with no run (a rejected one never run) has no result to mark and gets ""."""
+    if not has_marks or not isinstance(row, dict):
+        return ""
+    words = str(row.get("real_or_mock") or "")
+    if words:
+        return words
+    from ledger import REAL_OR_MOCK_UNKNOWN
+    return REAL_OR_MOCK_UNKNOWN if (owed or "real_or_mock" not in row) else ""
+
+
+def _mark_tail(test: dict) -> str:
+    """` · <mark>` for a rendered test line, "" when it has none (the one tail every renderer appends)."""
+    return f" · {test['real_or_mock']}" if test.get("real_or_mock") else ""
+
+
 def _tests(art: Path, ledger, manifest: dict, reqs, case_index, unknown: dict):
     """Proven = a green ledger test whose critic verdict approves it and whose proof is reached OR whose
     `proof_reason` is `unchanged` / `unmeasured` (V9). A handed test, and a new, changed or unknown one with
@@ -1400,6 +1475,9 @@ def _tests(art: Path, ledger, manifest: dict, reqs, case_index, unknown: dict):
     cfg = C.case_config(art)
     req_text = {i["id"]: i["text"] for i in (reqs or {}).get("items", [])}
     proven, green_not_counted, unverified = [], 0, 0
+    # t-2277 W3: a ledger written before the field existed carries it on no test row - then no mark is rendered (the legacy line, as the
+    # report's other generation checks); on a ledger that has it, a row without a reading is NOT established, never `real code` (AR-28)
+    has_marks = _ledger_has_marks(ledger)
     for row in ledger.get("rows") or []:
         if not isinstance(row, dict) or row.get("kind") != "test" or row.get("dead"):
             continue
@@ -1434,10 +1512,41 @@ def _tests(art: Path, ledger, manifest: dict, reqs, case_index, unknown: dict):
                        "area": next((a for a in areas if a), ""), "cases": cases,
                        "requirements": sorted(requirements, key=T._numeric_key),
                        "texts": {r: req_text.get(r, "") for r in sorted(requirements, key=T._numeric_key)},
-                       "critic": critic, "level": level_words, "change": ""})
+                       "critic": critic, "level": level_words, "change": "",
+                       "real_or_mock": _test_mark(row, has_marks, owed=True)})
     proven.sort(key=lambda t: (t["area"], t["file"], t["instance"]))
     return {"proven": proven, "count": len(proven), "green_not_counted": green_not_counted,
             "unverified": unverified}
+
+
+def _reference_runs(art: Path) -> list:
+    """t-2277 W1: `[{stand, side, runs}]` of the samples (`work/reference-runs`, `stand_identity.reference_runs`): runs made on a reference
+    stand, which never reach the ledger or the delivery verdict. `[]` when there is none. Read-only."""
+    import stand_identity as SI
+    counted: dict = {}
+    seen: set = set()
+    for number, block in enumerate(SI.reference_runs(art)):
+        # a reparse of a sample re-reads the SAME attempt (same `attempt_id`, `supersedes_block_id`): one run, not two; a block with no
+        # attempt id is counted on its own
+        attempt = str(block.get("attempt_id") or "") or f"no-attempt-{number}"
+        if attempt in seen:
+            continue
+        seen.add(attempt)
+        mark = block.get("reference_run") if isinstance(block.get("reference_run"), dict) else {}
+        key = (str(mark.get("stand") or "an unnamed stand"), str(mark.get("side") or ""))
+        counted[key] = counted.get(key, 0) + 1
+    return [{"stand": stand, "side": side, "runs": n} for (stand, side), n in sorted(counted.items())]
+
+
+def _reference_lines(facts: dict) -> list:
+    """The report's line for the samples: named, counted apart, never among the story's tests (`stand_identity.REFERENCE_RUN_WORDS`)."""
+    import stand_identity as SI
+    out = []
+    for item in facts.get("reference_runs") or []:
+        side = f", the `{item['side']}` side" if item["side"] else ""
+        out.append(f"{_n(item['runs'], 'run', 'runs')} on the reference stand `{item['stand']}`{side}: {SI.REFERENCE_RUN_WORDS}; "
+                   "none of it is counted above or in the verdict.")
+    return out
 
 
 def _handed_words() -> str:
@@ -1639,6 +1748,701 @@ def _ledger_facts(ledger):
                         for r in ledger.get("reason_records") or [] if isinstance(r, dict)]}
 
 
+# --- the measures of a story with a sides record (t-2181 §8, PC-10; FR-51, FR-55, AR-12) --------------------------------------
+# Counters only: nothing here judges, and nothing is printed in the report (AR-29). Every counter is read through the reader that owns
+# its fact (`contract.story_sides`, `contract.manifest_provisional`, `contract.awaiting`, the ledger's state words, the driver
+# journal's `pair_records`); an input that is absent or cannot be read makes that counter `unmeasured: <why>`, never 0 (FR-41).
+# The facts key `sides_measure` exists ONLY for a story that has a sides record, so every older story's facts are what they were.
+PHASE2_CAUSE = "source_arrived"   # a member of controller.REPAIR_CAUSES, read through controller.repair_cause
+PHASE2_PURPOSE = "bind"           # a controller.PURPOSES word: the bind round's dispatches
+
+
+def _unmeasured(why: str) -> str:
+    return f"unmeasured: {why}"
+
+
+def _provisional_counter(art: Path, manifest: dict):
+    """`{settled_matched, total, skipped}` of the manifest's `provisional[]` rows (`contract.manifest_provisional`, the one reader), or
+    `unmeasured` when the manifest is absent or cannot be read."""
+    path = C.artifact(art, "automation-manifest.json")
+    if not path.is_file():
+        return _unmeasured("the story has no automation manifest")
+    if not manifest:
+        return _unmeasured("the automation manifest cannot be read")
+    read = C.manifest_provisional(manifest)
+    from collections import Counter
+    by_status = Counter(str(row.get("status") or "") for row in read["rows"])
+    return {"settled_matched": by_status.get("settled_matched", 0), "total": len(read["rows"]),
+            "by_status": dict(sorted(by_status.items())), "skipped": len(read["skipped"])}
+
+
+def _absent(why: str) -> str:
+    return f"absent: {why}"
+
+
+def _conductor_sum(pairs: list) -> dict:
+    import math
+    return {"dispatches": 0, "cost_usd": round(math.fsum(p["cost"] for p in pairs), 6)}
+
+
+def _side_cost(pairs: list, ids, why_unknown: dict):
+    """`{dispatches, cost_usd}` of the journal pairs whose dispatch is in `ids`, or `unmeasured`: a dispatch the controller names that the
+    journal has no pair for, or a pair whose cost is None (unknown, never 0), makes the side unmeasured (FR-41, AR-28)."""
+    import math
+    chosen = [p for p in pairs if p["dispatch"] in ids]
+    missing = sorted(set(ids) - {p["dispatch"] for p in chosen} - {""})
+    if missing:
+        return _unmeasured(f"the journal has no record of dispatch(es) {', '.join(missing)}")
+    unknown = [p for p in chosen if p["cost"] is None]
+    if unknown:
+        reasons = sorted({why_unknown.get(p["session"], "") for p in unknown} - {""})
+        return _unmeasured("the journal marks the cost of a dispatch unknown" + (f" ({'; '.join(reasons)})" if reasons else ""))
+    return {"dispatches": len({p["dispatch"] for p in chosen if p["dispatch"]}),
+            "cost_usd": round(math.fsum(p["cost"] for p in chosen), 6)}
+
+
+def _journal_pairs(art: Path) -> tuple:
+    """`(state, pairs, why_unknown)`: the ONE reading of the story's driver journal money (FR-24) that the phase costs and the
+    first-look cost share. `state` is `none` (no driver journal), `empty` (it names no session) or `ok`; `pairs` are
+    `{session, dispatch, cost}` (cost None = unknown, never 0); `why_unknown` maps a session to why its cost is unknown. The journal's money is
+    read as `factory_dashboard.journal_records` reads it (the root rule, `driver_journal.root_charged`)."""
+    import driver_journal as DJ
+    import factory_dashboard as FD
+    import retro_numbers as RN
+    sessions = RN.journal_sessions(art)
+    if sessions is None:
+        return "none", [], {}
+    if not sessions:
+        return "empty", [], {}
+    driver = {sid: {"rows": rows} for sid, rows in sessions.items()}
+    charged, unknown = DJ.root_charged(driver)
+    records_ = FD.journal_records(driver, charged)
+    return ("ok", [{"session": r["session"], "dispatch": r["dispatch"], "cost": r["cost"]} for r in records_],
+            {sid: why for sid, why in unknown})
+
+
+def _phase_costs(art: Path) -> dict:
+    """`{"phase1", "phase2", "conductor_cost"}`, each `{"dispatches", "cost_usd"}` or `unmeasured: <why>` (one shape, AR-12).
+    phase2 = (`absent: <why>` when the story has no phase-2 dispatch or the journal names no session) the journal cost of the controller dispatches whose repair cause is `source_arrived` (`controller.repair_cause`) or
+    whose purpose is `bind` (t-2181 section 8). phase1 = the dispatches made BEFORE the first phase-2 dispatch (a lower
+    `dispatched_seq`; every dispatch when the story has no phase 2). The conductor's own pairs (dispatch "") are in neither phase:
+    `conductor_cost` carries them (P18). A dispatch the journal has no pair for, a pair of unknown cost, an empty journal, or a
+    dispatch with no integer `dispatched_seq` makes the affected side `unmeasured` (FR-41). The journal's money is read as
+    `factory_dashboard.journal_records` reads it (the root rule, `driver_journal.root_charged`); the median of other stories is
+    `stage_compare.py`'s (one metric per comparison)."""
+    import controller as CT
+    state = hooklib.read_json(art / "state" / "controller.json", {}, kind=dict)
+    records = state.get("dispatches")
+    if not isinstance(records, dict) or not records:
+        why = _unmeasured("the story has no controller record of its dispatches")
+        return {"phase1": why, "phase2": why, "conductor_cost": why}
+    named = {}   # dispatch id -> its record
+    for name, record in records.items():
+        if isinstance(record, dict):
+            named[str(record.get("id") or name)] = record
+    phase2_ids = set()
+    for dispatch, record in named.items():
+        binding = record.get("request_binding") if isinstance(record.get("request_binding"), dict) else {}
+        # `purpose: bind` has no reader function (`controller.s5_part_of` knows only `s5_plan`): read raw, by its one writer's word
+        if CT.repair_cause(record) == PHASE2_CAUSE or binding.get("purpose") == PHASE2_PURPOSE:
+            phase2_ids.add(dispatch)
+    seqs = {d: r.get("dispatched_seq") for d, r in named.items()}
+    seq_ok = lambda v: isinstance(v, int) and not isinstance(v, bool)   # noqa: E731
+    journal, pairs, why_unknown = _journal_pairs(art)
+    if journal == "none":
+        why = _unmeasured("the story has no driver journal")
+        return {"phase1": why, "phase2": why, "conductor_cost": why}
+    if journal == "empty":
+        why = _unmeasured("the driver journal names no session")
+        return {"phase1": why, "phase2": _absent("the driver journal names no session"), "conductor_cost": why}
+    if not phase2_ids:
+        phase1_ids = set(named)
+    elif all(seq_ok(seqs[d]) for d in named):
+        first = min(seqs[d] for d in phase2_ids)
+        phase1_ids = {d for d in named if d not in phase2_ids and seqs[d] < first}
+    else:
+        phase1_ids = None
+    out = {"phase2": _side_cost(pairs, phase2_ids, why_unknown) if phase2_ids else _absent("the story has no phase-2 dispatch")}
+    out["phase1"] = (_side_cost(pairs, phase1_ids, why_unknown) if phase1_ids is not None
+                     else _unmeasured("a dispatch has no sequence"))
+    conductor = [p for p in pairs if p["dispatch"] == ""]
+    out["conductor_cost"] = (_unmeasured("the journal marks the cost of the conductor unknown")
+                             if any(p["cost"] is None for p in conductor) else _conductor_sum(conductor))
+    return out
+
+
+def _delivery_counters(ledger) -> dict:
+    """`on_substitute` and `sides_unknown` plan rows of the ledger (its own state words, `ledger.ON_SUBSTITUTE_STATE`,
+    `ledger.SIDES_UNKNOWN_STATE`), the ledger's verdict word, and `unmeasured` for each when the ledger is absent."""
+    import delivery_verdict as DV
+    import ledger as L
+    if ledger is None:
+        why = _unmeasured("the story has no readable ledger")
+        return {"on_substitute_count": why, "sides_unknown_count": why, "verdict": why}
+    counts = _plan_row_counts(ledger, (L.ON_SUBSTITUTE_STATE, L.SIDES_UNKNOWN_STATE))
+    return {"on_substitute_count": counts[L.ON_SUBSTITUTE_STATE], "sides_unknown_count": counts[L.SIDES_UNKNOWN_STATE],
+            "verdict": str(DV.word_of(ledger))}
+
+
+def _plan_row_counts(ledger, states) -> dict:
+    """`{state word: how many plan rows of the ledger stand in it}` - the ONE count of plan rows by state (the delivery counters and the
+    first-look `placeholder_open` share it). The caller handles an absent ledger."""
+    rows = [r for r in (ledger or {}).get("rows") or [] if isinstance(r, dict) and r.get("kind") == "plan_row"]
+    return {state: sum(1 for r in rows if r.get("state") == state) for state in states}
+
+
+def _sides_measure(art: Path, pipeline: dict, manifest: dict, ledger):
+    """The §8 counters of a story that has a sides record, or None for a story that has none (a `pipeline.sides` record, a hold in
+    `pipeline.awaiting`, `pipeline.sides_unknown` or provisional rows in the manifest): its facts carry no such key at all.
+
+    `non_real_sides` and `verdict` feed the calibration check (a non-real side whose report says `yes`); `awaiting` is the hold read
+    through `contract.awaiting`. `test_body_edits_at_bind` and `green_after_bind_only` have no producer in the factory today (no record
+    of the bind round's edits outside the marked homes, no per-test arrival moment): they read `unmeasured` until one exists."""
+    pipeline = pipeline if isinstance(pipeline, dict) else {}
+    provisional = _provisional_counter(art, manifest)
+    hold = C.awaiting(pipeline)
+    sides = C.story_sides(pipeline)
+    # a recorded side is one `story_sides` did not take from the default table (its `source` word); `sides_unknown` has no reader yet
+    recorded = any(s["source"] != "default" for s in sides.values()) or hold["state"] != "none" \
+        or bool(pipeline.get("sides_unknown")) or (isinstance(provisional, dict) and provisional["total"] > 0)
+    if not recorded:
+        return None
+    costs = _phase_costs(art)
+    delivered = _delivery_counters(ledger)
+    return {"provisional": provisional,
+            "test_body_edits_at_bind": _unmeasured("no record of the bind round's edits outside the marked homes is kept"),
+            "phase2_cost": costs["phase2"], "phase1_cost": costs["phase1"],
+            "conductor_cost": costs["conductor_cost"],
+            "green_after_bind_only": _unmeasured("no per-test record of the moment the implementation arrived is kept"),
+            "on_substitute_count": delivered["on_substitute_count"], "sides_unknown_count": delivered["sides_unknown_count"],
+            "verdict": delivered["verdict"],
+            "non_real_sides": (sorted(name for name, side in sides.items() if side["reality"] != "real") if sides
+                               else _unmeasured("the side-realities table cannot be read")),
+            "sides_unknown": bool(pipeline.get("sides_unknown")),
+            "awaiting": {"state": hold["state"], "since": str(hold.get("since") or "")}}
+
+
+# --- the price and the USE of the first look and of the registry (t-2277 FL-8; FR-24, FR-41, AR-12, AR-13, AR-28, AR-29) ---------------
+# Counters only. Nothing here refuses, blocks or judges whether a fact was USED WELL: it counts whether it reached a brief and whether
+# its string stands in a test home / a case / the strategist's form - a comparison of strings, never a reading of meaning (AR-29). An
+# input with no carrier is `unmeasured: <why>`, never 0 (FR-41, AR-28). The ONE reader of the usage is `knowledge_use`; the facts, the
+# retro table and the finding lines read its return and count nothing a second time (AR-13).
+KNOWLEDGE_MARK_RE = re.compile(r"\[knowledge:([A-Za-z0-9_.]+)\]")      # brief_pack.SIDE_KNOWLEDGE_MARK / S3_ROSTER_MARK (briefs). gate_preflight.ACCOUNT_MARK is NOT in a brief
+FIRST_LOOK_MARK_RE = re.compile(r"\[first-look:(R-\d+)\]")             # brief_pack.FIRST_LOOK_MARK
+FIRST_LOOK_CITE_RE = re.compile(r"first_look:(R-\d+)")                 # a case step's citation of the walked path (contract.FIRST_LOOK_REF_RE)
+BRIEFS_PARTS = ("work", "briefs")                                      # brief_pack writes `<dispatch id>.md` here
+BRIEF_ID_RE = re.compile(r"^S\d+-(?P<role>.+?)-\d+$")                  # a MAIN brief; its side files (-decisions, -digests, -files) end otherwise
+BRIEFS_NOT_KEPT = "briefs are not kept"
+# Step 0 of FL-8 (J-16, J-17): the critics' findings carry a `failure_class` of spec|capability|data|tooling and no class word
+# `invented_not_asked`, and an answer's scope is not a field of the registry row - so both counter-metrics have no carrier.
+NO_INVENTED_CLASS = "the critics' findings carry no class `invented_not_asked`, so none can be counted"
+NO_ANSWER_SCOPE = "answer scope is not recorded"
+SIDE_KEYS_OF_REGISTRY = ("product.sides", "environments.sides", "environments.reference_for")
+NO_S5_PROBE_CARRIER = "no S5 automator probe record keeps the probe's selector (queued: a carrier written by the S5 probe step)"
+NO_ACCOUNT_REACH = "the account mark lives in the gate-A rehearsal note, which the story does not keep, and a brief never carries it"
+NO_START = "the story records no start time, so whether it already knew this fact is not established"
+NO_ROW_TIME = "the registry row records no readable time, so whether the story already knew it is not established"
+NO_DRIVER_STATE = "the story has no driver state (a conductor-run story), so whether gate A asked again is not recorded"
+
+
+def _first_look_present(art: Path) -> bool:
+    import first_look as FL
+    return art.joinpath(*FL.RECORD_PARTS).exists() or art.joinpath(*FL.ATTEMPT_PARTS).exists()
+
+
+def _registry_present(root: Path) -> bool:
+    import project_knowledge as PK
+    return PK.record_path(root).exists()
+
+
+def _briefs_read(art: Path):
+    """`(briefs, why)`: `[{dispatch, role, knowledge: set of registry keys, first_look: set of R-n}]` of the MAIN briefs of the story's
+    dispatches (`work/briefs/<dispatch id>.md`, the marker tokens are data for counting), or `(None, why)` when there is none or one cannot be
+    read: `briefs are not kept` is the answer of a story whose briefs are not on disk (FR-41). The role is the controller record's own
+    `role` for that dispatch id, else read from the id."""
+    folder = art.joinpath(*BRIEFS_PARTS)
+    if not folder.is_dir():
+        return None, BRIEFS_NOT_KEPT
+    state = hooklib.read_json(art / "state" / "controller.json", {}, kind=dict)
+    records = state.get("dispatches") if isinstance(state.get("dispatches"), dict) else {}
+    roles = {str(r.get("id") or n): str(r.get("role") or "") for n, r in records.items() if isinstance(r, dict)}
+    out = []
+    try:
+        for path in sorted(folder.glob("*.md")):
+            found = BRIEF_ID_RE.match(path.stem)
+            if not found:
+                continue
+            text = path.read_text(encoding="utf-8-sig")
+            marked = [(keys, line) for line in text.splitlines()
+                      if (keys := {_key_of_mark(t) for t in KNOWLEDGE_MARK_RE.findall(line)})]
+            out.append({"dispatch": path.stem, "role": roles.get(path.stem) or found.group("role"),
+                        "knowledge": set().union(*[k for k, _ in marked]), "lines": marked,
+                        "first_look": set(FIRST_LOOK_MARK_RE.findall(text))})
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, f"a brief cannot be read ({type(exc).__name__})"
+    return (out, "") if out else (None, BRIEFS_NOT_KEPT)
+
+
+def _key_of_mark(token: str) -> str:
+    """The registry key a marker token names - the ONE normalisation of a marker against the registry's own key names: a token that is a
+    key is itself; one that is the key without its scope word (`credentials_by_role` for `environments.credentials_by_role`) is that key,
+    when exactly one key ends so; anything else is returned unchanged (it will match nothing)."""
+    import project_knowledge as PK
+    if token in PK.KEYS:
+        return token
+    named = [k for k in PK.KEYS if k.split(".", 1)[-1] == token]
+    return named[0] if len(named) == 1 else token
+
+
+def _line_forms(key: str, line: str) -> set:
+    """The element names a brief line names, each in the key's own form: a line of the shape `- <name>[: <body>] [knowledge:<key>]`
+    (the roster and side lines of `brief_pack`). A line that is no list item names no element. A name holding `: ` with a body is read as
+    its head only - a known limit: such an element reads as not reached."""
+    import project_knowledge as PK
+    head = line.strip()
+    if not head.startswith("- "):
+        return set()
+    head = head[2:]
+    return {PK._form(key, c) for c in {head.split(" [knowledge:", 1)[0], head.split(": ", 1)[0]}}
+
+
+def _reached_by_element(briefs, why: str, key: str, element: str):
+    """The roles whose brief names THIS element with the marker of `key` on the same line (sorted, once each; [] is measured: no brief
+    did), or `unmeasured`. The roster is capped and its empty-roster line carries the marker too, so the key alone proves nothing of an
+    element (rule 15). A name `brief_pack` clipped to 60 characters is compared by its clipped form too."""
+    if briefs is None:
+        return _unmeasured(why)
+    import brief_pack
+    import project_knowledge as PK
+    forms = {PK._form(key, element), PK._form(key, brief_pack._clip(element, 60))}
+    return sorted({b["role"] for b in briefs for keys, line in b["lines"] if key in keys and forms & _line_forms(key, line)})
+
+
+def _reached_by_request(briefs, why: str, req: str):
+    """The roles whose brief carries `[first-look:R-n]` of this requirement (sorted, once each; [] is measured), or `unmeasured`."""
+    if briefs is None:
+        return _unmeasured(why)
+    return sorted({b["role"] for b in briefs if req in b["first_look"]})
+
+
+def _home_texts(art: Path, root: Path, manifest: dict):
+    """`(texts, why)`: the text of every S5 test file (`tests[].file`) and every placeholder home (`provisional[].home.file`) of the manifest,
+    read inside the project; `(None, why)` when the manifest names none or one cannot be read - the count is then `unmeasured`, never a
+    smaller number."""
+    names = {str(t.get("file") or "").strip() for t in C.manifest_tests(manifest)}
+    for row in C.manifest_provisional(manifest)["rows"]:
+        home = row.get("home") if isinstance(row.get("home"), dict) else {}
+        names.add(str(home.get("file") or "").strip())
+    names.discard("")
+    if not names:
+        return None, "the automation manifest names no S5 test file or placeholder home"
+    texts = []
+    for name in sorted(names):
+        try:
+            path = (root / name).resolve()
+            if Path(name).is_absolute() or not path.is_relative_to(root.resolve()):
+                return None, f"{name} is not a path inside the project"
+            texts.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError as exc:
+            return None, f"{name} cannot be read ({type(exc).__name__})"
+    return texts, ""
+
+
+def _cases_citing(art: Path):
+    """`({R-n: [case keys]}, "")` - the S4 cases whose text cites `first_look:R-n` (`contract.case_index`, the one reader of the case files) - or
+    `(None, why)`."""
+    try:
+        index = C.case_index(art)
+        if not len(index):
+            return None, "the story has no case file"
+        cites: dict = {}
+        for key, meta in index.items():
+            text = Path(meta["path"]).read_text(encoding="utf-8-sig")
+            for req in set(FIRST_LOOK_CITE_RE.findall(text)):
+                cites.setdefault(req, []).append(str(key))
+        return {k: sorted(v) for k, v in cites.items()}, ""
+    except Exception as exc:       # noqa: BLE001 - a count never crashes the report
+        return None, f"the case files could not be read ({_why(exc)})"
+
+
+def _probe_use():
+    """u3: how many S5 automator probes touched an element the first look already saw. No S5 probe record keeps the probe's selector (the
+    only capture that exists, `investigation_probe.capture_lines`, is S7's and keeps none either), so the count is `unmeasured` and names
+    the carrier that is missing (FR-41); an S7 capture is never read under an S5 label."""
+    return _unmeasured(NO_S5_PROBE_CARRIER)
+
+
+def _role_used(art: Path, element: str):
+    """`product.roles`: does the role stand in the strategist's accepted `product_roles` section (`project_knowledge.story_roles`, one reader)?"""
+    import brief_pack
+    import project_knowledge as PK
+    try:
+        if not brief_pack.last_accepted_form(art, "S3", "qa-test-strategist"):
+            return _unmeasured("the strategist's form is not accepted yet")
+        roles, reason = PK.story_roles(art)
+    except Exception as exc:       # noqa: BLE001
+        return _unmeasured(f"the strategist's form could not be read ({_why(exc)})")
+    if reason:
+        return _unmeasured(reason)
+    form = PK._form(PK.ROLES_KEY, element)
+    return any(PK._form(PK.ROLES_KEY, r["role"]) == form for r in roles)
+
+
+def _account_used(art: Path, stand: str, role: str):
+    """`environments.credentials_by_role`: gate A did NOT ask again for the known (stand, role) pair - none of the cards the packet SHOWED at
+    gate A (the driver's own record, `state/driver-state.json` `shown_gaps.A.gaps[].id`) is the role card of the pair. A card shown and
+    answered with "go on" still counts as asked again (what was SHOWN, not what the words name). The shown id is matched by its stand and role
+    tokens (`gate_preflight.role_gap_tokens`, or the 16-hex widening of a collision), never recomputed against the packet's forms. No driver
+    state (a conductor-run story) or a gate A never shown is `unmeasured`, never `used`."""
+    path = art / "state" / "driver-state.json"
+    if not path.is_file():
+        return _unmeasured(NO_DRIVER_STATE)
+    state = hooklib.read_json(path, {}, kind=dict)
+    shown = state.get("shown_gaps", {}).get("A") if isinstance(state.get("shown_gaps"), dict) else None
+    if not isinstance(shown, dict):
+        return _unmeasured("gate A was not shown yet, or the driver state cannot be read (it keeps no shown gaps for gate A)")
+    try:
+        import gate_preflight as GP
+        import project_knowledge as PK
+        stok, tok = GP.role_gap_tokens(stand, role)
+        wide = hashlib.sha1(PK._form(PK.ROLES_KEY, role).encode("utf-8")).hexdigest()[:16]
+    except Exception as exc:       # noqa: BLE001
+        return _unmeasured(f"the role card of the pair cannot be named ({_why(exc)})")
+    prefix = f"{GP.ROLE_GAP_PREFIX}{stok}-"
+    asked = any(isinstance(g, dict) and str(g.get("id") or "").startswith(prefix) and str(g["id"])[len(prefix):] in (tok, wide)
+                for g in shown.get("gaps") or [])
+    return not asked
+
+
+def _side_used(pipeline: dict, name: str):
+    """`product.sides` / `environments.sides` / `environments.reference_for`: the story's own sides record holds the side with `source: registry`
+    (S0 took it from the registry, `contract.story_sides`) instead of asking whose side it is."""
+    if not (isinstance(pipeline.get("sides"), dict) and pipeline["sides"]):
+        return _unmeasured("the story has no sides record")
+    entry = pipeline["sides"].get(name)
+    return isinstance(entry, dict) and entry.get("source") == "registry"
+
+
+def knowledge_use(task_root, project_root=None) -> dict:
+    """THE one reader of the USE of what the factory knew (t-2277 FL-8, AR-13): `{"entries": [...], "first_look_use": {...},
+    "counter_metrics": {...}, "briefs": "ok" | "unmeasured: <why>", "problems": [...]}`.
+
+    One entry per knowledge, `{source: "registry" | "first_look", key, reached, used, available_unused}` (+ `environment`, `element` for a
+    registry row, `used_by` for a first-look row). `reached`: the roles whose brief carries the marker `[knowledge:<key>]` / `[first-look:R-n]`
+    (a list, [] = no brief did) or `unmeasured: briefs are not kept`. `used`: True / False or `unmeasured: <why>` - a registry role stands in the
+    strategist's `product_roles`; a known account pair was not asked again at gate A; a known side is the story's side from the registry;
+    a first-look row has a seen locator / route string in an S5 test home, or a case citing `first_look:R-n` (True if any measured part is
+    positive, False if all are measured and zero, `unmeasured` otherwise). `available_unused`: reached AND used is False (None when either is
+    unknown). The first-look aggregate counters u1 (seen locators and routes found in the S5 homes), u2 (cases citing the walked path), u3 (probes
+    on seen elements) are under `first_look_use`. Counter-metric (2) is `known_not_reaching_a_decision`; (1) and (3) have no carrier (J-16, J-17:
+    `unmeasured`). Reads only; writes nothing; never raises."""
+    art = Path(task_root)
+    out: dict = {"entries": [], "first_look_use": {}, "counter_metrics": {}, "briefs": "ok", "problems": []}
+    try:
+        qa = (Path(project_root) / "qa-factory") if project_root else _qa_root(art)
+        root = qa.parent
+        briefs, why = _briefs_read(art)
+        if briefs is None:
+            out["briefs"] = _unmeasured(why)
+        pipeline = hooklib.read_json(art / "pipeline.json", {}, kind=dict)
+        _registry_entries(art, root, briefs, why, pipeline, out, _story_start(pipeline))
+        _first_look_entries(art, root, briefs, why, out)
+        out["counter_metrics"] = _counter_metrics(out)
+    except Exception as exc:       # noqa: BLE001 - a counter never stops the report; what it could not read is named
+        out["problems"].append(f"the use of the knowledge could not be counted ({_why(exc)})")
+        out["counter_metrics"] = _counter_metrics(out)
+    return out
+
+
+def _entry(source: str, key: str, reached, used, **more) -> dict:
+    known = isinstance(reached, list) and isinstance(used, bool)
+    return {"source": source, "key": key, "reached": reached, "used": used,
+            "available_unused": (bool(reached) and not used) if known else None, **more}
+
+
+def _known_before(row, start):
+    """`(True | False | None, why)`: did the registry record this fact BEFORE the story began? The row's own time against the story's start
+    (`_story_start`). No start, or a row with no readable time (a fact the settings carry has no row at all), is `None` with its reason - the
+    fact is `unmeasured`, never known: a fact this story taught is not a fact it ignored."""
+    if start is None:
+        return None, NO_START
+    moment = _instant(row.get("at")) if isinstance(row, dict) and row.get("at") else None
+    if moment is None:
+        return None, NO_ROW_TIME
+    return moment < start, ""
+
+
+def _registry_entries(art: Path, root: Path, briefs, why: str, pipeline: dict, out: dict, start) -> None:
+    """One entry per registry fact `known` to THIS story: recorded before its start (B3). A fact recorded after is not an entry; one whose
+    time or the story's start is unknown is an entry whose reach and use are `unmeasured`. The account pair has no brief carrier
+    (`NO_ACCOUNT_REACH`): its reach is `unmeasured`, so it is never counted as a fact no brief carried."""
+    import project_knowledge as PK
+    for key in sorted(PK.KEYS):
+        listed = PK.subjects(root, key)
+        if listed["problem"]:
+            out["problems"].append(listed["problem"])
+            return
+        for env, element in listed["subjects"]:
+            got = PK.state(root, key, env, element)
+            if got["state"] != PK.KNOWN:      # noticed / not needed is no known fact
+                continue
+            before, before_why = _known_before(got.get("row"), start)
+            if before is False:
+                continue
+            if before is None:
+                gone = _unmeasured(before_why)
+                out["entries"].append(_entry("registry", key, gone, gone, environment=env, element=element))
+                continue
+            if key == PK.ROLES_KEY:
+                used = _role_used(art, element)
+            elif key == PK.ACCOUNTS_KEY:
+                used = _account_used(art, env, element)
+            elif key in SIDE_KEYS_OF_REGISTRY:
+                used = _side_used(pipeline, element)
+            else:
+                used = _unmeasured("no carrier says whether this kind of fact was used")
+            reached = _unmeasured(NO_ACCOUNT_REACH) if key == PK.ACCOUNTS_KEY else _reached_by_element(briefs, why, key, element)
+            out["entries"].append(_entry("registry", key, reached, used, environment=env, element=element))
+
+
+def _first_look_entries(art: Path, root: Path, briefs, why: str, out: dict) -> None:
+    import first_look as FL
+    got = FL.state(art)
+    if got["kind"] != "ok":
+        out["first_look_use"] = {"record": got["kind"]}
+        return
+    rows = got["got"]["rows"]
+    manifest = C.load_json(C.artifact(art, "automation-manifest.json"))
+    homes, homes_why = _home_texts(art, root, manifest)
+    cites, cites_why = _cases_citing(art)
+    seen_locators, seen_routes = [], []
+    for row in sorted(rows, key=lambda r: T._numeric_key(str(r.get("req") or ""))):
+        path = row.get("path") if isinstance(row.get("path"), dict) else {}
+        locators = [str(x.get("selector")).strip() for x in path.get("locators") or []
+                    if isinstance(x, dict) and x.get("seen") == "yes" and str(x.get("selector") or "").strip()]
+        routes = [str(x.get("path")).strip() for x in path.get("api") or []
+                  if isinstance(x, dict) and x.get("seen") == "yes" and str(x.get("path") or "").strip()]
+        req = str(row.get("req") or "")
+        parts = {"locators": _unmeasured(homes_why) if homes is None else sum(any(s in t for t in homes) for s in locators),
+                 "routes": _unmeasured(homes_why) if homes is None else sum(any(s in t for t in homes) for s in routes),
+                 "cases": _unmeasured(cites_why) if cites is None else len(cites.get(req, []))}
+        seen_locators += locators
+        seen_routes += routes
+        counted = [v for v in parts.values() if isinstance(v, int)]
+        used = (True if any(v > 0 for v in counted) else
+                (False if len(counted) == len(parts) else _unmeasured("; ".join(sorted({_why_of(v) for v in parts.values() if not isinstance(v, int)})))))
+        out["entries"].append(_entry("first_look", req, _reached_by_request(briefs, why, req), used, used_by=parts))
+    if homes is None:
+        u1 = _unmeasured(homes_why)
+    else:
+        found_l, found_r = (sum(any(s in t for t in homes) for s in seen_locators), sum(any(s in t for t in homes) for s in seen_routes))
+        u1 = {"locators_seen": len(seen_locators), "locators_found": found_l, "routes_seen": len(seen_routes), "routes_found": found_r,
+              "found": found_l + found_r}
+    out["first_look_use"] = {"record": "ok", "rows": len(rows), "u1_locators_and_routes_in_s5_homes": u1,
+                             "u2_cases_citing_the_walked_path": _unmeasured(cites_why) if cites is None else sum(len(v) for v in cites.values()),
+                             "u3_probes_on_seen_elements": _probe_use()}
+
+
+def _counter_metrics(use: dict) -> dict:
+    """Counter-metric (2), "a known fact did not reach a decision" = the known registry facts no brief carried + the facts that reached a role and
+    were not used; (1) and (3) are J-16 / J-17 and have no carrier (step 0 of FL-8). Facts whose use is unknown are counted apart."""
+    entries = use["entries"]
+    rest = {"used_unmeasured": sum(1 for e in entries if not isinstance(e["used"], bool)),
+            "invented_not_asked": _unmeasured(NO_INVENTED_CLASS), "answer_scope_applied_as_rule": _unmeasured(NO_ANSWER_SCOPE)}
+    # the three counters read the briefs AND the registry: either unknown makes them unknown, never 0 (B2, AR-28)
+    reasons = ([_why_of(use["briefs"])] if use["briefs"] != "ok" else []) + list(use["problems"])
+    if reasons:
+        gone = _unmeasured("; ".join(reasons))
+        return {"known_not_reached": gone, "available_unused": gone, "known_not_reaching_a_decision": gone, **rest}
+    not_reached = sum(1 for e in entries if _not_reached(e))
+    unused = sum(1 for e in entries if e["available_unused"])
+    return {"known_not_reached": not_reached, "available_unused": unused, "known_not_reaching_a_decision": not_reached + unused, **rest}
+
+
+def _not_reached(entry: dict) -> bool:
+    """A known registry fact that no brief carried (measured: `reached` is the empty list) and that the story did not use anyway - a fact used
+    (the strategist named the role, gate A did not ask again) never reads as one that did not reach a decision."""
+    return entry["source"] == "registry" and entry["reached"] == [] and entry["used"] is not True
+
+
+def _why_of(value) -> str:
+    """The reason inside an `unmeasured: <why>` word (the word itself when it has no such prefix)."""
+    text = str(value)
+    return text[len("unmeasured: "):] if text.startswith("unmeasured: ") else text
+
+
+def _first_look_price(art: Path):
+    """The price of the first look's dispatch(es) by the story's own journal (FR-24): `{dispatches, cost_usd}`, `absent: <why>` when the story made
+    none, `unmeasured: <why>` when the journal cannot say (a dispatch with no pair, a pair of unknown cost: `_side_cost`)."""
+    import controller as CT
+    state = hooklib.read_json(art / "state" / "controller.json", {}, kind=dict)
+    records = state.get("dispatches")
+    if not isinstance(records, dict) or not records:
+        return _unmeasured("the story has no controller record of its dispatches")
+    ids = {str(r.get("id") or n) for n, r in records.items() if isinstance(r, dict)
+           and isinstance(r.get("request_binding"), dict) and r["request_binding"].get("purpose") == CT.FIRST_LOOK}
+    if not ids:
+        return _absent("the story has no first-look dispatch")
+    journal, pairs, why_unknown = _journal_pairs(art)
+    if journal != "ok":
+        return _unmeasured("the story has no driver journal" if journal == "none" else "the driver journal names no session")
+    return _side_cost(pairs, ids, why_unknown)
+
+
+def _first_look_measure(art: Path, pipeline: dict, ledger, use: dict) -> dict:
+    """The per-story counters of the first look (t-2277 FL-8): `record` (its state word), `cost`, `share`, `questions`, `attempt`, `placeholder_open`,
+    and the two fields of the record nobody read before - `stand_needs` and `gaps` (how many the first look named; AR-22). The usage counters are
+    `knowledge_use`'s (`use`), never counted again. Each counter the carrier cannot give is `unmeasured: <why>`."""
+    import first_look as FL
+    import ledger as L
+    got = FL.state(art)
+    kind, record = got["kind"], got["got"]
+    why = (record.get("problem") if kind in ("absent", "unreadable") else
+           "the record is about other code or another register" if kind == "stale" else
+           f"the record could not be read ({got['error']})" if kind == "error" else "")
+    countable = kind in ("ok", "null")
+    attempt = FL.read_attempt(art)
+    try:
+        share = FL.share(art, C.case_config(art))
+        share = _unmeasured(share["problem"]) if share["problem"] else {k: share[k] for k in ("reachable", "counted", "share", "floor")}
+    except Exception as exc:       # noqa: BLE001
+        share = _unmeasured(f"the share could not be read ({_why(exc)})")
+    pipeline = pipeline if isinstance(pipeline, dict) else {}
+    hold = C.awaiting(pipeline)
+    import controller as CT
+    answer = "continue" if FL.continued(art, pipeline) else ("stop" if hold["cause"] == CT.FIRST_LOOK_STOP else "none")
+    return {"record": {"kind": kind, "rows": len(record.get("rows") or []) if countable else _unmeasured(why or kind),
+                       "stale": bool(record.get("stale")), "problem": why},
+            "cost": _first_look_price(art), "share": share,
+            "questions": {"dead_asked": FL.asked(art) if attempt else _unmeasured("no first-look attempt is recorded"),
+                          "same_code_asked": _unmeasured("the same-code question has no record on this build"),
+                          "answer": answer},
+            "attempt": {"outcome": attempt["outcome"], "open_failures": int(attempt.get("open_failures") or 0)} if attempt
+                       else _unmeasured("no first-look attempt is recorded"),
+            "placeholder_open": (_plan_row_counts(ledger, (L.PLACEHOLDER_OPEN_STATE,))[L.PLACEHOLDER_OPEN_STATE] if ledger is not None
+                                 else _unmeasured("the story has no readable ledger")),
+            "stand_needs": (sum(len(r["path"]["stand_needs"]) for r in record["rows"]
+                                if isinstance(r.get("path"), dict) and isinstance(r["path"].get("stand_needs"), list))
+                            if countable else _unmeasured(why or kind)),
+            "gaps": len(record["gaps"]) if countable else _unmeasured(why or kind),
+            "use": use.get("first_look_use") if isinstance(use, dict) else _unmeasured("the use was not counted")}
+
+
+def _knowledge_facts(art: Path, root: Path, pipeline, ledger) -> dict:
+    """The facts keys of the counters: `{knowledge_use, first_look_measure}` or `{}` (the ONE assembly, `build` and the retro both read it).
+    `knowledge_use` is a key only for a story with a first look, or one whose registry holds a fact it knew before it began (or cannot
+    place in time, or cannot read) - a project that LATER gained a registry gives an older story no key, so its facts are what they were."""
+    out: dict = {}
+    first_look = _first_look_present(art)
+    if not (first_look or _registry_present(root)):
+        return out
+    use = knowledge_use(art, root)
+    if first_look or use["entries"] or use["problems"]:
+        out["knowledge_use"] = use
+    if first_look:
+        try:
+            out["first_look_measure"] = _first_look_measure(art, pipeline, ledger, use)
+        except Exception as exc:       # noqa: BLE001 - a counter never stops the report
+            out["first_look_measure"] = {"record": {"kind": "error", "rows": _unmeasured(_why(exc)), "stale": False, "problem": _why(exc)}}
+    return out
+
+
+def knowledge_facts(task_root, project_root=None) -> dict:
+    """`_knowledge_facts` for a reader that holds only the story folder (the retro): the pipeline and the ledger are read here, as `build`
+    reads them, and whatever they cannot say stays in the counters as `unmeasured`. Reads only."""
+    art = Path(task_root)
+    qa = (Path(project_root) / "qa-factory") if project_root else _qa_root(art)
+    unknown: dict = {}
+    return _knowledge_facts(art, qa.parent, _load_pipeline(art, unknown), _load_ledger(art, unknown))
+
+
+def question_count(task_root):
+    """How many questions the story put to the person, for the retro's line: the questions of the story's register
+    (`question_register.load`, the one reader of `work/requirements-readiness.json` `open_questions`) except those a designer took
+    (`with_designer`: the person was not asked). A story with no readable register has no count: `unmeasured: <why>`, never 0; a register that
+    is read and holds no question is a MEASURED zero."""
+    try:
+        got = QR.load(task_root)
+    except Exception as exc:       # noqa: BLE001
+        return _unmeasured(f"the question register could not be read ({_why(exc)})")
+    if not got.get("register_present"):
+        return _unmeasured("the story has no question register (work/requirements-readiness.json open_questions)")
+    if got.get("problems") and not got.get("questions"):
+        return _unmeasured("the question register could not be read: " + "; ".join(str(p) for p in got["problems"])[:160])
+    return sum(1 for q in got.get("questions") or [] if q.get("status") != "with_designer")
+
+
+# The retro's reading of the counters: lines of words, no money in them (the repository's files never print prices), nothing refused.
+
+def finding_lines(facts: dict) -> list:
+    """The finding lines of the retro (AR-27): "the record was not read" (zero by u1 AND u2 over a non-empty record, both MEASURED - an unmeasured
+    counter is not zero), "the record could not be read" (an unreadable record is a gap line, not a crash) and "a known fact did not reach a
+    decision" (a registry fact no brief carried, or one that reached a role and was not used). A null or absent record gives no "unread" line.
+    Findings, never a refusal (AR-29)."""
+    out: list = []
+    fl = facts.get("first_look_measure")
+    if isinstance(fl, dict):
+        kind = (fl.get("record") or {}).get("kind")
+        use = fl.get("use") if isinstance(fl.get("use"), dict) else {}
+        if kind in ("unreadable", "error"):
+            out.append(f"The first-look record could not be read ({(fl['record'].get('problem') or kind)}); how it was used is not known.")
+        elif kind == "ok" and isinstance(fl["record"].get("rows"), int) and fl["record"]["rows"] > 0:
+            u1, u2 = use.get("u1_locators_and_routes_in_s5_homes"), use.get("u2_cases_citing_the_walked_path")
+            if isinstance(u1, dict) and isinstance(u2, int) and u1["found"] == 0 and u2 == 0:
+                out.append(f"The first-look record was not read: none of its {fl['record']['rows']} rows reached a test home or a case "
+                           "(0 seen locators or routes found in the S5 test homes, 0 cases cite the walked path).")
+    for e in (facts.get("knowledge_use") or {}).get("entries") or []:
+        if e["source"] != "registry":
+            continue
+        name = f"{e['key']} {e.get('element')}" + (f" on {e['environment']}" if e.get("environment") else "")
+        if _not_reached(e):
+            out.append(f"A known fact did not reach a decision: {name} was in no brief.")
+        elif e["available_unused"]:
+            out.append(f"A known fact did not reach a decision: {name} reached {', '.join(e['reached'])} and was not used.")
+    return out
+
+
+def _counter_words(metrics: dict) -> str:
+    def say(v):
+        return v if isinstance(v, str) else str(v)
+    return (f"known facts no brief carried: {say(metrics['known_not_reached'])}; reached and not used: {say(metrics['available_unused'])}; "
+            f"answer invented where a question was owed: {say(metrics['invented_not_asked'])}; "
+            f"one story's answer applied as a project rule: {say(metrics['answer_scope_applied_as_rule'])}")
+
+
+def question_count_line(count, facts: dict) -> str:
+    """The count of questions put to the person, as the retro prints it. ZERO is printed only WITH the counter-metrics (a story that asked
+    nothing because it already knew is not the same as one that asked nothing because it ignored what it knew); with no counter-metrics to
+    print it, the zero is not printed at all (`unmeasured`)."""
+    metrics = (facts.get("knowledge_use") or {}).get("counter_metrics")
+    if count == 0 and not metrics:
+        return _unmeasured("zero questions is not printed without its counter-metrics")
+    line = f"Questions put to the person: {count}"       # a count with no carrier is its own `unmeasured: <why>` word, never 0
+    return line + ("; " + _counter_words(metrics) if metrics else "")
+
+
+def retro_lines(facts: dict) -> list:
+    """The retro's table of knowledge (reached / used / not used) and the first-look counters, as lines of words, then the finding lines.
+    Empty when the story has neither a first look nor a registry fact. `unmeasured: <why>` stands where a counter has no carrier."""
+    use, fl = facts.get("knowledge_use"), facts.get("first_look_measure")
+    if not isinstance(use, dict) and not isinstance(fl, dict):
+        return []
+    out = ["Knowledge: reached / used / not used"]
+    for problem in (use or {}).get("problems") or []:
+        out.append(f"- {_unmeasured(problem)}")
+    for e in (use or {}).get("entries") or []:
+        reached = e["reached"] if isinstance(e["reached"], str) else ("reached " + ", ".join(e["reached"]) if e["reached"] else "reached no brief")
+        used = e["used"] if isinstance(e["used"], str) else ("used" if e["used"] else "not used")
+        who = e["key"] + (f" {e['element']}" if e.get("element") else "") + (f" on {e['environment']}" if e.get("environment") else "")
+        out.append(f"- {e['source']} {who}: {reached}; {used}")
+    if isinstance(fl, dict):
+        unknown = _unmeasured("the first-look counters could not be read")      # the error shape `build` writes has only `record`
+        out.append(f"First look: stand needs named {fl.get('stand_needs', unknown)}; gaps named {fl.get('gaps', unknown)}; "
+                   f"placeholder rows open at delivery {fl.get('placeholder_open', unknown)}")
+    out += finding_lines(facts)
+    return out
+
+
 EXECUTION_OUTCOME_STATES = ("not_executed", "failed:NOT_EXECUTED", "failed:RUNNER_MISREAD_EVIDENCE")
 
 
@@ -1710,13 +2514,17 @@ def review_gaps(ledger) -> dict:
     def in_s5_window(row):    # `remarks` is set by an S5 window only: an S7 window after it takes `repair_limit`, not that key
         return "remarks" in row or stage_of(row) == "S5"
 
-    def named(row):
+    has_marks = _ledger_has_marks(ledger)
+
+    def named(row, owed):
         function, cut_function = _shown(row.get("function"))
         case, cut_case = _shown(row.get("case"))
-        return {"function": function, "case": case, "name_cut": cut_function or cut_case}
-    tests = [dict(named(r), remarks=r.get("remarks") or [], remarks_carrier=_words(r.get("remarks_carrier")), window=isinstance(r.get("repair_limit"), dict), dead=bool(r.get("dead")))
+        # t-2277 W3: a rejected test and a run left failing say where their result came from, from the same ledger row as a Proven one
+        return {"function": function, "case": case, "name_cut": cut_function or cut_case,
+                "real_or_mock": _test_mark(row, has_marks, owed)}
+    tests = [dict(named(r, False), remarks=r.get("remarks") or [], remarks_carrier=_words(r.get("remarks_carrier")), window=isinstance(r.get("repair_limit"), dict), dead=bool(r.get("dead")))
              for r in rows if in_s5_window(r) or (C.ledger_state_prefix(r.get("state", "")) == "review_rejected" and not r.get("dead"))]
-    runs = [dict(named(r), words=_words(r.get("triage_words")))
+    runs = [dict(named(r, True), words=_words(r.get("triage_words")))
             for r in rows if stage_of(r) == "S7" and C.ledger_state_prefix(r.get("state", "")) == "failed" and not r.get("dead")]
     windows = [w for w in ledger.get("repair_windows") or [] if isinstance(w, dict)]
     return {"tests": tests, "runs": runs, "windows": [w for w in windows if not w.get("fixed")],
@@ -1940,6 +2748,25 @@ def _config_revert_line(art: Path) -> str:
         return ""
 
 
+def _instant(text):
+    """A stamp as an INSTANT (N6): the signal's `ts` is UTC ISO with `+00:00`, a pipeline stamp may be `Z`, with another
+    offset or naive (naive is read as UTC: an estimate, said here). Compared as instants, never as strings; None = unparsable."""
+    from datetime import datetime, timezone
+    try:
+        moment = datetime.fromisoformat(str(text).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def _story_start(pipe: dict):
+    """The story's start as an instant: the earliest of `created_at` and every stage's `started_at` that reads, or None when the pipeline
+    records none (the ONE carrier of "when did this story begin" for the hook signals and the first-look counters)."""
+    stages = [s for s in (pipe.get("stages") or {}).values() if isinstance(s, dict)] if isinstance(pipe.get("stages"), dict) else []
+    begun = [_instant(s) for s in [pipe.get("created_at")] + [st.get("started_at") for st in stages] if s]
+    return min((m for m in begun if m is not None), default=None)
+
+
 def _hook_signals(art: Path, qa: Path, pipeline: dict = None, unknown: dict = None) -> dict:
     """The `hook_signal` events of this history (RH1-5, AR-22: `hooklib.person_signal` writes them, this reads them):
     `{"count", "kinds": {kind: n}, "path", "skipped", "no_task_unplaced"}`. A row counts when its `task` is this story;
@@ -1948,16 +2775,7 @@ def _hook_signals(art: Path, qa: Path, pipeline: dict = None, unknown: dict = No
     (E21); one that cannot be read is `unknown` with the reason in `unknown["hook_signals"]` (FR-41, E26); a line that
     is not JSON is skipped and counted in `skipped`. The journal is JSON lines, read line by line here (axis 16)."""
     import runtime_paths as RP
-    from datetime import datetime, timezone
-
-    def instant(text):
-        """A stamp as an INSTANT (N6): the signal's `ts` is UTC ISO with `+00:00`, a pipeline stamp may be `Z`, with another
-        offset or naive (naive is read as UTC: an estimate, said here). Compared as instants, never as strings; None = unparsable."""
-        try:
-            moment = datetime.fromisoformat(str(text).strip().replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+    instant = _instant
 
     # N8: the config is read through the ONE reader (`hooklib.load_config`), pointed at THIS project by its folder
     cfg = hooklib.load_config({"cwd": str(Path(qa).parent)})
@@ -1965,9 +2783,7 @@ def _hook_signals(art: Path, qa: Path, pipeline: dict = None, unknown: dict = No
     out = {"count": 0, "kinds": {}, "path": str(journal), "skipped": 0, "no_task_unplaced": 0}
     pipe = pipeline if isinstance(pipeline, dict) else {}
     stages = [s for s in (pipe.get("stages") or {}).values() if isinstance(s, dict)] if isinstance(pipe.get("stages"), dict) else []
-    # the earliest instant the pipeline records (the instants, not the texts, are compared, N6)
-    begun = [instant(s) for s in [pipe.get("created_at")] + [st.get("started_at") for st in stages] if s]
-    start = min((m for m in begun if m is not None), default=None)
+    start = _story_start(pipe)       # the earliest instant the pipeline records (the instants, not the texts, are compared, N6)
     # N6: a task-less row is the story's only inside [start, end]. The end is the story's close or its latest stage stamp
     # (the retro S9 runs after the close); an open story, or a stamp nobody can read, has NO end (over-report beats loss).
     end = None
@@ -2257,7 +3073,7 @@ def render(facts: dict, previous_verdict: str = "") -> dict:
     gaps = _r_collect_gaps(facts)
     unrun = _r_quality_not_run(facts)
     gaps = gaps + ("\n" if gaps and unrun else "") + unrun
-    unmatched = _r_integration_gap(facts) + str(facts.get("owed_rework") or "")       # HF8-17: the integrations no case could be tied to (a gap line, E17); r0107 F-4: the rework an approval passed over
+    unmatched = _r_integration_gap(facts) + str(facts.get("owed_rework") or "") + str(facts.get("passed_over") or "")       # TR1-9: the work a code close passed over; # HF8-17: the integrations no case could be tied to (a gap line, E17); r0107 F-4: the rework an approval passed over
     gaps = gaps + ("\n" if gaps and unmatched else "") + unmatched
     blocks["regression"] = _r_regression(facts) + ("\n" + gaps if gaps else "")
     blocks["size"] = _r_size(facts) + _r_grounding(facts)       # G2-5: what the change touches, in the size block (no block of its own)
@@ -2317,6 +3133,40 @@ def _owed_rework_gap(art: Path) -> str:
         out.append(left_gap_line(where, f"{OWED_REWORK_OWNERS.get(owner) or 'someone'} was to rework it to follow your answer"
                                  + (f" to {asked}" if asked else "") + "; you approved the plan as it is, so it was not done",
                                  "your word to start that rework") + "\n")
+    return "".join(out)
+
+
+PASSED_OVER_ID_RE = re.compile(r"^(S\d+)-(.+)-\d+$")
+
+
+def _passed_over_gap(art: Path) -> str:
+    """The gap lines of the work a stage's CODE close passed over (TR1-9 B4, AR-27): the controller's `code_only` receipt keeps
+    `passed_over: [{id, label}]` on the stage's entry of `pipeline.json` (`returned, never accepted`, `abandoned`, `stopped, never
+    accepted`); each name is a line saying whose work, of which stage, and that the stage was closed over it. No names give NO
+    line; a record that cannot be read gives one line that says so (AR-28), never the silence of an empty list. Reads only."""
+    path = Path(art) / "pipeline.json"
+    if not path.is_file():
+        return ""           # the missing record is already said once (`unknown["pipeline"]`)
+    stages = None           # an unreadable record and a record with no stages are one outcome: the line below
+    try:
+        stages = json.loads(path.read_bytes().decode("utf-8-sig", errors="replace")).get("stages")
+    except (OSError, ValueError, AttributeError, RecursionError):
+        pass
+    if not isinstance(stages, dict):
+        return left_gap_line("closed stages", "whether a stage was closed over work nobody accepted could not be established",
+                             "someone who can read the story's record of the stages") + "\n"
+    out = []
+    for name, entry in stages.items():
+        named = entry.get("passed_over") if isinstance(entry, dict) else None
+        for item in named if isinstance(named, list) else []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            ident = str(item["id"])
+            found = PASSED_OVER_ID_RE.match(ident)
+            who = f"{found.group(2)}'s work of {found.group(1)}" if found else f"the work of {name} ({ident})"
+            label = _words(item.get("label")) or "never accepted"
+            out.append(left_gap_line(ident, f"{who} was {label}, and {name} was closed by code over it",
+                                     "your word on whether that work mattered, or a re-run of the stage") + "\n")
     return "".join(out)
 
 
@@ -2630,7 +3480,8 @@ def _r_proven(facts: dict) -> str:
             texts.setdefault(t["texts"].get(rid, ""), []).append(rid)
         what = "; ".join((", ".join(ids) + " " + text).rstrip() for text, ids in texts.items()) \
             or "no requirement is named for it"
-        line = (f"- {what} ({', '.join(t['cases']) or 'no case named'}) — {t['critic']} · {t['level']}",
+        line = (f"- {what} ({', '.join(t['cases']) or 'no case named'}) — {t['critic']} · {t['level']}"
+                + _mark_tail(t),
                 f"  Note: {t['change']}." if t["change"] else "")
         groups.setdefault((t["area"], t["file"]), {}).setdefault(line, 0)
         groups[(t["area"], t["file"])][line] += 1
@@ -2643,6 +3494,8 @@ def _r_proven(facts: dict) -> str:
             if note:
                 out.append(note)
         out.append("")
+    for line in _reference_lines(facts):
+        out += [line, ""]
     if tests["green_not_counted"]:
         n = tests["green_not_counted"]
         out += [f"{_n(n, 'more green test is', 'more green tests are')} not counted: the code critic has not approved "
@@ -2671,6 +3524,38 @@ def _r_proven(facts: dict) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def _bug_cause_lines(r: dict, number_of: dict, own: int, named_by=()) -> list:
+    """The indented lines under a bug's row (t-2187, 5.9 and 8.3): for a bug that shows in 2 or more ways, its cause, how it was
+    confirmed (in words), every way it shows (none cut) and the claims nobody verified ("Not verified:", FR-41); for any bug, the
+    number of another row it possibly shares a cause with ("not verified"). A bug with one way and no link adds NO line: its row is
+    byte-equal to what it was. The cause is read from `bug_records.cause_view` (through `traceability`): `status` is already the effective
+    word, so a cause the analyst called confirmed whose basis can no longer be re-read arrives as "not established", and the phrase of how
+    it was confirmed is `bug_records.cause_how_words` - the packet and the bug text say it the same way. No file name and no field name
+    is printed."""
+    out = []
+    ways = r.get("manifestations") or []
+    cause = r.get("cause") or {}
+    if len(ways) >= 2:
+        statement = (cause.get("statement") or "").rstrip(" .")
+        status, why = cause.get("status"), (cause.get("why") or "").rstrip(" .")
+        if status == "confirmed":
+            out.append(f"   One cause ({BR.cause_how_words(cause) or 'confirmed'}): {statement or 'no statement given'}.")
+        elif status == "unverified":
+            out.append(f"   Possibly one cause (not verified{': ' + why if why else ''}): {statement or 'no statement given'}.")
+        else:
+            out.append("   Cause not established" + (f": {why}" if why else "") + ".")
+        out.append("   Shows as:")
+        out += [f"   - {line}" for line in ways]
+        if cause.get("unverified"):
+            out.append("   Not verified: " + "; ".join(c.rstrip(" .") for c in cause["unverified"]) + ".")
+    # m1: a link reads the same from both rows - `named_by` are the rows that name this one, so a one-way link shows on both sides
+    others = sorted({number_of[s] for s in r.get("same_cause_as") or [] if s in number_of and number_of[s] != own}
+                    | {n for n in named_by if n != own})
+    if others:
+        out.append(f"   Possibly the same cause as {', '.join(str(o) for o in others)} (not verified).")
+    return out
+
+
 def _r_bugs(facts: dict) -> str:
     bugs = facts["bugs"]
     if bugs is None:
@@ -2689,6 +3574,16 @@ def _r_bugs(facts: dict) -> str:
             seen.append(f"{names.get(src.get('home'), src.get('home'))}: "
                         + (f"{src.get('files', 0)} {_plural(src.get('files', 0), 'file', 'files')}" if src.get("exists") else "no such folder"))
         out.append("None found" + (" (looked in " + "; ".join(seen) + ")" if seen else "") + ".")
+    # the row number of a bug by its id and by the stem of every draft it came from: a "possibly the same cause" link names a draft
+    number_of = {}
+    for n, r in enumerate(bugs["records"], start=1):
+        for name in [r["id"], *r.get("draft_names", [])]:
+            number_of.setdefault(name, n)
+    named_by: dict = {}
+    for n, r in enumerate(bugs["records"], start=1):
+        for stem in r.get("same_cause_as") or []:
+            if stem in number_of and number_of[stem] != n:
+                named_by.setdefault(number_of[stem], set()).add(n)
     for n, r in enumerate(bugs["records"], start=1):
         parts = [r["severity"] or "severity not recorded", ", ".join(r["requirements"]), ", ".join(r["cases"])]
         # the sentence is `bug_records.reproduction_words` - one function for the report, the legend, the gate and the
@@ -2700,6 +3595,7 @@ def _r_bugs(facts: dict) -> str:
         if r.get("gate_b_not_chosen"):
             where = "you did not choose this one at gate B" + (f" (your words: {_cut(r['gate_b_words'])})" if r.get("gate_b_words") else "")
         out.append(f"{n}. **{label}** — {r['title'] or 'title unreadable'} ({r['id']}){tail}" + (f" — {where}" if where else ""))
+        out += _bug_cause_lines(r, number_of, n, named_by.get(n, ()))
     unattributed = sum(int(s.get("unattributed") or 0) for s in bugs["sources"])
     if unattributed:
         out += ["", f"{_n(unattributed, 'bug file in', 'bug files in')} the project's bug folder joins to no story and "
@@ -2944,7 +3840,7 @@ def _test_head(test: dict) -> str:
     cut = test.get("name_cut")
     name = f"`{test['function']}`" if test["function"] else ("a test whose name is not shown" if cut else f"`{UNSAID}`")
     case = test["case"] or ("case not shown" if cut else "case not recorded")
-    return f"- {name} ({case})" + (" (the test no longer exists)" if test.get("dead") else "")
+    return f"- {name} ({case})" + (" (the test no longer exists)" if test.get("dead") else "") + _mark_tail(test)
 
 
 def _test_lines(test: dict) -> list:
@@ -3959,20 +4855,15 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="The facts of test-report.md, and its code-owned blocks")
     ap.add_argument("--screenshots", action="store_true",
                     help="print, for the chat, the paths of the manual checks' screenshots (never put them in the report)")
-    ap.add_argument("--task", default=None, help="ticket id, e.g. TP1-13797")
-    ap.add_argument("--root", default=None, help="project root (default: the current project)")
-    ap.add_argument("--task-root", dest="task_root", default=None, help="the story's artifacts dir")
+    T.add_story_options(ap, "TP1-13797")
     ap.add_argument("--write", action="store_true", help="refresh the code-owned blocks of test-report.md")
     ap.add_argument("--check", action="store_true", help="read-only: exit 1 with one line per problem")
     ap.add_argument("--json", action="store_true", help="print the facts as JSON and nothing else")
     args = hooklib.exact_options(ap).parse_args(argv)
-    if args.task is None and args.task_root is None:
-        print("report_facts.py: --task or --task-root is required", file=sys.stderr)
+    story = T.story_of(args, "report_facts.py")      # the story first (CX1-18): a phantom is a refusal of the call, exit 2
+    if story is None:
         return 2
-    # The story first (CX1-18): a phantom is a refusal of the call, exit 2 like every other (E-6; it was 1).
-    # `--root` is the project the KEY resolves under.
-    hooklib.story_cli("report_facts.py", key=args.task, root=args.task_root, project=args.root)
-    qa, art = T.resolve(args.task, args.root, args.task_root)
+    qa, art = story
     if args.screenshots:      # the chat text only; it writes nothing and shares no mode with the others
         print(screenshots_chat_text(art))
         return 0

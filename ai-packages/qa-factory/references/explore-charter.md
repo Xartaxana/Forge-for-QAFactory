@@ -41,55 +41,59 @@ The tier above accepts the window by these points, each with its witness:
 | evidence | the capture path under `work/evidence/manual/<case>/<attempt>/`, and `#obs<n>` or `EX-n` when there is one |
 
 <!-- kind: craft -->
-## Where bugs hide on this stage
-
-- **A field whose value goes to the server on every change** (a quantity, an amount, a count). The page saves after the first
-  character, shows a loading state, redraws, and the field is a new element: the second digit lands nowhere and "12" becomes "1".
-  `fill` sets the whole value at once and hides it. Only typing one character at a time, then reading the value and the focus after
-  each character and after the page settles, shows it.
-- **The same field emptied.** An empty value goes out as null or "not a number"; the answer is an error message, a silent reset to an
-  old value, or a removed row. Which one the requirements want is often unsaid - that is a question, not a guess.
-- **Values past the stated limit**: 0, a negative number, the limit plus one, many digits. A silent clamp and a refusal in words are
-  different behaviours; the requirement decides, never what the code happens to do.
-- **Paste instead of typing.** A handler bound to keys never sees an inserted value.
-- **A page composed from several requests.** When the code reads one answer without looking at its status, or one error boundary
-  wraps the whole page, a single failing request (an error status or no answer at all) takes the whole page down. The other parts
-  must still show, and the person must be told in words what is missing.
-- **State held before sign-in that is merged into the account on sign-in** (a guest basket, a draft, a half-filled form). The merge
-  call fails, the sign-in still says success, and the state is gone with no word. Silent loss of what the person had is a defect of
-  impact even when no requirement names the merge.
-- **A reload or back while a save is in flight**: the change is lost, applied twice, or shown as saved when it was not.
-
-<!-- kind: craft -->
 ## Techniques
 
+- **Start from the first look.** The first look walked the width (each requirement once, before the plan); you go deep from its observations (a `contradicts` or `missing` row, a locator it did not see, an odd answer) and do not repeat its pass. Its rows are observations, not oracles.
 - **Hypotheses before the route.** Write the `H-n` of a cell - breakage, oracle, refuting observation - before you capture it. A
   hypothesis without a refuting observation cannot fail; rewrite it until it can.
 - **Perturbation matrix.** The brief's cells are the matrix (`references/perturbations.json`: axes, kinds, axis oracles). Take every
   request cell; for the fields, take every input field of the flow you meet with every kind of `keyboard_input`.
-- **One cell per call, with a control.** Fail ONE request per `ui` call, so a broken page is attributable. Look at the same step with
+- **One cell per call, with a control.** Fail ONE request per `ui` call or `walk_session.py step` call, so a broken page is attributable. Look at the same step with
   no failure first: a page that looks the same without the failure says nothing about it.
 - **Fail first, then act.** `fail_request` acts from its line on: put it before the `goto` or the action that sends the request, then
   capture `post_action`. A failure that never fired is named in `failures_without_hits`, and its `post_action` capture is refused -
   that cell is `not tried: the request was not sent` until you find the action that sends it.
-- **Boundary values and equivalence classes** on every field: one value inside, one at the limit, one beyond it, empty, multi-digit.
-  The limit comes from the requirements; if they give none, ask (point 5) and try 0, -1 and a long number anyway.
-- **State transitions**: reload (`goto` the same address) right after the action that saves, before the page settles.
-- **Sign-in as a state transition.** Build the state as a guest (add the item, fill the draft), then sign in through the page in the
-  SAME `--session` (`fill-account` types the account's login and password), once plain and once with the merge request failed
-  (`fail_request` on its glob, put before the sign-in submit). Compare what the account holds with what you built. If the page offers
-  no guest state or no sign-in, the row is `not tried: <what the page does not offer>`.
-- **Error guessing from the code facts in your brief** (a request whose answer is never checked, a `catch` that only logs): they say
-  where to look first. They are never the oracle (code is never an oracle).
+- **Vary the start on odd input.** When a field behaves oddly, try the same keys from another start state: empty and filled, selected and erased, a previous value, a different stock; write the start in the row.
+- **The sign-in cell.** Sign in through the page in the SAME `--session` as the guest state you built (`fill-account` types the
+  account's login and password); the failed run puts `fail_request` on the merge request's glob before the sign-in submit. If the
+  page offers no guest state or no sign-in, the row is `not tried: <what the page does not offer>`.
+
+- **A `surprise:` line is the recorder's eyes, yours to answer.** Whatever you make of it, it goes into the `seen` of a cell, and into
+  an observation with `"surprise": "<id>"` when it might be a defect - only the observation reaches the analyst (code never reads
+  `tried.md`: a line named only in a cell still becomes a triage target `<case>#sur-<id>`, and the analyst judges it from the line
+  alone). A line you cite is judged inside your observation, with the quote taken from `NNN-surprises.txt`. There is no "noise"
+  without a line the analyst has judged: if you think it is noise, say why in the `seen` and let the judgment stand.
+- **See for yourself.** After an action whose result you doubt, `look` (a selector when you know the element) and read the tree
+  before you write what the page shows: a disabled control, a missing row, an error boundary's words are in the tree, not in the
+  excerpt.
+
+The rest of the craft - where these bugs hide, boundary values, state transitions, and the guess of a breakage before the route (its "Hypothesis before the route") -
+is in the runner's own charter (`agents/qa-runner.md`); this file keeps the matrix and the form of the table.
 
 <!-- kind: process -->
 ## Tools
 
 - `manual_capture.py ui --task-root <T> --case <C> --steps-file <S> --session <actor>`: the calls of the case join its open attempt,
-  so the case and its cells share one attempt and one record. Steps you use here: `type <sel> <text> [<delay_ms>]` (one character at
-  a time; the log has `n value focus=yes|no` per character, then `settled`), `press <sel> <key>` (`Control+A`, then `Backspace`,
-  empties a field), `paste <sel> <text>`, `fail_request <url_glob> <status|timeout>`, `restore_request <url_glob>`, `goto <url>` (the
-  same address reloads), `read`, `capture pre_action|post_action <label>`.
+  so the case and its cells share one attempt and one record. Steps you use here: `fill <sel> <text>` (clears the field, then keys
+  the text one character at a time as a person does; the log has `cleared`, `n value focus=yes|no` per character, then `settled`;
+  `fill --whole <sel> <text>` sets the value at once, for a field that must take it whole or a text too long to key in the step's
+  time, and the step says `input: whole`), `type <sel> <text> [<delay_ms>]` (the same keying, but it appends and does not clear),
+  `press <sel> <key>` (`Control+A`, then `Backspace`, empties a field), `paste <sel> <text>`, `fail_request <url_glob>
+  <status|timeout>`, `restore_request <url_glob>`, `goto <url>` (the same address reloads), `read`, `capture pre_action|post_action
+  <label>`.
+- `look [<sel>]` is how you see the page for yourself: the page's accessibility tree (or the element's, with a selector) goes into
+  the evidence as a state file, its first line says `form: aria` or `form: text (<why>)`, and you may quote it. The whole tree is
+  stored only when you ask for it with a bare `look`; narrow it with a selector when the file says `[cut: ...]`. It is refused in
+  the sign-in window. On a device `look` is `source` and takes no selector.
+- `watch <sel> [<label>]` keeps reading the text of one element after every later step of the call (at most five); a change on a
+  step that is not an action becomes a `surprise` line. Put it on the thing your hypothesis is about (a badge, a total, a message)
+  before the step that should change it.
+- After every step the recorder may print `surprise: <id> step <n> (<word>) <kind>: <fact>`: facts it saw that nobody asked about (a
+  request during typing, a 4xx or 5xx, a request that failed outright (`failed`), a console error, a page that landed elsewhere, a
+  field that shows less than was typed, a watched text that changed, a host outside the stand). The recorder only reports; it never
+  calls anything a bug. Ids look like
+  `a2-ui-S3`. The summary says `surprise_detection`: `on`, `partial: ...` or `absent: ...`; anything but `on` means the page was not
+  fully watched, so no line is not "nothing happened".
 - What `fail_request` can and cannot do: browser requests to a stand host only; a status 400-599 with an empty JSON body, or a
   dropped request (`timeout` fails at once - it is not a slow answer); a request sent by the page's server is not seen.
 - The glob of a request is printed in its cell line (the side file named by the brief's `Exploration cells:` line): copy it whole. It

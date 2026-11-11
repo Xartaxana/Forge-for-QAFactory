@@ -84,7 +84,7 @@ def start(root, ctl, scope, kind="manual", prepare=None, **more):
     def fake_prepare(task_root, case):
         seen["prepared"].append(case)
         seen["revision_at_prepare"].append(ctl.state()["revision"])
-        return prepare(case) if prepare else ([f"OB-{case}"], "")
+        return prepare(case) if prepare else ([f"OB-{case}"], "", "")
 
     def fake_files(task, stage, role, did, task_root, scope_arg, notes):
         seen["scope"].append(scope_arg)
@@ -319,8 +319,8 @@ def six_is_refused_and_nothing_is_written():
         check_eq("K-R2: BEYOND the limit, exit 2", code, 2)
         check_in("K-R2: the controller's prefix", PREFIX, text)
         check_in("K-R2: the size problem, with the split", "it names 6 cases, at most 5: split the block", text)
-        check_eq("K-R2: the door is the first WINDOW (one case)", door_scope(text), "TC-2")
-        check_in("K-R2: and the rest is counted", "then 5 more block(s) of at most 1 case(s) for: TC-3, TC-4, TC-5, TC-6, TC-7", text)
+        check_eq("K-R2: the door is the first lane (three guest cases)", door_scope(text), "TC-2,TC-3,TC-4")
+        check_in("K-R2: and the rest is counted", "then 1 more block(s) of at most 3 case(s) for: TC-5, TC-6, TC-7", text)
         check_in("K-R2: --not-complete is said (X6)", "except the last S6 dispatch of the stage (manual or automation)", text)
         check_eq("K-R2: pipeline.json is byte-identical (no run_mode stamped)", pipeline_bytes(root), before)
         check_not_in("K-R2: ...and carries no run_mode", "run_mode", pipeline_bytes(root).decode("utf-8"))
@@ -340,11 +340,11 @@ def six_is_refused_and_nothing_is_written():
             expected = str(exc)
         check_eq("K-S5: the skill road's text IS the controller's", body.rstrip("\n"), expected)
         check_eq("K-R2b: three problems in one answer", len(detector_verdict.split_items(body) or []), 3)
-        check_eq("K-R2b: the door is the first window of the cleaned block (deduped, TC-99 gone)", door_scope(text), "TC-2")
-        check_in("K-R2b: ...and the cleaned rest is counted", "then 4 more block(s) of at most 1 case(s) for: TC-3, TC-4, TC-5, TC-6", text)
+        check_eq("K-R2b: the door is the first window of the cleaned block (deduped, TC-99 gone)", door_scope(text), "TC-2,TC-3,TC-4")
+        check_in("K-R2b: ...and the cleaned rest is counted", "then 1 more block(s) of at most 3 case(s) for: TC-5, TC-6", text)
         code, _, _ = start(root, c, door_scope(text))
         check_eq("K-R2b: and running the door is accepted", code, 0)
-        accept(c, root, "S6-qa-runner-1", "manual", ["TC-2"])
+        accept(c, root, "S6-qa-runner-1", "manual", ["TC-2", "TC-3", "TC-4"])
         code, text, _ = start(root, c, "TC-7,TC-7")
         check_in("K-R2b: E6, a repeat is named", "named more than once: TC-7", text)
         check_eq("K-R2b: ...and the door is the one case", door_scope(text), "TC-7")
@@ -360,15 +360,15 @@ def no_scope_prints_the_next_block():
         before, revision = pipeline_bytes(root), c.state()["revision"]
         for label, scope in (("no --scope", None), ("an empty one", ""), ("a comma", ","), ("commas and blanks", " , ,")):
             code, text, seen = start(root, c, scope)
-            check_eq(f"K-R3: {label}: exit 2 with the next block", (code, door_scope(text)), (2, "TC-2"))
+            check_eq(f"K-R3: {label}: exit 2 with the next block", (code, door_scope(text)), (2, "TC-2,TC-3,TC-4"))
         check_in("K-R3: the refusal says what it wants", "a manual runner block names its cases (1..5 of them) with --scope", text)
-        check_in("K-R3: and the rest", "then 5 more block(s) of at most 1 case(s) for: TC-3, TC-4, TC-5, TC-6, TC-7", text)
+        check_in("K-R3: and the rest", "then 1 more block(s) of at most 3 case(s) for: TC-5, TC-6, TC-7", text)
         check_eq("K-R3: nothing written", (pipeline_bytes(root), c.state()["revision"]), (before, revision))
         start(root, c, "TC-2")
         accept(c, root, "S6-qa-runner-1", "manual", ["TC-2"])
         code, text, _ = start(root, c, None)
-        check_eq("K-R3: an accepted window is not offered again", (code, door_scope(text)), (2, "TC-3"))
-        check_in("K-R3: ...and the tail counts one less", "then 4 more block(s) of at most 1 case(s) for: TC-4, TC-5, TC-6, TC-7", text)
+        check_eq("K-R3: an accepted window is not offered again", (code, door_scope(text)), (2, "TC-3,TC-4,TC-5"))
+        check_in("K-R3: ...and the tail counts one less", "then 1 more block(s) of at most 3 case(s) for: TC-6, TC-7", text)
         # a story in flight: a block of four (the old ceiling is still lawful) is accepted whole, and is not offered again
         start(root, c, "TC-3,TC-4,TC-5,TC-6")
         accept(c, root, "S6-qa-runner-2", "manual", ["TC-3", "TC-4", "TC-5", "TC-6"])
@@ -398,17 +398,17 @@ def a_refused_case_leaves_the_block_and_the_door_is_cleaned():
     try:
         c = real_story(root, MIXED_7)
         revision = c.state()["revision"]
-        refuse_3 = lambda case: ([], "no executable obligation - put the stand's account in the settings") if case == "TC-3" else ([f"OB-{case}"], "")  # noqa: E731
+        refuse_3 = lambda case: ([], "no executable obligation - put the stand's account in the settings", "") if case == "TC-3" else ([f"OB-{case}"], "", "")  # noqa: E731
         code, text, seen = start(root, c, "TC-2,TC-3,TC-4", prepare=refuse_3)
         check_eq("K-P2: one of three refused: the start is refused", code, 2)
         check_in("K-P2: the case and its reason", "TC-3: not checked by hand - no executable obligation", text)
-        check_eq("K-P2: the door is the first of the other two", door_scope(text), "TC-2")
-        check_in("K-P2: ...and the other one is counted", "then 1 more block(s) of at most 1 case(s) for: TC-4", text)
+        check_eq("K-P2: the door is the other two, in one lane", door_scope(text), "TC-2,TC-4")
+        check_not_in("K-P2: ...and no tail", "more block(s)", text)
         check_eq("K-P2: nothing was dispatched, nothing stamped", (c.state()["revision"], seen["scope"]), (revision, []))
-        code, text, seen = start(root, c, "TC-2,TC-3", prepare=lambda case: ([], f"refused {case}"))
+        code, text, seen = start(root, c, "TC-2,TC-3", prepare=lambda case: ([], f"refused {case}", ""))
         check_in("K-P2: every case refused is a named outcome", "no case of this block can be checked by hand", text)
         check_in("K-P2: ...each with its line", "TC-2: not checked by hand - refused TC-2", text)
-        check_eq("K-P2: ...and the door is the derived rest, minus the refused (E24 converges)", door_scope(text), "TC-4")
+        check_eq("K-P2: ...and the door is the derived rest, minus the refused (E24 converges)", door_scope(text), "TC-4,TC-5,TC-6")
         check_eq("K-P2: still nothing dispatched", c.state()["revision"], revision)
         # the real function on the fixture writes request.json for every case, and the driver's method is the same function
         import story_run
@@ -507,7 +507,7 @@ def the_battery():
         check_eq("K-B1: 1,000 ids none in the plan: exit 2, ONE refusal", (code, text.count("story_step: refused - ")), (2, 1))
         check_in("K-B1: the count of the block", "it names 1000 cases, at most 5: split the block", text)
         check_in("K-B1: the list is cut at 20 and the count is named", "and 980 more", text)
-        check_eq("K-B1: the cleaned block is empty: the door is the DERIVED next window", door_scope(text), "TC-2")
+        check_eq("K-B1: the cleaned block is empty: the door is the DERIVED next window", door_scope(text), "TC-2,TC-3,TC-4")
         check_eq("K-B1: nothing written", (pipeline_bytes(root), c.state()["revision"], seen["prepared"]), (before, revision, []))
         code, text, _ = start(root, c, f"TC-{NON_ASCII}")
         check_eq("K-B2: a non-ASCII id is a refusal, not a crash", code, 2)
@@ -631,17 +631,15 @@ MANUAL_LINE = ('python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" start --tas
 
 
 def card_names_the_rule(text: str) -> bool:
-    """The keys, written BEFORE the run (spec K-D1): both `start` lines twice (the card and "Boundary and judge"); the door
-    sentence; the not-complete rule; the Scope line no longer says 'never typed' without 'copied from the door'."""
-    scope_line = next((line for line in text.splitlines() if line.startswith("Scope:")), "")
-    return (text.count(AUTOMATION_LINE) == 2 and text.count(MANUAL_LINE) == 2 and "copied from the door" in text
-            and "except the last S6 dispatch of the stage" in text and "copied from the door" in scope_line)
+    """The keys code reads (spec K-D1): both `start` lines twice (the card and "Boundary and judge"). The door sentence and the
+    not-complete rule are rows of design/role-rules.json."""
+    return text.count(AUTOMATION_LINE) == 2 and text.count(MANUAL_LINE) == 2
 
 
 def the_card_and_the_help_name_the_rule():
     """K-D1. KILLS: the card line removed, the `Scope:` line kept as it was, `--help` without the number."""
     card = (harness.PLUGIN_ROOT / "skills" / "qa-story" / "phases" / "s6.md").read_text(encoding="utf-8")
-    check_eq("K-D1: the card and the boundary section name both halves and the rule", card_names_the_rule(card), True)
+    check_eq("K-D1: the card and the boundary section name both halves", card_names_the_rule(card), True)
     old = ("Scope: from `--operation stage-scope` with the block's `execution_kind` (`manual` or `automation`), never typed.\n"
            "python \"${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py\" start --task <TICKET> --stage S6 --role qa-runner --scope <the block's ids>\n")
     check_eq("K-D1 negative control: today's card line fails the same check", card_names_the_rule(old), False)
@@ -656,7 +654,7 @@ def the_driver_reads_the_shared_functions():
     Driver = story_run.Driver
 
     def shared(plan_src, gate_src, done_src, prepare_src, whole):
-        return ("manual_blocks(" in plan_src and "manual_blocks(" in gate_src and "manual_done_cases(" in done_src
+        return ("walk_lanes(" in plan_src and "manual_blocks(" in gate_src and "manual_done_cases(" in done_src
                 and "prepare_for_block(" in prepare_src and "i:i + size" not in whole and "_case_obligation_mapping(" not in whole)
     whole = Path(story_run.__file__).read_text(encoding="utf-8")
     check_eq("K-T2: the driver calls the shared split, done set and prepare; no inline copy is left",
@@ -664,10 +662,93 @@ def the_driver_reads_the_shared_functions():
                     inspect.getsource(Driver.manual_done), inspect.getsource(Driver.manual_prepare), whole), True)
     old = "plan['blocks'] = [left[i:i + size] for i in range(0, len(left), size)]"
     check_eq("K-T2 negative control: today's inline slice line fails the check",
-             shared("manual_blocks(", "manual_blocks(", "manual_done_cases(", "prepare_for_block(", old), False)
+             shared("walk_lanes(", "manual_blocks(", "manual_done_cases(", "prepare_for_block(", old), False)
+
+
+def f5_unprepared_case_stays_in_block():
+    """F5(c) (t-1936 N5, B-15, the owner's word 05.11: the factory never stands). KILLS: a 2-tuple unpack (`_, why = ...`) in the
+    block check; `why` set for a walkable case; the walkable case dropped from the block; a story-owned refusal let through."""
+    with temp_dir() as root:
+        ctl = real_story(root, MIXED_7)
+        scope = "TC-2,TC-3"
+
+        def prepare(case):          # TC-2: the factory failed to prepare it; TC-3 is prepared
+            return (["OB-TC-2"], "", "the plan gives TC-2's check an evidence rule that is not one word") if case == "TC-2" \
+                else ([f"OB-{case}"], "", "")
+        code, text, seen = start(root, ctl, scope, prepare=prepare)
+        check_eq("test_unprepared_case_stays_in_block: the start is accepted (exit 0)", code, 0)
+        check_eq("test_unprepared_case_stays_in_block: both cases were prepared and the block keeps both", seen["scope"], [scope])
+        check_not_in("test_unprepared_case_stays_in_block: nothing is refused", "refused", text)
+
+        def prepare_refused(case):  # TC-3: a refusal the STORY owns (P20, scope, an unpinned case)
+            return (["OB-TC-2"], "", "x") if case == "TC-2" else ([], "expectation unconfirmed - Q7", "")
+        code, text, seen = start(root, ctl, scope, prepare=prepare_refused)
+        check_eq("test_scope_refused_case_still_refused: the start is refused (exit 2)", code, 2)
+        check_in("test_scope_refused_case_still_refused: the refused case is named, with the owner's words",
+                 "TC-3: not checked by hand - expectation unconfirmed - Q7", text)
+        check_not_in("test_scope_refused_case_still_refused: the unprepared case is not among the refused", "TC-2: not checked", text)
+        check_eq("test_scope_refused_case_still_refused: nothing was registered", seen["scope"], [])
+
+
+def f5_arm_b_fixture_end_to_end():
+    """F5 DoD: arm B's TS-14/15/16 (a RECORD as `evidence_policy`) passes (a) as refused-by-shape at the S3 exit, and (c) as an
+    unprepared walk through the real block check, the real request writer and the real record writer; the one case whose
+    expectation nobody confirmed (P20) is still refused beside them."""
+    import json as _json
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures" / "manual-evidence"))
+    import scaffold as S
+    import coverage_contract as CC
+    arm_b = _json.loads((Path(__file__).resolve().parent / "fixtures" / "manual-evidence" / "arm-b-dict-policies.json")
+                        .read_text(encoding="utf-8"))
+    t = S.make_task(manual=("ui", "api", "impl"))
+    try:
+        for index, row_id in enumerate(("TS-7", "TS-12", "TS-15")):
+            policy = arm_b[sorted(arm_b)[index]]
+            row = t.row(row_id)
+            row["evidence_policy"] = policy
+            for ob in row["coverage_obligations"]:
+                ob["evidence_policy"] = policy
+        # (a) the S3 exit refuses each by shape, naming the obligation and the five words
+        errors = CC.validate_obligations(t.plan_rows)
+        shape = [e for e in errors if CC.POLICY_SHAPE_ERROR in e]
+        check_eq("(a) the plan exit refuses all three dict policies by shape, one error each",
+                 sorted(e.split(":")[0] for e in shape), ["OB-12", "OB-15", "OB-7"])
+        check_in("(a) ... with the allowed values in the field", "api|cli|no_write|static|ui", shape[0])
+        check_in("(a) ... and where the evidence kinds go", "completion_condition", shape[0])
+        check_eq("(a) negative control: the same plan with one-word policies has no such error",
+                 [e for e in CC.validate_obligations(S.make_task(manual=("ui", "api", "impl")).plan_rows) if CC.POLICY_SHAPE_ERROR in e], [])
+        t.write_plan()
+        # (c) an old plan reached S6: the block check keeps the walkable cases, refuses the story's own
+        ui, api, impl = (S.CASES[k] for k in ("ui", "api", "impl"))
+        with t.patched(), mock.patch.object(story_step, "_task_root", lambda task: t.task):
+            block, lines, code = story_step._manual_block_check(args_for(f"{ui},{api}"), None, {})
+            check_eq("(c) arm B's dict-policy cases TC_007, TC_012 stay in the block (exit 0)", (block, lines, code), ([ui, api], [], 0))
+            stub = types.SimpleNamespace(stage_scope=lambda *a, **k: {"derived": False, "reason": "not needed by this test"})
+            block, lines, code = story_step._manual_block_check(args_for(f"{ui},{impl}"), stub, {})
+            check_eq("(c) the case whose expectation nobody confirmed is still refused (exit 2)", (block, code), (None, 2))
+            check_in("(c) ... and named", f"{impl}: not checked by hand - expectation unconfirmed", "\n".join(lines))
+            check_not_in("(c) ... while the walkable one is not", f"{ui}: not checked by hand", "\n".join(lines))
+            import manual_evidence as ME
+            reason = ME.unprepared_request(t.task, ui)["reason"]
+            record = {"schema_version": 2, "case": ui, "obligation_ids": ["OB-7"], "unprepared": {"reason": reason},
+                      "observations": [], "finding": "work/evidence/manual/x/finding.md", "dispatch_id": "S6-qa-runner-1",
+                      "attempt_started_at": "2026-10-01T10:00:00+00:00", "attempt_ended_at": "2026-10-01T10:05:00+00:00",
+                      "source_revision": S.SOURCE}
+            path = ME.write_block(t.task, [record], declared=True)
+            check("(c) the unprepared record is written (no result)", path.is_file() and "result" not in
+                  _json.loads(path.read_text(encoding="utf-8"))["manual_checks"][0])
+            try:
+                ME.write_block(t.task, [dict(record, result="pass")], declared=True)
+                check("(c) negative control: the same record with a result is refused", False)
+            except ValueError as exc:
+                check_in("(c) negative control: the same record with a result is refused", "records no result", str(exc))
+    finally:
+        S.cleanup(t)
 
 
 def main():
+    f5_unprepared_case_stays_in_block()
+    f5_arm_b_fixture_end_to_end()
     the_collector_lists_every_problem()
     the_collector_accepts_exactly_what_today_accepts()
     the_split_and_the_head_number()

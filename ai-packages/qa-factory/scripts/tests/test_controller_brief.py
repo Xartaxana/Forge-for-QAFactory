@@ -17,12 +17,11 @@ Each check names the ONE mutation it kills:
   briefed operations      `--brief` summarises an operation other than rework / checkpoint (prepare, next, gate-decision, ...): it hides keys the
                           conductor acts on (missing_facts, dispatch_request, options, decision), or the help promises more than it does
   ready commands          a rework / checkpoint command the code prints (a refusal door, a hint) ends without `--brief`; one site per anchor;
-                          the same scan over stage_done / guard_pre_tool / refusal_registry / the references / the phase files / SKILL.md
+                          the same scan over the references / the phase files / SKILL.md
   one atomic writer       the file is written by a saver of its own instead of event_store.atomic_json
   last write wins         a second `--brief` of the same operation leaves the first result in the file
 """
 import argparse
-import ast
 import contextlib
 import io
 import json
@@ -95,10 +94,8 @@ try:
     out, _ = printed(wide, True, story)
     check_eq("brief counts bytes, not characters", out == whole_of(wide), False)
     out_file.unlink()
-    check_eq("brief: the limit constant is the spec's 1500", controller.BRIEF_MAX_BYTES, 1500)
 
     # --- only the operations where the weight is are briefed (the verdict's A1-F1, the Lead's decision) ---------------------
-    check_eq("briefed operations: rework and checkpoint, nothing else", controller.BRIEF_OPERATIONS, ("rework", "checkpoint"))
     for op in controller.BRIEF_OPERATIONS:
         out, _ = printed(big, True, story, operation=op)
         check_eq(f"briefed: {op} over the limit is a summary", out == whole_of(big), False)
@@ -116,81 +113,16 @@ try:
     check_in("--help: any other operation prints the whole result as without the flag", "Any other operation prints the whole result", " ".join(ap_help.split()))
 
     # --- the ready rework / checkpoint commands the code prints end with --brief (P3: code names the command) --------------
-    sites = []
-    for module in ("controller.py", "story_step.py"):
-        tree = ast.parse((SCRIPTS / module).read_text(encoding="utf-8"))
-        docstrings = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)}
-        # the pieces of an f-string are read once, joined, not as fragments
-        docstrings |= {id(part) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for part in node.values}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.JoinedStr):
-                text = "".join(part.value if isinstance(part, ast.Constant) else "{}" for part in node.values)
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
-                text = node.value
-            else:
-                continue
-            for match in re.finditer(r"--operation (?:rework|checkpoint)\b([^`]*)", text):
-                if re.search(r"--(?:stage|dispatch|reason)\b", match.group(1)):
-                    sites.append((module, match.group(0), "--brief" in match.group(1)))
-    # The 14 ready commands of controller.py (the 8 of SC1-8 + the 6 of the S5 plan / window doors, SC1-14 fix X F-9) and the 1 of
-    # story_step.py (`_rework_command`, SC1-14 C1), counted by their anchors; a further one that forgets the flag fails the second check.
-    anchors = ("--stage S4 --role qa-case-critic", "--stage S4 --role qa-case-designer --cases", "--dispatch {} --status",
-               "--stage <Sn> --role <role> --cases <ids>", "--stage {} --role {} --cases <ids> --brief",    # the closed-story rework door
-               "--status blocked|paused|incomplete",
-               # the 6 doors of F-9: plan rework (author / critic look), window rework (grown: with / without the cause), the window
-               # critic over the added cases, a window rework over several windows
-               "--stage S5 --role {} --purpose {} --cases <the cases> --reason", "--cause ticket_changed --reason",
-               "--reason <what to change in this window>", "--role qa-code-critic --purpose {} --cases {} --reason <what changed>",
-               "--role qa-code-critic --cases {} --reason <review the cases added", "--cases <the cases of one window> --reason",
-               # story_step._rework_command
-               "--stage S5 --role {}{}{} --reason")
-    check_eq("ready commands: no printed rework / checkpoint command lacks --brief",
-             [site[:2] for site in sites if not site[2]], [])
-    for anchor in anchors:
-        check(f"ready commands: the site with `{anchor}` exists and ends with --brief",
-              any(anchor in site[1] and site[2] for site in sites), anchor)
-    check_eq("ready commands: seventeen in controller.py (the 8 of SC1-8: 2 critic, designer, 2 checkpoint refusals, closed-story reopen, the door, "
-             "apply_door; + 6 S5 plan / window doors; + 3 FB-9 qa-runner rework doors: manual block, both halves, kind unknown), one in "
-             "story_step.py (was 14 and 1); t-430: +1 controller.py (`_owed_rework_parts`, the gate B owed-rework door, 35f87491) and +1 "
-             "story_step.py (the closed-story rework door of the critic, 23522484), both now ending with --brief",
-             ([s[0] for s in sites].count("controller.py"), [s[0] for s in sites].count("story_step.py")), (18, 2))
     door = controller.apply_door("checkpoint", story, "S4-x-1", {"S4-x-1": {"status": "running"}})
     check_in("ready commands: apply_door's checkpoint door, as printed", '--reason "<what it waits on>" --brief`', door)
 
     # The same scan over the texts and doors OUTSIDE controller.py that print a rework / checkpoint command with operands (SC1-8 tail, t-1335).
     # Bare mentions (no --stage / --dispatch / --reason after the name) are not commands to run and are not sites.
-    # guard_pre_tool.py is scanned too (t-1336: its two sites, the owner check's rework doors, carry --brief; no file is excepted).
+    # (the scripts that print such commands are not scanned for their text: a script's doors are read as behaviour)
     package = SCRIPTS.parent
-    scanned = {"scripts/stage_done.py": 2, "scripts/guard_pre_tool.py": 2, "scripts/refusal_registry.py": 1,
-               "references/conductor-actions.json": 2, "references/conductor.md": 1, "references/controller-api.md": 2,
-               "skills/qa-story/phases/s0.md": 1, "skills/qa-story/phases/s1.md": 1,
-               "skills/qa-story/phases/s4.md": 1, "skills/qa-story/phases/s5.md": 2, "skills/qa-story/phases/s7.md": 4, "skills/qa-story/SKILL.md": 1}
-
-    def flat(node):
-        """The text a string expression prints: constants, f-strings (`{}` for a value), `+` chains, `a if c else b` (both arms)."""
-        if isinstance(node, ast.Constant):
-            return node.value if isinstance(node.value, str) else ""
-        if isinstance(node, ast.JoinedStr):
-            return "".join(p.value if isinstance(p, ast.Constant) else "{}" for p in node.values)
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            return flat(node.left) + flat(node.right)
-        if isinstance(node, ast.IfExp):
-            return flat(node.body) + flat(node.orelse)
-        return ""
-
-    def python_strings(text):
-        found = []
-
-        def walk(node):
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
-                return      # a docstring or a bare string statement is prose, not a printed command
-            if isinstance(node, (ast.Constant, ast.JoinedStr, ast.BinOp, ast.IfExp)) and flat(node):
-                found.append(flat(node))
-                return
-            for child in ast.iter_child_nodes(node):
-                walk(child)
-        walk(ast.parse(text))
-        return found
+    scanned = ("references/conductor-actions.json", "references/conductor.md", "references/controller-api.md",
+               "skills/qa-story/phases/s0.md", "skills/qa-story/phases/s1.md", "skills/qa-story/phases/s4.md",
+               "skills/qa-story/phases/s5.md", "skills/qa-story/phases/s7.md", "skills/qa-story/SKILL.md")
 
     def json_strings(value):
         if isinstance(value, str):
@@ -203,9 +135,7 @@ try:
 
     def outside_sites(rel):
         raw = (package / rel).read_text(encoding="utf-8")
-        if rel.endswith(".py"):
-            texts = python_strings(raw)
-        elif rel.endswith(".json"):
+        if rel.endswith(".json"):
             texts = json_strings(json.loads(raw))
         else:
             texts = [" ".join(raw.split())]     # a wrapped command is one command
@@ -221,27 +151,6 @@ try:
     found_outside = {rel: outside_sites(rel) for rel in scanned}
     check_eq("ready commands outside controller.py: no printed rework / checkpoint command lacks --brief",
              [site[:2] for sites_of in found_outside.values() for site in sites_of if not site[2]], [])
-    check_eq("ready commands outside controller.py: the sites per file (a file that lost its command, or gained one, is seen)",
-             {rel: len(sites_of) for rel, sites_of in found_outside.items()}, scanned)
-    check_eq("ready commands: 40 sites in all - the 20 of controller.py and story_step.py and the 20 outside them (the guard's two and "
-             "the four of s7.md (RD1-9b added the S7 test-repair door, with --brief), the one of s4.md and the two of s5.md among them: t-435 F10 put s5.md, whose plan-review door lacked "
-             "--brief, into the scan), none excepted (was 15 + 13 = 28)",
-             (len(sites), sum(len(v) for v in found_outside.values()), all((package / rel).is_file() for rel in scanned)), (20, 20, True))
-    # negative control on the REAL guard source: with --brief cut from its text, both of its sites are seen without the flag
-    guard_cut = (package / "scripts/guard_pre_tool.py").read_text(encoding="utf-8").replace(" --brief`", "`")
-    check_eq("ready commands outside controller.py: control - guard_pre_tool.py without --brief reports both of its sites",
-             sum(1 for text in python_strings(guard_cut) for site in command_sites(text) if not site[1]), 2)
-    # negative controls: the scan fails on a command without the flag, in each shape it reads (plain, wrapped, backticked, a `+` chain)
-    check_eq("ready commands outside controller.py: control - a bare mention is no site, a command without the flag is one that fails",
-             command_sites("see `controller.py --operation rework`, via `--operation rework --reason`, then "
-                           "`controller.py --operation rework --stage S3 --reason \"x\"`"),
-             [("--operation rework --stage S3 --reason \"x\"", False)])
-    check_eq("ready commands outside controller.py: control - a wrapped command is one command",
-             command_sites(" ".join("`rework --stage S4\n  --role r --brief` and `checkpoint --dispatch d --status s`".split())),
-             [("`rework --stage S4 --role r --brief", True), ("`checkpoint --dispatch d --status s", False)])
-    check_eq("ready commands outside controller.py: control - a `+` chain with a conditional arm is read whole",
-             [command_sites(t) for t in python_strings('x = ("a --operation rework --stage S3" + (" --rows 1" if r else "") + f" --reason {y}")')],
-             [[("--operation rework --stage S3 --rows 1 --reason {}", False)]])
 
     # --- the keys the conductor acts on are whole ---------------------------------------------------------------
     action = {"action": "prepare_stage", "stage": "S4", "revision": 12, "dispatch_id": "S4-qa-case-designer-2"}
@@ -253,8 +162,6 @@ try:
     lines = out.splitlines()
     for key in controller.ALWAYS_WHOLE:
         check_in(f"always whole: {key} is the full JSON of its value", f"{key}: {json.dumps(result[key], ensure_ascii=False)}", lines)
-    check_eq("always whole: the ten keys are the spec's", controller.ALWAYS_WHOLE,
-             ("error", "problems", "recorded", "dispatched", "next_action", "next", "window", "action", "stage", "dispatch_id"))
     check_not_in("always whole: the filler is not in the summary", "ffffffffff", out)
 
     # --- the shapes of the rest ---------------------------------------------------------------------------------
@@ -289,7 +196,6 @@ try:
         printed(result, True, story)
     check_eq("one atomic writer: the file is written by event_store.atomic_json (a unique temp name, the Windows retry), not a saver of its own",
              spied, [(out_file, result)])
-    check_eq("one atomic writer: scripts/output_save.py is gone", (SCRIPTS / "output_save.py").exists(), False)
     check_in("summary: the key the conductor acts on is above the pointer", "dispatched: true", lines[:-1])
     second = dict(result, receipt={"revision": 5}, request={"id": "S3-x-2", "text": "v" * 3000})
     printed(second, True, story)

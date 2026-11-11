@@ -225,27 +225,6 @@ def the_template_and_notes() -> None:
     check_eq("onboarding notes: the section is named once", notes["discovery_sections"].count("requirements_sources"), 1)
 
 
-def the_roles_are_told() -> None:
-    def read(*parts):
-        return (harness.PLUGIN_ROOT.joinpath(*parts)).read_text(encoding="utf-8")
-    p1 = read("skills", "qa-onboarding", "phases", "p1-discovery.md")
-    p3 = read("skills", "qa-onboarding", "phases", "p3-summary-gate.md")
-    p4 = read("skills", "qa-onboarding", "phases", "p4-generate.md")
-    s1 = read("skills", "qa-story", "phases", "s1.md")
-    scout = read("agents", "qa-scout.md")
-    check_in("p1: the signal row names the section", "`requirements_sources`", p1)
-    check_in("p1: the tracker status is a probe of this session", "`verified` only when `adapters.ticket.status` is `configured`", p1)
-    check_in("p1: names only for the credential fields", "NAMES only", p1)
-    check_in("p3: the one line the person sees", "found requirement sources:", p3)
-    check_in("p3: asked only when the probe found nothing", "only when the probe found none", p3)
-    check_in("p4: step 1 writes the key", "`requirements_sources` (phase 1's section of that name", p4)
-    check_in("p4: a row already there is never removed", "never removed without the person's words", p4)
-    check_in("p4: `[]` when none were found", "`[]` when none were found", p4)
-    check_in("s1: the dispatch carries the lines", "Requirement sources:", s1)
-    check_in("s1: and the way to record what the scout reads", "record-source", s1)
-    check_in("qa-scout: step 1 records a found source with record-source", "record-source", scout)
-
-
 def what_a_role_records_reaches_the_bundle() -> None:
     """record-source (the command the grep and role lines name) -> the inventory -> `requirement_sources` of the context bundle."""
     import context_bundle
@@ -314,7 +293,6 @@ def main():
     the_limits()
     the_names()
     the_template_and_notes()
-    the_roles_are_told()
     what_a_role_records_reaches_the_bundle()
     role_lines_carry_the_lines()
     harness.finish("requirement sources (OH3-39)")

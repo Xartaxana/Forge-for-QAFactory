@@ -36,10 +36,18 @@
       "inputs": [
         "pipeline.json"
       ],
+      "optional_dispatches": [
+        {
+          "role": "qa-runner",
+          "purpose": "reference_walk",
+          "output": "work/reference-snapshot.yaml"
+        }
+      ],
       "outputs": [
         "work/context-manifest.json",
         "work/context-bundle.json",
-        "work/impl-diff.txt"
+        "work/impl-diff.txt",
+        "work/reference-snapshot.yaml"
       ],
       "required_outputs": [
         "work/context-manifest.json",
@@ -61,7 +69,8 @@
       ],
       "gate_before": null,
       "inputs": [
-        "work/context-bundle.json"
+        "work/context-bundle.json",
+        "work/reference-snapshot.yaml"
       ],
       "outputs": [
         "work/requirements-register.md",
@@ -100,7 +109,16 @@
       "inputs": [
         "work/requirements-register.md",
         "work/context-bundle.json",
-        "project:strategy/test-strategy.md"
+        "project:strategy/test-strategy.md",
+        "work/first-look.yaml"
+      ],
+      "optional_dispatches": [
+        {
+          "role": "qa-runner",
+          "purpose": "first_look",
+          "output": "work/first-look.yaml",
+          "before": "window 1"
+        }
       ],
       "outputs": [
         "test-plan.md",
@@ -135,7 +153,8 @@
       "inputs": [
         "test-plan.md",
         "work/test-plan.json",
-        "work/requirements-register.md"
+        "work/requirements-register.md",
+        "work/first-look.yaml"
       ],
       "outputs": [
         "work/test-cases/",
@@ -167,12 +186,14 @@
       "inputs": [
         "state/story-case-links.json",
         "test-plan.md",
-        "work/context-bundle.json"
+        "work/context-bundle.json",
+        "work/first-look.yaml"
       ],
       "outputs": [
         "work/automation-manifest.json",
         "work/evidence/",
-        "work/s5-plan.json"
+        "work/s5-plan.json",
+        "work/s5-notes/"
       ],
       "required_outputs": [
         "work/automation-manifest.json"
@@ -199,11 +220,13 @@
       "gate_before": null,
       "inputs": [
         "work/automation-manifest.json",
-        "state/story-case-links.json"
+        "state/story-case-links.json",
+        "work/first-look.yaml"
       ],
       "outputs": [
         "work/run-report.json",
-        "work/evidence/"
+        "work/evidence/",
+        "work/evidence/manual/<case>/tried.md"
       ],
       "required_outputs": [
         "work/run-report.json"
@@ -217,6 +240,7 @@
       "roles": [
         "qa-failure-analyst"
       ],
+      "acceptance_by": "qa-doc-scribe",
       "requires": [
         "S6"
       ],
@@ -224,7 +248,8 @@
       "inputs": [
         "work/run-report.json",
         "work/automation-manifest.json",
-        "work/evidence/"
+        "work/evidence/",
+        "work/first-look.yaml"
       ],
       "outputs": [
         "work/triage.json",

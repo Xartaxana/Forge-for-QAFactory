@@ -15,6 +15,7 @@ command and prints one short block the orchestrator acts on.
         cell may yield first - then `where` answers `launch` with the card, see launch_card.py).
         S6 qa-runner, manual half: `--execution-kind manual --scope <1..5 ids>` prepares each case (`manual_evidence.py prepare`),
         registers the block as `manual_case_ids`, and a refusal lists every problem with the next block's ready command.
+        [--parallel-window]   (the driver's scheduler only: an S5 window beside a running one; see the controller's admission)
   story_step.py materialize --task T --dispatch-id ID
         the brief, the handover form and the launch card of a running dispatch the controller committed
         OUTSIDE `start` (a `controller.py --operation rework` packet), written from that committed packet:
@@ -29,6 +30,8 @@ command and prints one short block the orchestrator acts on.
   story_step.py finish --task T --dispatch-id ID --digest "<the role's digest line>"
         [--output work/extra.json ...] [--not-complete | --complete]
         [--window work/windows/ID.json]   (S5 completion; default: that file when present)
+        [--open-windows <cases>]   (S5, with --not-complete: the other windows still open; the driver's parallel
+        scheduler passes it, the controller checks each case is a real window of the stage)
         [--unresolved <why> --reason "<words>"]   (a window the critic could not close: the
         controller reads both off the completion; they go together and, on S5, not with --not-complete;
         without them the pair is derived when EVERY gap of the S5 window record is a
@@ -99,7 +102,8 @@ import config_view  # noqa: E402  (`card_values`: the values of the config keys 
 import grammar  # noqa: E402  (`_fence`: a code fence as CommonMark reads it, so `_sections` sees the headings `grammar.heading_lines` sees)
 import stage_done  # noqa: E402  (`S3_REMARK_PREFIX`: the one head of the line `finish` keeps whatever follows it)
 from controller import (Controller, MANUAL_BLOCK_CASES, MANUAL_WINDOW_CASES, S5_PLAN, SCOPE_SHOWN,  # noqa: E402
-                        dispatch_life_key, manual_blocks, manual_done_cases, s3_window_of, s5_part_of, stop_after, validate_manual_runner_block, with_stop_after)
+                        dispatch_life_key, lane_keys, manual_done_cases, s3_window_of, s5_part_of, stop_after, validate_manual_runner_block,
+                        walk_lanes, with_stop_after)
 from event_store import EventCommitted, IdempotencyKeyReused  # noqa: E402
 from role_cli import REPAIR_MARKER  # noqa: E402
 
@@ -109,6 +113,13 @@ from role_cli import REPAIR_MARKER  # noqa: E402
 
 def _stages() -> dict:
     return {s["id"]: s for s in hooklib.load_ref_json("stages.json")["stages"]}
+
+
+def _optional_row(stage_id: str, role: str, purpose):
+    """The `optional_dispatches` row of the stage that admits `role` with `purpose`, or None - through the ONE reader
+    (`stage_guard.optional_row`, AR-13; t-2277 FL-5). A blank purpose never matches."""
+    import stage_guard
+    return stage_guard.optional_row({"stages": list(_stages().values())}, stage_id, role, purpose)
 
 
 def _task_root(task: str) -> Path:
@@ -146,7 +157,8 @@ def _next(controller: Controller, read_only: bool = False) -> dict:
     # running that proof is a race, so a question asked mid-stage uses the pure reader.
     if read_only:
         state = controller.state()
-        action = controller.with_resume_command(controller._next_action_for_state(state), state)
+        # B-20 (AR-13): the same pipeline `next` reads, so a standing acceptance record ends "S<n> awaits" for `where` too
+        action = controller.with_resume_command(controller._next_action_for_state(state, controller._pipeline()), state)
     else:
         action = controller.next_action()
     return with_stop_after(action, stop_after())
@@ -191,7 +203,7 @@ JUDGE_GUIDANCE = {
                     "--task-root <artifacts dir> --remedy --error-head-file <the run log head> [--case TC-n]`. "
                     "Copy its `{kind, where, change, restart}` into the row's `remedy` - names only, never a "
                     "value. It suggests; the row is yours, and a remedy you cannot ground you leave out.",
-    "qa-code-critic": "Judge: work/judge-code.json screened every test function of this dispatch against the "
+    "qa-code-critic": "Judge: work/judge-code-{dispatch}.json screened every test function of this dispatch against the "
                       "rubric. Mode on: review every entry of `needs_critic` in full, starting from its flagged "
                       "dimensions, and for a `clean` test check only what the file does not score. Mode shadow: "
                       "review everything and ignore the file. Write `cause:` on each finding as usual - "
@@ -224,7 +236,7 @@ PRE_WORK = {
                            (None, (), "work/judge-requirements.json")],
     "qa-scout": [(None, (), "work/judge-sources.json")],  # a re-dispatch sees what was judged
     "qa-code-critic": [("judge_code.py", ("--task-root", "{root}", "--dispatch", "{dispatch}"),
-                        "work/judge-code.json")],
+                        "work/judge-code-{dispatch}.json")],      # TR3-15: one file per critic dispatch (`judge_code.report_rel`)
     "qa-failure-analyst": [("judge_results.py", ("--task-root", "{root}", "--triage"),
                             "work/judge-triage.json")],
     "qa-bug-reporter": [("judge_results.py", ("--task-root", "{root}", "--bugs"),
@@ -287,7 +299,7 @@ def _prompt(task: str, stage: dict, role: str, dispatch_id: str, extras: list, b
         # resumed line already names this brief as the fallback (SC1-14 fix X, F-1: one instruction, not two).
         lines.append(f"Read {brief} first; it names the files and the commands.")
     if role in JUDGE_GUIDANCE and judge.active():
-        lines.append(JUDGE_GUIDANCE[role])
+        lines.append(JUDGE_GUIDANCE[role].replace("{dispatch}", dispatch_id))
     lines.append("Return your digest line only.")
     return "\n".join(lines)
 
@@ -302,6 +314,26 @@ DELTA_REL = "work/briefs/{dispatch_id}-delta.md"   # what a resumed role reads i
 def _project_rel(task: str, template: str, dispatch_id: str) -> str:
     """The project-relative path of a dispatch's brief or form - the spelling every path of a prompt has."""
     return f"qa-factory/artifacts/{task}/" + template.format(dispatch_id=dispatch_id)
+
+
+def _author_argv(stage_id: str, role: str, contract: str, task_root: Path) -> list:
+    """`["--author-dispatch", id]` when the form's contract holds the author token and the dispatch the role reviews
+    (`brief_pack.reviewed_dispatch`) is known, else []. Never raises: every doubt is no argument."""
+    try:
+        import handoff
+        name = contract or handoff.contract_of(stage_id, role, "")
+        if not name:
+            return []
+        if handoff.AUTHOR_TOKEN not in handoff.template(name).text():
+            return []
+        from controller import Controller
+        import brief_pack
+        pipeline = _read_pipeline(Path(task_root))      # the module's one reader (utf-8-sig, a dict or {}), as brief_pack._load
+        # TR4-12 (2): the ONE reader the brief line uses (a stage critic's own stage author; a consumer's awaiting author, S7/S8)
+        author = brief_pack.reviewed_dispatch_id(stage_id, role, Controller(task_root).state(), pipeline)
+    except Exception:                                   # noqa: BLE001 - an unreadable state is an unknown author
+        return []
+    return ["--author-dispatch", str(author)] if author else []
 
 
 def _handoff_form(task: str, stage_id: str, role: str, dispatch_id: str, task_root: Path,
@@ -330,6 +362,10 @@ def _handoff_form(task: str, stage_id: str, role: str, dispatch_id: str, task_ro
         named = [str(item).strip() for item in rows if isinstance(item, (str, int)) and str(item).strip()]
         if named:
             argv += ["--rows", ",".join(named)]
+    # F1 (B-2): a stage critic's contract (S2-S4) carries the token `<the author's dispatch>`; the author's last accepted dispatch is a
+    # value code knows (the same function `stage_done` compares with). Unknown or unreadable state -> no argument, the token stays
+    # a placeholder (FR-59: a guessed author never stands in a form).
+    argv += _author_argv(stage_id, role, contract, task_root)
     code, out = _run("handoff_init.py", "--task", task, "--stage", stage_id, "--role", role,
                      "--dispatch", dispatch_id, "--scope", scope or "",
                      "--task-root", str(task_root), *argv)
@@ -385,10 +421,11 @@ def _handoff_check(task: str, dispatch_id: str, task_root: Path) -> tuple:
         return "none", "", ""
     code, out = _run("handoff_check.py", "--file", str(form), "--task", task,
                      "--task-root", str(task_root), "--fix", "--json")
-    try:
-        report = json.loads(out)
-    except ValueError:
-        return "none", (out.splitlines()[-1] if out else f"handoff_check exit {code}"), rel
+    report = hooklib.read_document(out)      # t-2020: `handoff_check --json` prints a PRETTY object (indent=1): the document reader; a stderr warning does not hide it
+    if report is None:
+        # an answer nobody could read is an unknown, never a pass of the form gate (AR-28, FR-59); the form is there, so it is a problem
+        # whose door is the form doors below (`--ignore-handoff`), not a silent "no form"
+        return "problems", f"handoff_check gave no readable answer (exit {code}): {(out.splitlines() or ['no output'])[-1][:200]}", rel
     if report.get("untouched"):
         return "untouched", "", rel
     filled = [f"filled by code: {line}" for line in report.get("fixed") or []]
@@ -444,7 +481,7 @@ def _derive_before(task: str, role: str, task_root: Path) -> list:
 # On TP1-13797 (cmp1) the critic's first window probed 16 instances and every probe passed, yet not
 # one receipt stood: the probe measured one sha256 of the test file and the manifest bound another, so
 # "Proven" fell from 24 to 8 on the factory's own bookkeeping. `probe_debt.py --settle` clears what code
-# may clear (rebind, then a fresh probe) and writes the rest to `work/probe-debt.json`; here it is RUN,
+# may clear (rebind, then a fresh probe) and writes the rest to `work/probe-debt/<dispatch>.json`; here it is RUN,
 # because the only moment that reliably comes before the critic's first turn is its own `start`, and the
 # conductor is never asked to run it (P3, FR-48). The skill road runs `start` through a shell call that
 # times out at 120 s (V1), so the budget (about 90 s, `probe_debt.SETTLE_BUDGET_S`) is the budget of the
@@ -453,7 +490,8 @@ def _derive_before(task: str, role: str, task_root: Path) -> list:
 # that has begun ends by its own `--timeout` (see probe_debt.py), never by a kill. `start` only SAYS
 # when the settle took long.
 DEBT_STAGE, DEBT_ROLE = "S5", "qa-code-critic"
-DEBT_REL = "work/probe-debt.json"
+# TR3-15: the debt is one file per critic dispatch (`probe_debt.debt_rel`, the ONE spelling); a story from before has the one old file
+# (`probe_debt.OLD_DEBT_REL`), read as a fallback by `_debt_path` and never written.
 SETTLE_NOTE_AFTER_S = 60   # a person reads the console: over this, the note says how long the settle took
 SETTLE_MIN_LEFT_S = 1      # less than this is left of the budget: the settle is not started at all
 _settle_clock = time.monotonic   # the test swaps it; a duration is never read off a real wait there
@@ -469,21 +507,32 @@ def _settle_budget():
         return None
 
 
+def _debt_path(task_root: Path, dispatch_id: str) -> str:
+    """The task-relative debt file THIS critic dispatch reads, whether or not it exists: its own (`probe_debt.debt_rel`); absent, the
+    old single file of a story from before (the same rule as today for it: `_debt_input` still refuses a file written for another
+    dispatch). Never another window's file - the critic of one window names only its own."""
+    import probe_debt
+    own = probe_debt.debt_rel(dispatch_id)
+    return own if (task_root / own).is_file() else probe_debt.OLD_DEBT_REL
+
+
 def _debt_input(task: str, task_root: Path, dispatch_id: str) -> tuple[list, list]:
     """([prompt input] or [], [note]): the debt file is an input of the critic only when it lists
     something. An empty file (no `left`, no `outcomes`) is not an input: the critic would be told to
     read a page that says nothing, and a settle that cleared everything leaves exactly that. A file
-    that cannot be read is told in a note and is no input (FR-41: unknown is not `nothing owed`)."""
-    path = task_root / DEBT_REL
+    that cannot be read is told in a note and is no input (FR-41: unknown is not `nothing owed`).
+    Reads ONLY its own dispatch's file (`_debt_path`); the old single file only when its own is absent."""
+    rel = _debt_path(task_root, dispatch_id)
+    path = task_root / rel
     if not path.is_file():
         return [], []
     try:
         doc = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
-        return [], [f"{DEBT_REL} exists but cannot be read ({type(exc).__name__}): it is not given to "
+        return [], [f"{rel} exists but cannot be read ({type(exc).__name__}): it is not given to "
                     f"the critic; `probe_debt.py --task {task}` lists the debt read-only"]
     if not isinstance(doc, dict):
-        return [], [f"{DEBT_REL} is not a JSON object: it is not given to the critic; "
+        return [], [f"{rel} is not a JSON object: it is not given to the critic; "
                     f"`probe_debt.py --task {task}` lists the debt read-only"]
     if not (doc.get("left") or doc.get("outcomes")):
         return [], []
@@ -491,10 +540,10 @@ def _debt_input(task: str, task_root: Path, dispatch_id: str) -> tuple[list, lis
         # A file an EARLIER critic's settle left (this settle failed, or was not run): its commands name
         # that dispatch, which is not open any more, so the probes would be refused. Never given to this
         # critic; the note says where the debt can be read afresh.
-        return [], [f"{DEBT_REL} was written for dispatch {doc.get('dispatch') or '(none named)'}, not for "
+        return [], [f"{rel} was written for dispatch {doc.get('dispatch') or '(none named)'}, not for "
                     f"{dispatch_id}: it is not given to the critic; `probe_debt.py --task {task}` lists "
                     "the debt read-only"]
-    return [f"qa-factory/artifacts/{task}/{DEBT_REL}"], []
+    return [f"qa-factory/artifacts/{task}/{rel}"], []
 
 
 def _settle_probe_debt(task: str, stage_id: str, role: str, dispatch_id: str, task_root: Path,
@@ -536,6 +585,19 @@ def _settle_probe_debt(task: str, stage_id: str, role: str, dispatch_id: str, ta
         notes.append(f"probe_debt --settle took {took:.1f} s (its own budget is about 90 s; it never "
                      "stops a probe that has begun)")
     extras, more = _debt_input(task, task_root, dispatch_id)
+    if code == 0:
+        # P2-2: a settle that found every item as the last one left it started nothing and says so; the file it
+        # re-addressed to this dispatch names the one it stood on (`unchanged_since`)
+        try:
+            doc = json.loads((task_root / _debt_path(task_root, dispatch_id)).read_text(encoding="utf-8-sig"))
+            since = doc.get("unchanged_since") if isinstance(doc, dict) and doc.get("dispatch") == dispatch_id else ""
+            why = sorted({str(l.get("reason")) for l in doc.get("left") or [] if isinstance(l, dict) and l.get("reason")}) \
+                if since else []
+        except (OSError, ValueError):
+            since, why = "", []
+        if since:
+            notes.append(f"probe_debt --settle: nothing changed since {since}, not run"
+                         + (f" (each item stays as it was left: {', '.join(why)})" if why else ""))
     return extras, notes + more
 
 
@@ -592,7 +654,8 @@ def _prompt_inputs(task: str, stage_id: str, role: str, task_root: Path, dispatc
     if _is_plan_dispatch(task_root, dispatch_id):
         return extras      # SC1-14 fix X, F-2: the plan has no code, so no judge output and no debt are its inputs
     if judge.active():
-        extras += [base + output for _, _, output in PRE_WORK.get(role, []) if (task_root / output).is_file()]
+        extras += [base + output.replace("{dispatch}", dispatch_id) for _, _, output in PRE_WORK.get(role, [])
+                   if (task_root / output.replace("{dispatch}", dispatch_id)).is_file()]    # `{dispatch}`: one judge file per critic dispatch (TR3-15)
     if (stage_id, role) == (DEBT_STAGE, DEBT_ROLE):
         extras += _debt_input(task, task_root, dispatch_id)[0]
     return extras
@@ -823,10 +886,14 @@ def config_restore(args) -> int:
 
 
 def start(args) -> int:
+    import driver_timing
     started = _settle_clock()   # the budget of the probe-debt settle is what is left of THIS call's
     task_root = _task_root(args.task)
     stage = _stages().get(args.stage)
-    if not stage or args.role not in stage.get("roles", []):
+    # t-2277 FL-5: a (role, purpose) row of the stage's `optional_dispatches` is admitted without being one of its `roles`. INVARIANT: such a
+    # dispatch never completes the stage (`finish` forces not-complete) and a role with no such row meets the refusal below, as before.
+    optional = _optional_row(args.stage, args.role, getattr(args, "purpose", "")) if stage else None
+    if not stage or (args.role not in stage.get("roles", []) and optional is None):
         print(f"story_step: {args.role} is not a role of {args.stage} in references/stages.json"
               + (f"; its roles are {', '.join(stage.get('roles') or []) or 'none'}" if stage else "")
               + f". {REPAIR_MARKER}: dispatch a role the stage declares.")
@@ -851,6 +918,8 @@ def start(args) -> int:
              if d.get("stage") == args.stage and d.get("role") == args.role]
     dispatch_id = args.id or f"{args.stage}-{args.role}-{len(prior) + 1}"
     options = {"stage": args.stage, "role": args.role, "id": dispatch_id}
+    if optional is not None:
+        options["purpose"] = args.purpose       # `prepare` reads the purpose of an optional dispatch (the first look names no half)
     if args.scope:
         options["scope"] = [s.strip() for s in args.scope.split(",") if s.strip()]      # S-1: stripped for every `start`
     if block:        # the driver's registration (`Driver.run_manual_block`): the block IS the scope and `manual_case_ids`
@@ -860,8 +929,11 @@ def start(args) -> int:
         # refuses a qa-runner packet that does not say which - `start` had no way to say it,
         # so the automated half could not be dispatched at all (TP1-13797, driver run 3).
         options["execution_kind"] = args.execution_kind
-    notes = _pre_work(args.role, task_root, dispatch_id, args.purpose or "")
-    notes += _derive_before(args.task, args.role, task_root)
+    laps = driver_timing.Laps()         # t-1937 P2-1: the sub-steps of this call, reported as `timing:` lines at the end
+    with laps.lap("start.pre_work"):
+        notes = _pre_work(args.role, task_root, dispatch_id, args.purpose or "")
+    with laps.lap("start.derive_before"):
+        notes += _derive_before(args.task, args.role, task_root)
     packet = controller.prepare(options)
     request = packet["dispatch_request"]
     if block:        # a legacy-mode `prepare` copies neither field; a new-mode one already set them
@@ -869,6 +941,8 @@ def start(args) -> int:
         request.setdefault("manual_case_ids", list(block))
     if args.purpose or block:
         request["purpose"] = args.purpose or "manual"
+    if getattr(args, "parallel_window", False):
+        request["parallel_window"] = True      # t-1937 TR3-4: read by `Controller._window_beside_running`, nowhere else
     # The one field the detector adds to the record; `finish` reads it back. Taken last, so the
     # bytes hashed are the ones the role is about to start under.
     request[CONFIG_START_FIELD] = config_fingerprint()
@@ -908,7 +982,8 @@ def start(args) -> int:
     # above runs no probe, so it is nowhere before that refusal; the critic sees whatever is left over,
     # so it sits BEFORE the brief and the prompt below, which are built from what is on disk. Neither
     # road asks the conductor (P3, FR-48).
-    _, debt_notes = _settle_probe_debt(args.task, args.stage, args.role, dispatch_id, task_root, started, args.purpose or "")
+    with laps.lap("start.settle_probe_debt"):
+        _, debt_notes = _settle_probe_debt(args.task, args.stage, args.role, dispatch_id, task_root, started, args.purpose or "")
     notes += debt_notes
     # POSITION INVARIANT (SC1-14 C1): the plan's skeleton is written only after `apply` returned, so a refused `start` (mode switch,
     # the plan order, a validate) leaves no `work/s5-plan.json` behind; and before the brief, which is built from what is on disk.
@@ -916,9 +991,13 @@ def start(args) -> int:
     # INVARIANT (I2): the card is the LAST file this command writes (after `stage_done`, the debt, the brief
     # and the form), so its existence proves those steps are over; `where` rebuilds it only from a brief on
     # disk. What is written is exactly what is printed below (one renderer, `_card_text`).
-    text, _ = _write_dispatch_files(args.task, args.stage, args.role, dispatch_id, task_root,
-                                    ",".join(block) if block else ",".join(options.get("scope") or []), notes)
+    with laps.lap("start.brief_and_files"):         # `_brief` runs inside `_write_dispatch_files`
+        text, _ = _write_dispatch_files(args.task, args.stage, args.role, dispatch_id, task_root,
+                                        ",".join(block) if block else ",".join(options.get("scope") or []), notes)
     print(text, end="")
+    # AFTER the card text: `story_run.parse_prompt` stops at the bind line, so these lines are read by the driver alone (one reader)
+    if current_run_mode() == "driver":      # t-2034 mode gate: the card of the skill road ends at the card (byte pin of test_launch_card)
+        print("\n".join(laps.lines()))
     return 0
 
 
@@ -979,7 +1058,9 @@ def _manual_block_check(args, controller, state) -> tuple:
     import manual_evidence
     refused = {}
     for case in block:
-        _, why = manual_evidence.prepare_for_block(_task_root(args.task), case)
+        # (ids, why, unprepared): a case the FACTORY failed to prepare has `why` empty and stays IN the block (F5(c), the
+        # factory never stands); only a refusal the story owns names the case and leaves the start refused
+        why = manual_evidence.prepare_for_block(_task_root(args.task), case)[1]
         if why:
             refused[case] = why
     if refused:
@@ -1010,8 +1091,14 @@ def _manual_block_door(task: str, given: list, state: dict, controller, spent=()
             covered = [case for case in derived["scope"] if case in done]
             return ["no manual-agent case is left for a block: nothing was dispatched; covered by "
                     + (detector_verdict.named(covered, SCOPE_SHOWN) or "no accepted block")]
-    blocks = manual_blocks(cleaned, MANUAL_WINDOW_CASES)
-    lines = ['door: the next block: python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" start --task ' + task
+    # t-1957 N5s (E5s.9, AR-19): the lanes the driver cuts - the cases of one account set together, at most MANUAL_WINDOW_CASES each -
+    # by the SAME function; a task root that cannot be read leaves every case in a lane of its own (an account is never guessed)
+    try:
+        keys = lane_keys(_task_root(task), cleaned)
+    except Exception:
+        keys = {}
+    blocks = walk_lanes(cleaned, keys, MANUAL_WINDOW_CASES)
+    lines =['door: the next block: python "${CLAUDE_PLUGIN_ROOT}/scripts/story_step.py" start --task ' + task
              + ' --stage S6 --role qa-runner --execution-kind manual --scope ' + ",".join(blocks[0])]
     if len(blocks) > 1:
         lines.append(f"then {len(blocks) - 1} more block(s) of at most {MANUAL_WINDOW_CASES} case(s) for: "
@@ -1456,16 +1543,25 @@ def _evidence(task_root: Path, stage: dict, extra: list) -> list:
 REVIEW_ROLES = ("qa-code-critic", "qa-case-critic")
 
 
-def _role_receipts(task_root: Path, role: str) -> list:
+def _role_receipts(task_root: Path, role: str, dispatch: str = "") -> list:
     """Files the factory's own receipt rules demand from THIS role, as evidence refs. A
     review is receipted by its findings file (controller: "no findings file in the accepted
     evidence"), and no stage declares that file among its outputs - the orchestrator used to
     pass it by hand with `--output`. TP1-13797, driver run 3: the critic's findings sat
-    complete on disk while the finish was refused and the loop asked the person twice."""
+    complete on disk while the finish was refused and the loop asked the person twice.
+
+    t-2098 (TR3-5, AR-13, AR-14): each critic is receipted on ITS OWN findings file, never "the newest on disk" - with two windows
+    that was the other window's file. The code critic: the one resolver (`findings_path.resolve`: its dispatch's file, else the
+    old single file of a story from before); none yet -> no receipt (the finish then refuses for the missing findings). The case
+    critic: the files under `work/test-cases/` only, never an S5 file."""
     if role not in REVIEW_ROLES:
         return []
-    found = [p for p in (task_root / "work").rglob("*.md")
-             if p.is_file() and "findings" in p.name.lower()]
+    if role == "qa-code-critic":
+        import findings_path
+        own = findings_path.resolve(task_root, dispatch)
+        return [own] if own else []
+    import findings_path
+    found = findings_path.s4_files(task_root)
     found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return [p.relative_to(task_root).as_posix() for p in found[:2]]
 
@@ -1989,7 +2085,8 @@ def _finish_gate(args, task_root: Path, dispatch: dict, decided: dict) -> tuple:
         return 0, "", [f"the exit gate was not re-read: the person's recorded decision ({kind}, {at}) stands for "
                        "this dispatch"]
     try:
-        with exit_gate.holding_stage(dispatch.get("stage")):    # the stage `finish` holds is named to the detectors (t-440)
+        # the stage and the dispatch `finish` holds are named to the detectors (t-440; TR3-13: two windows, the count cannot say which)
+        with exit_gate.holding_stage(dispatch.get("stage")), exit_gate.holding_dispatch(dispatch.get("id")):
             answer = exit_gate.all_errors(role, args.task, "")
     except Exception as exc:
         return 2, _gate_unreadable(args, task_root, dispatch, type(exc).__name__), []
@@ -2306,6 +2403,7 @@ def finish(args) -> int:
         return 2
     stage = _stages()[dispatch["stage"]]
     role = dispatch["role"]
+    optional = _optional_row(dispatch["stage"], role, _purpose_of(dispatch))      # t-2277 FL-5: an optional dispatch, never a closer
     # The handover form IS the handover. It is checked here, repaired by code where code can
     # derive the value, and kept as evidence - so a receipt nobody wrote cannot close a stage.
     # Required by DEFAULT: a story already running under an older build, whose roles do not
@@ -2350,8 +2448,11 @@ def finish(args) -> int:
     # Only a form that PASSED its check is evidence. An untouched one is not a handover, and
     # counting it would have hidden the older refusal for a dispatch that produced nothing.
     extra = [form_rel] if status == "green" and form_rel else []
+    if optional is not None:       # an optional dispatch is receipted by its OWN output, not by the stage's (the row's `output`)
+        import stage_guard
+        extra += list(stage_guard.optional_outputs(optional))
     outputs = _evidence(task_root, stage,
-                        (args.output or []) + _role_receipts(task_root, role) + extra)
+                        (args.output or []) + _role_receipts(task_root, role, args.dispatch_id) + extra)
     if not outputs:
         print(f"story_step: {role} left none of the outputs {dispatch['stage']} declares; "
               "that is a missing handover, not an acceptance - re-dispatch once, then halt. "
@@ -2362,7 +2463,11 @@ def finish(args) -> int:
     # `completed` BEFORE the gate is recorded (s8.md §2c, and the controller refuses a gate
     # decision on an incomplete stage). `--complete` is that case, named out loud.
     plan_part = dispatch["stage"] == "S5" and s5_part_of(dispatch) == "plan"
-    if plan_part:
+    if optional is not None:
+        # POSITION: before the plan and last-role rules. INVARIANT: an optional dispatch (the first look) closes nothing, whatever
+        # `--complete` says or its role is: the stage's own roles close it (the strategist's window 2, the critic's verdict).
+        complete = False
+    elif plan_part:
         # A PLAN dispatch never closes S5 (SC1-14 C1; its critic is the stage's last role, so "the last role closes" would
         # close the stage over windows nobody wrote): only the person's `--complete` reaches the controller, which refuses it
         # (B1b) with its door - the refusal is the controller's, not a silent drop of the flag here.
@@ -2390,6 +2495,10 @@ def finish(args) -> int:
                                       + " on this work as it is (" + str(decided["close"].get("words_ref")) + ")")
             complete = True
     options = {"dispatch_id": args.dispatch_id, "outputs": outputs, "stage_complete": complete}
+    if getattr(args, "open_windows", None) is not None:
+        # t-1937 TR3-4: the OTHER windows the scheduler knows are still open; the controller reads it (accept validate) and
+        # checks every case is a real window of the stage. An empty list is sent as it is: the controller refuses it by name.
+        options["open_windows"] = [part.strip() for part in str(args.open_windows).split(",") if part.strip()]
     if complete and dispatch["stage"] == "S1":
         options.update(_s1_accepted_gaps(task_root))
     if unresolved:
@@ -3182,6 +3291,9 @@ def main() -> int:
     p.add_argument("--execution-kind", choices=["automation", "manual"], dest="execution_kind",
                    help="S6 qa-runner: which half of the stage this packet runs; manual: one block of "
                         f"1..{MANUAL_BLOCK_CASES} manual-agent cases from --scope")
+    p.add_argument("--parallel-window", action="store_true", dest="parallel_window",
+                   help="the driver's scheduler only (t-1937): this S5 window may start beside a running window of other cases; "
+                        "the controller still checks stage, role, disjoint scopes and the cap, and refuses as before otherwise")
     p = sub.add_parser("materialize", help="write the brief, the handover form and the launch card of a running "
                                            "dispatch the controller already committed (a rework packet)")
     p.add_argument("--task", required=True)
@@ -3207,6 +3319,10 @@ def main() -> int:
                    help="with --needs-author: the repair cause of the author's round (default test_defect)")
     p.add_argument("--output", action="append", help="extra task-relative evidence file")
     p.add_argument("--not-complete", action="store_true", help="accept the work, leave the stage open")
+    p.add_argument("--open-windows", dest="open_windows", default=None,
+                   help="with --not-complete on an S5 window: comma-separated case ids of the OTHER windows still open "
+                        "(the driver's scheduler names them); the controller checks each is a real window of the stage "
+                        "and then does not call the bare --not-complete a stage left with no role to close it (t-1937)")
     p.add_argument("--complete", action="store_true",
                    help="close the stage on this role although it is not the last one "
                         "(S8: the scribe closes it, the bug reporter runs after gate B)")

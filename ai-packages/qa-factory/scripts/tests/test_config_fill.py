@@ -160,8 +160,6 @@ def hashed() -> None:
         check_eq("C-hash: ... and in the sealed config", (first["proposed_config"]["cases_root"], first["proposed_config"]["budget"]),
                  (TEMPLATE["cases_root"], TEMPLATE["budget"]))
         check_eq("C-hash: `not_filled` is not a field of the proposal", [k for k in first if "filled" in k], [])
-        check_eq("C-hash: PROPOSAL_COVERS is the closed tuple it was",
-                 C.PROPOSAL_COVERS, ("proposed_config", "removed", "renamed", "answers_legacy", "conflicts", "reasked", "added"))
         # the sealed file itself, with its listing, goes through plan again: same hash, `added` rows not doubled
         again = root.parent / (root.name + "-again-out.json")
         done = cli(root, "--proposal", root.parent / f"{root.name}-h1-out.json", "--out", again)
@@ -208,9 +206,7 @@ def command_final_empty() -> None:
 
 
 def table_rows() -> None:
-    """The flag is data (AR-1): the ten keys the spec names carry it, nothing else does."""
-    flagged = sorted(k for k, v in C.config_keys()["keys"].items() if v.get("project_fact") is True)
-    check_eq("config-keys.json flags exactly the project facts", flagged, sorted(FACTS))
+    """The flag is data (AR-1): a table of its own decides which keys are project facts."""
     own = {"keys": {"a": {"project_fact": True}, "b": {}}}
     out = C.fill_proposal({"proposed_config": {}}, template={"a": 1, "b": 2, "c": 3}, keys=own)
     check_eq("a table of its own decides: the flagged key is left, the others filled",

@@ -5,7 +5,7 @@ inputs `one_test_argv` must refuse and the four it is known to pass; an empty `p
 readiness has a door (`first-reader-crash`); the wording of every door; a timeout; which record lifts which problem;
 the door actually opened with the real `project_decisions.py` commands; absent / broken config, journal cells and
 backlog; the position of the check in `cmd_close`; a healthy and a broken profile together; the command-line battery;
-and the text of p4-generate.md (a doc witness with a negative control).
+(the text of p4-generate.md is rows of design/role-rules.json).
 """
 import contextlib
 import hashlib
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import PLUGIN_ROOT, SCRIPTS, check, check_eq, cleanup, finish, temp_dir  # noqa: E402
+from harness import SCRIPTS, check, check_eq, cleanup, finish, temp_dir  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 import config_contract  # noqa: E402
@@ -29,7 +29,6 @@ import onboarding_notes as N  # noqa: E402
 import project_decisions as PD  # noqa: E402
 
 DATA = N.load_data()
-P4 = PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p4-generate.md"
 GOOD = {"profile_id": "api", "commands": {"one_test": {"argv": ["pytest", "<test-file>"]}}}
 UNSET = object()
 NAME = "".join(chr(code) for code in (0x3c4, 0x3b5, 0x3c3, 0x3c4)) + "%s{0}"       # a non-ASCII id (Greek: the package has no Cyrillic) with format characters
@@ -565,40 +564,6 @@ def battery() -> None:
         cleanup(root)
 
 
-# --------------------------------------------------------------------------------------- R13
-
-def normalised(text: str) -> str:
-    return " ".join(text.split())
-
-
-def section(text: str, start: str, end: str | None) -> str:
-    head = text.index(start)
-    return text[head: text.index(end, head) if end else len(text)]
-
-
-def present(text: str, key: str) -> bool:
-    return normalised(key) in normalised(text)
-
-
-# The keys, quoted VERBATIM from the DoD (R13) before this file was written.
-KEYS = ["`close`", "first reader", "add-finding"]
-
-
-def texts() -> None:
-    text = P4.read_text(encoding="utf-8")
-    step9 = section(text, "## 9. State, dashboard, readiness, commit", "## Direct Jira source access")
-    short = section(text, "## No test framework found", "## 1. `config.json`")
-    for key in KEYS:
-        check(f"R13: step 9 carries the key `{key}` (whitespace-normalised)", present(step9, key), key)
-    check("R13: the short path names the no-test-framework finding key", present(short, "no-test-framework") and present(short, "`close`"))
-    check("R13: step 9 says the readiness failure and a profile with no one-test command are not fine at onboarding time",
-          present(step9, "not for a failed `readiness.py`") and present(step9, "no command that runs one test"))
-    check("R13 NEGATIVE CONTROL: a step-9 text without the keys is reported absent by the same matcher",
-          not present("Run the audit and commit.", "first reader") and not present("Run the audit and commit.", "add-finding"))
-    check("T8 (kept): the sentence test_onboarding_notes pins is still verbatim",
-          present(text, "Close the notes once the audit is clean, before the commit: `onboarding_notes.py --root . close --approval-ref <ref>`."))
-
-
 def main() -> None:
     healthy_and_mixed()
     argv_inputs()
@@ -611,7 +576,6 @@ def main() -> None:
     absent_broken_and_journal()
     position()
     battery()
-    texts()
     finish("onboarding first reader")
 
 

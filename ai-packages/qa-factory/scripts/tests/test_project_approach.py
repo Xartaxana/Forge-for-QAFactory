@@ -23,26 +23,6 @@ import judge_code as J  # noqa: E402
 PLUGIN = harness.PLUGIN_ROOT
 ROLES = {"qa-test-strategist": "S3", "qa-automator": "S5", "qa-code-critic": "S5"}
 
-K9_KEYS = {"read": ["project.test_data"],
-           "focus": ["A fixture whose body you cannot see is not evidence"],
-           "true": ["a fixture whose body is not in `test.code` counts as made the project's way only when project.test_data names that fixture or helper"],
-           "false": ["A comment giving a reason does not make this true"],
-           "calibration": ["not recalibrated"]}
-K10_KEYS = {
-    # spec t-1765 X1 (B-D, "moved"): "Not injected - your brief names them" is the brief's now: its `- code rules:` file line (checked
-    # at brief_lines, K3, with the size), not a sentence of the charter
-    "agents/qa-test-strategist.md": ["Data and accounts the project's way first", "only what that approach cannot make goes to gate A"],
-    "agents/qa-automator.md": ["never a new env key for data the approach creates", "approach: <rule> not used - <reason>",
-                               "in the test language's comment syntax"],
-    "references/code-review-rubric.md": ["made the project's way", "with no `approach:` comment giving a reason, in the test's own comment syntax",
-                                         "with one, judge the reason"],
-}
-
-
-def missing_keys(text: str, keys: list) -> list:
-    flat = " ".join(text.split())
-    return [key for key in keys if " ".join(key.split()) not in flat]
-
 
 def put_config(root: Path, **blocks) -> None:
     path = root / "qa-factory/config.json"
@@ -271,21 +251,10 @@ def judge_state() -> None:
 
 
 def texts() -> None:
-    """K9, K10."""
+    """K9: the judge's thresholds (its words and the roles' texts are rows of design/role-rules.json)."""
     entry = next(j for j in json.loads((PLUGIN / "references/judgments.d/code.json").read_text(encoding="utf-8"))["judgments"]
                  if j["id"] == "code_owns_its_data")
-    haystack = {"read": " ".join(entry["instructions"]["read"]), "focus": entry["instructions"]["focus"],
-                "true": entry["criteria"]["true"], "false": entry["criteria"]["false"], "calibration": entry["calibration"]}
-    for field, keys in K9_KEYS.items():
-        check_eq(f"K9 code_owns_its_data.{field} holds its keys", missing_keys(haystack[field], keys), [])
-    check_eq("K9 control: a key that is not there is reported", missing_keys(haystack["false"], ["no such sentence"]), ["no such sentence"])
     check_eq("K9 thresholds are untouched", entry["thresholds"], {"true_at": 0.85, "false_at": 0.15})
-    for rel, keys in K10_KEYS.items():
-        text = (PLUGIN / rel).read_text(encoding="utf-8")
-        check_eq(f"K10 {rel} holds its keys", missing_keys(text, keys), [])
-    check_eq("K10 control: a key that is not there is reported", missing_keys("abc", ["zzz"]), ["zzz"])
-    check_not_in("K10 the deviation marker is not Python-only (B-2)", "`# approach:", (PLUGIN / "agents/qa-automator.md").read_text(encoding="utf-8"))
-    check_not_in("K10 ... in the rubric either", "`# approach:", (PLUGIN / "references/code-review-rubric.md").read_text(encoding="utf-8"))
 
 
 def main() -> None:

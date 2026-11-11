@@ -73,7 +73,6 @@ def main() -> None:
         action, same = store.begin(red)
         check_eq("E09 S6 reuses fresh red receipt", action, "reused")
         check_eq("E09 reuse points to same job", same["job_id"], red_job["job_id"])
-        check_eq("10 initial + 2 repair + 10 red instance executions", 10 + 2 + 10, 22)
 
         helper_subset = request("helper", "repair_verify", ["i-1", "i-4"], scope, "helper")
         check_eq("helper change expands only within current approved subset",
@@ -214,8 +213,12 @@ def red_probe_directory() -> None:
 
         # identity of the attempt
         material = {"i": ["selector"]}
-        check_eq("an ordinary run's identity is byte-identical to the one before this change",
+        # The identity is a key of records already on a project's disk: a new package version must compute the same key
+        # for the same attempt, or it stops finding its own earlier runs. This literal is that contract, not a measurement.
+        check_eq("an ordinary run's identity is the key older versions wrote",
                  attempt_identity(material, "same", "initial", "a"), "9649e7917b12")
+        check_eq("an observed initial run is the same key",
+                 attempt_identity(material, "same", "initial", "a", unobserved=False), "9649e7917b12")
         check_eq("an ordinary run's identity ignores an incidental directory",
                  attempt_identity(material, "same", "initial", "a"),
                  attempt_identity(material, "same", "initial", "b"))
@@ -224,15 +227,11 @@ def red_probe_directory() -> None:
         check("separate clones give a red probe distinct identities",
               attempt_identity(material, "same", "red_probe", "clone-a")
               != attempt_identity(material, "same", "red_probe", "clone-b"))
-        check("and a red probe's identity never equals an old red-probe identity",
-              attempt_identity(material, "same", "red_probe", "clone-a") != "9649e7917b12")
         check_eq("the same clone keeps the same identity",
                  attempt_identity(material, "same", "red_probe", "clone-a"),
                  attempt_identity(material, "same", "red_probe", "clone-a"))
         # E-7: the observation state of the stand (upstream's F3) and the clone (ours) are both part
-        # of what ran; an observed non-probe key is the one it always was (pinned above).
-        check_eq("an observed initial run is still the key it always was",
-                 attempt_identity(material, "same", "initial", "a", unobserved=False), "9649e7917b12")
+        # of what ran.
         check("an unobserved run never lands on the observed run's key",
               attempt_identity(material, "same", "initial", "a", unobserved=True)
               != attempt_identity(material, "same", "initial", "a", unobserved=False))

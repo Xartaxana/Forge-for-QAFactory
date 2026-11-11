@@ -302,12 +302,12 @@ def the_live_check_is_fresh_stale_missing_or_not_required():
         # the oracle the probe followed out of the test is carried as `--oracle <file>::<function>`
         PB.write(PL.probe_record_path(s.task, "test_a"), {
             "probe_tool": "probe_by_code.py", "instance_id": "test_a", "verdict": "intended_failure",
-            "test_node": "tests/test_a.py::test_a", "mutation": "expected",
+            "test_node": "tests/test_a.py::test_a", "mutation": "invert",   # t-2113: `expected` is a removed kind, replayed as `invert` (PL.replay_mutation); this key is about the oracle
             "mutated_file": {"path": "tests/plugins.py", "sha256": "x", "code_sha": "y"},
             "mutation_detail": {"oracle_function": "client", "oracle_note": "followed"}})
         check_eq("K2: a probe of a helper's oracle replays with `oracle = <mutated file>::<function>`",
                  PL.probe_freshness(s.entry, {}, s.task)["replay"],
-                 {"test": "tests/test_a.py::test_a", "instance": "test_a", "mutation": "expected",
+                 {"test": "tests/test_a.py::test_a", "instance": "test_a", "mutation": "invert",
                   "oracle": "tests/plugins.py::client"})
         # a record made with `--at`: the line anchor does not survive the edit - nothing to replay by code
         PB.write(PL.probe_record_path(s.task, "test_a"), {

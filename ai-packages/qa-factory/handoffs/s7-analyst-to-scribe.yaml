@@ -30,8 +30,9 @@ inputs:
     what: the rows the ledger is built from
     required: true
 
+# Reviewed dispatch (as in your brief): the LAST `inputs_read` row naming a qa-runner dispatch must be `path: work/handoffs/<the runner's dispatch>.yaml` (other qa-runner forms go above it; a review binds only that dispatch)
 inputs_read:
-  - path: work/handoffs/<the runner's dispatch>.yaml
+  - path: work/handoffs/<the author's dispatch>.yaml
     version: <its window id>
     failures_handed: <n>
     inconclusive_handed: <n>
@@ -81,7 +82,7 @@ bug_drafts:
     damage: <the damage class that sets the priority>
     manual_steps: <the steps a person follows in the product to see it>
     confirmation: unconfirmed    # always; the code derives the step from `reproduction` below (a role's other word is not read as proof)
-    reproduction: <optional list; absent or [] = nobody reproduced it. One entry {kind, evidence, observed} per reproduction: kind is a word of vocabulary.bug_reproduction_kinds (fresh_data_rerun or own_script); evidence = a non-empty file under evidence/ (the log of the rerun, or your script's output); observed = what it showed; a fresh_data_rerun also names attempt_id, the later attempt of run-report.json that failed again, which is not the attempt of triage_ref. Whether the data was fresh is your word, not the code's>
+    reproduction: <optional list; absent or [] = nobody reproduced it. One entry {kind, evidence, observed} per reproduction: kind is a word of vocabulary.bug_reproduction_kinds (fresh_data_rerun, own_script or walk); evidence = a non-empty file under evidence/ (the log of the rerun, your script's output, or for a walk evidence/place-answer-<id>.json, the record place_answers.py write made for this draft's bug answer); observed = what it showed; a fresh_data_rerun also names attempt_id, the later attempt of run-report.json that failed again, which is not the attempt of triage_ref. Whether the data was fresh is your word, not the code's>
     duplicate_of: <an existing bug id the role found, or a dash - a proposal, never a drop>
 
 # Stand problems, split by who owns them. A `factory` owner is reported at the gate, never put to
@@ -132,6 +133,16 @@ expected_of_the_receiver:
      with is a defect upstream, not a number to adjust"
   - "the report's bug list is built from `bug_drafts` above, with the refs unchanged"
   - "a reason whose owner is the factory is reported, never put to the person as a choice"
+
+# For each red test, the experiment you ran and the outcome (red x experiment x outcome; spec t-1765 X7-7): the scribe reads it
+# against your Good outcome. Empty only with `tried_note` saying why nothing was tried. Never relaxed by `required_when` or by
+# the verdict. Distinct from `blocked.tried` below, which is what failed while filling this form.
+tried:
+  - requirement: <the red test or case id>
+    technique: <the experiment you ran to tell a product bug from a test or env defect>
+    observation: <the outcome, in one line>
+    evidence: <the path (and anchor) where it shows>
+tried_note: <why the table is empty, or a dash when it has rows>
 
 unresolved:
   - id: <instance or case id>

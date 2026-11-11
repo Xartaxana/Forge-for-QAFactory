@@ -9,10 +9,7 @@ into the key through the question itself (`contract.claim_reading_index`).
 Fixture: `fixtures/run-12586-q7/` (README.txt names the sources). The stand's Q7 is raised by the code (no `claim` on its
 readings, recognised by the equality with `claim_readings`), Q5 was written by the role at S2 (no `claim`, not recognised).
 
-DOC-WITNESS KEYS (K7). Fixed from spec t-1469 section 5.2 K7 BEFORE this file was first run (the spec is Russian, the package
-is English, so the quote is rendered, not pasted): key presence in `agents/qa-case-designer.md`,
-`agents/qa-requirements-tester.md`, `references/artifact-contract.md`, `references/artifact-contract-json.md` of the words
-`now`, `before`, `claim`, with a negative control; the checker reads them from DOC_KEYS and the control proves it can fail.
+K7 (the words `now`, `before`, `claim` in the role texts) is rows of design/role-rules.json.
 """
 import json
 import os
@@ -21,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import (  # noqa: E402
-    PLUGIN_ROOT, SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, run_script, temp_dir, temp_project, use_project,
+    SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, run_script, temp_dir, temp_project, use_project,
 )
 
 sys.path.insert(0, str(SCRIPTS))
@@ -331,47 +328,6 @@ def test_k10_the_neighbours_that_read_a_letter_as_a_meaning() -> None:
     check_eq("K10/O2 control: ... and letter b (`now`) is the case's `now` text", (got["state"], got["expected"]), ("settled", NOW_TEXT))
 
 
-DOC_KEYS = tuple((rel, key) for rel in ("agents/qa-case-designer.md", "agents/qa-requirements-tester.md",
-                                        "references/artifact-contract.md", "references/artifact-contract-json.md")
-                 for key in ("now", "before", "claim"))
-
-
-def doc_missing(read) -> list:
-    out = []
-    for rel, key in DOC_KEYS:
-        try:
-            text = read(rel)
-        except OSError:
-            out.append((rel, key))
-            continue
-        if f"`{key}`" not in text and f"{key}:" not in text and f"`{key}" not in text:
-            out.append((rel, key))
-    return out
-
-
-def test_k7_doc_witness_keys() -> None:
-    def read(rel: str) -> str:
-        if rel == "agents/qa-case-designer.md":  # the designer receives its ahead-card and its artifact-contract slice, not the charter's rule
-            try:
-                card = json.loads((PLUGIN_ROOT / "references/ahead-cards.json").read_text(encoding="utf-8"))["cards"]["qa-case-designer"]["text"]
-            except (ValueError, KeyError, TypeError) as exc:
-                raise OSError(f"{rel}: no readable card ({exc!r})")
-            slice_text = (PLUGIN_ROOT / "references/slices/qa-case-designer/artifact-contract.md").read_text(encoding="utf-8")
-            return " ".join((card + "\n" + slice_text).split())
-        if rel == "agents/qa-requirements-tester.md":  # spec t-1765 X1 (B-D, "moved"): the tester is handed the register template and its contract slice
-            template = (PLUGIN_ROOT / "references/templates/requirements-register.md").read_text(encoding="utf-8")
-            slice_text = (PLUGIN_ROOT / "references/slices/qa-requirements-tester/artifact-contract.md").read_text(encoding="utf-8")
-            return " ".join((template + "\n" + slice_text).split())
-        return " ".join((PLUGIN_ROOT / rel).read_text(encoding="utf-8").split())
-    check_eq("K7 DOC-WITNESS: the three words are in each of the four texts the roles read", doc_missing(read), [])
-    rel, key = DOC_KEYS[0]
-
-    def without(name: str) -> str:
-        text = read(name)
-        return text.replace(f"`{key}`", "").replace(f"{key}:", "").replace(f"`{key}", "") if name == rel else text
-    check_eq("K7 NEGATIVE CONTROL: with one key cut out of its file the check reports exactly that key", doc_missing(without), [(rel, key)])
-
-
 def test_k11_the_critic_fixes_of_t_1493() -> None:
     qs = stand_questions()
     q7, q5 = qs["Q7"], qs["Q5"]
@@ -401,7 +357,6 @@ if __name__ == "__main__":
     test_k4_an_ordinary_question_keeps_its_letters()
     test_k5_awkward_inputs_stay_on_the_safe_side()
     test_k6_legacy_a_world_before_the_update()
-    test_k7_doc_witness_keys()
     test_k8_one_reader_for_the_resolver_the_card_and_the_applier()
     test_k9_a_question_the_role_wrote_without_claim()
     test_k10_the_neighbours_that_read_a_letter_as_a_meaning()

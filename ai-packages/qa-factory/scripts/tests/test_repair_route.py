@@ -54,17 +54,18 @@ def route(verdict, the_form, the_budget):
 
 def rule_a_no_typed_findings():
     found = route("concerns", None, budget(counted=1))
-    check_eq("(a) no form: the legacy test_defect round while the cap allows", found["action"], "test_defect")
-    check_eq("(a) and it says the cause was assumed", found["note"], "no typed findings; cause assumed test_defect")
-    check_eq("(a) at the cap the window closes", route("concerns", None, budget(counted=2))["action"], "close")
-    check_in("(a) and says why", "cap reached", route("concerns", None, budget(counted=2))["reason"])
-    check_eq("(a) beyond the cap it still closes", route("review", None, budget(counted=3))["action"], "close")
-    check_eq("(a) concerns and zero findings is the legacy round",
-             route("concerns", form(), budget())["action"], "test_defect")
-    check_eq("(a) so is `review`", route("review", form(), budget())["action"], "test_defect")
+    check_eq("(a) no form: a close over the code `untyped`, never a round", (found["action"], found["code"]), ("close", "untyped"))
+    check_not_in("(a) and no cause is assumed", "assumed", found["note"] + found["reason"])
+    check_eq("(a) at the cap the same", route("concerns", None, budget(counted=2))["code"], "untyped")
+    check_eq("(a) beyond the cap it still closes untyped", (route("review", None, budget(counted=3))["action"],
+                                                          route("review", None, budget(counted=3))["code"]), ("close", "untyped"))
+    check_eq("(a) concerns and zero findings is untyped",
+             (route("concerns", form(), budget())["action"], route("concerns", form(), budget())["code"]), ("close", "untyped"))
+    check_eq("(a) so is `review`", route("review", form(), budget())["code"], "untyped")
     check_eq("(a) rows that are unfilled placeholders are no findings",
-             route("concerns", form({"id": "<F-n>", "cause": "<one of vocabulary.repair_causes>"}), budget())["note"],
-             "no typed findings; cause assumed test_defect")
+             route("concerns", form({"id": "<F-n>", "cause": "<one of vocabulary.repair_causes>"}), budget())["code"], "untyped")
+    check_eq("(a) the budget is not read for an untyped close (unreadable budget: still untyped)",
+             route("concerns", None, None)["code"], "untyped")
     check_eq("(a) a verdict that does not send the window back closes even with no form",
              route("approved", None, budget())["action"], "close")
     check_eq("(a) an empty form under an approving verdict closes", route("ok", form(), budget())["action"], "close")
@@ -584,8 +585,8 @@ def loop_critic_brief():
     log, _printed = loop([("approved", [])], [budget()])
     brief = " ".join(log["critic_extra"])
     # the load-bearing phrases, not the whole string: the wording around them is the driver's to tune (t-016, t-071)
-    check_in("the critic is told to probe by code first (t-016)", "Static review first, then one probe per new/changed test: probe_by_code.py", brief)
-    check_in("and red_sandbox only on a doubt (t-016)", "red_sandbox.py --probe only when you doubt the check looks at the product", brief)
+    check_in("the critic is told to probe by code first (t-016)", "Static review first, then probe_by_code.py once per instance, every check of the test", brief)
+    check_in("and red_sandbox only on a doubt (t-016)", "red_sandbox.py --probe (only when you doubt the check looks at the product", brief)
     check_in("and a probe of unchanged bytes is answered already_probed (t-071)", "already_probed", brief)
     check_in("and the findings file, the receipt ref and the cause are still asked for", "review_receipt_ref", brief)
     check_in("and each finding carries its cause", "`cause:` on each finding", brief)
@@ -669,10 +670,10 @@ def seam_codes():
     """C1-5b1 (t-698 §2, A8): the R-code a close carries - the seam reason the driver asks about; "" for every other route."""
     cap = lambda found: found["code"]
     check_eq("R cap: a test_defect finding at the cap", cap(route("concerns", form(finding("F-1", "test_defect", True)), budget(counted=2))), "cap")
-    check_eq("R cap: the legacy rule (no form) at the cap", cap(route("concerns", None, budget(counted=2))), "cap")
+    check_eq("R untyped: no form under a sending-back verdict (no cause is assumed)", cap(route("concerns", None, budget(counted=2))), "untyped")
     check_eq("R unknown: no count in the budget", cap(route("concerns", form(finding("F-1", "test_defect", True)), budget(counted=None))), "unknown")
     check_eq("R unknown: no cap in the budget (a count alone)", cap(route("concerns", form(finding("F-1", "test_defect", True)), {"counted": 2})), "unknown")
-    check_eq("R unknown: no count with a cap", cap(route("review", None, {"cap": 2})), "unknown")
+    check_eq("R untyped: and with a budget that cannot be read", cap(route("review", None, {"cap": 2})), "untyped")
     check_eq("R unknown: the mechanical count cannot be read", cap(route("approved", form(finding("F-1", "mechanical", True)), {"counted": 0, "cap": 2})), "unknown")
     check_eq("R mech_cap: the mechanical cap is spent", cap(route("concerns", form(finding("F-1", "mechanical", True)), budget(mechanical=1))), "mech_cap")
     check_eq("R cap wins over mech_cap when both caps are spent",
@@ -689,7 +690,108 @@ def seam_codes():
              cap(route("concerns", form(finding("F-1", "no_such_cause", True)), budget(counted=2))), "cap")
 
 
+# --- F4 (t-1936 N2): a send-back with no typed finding is never a round on an assumed cause ------------------
+
+UNTYPED_DIGEST = "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected\nwork/x.md"
+
+
+def test_untyped_send_back_closes_untyped_not_test_defect():
+    for verdict in ("concerns", "review", " concerns  "):
+        for the_form in (form(), {}, {"findings": None}, form({"id": "<F-n>", "cause": "<one of vocabulary.repair_causes>"})):
+            found = route(verdict, the_form, budget())
+            assert (found["action"], found["code"]) == ("close", "untyped"), (verdict, the_form, found)
+            assert "assumed" not in found["note"] + found["reason"]
+            assert found["action"] != "test_defect"
+
+
+def test_form_none_send_back_untyped():
+    found = route("concerns", None, budget(counted=0))
+    assert (found["action"], found["code"], found["reason"]) == ("close", "untyped", "no typed findings")
+    assert route("review", None, None)["code"] == "untyped"      # the budget is not read for this close
+
+
+def test_ok_without_findings_closes_plain():
+    for the_form in (None, form()):
+        found = route("ok", the_form, budget())
+        assert (found["action"], found["code"]) == ("close", "")
+    assert route("approved", None, budget())["code"] == ""
+
+
+def test_send_back_words_equal_rows_owed_words():
+    import handoff
+    block = handoff.template("s5-critic-to-automator").data.get("rows_owed_when")
+    assert sorted(block) == sorted(repair_route.SEND_BACK)
+    for word in repair_route.SEND_BACK:
+        assert handoff.rows_owed("s5-critic-to-automator", word) == {"findings"}
+    assert handoff.rows_owed("s5-critic-to-automator", "ok") == set()
+
+
+def _driver(root_name="QA-9"):
+    from story_run_common import driver_for, seed
+    root, task_root, env = seed(root_name)
+    return root, driver_for(root, env, root_name, max_boundaries=1)
+
+
+def test_untyped_asks_review_debt_stop():
+    root, driver = _driver()
+    try:
+        found = route("concerns", form(), budget())
+        ask = driver.repair_limit_facts("S5-qa-code-critic-1", ["TC-1"], found, form(), budget())
+        assert (ask["key"], ask["offer"], ask["cause"]) == ("s5.nobody_review", ["review", "debt", "stop"], "reviewer_error")
+        assert "wrote no finding the test writer can act on" in ask["lead"]
+        assert ask["code"] == "untyped"      # the ledger holds the word (FU2)
+    finally:
+        harness.cleanup(root)
+
+
+def test_untyped_skips_older_controller_refusal():
+    root, driver = _driver()
+    try:
+        raised = []
+        driver.route_of = lambda digest, bud, dispatch="": (route("concerns", form(), bud), form())
+        driver.s5_note_findings = lambda *a, **k: None
+        driver.repair_answer = lambda *a, **k: {}
+
+        def older(*a, **k):
+            raised.append("older")
+            raise RuntimeError("the refusal always raises (the seam)")
+        driver.repair_older_controller = older
+        driver.repair_limit_raise = lambda ask: raised.append(ask["key"])
+        old = budget(counted=0, passes=False)
+        driver.repair_limit_gate("S5", "qa-code-critic", "S5-qa-code-critic-1", UNTYPED_DIGEST, ["TC-1"], budget=old)
+        assert raised == ["s5.nobody_review"], raised
+        raised.clear()      # the older-controller refusal still stands for a cap close
+        driver.route_of = lambda digest, bud, dispatch="": (route("concerns", form(finding("F-1", "test_defect", True)), budget(counted=2)), None)
+        try:
+            driver.repair_limit_gate("S5", "qa-code-critic", "S5-qa-code-critic-1", UNTYPED_DIGEST, ["TC-1"], budget=old)
+        except RuntimeError:
+            pass
+        assert raised == ["older"], raised
+    finally:
+        harness.cleanup(root)
+
+
+def test_s7_untyped_is_no_progress():
+    root, driver = _driver()
+    try:
+        driver.budget_or_none = lambda *a, **k: budget(counted=0)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            end = driver.s7_reorder_outcome(UNTYPED_DIGEST, "tests/test_a.py::t", "TC-1", what="repair review")
+        assert end == "no_progress"
+        assert out.getvalue() == "S7: tests/test_a.py::t - the critic sent the repair back without a typed finding; the round is stopped\n"
+    finally:
+        harness.cleanup(root)
+
+
 def main():
+    test_untyped_send_back_closes_untyped_not_test_defect()
+    test_form_none_send_back_untyped()
+    test_ok_without_findings_closes_plain()
+    test_send_back_words_equal_rows_owed_words()
+    test_untyped_asks_review_debt_stop()
+    test_untyped_skips_older_controller_refusal()
+    test_s7_untyped_is_no_progress()
     seam_codes()
     rework_contract()
     repair_budget_from_the_controller()

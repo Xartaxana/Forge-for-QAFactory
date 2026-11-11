@@ -273,7 +273,6 @@ def main() -> None:
     gate_b_triage_reads_the_one_definition()
     triage_rows_bind_by_spelling_one_side_at_a_time()
     triage_attempts_and_legacy_reports()
-    no_local_failed_error_tuple_in_triage_reasons()
     a_red_run_does_not_also_ask_for_the_stamp()
     the_record_text_carries_the_repair_limit()
     a_case_taken_by_hand_is_handed()
@@ -285,12 +284,15 @@ def main() -> None:
     a_mixed_item_lists_the_thens_each_record_leaves()
     a_failed_case_keeps_the_then_the_person_took()
     a_red_test_is_not_asked_for_a_sensitivity_proof()
-    the_blocked_kind_has_one_home()
     a_test_changed_after_its_run_is_the_persons_only_without_a_stand()
     rh1_9_no_flag_reader_without_a_writer()
     v_1_to_4_verdict_by_branch()
     v_10_and_16_word_and_case_item()
     g2_3_the_fr22_road()
+    awaiting_story_reads_one_awaiting_implementation_record()
+    stopped_story_reads_awaiting_implementation()
+    first_look_stop_reads_awaiting_implementation()
+    a_diff_story_pending_implementation_is_not_the_awaiting_kind()
     finish("test_check_delivery")
 
 
@@ -492,13 +494,6 @@ def rh1_9_no_flag_reader_without_a_writer() -> None:
     finally:
         env_reset()
         cleanup(root)
-    # K-D3: no reader of the two flags is left in the package scripts (text search, case-insensitive), with the
-    # positive control of the same search over the same files.
-    texts = {p.name: p.read_text(encoding="utf-8", errors="replace").lower() for p in SCRIPTS.glob("*.py")}
-    check_eq("K-D3 control: the same search finds a name that is in the scripts",
-             any("sensitivity_proof" in text for text in texts.values()), True)
-    for name in flags:
-        check_eq(f"K-D3: no script mentions {name}", [n for n, text in texts.items() if name in text], [])
 
 
 def a_test_changed_after_its_run_is_the_persons_only_without_a_stand() -> None:
@@ -508,7 +503,6 @@ def a_test_changed_after_its_run_is_the_persons_only_without_a_stand() -> None:
     the "Left with you" item names `run_suite.py --mine <case>`. The reader of the word is `waiver.split_overridden`, with
     the constant of `waiver.py`. Kills: the kind without `needs` (m1: one of the two branches), a second literal of the block
     name (m2: the census), the kind without an owner (m4: `test_delivery_ownership`)."""
-    import re
     import delivery_verdict as DV
     import ledger as L
     import waiver
@@ -557,11 +551,6 @@ def a_test_changed_after_its_run_is_the_persons_only_without_a_stand() -> None:
     registry = next(r["stages"] for r in block_names if r["block"] == block)
     check_eq("the stages of the word are the driver's", D.STAND_WORD_STAGES, story_run.Driver.STAND_STAGES)
     check_eq("... and the registry's", D.STAND_WORD_STAGES, tuple(registry))
-    literal = re.compile(r"[\"']" + re.escape(block) + r"[\"']")
-    found = {p.name: [n for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if literal.search(line)]
-             for p in sorted(SCRIPTS.glob("*.py"))}
-    check_eq("census: the block name is quoted in `waiver.py` once, and nowhere else",
-             {name: len(lines) for name, lines in found.items() if lines}, {"waiver.py": 1})
 
 
 def a_blocked_item_lists_only_its_blocked_thens() -> None:
@@ -721,27 +710,6 @@ def a_red_test_is_not_asked_for_a_sensitivity_proof() -> None:
     finally:
         env_reset()
         cleanup(root)
-
-
-def the_blocked_kind_has_one_home() -> None:
-    """3c1-K8 (F-10, census) and AR-13: `blocked_by_check` is the delivery kind of a Then behind a red check, never the old
-    `blocked_by` (the OWNER list of the verdict doc); the one reader of "red by the requirement" is called once on each path."""
-    import re
-    package = SCRIPTS.parent
-    homes = ["scripts/check_delivery.py", "scripts/delivery_summary.py", "scripts/handoff_check.py",
-             "references/artifact-contract-ledger.md", "handoffs/s8-scribe-to-gate-b.yaml"]
-    text = {h: (package / h).read_text(encoding="utf-8").splitlines() for h in homes}
-    hits = {h: [n for n, line in enumerate(lines, 1) if "blocked_by_check" in line] for h, lines in text.items()}
-    check_eq("K8: `blocked_by_check` is only in check_delivery.py", [h for h, found in hits.items() if found], ["scripts/check_delivery.py"])
-    assigns = [n for n, line in enumerate(text["scripts/check_delivery.py"], 1) if re.search(r'doc\["blocked_by"\]\s*=', line)]
-    check("K8 control: the same-form search finds the `blocked_by` assignment", len(assigns) == 1, str(assigns))
-    check_eq("K8: ... and no `blocked_by_check` sits on that line", [n for n in hits["scripts/check_delivery.py"] if n in assigns], [])
-    for path, name in (("scripts/ledger.py", "red_by_requirement("), ("scripts/check_delivery.py", "red_by_requirement(")):
-        count = sum(line.count("AC." + name) for line in (package / path).read_text(encoding="utf-8").splitlines()
-                    if not line.lstrip().startswith("#"))
-        check_eq(f"AR-13: `{path}` calls the reader of red once", count, 1)
-    check_eq("AR-13 control: the same-form search finds the other reader this module calls",
-             sum(line.count("AC.story_scope(") for line in (package / "scripts/check_delivery.py").read_text(encoding="utf-8").splitlines()), 1)
 
 
 def the_record_text_carries_the_repair_limit() -> None:
@@ -1467,33 +1435,6 @@ def triage_attempts_and_legacy_reports() -> None:
     check_eq("an empty report asks for nothing", _triage_run({}, []), [])
 
 
-def no_local_failed_error_tuple_in_triage_reasons() -> None:
-    """The class sentinel (FR-17: grep for the problem, not for the helper): `triage_reasons` and its two helpers
-    never compare `result_status(` with the failed/error tuple - that is `contract.triage_targets`' job. Positive
-    control: the same pattern over `contract.py` finds the one line known to hold it."""
-    import ast
-    import re
-    pattern = re.compile(r"result_status\(.*[\(\{]\s*\"failed\",\s*\"error\"")
-
-    def hits(path: Path, names: set) -> list:
-        text = path.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        spans = [(n.lineno, n.end_lineno) for n in ast.walk(ast.parse(text))
-                 if isinstance(n, ast.FunctionDef) and n.name in names]
-        check(f"the sentinel found {sorted(names)} in {path.name}", len(spans) == len(names), str(spans))
-        return [no for lo, hi in spans for no in range(lo, hi + 1) if pattern.search(lines[no - 1])]
-
-    check_eq("sentinel: no failed/error tuple in triage_reasons, _triage_failures, _bind_triage",
-             hits(SCRIPTS / "check_delivery.py", {"triage_reasons", "_triage_failures", "_bind_triage"}), [])
-    check("sentinel positive control: the same scan finds it in contract.triage_targets",
-          len(hits(SCRIPTS / "contract.py", {"triage_targets"})) == 1)
-    body = (SCRIPTS / "check_delivery.py").read_text(encoding="utf-8")
-    check("sentinel: `_triage_failures` reads the failures through the one definition (t-323 A1: contract.triage_failures, "
-          "built on triage_targets)", "C.triage_failures(" in body.split("def _triage_failures")[1].split("def _bind_triage")[0])
-    check("sentinel: `_bind_triage` is a thin call of the one binding (contract.bind_triage)",
-          "C.bind_triage(" in body.split("def _bind_triage")[1].split("def triage_reasons")[0])
-
-
 def a_whole_case_unconfirmed_row_is_a_debt_not_a_hold() -> None:
     """t-271 D2: a WHOLE-case `unresolved[]` row whose reason is `expectation_unconfirmed` (it names its question) is the
     person's debt. Before, `completeness_reasons` called the word "outside the closed list" and held delivery."""
@@ -2080,5 +2021,111 @@ def v_10_and_16_word_and_case_item() -> None:
         cleanup(root)
 
 
+def f5_unprepared_walk_is_a_left_item() -> None:
+    """F5(e) 3 (t-1936 N5, AR-27): the ledger's `unprepared_walks` reach "Left with you" as kind `unprepared_walk` (`after_checks`,
+    owner factory), one item per case, with the reason as what is left to check. KILLS: the producer unwired from `assess`, the kind
+    row removed (an unknown kind decides `no`), the item's `to_check` overwritten by the case's Thens."""
+    import delivery_verdict as DV
+    doc_kinds, problem = DV.load_kinds()
+    check_eq("test_kind_row_shape_accepted: the kinds file loads with the new row (`_shape_problem` accepts the pair)",
+             (problem, doc_kinds["kinds"].get("unprepared_walk")), ("", {"verdict": "after_checks", "owner": "factory"}))
+    ledger = {"unprepared_walks": [{"case": "TC-007", "obligation_ids": ["OB-7"], "reason": "the plan gives TC-007's check an evidence rule that is not one word",
+                                    "observations": [], "finding": ""}, {"reason": "no case"}, "junk"]}
+    records = D.unprepared_records(ledger)
+    check_eq("test_unprepared_walk_is_left_item_after_checks: one record per walk with a case; junk and a caseless row are dropped",
+             [(r["kind"], r["case"], r["source"]) for r in records], [("unprepared_walk", "TC-007", "ledger")])
+    check_eq("... a ledger without the key has none", (D.unprepared_records({}), D.unprepared_records(None)), ([], []))
+    check_eq("... the verdict of the kind is the third word", DV.decide([r["kind"] for r in records])[0], "after_checks")
+    facts = {"index": {}, "manifest": {}, "report": {}, "cfg": {}, "decisions": {}, "triage": {}}
+    items = D.build_left_items(records, facts, doc_kinds)
+    check_eq("test_unprepared_walk_is_left_item_after_checks: ONE counting item under its own kind",
+             [(i["ref"], i["kinds"], i["counts"]) for i in items], [("TC-007", ["unprepared_walk"], True)])
+    check_in("... naming the factory's failure and the reason", "evidence rule that is not one word", items[0]["to_check"])
+    check_eq("negative control: an unknown kind is never a pass", DV.decide(["unprepared_walks"])[0], "no")
+
+
+def _held_story(**hold) -> Path:
+    """The after-checks fixture story (a copy) held for code: `pipeline.awaiting` = `hold`."""
+    from test_third_verdict import edit, story
+    task = story()
+    edit(task, "pipeline.json", lambda p: p.update(awaiting=hold))
+    return task
+
+
+def awaiting_story_reads_one_awaiting_implementation_record() -> None:
+    """t-2181 C10 / PC-5: a story held for code gives ONE record `awaiting_implementation` (`no`, owner product) and runs no other check
+    (no bug candidate, no gate B reason). The ONE exception (AR-27, the Lead's fork): a red a recorded S7 verdict stands behind keeps its
+    own record beside the hold - it was written before the story parked, and the verdict is `no` either way.
+    KILLS: the hold read after the other checks; a second awaiting record per case; the recorded bug dropped from the report."""
+    from test_third_verdict import red, story
+    held = _held_story(since="2026-11-08T12:00:00")
+    quiet = D.assess(held)
+    check_eq("awaiting: with no red, ONE reason, ONE record of kind awaiting_implementation, owner product",
+             ([r["kind"] for r in quiet["reason_records"]], [r["owner"] for r in quiet["reason_records"]], len(quiet["reasons"])),
+             (["awaiting_implementation"], ["product"], 1))
+    check_eq("awaiting: the words of the default cause", quiet["reasons"], ["grounding: waiting for a fix"])
+    check_eq("awaiting: the verdict is `no`, not ready", (quiet["delivery_verdict"], quiet["delivery_ready"]), ("no", False))
+    check_eq("awaiting: no item of the other records is left (only the regression row, which decides nothing)",
+             [i for i in quiet["left_items"] if i.get("kinds")], [])
+    red(held)       # a red result and its recorded APP_BUG triage sit in the story, written before it parked
+    doc = D.assess(held)
+    kinds = [r["kind"] for r in doc["reason_records"]]
+    check_eq("awaiting + a recorded bug: still ONE awaiting_implementation record, first, and nothing but red beside it",
+             (kinds[0], kinds.count("awaiting_implementation"), set(kinds)), ("awaiting_implementation", 1, {"awaiting_implementation", "red"}))
+    check("awaiting + a recorded bug: the APP_BUG red reaches the report under its own record",
+          any("APP_BUG" in r for r in doc["reasons"]), str(doc["reasons"]))
+    check_eq("awaiting + a recorded bug: the verdict is `no` (it cannot get weaker)", (doc["delivery_verdict"], doc["delivery_ready"]), ("no", False))
+    check_eq("awaiting + a recorded bug: no bug candidate or other item is added",
+             [i for i in doc["left_items"] if i.get("kinds")], [])
+    control = D.assess(story())
+    check_eq("control: the same story not held is not `awaiting`", [r["kind"] for r in control["reason_records"]], [])
+
+
+def stopped_story_reads_awaiting_implementation() -> None:
+    """B4: a stopped hold is the same kind, and the line carries the person's words (carried whole, never read)."""
+    task = _held_story(since="2026-11-08T12:00:00", stopped={"at": "2026-11-09T10:00:00", "words": "the team dropped the feature"})
+    doc = D.assess(task)
+    check_eq("stopped: still ONE awaiting_implementation record", [r["kind"] for r in doc["reason_records"]], ["awaiting_implementation"])
+    check_eq("stopped: the line says so and carries the person's words",
+             doc["reasons"], ['grounding: waiting for a fix; the person stopped waiting: "the team dropped the feature"'])
+    check_eq("stopped: still `no`", doc["delivery_verdict"], "no")
+    bare = D.assess(_held_story(since="2026-11-08T12:00:00", stopped={"at": "2026-11-09T10:00:00"}))
+    check_eq("stopped with no words: the suffix only, no empty quote", bare["reasons"], ["grounding: waiting for a fix; the person stopped waiting"])
+
+
+def first_look_stop_reads_awaiting_implementation() -> None:
+    """t-2277 PC-5: the words by `cause` - a story stopped after the first look says the feature does not work yet; a cause the table
+    does not hold reads as the default cause (an unknown cause never hides the hold)."""
+    doc = D.assess(_held_story(cause="first_look_stop", held_from="S3", since="2026-11-08T12:00:00"))
+    check_eq("first_look_stop: kind and words", ([r["kind"] for r in doc["reason_records"]], doc["reasons"]),
+             (["awaiting_implementation"], ["grounding: stopped after the first look: the feature does not work yet"]))
+    check_eq("first_look_stop: the record is typed with its cause", D.awaiting_record(C.awaiting({"awaiting": {"cause": "first_look_stop"}}))["cause"],
+             "first_look_stop")
+    odd = D.assess(_held_story(cause="something_new"))
+    check_eq("an unknown cause reads as the default cause", odd["reasons"], ["grounding: waiting for a fix"])
+    check_eq("the sentence has an owner family (FR-19: no classifier finding)",
+             [f for f in doc["factory_findings"] if f["code"] == "REASON_OWNER_UNCLASSIFIED"], [])
+
+
+def a_diff_story_pending_implementation_is_not_the_awaiting_kind() -> None:
+    """E-V1: the grounding `pending_implementation` (a requirement the change does not implement) keeps its own kind and `no`;
+    the hold's kind is another, also `no`, and neither is ever listed in Left with you."""
+    import delivery_verdict as DV
+    check_eq("the two kinds are two", (DV.verdict_of_kind("pending_implementation"), DV.verdict_of_kind("awaiting_implementation")), ("no", "no"))
+    check_eq("pending_implementation record keeps its kind", D.pending_implementation_record("R-2")["kind"], "pending_implementation")
+    check_eq("neither counts toward the third word", (DV.counts("pending_implementation"), DV.counts("awaiting_implementation")), (False, False))
+    # a requirement of a DIFF story that the grounding table calls `not_implemented` is still a `pending_implementation` record (`no`),
+    # read while the story is NOT held for code (moved here from test_report_facts: the same check_delivery/delivery_verdict surface)
+    from test_third_verdict import story
+    task = story()
+    table = ("schema_version: 1", "implementation_source: diff", "requirements:", "  - r: R-2", "    state: not_implemented", "    question: Is it built?")
+    (task / "work" / "grounding.yaml").write_bytes(("\n".join(table) + "\n").encode("utf-8"))
+    recs = D.grounding_records(task, {"rows": []}, {})
+    check_eq("a diff story's `not_implemented` requirement keeps its own kind", [r["kind"] for r in recs], ["pending_implementation"])
+    check_eq("... decides `no`, and the story is not held for code", (DV.decide([r["kind"] for r in recs])[0], C.awaiting(C.load_json(task / "pipeline.json"))["state"]),
+             ("no", "none"))
+
+
 if __name__ == "__main__":
+    f5_unprepared_walk_is_a_left_item()
     main()

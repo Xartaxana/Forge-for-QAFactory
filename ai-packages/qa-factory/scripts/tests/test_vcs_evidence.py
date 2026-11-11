@@ -387,15 +387,15 @@ try:
     # Fixtures: the output of `glab auth status` measured on glab 1.126.0 and 1.40.0 (Linux, NO_COLOR=1, dummy tokens,
     # t-260 critic report, section 1); everything is on stderr, a token is masked.
     OK = "✓"
-    F126_NONE = ("gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/v4/user: 401 {message: 401 Unauthorized}\n"
+    F126_NONE = ("gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/vX/user: 401 {message: 401 Unauthorized}\n"
                  "  ! No token found (checked config file, keyring, and environment variables).\n   ERROR\n"
                  "  x could not authenticate to one or more of the configured GitLab instances.\n")
-    F126_CONFIG = ("gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/v4/user: 401 {message: 401 Unauthorized}\n"
+    F126_CONFIG = ("gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/vX/user: 401 {message: 401 Unauthorized}\n"
                    f"  {OK} Token found in configuration file (plaintext): ****\n")
     F126_ENV = (f"gitlab.com\n  {OK} Git operations for gitlab.com configured to use ssh protocol.\n"
                 f"  {OK} Token found in environment variable GITLAB_TOKEN: ****\n"
                 "! Token is from environment variable GITLAB_TOKEN. This takes precedence over tokens stored in config or keyring.\n")
-    F140_NONE = ("gitlab.com\n  x gitlab.com: api call failed: GET https://gitlab.com/api/v4/user: 401 {message: 401 Unauthorized}\n"
+    F140_NONE = ("gitlab.com\n  x gitlab.com: api call failed: GET https://gitlab.com/api/vX/user: 401 {message: 401 Unauthorized}\n"
                  "  x No token provided\n")
     F140_TOKEN = f"gitlab.com\n  {OK} Token: ****\n  ! Invalid token provided\n"
     VARS = ("GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN")
@@ -458,7 +458,7 @@ try:
         check_eq(f"401, default host with no token ({label}): no_token, not other_host_token", got["case"], "no_token")
     old_steps = vcs_evidence.failed_readiness("unauthenticated", "githost.example")
     for label, text in (("empty output", ""), ("no block at all", "some words\nnothing like a host here\n"),
-                        ("a block with neither form", "gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/v4/user: 401\n"),
+                        ("a block with neither form", "gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/vX/user: 401\n"),
                         ("a localized output", "gitlab.com\n  x Kein Token gefunden\n"),
                         ("both forms in one block", "gitlab.com\n  x No token found\n  Token: ****\n")):
         got = case_of("unauthenticated", "githost.example", text)
@@ -600,7 +600,7 @@ try:
              parsed, {"126 none": [("gitlab.com", "absent")], "126 config": [("gitlab.com", "present")], "126 env": [("gitlab.com", "present")],
                       "140 none": [("gitlab.com", "absent")], "140 token": [("gitlab.com", "present")]})
     check_eq("a fixture line with neither form gives unknown (a block, no state)",
-             vcs_evidence._auth_blocks("gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/v4/user: 401\n", rules),
+             vcs_evidence._auth_blocks("gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/vX/user: 401\n", rules),
              [("gitlab.com", None)])
     check_eq("ANSI colour and an update notice with a URL do not open a block",
              vcs_evidence._auth_blocks("\x1b[1mgitlab.com\x1b[0m\n  \x1b[31mNo token found\x1b[0m\nA new version of glab is available: https://x.example/y\n", rules),

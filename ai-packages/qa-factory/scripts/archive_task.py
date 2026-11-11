@@ -90,6 +90,26 @@ def last_activity(pipeline: dict) -> datetime | None:
     return max(s if s.tzinfo else s.replace(tzinfo=timezone.utc) for s in stamps)
 
 
+def hold_line(pipeline: dict) -> str:
+    """The one line that says a story is held for code, for the doctor (`stage_guard.stories`) and the archive (`open_items`):
+    `awaiting code since <date> (<sides>)`, `held after the first look since <date> (<sides>)`, `stopped waiting <date>` (+
+    ` (after the first look)`); "" when nothing is held. Read through `contract.awaiting` (t-2181 PC-6, AR-13): a record written
+    before the cause existed reads `s5_absent_side`. `<sides>` are the recorded sides that are not `real`."""
+    import contract as C
+    hold = C.awaiting(pipeline)
+    if hold["state"] == "none":
+        return ""
+    first_look = hold["cause"] == "first_look_stop"
+    if hold["state"] == "stopped":
+        stopped = hold.get("stopped") if isinstance(hold.get("stopped"), dict) else {}
+        return f"stopped waiting {str(stopped.get('at') or '')[:10] or 'at an unknown time'}" + (" (after the first look)" if first_look else "")
+    sides = hold.get("sides") if isinstance(hold.get("sides"), dict) else {}
+    names = ", ".join(str(name) for name, entry in sides.items() if not (isinstance(entry, dict) and entry.get("reality") == "real"))
+    label = ("held after the first look" if first_look else "awaiting code" if hold["cause"] == C.AWAITING_DEFAULT_CAUSE
+             else f"held for code ({hold['cause']})")
+    return f"{label} since {str(hold.get('since') or '')[:10] or 'an unknown date'}" + (f" ({names})" if names else "")
+
+
 def open_items(pipeline: dict) -> list:
     """What still asks something of a person. Empty list = a clean candidate."""
     out = []
@@ -112,7 +132,12 @@ def open_items(pipeline: dict) -> list:
         if status in ("running", "halted"):
             out.append(f"{sid} left {status}")
     last = order[-1] if order else ""
-    if reached and last and (stages.get(last) or {}).get("status") != "done":
+    # t-2181 PC-6 (§2.4): a story held for code names what it waits for INSTEAD of "parked" (that sentence is for a story nobody
+    # explains); a STOPPED story is no open item at all - the person ended the wait, and the story is theirs to archive.
+    hold = C.awaiting(pipeline)
+    if hold["state"] == "awaiting":
+        out.append(hold_line(pipeline))
+    elif hold["state"] == "none" and reached and last and (stages.get(last) or {}).get("status") != "done":
         out.append(f"the story never reached {last} done — it was parked, not finished")
     return out
 

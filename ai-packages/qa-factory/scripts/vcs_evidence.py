@@ -81,6 +81,18 @@ def parse_mr(url):
     return parsed.netloc, match[1], match[2]
 
 
+def mr_iid(value) -> str:
+    """The merge request number of a manifest's `mr` field, or '' - the ONE reader of that field (AR-13); the base slice (receipt lookup) and
+    the first look (the head asked of the remote) both call it. The manifest holds what the story was given: a bare number (`4214`, an int),
+    `!42`, or a link whose path has `/merge_requests/<n>` followed by `/`, `?`, `#` or the end (https or http, with or without `-/`, with a
+    `/diffs` suffix). The number is the digits without leading zeros (`007` -> `7`: the receipt is `mr-7.json`); zero, empty, text, a sign,
+    a non-MR link and any other type are '' - unknown, never a guess at a number. Not `parse_mr`: that one refuses what an API fetch must
+    refuse (http, credentials, no `-/`); a number looked up in a local file needs none of it."""
+    text = str(value).strip() if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
+    got = re.fullmatch(r"!?([0-9]+)", text) or re.search(r"/merge_requests/([0-9]+)(?:[/?#]|$)", text)
+    return got[1].lstrip("0") if got else ""
+
+
 def pages(host, endpoint, read=api):
     rows, seen, page = [], set(), 1
     while True:

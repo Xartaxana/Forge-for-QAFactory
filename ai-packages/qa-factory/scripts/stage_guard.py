@@ -40,6 +40,8 @@ before the factory proceeds past a risk:
    artifacts (pipeline.json, the plan, the cases) are untracked. On TP2-2104 they
    went into the stash and the next role's inputs vanished; it was caught and restored by
    hand. A stash that names its paths, or excludes qa-factory/, cannot do it again.
+8. HELD FOR CODE — a story held for code (`pipeline.awaiting`, read through `contract.awaiting`) is not let into a
+   stage from its `held_from`; a stage below it stays open to the person's rework (`rule_awaiting_code`).
 
 A PERSON'S WORD PASSES ANY OF THEM: rules 1 and 2 run through `dispatch_errors()`, which
 filters them through `waiver.split_overridden(...)` — the `stage_overrides[]` the orchestrator
@@ -188,6 +190,83 @@ def stage_of_dispatch(model: dict, role: str, *, held: str = "", dispatches=None
     live = [d for d in rows if isinstance(d, dict) and d.get("status") == "running"
             and str(d.get("role") or "") == role and isinstance(d.get("stage"), str) and d.get("stage") in by_id]
     return by_id[live[0]["stage"]] if len(live) == 1 else None
+
+
+# --- the optional dispatches of a stage (t-2277 FL-5; PC-9b adds its S1 row in the same shape) -------------------------------------
+#
+# `stages.json` stage `optional_dispatches: [{"role": R, "purpose": P}]` names a dispatch that may run IN the stage without being one of its
+# `roles` and without ever closing it (the first look: a `qa-runner` of purpose `first_look` before S3's window 1). These readers are the ONE
+# reader of those rows (AR-13): `story_step start` admits by them, `check_dispatch` and `exit_gate` place the dispatch by them. A row that is
+# not a mapping with a non-empty role and purpose is no row. The record of an optional dispatch is judged by its own output, not by the
+# stage's: the row's own `output` field says which (one path per row, AR-1: data, not a table in code; a row with none is judged by nothing
+# but its form).
+
+
+def optional_outputs(row) -> tuple:
+    """The paths an optional dispatch owes, from its row's `output` (a non-empty string or a list of them); `()` for a row with none, a
+    blank value or a non-mapping."""
+    value = row.get("output") if isinstance(row, dict) else None
+    items = [value] if isinstance(value, str) else (value if isinstance(value, list) else [])
+    return tuple(str(item).strip() for item in items if isinstance(item, str) and item.strip())
+
+
+def optional_purposes(model: dict, role: str) -> set:
+    """Every purpose any stage's optional row names for `role` (the words a dispatch of that role may carry without being one of the
+    stage's own roles). `set()` for a role no row names. Pure."""
+    return {row["purpose"] for st in (model or {}).get("stages") or [] for row in optional_rows(st) if row["role"] == role}
+
+
+def optional_rows(stage) -> list:
+    """The usable `optional_dispatches` rows of one stage entry of the model (mappings with a non-empty `role` and `purpose`); `[]` for
+    a stage with none, a malformed list, or a non-mapping."""
+    rows = stage.get("optional_dispatches") if isinstance(stage, dict) else None
+    return [row for row in rows if isinstance(row, dict) and str(row.get("role") or "").strip() and str(row.get("purpose") or "").strip()] \
+        if isinstance(rows, list) else []
+
+
+def optional_row(model: dict, stage_id: str, role: str, purpose) -> dict | None:
+    """The row of stage `stage_id` that admits `role` with `purpose`, or None. A blank purpose never matches (an optional dispatch is
+    named by its purpose; the stage's own roles are admitted without one)."""
+    if not str(purpose or "").strip():
+        return None
+    for st in (model or {}).get("stages") or []:
+        if st.get("id") == stage_id:
+            return next((row for row in optional_rows(st) if row["role"] == role and row["purpose"] == str(purpose)), None)
+    return None
+
+
+def optional_roles(model: dict) -> set:
+    """Every role any stage names in an optional row (the cheap test before any state is read)."""
+    return {row["role"] for st in (model or {}).get("stages") or [] for row in optional_rows(st)}
+
+
+def _record_purpose(record) -> str:
+    if not isinstance(record, dict):
+        return ""
+    binding = record.get("request_binding")
+    return str((binding if isinstance(binding, dict) else {}).get("purpose") or record.get("purpose") or "")
+
+
+def optional_stage_of_dispatch(model: dict, role: str, dispatches, *, name: str = "") -> tuple | None:
+    """`(stage entry, row, record)` when the dispatch that is running NOW for `role` is an optional dispatch of some stage, else None. PURE.
+    The dispatch is the one named (`name`: a held or declared id) or the ONLY running dispatch of the role; two running, none, an unknown
+    shape or a purpose no row names is None. Error direction: toward None - the role is then placed as before (its own stage), never
+    placed on a stage by a guess (AR-28)."""
+    if role not in optional_roles(model):
+        return None
+    rows = list(dispatches.items()) if isinstance(dispatches, dict) else []
+    live = [(str(key), rec) for key, rec in rows if isinstance(rec, dict) and rec.get("status") == "running" and rec.get("role") == role]
+    if name:
+        live = [(key, rec) for key, rec in live if key == name or str(rec.get("id") or "") == name]
+    if len(live) != 1:
+        return None
+    record = live[0][1]
+    stage_id = str(record.get("stage") or "")
+    row = optional_row(model, stage_id, role, _record_purpose(record))
+    if row is None:
+        return None
+    stage = next(st for st in model.get("stages") or [] if st.get("id") == stage_id)
+    return stage, row, record
 
 
 def known_roles(model: dict) -> list:
@@ -697,7 +776,7 @@ def deny(message: str) -> int:
 # Kept next to the message that carries it: the guard prints the command, so the two can only
 # drift if someone edits one of them alone.
 BLOCK_MATCHES = ("required stages are not done", "gate A is not approved", "tracker route",
-                 "unresolved cases without a reason", "could not be read", "is absent")
+                 "unresolved cases without a reason", "could not be read", "is absent", "is held for code")
 
 
 def block_match(message: str) -> str:
@@ -785,6 +864,31 @@ def rule_gate_a(model: dict, stage: dict, pipeline: dict) -> str | None:
             "human and record the decision in pipeline.json before dispatching.")
 
 
+def rule_awaiting_code(model: dict, stage: dict, pipeline: dict) -> str | None:
+    """Rule 8 (t-2181 PC-6 C13, t-2277 J-C8): a story HELD FOR CODE is not let into a stage from `held_from` (S6 for `s5_absent_side`,
+    S3 for `first_look_stop`) - the controller refuses the dispatch of such a stage too; this is the guard's own line for the hook
+    that sees a role launched by hand. The hold is read through `contract.awaiting` (the one reader, AR-13) from the story's own
+    `pipeline.awaiting`; a record it cannot read is no record, and `held_from` that names no stage reads as the reader's default
+    stage. A stage BELOW `held_from` is open: a rework of S0..held_from-1 runs inside the hold. A person's word passes it like any
+    block (`waiver.py`, journaled as `gate_override`); the arrival of the code, `stop_waiting` and the rework below are the doors
+    the line names."""
+    import contract as C
+    hold = C.awaiting(pipeline)
+    if hold["state"] == "none":
+        return None
+    start = stage_index(model, hold["held_from"])
+    if start < 0:
+        start = stage_index(model, C.AWAITING_DEFAULT_HELD_FROM)
+    if stage_index(model, stage["id"]) < start:
+        return None
+    stopped = hold["state"] == "stopped"
+    return (f"stage {stage['id']} is held for code ({hold['cause']}) from {hold['held_from']}"
+            + (": the person stopped the wait" if stopped else ": the code this story delivers is not there yet")
+            + ". No role of this stage starts until the code arrives (relaunch the story with `--mr`, `--branch`, `--commit` or "
+              "`--side <side>=real`), or the person ends the wait (`controller.py --operation stop_waiting --words-file <file>`); "
+              f"a rework of the stages before {hold['held_from']} is open.")
+
+
 def dispatch_errors(pipeline: dict, stage_id: str, *, assume_gate_approved: str | None = None,
                     journal: bool | None = None, model: dict | None = None, ticket: str | None = None,
                     event: dict | None = None, role: str | None = None,
@@ -813,6 +917,7 @@ def dispatch_errors(pipeline: dict, stage_id: str, *, assume_gate_approved: str 
                       state_of=lambda: awaiting_state(pipeline, ticket, task_root, event))]
     if str(assume_gate_approved or "").upper() != "A":
         raw.append(rule_gate_a(model, stage, pipeline))
+    raw.append(rule_awaiting_code(model, stage, pipeline))
     ticket = str(ticket or (pipeline or {}).get("ticket") or "")
     if ticket and stage_id in MANIFEST_STAGES:
         what = f"dispatching {role} ({stage_id})" if role else f"dispatching stage {stage_id}"
@@ -1710,8 +1815,15 @@ def check_dispatch(event: dict) -> int:
     # A role on several stages is placed by its live dispatch, AFTER the foreign-role allow and the pipeline read above (X2-2b):
     # a role on one stage meets no new branch, and "not established" is a refusal with a door, never the home stage by default.
     on_stages = stages_of_role(model, role)
-    if len(on_stages) > 1:
-        controller = read_json(artifacts_dir(ticket, event) / "state" / "controller.json")
+    controller = read_json(artifacts_dir(ticket, event) / "state" / "controller.json") \
+        if len(on_stages) > 1 or role in optional_roles(model) else None
+    # An OPTIONAL dispatch (t-2277 FL-5) is placed on the stage whose `optional_dispatches` row its registered dispatch matches, so the
+    # first look is judged by S3's order rules (S2 done, no gate before it), not by S6's. INVARIANT: only a role with a registered RUNNING
+    # dispatch of the row's purpose gets this stage; a qa-runner with none is placed exactly as before (S6's rules refuse it before S5).
+    optional = optional_stage_of_dispatch(model, role, (controller or {}).get("dispatches"))
+    if optional is not None:
+        stage = optional[0]
+    elif len(on_stages) > 1:
         placed = stage_of_dispatch(model, role, dispatches=(controller or {}).get("dispatches"))
         if placed is None:
             names = ", ".join(str(st.get("id")) for st in on_stages)
@@ -2352,7 +2464,10 @@ def _request_path(command: str) -> str:
 # windows on TP1-15045, `--help`, `--detail` and `--recover` among them, not one of which
 # could have run a test. A rule that exists to stop untyped EXECUTION must let reading through.
 NON_EXECUTING_FLAGS = ("--reparse-block", "--recover", "--detail", "--help", "-h",
-                       "--selftest", "--template")
+                       "--selftest", "--template",
+                       # `run_suite.py --task <T> --collect-only --tests ... -- <cmd>` lists tests and launches none: the door
+                       # `check_witness` and `run_suite` name for a manifest whose every test is pending (t-2181 PC-4, B4)
+                       "--collect-only")
 
 # A command may MENTION the runner without launching it — `find / -name run_suite.py`,
 # `grep -n report_test_id .../run_suite.py`. Five of those same ten refusals were roles
@@ -2586,6 +2701,25 @@ def _in_scope(instance, scope: set, covers: dict | None = None) -> bool:
                and not text[len(str(entry))].isalnum() for entry in scope if entry)
 
 
+# A name that is in the story but is not a running dispatch (closed, returned): its request names no live dispatch.
+_NO_LIVE_DISPATCH = {"id": object(), "scope": []}
+
+
+def _current_dispatch(dispatches, active: list):
+    """The running dispatch a typed run request must name, or None = "decide by the request's own dispatch_id" (TR3-14,
+    AR-13; error direction: never another window's dispatch). A session that carries its dispatch's name
+    (`dispatch_identity.named`) is that dispatch when it is running; a name this story holds that is not running is a
+    dispatch that cannot run tests (a stand-in no request id equals). No name, or a name this story does not hold: one active
+    dispatch is the one (today's road); two or more are told apart by the request's id in `_judge_slice`."""
+    import dispatch_identity
+    name = dispatch_identity.named()
+    if name:
+        if dispatch_identity.held(dispatches, name):
+            mine = dispatch_identity.own(dispatches)
+            return mine if mine is not None else _NO_LIVE_DISPATCH
+    return active[0] if len(active) == 1 else None
+
+
 def rule_typed_runner(command: str, event: dict, ticket: str,
                       controller: dict | None = None, notes: list | None = None) -> str:
     """Factory-managed dispatches must use a request matching active identity and scope.
@@ -2612,6 +2746,7 @@ def rule_typed_runner(command: str, event: dict, ticket: str,
                 "cannot tell where one command ends and the next begins and refuses the command whole. "
                 f"Write it without that: {door}. Or launch the runner in its own form, one command with the "
                 "path written out in full: `run_suite.py --request FILE`")
+    current = _current_dispatch(dispatches, active)
     readings = []
     for dialect in ("bash", "powershell"):
         reading = _slices(command, dialect)
@@ -2619,7 +2754,7 @@ def rule_typed_runner(command: str, event: dict, ticket: str,
             readings.append(reading)
     for slices, bare in readings:
         for piece in slices:
-            message = _judge_slice(piece, slices, bare, event, ticket, active[0], notes)
+            message = _judge_slice(piece, slices, bare, event, ticket, current, notes, active=active)
             if message:
                 return message
     return ""
@@ -2639,10 +2774,11 @@ BARE_PAREN_NOTE = (". This command has parentheses around the runner's words, an
 
 
 def _judge_slice(piece: _Slice, slices: list, bare: bool, event: dict, ticket: str,
-                 current: dict, notes: list | None) -> str:
+                 current: dict | None, notes: list | None, *, active: list | None = None) -> str:
     """The typed-runner verdict on ONE slice of a command ("" = it passes); `slices` are the whole command's, for
     `_writes_request`; `bare` (a bare parenthesis of bash) withdraws the reader exemption (see `_launches_runner`).
-    `current` is the running dispatch the request must name.
+    `current` is the running dispatch the request must name; None with `active` (the running ones) = the request's own
+    `dispatch_id` picks among them (two or more running, no name; TR3-14).
 
     The order is the invariant (CX1-20 section 4 R4): (1) the slice names the runner - on its RAW text or one cleaned
     word - else nothing is read; (2) a reader head (on the MASKED text) only mentions it; (3) a non-executing flag, on
@@ -2684,11 +2820,16 @@ def _judge_slice(piece: _Slice, slices: list, bare: bool, event: dict, ticket: s
     requests = request.get("requests") if isinstance(request, dict) and "requests" in request else [request]
     if not isinstance(requests, list) or not requests:
         return "typed schedule requires a non-empty requests array"
-    scope = {str(s) for s in (current.get("scope") or [])}
     covers = _manifest_covers(ticket, event)
     for item in requests:
-        if not isinstance(item, dict) or item.get("dispatch_id") != current.get("id"):
+        # `current` None: two or more are running and the session carries no name - the request's own id picks the
+        # running dispatch it names (its scope is then the one judged); an id no running dispatch holds is the old refusal.
+        mine = current
+        if mine is None and isinstance(item, dict):
+            mine = next((d for d in (active or []) if d.get("id") == item.get("dispatch_id")), None)
+        if not isinstance(item, dict) or mine is None or item.get("dispatch_id") != mine.get("id"):
             return "RunRequest dispatch_id does not match the active controller dispatch"
+        scope = {str(s) for s in (mine.get("scope") or [])}
         selected = item.get("selected_instance_ids")
         if not isinstance(selected, list):
             return "RunRequest selected instances exceed the active dispatch scope"
@@ -2865,6 +3006,12 @@ def stories(event: dict | None = None) -> int:
                 f"active: {', '.join(active) or 'none'}  gate A: {ga}  gate B: {gb}")
         if closed_at:
             line += _stale_after_closure(pj, stages, order)
+        # t-2181 PC-6: a story held for code says so, with the cause, so the doctor never reads "last done: S5" as a stall; a
+        # stopped one says it was stopped. One text, `archive_task.hold_line`, shared with the archive's open items.
+        from archive_task import hold_line
+        held = hold_line(data)
+        if held:
+            line += "  " + held
         if open_halts:
             line += f"  UNRESOLVED HALTS ({len(open_halts)}): " + " | ".join(
                 str(h.get("reason") or h.get("digest") or "no reason recorded")[:120] for h in open_halts)

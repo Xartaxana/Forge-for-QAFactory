@@ -37,14 +37,16 @@ A case's `basis` (per Then): `requirement:R-n` · `invariant:<id>` · `consisten
 
 **Oracle word** (`then_oracles`, one entry per Then of a case; `contract.THEN_ORACLE_WORDS`) — `code` is
 not a word: a value read from the implementation under test can only pass. Beside the case `basis`
-prefix: `requirement` ↔ `requirement:`, `spec` ↔ `external:`, `precedent` ↔ `history:`; `person` and `unknown`
+prefix: `requirement` ↔ `requirement:`, `spec` ↔ `external:`, `precedent` ↔ `history:` for a `base:` ref
+(a `reference:` ref sits under `requirement:R-n` of a parity row, never under `history:`); `person` and `unknown`
 carry a question id instead.
 
 - `requirement` — a requirement of the register, read from any ticket source (the description, a criterion, a
   comment, an attachment, a linked ticket); `ref` is the register's R-n (never an implementation-only one).
 - `ac` — the older name of `requirement`: a case saved with it is read as it was and never rewritten.
 - `spec` — a document the story names; `ref` is R-n.
-- `precedent` — a requirement names parity with OLDER behaviour; `ref` is `base:<rev>:<path>:<line>`.
+- `precedent` — a requirement names parity with OLDER behaviour; `ref` is `base:<rev>:<path>:<line>`, or `reference:<item>` (an item of the
+  reference snapshot; only under a case basis `requirement:R-n` whose register row says `parity: yes`).
 - `person` — a person answered the question; `ref` is its id. Read at run time, never edited into the case.
 - `unknown` — nobody confirmed it; `ref` is the open question, which shows before/now. Never asserted.
 - `claim` — not an oracle word: the `from` of the two readings of a before/now question (the behaviour

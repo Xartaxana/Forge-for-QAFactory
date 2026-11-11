@@ -165,25 +165,9 @@ def _lock_state(path: Path) -> str:
     """'held' when another process holds the OS lock on this file (the same try-lock the writers
     use: event_store, execution_scheduler), 'free' when nobody does, 'unknown' when it cannot be
     tried. A `.lock` file existing is NOT a running session (a live project had four with none
-    running). Nothing is written to the file."""
-    try:
-        with open(path, "a+b") as handle:
-            handle.seek(0)
-            try:
-                if os.name == "nt":
-                    import msvcrt
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    fcntl.flock(handle, fcntl.LOCK_UN)
-                return "free"
-            except OSError:
-                return "held"
-    except OSError:
-        return "unknown"
+    running). Nothing is written to the file: a file that vanished since the scan is 'unknown', never made."""
+    from event_store import file_lock_state
+    return file_lock_state(path)
 
 
 def _holders(value):
@@ -347,7 +331,7 @@ def find_locks(root, table: dict | None = None) -> list:
             pids = [str(int(h["pid"])) for h, s in held if s in ("alive", "unknown") and str(h.get("pid") or "").isdigit()]
             out.append({"rel_path": rel, "state": "live" if "alive" in states else "unknown", "kind": "lease",
                         "class": I.classify(rel, table=table)["class"], "age_hours": round(_age_hours(path), 1), "action": "none",
-                        "holder": f"pid {pids[0]}" if pids else "unknown"})
+                        "holder": ", ".join(f"pid {p}" for p in pids) if pids else "unknown"})
     return sorted(out, key=lambda r: r["rel_path"])
 
 
@@ -376,9 +360,9 @@ def _live_door(lock: dict, own: str) -> str:
     session = _writer_session(lock["rel_path"])
     if lock["kind"] == "lease":
         if parts[-1].startswith("stand-lease"):
-            return ("wait until the run that holds the stand finishes and run the onboarding again; if that run is known to be "
-                    "gone, a person's word releases the stand: stand_lease.py --release --env <stand name> --reason \"<why>\" "
-                    "(stand_lease.py --status lists the stands)")
+            return ("wait until the run or the walks that hold the stand finish and run the onboarding again; if they are known to be "
+                    "gone, a person's word releases the stand (every holder of it): stand_lease.py --release --env <stand name> --reason \"<why>\" "
+                    "(stand_lease.py --status lists the stands and each holder)")
         return "wait until the run that holds it finishes, then run the onboarding again"
     if session:
         door = f"finish that session (its id is the folder name {session}), then run the onboarding again"

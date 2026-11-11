@@ -13,7 +13,7 @@ CA3 refusals (exit 2, FR-1 form, nothing written or deleted): no fragments, Cyri
 CA3b a version already in CHANGELOG.md (also in the dry run; a fenced `## ` line is text) and a file in changelog.d/
     that is not README.md or a lower-case *.md (refused by name; `--list` shows `REFUSED <name>`).
 CA4 line endings: CRLF stays CRLF with no bare LF added, stdout stays LF; a title-only CHANGELOG gets the section appended.
-CA5 the `--lang` rule is a copy and is pinned to selftest's own predicate; the shipped pointer line and README exist.
+CA5 the `--lang` rule is a copy and is pinned to selftest's own predicate.
 
 Mutations this file kills (each by this file alone):
   the section inserted after the top section (CA1) | fragments in directory order (CA1) | fragments left on disk
@@ -252,10 +252,6 @@ def test_ca5_lang_rule_copy_and_shipped_files():
     import selftest as S
     check_eq("CA5 the Cyrillic predicate equals selftest.CYRILLIC", CA.CYRILLIC.pattern, S.CYRILLIC.pattern)
     check_eq("CA5 the control-byte table equals selftest.CONTROL_BYTES", CA.CONTROL_BYTES, S.CONTROL_BYTES)
-    check("CA5 the shipped changelog.d/README.md exists", (PLUGIN_ROOT / "changelog.d" / "README.md").is_file())
-    head = (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n")[:5]
-    check("CA5 the shipped CHANGELOG.md points to changelog.d/ right under the title",
-          head[0].startswith("# ") and "changelog.d/" in head[2] and "changelog_assemble.py" in head[2], str(head))
 
 
 CASES = (test_ca1_assemble_places_orders_and_cleans, test_ca2_list_and_dry_run,

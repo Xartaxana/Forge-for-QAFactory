@@ -1131,7 +1131,7 @@ def b273_assembly_edges() -> None:
             driver.state["refusal_resumes"] = {}
             return resumed, assembled
 
-        def real_gate(role, digest):
+        def real_gate(role, digest, dispatch=None):
             errs = role_digest.check(digest, [])
             return [role_digest.refusal(role, errs)] if errs else []
         resumed, assembled = wire(real_gate)
@@ -1143,7 +1143,7 @@ def b273_assembly_edges() -> None:
         # an error beside the digest's: the role is resumed (assembling would not save the resume), nothing is tried
         calls = {"n": 0}
 
-        def two_findings(role, digest):
+        def two_findings(role, digest, dispatch=None):
             calls["n"] += 1
             return [gate_error, "some other finding"] if calls["n"] == 1 else []
         resumed, assembled = wire(two_findings)
@@ -1157,7 +1157,7 @@ def b273_assembly_edges() -> None:
         # `handoff` asks the exit gate once more before any assembly (`shorten_form`'s guard, t-908 §3.2), so a counter shifts
         # by one and lets the assembled form through - the behaviour under test (t-342 / B-273: a refused assembly is never used,
         # the role is resumed once with the reason; t-908 §4 K9-1 "stays", its non-goals name B-273) did not change.
-        def refuses_the_assembled(role, digest):
+        def refuses_the_assembled(role, digest, dispatch=None):
             return [] if resumed else [gate_error]
         resumed, assembled = wire(refuses_the_assembled)
         with contextlib.redirect_stdout(io.StringIO()):
@@ -1168,7 +1168,7 @@ def b273_assembly_edges() -> None:
             str(resumed))
         # a form that is not there at all: the role is resumed as it always was
         form.unlink()
-        resumed, assembled = wire(lambda role, digest: [gate_error] if digest == S1_PROSE else [])
+        resumed, assembled = wire(lambda role, digest, dispatch=None: [gate_error] if digest == S1_PROSE else [])
         with contextlib.redirect_stdout(io.StringIO()):
             driver.handoff("qa-scout", "S1", "S1-qa-scout-1", dict(result, session_id="sess-5"))
         eq("B-273: with no handover form the role is resumed, and the log names that", [kw.get("resume_reason") for kw in resumed],
@@ -1184,7 +1184,7 @@ def b273_assembly_edges() -> None:
         digest, reason = assemble(s1_form(task), f"qa-scout S1 {task} · ok\nAll went well.\nwork/context-manifest.json")
         eq("F1 plain case: a message that agrees with the form is assembled", (digest.splitlines()[0], reason), (f"qa-scout S1 {task} · ok", ""))
         eq("F1 plain case: the prose message still is", assemble(s1_form(task))[0], good)
-        resumed, assembled = wire(lambda role, digest: [gate_error] if "halt" in digest else [])
+        resumed, assembled = wire(lambda role, digest, dispatch=None: [gate_error] if "halt" in digest else [])
         with contextlib.redirect_stdout(io.StringIO()):
             driver.handoff("qa-scout", "S1", "S1-qa-scout-1", dict(result, result=halting, session_id="sess-6"))
         check("F1: through handoff the halt is not assembled over: the role is resumed with the reason",

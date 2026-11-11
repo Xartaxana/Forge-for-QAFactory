@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from detector_verdict import compound
-from event_store import content_hash
+import event_store
+from event_store import content_hash, hold_file_lock
 import runtime_paths as RP
 
 
@@ -86,46 +87,30 @@ def append_record(project_root: Path, task: str, facts: dict) -> tuple[str, dict
     ledger = RP.record(project_root, "estimation-ledger.jsonl")
     ledger.parent.mkdir(parents=True, exist_ok=True)
     # The lock is machine-local: it lives in `state/` (ignored), not beside the tracked ledger.
-    lock_path = RP.state_file(project_root, "estimation-ledger.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+b") as lock:
-        lock.seek(0, 2)
-        if lock.tell() == 0:
-            lock.write(b"0"); lock.flush()
-        lock.seek(0)
-        if os.name == "nt":
-            import msvcrt
-            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            rows = _rows(ledger)
-            active = active_records(rows, task)
-            material = {"schema_version": 1, "task": task,
-                        "task_revision": binding["task_revision"],
-                        "retro_sha256": binding["retro_sha256"], "facts": facts}
-            record_id = content_hash(material)
-            existing = next((row for row in rows if row.get("record_id") == record_id), None)
-            if existing:
-                return "reused", existing
-            record = {**material, "record_id": record_id,
-                      "forecast": facts["forecast"], "actual": facts["actual"],
-                      "drivers": facts.get("drivers", []),
-                      "controller_revision_at_write": binding["controller_revision_at_write"],
-                      "retro_path": os.path.relpath(binding['retro_path'],project_root).replace('\\','/'),
-                      "supersedes": sorted(str(row["record_id"]) for row in active if row.get("record_id")),
-                      "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-            with ledger.open("a", encoding="utf-8", newline="\n") as stream:
-                stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-                stream.flush(); os.fsync(stream.fileno())
-            return "appended", record
-        finally:
-            lock.seek(0)
-            if os.name == "nt":
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+    lock_path = RP.state_file(project_root, "estimation-ledger.lock")   # the helper makes the folder
+    # A lock held past the wait raises the helper's LockBusy / LockBroken (an OSError naming the lock file and the
+    # holder); `main` prints it as `invalid_estimate`. The ledger is never read or written unlocked.
+    with hold_file_lock(lock_path, event_store.SHORT_RMW_LOCK_WAIT_S, purpose="estimation ledger", record_holder=True):
+        rows = _rows(ledger)
+        active = active_records(rows, task)
+        material = {"schema_version": 1, "task": task,
+                    "task_revision": binding["task_revision"],
+                    "retro_sha256": binding["retro_sha256"], "facts": facts}
+        record_id = content_hash(material)
+        existing = next((row for row in rows if row.get("record_id") == record_id), None)
+        if existing:
+            return "reused", existing
+        record = {**material, "record_id": record_id,
+                  "forecast": facts["forecast"], "actual": facts["actual"],
+                  "drivers": facts.get("drivers", []),
+                  "controller_revision_at_write": binding["controller_revision_at_write"],
+                  "retro_path": os.path.relpath(binding['retro_path'],project_root).replace('\\','/'),
+                  "supersedes": sorted(str(row["record_id"]) for row in active if row.get("record_id")),
+                  "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        with ledger.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.flush(); os.fsync(stream.fileno())
+        return "appended", record
 
 
 def main() -> None:

@@ -2056,8 +2056,19 @@ def numbers(task: str, root: Path | None = None, task_root: Path | None = None) 
         left_out, left_out_unread = gate_brief.left_out_sources(troot), ""
     except Exception as exc:
         left_out, left_out_unread = [], f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}"
+    # The counters of the use of what the factory knew (t-2277 FL-8): `report_facts` is their one reader (AR-13); a key only for a story that
+    # has them, so an older story's numbers are what they were. A counter that cannot be read is said, never dropped (FR-41).
+    knowledge: dict = {}
+    try:
+        import report_facts
+        kept = report_facts.knowledge_facts(troot)
+        if kept:
+            knowledge = {"facts": kept, "questions": report_facts.question_count(troot)}
+    except Exception as exc:
+        knowledge = {"problem": f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}"}
 
     return {
+        **({"knowledge": knowledge} if knowledge else {}),
         "task": task,
         "sessions": [r["session"] for r in price.get("sessions") or []],
         "story": spend,
@@ -2608,10 +2619,28 @@ def render(data: dict, left_out: bool = True) -> str:
                     if runs.get('duplicate_share_percent') is not None else "."))
     lines += test_run_lines(data.get("test_run_counts"))
     lines += resume_lines(data.get("resumes"))
+    lines += knowledge_lines(data.get("knowledge"))
     kept_out = left_out_retro_lines(data) if left_out else []
     if kept_out:
         lines += ["", "**Sources the person left out before the run:**", ""] + ["- " + line for line in kept_out]
     return "\n".join(lines) + "\n"
+
+
+def knowledge_lines(block) -> list:
+    """The retro's question count with its counter-metrics and the table "knowledge: reached / used / not used" (t-2277 FL-8), as
+    `report_facts` words them (`question_count_line`, `retro_lines`, one reader). No lines for facts that carry no such block (an older story);
+    a block that could not be built is one `unmeasured` line. Words and counts only: nothing here refuses or judges (AR-29)."""
+    if not isinstance(block, dict) or not block:
+        return []
+    if block.get("problem") or not isinstance(block.get("facts"), dict):
+        return ["", f"**Knowledge the story had:** unmeasured: {block.get('problem') or 'the counters were not built'}"]
+    import report_facts
+    facts = block["facts"]
+    table = report_facts.retro_lines(facts)
+    out = ["", f"**{report_facts.question_count_line(block.get('questions'), facts)}**"]
+    if table:
+        out += ["", f"**{table[0]}**", ""] + [line if line.startswith("- ") else "- " + line for line in table[1:]]
+    return out
 
 
 def resume_lines(resumes) -> list:

@@ -146,7 +146,35 @@ def main() -> None:
     finally:
         cleanup(root)
 
+    held_for_code()
     finish("test_archive_task")
+
+
+def held_for_code() -> None:
+    """t-2181 PC-6 (§2.4): a story held for code names what it waits for instead of "parked"; a stopped story has no parked item."""
+    parked = "the story never reached S9 done"
+    base = pipeline(False)
+    base["stages"]["S6"] = {"status": "pending"}      # reached S5, never S9: the old reading says "parked"
+    base["stages"]["S9"] = {"status": "pending"}
+    plain = AT.open_items(base)
+    check("without a hold the story reads `parked`", any(parked in item for item in plain), str(plain))
+    record = {"since": "2026-11-01T10:00:00+00:00", "sides": {"backend": {"reality": "absent"}, "ui": {"reality": "real"}}}
+    items = AT.open_items(dict(base, awaiting=record))
+    check_eq("an awaiting item: `awaiting code since <date> (<sides>)`, and no `parked` line",
+             [item for item in items if "awaiting" in item or "parked" in item], ["awaiting code since 2026-11-01 (backend)"])
+    items = AT.open_items(dict(base, awaiting=dict(record, cause="first_look_stop", held_from="S3")))
+    check_in("the first-look cause is named", "held after the first look since 2026-11-01 (backend)", items)
+    stopped = AT.open_items(dict(base, awaiting=dict(record, stopped={"at": "2026-11-02T09:00:00+00:00", "words": "stop"})))
+    check_eq("stopped_story_has_no_parked_item: the person ended the wait, nothing is open", stopped,
+             [item for item in plain if parked not in item])
+    check_not_in("... and no awaiting item either", "awaiting", " ".join(stopped))
+    check_eq("hold_line of a stopped story", AT.hold_line(dict(base, awaiting=dict(record, stopped={"at": "2026-11-02T09:00:00+00:00"}))),
+             "stopped waiting 2026-11-02")
+    check_eq("hold_line of a story that waits for nothing is empty", AT.hold_line(base), "")
+    check_eq("an unreadable record (a list) holds nothing", AT.hold_line(dict(base, awaiting=["x"])), "")
+    check_eq("another halt is still listed beside the hold",
+             [item for item in AT.open_items(dict(base, awaiting=record, halts=[{"reason": "why", "resolved": False}])) if "halt" in item],
+             ["unresolved halt: why"])
 
 
 if __name__ == "__main__":

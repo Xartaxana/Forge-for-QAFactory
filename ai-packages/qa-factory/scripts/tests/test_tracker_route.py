@@ -581,17 +581,8 @@ def the_rules() -> None:
     s1 = (harness.PLUGIN_ROOT / "skills" / "qa-story" / "phases" / "s1.md").read_text(encoding="utf-8")
     for rule in SI.TRACKER_RULES:
         check_in(f"s1.md carries rule {rule[:2]} word for word (mutation: one rewritten)", rule, s1)
-    check_in("s1.md has the section", "## A tracker the factory has no client for", s1)
-    scout = (harness.PLUGIN_ROOT / "agents" / "qa-scout.md").read_text(encoding="utf-8")
-    check_in("qa-scout.md names the route of the dispatch", "You read the tracker by the route your dispatch names", scout)
-    check_not_in("qa-scout.md no longer says every read is ticket_adapter.py", "every read is `ticket_adapter.py`", scout)
     check("qa-scout.md: the replaced sentence did not grow (A25)", len(("You read the tracker by the route your dispatch names (ticket_adapter.py with a client, else the recorded "
                                                                        "route and record-source); a route only the orchestrator holds is refused - never work around it.").encode()) <= 204)
-    p4 = (harness.PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p4-generate.md").read_text(encoding="utf-8")
-    check_in("p4: a tracker with no client writes its route", "writes its route in method and invoke_or_command_ref", p4)
-    check_in("p4: an agent, a skill or an MCP tool is a write channel", "is a write channel, not a read route: status unavailable", p4)
-    p1 = (harness.PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p1-discovery.md").read_text(encoding="utf-8")
-    check_in("p1: the tracker row gives a route the scout can follow", "as a route the scout's own Bash, API or browser can follow", p1)
     # no tracker is named in the code of the branch (AR-5), with a positive control of the SAME call
     names = re.compile(r"\b(github|gitlab|linear|youtrack|asana|trello|bitbucket)\b", re.IGNORECASE)
     code = "\n".join(inspect.getsource(f) for f in (TA.reads_by_role, TA._collect_by_role, TA._refuse_by_role, TA._record_task_source,

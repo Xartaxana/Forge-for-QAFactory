@@ -2,14 +2,13 @@
 ASCII fallback of `console_io`.
 
 Keys: K1 typed comparison (`true`/`1`/`1.0` are three values) | K2 `compare_trees` names the path |
-K3 an empty ignore keeps the raw-bytes rule | K4 `plain` / `ascii_only` | K5 no ASCII-fallback copy left in
-`judge_run`, `stand_health`, `stage_done`; E-D1 not JSON, E-D2 RecursionError -> differing.
+K3 an empty ignore keeps the raw-bytes rule | K4 `plain` / `ascii_only` | K5 the helpers of
+`judge_run`, `stand_health` use the one fallback; E-D1 not JSON, E-D2 RecursionError -> differing.
 
 Mutation this file kills: K1 <- Python `==` back in `_same_bytes` (K1 and K2 go red).
 
 Run: python -B scripts/tests/test_console_plain_and_same_bytes.py
 """
-import re
 import sys
 from pathlib import Path
 
@@ -22,7 +21,6 @@ use_project(temp_project("qa-console-plain-audit-"))
 import console_io  # noqa: E402
 import onboard_apply as OA  # noqa: E402
 
-SCRIPTS = Path(__file__).resolve().parents[1]
 root = temp_dir("qa-console-plain-")
 
 
@@ -71,15 +69,7 @@ check_eq("K4 ascii_only None", console_io.ascii_only(None), "")
 check_eq("K4 ascii_only keeps quotes", console_io.ascii_only('a"b`'), 'a"b`')
 check_eq("K4 plain None", console_io.plain(None), "")
 
-# K5 - no ASCII-fallback copy left: neither the old inline spelling nor a `_plain` that does its own encode
-# (t-1755 F3: ANY spelling of an ASCII encode -- positional or `errors=` -- and the behaviour of the helpers, not the wording)
-spelled = re.compile(r"""\.encode\(\s*["']ascii["']""")
-for name in ("judge_run.py", "stand_health.py", "stage_done.py"):
-    text = (SCRIPTS / name).read_text(encoding="utf-8")
-    check(f"K5 no ASCII encode of its own, in any spelling, in {name}", not spelled.search(text))
-    check(f"K5 {name} calls console_io", "console_io." in text)
-check("K5 negative control: the pattern catches the `errors=` spelling too",
-      bool(spelled.search('x.encode("ascii", errors="replace")')) and bool(spelled.search("x.encode('ascii', 'replace')")))
+# K5 - the helpers of `judge_run` and `stand_health` go through the one ASCII fallback
 import judge_run  # noqa: E402
 import stand_health  # noqa: E402
 check_eq("K5 behaviour: judge_run._plain goes through the helper", judge_run._plain('a "b"\nc é'), "a 'b' c ?")

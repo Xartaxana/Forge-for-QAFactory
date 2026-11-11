@@ -37,7 +37,7 @@ Exit 0 when the window is acceptable, 1 when it is not. A window whose ONLY gaps
 stand blocked (their unresolved[] row says `blocked_by_env` and carries a remedy; the critic's verdict
 on each is `unverified`) is "acceptable as unresolved": exit 0, and `story_step.py finish` derives the
 `unresolved` pair from the record; so is an instance that ran green whose probe could not run here, when a recorded
-word of the person names it (`waiver.py --stage S5 --block "probe gap: <instance or case>"`, the critic's
+word of the person names it (`waiver.py --stage S5 --block "probe gap: <case key>"`, the critic's
 `unverified`). A review row `rejected` (blocked instance or not) is the critic sending the test back: when every
 non-derivable gap belongs to such an instance, `--review-receipt` still writes and publishes the receipt (finish needs
 it) and the exit stays 1 - the window goes back to its author, it is never "acceptable". A person never sees a
@@ -75,7 +75,7 @@ import reporters  # noqa: E402
 from acceptance import (BLOCKED_OUTCOME, BLOCKED_REVIEW_VERDICT, CONTRADICTS_REQUIREMENT, HANDED_OUTCOME,  # noqa: E402
                         HANDED_UNCONFIRMED_KIND, PROBE_GAP_KIND, PROBE_GAP_UNRECORDED_KIND, blocked_instances,
                         change_word, expectation_change_gaps, green_on_current_bytes_why, handed_instances, ran_red,
-                        red_by_requirement, run_freshness_of, validate_window)
+                        pending_instances, PENDING_OUTCOME, probe_gap_named, red_by_requirement, run_freshness_of, validate_window)
 from event_store import atomic_json, content_hash  # noqa: E402
 from hooklib import artifacts_dir, require_project  # noqa: E402
 from role_cli import REPAIR_MARKER  # noqa: E402
@@ -95,9 +95,24 @@ RUN_BLOCK_DIR = "work/run-blocks"
 # alone: the word passes nothing for them.
 PROBE_DOOR = ("run `probe_by_code.py --task <T> --dispatch <critic id> --test \"<node>\" "
               "--instance <IID>` (the check is live: every new or changed test)")
-PROBE_GAP_RECORD = person_words.door(f"waiver.py --task <T> --stage S5 --block \"{C.PROBE_GAP_MATCH_PREFIX} <IID>\"")
+# The word names the CASE KEY of the test (B-16): `contract.prefix_value` reads one token only, and an instance id is a phrase
+# with spaces, so a word typed with it is refused by `waiver.block_name_row`. ONE door text (AR-13); the controller imports it.
+PROBE_GAP_RECORD = person_words.door(f"waiver.py --task <T> --stage S5 --block \"{C.PROBE_GAP_MATCH_PREFIX} <case key>\"")
 PROBE_GAP_DOOR = ("; or, when the person accepts that this test is not probed here, the orchestrator records `"
-                  + PROBE_GAP_RECORD + "` (return this item: a role records no word)")
+                  + PROBE_GAP_RECORD + "` for a case key of this instance (an instance id that is one token works too; "
+                  "a phrase with spaces is never a word the window reads) (return this item: a role records no word)")
+# t-1968 N2: the tail of the `probe is missing` line of an owed green item whose probe record is `incomplete`, `cause: judgment`
+# and has no judgment yet; `probe_by_code.JUDGE_DOOR` (the critic's own command) follows it. Not a person's word (AR-24).
+UNJUDGED_NOTE = "its probe failed at the mutated line with a text the factory cannot read; the code critic judges it: "
+# fix round D (B2): the tail of the `probe is missing` line of an owed green item whose walk has NO check owing a judgment; `PROBE_DOOR` follows.
+PLAIN_CALL_NOTE = ("its probe walk is not finished and no check of it owes the code critic's `--judge` (some checks were not selected, or have "
+                   "no model entry yet); the plain call walks the rest: ")
+# t-1968 N5: the note of an owed green item whose probe the code critic could not judge (`cannot_judge`): the person's OWN word, a
+# separate prefix, never a `probe gap:` word (the owner's word 05.11.2026). ONE door text (AR-13).
+NOT_PROVED_RECORD = person_words.door(f"waiver.py --task <T> --stage S5 --block \"{C.PROBE_NOT_PROVED_PREFIX} <case key>\"")
+NOT_PROVED_NOTE = ("the code critic could not tell whether its probe failed because of the broken check; the person decides: `"
+                   + NOT_PROVED_RECORD + "` (return this item: a role records no word)")
+PRINTED_LINES, PRINTED_LINE_LIMIT = 3, 160    # how much of the failure text `probe_judgment_cases` carries for the person to read
 # The door of a RED instance no manifest row explains (HF2-4, FR-2): the automator's own road - `manifest_put.py
 # --fragment` is the command the role may run - and not the critic's probe (a probe on a red test closes nothing) and not
 # a person's word (the word of a person never turns a red into a passed window, FR-18). The marker `qa_unresolved` is not
@@ -308,7 +323,8 @@ GAP_ORIGIN = {
     "sensitivity": ("the sensitivity receipt does not show the intended assertion failure",
                     PROBE_DOOR),
     "semantic_sensitivity": ("the probe's obligations, assertion or defect location do not "
-                             "match the instance's", PROBE_DOOR),
+                             "match the instance's",
+                             PROBE_DOOR),
     "probe_mutation_kind": ("a probe that claims to catch a broken product did not mutate the product",
                             "an assertion mutation proves the check is live — that is "
                             "probe_by_code.py's receipt"),
@@ -327,7 +343,7 @@ GAP_ORIGIN = {
     # written by hand): the shape of the claim is fine, the consent is missing.
     PROBE_GAP_UNRECORDED_KIND: (
         "the record claims a probe gap, and no recorded word of the person names this instance",
-        "the orchestrator records `" + PROBE_GAP_RECORD + "`, then builds this record again with "
+        "the orchestrator records `" + PROBE_GAP_RECORD + "` (a case key of this instance), then builds this record again with "
         "`window_record.py`; or a probe that writes a receipt removes the gap"),
     "evidence": ("an evidence path is missing from disk or its hash moved",
                  "the run block and the receipts are the evidence; do not edit them"),
@@ -538,7 +554,229 @@ def _window_receipt_ref(entry: dict, manifest: dict, task_root: Path) -> dict:
     return {}
 
 
-def _probe_from_receipt(receipt: dict, ref: dict, item: dict) -> dict:
+# t-1968 N4: the door of a `semantic_sensitivity` gap that comes from a probe of ANOTHER line than the obligation's check
+# (`proof_level.receipt_off_target`, the one reader). Only that cause gets it: the gap has other causes (obligation hash, ...).
+OFF_TARGET_DOOR = (PROBE_DOOR + "; for a probe of another line: probe the Then's line "
+                   "(`probe_by_code.py ... --at <n>`, <n> = the line of the Then's check; a Python test has no `--at`); or, when no "
+                   "check of the Then can be inverted here, return the item `unverified` with its reason and finish the window with "
+                   "`story_step.py finish ... --unresolved <why> --reason \"<what could not be probed>\"`: the test stays not proved, "
+                   "and delivery says it requires a current sensitivity proof. No word of the person closes it")
+
+
+def off_target_note(identity: str, probe) -> tuple:
+    """`(identity, "semantic_sensitivity", "<what>; <door>")` for a probe that broke another line than the obligation's check,
+    else `()`. The same note shape `build` gives the other conditional doors; `_explain_parts` reads it."""
+    why = proof_level.receipt_off_target(probe)
+    return (identity, "semantic_sensitivity", why + "; " + OFF_TARGET_DOOR) if why else ()
+
+
+def _scope_note(identity: str, probe, ref: dict) -> tuple:
+    """`(identity, "sensitivity", "<what>; <door>")` for a probe block that is NOT a proof of the whole test - a one-check product receipt
+    (`partial_product`) or a receipt whose entries are no longer the ones in play (`model_changed`) - else `()`. The keys are named; the
+    door is a thing the reader of the note can do (FR-2). The same note shape `build` gives the other conditional doors."""
+    if not isinstance(probe, dict):
+        return ()
+    if probe.get("verdict") == PARTIAL_PRODUCT:
+        keys = ", ".join(str(c.get("key")) for c in probe.get("checks") or [] if isinstance(c, dict) and c.get("key")) or "no check it could read"
+        return (identity, "sensitivity",
+                f"the product receipt {ref.get('path')} proves one check ({keys}) and the other checks of this test stay owed; "
+                "to count it, the critic writes the entry `{\"check\": \"<key>\", \"product\": \"<the receipt's path>\"}` into the model file "
+                "`work/probe-models/<dispatch id>.json` and makes the plain `probe_by_code.py` call again, which walks the other checks")
+    if probe.get("verdict") == MODEL_CHANGED:
+        keys = ", ".join(str(k) for k in probe.get("stale_checks") or [])
+        if probe.get("stale_note"):
+            return (identity, "sensitivity",
+                    f"the receipt {ref.get('path')} cannot be shown to stand on the entries now in play: "
+                    f"{' '.join(str(probe['stale_note']).split())} (checks: {keys or 'none named'}); "
+                    "make the plain `probe_by_code.py` call again, so every check stands on the entries now written")
+        return (identity, "sensitivity",
+                f"the receipt {ref.get('path')} was made on other model entries than the ones now in play (checks: {keys}); "
+                "make the plain `probe_by_code.py` call again, so every check stands on the entries now written")
+    return ()
+
+
+def _probe_scope_notes(window: dict, info: list) -> None:
+    """Info lines (never a gap) for what a probe block says about its own reach, each once per instance: an OLD product receipt (no `scope`,
+    `probe_tool: red_sandbox.py`) or an OLD live one (no `checks`, `probe_tool: probe_by_code.py`), written before receipts named what
+    they prove, stands on the same bytes as before and says that it
+    proves ONE check (EP-I); a `whole_unlisted` receipt stands and says the factory cannot list this test's checks (EP-W: a test whose
+    language has no reader keeps its only door); a kept aggregate carries `last_attempt`, a later attempt that ended unproved while this
+    proof stands. A block with none of these says nothing (AR-23). Reads the window only."""
+    for item in window.get("instances") or []:
+        probe = item.get("probe") if isinstance(item, dict) else None
+        if not isinstance(probe, dict):
+            continue
+        who = item.get("instance_id")
+        old_product = "scope" not in probe and probe.get("probe_tool") == "red_sandbox.py"
+        old_live = "checks" not in probe and "scope" not in probe and probe.get("probe_tool") == "probe_by_code.py"
+        if (old_product or old_live) and probe.get("verdict") == "intended_failure":
+            # ONE carrier of the line for both kinds (EP-I, F7); info only: the block's verdict and level are never touched here
+            info.append(f"the probe is an older {'product' if old_product else 'live'} receipt that proves one check, the one it broke ({who})")
+        elif probe.get("scope") == proof_level.WHOLE_UNLISTED:
+            info.append(f"the factory cannot list this test's checks (no reader for its language), so the product receipt proves "
+                        f"the test as it always did ({who})")
+        last = probe.get("last_attempt")
+        if isinstance(last, dict) and last:
+            info.append(f"a later probe attempt ended {last.get('verdict')} ({' '.join(str(last.get('why') or '').split())}); the proof "
+                        f"above is the earlier one, and it stands on the entries now in play ({who})")
+
+
+def _unknown_target_notes(window: dict, info: list) -> None:
+    """One line per probe whose `target` the probe recorded as UNKNOWN (`is_assertion_id: null`, E4.1): it counts as today and
+    is said, not hidden (FR-41). A probe that records no `target` at all reads as unknown and says nothing (AR-23)."""
+    for item in window.get("instances") or []:
+        probe = item.get("probe") if isinstance(item, dict) else None
+        target = probe.get("target") if isinstance(probe, dict) else None
+        if isinstance(target, dict) and "is_assertion_id" in target and target["is_assertion_id"] is None:
+            info.append("the probe's target could not be compared with the obligation's assertion (no `assertion_id` of the "
+                        f"form `<file>:<line>`) ({item.get('instance_id')})")
+
+
+def unproved_keys_text(task_root, identity: str, current: str) -> str:
+    """The sentence that names the checks of `identity`'s aggregate (`work/probes/<iid>.json`, of THESE bytes) that are not proved, and the
+    `not_owed` ones with the reason the critic gave, for the tier above; `""` when there is no aggregate of these bytes, it has no
+    `checks`, or every check stands (t-2064 P6 item 1). `probe_record_state` says whether the record is of these bytes (the ONE reader of
+    that); the rows are read from the file it names. Nothing is cut: a list that hid keys would hide unproved checks (AR-28). Never raises."""
+    try:
+        state = proof_level.probe_record_state(task_root, identity, current)
+        if state["state"] == "not_run" or not state.get("record"):
+            return ""
+        rows = [r for r in _load(Path(task_root) / state["record"]).get("checks") or [] if isinstance(r, dict) and r.get("key")]
+        owed = [r for r in rows if r.get("verdict") != "not_owed"]
+        unproved = [f"{r['key']} ({r.get('verdict')})" for r in owed if r.get("verdict") != "intended_failure"]
+        excused = [f"{r['key']} ({' '.join(str(r.get('reason') or 'no reason recorded').split())})"
+                   for r in rows if r.get("verdict") == "not_owed"]
+        parts = []
+        if unproved:
+            parts.append(f"{len(owed) - len(unproved)} of {len(owed)} checks of this test are proved, not proved: " + ", ".join(unproved))
+        if excused:
+            parts.append("not owed, the critic's word that this instance does not reach them (the tier above reads the reasons): "
+                         + ", ".join(excused))
+        # no `; ` inside: a note is `<missing>; <door>`, split at its first `; ` (`_explain_parts`), and a reason is free text
+        return (" / ".join(parts) + ".").replace("; ", ", ") if parts else ""
+    except Exception:  # noqa: BLE001 - a text that only adds keys never stops the window
+        return ""
+
+
+def _keys_first(task_root, item: dict) -> str:
+    """`unproved_keys_text` of a window item plus one space, or `""`: what a probe note starts with when the instance's aggregate names
+    unproved or not-owed checks (the whole list: the window's note is where nothing is cut)."""
+    text = unproved_keys_text(task_root, str(item.get("instance_id") or ""), str(item.get("input_hash") or ""))
+    return text + " " if text else ""
+
+
+PARTIAL_PRODUCT = "partial_product"    # block verdict of a product receipt that proves ONE check of several (EP-W); never `intended_failure`
+MODEL_CHANGED = "model_changed"           # block verdict of a receipt whose entries are no longer the ones in play (the P4b hand-over)
+
+
+def _entries_in_play(task_root, identity: str) -> tuple:
+    """`(aggregate dict or None, {key: entry sha of the per-check record}, why)`: the entry shas now in play for `identity`'s checks, read
+    from the aggregate's rows (`probe_by_code._entry_sha` of each row's `entry`, the one function the receipt's `checks[].entry_sha` is
+    made with) and from the per-check records, which a call that was kept under an older proved aggregate (`keep_standing_record`) has
+    already rewritten for the changed check. THREE answers, never two (t-2064 fix round F, F9; FR-59, AR-28): an ABSENT aggregate (no
+    file, or no rows) is `(None, {}, "")` - the comparison is not made, as today; an UNREADABLE one (the file exists but cannot be read
+    or parsed, is not an object, its `checks` is not a list; or a per-check record that exists and cannot be read) is `(None, {}, <why>)`
+    - an unknown, which the caller reads as stale. Reads files. Never raises."""
+    path = proof_level.probe_record_path(task_root, identity)
+    try:
+        if not path.exists():
+            return None, {}, ""
+        try:
+            aggregate = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError, RecursionError) as exc:
+            return None, {}, f"{path.name} exists and cannot be read ({type(exc).__name__})"
+        if not isinstance(aggregate, dict):
+            return None, {}, f"{path.name} is not a JSON object"
+        if aggregate.get("checks") and not isinstance(aggregate["checks"], list):
+            return None, {}, f"{path.name} has `checks` that is not a list"
+        rows = [r for r in aggregate.get("checks") or [] if isinstance(r, dict) and r.get("key")]
+        if not rows:
+            return None, {}, ""
+        import probe_by_code      # the ONE key grammar and the ONE per-check reader (F8, AR-13); lazy: this module is imported by many that never probe
+        shas = {}
+        for row in rows:
+            try:
+                file, line, ordinal = probe_by_code._parse_at_row(row["key"])
+            except probe_by_code.Refusal:
+                continue            # a key that is no `<file>:<line>[#n]` names no per-check record
+            stored = probe_by_code._read_check_record(task_root, identity, line, ordinal, file=file or None)
+            if stored is None:
+                record_path = proof_level.record_read_path(task_root, identity, line, ordinal, file=file or None)
+                if record_path.exists():
+                    return None, {}, f"the check record {record_path.name} exists and cannot be read as an object"
+                continue
+            if stored.get("entry_sha"):
+                shas[str(row["key"])] = str(stored["entry_sha"])
+        return aggregate, shas, ""
+    except Exception as exc:  # noqa: BLE001 - a reader that only adds a fact never stops the window; what it could not read is said
+        return None, {}, f"the probe record of {identity} could not be compared ({type(exc).__name__})"
+
+
+def _stale_checks(receipt: dict, task_root, identity: str) -> tuple:
+    """`(keys, why)`: the keys of a receipt's `checks[]` that no longer stand on the entries in play - no row of the aggregate for the key, a
+    different `statement_sha`, a different entry sha (the aggregate's row, or the newer per-check record), and the keys of the aggregate the
+    receipt does not name at all (so `checks: []` against an aggregate with rows is never a pass) - and `why`, a note when the comparison
+    could not be made because what it compares with is UNREADABLE (`_entries_in_play`) or failed inside: an unknown is stale (keys = the
+    receipt's own, so the block names them), never a pass (F9; FR-59, AR-28). `([], "")` when the receipt has no `checks` list (an old one,
+    read as before: EP-I item 5), is `whole_unlisted`, when `task_root` is unknown, or when there is NO aggregate to compare with (today's
+    behaviour: the comparison is just not made). Pure of judgment: it compares recorded shas."""
+    held = receipt.get("checks") if isinstance(receipt, dict) else None
+    if not isinstance(held, list) or task_root is None or receipt.get("scope") == proof_level.WHOLE_UNLISTED:
+        return [], ""                   # (`checks: []` of a live receipt is NOT skipped: it names nothing, so every row of the aggregate is stale)
+    aggregate, per_check, why = _entries_in_play(task_root, identity)
+    if aggregate is None:
+        return ([str(one.get("key")) for one in held if isinstance(one, dict) and one.get("key")], why) if why else ([], "")
+    try:
+        import probe_by_code      # the ONE `_entry_sha` (AR-13); lazy: this module is imported by many that never probe
+        now = {str(r["key"]): r for r in aggregate["checks"] if isinstance(r, dict) and r.get("key")}
+        stale = []
+        for one in held:
+            key = str((one or {}).get("key") or "") if isinstance(one, dict) else ""
+            row = now.get(key)
+            if row is None:
+                stale.append(key)
+                continue
+            entry_sha = probe_by_code._entry_sha(row["entry"]) if isinstance(row.get("entry"), dict) else ""
+            if (str(one.get("statement_sha") or "") != str(row.get("statement_sha") or "")
+                    or str(one.get("entry_sha") or "") != entry_sha
+                    or (key in per_check and str(one.get("entry_sha") or "") != per_check[key])):
+                stale.append(key)
+        named = {str((one or {}).get("key") or "") for one in held if isinstance(one, dict)}
+        return [k for k in dict.fromkeys(stale + [k for k in now if k not in named]) if k], ""
+    except Exception as exc:  # noqa: BLE001 - a comparison that failed is an unknown: stale, with the class said, never a silent pass
+        return ([str(one.get("key")) for one in held if isinstance(one, dict) and one.get("key")],
+                f"the comparison with the probe record failed ({type(exc).__name__})")
+
+
+def _probe_from_receipt(receipt: dict, ref: dict, item: dict, task_root=None) -> dict:
+    """The window's `probe` block, read from the immutable sensitivity receipt, and what the receipt SAYS IT PROVES (t-2064 P6).
+
+    `_receipt_block` reads the facts as before. On top of it: a `scope: "one_check"` receipt (a product receipt, EP-W) proves the one
+    check it names: its block's verdict is `partial_product`, so `acceptance.validate_window` gives `sensitivity:` by its own line
+    and the keys travel in `checks`; a receipt that carries `checks` and no longer stands on the entries now in play (`_stale_checks`:
+    the model changed after the receipt, or a check was added) reads `model_changed`, the keys named in `stale_checks`, never
+    `intended_failure`; a receipt with neither key is an old one and reads exactly as before (EP-I). `scope` and `checks` are copied
+    as recorded (an absent one stays absent). `task_root` is needed only for the staleness comparison; without it that is not made."""
+    block = _receipt_block(receipt, ref, item)
+    for key in ("scope", "checks", "probe_tool"):
+        if receipt.get(key) is not None:
+            block[key] = copy.deepcopy(receipt[key])
+    if receipt.get("scope") == proof_level.ONE_CHECK:
+        block["verdict"] = PARTIAL_PRODUCT
+        return block
+    stale, why = _stale_checks(receipt, task_root, str(item.get("instance_id") or ""))
+    if stale or why:
+        block["verdict"], block["stale_checks"] = MODEL_CHANGED, stale
+        if why:
+            block["stale_note"] = why           # the comparison could not be made: an unknown, said as one (F9)
+    elif task_root is not None and isinstance(receipt.get("checks"), list):
+        kept = _load(proof_level.probe_record_path(task_root, str(item.get("instance_id") or ""))).get("last_attempt")
+        if isinstance(kept, dict) and kept:
+            block["last_attempt"] = copy.deepcopy(kept)     # a later attempt that ended unproved; this proof is the earlier one
+    return block
+
+
+def _receipt_block(receipt: dict, ref: dict, item: dict) -> dict:
     """The window's `probe` block, read from the immutable sensitivity receipt.
 
     `red_sandbox.write_sensitivity_receipts` writes a receipt ONLY after `verify()` accepted
@@ -566,6 +804,10 @@ def _probe_from_receipt(receipt: dict, ref: dict, item: dict) -> dict:
     # the probe had one, the per-test identity (`proof_level.proof_identity`). Absent when the receipt
     # or record predates them - the window then binds the probe by the raw file, as it always did.
     measured = {key: receipt[key] for key in ("test_code_sha", "instance_identity") if receipt.get(key)}
+    # t-1968: facts the probe recorded about HOW it proved (`proved_by`, N1) and WHAT it mutated (`target`, N4). The receipt
+    # core spells the other probe fields under red_sandbox's names, so `probe_by_code.WINDOW_PROBE_FIELDS` cannot be copied
+    # through here; these two keep their names on both sides, and an absent one stays absent (never a placeholder, FR-41).
+    measured.update({key: receipt[key] for key in ("proved_by", "target") if receipt.get(key)})
     if isinstance(prepared, dict) and prepared.get("verdict"):
         block = dict(prepared)
         block.setdefault("obligation_ids", list(item.get("obligation_ids") or []))
@@ -610,14 +852,13 @@ def _gap_why(text) -> str:
     return one if len(one) <= C.PROBE_GAP_WHY_LIMIT else one[:C.PROBE_GAP_WHY_LIMIT - 1] + "…"
 
 
-def probe_gap_block(task_root: Path, item: dict, keys: list, words: dict, class_word=None):
+def probe_gap_block(task_root: Path, item: dict, keys: list, words: dict, class_word=None, proved_words=None):
     """The window item's `probe_gap` block, or None when no gap is to be written (HF1-14).
 
     Written ONLY when a recorded word of the person names the instance: its id, else one of its case keys `keys`
-    (`words` is `contract.probe_gap_words`; identifier equality, never `*`) - or, LAST of all (RN1-9, E15), when the FACTORY names
-    it: a green item whose probe record of THESE bytes is `incomplete` with `cause: data_row` (`proof_level.probe_factory_data_gap`;
-    the detector row lacks the failure's wording); then `named_by` is `factory:data_row`, `words` is the factory's own
-    sentence and `at` is "" (never the clock). The person's word is read FIRST and keeps `named_by`. The probe's record
+    (`words` is `contract.probe_gap_words`; identifier equality, never `*`). The factory names no gap of its own (t-1968 N2): a
+    green item whose probe record of THESE bytes is `incomplete` with `cause: judgment` (`proof_level.probe_owes_judgment`) is
+    the code critic's to judge, and its window note names `JUDGE_DOOR` (`build`). The probe's record
     (`proof_level.probe_record_state`, the ONE reader) says what happened: `not_executed` / `incomplete` of THESE bytes is the
     verdict as it stands; no record, an unreadable one, one of other bytes or one with no verdict is `not_run`. A record
     that JUDGED the current bytes (`intended_failure` with no valid receipt, `no_failure`, `wrong_location`) writes
@@ -629,24 +870,161 @@ def probe_gap_block(task_root: Path, item: dict, keys: list, words: dict, class_
     the instance itself stays `named_by`: it is read when the probe's record says the tool could not read this language
     (`proof_level.tooling_gap_key`: `cause: tooling`, `not_executed`/`incomplete`, the current bytes); a record that judged the
     test, one of other bytes, none, or a red test take no such word.
+    A test whose probe the code critic could not judge (`cannot_judge`, t-1968 N5) is named ONLY by the person's `probe not proved:
+    <case key>` word (`proved_words`, `contract.probe_not_proved_words`) of the judgment's time or later; none of the words above is
+    read for it (the owner's word 05.11.2026), and it takes no class word. A record still `unjudged` (`cause: judgment`, no judgment
+    yet - a re-probe of a case that was named for tooling, say) is NEVER named, by any word, instance, case, `tooling:` or class: it is
+    the code critic's to judge (t-2007 F1). `class_word=None` / `proved_words=None` read as no class word / no `probe not proved:` word.
     Error direction: toward `not_run` (a gap that still needs the word), never toward 'probed'."""
     identity = str(item.get("instance_id") or "")
     current = str(item.get("input_hash") or "")
+    if proof_level.probe_owes_judgment(task_root, identity, current) == "unjudged":
+        return None
+    facts = proof_level.cannot_judge_facts(task_root, identity, current)
+    if facts is not None:
+        found = proof_level.not_proved_word(facts, keys, proved_words or {})
+        if found is None:
+            return None
+        state = proof_level.probe_record_state(task_root, identity, current)
+        keys = unproved_keys_text(task_root, identity, current)       # unproved checks first: `why` is bounded (PROBE_GAP_WHY_LIMIT) and keeps the head; the window's note carries the whole list (P6)
+        return {"verdict": "incomplete", "record": state["record"],
+                "why": _gap_why((keys + " " if keys else "") + "the code critic could not judge it: " + facts["why"]),
+                "named_by": f"{C.PROBE_NOT_PROVED_PREFIX} {found[0]}", "words": found[1]["words"], "at": found[1]["at"]}
     klass = proof_level.tooling_gap_key(task_root, identity, current)
     named = next((key for key in [identity] + list(keys) + [klass] if key and key in words), None)
     said = words.get(named) if named is not None else None
     if named is None and class_word and item.get("outcome") == "passed" \
             and proof_level.probe_could_not_run(task_root, identity, current):
         named, said = class_word["key"], class_word
-    if named is None and item.get("outcome") == "passed" and proof_level.probe_factory_data_gap(task_root, identity, current):
-        named, said = proof_level.FACTORY_DATA_GAP_KEY, {"words": proof_level.FACTORY_DATA_GAP_WORDS, "at": ""}
     if named is None:
         return None
     state = proof_level.probe_record_state(task_root, identity, current)
     if state["state"] == "judged":
         return None
-    return {"verdict": state["state"], "record": state["record"], "why": _gap_why(state["why"]), "named_by": named,
+    keys = unproved_keys_text(task_root, identity, current)
+    return {"verdict": state["state"], "record": state["record"], "why": _gap_why((keys + " " if keys else "") + state["why"]), "named_by": named,
             "words": said["words"], "at": said["at"]}
+
+
+def _word_owed(window: dict, root) -> tuple:
+    """`(items by instance id, the ids of the green items whose word the window still owes)`: an item that ran green (`passed`) and
+    has the shape line `<id>: probe is missing ...`, or a `probe_gap` block that `acceptance.probe_gap_named` does not name. The ONE
+    computation (t-2007, item 6) of `probe_gap_cases`, `probe_judgment_cases` and `probe_word_door`. Raises only what its readers raise."""
+    items = {str(i.get("instance_id") or ""): i for i in window.get("instances") or [] if isinstance(i, dict)}
+    shape, named = set(C.window_shape_errors(window)), probe_gap_named(window, root)
+    owed = {iid for iid, item in items.items() if iid and item.get("outcome") == "passed"
+            and (f"{iid}: {C.PROBE_MISSING_ERROR}" in shape or (isinstance(item.get("probe_gap"), dict) and iid not in named))}
+    return items, owed
+
+
+def probe_gap_cases(window, root) -> list:
+    """`[(case key, [instance ids])]`, sorted by case key: the cases whose probe-gap word the person can give at the S5 seam (B-16).
+
+    Joins ids by equality, reads no verdict. An instance qualifies when it ran green (`passed`), the window still owes its
+    word (the shape line `<id>: probe is missing ...`, or a `probe_gap` block that `acceptance.probe_gap_named` does not name)
+    and the tool could not read its probe (`proof_level.probe_could_not_run`: not a probe nobody ran, a stand that was down or a
+    probe that judged). A case is listed only when EVERY green word-owed instance of it qualifies: one never-run sibling keeps
+    the whole case off the list, because a case word closes its siblings by equality. Error direction: toward fewer cases (an
+    instance in no case, a window that is no dict, an unreadable pipeline contribute nothing); never raises."""
+    try:
+        if not isinstance(window, dict) or not isinstance(window.get("scope_instances"), dict):
+            return []
+        items, owed = _word_owed(window, root)
+        found = []
+        for case, ids in window["scope_instances"].items():
+            if not isinstance(ids, list):
+                continue
+            mine = [str(i) for i in ids if str(i) in owed]
+            if mine and all(proof_level.probe_could_not_run(root, i, str(items[i].get("input_hash") or "")) for i in mine):
+                found.append((str(case), mine))
+        # the reader `contract.probe_gap_words` takes ONE token: a key it would refuse is left out, so a door named here always opens
+        return sorted(f for f in found
+                      if C.prefix_value(f"{C.PROBE_GAP_MATCH_PREFIX} {f[0]}", C.PROBE_GAP_MATCH_PREFIX) == f[0])
+    except Exception:  # noqa: BLE001 - a helper that offers a door must never stop the seam
+        return []
+
+
+def _printed(text) -> str:
+    """The first `PRINTED_LINES` non-empty lines of a failure text, each folded and at most `PRINTED_LINE_LIMIT` characters (the
+    cut marked by `…`, which counts), joined by ` / `; `""` for no text. Pure."""
+    lines = [" ".join(line.split()) for line in str(text or "").splitlines()]
+    kept = [line for line in lines if line][:PRINTED_LINES]
+    return " / ".join(line if len(line) <= PRINTED_LINE_LIMIT else line[:PRINTED_LINE_LIMIT - 1] + "…" for line in kept)
+
+
+def probe_judgment_cases(window, root) -> list:
+    """`[(case key, [{iid, file, line, statement_inverted, statement_after, printed, why}])]`, sorted by case key: the cases whose "not
+    proved" word the person can give at the S5 seam because the code critic could not judge their probe (t-1968 N5, the owner's word
+    05.11.2026).
+
+    An item qualifies when it ran green (`passed`), the window still owes its word (`_word_owed`, as `probe_gap_cases`) and its probe
+    record of THESE bytes says `cannot_judge` (`proof_level.cannot_judge_facts`). A case is listed when EVERY owed green item of it is
+    `cannot_judge` OR could not run (`proof_level.probe_could_not_run`: a tooling gap, which the next question of the seam covers
+    with its own word) and at least one is `cannot_judge`; only the `cannot_judge` tests are shown, and the word names those only
+    (t-2007 S3, the coordinator's decision, marked for the Lead). A red item, an unjudged record or a never-run probe keeps the case
+    off the list (a person never judges a probe's text before the critic did). `printed` = the first 3 non-empty failure lines, each at
+    most 160 characters, joined by ` / ` (`""` when the record kept no text). Error direction: toward fewer cases; never raises."""
+    try:
+        if not isinstance(window, dict) or not isinstance(window.get("scope_instances"), dict):
+            return []
+        items, owed = _word_owed(window, root)
+        found = []
+        for case, ids in window["scope_instances"].items():
+            mine = [str(i) for i in ids if str(i) in owed] if isinstance(ids, list) else []
+            facts = {i: proof_level.cannot_judge_facts(root, i, str(items[i].get("input_hash") or "")) for i in mine}
+            judged = [i for i in mine if facts[i]]
+            rest_is_tooling = all(proof_level.probe_could_not_run(root, i, str(items[i].get("input_hash") or ""))
+                                 for i in mine if not facts[i])
+            if judged and rest_is_tooling and C.prefix_value(f"{C.PROBE_NOT_PROVED_PREFIX} {case}", C.PROBE_NOT_PROVED_PREFIX) == str(case):
+                found.append((str(case), [{"iid": i, "file": facts[i]["file"], "line": facts[i]["line"],
+                                           "statement_inverted": facts[i]["statement_inverted"],
+                                           "statement_after": facts[i]["statement_after"],
+                                           "printed": _printed(facts[i]["failure_text"]), "why": facts[i]["why"]} for i in judged]))
+        return sorted(found, key=lambda pair: pair[0])
+    except Exception:  # noqa: BLE001 - a helper that offers a door must never stop the seam
+        return []
+
+
+def probe_gap_keys_line(window, root) -> str:
+    """The sentence that follows `PROBE_GAP_RECORD` in a refusal: the case keys this window needs, one record each; `""` when
+    `probe_gap_cases` lists none. The ONE text of it (AR-13); data only, never raises."""
+    keys = [case for case, _ids in probe_gap_cases(window, root)]
+    return " The case keys this window needs: " + ", ".join(keys) + " (one record each)." if keys else ""
+
+
+def probe_word_door(window, root, ticket: str, rest_door: str) -> str:
+    """The door sentences of a refusal about owed green tests, built from what the probe records of THOSE tests say (t-2007 F4,
+    FR-2/FR-37). The ONE helper of the two controller refusals (AR-13). Per owed item (`_word_owed`): `unjudged` -> the code critic's
+    `probe_by_code.JUDGE_DOOR` (a person's word does not close it); `cannot_judge` -> the person's `probe not proved:` word
+    (`NOT_PROVED_RECORD`) with the case keys `probe_judgment_cases` lists; any other -> `rest_door`, the old `probe gap:` door text the
+    caller builds (it carries `PROBE_GAP_RECORD` and `probe_gap_keys_line`). When no owed item can be classified (a window that is
+    not readable), `rest_door` stands alone as before. Data only; never raises."""
+    try:
+        items, owed = _word_owed(window, root)
+    except Exception:  # noqa: BLE001
+        return rest_door
+    kinds: dict = {"unjudged": [], "cannot_judge": [], "": [], "plain": []}
+    for iid in sorted(owed):
+        hashed = str(items[iid].get("input_hash") or "")
+        kinds["plain" if proof_level.probe_plain_call_owed(root, iid, hashed) else proof_level.probe_owes_judgment(root, iid, hashed)].append(iid)
+    if not owed:
+        return rest_door
+    parts = []
+    if kinds["plain"]:      # B2: a walk with no check owing a judgment: `--judge` refuses; the plain call is the door
+        parts.append(f" For {', '.join(kinds['plain'])}: {PLAIN_CALL_NOTE}{PROBE_DOOR}.")
+    if kinds["unjudged"]:
+        import probe_by_code      # the ONE JUDGE_DOOR (AR-13); lazy as in `build`
+        parts.append(f" For {', '.join(kinds['unjudged'])}: the probe failed at the mutated line with a text the factory cannot read, "
+                     f"and the code critic judges it (a person's word does not close it): {probe_by_code.JUDGE_DOOR}.")
+    if kinds["cannot_judge"]:
+        keys = [case for case, _items in probe_judgment_cases(window, root)]
+        parts.append(f" For {', '.join(kinds['cannot_judge'])}: the code critic could not judge the probe; if the person accepts the "
+                     f"test as not proved, the orchestrator records `{NOT_PROVED_RECORD.replace('<T>', ticket)}` for the case key of that "
+                     "test, then `window_record.py` builds the record again."
+                     + (" The case keys this window needs: " + ", ".join(keys) + " (one record each)." if keys else ""))
+    if kinds[""]:
+        parts.append(rest_door)
+    return "".join(parts)
 
 
 def _reviewed_identity(task_root: Path, reviewer_id: str) -> dict:
@@ -854,6 +1232,7 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
     # The instances (or cases) whose probe gap the person accepted, from their own recorded words (HF1-14).
     pipeline = _load(task_root / "pipeline.json")
     probe_gap_words = C.probe_gap_words(pipeline)
+    not_proved_words = C.probe_not_proved_words(pipeline)      # t-1968 N5: the word for a probe the code critic could not judge
     runs = _terminal_runs(task_root)
     reviewed = _reviewed_identity(task_root, str(reviewer.get("id") or ""))
     # Once per build, read-only: the tests of this scope changed after their red run (t-108).
@@ -880,6 +1259,13 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
     for kind, key, sentence in refusals:
         if kind == "ambiguous" or key not in blocked:  # `ambiguous` is keyed by the CASE, the rest by instance
             notes.append(("" if kind == "ambiguous" else key, "blocked:" + kind, sentence))
+    # Which of the rest are written and never run because their side does not exist yet (t-2181 PC-4, C5): the ONE reader
+    # `acceptance.pending_instances`, read beside `blocked_instances`, with the story's sides (`contract.story_sides`). A probe
+    # is owed by every instance that could run; the excuse is this reader's alone, never the author's word, and an instance
+    # on a substituted or real side is not in it - it runs, so its probe is owed exactly as before.
+    # A terminal run outranks the excuse (the handed rule above): an instance that did run owes its probe.
+    pending = pending_instances(manifest, [{"instance_id": i} for i in in_scope if i not in blocked and i not in runs],
+                                scope_instances, C.story_sides(pipeline))
     # Which of the rest are RED by the requirement (HF2-4, F3/F7): the ONE reader `acceptance.red_by_requirement`
     # (AR-13), v-b - the latest terminal run of the instance is `failed` AND a `contradicts_requirement` row of the
     # manifest names it - asked once, after the blocked ones are known (an instance the stand blocked is never red: the
@@ -1005,6 +1391,11 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
             # field is present and empty on purpose — the controller exempts exactly this
             # outcome from it, and an absent key would be a shape error instead.
             item.update({"outcome": HANDED_OUTCOME, "execution_fingerprint": "", "evidence_refs": []})
+        elif identity in pending:
+            # The test is written and collected and cannot run: its side does not exist yet (t-2181 PC-4, B2). Same shape as the
+            # handed item - the outcome is the excuse's own word, the fingerprint present and empty on purpose (a run nobody
+            # made has none), no evidence to cite. `acceptance.validate_window` re-derives the claim by the same reader.
+            item.update({"outcome": PENDING_OUTCOME, "execution_fingerprint": "", "evidence_refs": []})
         else:
             item["evidence_refs"] = []
             notes.append((identity, "outcome", _origin_text("outcome")))
@@ -1018,7 +1409,8 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
         # on disk (FR-18: a measurement of another outcome never closes this window). Position: after handed and stopped
         # (an item that never ran is never red: `red` holds only instances whose latest terminal run FAILED).
         explained = identity in red and item.get("outcome") == "failed"
-        ref = {} if (stopped or explained) else _window_receipt_ref(entry, manifest, task_root)  # no probe of a test that never ran
+        ref = {} if (stopped or explained or identity in pending) \
+            else _window_receipt_ref(entry, manifest, task_root)  # no probe of a test that never ran
         if explained:
             # The block is written exactly where a probe would otherwise be owed (the shape check's reading or the
             # validator's): a red `unchanged` test owes none and gets none. It carries EVERY row that names the
@@ -1029,7 +1421,13 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
                                                     "rows": [_red_row_record(row) for row in red[identity]]}
         elif ref:
             receipt = _load(task_root / ref["path"])
-            item["probe"] = _probe_from_receipt(receipt, ref, item)
+            item["probe"] = _probe_from_receipt(receipt, ref, item, task_root)
+            off_target = off_target_note(identity, item["probe"])
+            if off_target:
+                notes.append(off_target)       # the door of the gap `acceptance.validate_window` raises for it (N4)
+            scoped = _scope_note(identity, item["probe"], ref)
+            if scoped:
+                notes.append(scoped)           # the door of the `sensitivity:` gap a one-check or a changed-model receipt raises (P6)
             if not any(e.get("path") == ref["path"] for e in item["evidence_refs"]):
                 item["evidence_refs"].append({"path": ref["path"], "sha256": ref["sha256"]})
             # The probe's own evidence (the run summary of its mutated run) is not among the
@@ -1039,12 +1437,12 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
             if item["probe"].get("evidence_ref") not in paths:
                 item["probe"]["evidence_ref"] = ref["path"]
         elif (proof_level.proof_required(entry, manifest)
-              and item.get("outcome") not in (HANDED_OUTCOME, BLOCKED_OUTCOME)):
+              and item.get("outcome") not in (HANDED_OUTCOME, BLOCKED_OUTCOME) and identity not in pending):
             # HF1-14 (E13): AFTER the receipt lookup (a proof outranks an accepted gap, E9) and only for an instance
             # that ran green and owes a live check (E6: a word never turns a red or an unrun test into a passed
             # window). Written only when a recorded word names it (F6): without one nothing changes.
             gap = (probe_gap_block(task_root, item, links, probe_gap_words,
-                                   C.probe_gap_class_word(pipeline, [identity] + list(links)))
+                                   C.probe_gap_class_word(pipeline, [identity] + list(links)), not_proved_words)
                    if item.get("outcome") == "passed" else None)
             if gap:
                 item["probe_gap"] = gap
@@ -1062,9 +1460,21 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
                 # A red no row explains (HF2-4, A1): the critic's probe closes nothing on it and the person's word
                 # `probe gap` is not read for a red (FR-18) - both doors were dead ends. The road is the row.
                 notes.append((identity, "probe", ORIGIN["probe"][0] + "; " + RED_ROW_DOOR))
+            elif proof_level.probe_plain_call_owed(task_root, identity, str(item.get("input_hash") or "")):
+                # fix round D (B2, the first critic's routing note): a walk's aggregate in which no check owes a judgment (rows `--at` did not
+                # select, a check with no model yet): `--judge` would refuse; the door is the plain call that walks the rest
+                notes.append((identity, "probe", _keys_first(task_root, item) + PLAIN_CALL_NOTE + PROBE_DOOR))
+            elif proof_level.probe_owes_judgment(task_root, identity, str(item.get("input_hash") or "")) == "unjudged":
+                # t-1968 N2 (R4): the probe ran and failed at its line on a text the tool cannot read; the door is the critic's
+                # `--judge`, not a person's word. No new refusal: it is the tail of the same `probe is missing` line
+                import probe_by_code      # the ONE JUDGE_DOOR (AR-13); lazy: this module is imported by many that never probe
+                notes.append((identity, "probe", _keys_first(task_root, item) + UNJUDGED_NOTE + probe_by_code.JUDGE_DOOR))
+            elif proof_level.probe_owes_judgment(task_root, identity, str(item.get("input_hash") or "")) == "cannot_judge":
+                # t-1968 N5: the code critic judged and could not tell; the door is the person's own word, not a `probe gap:` one
+                notes.append((identity, "probe", _keys_first(task_root, item) + NOT_PROVED_NOTE))
             else:
-                notes.append((identity, "probe", _origin_text("probe") + PROBE_GAP_DOOR))
-        if not item["evidence_refs"] and not stopped and item.get("outcome") != HANDED_OUTCOME:
+                notes.append((identity, "probe", _keys_first(task_root, item) + _origin_text("probe") + PROBE_GAP_DOOR))
+        if (not item["evidence_refs"] and not stopped and item.get("outcome") not in (HANDED_OUTCOME, PENDING_OUTCOME)):
             # a blocked test that never ran, and one the person runs, have no run to cite
             notes.append((identity, "evidence", _origin_text("evidence_refs")))
         instances.append(item)
@@ -1240,6 +1650,8 @@ def verdict(task_root: Path, window: dict, notes: list, info: list | None = None
             pass  # said below, once, with the file and the door
         _run_freshness_unknown(window, info)
         _reason_detail_notes(window, info)
+        _unknown_target_notes(window, info)
+        _probe_scope_notes(window, info)
         if "expectation_changes_unmeasured" in window:
             # Not a problem and not a gap: the detector could not measure, the story goes on, and the
             # reader is told what was NOT looked at instead of assuming nothing changed (FR-41).
@@ -1483,9 +1895,8 @@ def _handed_empty_cases(task_root: Path, window: dict) -> set:
 def probe_gap_segments(window: dict, problems: list) -> list:
     """One segment per instance whose probe gap is named (a `probe_gap:` line of `problems`):
     `<iid> (<case>[, <case>]): probe <verdict>, <why>; their words: "<words>"`. The words are printed whole
-    (a person's words are carried in full, FR-8); the instance is read from the item, never cut out of the line. A gap the
-    FACTORY named (`named_by` `factory:...`, RN1-9) reads `...; named by the factory: <words>` - its sentence is never quoted as
-    the person's (FR-35). A gap named
+    (a person's words are carried in full, FR-8); the instance is read from the item, never cut out of the line. The factory names no
+    gap of its own (t-1968 N2): every gap here is a person's word. A gap named
     by the CLASS decision (`named_by` `class:...`, GW1-43) adds `; decision of <date>, applied to this test`: said where applied."""
     scope = window.get("scope_instances") if isinstance(window.get("scope_instances"), dict) else {}
     out = []
@@ -1496,9 +1907,7 @@ def probe_gap_segments(window: dict, problems: list) -> list:
         if not isinstance(gap, dict) or not any(p == line or p.startswith(line + " — ") for p in problems):
             continue
         cases = ", ".join(str(c) for c, ids in scope.items() if isinstance(ids, list) and identity in ids)
-        by_factory = str(gap.get("named_by") or "").startswith("factory:")
-        segment = (f"{identity} ({cases}): probe {gap.get('verdict')}, {gap.get('why')}; "
-                   + (f"named by the factory: {gap.get('words')}" if by_factory else f"their words: \"{gap.get('words')}\""))
+        segment = f"{identity} ({cases}): probe {gap.get('verdict')}, {gap.get('why')}; their words: \"{gap.get('words')}\""
         if str(gap.get("named_by") or "").startswith("class:"):
             # GW1-43: the word was said about a class of tests; the person reads WHICH test it was applied to, and when it was said
             said = str(gap.get("at") or "")[:10]

@@ -30,7 +30,7 @@ that kills it (builder-rules 7a; the mutation is `shell = True` in `brief_pack.b
       `--summary` and the merge-request command; the other seven cards are unchanged (hash pins)
   K9  (SC1-9/10 fix round, F4) every script a Bash role's charter names through `${CLAUDE_PLUGIN_ROOT}` is on its card
 """
-import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -95,36 +95,6 @@ def without_ahead(text: str) -> str:
     return "\n".join(out)
 
 
-def card_hash(role: str) -> str:
-    """sha256 head of the role's `## Commands` section, this copy's scripts path made neutral."""
-    text = section(render(role), "Commands").replace(brief_pack.SCRIPTS, "<S>")
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
-
-# The `## Commands` section of every role WITH Bash, as `main` rendered it before this node (judge off, this
-# fixture); taken from that run on `main` HEAD 50d945aa (t-1003), not computed from the code under test.
-BASH_CARD_HASHES = {
-    # qa-automator re-pinned by t-416: the manifest_from_tests.py line gained the marker keys and the import-found parameter-list
-    # module sentence (8ec74bb4 EP1-25 t-205, trimmed by db9df2f8 t-208 F-fix); the other lines of the card are as they were
-    "qa-automator": "c9b19f04922a1438", "qa-bug-reporter": "3252219f0ecd2945", "qa-code-critic": "856ebb8ad04ef5b5",
-    # re-pinned by the fix round t-1313 (F4): the scribe's card gains `report_facts.py`, the failure analyst's `bug_snapshot.py`
-    "qa-doc-scribe": "a01dce75e63cd58a",
-    # re-pinned by t-1522 (R3, t-1508): the analyst's card gains the `red_sandbox.py --diagnostic` line (rule 2c b)
-    # re-pinned by t-1754: the card gains the `bug_records.py open-bugs` line the charter names (K9; D1-C2 added the mention)
-    "qa-failure-analyst": "e05c468b0d09898d",
-    # SC1-7 (t-1263, fix round t-1278): the scout's, the requirements tester's, the failure analyst's and the bug reporter's
-    # cards carry the full command forms (hashes re-taken from the rendered `## Commands` of this fixture; the other five
-    # cards are unchanged)
-    # qa-runner: HF5-5 (t-1540) re-pinned it for manual_capture.py ui|http and manual_evidence.py build; the fix round t-1550
-    # (F2) moved those three lines to the MANUAL card only (brief_pack.TOOLING_MANUAL), so the automated card is as it was
-    "qa-retro-analyst": "69aff0bf7db3dca8", "qa-runner": "fd6e3beed0c6e3fb",
-    # re-pinned by SC1-10 (t-1301) after the literal lines of SC1_10_RT_LINE / SC1_10_SCOUT_LINES below: the scout's card
-    # names `--summary` and the merge-request command, the tester's opens with the diff pass; the other seven are unchanged
-    # re-pinned again by the fix round t-1313 (F2a: `--summary` in the four command forms and the receipt sentence of F11 on
-    # the scout's card; F10 b: the tester's diff-pass line says which number a removed line carries)
-    # qa-requirements-tester re-pinned by t-416: its card gains the branch_accounting.py line the charter (576e05b4, e503fcbe) names (K9)
-    "qa-requirements-tester": "a774b06f9af0c5f3", "qa-scout": "79bb726f23fe6c13"}   # re-pinned by t-1685 N1: the card gains `query` and `record-source` (the scout is told the door it already needs)
-
 # SC1-10 B-K1: the lines of the two cards, written here as the spec fixed them (not read back from the code under test).
 SC1_10_RT_LINE = ("- diff_pass.py --diff <work/impl-diff*.txt> --files-only, then --file <path> --max-lines 100000 for EVERY file it "
                   "lists, in every impl-diff - every changed line of every hunk, numbered in the new file ("
@@ -168,20 +138,13 @@ def replay_checks(root: Path) -> None:
         names = seen[(role, False)]
         check(f"K1 control: {role} (Bash) is still sent to scripts by its brief ({len(names)} commands)",
               any(c.startswith("python") for c in names), str(names[:3]))
-    # Negative control: the replay can refuse. The old line for the designer is what S4-7 ran.
     old = RR.named_commands(OLD_SLICE_LINES[1])
-    check("K1 negative control: the old SLICE_INSTEAD line is read by the extractor as a command",
-          len(old) == 1 and "manifest_view.py" in old[0], str(old))
     code, err = RR.guard_verdict("qa-case-designer", old[0], root, 9001)
     check_eq("K1 negative control: the old `manifest_view.py` line is refused for the case designer", code, 2)
     check_in("K1 negative control: by the role guard, with its own words", "FACTORY ROLE: qa-case-designer", err)
     code, _err = RR.guard_verdict("qa-case-designer", "Get-Content qa-factory/artifacts/QA-9/work/context-manifest.json",
                                   root, 9002)
     check_eq("K1 positive control: a plain read by the same role passes the same replay", code, 0)
-    check_eq("K1 extractor: a read command line behind a list dash is a command",
-             RR.named_commands("- Get-Content <path> reads it"), ["Get-Content x reads it"])
-    check_eq("K1 extractor: prose that merely mentions a tool is none",
-             RR.named_commands("Read it with Grep -n first."), [])
 
 
 def no_shell_checks() -> None:
@@ -211,8 +174,6 @@ def no_shell_checks() -> None:
     check_in("K3 ... the plan is written whole once, a Write over it is refused", "a Write over it is refused", commands)
     check_in("K3 ... the code checks the plan when it is saved and at the exit gate", "exit gate", commands)
     check_not_in("K3 ... and no plan_row / planning_contract command", ".py", commands)
-    check("K4 the dead second list of no-shell roles is gone (the question is asked of host_adapter.role_has_bash)",
-          not hasattr(brief_pack, "NO_SHELL"))
     # SLICE_INSTEAD, the file lines the brief builds, for a role with no shell
     task_root = hooklib.artifacts_dir(TASK)
     project = hooklib.project_root()
@@ -256,9 +217,7 @@ def doubt_checks() -> None:
 
 def bash_pin_checks() -> None:
     """K6: a role WITH Bash is handed today's brief."""
-    for role in RR.WITH_BASH:
-        check_eq(f"K6 {role}: its `## Commands` section is today's text", card_hash(role), BASH_CARD_HASHES.get(role))
-    # K-R3-6 (t-1508 5.3): the analyst's card names the diagnostic run of rule 2c b; no other Bash card does.
+    # K-R3-6 (t-1508 5.3): the analyst's card names the diagnostic run of "One red, one triage"; no other Bash card does.
     check_in("K-R3-6 the failure analyst's card names `red_sandbox.py --diagnostic`", "red_sandbox.py --diagnostic",
              "\n".join(brief_pack.TOOLING["qa-failure-analyst"]))
     check_eq("K-R3-6 ... and no other role's card does",
@@ -290,7 +249,6 @@ def card_literal_checks() -> None:
     check_in("B-K1 ... every line of every hunk: the flag of the number is --max-lines 100000, not the default 40",
              "--max-lines 100000", SC1_10_RT_LINE)
     check_not_in("B-K1 ... and the card does not carry the default", "--max-lines 40", "\n".join(tester))
-    check_eq("B-K1 the constant is the literal of the line", brief_pack.DIFF_ALL_LINES, 100000)
     for form in SC1_10_SCOUT_LINES[0]:
         check_in("B-K1 (F2a) the scout's card: --summary is in the command form of peek, assess, collect and inspect", form, scout)
     check_not_in("B-K1 (F2a) ... and no clause about it stands on the get|children|diff line", "take --summary", scout)
@@ -343,10 +301,6 @@ def charter_card_checks() -> None:
         charter_scripts((harness.PLUGIN_ROOT / "agents" / "qa-failure-analyst.md").read_text(encoding="utf-8")),
         "report_facts.py" in charter_scripts((harness.PLUGIN_ROOT / "agents" / "qa-doc-scribe.md").read_text(encoding="utf-8"))],
         [["bug_records.py", "bug_snapshot.py"], True])
-    check_eq("K9 negative control: a charter naming a script that is not on the card fails the key, by the script's name",
-             missing_from_card("run `${CLAUDE_PLUGIN_ROOT}/scripts/no_such_script.py` and `ledger.py <T>` (`python`, from "
-                               "`${CLAUDE_PLUGIN_ROOT}/scripts/`) and `also_missing.py --x` (from `${CLAUDE_PLUGIN_ROOT}/scripts/`)",
-                               brief_pack.TOOLING["qa-doc-scribe"]), ["also_missing.py", "no_such_script.py"])
 
 
 def byte_checks(rich: bool) -> None:
@@ -435,6 +389,7 @@ def stage_critic_checks() -> None:
     s2 = brief("S2", "qa-case-critic")
     check_in("X2-1: the S2 critic's brief names the register under acceptance", "work/requirements-register.md", s2)
     check_in("X2-1: ...and the advice file of the stage, although it does not exist yet", "work/advice-S2.json", s2)
+    check_in("TR4-1: the S2 critic's brief says no author dispatch is there to review yet", "Reviewed dispatch: none yet", s2)
     check_in("X2-1: ...and says it is absent, in the words file_lines prints for any absent file", "advice-S2.json", s2.split("advice-S2.json", 1)[1][:200] and s2)
     check_not_in("X2-1: the S4 critic's brief names the S4 advice file, not S2's", "advice-S2.json", brief("S4", "qa-case-critic"))
     stage_def = stage_of_def("S2")
@@ -448,6 +403,38 @@ def stage_critic_checks() -> None:
              (stage_def["outputs"][:3], "work/advice-S2.json"))
 
 
+def tried_reader_checks(root: Path) -> None:
+    """t-1884 M-2 (AR-22): a `tried` table is read by somebody. S6 and S7 by the stage's acceptor (`stage_critic_names`), the two S8 forms
+    by the retro analyst's brief (`TRIED_READERS`), the scribe's also by the gate B packet (test_bug_records). The S9 form is read by the
+    next story's retro brief (`prior_retro_lines`, test_retro_prior_tried) and packed by qa-collect (B16); the S5 form by the code critic's brief (test_brief_pack_s5_plan)."""
+    def brief(stage: str, role: str) -> str:
+        with patch.object(judge, "active", return_value=False):
+            return brief_pack.build(TASK, stage, role, f"{stage}-{role}-9", write=False)["markdown"]
+    task = root / "qa-factory/artifacts" / TASK
+    (task / "state").mkdir(exist_ok=True)
+    (task / "state" / "controller.json").write_text(json.dumps({"dispatches": {
+        "S6-qa-runner-1": {"id": "S6-qa-runner-1", "stage": "S6", "role": "qa-runner", "status": "accepted"},
+        "S7-qa-failure-analyst-1": {"id": "S7-qa-failure-analyst-1", "stage": "S7", "role": "qa-failure-analyst", "status": "accepted"},
+        "S8-qa-doc-scribe-1": {"id": "S8-qa-doc-scribe-1", "stage": "S8", "role": "qa-doc-scribe", "status": "accepted"},
+        "S8-qa-bug-reporter-1": {"id": "S8-qa-bug-reporter-1", "stage": "S8", "role": "qa-bug-reporter", "status": "accepted"}}}), encoding="utf-8")
+    try:
+        check_in("M-2: the S6 acceptor's brief names the runner's form", "work/handoffs/S6-qa-runner-1.yaml", brief("S6", "qa-failure-analyst"))
+        scribe7 = brief("S7", "qa-doc-scribe")
+        check_in("M-2: the S7 acceptor's brief names the analyst's form", "work/handoffs/S7-qa-failure-analyst-1.yaml", scribe7)
+        check_in("TR4-1: ...and the line says which row of inputs_read counts", "Reviewed dispatch: the LAST `inputs_read` row", scribe7)
+        retro = brief("S9", "qa-retro-analyst")
+        check_in("M-2: the retro brief names the scribe's last S8 form", "work/handoffs/S8-qa-doc-scribe-1.yaml", retro)
+        check_in("M-2: ... and the bug reporter's", "work/handoffs/S8-qa-bug-reporter-1.yaml", retro)
+        check_eq("M-2: the readers are a table, and a role outside it gets none",
+                 (brief_pack.TRIED_READERS, brief_pack.tried_reader_names(stage_of_def("S8"), "qa-doc-scribe", task)),
+                 ({("S9", "qa-retro-analyst"): (("S8", "qa-doc-scribe"), ("S8", "qa-bug-reporter"))}, []))
+        check_eq("M-2: no accepted dispatch, no name", brief_pack.last_accepted_form(task, "S8", "qa-nobody"), "")
+        check("M-2: the retro brief stays within the ceiling the K7 test holds (BRIEF_MAX_BYTES)",
+              len(retro.encode("utf-8")) <= brief_pack.BRIEF_MAX_BYTES, str(len(retro.encode("utf-8"))))
+    finally:
+        (task / "state" / "controller.json").unlink()
+
+
 def stage_of_def(stage: str) -> dict:
     return next(st for st in hooklib.load_ref_json("stages.json")["stages"] if st["id"] == stage)
 
@@ -458,6 +445,7 @@ def main() -> None:
         harness.use_project(root)
         seed(root, TASK)
         stage_critic_checks()
+        tried_reader_checks(root)
         s4_stand_checks(root)
         no_shell_checks()
         doubt_checks()

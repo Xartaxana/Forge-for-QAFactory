@@ -143,7 +143,15 @@ def _run_witness(art, doc, row=None):
         if path:
             return path, "automation-manifest.runs[]"
     witness = art.manifest.get("run_witness") or art.run.get("witness")
-    return (witness, "automation-manifest.run_witness") if witness else None
+    if witness:
+        return witness, "automation-manifest.run_witness"
+    # every test pending its absent side: no run exists, the collect row is the evidence the manifest carries (t-2181 PC-4, B3)
+    import acceptance
+    if acceptance.run_witness_excused(art.manifest) == "pending":
+        collect = next((e for e in reversed(runs) if isinstance(e, dict) and e.get("kind") == "collect" and e.get("label")), None)
+        if collect:
+            return collect["label"], "automation-manifest.runs[] collect"
+    return None
 
 
 def _review_receipt(art, doc, row=None):
@@ -162,12 +170,37 @@ def _review_receipt(art, doc, row=None):
 
 
 def _findings_file(art, doc, row=None):
-    for rel in sorted((art.root / "work" / "test-code").glob("critic-findings*.md"),
-                      key=lambda p: p.stat().st_mtime, reverse=True):
-        return f"work/test-code/{rel.name}", "the newest findings file on disk"
-    for rel in sorted_paths((art.root / "work" / "test-cases").glob("critic-findings*.md")):
-        return f"work/test-cases/{rel.name}", "the findings file on disk"
+    """The findings file of THIS form's dispatch: `work/test-code/critic-findings-<dispatch>.md` (the registry row
+    `critic-findings-*.md`, one file per critic dispatch, so a window's handoff never points at another window's findings).
+    Absent: `work/test-code/critic-findings.md`, the one file of a story started before (an old story; the new world never
+    writes it). Never "the newest on disk": that was another window's file when two ran. The S4 case critic's file
+    (`work/test-cases/`) answers an S4 form ONLY; an S5 form whose own file is missing gets None (t-2098 F2, AR-19)."""
+    import findings_path
+    dispatch = str(getattr(art, "form_dispatch", "") or doc.get("header.dispatch") or doc.get("dispatch") or "").strip()
+    stage = _form_stage(art, dispatch)
+    if stage == "S4":
+        for rel in findings_path.s4_files(art.root, nested=False):
+            return f"work/test-cases/{rel.name}", "the findings file on disk"
+        return None
+    # an unknown stage takes only the file named after the form itself, never the old single file (a guess; t-2106 X4b)
+    found = findings_path.resolve(art.root, dispatch, allow_old=bool(stage))
+    if found:
+        return found, ("the findings file of this dispatch" if found == findings_path.per_dispatch(dispatch)
+                       else "the findings file of a story from before one file per dispatch")
     return None
+
+
+def _form_stage(art, dispatch: str) -> str:
+    """The stage a form's dispatch belongs to: its record's `stage`, else the `S<n>` its id starts with, else "". Never raises."""
+    try:
+        from s5_precheck import dispatch_record
+        stage = str((dispatch_record(art.root, dispatch) or {}).get("stage") or "")
+    except Exception:  # noqa: BLE001 - an unreadable record is "unknown", and unknown is not S4
+        stage = ""
+    if not stage:
+        head = dispatch.split("-", 1)[0]
+        stage = head if len(head) > 1 and head[0] == "S" and head[1:].isdigit() else ""
+    return stage
 
 
 def implementation_entries(manifest) -> list:
@@ -579,7 +612,12 @@ def _claim_bug_has_a_draft(art):
     way: a refusal costs the role a round, a pass over an unpaired bug would not. A `work/triage.json` that
     exists and cannot be read as a triage is no verdict (`_triage_view`'s own reason), never 'zero rows'. The same
     for a draft folder that exists and cannot be listed (`bug_records.draft_listing`): 'drafts unreadable: <reason>',
-    never 'no drafts' - a pass over a folder nobody could read would be a pass on an unknown (FR-59, FR-41)."""
+    never 'no drafts' - a pass over a folder nobody could read would be a pass on an unknown (FR-59, FR-41).
+
+    One bug, many manifestations (t-2187 N2, 5.2): an APP_BUG row a draft's `manifestations[].triage_row` names is covered by that draft
+    (`pair_drafts`); a manifestation naming no row or a non-APP_BUG row, and a draft with 2+ manifestations whose `mechanism` is not
+    confirmed by a basis that re-reads (`bug_records.merged_unconfirmed`, F-2 (a)) are each one problem with its door. The error goes
+    one way: toward the analyst splitting the draft."""
     import bug_records as BR
     paths, unreadable = BR.draft_listing(art.root)
     if unreadable:
@@ -612,6 +650,18 @@ def _claim_bug_has_a_draft(art):
         problems.append(f"the draft of {blocker} does not list {case} in `cases`; add it (row {case} says its red is "
                         f"{blocker}'s defect)")
     problems += BR.same_location_problems(paired)
+    # One bug, many manifestations (t-2187 N2): a manifestation that names no row, or a row that is not APP_BUG, and a merge whose
+    # cause the factory cannot re-read (`BR.merged_unconfirmed`, the only reader here that opens files). Every refusal has its door.
+    for name, label in paired["manifestation_no_row"]:
+        problems.append(f"a manifestation of the draft {name} names the row {label}, which is no row of work/triage.json - add the row "
+                        "the manifestation names, or remove the manifestation")
+    for name, label, found in paired["manifestation_not_app_bug"]:
+        problems.append(f"a manifestation of the draft {name} names the row {label}, whose verdict is {', '.join(found) or 'empty'}, not "
+                        "APP_BUG - the verdict is corrected, or the manifestation is removed")
+    for name, why in BR.merged_unconfirmed(art.root, drafts):
+        problems.append(f"the draft {name} puts several manifestations under one cause the factory cannot confirm: {why} - fix the basis "
+                        "(a shared `defect_location` line can be cited as a `code_line`), or split the draft and link the parts with "
+                        "`possibly_same_cause`")
     # A code-reading draft (t-1676, RN1-12) has no triage row: its one checker is `bug_records.code_reading_problems` (oracle, S1 fact,
     # check state, one draft per requirement). The same reader as the gate B rehearsal, so the claim and the gate cannot disagree.
     code_reading = set(paired["code_reading"])
@@ -1405,6 +1455,20 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                     section, "no rows. One row per item in scope: the id, a state and a reason "
                              f"of at most 80 characters. {_row_sentence(row_form(spec, section)[1])}",
                     "write the rows as index lines in the values file, then run this check again"))
+    # F4 (AR-10, AR-28, AR-29): a verdict that sends the window back owes the sections the contract's `rows_owed_when`
+    # lists; an empty one (nothing, or only the template row) is a presence gap returned to the role. Only the
+    # presence of a row is read, never what it says; `tooling_findings` rows are another list and do not satisfy it.
+    verdict_word = str(doc.get("header.verdict") or "").strip()
+    for section in sorted(handoff.rows_owed(contract, verdict_word)):
+        rows = doc.data.get(section)
+        if not (_is_empty_section(doc, spec, section) or (isinstance(rows, list) and all(handoff.only_template(r) for r in rows))):
+            continue
+        keys = row_form(spec, section)[1]               # this contract's own row paths: S2-S4 rows are not S5 rows
+        cause = f"; cause is one of {', '.join(handoff.allowed('repair_causes'))}" if any(k.endswith(".cause") for k in keys) else ""
+        problems.append(Problem(
+            section, f"no rows. The verdict {verdict_word} sends the window back, so each thing the author must change "
+                     f"is a row: {_row_sentence(keys)}{cause}",
+            f"write the rows as index lines in the values file ({', '.join(keys)}), then run this check again"))
     for section, entry in nulled.items():
         if _is_empty_section(doc, spec, section):
             continue
@@ -1475,7 +1539,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         if options and text not in options and text not in field.options:
             # The list of a stage S1-S4 handoff is a PROPOSED one (F-3 (b)): `new: <word> -- <why>` passes the form and is
             # kept in `proposed[]` for the stage critic to judge. The judge only ADVISES: the field keeps the role's word.
-            opened = contract in OPEN_LIST_CONTRACTS
+            opened = _list_is_open(contract, generic)
             door = C.open_word_errors(text, options, "handoff_field") if opened and text.startswith("new:") else None
             if door == []:
                 if fix:
@@ -1529,21 +1593,55 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
 
 ROW_STATE_PATH = re.compile(r"\w+\[\d+\]\.state")
 
-# The handoffs of the stages whose roles keep a `tried` table (spec t-1765 B3): what the role tried and saw, one row per
-# attempt. Their stage critic reads the table against the role's Good outcome; this module only sees that a table is there.
+# The handoffs of the stages whose roles keep a `tried` table (spec t-1765 B3, X7-7): what the role tried and saw, one row per
+# attempt. S1-S4 and six S5-S9 forms; not `s5-automator-plan-to-critic`, `s5-automator-to-runner`, `s7-analyst-to-automator`,
+# `s7-automator-to-analyst`. No `required_when` or verdict relaxes it. Their stage critic reads the table against the role's Good outcome; this module only sees that a table is there.
 TRIED_CONTRACTS = ("s1-scout-to-tester", "s2-tester-to-strategist", "s3-strategist-to-designer",
-                   "s4-designer-to-case-critic")
-# The stage contracts whose closed lists are PROPOSED ones (spec t-1765 X2-3 / F-3 (b)): a word the list lacks goes in as
-# `new: <word> -- <why>`. The same four; S5-S8 forms keep their lists closed (route words, FR-19; X5's).
-OPEN_LIST_CONTRACTS = TRIED_CONTRACTS
+                   "s4-designer-to-case-critic", "s5-automator-to-critic", "s6-runner-to-analyst",
+                   "s7-analyst-to-scribe", "s8-scribe-to-gate-b", "s8-bug-reporter-to-scribe", "s9-retro-to-project")
+# The stage contracts whose closed lists are PROPOSED ones (spec t-1765 X2-3 / F-3 (b), X7-5): a word the list lacks goes in
+# as `new: <word> -- <why>`. An EXPLICIT tuple, not an alias of TRIED_CONTRACTS: the two answer different questions (where a
+# `tried` table is owed / where a list may be extended) and a change to one must not move the other (AR-20). The first four
+# are open on every list field; the last three (S5, S8, S9) are open ONLY on the fields of OPEN_LIST_FIELDS - every other
+# list field of an S5-S9 form is a ROUTE (code branches on its word, E-16) and stays closed, `new:` refused (FR-19).
+OPEN_LIST_CONTRACTS = ("s1-scout-to-tester", "s2-tester-to-strategist", "s3-strategist-to-designer",
+                       "s4-designer-to-case-critic", "s5-automator-to-runner", "s8-bug-reporter-to-scribe",
+                       "s9-retro-to-project")
+# The open fields of the S5-S9 contracts above, by generic path (spec t-1765 X7-P §3: the five whose word no code reads).
+# A contract of OPEN_LIST_CONTRACTS that is absent here is open on every field.
+OPEN_LIST_FIELDS = {
+    "s5-automator-to-runner": ("scope[].stale_because",),
+    "s8-bug-reporter-to-scribe": ("filed[].action",),
+    "s9-retro-to-project": ("knowledge_fold[].kind", "numbers.estimation_ledger_line",
+                            "delivery_bookkeeping.post_s9_update"),
+}
+
+
+def _list_is_open(contract: str, generic: str) -> bool:
+    """May the list of the field at generic path `generic` of `contract` be extended with `new: <word> -- <why>`?"""
+    if contract not in OPEN_LIST_CONTRACTS:
+        return False
+    return generic in OPEN_LIST_FIELDS.get(contract, (generic,))
+
+
 TRIED_NO_NOTE = ("", "-")
+# What a `tried` row means in an S5-S9 form (spec t-1765 X7-7), named in the refusal so the role knows what to write. Text for the
+# role only: nothing reads whether the rows say it.
+TRIED_MEANING = {
+    "s5-automator-to-critic": "what you did to make the test fall",
+    "s6-runner-to-analyst": "one line per window, and the path of your tried.md",
+    "s7-analyst-to-scribe": "per red test: the experiment you ran and its outcome",
+    "s8-scribe-to-gate-b": "per claim of the report: the code block it rests on",
+    "s8-bug-reporter-to-scribe": "your duplicate searches and your reproduction attempts",
+    "s9-retro-to-project": "where you looked for the cause",
+}
 
 
 def tried_errors(doc, contract: str) -> list:
     """The presence and shape of the top-level `tried` table of a handoff in TRIED_CONTRACTS: no row with a filled field
     AND no `tried_note` that says why is one problem. Whether a technique fits, or an observation convinces, is the stage
     critic's judgment and is never read here; `blocked.tried` (what failed while filling the form) is another field and
-    is not read. A contract outside the four is not refused: []. Inside the four, the direction of error is toward asking:
+    is not read. A contract outside TRIED_CONTRACTS is not refused: []. Inside it, the direction of error is toward asking:
     a placeholder row, an absent table and a dash are no rows and no reason."""
     if contract not in TRIED_CONTRACTS:
         return []
@@ -1552,7 +1650,9 @@ def tried_errors(doc, contract: str) -> list:
     note = doc.get("tried_note")
     if not handoff.is_placeholder(note) and str(note).strip() not in TRIED_NO_NOTE:
         return []
-    return [Problem("tried", "no rows and no tried_note. One row per attempt: requirement, technique, observation, "
+    meaning = TRIED_MEANING.get(contract)
+    what = f" ({meaning})" if meaning else ""
+    return [Problem("tried", f"no rows and no tried_note. One row per attempt{what}: requirement, technique, observation, "
                              "evidence - or tried_note with why nothing was tried",
                     "write the rows (or tried_note) in the values file, then run this check again")]
 
@@ -2300,6 +2400,10 @@ def _apply_one(doc, contract: str, spec: dict, path: str, value, raw: bool) -> t
         return doc, False, Problem(path, text, fix), ""
 
     if raw and path in doc.nodes:              # `--set` of a line the form holds: as it always was, the typed text
+        # a write that changes nothing says so (FR-41) - only for a word the field can hold: a placeholder typed with
+        # `--set` stays what it always was, a write (the form would refuse it from a values file)
+        if not _blank_value(value) and handoff._render(doc.get(path)) == handoff._render(value):
+            return doc, False, None, f"nothing changed: `{path}` already reads {handoff._render(value)}"
         handoff.set_value(doc, path, value)
         return handoff.parse(doc.text()), True, None, ""
     if not raw and _blank_value(value):

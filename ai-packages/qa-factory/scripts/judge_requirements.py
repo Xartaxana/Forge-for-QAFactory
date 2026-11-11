@@ -153,15 +153,21 @@ def render(report: dict) -> str:
             f"{len(report['comments_without_scope'])} do not -> work/judge-requirements.json")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+def cli_main(script: str, run_fn, render_fn, doc: str) -> int:
+    """The one command line of the three judge scripts (`judge_cases`, `judge_plan`, `judge_requirements`; AR-15): `--task-root`
+    (required) and `--json`; the story is resolved first, even when the judge is off (E-4: a phantom root is refused before `run_fn`
+    can answer "off"); exit 0 for ok/off, 3 otherwise. Each script passes its own name, `run`, `render` and docstring."""
+    parser = argparse.ArgumentParser(description=doc, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--task-root", required=True)
     parser.add_argument("--json", action="store_true")
     args = hooklib.exact_options(parser).parse_args()
-    # the story first, even when the judge is off (E-4): a phantom root is refused before `run` can answer "off"
-    report = run(hooklib.story_cli("judge_requirements.py", root=args.task_root, key_flag=None).resolve())
-    print(json.dumps(report, indent=2, ensure_ascii=False) if args.json else render(report))
+    report = run_fn(hooklib.story_cli(script, root=args.task_root, key_flag=None).resolve())
+    print(json.dumps(report, indent=2, ensure_ascii=False) if args.json else render_fn(report))
     return 0 if report["status"] in ("ok", "off") else 3
+
+
+def main() -> int:
+    return cli_main("judge_requirements.py", run, render, __doc__)
 
 
 if __name__ == "__main__":

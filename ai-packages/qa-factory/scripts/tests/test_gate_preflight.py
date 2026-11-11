@@ -3943,7 +3943,8 @@ def test_c3_a_code_reading_draft_is_judged_by_its_own_checker() -> None:
     fact = {"id": "XPANBFLFA-167 price sync / subtotal", "path": "MyBooks/src/lib/services/cartService.ts", "line": 103}
     draft = {"title": "The cart total uses the current price", "impact": "money", "violates": "requirement:R-24", "evidence": "code-reading",
              "oracle": {"question": "Q7", "quote": "the price shown when added is kept"}, "fact": fact, "check_state": "not_executed",
-             "manual_steps": ["add a book at 6, change its price to 8, open the cart"], "confirmation": "unconfirmed"}
+             "manual_steps": ["add a book at 6, change its price to 8, open the cart"], "confirmation": "unconfirmed",
+             "red_test_none": "no run spoke: the defect is read from the code"}
 
     def findings_of(body: dict, settled: bool = True, extra: dict = None) -> list:
         root = temp_dir("qa-gate-c3-")
@@ -3989,7 +3990,8 @@ def test_w2_the_gate_b_cards_about_a_bug_draft_open_with_their_block() -> None:
     draft = {"title": "a removed node is drawn at the origin", "impact": "degraded",
              "violates": "requirement:R-4", "case": "TC-004",
              "triage_ref": {"instance_id": "test_removed_node[chromium]", "attempt_id": "a3"},
-             "manual_steps": ["open the diff", "the removed node sits at the corner"]}
+             "manual_steps": ["open the diff", "the removed node sits at the corner"], "red_test_none": "manual check only",
+             "mechanism": {"status": "unknown", "why": "the cards of this test are about other fields"}}     # t-2187 N8: a new draft is asked for its cause
     table_reviewed = "| Plan row | Case | Reviewed |\n|---|---|---|\n| TS-4 | TC-004 | {} |\n"
     table_silent = "| Plan row | Case |\n|---|---|\n| TS-4 | TC-004 |\n"
 
@@ -4025,10 +4027,97 @@ def test_w2_the_gate_b_cards_about_a_bug_draft_open_with_their_block() -> None:
         check_eq(f"W2 {label}: exactly one card", len(found), 1)
         check(f"W2 {label}: the message OPENS with its block", found[0]["message"].startswith(opening))
         check(f"W2 {label}: and the word the fix offers passes it", _word_passes(found[0]))
+    # X7-5 (P28): the red test travels with the bug - an ordinary draft with neither field is refused naming both
+    found = bug_story({"red_test_none": None})
+    check_eq("X7-5 a draft without red_test/red_test_none: exactly one card", len(found), 1)
+    check("X7-5 ... it OPENS with its block and names both fields",
+          found[0]["message"].startswith("TC-004 bug draft without its red test")
+          and "`red_test`" in found[0]["message"] and "`red_test_none`" in found[0]["message"], found[0]["message"][:200])
+    check("X7-5 ... and the word the fix offers passes it", _word_passes(found[0]))
+    check_eq("X7-5 `red_test_none: manual check only` passes", bug_story({"red_test_none": "manual check only"}), [])
+    check_eq("X7-5 a draft created before 2026-11-04 is untouched", bug_story({"red_test_none": None, "created": "2026-11-03"}), [])
     # a long case id: the block is cut at 60 characters, the message carries the whole of it
     found = bug_story({"case": "TP1-15045_TC_004 TP1-15045_TC_005"}, table=table_reviewed.format("yes").replace("TC-004", "X"),
                       verdict="TEST_BUG")
     check("W2: a case id longer than the cut block still passes", _word_passes(found[0]))
+
+
+def test_t2187_n2_the_rehearsal_reads_the_manifestations_and_the_cause() -> None:
+    """t-2187 N2 (5.3, F-2 (a), F-5 (a)): the rehearsal asks the roll-call about EVERY case of a merged draft, turns a manifestation or a cause
+    that does not stand into a finding with the person's door, and asks a new triage draft for `mechanism` only once `BUG_MECHANISM_CUTOFF`
+    is a day (both worlds). Mutation (named, not run): `named` back to the label's tokens -> the unreviewed-second-case key; the cutoff
+    guard removed -> the `None` key."""
+    import contract
+    line = "const q = f(1);"
+    good = {"statement": "s", "status": "confirmed", "basis": [{"id": "b1", "kind": "code_line", "path": "src/P.tsx", "line": 2, "quote": line}]}
+    rows = [{"instance_id": "t1", "attempt_id": "a1", "case": "TC-004", "verdict": "APP_BUG"},
+            {"instance_id": "t2", "attempt_id": "a1", "case": "TC-005", "verdict": "APP_BUG"}]
+
+    def man(n, **over):
+        return {"action": f"a{n}", "start_state": "s", "seen": "x", "case": f"TC-00{n + 3}", "evidence": "e", "red_test_none": "manual",
+                "triage_row": {"instance_id": f"t{n}", "attempt_id": "a1"}, **over}
+    base = {"title": "t", "impact": "degraded", "violates": "requirement:R-4", "case": "TC-004", "manual_steps": ["open"], "red_test_none": "manual",
+            "triage_ref": {"instance_id": "t1", "attempt_id": "a1"}, "mechanism": good, "manifestations": [man(1), man(2)]}
+
+    def findings_of(changes: dict, second_reviewed: str = "yes", cutoff=None, drop=()) -> list:
+        root = temp_dir("qa-gate-n2-")
+        held = contract.BUG_MECHANISM_CUTOFF
+        try:
+            (root / "qa-factory").mkdir(parents=True, exist_ok=True)
+            (root / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
+            (root / "src").mkdir()
+            (root / "src" / "P.tsx").write_text("a\n" + line + "\n", encoding="utf-8")
+            task = root / "qa-factory" / "artifacts" / "TP1-15045"
+            (task / "work" / "bug-drafts").mkdir(parents=True)
+            (task / "pipeline.json").write_text(json.dumps({"ticket": "TP1-15045"}), encoding="utf-8")
+            body = {k: v for k, v in dict(base, **changes).items() if v is not None and k not in drop}
+            (task / "work" / "bug-drafts" / "qty.json").write_text(json.dumps(body), encoding="utf-8")
+            (task / "work" / "triage.json").write_text(json.dumps({"triage": rows}), encoding="utf-8")
+            findings = task / "work" / "test-cases" / "critic-findings.md"
+            findings.parent.mkdir(parents=True)
+            findings.write_text("## Roll-call\n\n| Plan row | Case | Reviewed |\n|---|---|---|\n| TS-4 | TC-004 | yes |\n"
+                                f"| TS-5 | TC-005 | {second_reviewed} |\n", encoding="utf-8")
+            contract.BUG_MECHANISM_CUTOFF = cutoff
+            r = gate_preflight.Rehearsal(task, "B")
+            r.check_bug_drafts()
+            return r.findings
+        finally:
+            contract.BUG_MECHANISM_CUTOFF = held
+            cleanup(root)
+    check_eq("N2 control: a merged draft whose cause stands, whose manifestations stand and whose cases were reviewed: no card", findings_of({}), [])
+    found = findings_of({}, second_reviewed="no")
+    check_eq("N2 5.3: the SECOND case of a merged draft is in the roll-call's unreviewed list: one card, opening with its block, naming that case",
+             [(f["message"].startswith("TC-004 bug draft from an unreviewed case"), "TC-005 never reached the case critic" in f["message"]) for f in found], [(True, True)])
+    check("N2 5.3: ... and the word the card offers passes it", all(_word_passes(f) for f in found))
+    found = findings_of({"manifestations": [man(1), man(2, evidence="")]})
+    check_eq("N2 5.3: a broken manifestation: one card, opening with its block", [f["message"].startswith("TC-004 bug draft manifestations do not stand") for f in found], [True])
+    check("N2 5.3: ... naming the fault, and its word passes", "lacks evidence" in found[0]["message"] and _word_passes(found[0]), found[0]["message"][:200])
+    broken = dict(good, basis=[{"id": "b1", "kind": "code_line", "path": "src/Nope.tsx", "line": 1, "quote": "x"}])
+    found = findings_of({"mechanism": broken})
+    check_eq("N2 F-2: a merge whose basis does not stand: ONE card (the merge's), opening with its block, with the first problem and the doors",
+             [(f["message"].startswith("TC-004 bug draft merges manifestations without a confirmed cause"), "a `code_line` basis does not stand" in f["message"],
+               "possibly_same_cause" in f["fix"]) for f in found], [(True, True, True)])
+    check("N2 F-2: ... its word passes", _word_passes(found[0]))
+    found = findings_of({"mechanism": broken, "manifestations": [man(1)]})
+    check_eq("N2 F-2: ONE manifestation and a broken cause: the cause's own card, not the merge's",
+             [f["message"].startswith("TC-004 bug draft cause does not stand") for f in found], [True])
+    check_eq("N2 F-2: an unknown cause on a merge: the merge's card", [f["message"].startswith("TC-004 bug draft merges manifestations") for f in
+             findings_of({"mechanism": {"status": "unknown", "why": "w"}})], [True])
+    check_eq("N2 old draft: no mechanism, no manifestations: nothing new", findings_of({}, drop=("mechanism", "manifestations")), [])
+    # F-5 (a): both worlds of the cutoff
+    plain = dict(drop=("mechanism", "manifestations"))
+    check_eq("N2 F-5: cutoff None, a new draft without `mechanism`: no card", findings_of({"created": "2099-01-01"}, **plain), [])
+    found = findings_of({"created": "2026-11-12"}, cutoff="2026-11-10", **plain)
+    check_eq("N2 F-5: cutoff a day, a draft made after it without `mechanism`: one card opening with its block",
+             [f["message"].startswith("TC-004 bug draft without its cause") for f in found], [True])
+    check("N2 F-5: ... the word it offers passes", _word_passes(found[0]))
+    check_eq("N2 F-5: AT the cutoff day it is asked; the day before it is not",
+             (len(findings_of({"created": "2026-11-10"}, cutoff="2026-11-10", **plain)), findings_of({"created": "2026-11-09"}, cutoff="2026-11-10", **plain)), (1, []))
+    check_eq("N2 F-5: a draft that carries `mechanism` (the empty outcome, unknown with the reason) is not asked",
+             findings_of({"created": "2026-11-12", "mechanism": {"status": "unknown", "why": "w"}, "manifestations": [man(1)]}, cutoff="2026-11-10"), [])
+    cr = {"title": "t", "impact": "money", "violates": "requirement:R-24", "evidence": "code-reading", "created": "2026-11-12"}
+    check_not_in("N2 F-5: a code-reading draft is never asked for `mechanism`", "without its cause",
+                 " ".join(f["message"] for f in findings_of(cr, cutoff="2026-11-10", drop=("case", "triage_ref", "mechanism", "manifestations", "manual_steps", "red_test_none"))))
 
 
 def test_g1_9_the_rehearsal_reads_the_drafts_through_the_one_reader() -> None:
@@ -4044,7 +4133,8 @@ def test_g1_9_the_rehearsal_reads_the_drafts_through_the_one_reader() -> None:
         (task / "bug-drafts").mkdir(parents=True)
         (task / "work" / "bug-drafts").mkdir(parents=True)
         body = {"title": "t", "impact": "degraded", "violates": "requirement:R-4", "case": "TC-004",
-                "manual_steps": ["open the diff", "look at the corner"]}
+                "manual_steps": ["open the diff", "look at the corner"], "red_test_none": "manual check only",
+                "mechanism": {"status": "unknown", "why": "the card of this test is about the verdict"}}     # t-2187 N8: a new draft is asked for its cause
         (task / "bug-drafts" / "old-home.json").write_text(json.dumps(body), encoding="utf-8")
         (task / "work" / "bug-drafts" / "laid-by-hand.md").write_text("# a draft nobody's writer produced", encoding="utf-8")
         (task / "work" / "triage.json").write_text(json.dumps({"triage": [
@@ -5355,6 +5445,7 @@ if __name__ == "__main__":
     test_w2_the_older_cards_open_with_the_block_their_word_is_matched_against()
     test_w2_the_gate_b_cards_about_a_bug_draft_open_with_their_block()
     test_c3_a_code_reading_draft_is_judged_by_its_own_checker()
+    test_t2187_n2_the_rehearsal_reads_the_manifestations_and_the_cause()
     test_g1_9_the_rehearsal_reads_the_drafts_through_the_one_reader()
     test_w2_every_card_that_offers_a_word_contains_its_block()
     test_t357_the_door_of_a_finding_is_a_line_in_words_never_a_command()

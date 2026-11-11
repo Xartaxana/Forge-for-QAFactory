@@ -504,7 +504,7 @@ def writers() -> None:
         check_eq("E1: once the writer is gone the same lock is stale, listed to be removed, and not blocking",
                  ([l["state"] for l in stale["locks"]], stale["blocked"], stale["live_locks"]), (["stale"], None, []))
         # a lease whose process is alive is reported and refuses the apply at once (no waiting for a run); a gone one does not
-        put(root, "qa-factory/state/stand-lease.json", json.dumps({"stands": {"default": {"job_id": "j", "pid": os.getpid()}}}))
+        put(root, "qa-factory/state/stand-lease.json", json.dumps({"leases": {"default": {"holders": [{"job": "j", "pid": os.getpid(), "mode": "exclusive"}]}}}))
         alive = OA.plan(root, migration(root), context=CTX, date=DATE)
         check_eq("E1: a lease held by a live process is a live lock, with its pid, and is not a plan block",
                  ([(l["rel_path"], l["kind"], l["holder"]) for l in alive["live_locks"]], alive["blocked"]),
@@ -518,9 +518,28 @@ def writers() -> None:
             OA._sleep = saved_sleep
         check("E1: the lease refuses the apply at once (no waiting), and names the command that releases a stand",
               sleeps == [] and f"stand-lease.json (holder pid {os.getpid()})" in problem and "stand_lease.py --release --env <stand name>" in problem, (sleeps, problem))
-        put(root, "qa-factory/state/stand-lease.json", json.dumps({"stands": {"default": {"job_id": "j", "pid": 0}}}))
+        put(root, "qa-factory/state/stand-lease.json", json.dumps({"leases": {"default": {"holders": [{"job": "j", "pid": 0, "mode": "exclusive"}]}}}))
         gone = OA.plan(root, migration(root), context=CTX, date=DATE)
         check_eq("E1: a lease whose holder is gone does not", (gone["blocked"], gone["live_locks"]), (None, []))
+        # t-2070 F5: the scheduler's execution-leases.json carries `process_started_at`; a recycled pid is not a lock
+        put(root, "qa-factory/state/stand-lease.json", json.dumps({"leases": {}}))
+        put(root, "qa-factory/state/execution-leases.json", json.dumps(
+            {"leases": [{"job_id": "x", "pid": os.getpid(), "process_started_at": "winfiletime:1"}]}))
+        recycled = OA.plan(root, migration(root), context=CTX, date=DATE)
+        check_eq("E1 (t-2070 F5): an execution lease whose pid was recycled (birth differs) is no lock",
+                 (recycled["blocked"], recycled["live_locks"]), (None, []))
+        (root / "qa-factory/state/execution-leases.json").unlink()
+        # t-2070 F6: a person's --release leaves a note that is not a holder, and the stand then reads free
+        import stand_lease as SL
+        put(root, "qa-factory/state/stand-lease.json", json.dumps({"leases": {"default": {"holders": [
+            {"job": "j", "pid": os.getpid(), "started": SL._identity(os.getpid()), "mode": "exclusive"}]}}}))
+        before_release = OA.plan(root, migration(root), context=CTX, date=DATE)
+        answer = SL.release_by_person(root, "default", "the walker hung")
+        after_release = OA.plan(root, migration(root), context=CTX, date=DATE)
+        again = SL.release_by_person(root, "default", "the walker hung")
+        check_eq("E1 (t-2070 F6): live before the release, no lock after it, and a second release answers not_held",
+                 (len(before_release["live_locks"]), answer["status"], after_release["live_locks"], again["status"]),
+                 (1, "released", [], "not_held"))
     finally:
         cleanup(root)
 
@@ -919,16 +938,16 @@ def locks_by_class() -> None:
             by = {l["rel_path"]: l for l in made["locks"]}
             listed = sorted(r for r, l in by.items() if l["action"] == "listed")
             if hours > limit:
-                check_eq(f"item 6: an existence lock and a folder lock older than {limit} h (here {hours:.2f}) are LISTED, with the carried-row locks, by name; "
-                         "the stale OS lock under state/ is the one to remove",
+                check_eq(f"item 6: an old-generation folder lock older than {limit} h (here {hours:.2f}) is LISTED, with the carried-row locks, by name; "
+                         "the hook-written exit gate OS lock is neither listed nor removed; the stale OS lock under state/ is the one to remove",
                          (listed, [r for r, l in by.items() if l["action"] == "remove"]),
-                         (sorted([ARTIFACT_LOCK, CARRIED_LOCK, EXIT_LOCK, FOLDER_LOCK]), [STALE_LOCK]))
+                         (sorted([ARTIFACT_LOCK, CARRIED_LOCK, FOLDER_LOCK]), [STALE_LOCK]))
                 check_eq("item 6: kinds and classes come from the table",
                          {r: (by[r]["kind"], by[r]["class"]) for r in by},
-                         {ARTIFACT_LOCK: ("os", "carried"), CARRIED_LOCK: ("os", "carried"), EXIT_LOCK: ("exclusive_create", "regenerated"),
+                         {ARTIFACT_LOCK: ("os", "carried"), CARRIED_LOCK: ("os", "carried"), EXIT_LOCK: ("os", "regenerated"),
                           FOLDER_LOCK: ("folder", "regenerated"), STALE_LOCK: ("os", "regenerated")})
                 text = OA.render(made)
-                check_eq("item 6: every listed lock is named in the text, none is only counted", [r in text for r in listed], [True] * 4)
+                check_eq("item 6: every listed lock is named in the text, none is only counted", [r in text for r in listed], [True] * 3)
                 check_in("item 6: ...and the text says they are not removed", "never removed here", text)
             else:
                 check_eq(f"item 6: AT/under the limit ({hours:.2f} h) the existence and folder locks are neither listed nor blocking nor removed (they may be held now)",
@@ -950,7 +969,7 @@ def locks_by_class() -> None:
         again = OA.plan(root, migration(root), context=CTX, date=DATE)
         check_eq("item 6 / K8: the listed locks stay listed (they are never removed) but are nothing to approve: nothing_to_do holds",
                  (again["nothing_to_do"], sorted(l["rel_path"] for l in again["locks"] if l["action"] == "listed")),
-                 (True, sorted([ARTIFACT_LOCK, CARRIED_LOCK, EXIT_LOCK, FOLDER_LOCK])))
+                 (True, sorted([ARTIFACT_LOCK, CARRIED_LOCK, FOLDER_LOCK])))
         # a lock under a carried row that a running writer holds still refuses the apply
         with held(root / ARTIFACT_LOCK):
             blocked = OA.plan(root, migration(root), context=CTX, date=DATE)
@@ -1700,7 +1719,26 @@ def onboarding_notes_are_not_a_trace() -> None:
             os.unlink(root.parent / (root.name + "-q.json"))
 
 
+def test_lock_state_of_a_vanished_file_is_unknown_and_creates_nothing() -> None:
+    """TR4-2 part B (C9): `_lock_state` is the package's `file_lock_state`: a lock file that vanished since the scan is
+    'unknown' and is NOT made again (it used to open `a+b` and create it); a free file is 'free' and stays 0 bytes."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="qa-lock-state-") as td:
+        gone = Path(td) / "vanished.lock"
+        assert OA._lock_state(gone) == "unknown"
+        assert not gone.exists(), "the probe created the file"
+        free = Path(td) / "free.lock"
+        free.write_bytes(b"")
+        assert OA._lock_state(free) == "free"
+        assert free.stat().st_size == 0, "the probe wrote into a 0-byte lock file"
+        with held(free):                                    # a raw foreign holder (the test's own msvcrt / flock simulator)
+            assert OA._lock_state(free) == "held"
+        assert OA._lock_state(free) == "free"
+        assert OA._lock_state(Path(td)) == "unknown", "a folder is not a lock file"
+
+
 def main() -> None:
+    test_lock_state_of_a_vanished_file_is_unknown_and_creates_nothing()
     saved = OA._run_script
     saved_sleep = OA._sleep
     OA._sleep = lambda seconds: None       # an apply that meets a held lock looks 10 times, 1 s apart: no test waits for it

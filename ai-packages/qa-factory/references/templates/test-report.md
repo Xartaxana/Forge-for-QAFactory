@@ -91,11 +91,11 @@ Repair limit exhausted: <n> of <cap> rounds about the tests themselves (<cases>)
 ## Left with you
 
 1. **<What, in the case's words> (R-n, <case id>).** To check: <the Then, quoted>. <There is a
-   test: `<function[variant]>` | There is no test: <why>>. Needed: <the account / keys /
+   test: `<function[variant]>` (<its `real_or_mock`: `real code` | `on a mock: ...`>) | There is no test: <why>>. Needed: <the account / keys /
    decision> | How: <add the variant ... / check by hand ...>. <The answer wanted, when a
    decision is due: fix now · other stand · defer with a reminder · accept the risk>
 N. **<The test, in the case's words> (R-n, <case id>).** To check: <the Then, quoted>. There is a
-   test: `<function[variant]>`; it is green, but the code critic did not verify it: <why, in words>.
+   test: `<function[variant]>` (<its `real_or_mock`>); it is green, but the code critic did not verify it: <why, in words>.
    How: run it yourself where you can | Answer wanted: accept the risk
 
 <!-- Every check the ledger leaves with the person has an item above - one per case, naming its R-n and its case

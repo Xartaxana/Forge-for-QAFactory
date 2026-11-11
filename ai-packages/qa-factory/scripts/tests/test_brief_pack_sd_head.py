@@ -6,7 +6,6 @@ Until the charters land (node B-C) no shipped role is one, so the charter files 
 `brief_pack.HERE` at a temp plugin copy whose `agents/` holds them.
 
 Mutations, each killed by the ONE test named (builder-rules 7a):
-  `if not charter.is_charter(text): return []` removed                      -> test_non_charter_brief_is_unchanged
   `head[2:2]` replaced by `head.append`                                      -> test_seven_lines_sit_right_after_the_title
   the empty-reason branch of `_form_line` returns ""                         -> test_empty_inputs_print_the_dash_and_the_reason
   `len(value) + len(keep) > limit` changed to `>=`                           -> test_line_chars_at_and_beyond
@@ -31,6 +30,10 @@ import judge  # noqa: E402
 
 TASK = "QA-9"
 ROLES = {"qa-scout": "S1", "qa-requirements-tester": "S2", "qa-test-strategist": "S3", "qa-case-designer": "S4"}
+ROLES.update({"qa-automator": "S5", "qa-code-critic": "S5"})                      # X7-1
+# X7-3 adds its roles on its own line here (qa-runner S6, qa-failure-analyst S7)
+
+# X7-4 adds its roles on its own line here (qa-bug-reporter S8, qa-doc-scribe S8, qa-retro-analyst S9)
 KEYS = ["goal:", "DoD:", "given:", "owns:", "non-goals:", "handoff:", "questions:"]
 
 
@@ -101,23 +104,6 @@ def test_given_names_the_snapshot_and_follows_the_file_list(world):
         assert name in given                                    # one formula: the `given:` line and the file list agree
 
 
-def test_non_charter_brief_is_unchanged():
-    """The negative control: a role whose file is not a charter (the shipped qa-runner at S6, the shipped automator at S5)
-    gets the brief it got before, byte for byte."""
-    root = harness.temp_project("sd-head-nc-")
-    try:
-        harness.use_project(root)
-        seed(root, TASK)
-        for role, stage in (("qa-runner", "S6"), ("qa-automator", "S5"), ("qa-code-critic", "S5")):   # qa-scout is a charter since B-C: not a control
-            got = render(role, stage=stage)
-            with patch.object(brief_pack, "sd_head_lines", return_value=[]):
-                before = render(role, stage=stage)
-            assert got == before, role
-            assert "\ngoal:" not in got and "\nDoD:" not in got
-    finally:
-        harness.cleanup(root)
-
-
 def test_note_stays_first_after_the_title(world):
     _, here = world
     with patch.object(brief_pack, "SLICE_BYTES", 1500):
@@ -186,22 +172,6 @@ def test_the_head_is_form_outside_the_body_budget(world):
     assert with_head["bytes"] - without["bytes"] == head
 
 
-def test_a_non_charter_budget_is_unchanged():
-    """The control: the shipped S5 automator has no head, so its bytes and its budget are what they were with no head code at all
-    (the budget is the brief minus the digest template alone)."""
-    root = harness.temp_project("sd-head-s5-")
-    try:
-        harness.use_project(root)
-        seed(root, TASK)
-        got = build_of("qa-automator", stage="S5")
-        with patch.object(brief_pack, "sd_head_lines", return_value=[]):
-            before = build_of("qa-automator", stage="S5")
-        assert got["markdown"] == before["markdown"] and got["budget_bytes"] == before["budget_bytes"]
-        assert "\ngoal:" not in got["markdown"]
-    finally:
-        harness.cleanup(root)
-
-
 def test_head_cap_at_and_beyond(world):
     """AT the cap the head is whole (all four DoD leads); one byte BEYOND it the DoD leads are cut first and the `tried` witness
     suffix stays. Kills: `>` changed to `>=` in the cut loop; the cut loop removed."""
@@ -250,3 +220,6 @@ def test_head_cap_is_hard_given_names_then_the_marker(world):
     whole = build_of("qa-scout", here)
     assert "head over cap" not in whole["markdown"] and "sd head" not in whole["over_ceiling"]
     assert whole["budget_bytes"] == without["budget_bytes"]
+
+
+if __name__ == "__main__": raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

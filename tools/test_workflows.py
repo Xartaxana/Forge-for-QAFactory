@@ -8,6 +8,10 @@ folder present is RED. `yaml.safe_load` reads the key `on` as `True`.
 Every pin names the `.gitlab-ci.yml` line it mirrors (the file as of GM1-1, without `board-check`). GitHub itself is
 NOT run here: "not run on GitHub" stays true until the step D3 of docs/migration/MIGRATION_PLAN.md.
 There is no scrub step in any workflow (owner's word, decision FK-5) and nothing here pins one.
+The test diet (t-2566) added to the GitLab file: the step `test_quarantine.py check` of forge-check, the jobs quarantine-watch,
+quarantine-watch-report (here: quarantine-watch.yml, a fourth file, so neither schedule starts the other's jobs) and
+test-redundancy (here: a job of nightly.yml started by the inputs TEST_REDUNDANCY / REDUNDANCY_SCOPE); runner-facts, absent
+from the first port, is a job of forge-check.yml.
 
 Verification: python -m pytest tools/test_workflows.py -q
 """
@@ -21,7 +25,8 @@ LIVE_MARKER = ".github"
 LIVE_REL = ".github/workflows"
 DRAFT_REL = "docs/migration/forge-repo/.github/workflows"
 PACKAGE_DRAFT = ROOT / "docs" / "migration" / "qafactory-repo" / ".github" / "workflows" / "package-check.yml"
-NAMES = ("forge-check.yml", "nightly.yml", "canon.yml")
+NAMES = ("forge-check.yml", "nightly.yml", "canon.yml", "quarantine-watch.yml")
+QUARANTINE_CONFIG = ROOT / "plans" / "test-quarantine" / "config.json"
 
 
 def live_or_draft(root, live_rel, draft_rel, marker_rel=None):
@@ -150,6 +155,7 @@ FORGE_CHECK_RUNS = [
     'python tools/piles.py check --all --base "$BASE"',                             # :96-103
     'python tools/install_parity.py --check --skip-from-commit-message "$(git log -1 --format=%B $HEAD_SHA)"',   # :107, pull request
     "python tools/install_parity.py --check",                                       # :107, push and canon
+    "python tools/test_quarantine.py check",                                        # the test diet (td-15 K5), before the suite
     "python -m pytest tools/ -q",                                                   # :109
 ]
 
@@ -293,3 +299,186 @@ def test_the_f19e_pin_can_fail():
     assert F19E_FORBIDDEN.search('if [ -n "${{ inputs.ref }}" ]; then x; fi')
     assert F19E_FORBIDDEN.search('echo "${{ github.event.pull_request.title }}"')
     assert not F19E_FORBIDDEN.search('echo "$CANON_REF"')
+
+
+# ---------------------------------------------------------------- runner-facts (.gitlab-ci.yml runner-facts)
+
+def test_runner_facts_is_a_probe_on_pull_request_and_push_only():
+    """.gitlab-ci.yml runner-facts: rules mr + main (never the canon), allow_failure, timeout 15m, the facts and the timed
+    `selftest.py --limits --lang`. A called run carries the caller's event (workflow_dispatch), so the canon skips it."""
+    job = load("forge-check.yml")["jobs"]["runner-facts"]
+    assert job["if"] == "github.event_name == 'pull_request' || github.event_name == 'push'"
+    assert job["continue-on-error"] is True and job["timeout-minutes"] == 15
+    (run,) = runs(job)
+    for token in ("nproc", "docker info", "os-release", "selftest.py --limits --lang", "wall time"):
+        assert token in run, token
+
+
+# ---------------------------------------------------------------- the test diet: quarantine watch and test-redundancy
+
+def _quarantine_config():
+    import json
+    return json.loads(QUARANTINE_CONFIG.read_text(encoding="utf-8"))
+
+
+def test_the_watch_starts_by_its_cron_a_dispatch_and_a_plugin_version_push_on_the_quarantine_branch():
+    """.gitlab-ci.yml quarantine-watch rules: schedule with QUARANTINE_WATCH=1 (cron of plans/test-quarantine/config.json),
+    web/api with the variable, a push to the quarantine branch that changes plugin.json. The cron and the branch literal
+    equal config.json (the junction tools/test_test_quarantine.py holds for the GitLab file)."""
+    cfg = _quarantine_config()
+    on = load("quarantine-watch.yml")[True]
+    assert on["schedule"] == [{"cron": cfg["cron"]}] and cfg["cron"] == "0 3 * * 1,4"
+    assert on["workflow_dispatch"]["inputs"]["ref"]["default"] == cfg["branch"]
+    assert on["push"] == {"branches": [cfg["branch"]], "paths": ["ai-packages/qa-factory/.claude-plugin/plugin.json"]}
+    assert set(on) == {"schedule", "workflow_dispatch", "push"}          # no pull_request, no workflow_call: never in a canon
+    for name in ("quarantine-watch", "quarantine-watch-report"):
+        checkout = load("quarantine-watch.yml")["jobs"][name]["steps"][0]
+        assert checkout["with"]["ref"].endswith("|| '%s' }}" % cfg["branch"]), name     # a schedule watches the quarantine branch
+
+
+def test_the_watch_is_two_shards_of_the_quarantined_tests_and_never_red():
+    """.gitlab-ci.yml quarantine-watch: parallel 2, timeout 3h, allow_failure, `selftest.py --quarantined --jobs 4 --shard I/N
+    --watch-out ci-out/quarantine-watch-I-of-N.json || true`, artifacts ci-out/ for 2 weeks."""
+    job = load("quarantine-watch.yml")["jobs"]["quarantine-watch"]
+    assert job["strategy"]["matrix"] == {"shard": [1, 2]} and job["strategy"]["fail-fast"] is False
+    assert job["continue-on-error"] is True and job["timeout-minutes"] == 180
+    run = next(r for r in runs(job) if "selftest.py" in r)
+    assert ('python -B scripts/selftest.py --quarantined --jobs 4 --shard "$NODE_INDEX/$NODE_TOTAL" '
+            '--watch-out "$OUT/quarantine-watch-$NODE_INDEX-of-$NODE_TOTAL.json" || true') in run
+    assert 'export CI_COMMIT_SHA="$(git rev-parse HEAD)"' in run and "CI_PIPELINE_SOURCE=web" in run
+    upload = next(s for s in job_steps(job) if str(s.get("uses", "")).startswith("actions/upload-artifact"))
+    assert upload["with"]["path"] == "ci-out/" and upload["with"]["retention-days"] == 14 and upload["if"] == "always()"
+
+
+def test_the_watch_report_joins_the_shards_after_any_shard_outcome_and_is_never_red():
+    """.gitlab-ci.yml quarantine-watch-report: needs the watch, when: always, allow_failure, timeout 10m, the ci-summary
+    line, the artifact ci-out/quarantine-watch.json (the one `tools/test_quarantine.py pull` reads)."""
+    job = load("quarantine-watch.yml")["jobs"]["quarantine-watch-report"]
+    assert set(job["needs"]) == {"start", "quarantine-watch"} and job["if"] == "always()"
+    assert job["continue-on-error"] is True and job["timeout-minutes"] == 10
+    run = next(r for r in runs(job) if "ci-summary" in r)
+    assert ('python tools/test_quarantine.py ci-summary --from "ci-out/quarantine-watch-*.json" '
+            '--out ci-out/quarantine-watch.json') in run
+    download = next(s for s in job_steps(job) if str(s.get("uses", "")).startswith("actions/download-artifact"))
+    assert download["with"]["pattern"] == "quarantine-watch-shard-*" and download["with"]["merge-multiple"] is True
+    upload = next(s for s in job_steps(job) if str(s.get("uses", "")).startswith("actions/upload-artifact"))
+    assert upload["with"] == {"name": "quarantine-watch-report", "path": "ci-out/quarantine-watch.json", "retention-days": 14}
+
+
+def schedule_crosstalk(docs):
+    """The violations of «the watch schedule starts only the watch, the nightly schedule never starts the watch»
+    (.gitlab-ci.yml: QUARANTINE_WATCH == "1" on the watch, != "1" on package-full, install-smoke, package-full-report,
+    crap-measure). `docs` maps a workflow file name to its parsed YAML. On GitHub a schedule starts every job of its own
+    file, so the rule is: `--quarantined` runs only in a file whose schedules are exactly the watch cron, and that file
+    runs no full-tier command."""
+    out = []
+    full_tier = ("install_smoke.py", "--slow-tests", "crap_report.py", "test_redundancy.py")
+    for name, doc in docs.items():
+        on = doc.get(True) or {}
+        crons = [s.get("cron") for s in (on.get("schedule") or [])] if isinstance(on, dict) else []
+        text = "\n".join(s["run"] for job in doc["jobs"].values() for s in job.get("steps", []) if "run" in s)
+        watches = "--quarantined" in text
+        if watches and crons != [WATCH_CRON]:
+            out.append(f"{name}: runs --quarantined under schedules {crons}")
+        if watches and any(t in text for t in full_tier):
+            out.append(f"{name}: the watch file runs a full-tier command")
+        if WATCH_CRON in crons and not watches:
+            out.append(f"{name}: carries the watch cron without the watch")
+    return out
+
+
+WATCH_CRON = "0 3 * * 1,4"
+
+
+def test_neither_schedule_starts_the_other_and_the_canon_never_runs_the_quarantine():
+    """The watch is a workflow of its own (quarantine-watch.yml); nightly.yml keeps its own cron and no `--quarantined`;
+    canon.yml calls forge-check.yml and nightly.yml only, so the canon never runs the quarantine rows."""
+    docs = {n: load(n) for n in NAMES}
+    assert schedule_crosstalk(docs) == []
+    assert docs["nightly.yml"][True]["schedule"] == [{"cron": "0 1 * * *"}]
+    canon_calls = {j["uses"] for j in docs["canon.yml"]["jobs"].values() if "uses" in j}
+    assert canon_calls == {"./.github/workflows/forge-check.yml", "./.github/workflows/nightly.yml"}
+    for name in ("forge-check.yml", "nightly.yml", "canon.yml"):
+        assert "--quarantined" not in text_of(name), name
+
+
+def test_the_crosstalk_pin_can_fail():
+    """The negative control of the pin above: the watch moved into the nightly file, a full-tier command in the watch file,
+    and the watch cron on a file without the watch are each named."""
+    nightly = {True: {"schedule": [{"cron": "0 1 * * *"}]},
+               "jobs": {"w": {"steps": [{"run": "python -B scripts/selftest.py --quarantined"}]}}}
+    mixed = {True: {"schedule": [{"cron": WATCH_CRON}]},
+             "jobs": {"w": {"steps": [{"run": "selftest.py --quarantined"}, {"run": "python -B scripts/install_smoke.py"}]}}}
+    empty = {True: {"schedule": [{"cron": WATCH_CRON}]}, "jobs": {"x": {"steps": [{"run": "echo"}]}}}
+    assert schedule_crosstalk({"nightly.yml": nightly}) == ["nightly.yml: runs --quarantined under schedules ['0 1 * * *']"]
+    assert schedule_crosstalk({"w.yml": mixed}) == ["w.yml: the watch file runs a full-tier command"]
+    assert schedule_crosstalk({"e.yml": empty}) == ["e.yml: carries the watch cron without the watch"]
+
+
+REDUNDANCY_IF = ("github.event_name == 'workflow_dispatch' && "
+                 "(inputs.TEST_REDUNDANCY == '1' || startsWith(inputs.ref, 'measure/'))")
+
+
+def redundancy_rule_violations(job):
+    """What of the test-redundancy job's start and failure keys departs from .gitlab-ci.yml (rule, no needs, 3h, allow_failure,
+    the scope through env:)."""
+    out = []
+    if job.get("if") != REDUNDANCY_IF:
+        out.append("if: %r" % job.get("if"))
+    if "needs" in job:
+        out.append("needs: %r (the GitLab job has needs: [])" % job["needs"])
+    if job.get("continue-on-error") is not True:
+        out.append("continue-on-error is not true (allow_failure)")
+    if job.get("timeout-minutes") != 180:
+        out.append("timeout-minutes: %r (3h)" % job.get("timeout-minutes"))
+    if job.get("env") != {"REDUNDANCY_SCOPE": "${{ inputs.REDUNDANCY_SCOPE }}"}:
+        out.append("env: %r" % job.get("env"))
+    return out
+
+
+def test_test_redundancy_runs_only_by_a_dispatch_with_the_input_or_a_measure_ref_and_is_never_red():
+    """.gitlab-ci.yml test-redundancy: rules `(web || api) && (TEST_REDUNDANCY == "1" || ref =~ ^measure/)`, timeout 3h,
+    allow_failure, no needs, the coverage .pth, the smoke on one file, the run (--keep-only when REDUNDANCY_SCOPE=keep)
+    and the report, artifacts ci-out/redundancy/*.md and *.json for 30 days. The scope reaches the shell through env:."""
+    job = load("nightly.yml")["jobs"]["test-redundancy"]
+    assert redundancy_rule_violations(job) == []
+    text = "\n".join(runs(job))
+    order = ["coverage==7.16.2", "coverage debug sys", "mkdir -p ci-out/redundancy", "zz_coverage_startup.pth",
+             '--out ci-out/redundancy-smoke --jobs 2 --only "test_adapter_forms.py" || true',
+             "report --data ci-out/redundancy-smoke/data/.coverage", "head -n 14 ci-out/redundancy-smoke/test-redundancy.md",
+             'if [ "$REDUNDANCY_SCOPE" = "keep" ]; then', "--jobs 4 --keep-only > ci-out/redundancy/run-log.txt 2>&1 || true",
+             "tail -n 5 ci-out/redundancy/run-log.txt", "report --data ci-out/redundancy/data/.coverage",
+             "sed -n '/^## A\\./,$p' ci-out/redundancy/test-redundancy.md | head -n 40 || true"]
+    at = [text.find(token) for token in order]
+    assert -1 not in at and at == sorted(at), dict(zip(order, at))
+    upload = next(s for s in job_steps(job) if str(s.get("uses", "")).startswith("actions/upload-artifact"))
+    assert upload["with"]["path"].split() == ["ci-out/redundancy/*.md", "ci-out/redundancy/*.json"]
+    assert upload["with"]["retention-days"] == 30
+
+
+def test_the_redundancy_inputs_reach_nightly_by_a_dispatch_and_through_the_canon():
+    """The GitLab variables TEST_REDUNDANCY and REDUNDANCY_SCOPE are inputs under the same names (ci_read.py start --var):
+    of nightly.yml's dispatch and call, and of canon.yml, which passes them on (an api pipeline with the variable = the
+    canon plus the measurement). Empty is the default everywhere: the measurement does not run, the scope is every file."""
+    nightly_on = load("nightly.yml")[True]
+    for trigger in ("workflow_dispatch", "workflow_call"):
+        for key in ("TEST_REDUNDANCY", "REDUNDANCY_SCOPE"):
+            assert nightly_on[trigger]["inputs"][key]["default"] == "", (trigger, key)
+    canon = load("canon.yml")
+    for key in ("TEST_REDUNDANCY", "REDUNDANCY_SCOPE"):
+        assert canon[True]["workflow_dispatch"]["inputs"][key]["default"] == "", key
+        assert canon["jobs"]["full"]["with"][key] == "${{ inputs.%s }}" % key, key
+
+
+def test_the_redundancy_rule_pin_can_fail():
+    """The negative control: the real job with the measure/ branch dropped, opened to a schedule, chained after the
+    skip job, or made blocking is each named by the same check."""
+    real = load("nightly.yml")["jobs"]["test-redundancy"]
+    mutants = [
+        dict(real, **{"if": "github.event_name == 'workflow_dispatch' && inputs.TEST_REDUNDANCY == '1'"}),
+        dict(real, **{"if": "github.event_name == 'schedule' || inputs.TEST_REDUNDANCY == '1'"}),
+        dict(real, needs="skip-if-unchanged"),
+        dict(real, **{"continue-on-error": False}),
+    ]
+    for mutant in mutants:
+        assert redundancy_rule_violations(mutant), mutant.get("if")

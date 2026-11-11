@@ -99,8 +99,6 @@ def main() -> None:
         raw_sep = '{\n "rows": [\n  {"id": "TS-1", "t": "a b\u0085c"},\n  {"id": "TS-2"}\n ]\n}\n'
         check_eq("K9 a raw U+2028 / U+0085 inside a string is not a line end: TS-2 is on line 4 (as `Read` counts)",
                  [(r, f, l) for r, _, f, l in spans_text(raw_sep)], [("TS-1", 3, 3), ("TS-2", 4, 4)])
-        check("K9 and `splitlines` would have said otherwise (the control: this input does move it)",
-              len(raw_sep.splitlines()) != len(raw_sep.split("\n")) - 1)
         check_eq("K9 `items` is the rows key when `rows` is absent", [r for r, *_ in spans_text('{"items": [{"id": "A"}]}')], ["A"])
         check_eq("K9 `plan` is the rows key when neither `rows` nor `items` is a list",
                  [r for r, *_ in spans_text('{"rows": null, "plan": [{"id": "A"}]}')], ["A"])

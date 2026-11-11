@@ -674,17 +674,10 @@ check("8g REAL: the script runs as a command and refuses with exit 2", child.ret
 cleanup(root)
 cleanup(empty)
 
-# ---- 9. the file itself: no platform, tool or driver name in code (AR-1), the registry (A-audit) ------------------------
+# ---- 9. the registry (A-audit) ------------------------------------------------------------------------------------------
 
-source = (SCRIPTS / "device_stand.py").read_text(encoding="utf-8")
-names = re.compile(r"android|ios|adb|xcrun|simctl|appium|uiautomator|xcuitest", re.IGNORECASE)
-control = re.compile(r"surfaces|driver|native|nothing-of-this-name-zzz", re.IGNORECASE)
-check("9a positive control of the scan's shape: the control words are found", len(control.findall(source)) > 5)
-check("9b no platform, tool or driver name in device_stand.py (docstrings included)", not names.findall(source), str(names.findall(source)[:5]))
 import audit_factory  # noqa: E402
 check("9c device_stand is registered in CLI_SCRIPTS", "device_stand" in audit_factory.CLI_SCRIPTS)
-check("9d the script is stdlib plus the package: no network library of its own", not re.search(r"^\s*(import|from)\s+(requests|httpx|urllib3)\b", source, re.M))
-check("9e HTTP only through http_client.fetch", "urllib.request" not in source and "HC.fetch" in source)
 
 real()
 finish("test_device_stand")

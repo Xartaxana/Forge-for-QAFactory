@@ -15,8 +15,8 @@ create or switch one yourself.
 <!-- roles: qa-automator -->
 ## Author and critic
 
-The run budget: one run per code version of each instance by the author, one probe per new
-or changed instance by the critic; after a critic's remark only instances whose code changed
+The run budget: one run per code version of each instance by the author, one probe call per new
+or changed instance by the critic, every check of the test; after a critic's remark only instances whose code changed
 run again (a helper/config change may widen that within story scope).
 
 S5 exit `open-oracle-asserted`: a Then whose oracle reads `open` is not asserted; bind it `qa_unresolved(... reason="expectation_unconfirmed", question=...)` and assert only the established part (a status range keeps `# oracle_unknown: <ref>`). `invalid` or no register question: back to S4.
@@ -58,7 +58,7 @@ or unrelated failure is incomplete proof. Schema-v1 windows are unchanged.
 A probe row binds to its target by the request's `report_test_id`; a TRX report is
 read like a JUnit one. A failure at a site a non-pytest JUnit report does not give is
 `incomplete`, not `survived`; so is what `probe_by_code.py` cannot read of a non-Python test
-(frame, message, a launcher that may not rebuild): no verdict. One path takes one
+(frame, a launcher that may not rebuild): no verdict; a failure at the mutated line it cannot read is yours to judge (`--judge`). One path takes one
 mutation per probe; a red probe with a baseline needs the target's baseline row to pass.
 
 <!-- roles: qa-automator, qa-code-critic -->

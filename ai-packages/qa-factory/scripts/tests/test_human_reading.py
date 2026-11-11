@@ -309,7 +309,176 @@ def h6_edges() -> None:
         cleanup(root)
 
 
+def h7_merged_bug() -> None:
+    """t-2187 N3b: the packet of a bug drafted from several ways it shows names no record and no field, and its priced block passes the rules."""
+    from unittest import mock
+    root = temp_dir("qa-human-h7-")
+    try:
+        task = story(root)
+        drafts = task / "work" / "bug-drafts"
+        first = sorted(drafts.glob("*.json"))[0]
+        data = json.loads(first.read_text(encoding="utf-8"))
+        way = {"action": "move the project", "start_state": "from a team channel", "seen": "mismatch", "evidence": "work/evidence/manual/a.txt",
+               "red_test_none": "manual check only"}
+        data.update(manifestations=[way, dict(way, action="move it again", seen="the same")],
+                    mechanism={"statement": "the move reads the old project", "status": "confirmed",
+                               "basis": [{"id": "b1", "kind": "run", "case": "c", "capture": "x", "quote": "q", "start_state": "s"}],
+                               "claims": [{"says": "a second move behaves alike", "confirmed_by": []}], "why": ""},
+                    possibly_same_cause=[{"draft": sorted(drafts.glob("*.json"))[1].name, "why": "both mismatch"}])
+        first.write_text(json.dumps(data), encoding="utf-8")
+        BR.write_draft_texts(task)
+        with mock.patch.object(BR, "mechanism_problems", return_value=[]):
+            text = GB.render_gate_b("QA-1", task)
+            block = "\n".join(GB.merged_bug_block(GB.bug_rows(task, {}))) + "\n---\nAnswer: say which\n"
+        check_in("H7 the merged bug shows its ways", "2 ways it shows", text)
+        check_in("H7 ... and the door block", "## One bug or several", text)
+        found = [m.group(0) for m in TECHNICAL.finditer(text.split("## How to answer")[0])]
+        check_eq("H7 no JSON, ledger, manifest, attempt id or capture path in the packet", found, [])
+        check_eq("H7 the block passes price_problems for every token it offers",
+                 HT.price_problems(block, ["file", "split", "merge", "not a bug"]), [])
+        check_eq("H7 ... and the rules of the text", HT.problems(block, offered=["file", "split", "merge", "not a bug"]), [])
+    finally:
+        cleanup(root)
+
+
+def h8_sides_question_prices() -> None:
+    """t-2181 PC-2: the new answers (`not built yet` of the two no-change questions, `sides.deliverable`) resolve to three price lines
+    that a person reads without a JSON key or a state code in them (the same rows `closed_question` renders)."""
+    import hooklib
+    import no_move as NM
+    prices, words = NM.load_question_prices(), (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
+    for key, answers in (("sides.deliverable", ["ours", "another team's", "stop"]), ("s0.no_change", ["not built yet"]),
+                         ("s1.no_diff", ["not built yet"])):
+        options = [{"answer": a, "token": a, "says": "says it", "slots": {"role": "the scout", "what": "the change"}} for a in answers]
+        text = NM.render_options(NM.priced_options(key, options, NM.data(), words, prices), HT.price_labels())
+        check_eq(f"H8 {key}: every new answer is a priced option", all(f"`{a}`" in text for a in answers), True)
+        check_eq(f"H8 {key}: the price lines name nothing technical", [m.group(0) for m in TECHNICAL.finditer(text)], [])
+    check_in("H8 `not built yet` tells the person the story waits for the code",
+             "nothing is checked against it until the code exists", NM.render_options(NM.priced_options(
+                 "s0.no_change", [{"answer": "not built yet", "token": "not built yet", "says": "x"}], NM.data(), words, prices), HT.price_labels()))
+
+
+def h9_arrival_and_stop_questions() -> None:
+    """t-2181 PC-7: `arrival.not_waiting` and `awaiting.stop` are priced closed questions whose price lines carry nothing technical."""
+    import hooklib
+    import no_move as NM
+    prices, words = NM.load_question_prices(), (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
+    shown = {}
+    for key, answers in (("arrival.not_waiting", ["re-ground", "ignore", "stop"]), ("awaiting.stop", ["stop waiting", "keep waiting"])):
+        options = [{"answer": a, "token": a, "says": "says it", "slots": {"stages": "the stages"}} for a in answers]
+        shown[key] = NM.render_options(NM.priced_options(key, options, NM.data(), words, prices), HT.price_labels())
+        check_eq(f"H9 {key}: every answer is a priced option", all(f"`{a}`" in shown[key] for a in answers), True)
+        check_eq(f"H9 {key}: the price lines name nothing technical", [m.group(0) for m in TECHNICAL.finditer(shown[key])], [])
+    check_in("H9 `stop waiting` says the unchecked part stays unchecked", "never checked", shown["awaiting.stop"])
+
+
+def h10_first_look_dead_question() -> None:
+    """t-2277 FL-5: `first_look.dead` is a priced closed question (`continue`, `stop`) whose price lines carry nothing technical, and each
+    answer says what it does to the plan (`continue`: the factory runs a command, nothing for the person; `stop`: the story waits)."""
+    import hooklib
+    import no_move as NM
+    prices, words = NM.load_question_prices(), (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
+    options = [{"answer": a, "token": a, "says": "says it"} for a in ("continue", "stop")]
+    shown = NM.render_options(NM.priced_options("first_look.dead", options, NM.data(), words, prices), HT.price_labels())
+    check_eq("H10 first_look.dead: both answers are priced options", all(f"`{a}`" in shown for a in ("continue", "stop")), True)
+    check_eq("H10 first_look.dead: the price lines name nothing technical", [m.group(0) for m in TECHNICAL.finditer(shown)], [])
+    check_eq("H10 first_look.dead: the answers are exactly continue and stop", [row["answer"] for row in prices["first_look.dead"]], ["continue", "stop"])
+    check_in("H10 first_look.dead: `stop` says the story waits", "waits", shown)
+
+
+def h11_first_look_same_code_question() -> None:
+    """t-2277 FL-6: `first_look.same_code` is a priced closed question (`wait`, `source`, `continue`) whose price lines carry nothing
+    technical; `wait` runs nothing, `source` is the person's work, `continue` is a factory command and not ready for delivery."""
+    import hooklib
+    import no_move as NM
+    prices, words = NM.load_question_prices(), (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
+    answers = ["wait", "source", "continue"]
+    options = [{"answer": a, "token": a, "says": "says it"} for a in answers]
+    shown = NM.render_options(NM.priced_options("first_look.same_code", options, NM.data(), words, prices), HT.price_labels())
+    check_eq("H11 first_look.same_code: every answer is a priced option", all(f"`{a}`" in shown for a in answers), True)
+    check_eq("H11 first_look.same_code: the price lines name nothing technical", [m.group(0) for m in TECHNICAL.finditer(shown)], [])
+    check_eq("H11 first_look.same_code: the answers are exactly wait, source, continue", [row["answer"] for row in prices["first_look.same_code"]], answers)
+    check_eq("H11 first_look.same_code: the prices are the spec's (factory / you / the story)",
+             [(row["factory"], row["person"], row["delivery"]) for row in prices["first_look.same_code"]],
+             [("nothing", "none", "waits"), ("command", "your_work", "waits"), ("command", "none", "no")])
+    check_eq("H11 first_look.same_code: the block passes the price rule for every token", HT.price_problems(shown, answers), [])
+    check_eq("H11 first_look.same_code: `continue` is the price of `first_look.dead`'s `continue`",
+             [r for r in prices["first_look.same_code"] if r["answer"] == "continue"][0]["delivery"],
+             [r for r in prices["first_look.dead"] if r["answer"] == "continue"][0]["delivery"])
+
+
+def h13_absent_side_question() -> None:
+    """t-2559 (W2 B3): `awaiting.absent_side` is a priced closed question (`not ours`, `relaunch`); the question the driver raises over
+    a real side name passes the report rules, names nothing technical, and says what the factory waits for."""
+    import hooklib
+    import no_move as NM
+    prices, words = NM.load_question_prices(), (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
+    answers = ["not ours", "relaunch"]
+    options = [{"answer": a, "token": a, "says": "says it"} for a in answers]
+    shown = NM.render_options(NM.priced_options("awaiting.absent_side", options, NM.data(), words, prices), HT.price_labels())
+    check_eq("H13 awaiting.absent_side: the answers are exactly not ours and relaunch", [r["answer"] for r in prices["awaiting.absent_side"]], answers)
+    check_eq("H13 awaiting.absent_side: the price lines name nothing technical", [m.group(0) for m in TECHNICAL.finditer(shown)], [])
+    check_eq("H13 awaiting.absent_side: the block passes the price rule for every token", HT.price_problems(shown, answers), [])
+    check_in("H13 `not ours` says what stays unchecked", "stand-in", shown)
+    import story_run
+    driver = story_run.Driver.__new__(story_run.Driver)
+    driver.task, driver.state, driver._price_notes = "QA-7", {}, None
+    driver.save_state = lambda: None
+    person = story_run.Driver._absent_side_person(driver, "api", "S6")
+    check_eq("H13 the question: kind, side kept for the executor", (person.kind, driver.state.get("absent_side")), ("absent_side", "api"))
+    for needle in ("the part of the product called `api` does not exist yet", "waits for its code", "`not ours`", "`relaunch`"):
+        check_in(f"H13 the question says: {needle}", needle, str(person.text))
+    # the how-to-answer block is written by `ask()` around the body, so the one rule about it is the only one left for this body
+    check_eq("H13 the question body breaks no rule of human-questions.md", [p["rule"] for p in HT.problems(str(person.text), offered=answers)
+                                                                           if p["rule"] != "no_how_to_answer"], [])
+    # t-2562 B-1: the re-offer after `relaunch` has its own lead (FR-7), and it passes the same rules
+    again = story_run.Driver._absent_side_person(driver, "api", "S6", earlier="2026-11-11")
+    check_in("H13 the re-offer names the earlier answer and its date", "On 2026-11-11 you said you would start QA-7 again", str(again.text))
+    check("H13 the re-offer differs from the first text", str(again.text) != str(person.text))
+    check_eq("H13 the re-offer body breaks no rule of human-questions.md", [p["rule"] for p in HT.problems(str(again.text), offered=answers)
+                                                                            if p["rule"] != "no_how_to_answer"], [])
+
+
+def h12_gate_a_reference_block() -> None:
+    """t-2181 PC-9c (AR-16, FR-6): the gate A block of a story with a reference is words for a person - the three forms (the full block, the
+    one matching line, the unreadable line) pass the report rules and name no key, no snapshot id, no path, no field."""
+    facts = {"state": "read", "env": "the old shop", "total": 20, "carried": 17,
+             "differing": [{"r": "R-1", "words": "the cart shows the total with tax", "before": "the cart showed 10.00", "now": "the cart shows 11.00", "differs": "yes"},
+                           {"r": "R-2", "words": "", "before": "", "now": "", "differs": "unknown"}],
+             "parity_gaps": [{"r": "R-3", "words": "an empty cart says so"}],
+             "unused": [GB._reference_item_name({"id": "cart-total", "area": "cart page", "user_path": "open the cart and read the total"})],
+             "gaps": ["the checkout page needs a sign-in the factory did not have"], "parity": ["R-1", "R-2", "R-3"], "register_unread": False}
+    forms = {"full": GB._reference_lines({"reference": facts}),
+             "matches": GB._reference_lines({"reference": dict(facts, differing=[], parity_gaps=[], unused=[], gaps=[], carried=20)}),
+             "matches, no parity": GB._reference_lines({"reference": dict(facts, differing=[], parity_gaps=[], unused=[], gaps=[], carried=20, parity=[],
+                                                                          document="work/reference-behaviours.md")}),
+             "full, with the document": GB._reference_lines({"reference": dict(facts, document="work/reference-behaviours.md")}),
+             "unreadable": GB._reference_lines({"reference": {"state": "unreadable", "env": "the old shop"}}),
+             "register unread": GB._reference_lines({"reference": dict(facts, register_unread=True, differing=[], parity_gaps=[], parity=[])})}
+    for name, lines in forms.items():
+        text = "\n".join(lines)
+        check_eq(f"H12 {name}: the block passes the shape rules of a text a person reads", HT.problems(text, kind="report"), [])
+        check_eq(f"H12 {name}: nothing technical in it", [m.group(0) for m in TECHNICAL.finditer(text)], [])
+        for raw in ("cart-total", "reference:", "before_ref", "reference-snapshot", "work/", "parity", "true", "false", "None"):
+            check_not_in(f"H12 {name}: no raw `{raw}`", raw, text)
+    check_in("H12 the full block names the old version, the sample sentence and the count", "17 of the 20 behaviours", forms["full"])
+    check_in("H12 the unused item is named by its words", "cart page — open the cart and read the total", forms["full"])
+    check_eq("H12 an unknown difference with no words is said as not described, not as an empty cell",
+             [l for l in forms["full"] if l.startswith("- R-2")], ["- R-2: the old version is not described; the story now is not described (not known whether this is a difference)"])
+    check_eq("H12 the matching form is ONE line after a blank line", (len(forms["matches"]), forms["matches"][0]), (2, ""))
+    check_in("H12 the matching form with parity names what the approval confirms (F-7)", "Your approval confirms that these requirements ask to match", forms["matches"][1])
+    check_in("H12 the matching form with no parity says the approval confirms none (F4, like the full block)", "so your approval confirms none.", forms["matches, no parity"][1])
+    check_in("H12 ... and the full block says it the same way when it has none",
+             "so your approval confirms none.", "\n".join(GB._reference_lines({"reference": dict(facts, parity=[])})))
+    check_in("H12 the matching form points to the document in words, never by its path", "All of them are listed in the document below.", forms["matches, no parity"][1])
+    check_in("H12 the full block's count line points to the document in words", "All of them are listed in the document below.", "\n".join(forms["full, with the document"]))
+
+
 def main() -> int:
+    h12_gate_a_reference_block()
+    h11_first_look_same_code_question()
+    h10_first_look_dead_question()
+    h9_arrival_and_stop_questions()
     h1_gate_b()
     h2_bug_text()
     h3_report()
@@ -317,6 +486,9 @@ def main() -> int:
     h4_plan_rows_equal_report()
     h5_data_row()
     h6_edges()
+    h7_merged_bug()
+    h8_sides_question_prices()
+    h13_absent_side_question()
     return finish("test_human_reading")
 
 

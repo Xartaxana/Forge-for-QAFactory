@@ -518,7 +518,7 @@ def w9_projector_problems() -> None:
 def w10_text_pins() -> None:
     import grounding_table as GT
     flat = lambda rel: " ".join((PLUGIN / rel).read_text(encoding="utf-8").split())      # noqa: E731
-    agent, phase = flat("agents/qa-test-strategist.md"), flat("skills/qa-story/phases/s3.md")
+    phase = flat("skills/qa-story/phases/s3.md")
     first = "**A behaviour the register does not hold.** When a `behaviour_change` row of `work/grounding.yaml`"
     last = "A claim is a statement about the code for the person to confirm, never the expected value of a test."
     import story_run
@@ -526,11 +526,6 @@ def w10_text_pins() -> None:
     # the carriers the role is handed: the driver's window-1 field list and claims line, and the strategist's slice of the plan contract.
     # Two old words have no verbatim carrier now and the closest sentence is pinned (reported): "Two windows" (a comment of story_run.py
     # names it) -> S3_WINDOW1_FIELDS; "never halt for it yourself" -> the claims line's "never in the register".
-    check_in("W10: the strategist charter holds `not_planned`", "`not_planned`", agent)
-    slice_plan = flat("references/slices/qa-test-strategist/artifact-contract-plan.md")
-    check_in("W10: the strategist's plan-contract slice holds `blast:B-n`", "`blast:B-n`", slice_plan)
-    check_in("W10: the strategist's key page holds K-n", "K-n", flat("references/slices/qa-test-strategist/handoff-keys.md"))
-    check_not_in("W10 control: a wrong id form is not on the key page", "K-nn-x", flat("references/slices/qa-test-strategist/handoff-keys.md"))
     window1 = " ".join(story_run.Driver.S3_WINDOW1_FIELDS.split())
     for key in (".matters", "claims[]", ".regression, .add_tests"):
         check_in(f"W10: the driver's window-1 field list holds {key}", key, window1)
@@ -538,10 +533,8 @@ def w10_text_pins() -> None:
     check_in("W10: the driver's claims line holds the claims rule", "write it as one entry of `claims` in `work/grounding.yaml` (never in the register",
              claims_line)
     check_not_in("W10 control: a wrong claims rule is not in the line", "write it as one entry of `claims` in the register", claims_line)
-    for key in ("--purpose s3_labelling", "--unresolved plan_pending", "claim_projector.py", "grounding_table.py\" --refresh", first, last,
-                "blast_radius.py", "base_slice.py", "--warn", "Any other R0, R1 or R2 (the line names the driver or the conductor",
-                "stop and give the line to the conductor (P22), neither window runs over it"):
-        check_in(f"W10: phases/s3.md holds {key[:40]}", key, phase)
+    # the two sentences `first` and `last` and the R-line rule are rows of design/role-rules.json; `first`/`last` stay below as the
+    # bounds of the quoted block that the driver constant is joined to
     fields = [f".{name}" for name in GT.ROLE_AREA_FIELDS] + ["rows[].label", "requirements[].state", "claims[]", ".risks[{id: K-n, hypothesis}]"]
     import story_run
     driver_text = story_run.Driver.S3_WINDOW1_FIELDS

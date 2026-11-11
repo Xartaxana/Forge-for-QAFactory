@@ -21,7 +21,7 @@ from pathlib import Path
 
 from hooklib import (read_event, project_root, state_dir, is_seeded,
                      subagent_type, artifacts_dir, read_json)
-from exit_gate import _existing, _identity
+from exit_gate import _existing, _identity, UNKNOWN_DISPATCH
 
 
 DIGEST_CHARS = 2000
@@ -75,7 +75,7 @@ def _dispatch_id(event: dict, scope: dict) -> str:
     event = event or {}
     recorded = str((scope or {}).get("dispatch") or "").strip()
     host_ids = {str(event.get(key) or "").strip() for key in HOST_ID_FIELDS} - {""}
-    if recorded == "unknown-dispatch" or (not event.get("dispatch_id") and recorded in host_ids):
+    if recorded == UNKNOWN_DISPATCH or (not event.get("dispatch_id") and recorded in host_ids):
         recorded = ""
     if recorded:
         return recorded
@@ -164,12 +164,25 @@ def record_return(event: dict, record: dict, scope: dict, dispatch: str | None =
         if not dispatch:
             return
         from controller import Controller
-        handler = getattr(Controller(artifacts_dir(task, event)), "record_return", None)
+        from event_store import LIFECYCLE_WAIT_SECONDS
+        # With parallel windows a sibling's commit holds the story lock for a moment: the return waits for it instead of being
+        # lost. The wait is bounded, not short: `Controller.record_return` tries 3 times, each up to 10 s (the lock wait) plus
+        # 0.2 s x attempt of sleep: 31.2 s worst case. hooks.json sets no timeout, so the host's own default applies (not measured).
+        handler = getattr(Controller(artifacts_dir(task, event), wait_seconds=LIFECYCLE_WAIT_SECONDS), "record_return", None)
         if handler is None:
             return  # a build without it behaves exactly as before
-        handler(dispatch, _digest(event), record.get("agent") or "")
-    except Exception:
-        pass
+        if handler(dispatch, _digest(event), record.get("agent") or "") is False:
+            # `record_return` never raises: a busy lock after its tries, and a dispatch no longer running, both answer False.
+            # The `subagent_stop` row is already in the journal (`dispatch_liveness` recovers from it); say so on stderr.
+            print(f"subagent_journal: the return of {dispatch} was not recorded with the controller (busy lock, or the "
+                  "dispatch is no longer running); the journal row stays for dispatch_liveness", file=sys.stderr)
+    except Exception as exc:
+        # Still swallowed (a stop hook must not raise), but not silently: one line in the hook's log (stderr).
+        try:
+            print(f"subagent_journal: the return of {dispatch or '?'} was not recorded with the controller: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        except Exception:
+            pass
 
 
 def main() -> None:

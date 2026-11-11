@@ -297,6 +297,14 @@ profiles. Unsupported selector or adapter stays unsupported; offer manual/prepar
    and gate A print this command beside the pair of versions when the installed libraries
    differ from the lock; the factory never runs it. No answer: the line stays out of the
    profile, and the package manager's usual command is shown instead when one is known.
+   Also ask once, in plain words, **whether the project's build or test runner compiles the whole test
+   folder every time** ("when two people edit different test files at the same moment, can a
+   half-written file in one break the other's test run - for example a TypeScript or Java build that
+   compiles every test file together?"). The answer is `dispatch.parallel_windows`; its note reads
+   "windows run in parallel; serial if the build compiles the whole test folder" - on a yes record `1`. "No" or "not sure" keeps the default of 3, and a
+   person who does not answer stays at 3 with nothing recorded. The factory never runs this
+   question's answer as a command; it only sets how many automation windows work at once.
+   Also ask once, in plain words, **how many manual walkers may work at once** ("how many manual walk-throughs of the app may run side by side; 1 = one at a time"). The answer is `manual.walkers`; 1 = one walker at a time, a person who does not answer stays at 3 with nothing recorded.
 6. **Nothing.** The inferred code conventions from phase 1 — assertion style, SDK/client
    layer, loops in tests, fixture placement, naming, mocking library — are **not asked**.
    The repository already answered them; they are shown in the summary gate (phase 3, part

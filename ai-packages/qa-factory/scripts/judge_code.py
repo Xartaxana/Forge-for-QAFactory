@@ -8,7 +8,7 @@ builds a second account the case never asked for", "this locator is a position i
 Here the loop is code, so no test function is skipped, and each one is one small state — the
 function's own source plus the Then clauses of the cases it covers.
 
-The critic reads `work/judge-code.json` first:
+The critic reads `work/judge-code-<its dispatch>.json` first (`report_rel`; `work/judge-code.json` when run with no dispatch):
   needs_critic   a dimension failed or the judge was not sure -> full review, as without a judge
   clean          every judged dimension passed -> the critic checks only what the judge does not
                  read (the roll-call, the red probe, over-mocking, shared module state, an
@@ -268,6 +268,13 @@ def questions_for(state: dict, cfg: dict | None = None) -> dict:
             if judge.active(cfg, DIMENSIONS[name][0])}
 
 
+def report_rel(dispatch_id=None) -> str:
+    """The task-relative file the judge of the critic `dispatch_id` writes and that critic reads (TR3-15, the ONE spelling: one file per
+    critic dispatch, so a window's critic never reads another window's screening). No dispatch (a manual run): `work/judge-code.json`."""
+    ident = str(dispatch_id or "").strip()
+    return f"work/judge-code-{ident}.json" if ident else "work/judge-code.json"
+
+
 def run(task_root, dispatch_id: str | None = None) -> dict:
     task_root = Path(task_root)
     cfg = judge.settings(task_root)
@@ -313,8 +320,9 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
                                "over-mocking", "shared state", "ungrounded expected value"],
                   advisory=replies[0]["advisory"] if replies else True,
                   input_tokens=sum(r.get("input_tokens") or 0 for r in replies))
-    (task_root / "work/judge-code.json").write_text(
-        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path = task_root / report_rel(dispatch_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return report
 
 
@@ -351,7 +359,7 @@ def render(report: dict) -> str:
             else "none skipped")
     lines = [f"judge_code: mode={report['mode']} {len(report['tests'])} test function(s) judged, "
              f"{left} - {len(report['clean'])} clean, {len(report['needs_critic'])} need the "
-             f"critic ({len(report['decided_fails'])} with a decided fail) -> work/judge-code.json"]
+             f"critic ({len(report['decided_fails'])} with a decided fail) -> {report_rel(report.get('dispatch'))}"]
     for key in report["needs_critic"]:
         item = report["tests"][key]
         detail = ", ".join(f"{n}={item['scores'][n]['verdict']}({item['scores'][n]['probability']})"

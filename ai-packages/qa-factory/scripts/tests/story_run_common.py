@@ -66,7 +66,14 @@ resume, agent, sysfile = opt("--resume"), opt("--agent"), opt("--append-system-p
 prompt = sys.stdin.buffer.read().decode("utf-8")
 role = agent.split(":")[-1]
 kind = "resume" if resume else ("role" if agent else "conductor")
-earlier = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+earlier = []
+for line in (log.read_text(encoding="utf-8").splitlines() if log.exists() else []):
+    try:       # a parallel scenario: another stub may be appending to this log right now; a torn last line is not a row yet
+        earlier.append(json.loads(line))
+    except ValueError:
+        pass
+# `index` below is read-then-append: two stubs started together can read the same length, so a LIST-valued `result` / `action` is not
+# safe in a parallel scenario (the scenarios of test_story_run_s5_parallel.py use none).
 index = len([e for e in earlier if e["kind"] == kind and e["role"] == role])
 with log.open("a", encoding="utf-8") as h:
     h.write(json.dumps({"kind": kind, "role": role, "prompt": prompt, "resume": resume, "sysfile": sysfile,
@@ -75,15 +82,74 @@ def pick(value):
     if isinstance(value, list):
         return value[min(index, len(value) - 1)]
     return value
+# TR3-18 (spec t-1937 M5): per-call START and END marks and a BARRIER, never a sleep. A scenario that sets `control["marks"]` gets one
+# row per event in `<STUB_LOG>.marks` (a file of its own: the call log above keeps its shape, so no older scenario counts a mark). A
+# role spec may carry `barrier: {name, need, cap}` (the call waits until `need` distinct dispatches reached the barrier `name`) and
+# `hold_until: {file, cap}` (the call waits until that file exists); `by_scope: {"TC-2": {...}}` overlays a spec on the calls whose
+# prompt names that dispatch scope. EVERY wait has a cap (default 20 s) and a failure that NAMES the peer: the call answers
+# `is_error`, exits 3 and the marks hold a `barrier_timeout` / `hold_timeout` row - the stub never deadlocks a run.
+# `is_error: true` and `exit: <n>` on a role spec make the call fail the way the service does (a limit text, a non-zero exit).
+import time
+marks_path = Path(os.environ["STUB_LOG"] + ".marks")
+dispatch_id = ""
+def mark(event, **extra):
+    if not control.get("marks"):
+        return
+    row = dict(event=event, kind=kind, role=role, dispatch=dispatch_id, t=time.time(), pid=os.getpid(), **extra)
+    with marks_path.open("a", encoding="utf-8") as h:
+        h.write(json.dumps(row) + "\n")
+def marks_seen():
+    rows = []
+    if marks_path.exists():
+        for line in marks_path.read_text(encoding="utf-8").splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+    return rows
+def wait_until(ready, cap):
+    stop = time.monotonic() + cap
+    while not ready():
+        if time.monotonic() >= stop:
+            return False
+        time.sleep(0.05)
+    return True
+fail, broken = {}, ""
 if kind == "role":
     task_dir = Path(re.search(r"Artifacts dir: (\S+)", prompt).group(1))
     dispatch = re.search(r"Dispatch: (\S+)\.", prompt).group(1)
     spec = control.get("roles", {}).get(role, {})
+    scoped = re.search(r"Dispatch scope \(one digest line per item\): (.+)", prompt)
+    scope_key = scoped.group(1).strip() if scoped else ""
+    spec = dict(spec, **((spec.get("by_scope") or {}).get(scope_key) or {}))
+    for needle, overlay in (spec.get("by_prompt") or {}).items():       # `by_prompt`: an overlay on the calls whose prompt holds the text
+        if needle in prompt:
+            spec = dict(spec, **overlay)
+    dispatch_id, fail = dispatch, spec
+    mark("start", scope=scope_key)
+    barrier = spec.get("barrier")
+    if barrier and not control.get("marks"):
+        broken = "STUB BARRIER: a barrier needs control[\"marks\"] (the peers are told apart by their start marks)"
+    elif barrier:
+        name, need, cap = barrier["name"], int(barrier["need"]), float(barrier.get("cap", 20))
+        mark("barrier_wait", barrier=name)
+        def arrived():
+            return sorted({r["dispatch"] for r in marks_seen() if r.get("event") == "barrier_wait" and r.get("barrier") == name})
+        if not wait_until(lambda: len(arrived()) >= need, cap):
+            broken = f"STUB BARRIER {name}: {dispatch} waited {cap} s for {need} calls, saw {arrived()}, missing {need - len(arrived())}"
+            mark("barrier_timeout", barrier=name, seen=arrived())
+    hold = spec.get("hold_until")
+    if hold and not broken:
+        if not wait_until(lambda: Path(hold["file"]).exists(), float(hold.get("cap", 20))):
+            broken = f"STUB HOLD: {dispatch} waited {hold.get('cap', 20)} s for {hold['file']}, which never appeared"
+            mark("hold_timeout", file=str(hold["file"]))
     for rel, content in (spec.get("files") or {}).items():
-        path = task_dir / rel
+        path = task_dir / rel.replace("{dispatch}", dispatch)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content if isinstance(content, str) else json.dumps(content), encoding="utf-8")
     result, session = pick(spec.get("result", "")), "sess-" + dispatch
+    if broken:
+        result = broken
 elif kind == "resume":
     result, session = pick(control.get("resume", {}).get("result", "")), resume
 else:
@@ -104,8 +170,14 @@ else:
             verdict[field] = spec[field]
     result, session = (spec.get("text", "I looked.") + "\n" + json.dumps(verdict)), f"sess-conductor-{index + 1}"
 write_receipt(session, control)
-print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "session_id": session,
-                  "num_turns": 3, "total_cost_usd": 0.0123, "duration_ms": 1500, "result": result}))
+mark("end")
+print(json.dumps({"type": "result", "subtype": "success", "is_error": bool(fail.get("is_error")) or bool(broken),
+                  "session_id": session, "num_turns": 3, "total_cost_usd": 0.0123, "duration_ms": 1500, "result": result}))
+sys.stdout.flush()
+if broken:
+    sys.exit(3)
+if fail.get("exit"):
+    sys.exit(int(fail["exit"]))
 '''
 
 GOOD_MANIFEST = {"ticket": "{task}", "acceptance_criteria": [], "implementation": {"source": "diff"}}
@@ -113,8 +185,10 @@ GOOD_MANIFEST = {"ticket": "{task}", "acceptance_criteria": [], "implementation"
 SCOUT_DIGEST = "qa-scout S1 {task} · ok\n{task} · found · the task itself\nwork/context-manifest.json"
 
 
-def seed(task: str) -> tuple:
-    """A project with S0 done and the controller initialized, the way test_story_step builds one."""
+def seed(task: str, parallel_windows: int | None = 1, dispatch: dict | None = None) -> tuple:
+    """A project with S0 done and the controller initialized, the way test_story_step builds one.
+    TR3-12: the project pins `dispatch.parallel_windows` to 1 so old scenarios keep their serial meaning; the key merges into
+    a `dispatch` block the config already has, a key already set there wins, and `parallel_windows=None` leaves the key out."""
     root = harness.temp_project("qa-story-run-")
     harness.use_project(root)
     # These scenarios are about the driver's LOOP, and the stub role writes a digest without
@@ -125,6 +199,16 @@ def seed(task: str) -> tuple:
     config = root / "qa-factory" / "config.json"
     cfg = json.loads(config.read_text(encoding="utf-8"))
     cfg["handoffs"] = {"required": False}
+    block = dict(cfg.get("dispatch")) if isinstance(cfg.get("dispatch"), dict) else {}
+    block.pop("parallel_windows", None)               # the template's 3 is not a caller's choice
+    block.update(dispatch or {})                      # the caller's other keys stay; a caller that sets the key wins
+    if parallel_windows is not None:
+        block.setdefault("parallel_windows", parallel_windows)
+    cfg["dispatch"] = block
+    # t-2147 C1 (F6 a): the template's `manual.walkers: 3` is not a caller's choice either; old S6 scenarios keep their serial meaning
+    manual = dict(cfg.get("manual")) if isinstance(cfg.get("manual"), dict) else {}
+    manual["walkers"] = 1
+    cfg["manual"] = manual
     config.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     task_root = root / "qa-factory/artifacts" / task
     (task_root / "work").mkdir(parents=True)

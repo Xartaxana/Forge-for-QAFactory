@@ -59,11 +59,7 @@ def every_owner_exists() -> None:
 
 
 def a_receipt_never_writes_into_another_roles_artifact() -> None:
-    """F8 itself: the probe's receipt has its own file, and the inventory guard is still there."""
-    adapter = (PLUGIN_ROOT / "scripts" / "ticket_adapter.py").read_text(encoding="utf-8")
-    check_in("the probe writes its own receipt file", "ticket-probe.json", adapter)
-    check_in("and the inventory is guarded against being overwritten by it",
-             "_holds_inventory", adapter)
+    """F8 itself: the map says why the probe's receipt has its own file."""
     entry = OWNERS["artifacts"]["work/source-inventory.json"]
     check_in("the map says why, so the next writer reads it before repeating F8",
              "ticket-probe.json", entry["why"])

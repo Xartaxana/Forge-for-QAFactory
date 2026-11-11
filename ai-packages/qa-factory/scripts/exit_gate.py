@@ -38,6 +38,10 @@ import validate_artifacts as va
 import bug_records as BR
 from hooklib import sorted_paths
 
+# What `_identity` writes as the scope's `dispatch` when the event names none of dispatch_id / agent_id / session_id.
+# The ONE name: `subagent_journal._dispatch_id` and `dispatch_liveness.role_stops` read it from here.
+UNKNOWN_DISPATCH = "unknown-dispatch"
+
 # Phase acceptance detectors: role -> the artifact it hands off. The GATE re-runs them,
 # not the orchestrator. Two reasons. (1) The author still has the context to fix it in
 # place - the orchestrator would need a reject, a re-dispatch and a fresh context for the
@@ -267,7 +271,7 @@ def _identity(event: dict, agent: str) -> tuple[str, dict]:
         except Exception:
             task, facts = "", None   # an exception is not a story
     task = task or "unknown-task"
-    dispatch = str(event.get("dispatch_id") or event.get("agent_id") or event.get("session_id") or "unknown-dispatch")
+    dispatch = str(event.get("dispatch_id") or event.get("agent_id") or event.get("session_id") or UNKNOWN_DISPATCH)
     attempt = str(event.get("completion_attempt") or event.get("attempt_id") or "default")
     hook = str(event.get("hook_id") or event.get("hook_event_name") or "SubagentStop")
     supplied = event.get("input_fingerprint")
@@ -313,20 +317,33 @@ def _identity(event: dict, agent: str) -> tuple[str, dict]:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest(), scope
 
 
+LOCK_STEP_S = 0.01
+LOCK_WAIT_STEPS = 1000        # TR3-6 (spec t-1937 3.3): 10 s; it was 100 steps (1 s) when one hook at a time wrote the state
+LOCK_NOTE_AFTER = 100         # a wait longer than the old 1 s is printed
+
+
 def _mutate_state(update) -> dict:
-    """Serialize state updates across concurrent story hooks and replace atomically."""
+    """Serialize state updates across concurrent story hooks and replace atomically.
+
+    Parallel S5 sessions have a hook each, so the lock waits 10 s, and a wait past the old 1 s is printed. INVARIANT: a lock that stays
+    busy RAISES (the hook fails and names the lock); a busy lock is never read as "gate passed".
+
+    The lock is an OS byte lock on the file (event_store.take_file_lock, TR4-2 part D): a killed hook's leftover file is
+    free at once and the file is never deleted."""
+    import event_store as ES
     path = _state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_suffix(path.suffix + ".lock")
-    fd = None
-    for _ in range(100):
-        try:
-            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
-            time.sleep(0.01)
-    if fd is None:
-        raise RuntimeError(f"exit gate state lock remained busy: {lock}")
+    wait_s = LOCK_WAIT_STEPS * LOCK_STEP_S
+    try:
+        held = ES.take_file_lock(lock, wait_s, purpose="exit gate state", record_holder=True, poll_s=LOCK_STEP_S)
+    except ES.LockBusy as exc:
+        raise RuntimeError(f"exit gate state lock remained busy for {wait_s:.0f} s: {lock}; {exc.holder_clause}") from exc
+    except ES.LockBroken as exc:
+        raise RuntimeError(str(exc)) from exc
+    if held.waited_s >= LOCK_NOTE_AFTER * LOCK_STEP_S:
+        print(f"note: the exit gate state lock was busy for {held.waited_s:.0f} s (another session's hook); this one went on",
+              file=sys.stderr)
     try:
         try:
             data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -339,9 +356,7 @@ def _mutate_state(update) -> dict:
         os.replace(tmp, path)
         return data
     finally:
-        if fd is not None:
-            os.close(fd)
-        lock.unlink(missing_ok=True)
+        held.release()
 
 
 def _record(scope_key: str, scope: dict, status: str, errors: list[str] | None = None, *,
@@ -464,6 +479,29 @@ def holding_stage(stage):
         _HELD_STAGE[0] = previous
 
 
+_HELD_DISPATCH = [""]      # the dispatch id the caller of `all_errors` holds (TR3-13), set only by `holding_dispatch`
+
+
+def held_dispatch() -> str:
+    """The dispatch id a caller declared with `holding_dispatch`, or "" (none held)."""
+    return _HELD_DISPATCH[0]
+
+
+@contextlib.contextmanager
+def holding_dispatch(dispatch_id):
+    """Within the block, the gate knows WHICH dispatch is handing off, in-process (`_live_dispatch`) and in the detectors it starts
+    (`QA_FACTORY_DETECTOR_DISPATCH`, beside the story): with two windows running, the count rule cannot name the finisher
+    (spec t-1937 B1; `dispatch_identity` is the reader). The twin of `holding_stage`: a context, not a parameter of `all_errors`
+    (the hook's and the driver's function); a process global, safe because the driver's gate calls are under its `_book` and
+    `story_step finish` is its own process. Restored on exit, whatever happens; a blank or non-string id holds nothing."""
+    previous = _HELD_DISPATCH[0]
+    _HELD_DISPATCH[0] = dispatch_id.strip() if isinstance(dispatch_id, str) else ""
+    try:
+        yield
+    finally:
+        _HELD_DISPATCH[0] = previous
+
+
 def _detector_env(task: str) -> dict:
     """The environment of a detector the gate starts (GW1-10): a copy of ours that NAMES the story the gate is judging, and, when
     a caller holds one (`holding_stage`), the stage - only beside a named story; any stale stage word of the parent is removed.
@@ -479,11 +517,14 @@ def _detector_env(task: str) -> dict:
     env = dict(os.environ)
     env.pop(planning_contract.DETECTOR_STORY_ENV, None)
     env.pop(planning_contract.DETECTOR_STAGE_ENV, None)
+    env.pop(planning_contract.DETECTOR_DISPATCH_ENV, None)
     if not task or task == "unknown-task":
         return env
     env[planning_contract.DETECTOR_STORY_ENV] = str(hooklib.story_root(task, "exit_gate", project=project_root()))
     if held_stage():
         env[planning_contract.DETECTOR_STAGE_ENV] = held_stage()
+    if held_dispatch():
+        env[planning_contract.DETECTOR_DISPATCH_ENV] = held_dispatch()      # the finisher, named to the detector (TR3-13)
     return env
 
 
@@ -567,22 +608,34 @@ def detector_errors(agent: str, task: str = "") -> list:
     return errs
 
 
-def write_advice(task_root, stage: str, role: str, records: list, unread: list) -> str:
-    """The ONE writer of `<task_root>/work/advice-<stage>.json` (AR-14), the file the stage critic reads (X2-2, AR-22):
-    `{"stage", "role", "written_at", "records": [{"script", "text"}], "unread": [{"script", "reason"}]}`. The file is replaced
-    whole at each accepted stop of the role, so it reflects the last stop the code accepted. `records` are ADVICE records
+def advice_rel(stage: str, dispatch="") -> str:
+    """The task-relative advice file of `stage` (the ONE spelling, AR-13: `write_advice` writes it, `brief_pack.advice_of` reads it).
+    S5 with a dispatch id (the finisher the gate identified): `work/advice-S5-<dispatch>.json`, one file per dispatch so two windows
+    never share one (TR3-15). No identity, or any other stage: `work/advice-<stage>.json` (the skill road, serial; S2-S4 have one
+    dispatch at a time)."""
+    ident = str(dispatch or "").strip()
+    return f"work/advice-{stage}-{ident}.json" if stage == "S5" and ident else f"work/advice-{stage}.json"
+
+
+def write_advice(task_root, stage: str, role: str, records: list, unread: list, dispatch="") -> str:
+    """The ONE writer of `<task_root>/<advice_rel(stage, dispatch)>` (AR-14), the file the stage critic reads (X2-2, AR-22):
+    `{"stage", "role", "written_at", "records": [{"script", "text"}], "unread": [{"script", "reason"}]}` (+ `"dispatch"` when the
+    file is one dispatch's). The file is replaced whole, atomically, at each accepted stop of the role, so it reflects the last stop
+    the code accepted. `records` are ADVICE records
     (`kind="advice"`); `unread` the advisers that did not run. Returns "" on success, else why nothing was written (no story
     folder - a hook never makes one -, a stage id that is no plain name, a write that failed). Never raises."""
     name = str(stage or "")
     if not re.fullmatch(r"S\d", name) or task_root is None or not Path(task_root).is_dir():
         return "no story folder or no stage"
     try:
-        path = Path(task_root) / "work" / f"advice-{name}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        from event_store import atomic_text
+        path = Path(task_root) / advice_rel(name, dispatch)
         body = {"stage": name, "role": str(role or ""), "written_at": datetime.now().isoformat(timespec="seconds"),
                 "records": [{"script": str(getattr(r, "script", "") or ""), "text": str(r)} for r in records],
                 "unread": [{"script": str(u.get("script") or ""), "reason": str(u.get("reason") or "")} for u in unread]}
-        path.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+        if path.name != f"advice-{name}.json":
+            body["dispatch"] = str(dispatch).strip()
+        atomic_text(path, json.dumps(body, indent=2, ensure_ascii=False) + "\n")
     except OSError as exc:
         return f"the write failed ({type(exc).__name__})"
     return ""
@@ -620,7 +673,9 @@ def run_advisers(agent: str, task: str = "") -> list:
             _advice_signal(script, why, task)
     if stage and (scripts or records or unread):
         ticket = _ticket_of(agent, task)
-        why = write_advice(artifact_root() / ticket if ticket else None, stage, agent, records, unread)
+        live = _live_dispatch(agent, task) if stage == "S5" else None     # TR3-15: the finisher the gate identified (named, held, or the sole one); None: no identity, the old file
+        why = write_advice(artifact_root() / ticket if ticket else None, stage, agent, records, unread,
+                           str((live or {}).get("id") or "") if isinstance(live, dict) else "")
         if why and (records or unread):
             print(f"exit gate note: the advice of {agent} on {stage} is not filed - {why}", file=sys.stderr)
     return []
@@ -727,15 +782,43 @@ def stage_dispatch(records, stage: str):
     return found
 
 
+def s3_strategist_records(records) -> dict:
+    """The S3 dispatch records of the plan's author (`qa-test-strategist`) that count, in the mapping's own order: the optional first-look
+    runner's record (t-2277 FL-5) is none of them, and a set-aside record (`controller.DISCOUNTED`) does not count. THE one reader
+    (AR-13) of "the strategist's dispatches": `_s3_window_one` reads it here; `story_run.s3_window` and `s3_author_done` read it too (t-2277 small-1). `{}` for anything that is not a mapping."""
+    from controller import DISCOUNTED
+    if not isinstance(records, dict):
+        return {}
+    return {k: v for k, v in records.items()
+            if isinstance(v, dict) and v.get("role") == "qa-test-strategist" and v.get("status") not in DISCOUNTED}
+
+
 def _s3_window_one(art_dir: Path) -> bool:
-    """Is the NEWEST S3 dispatch of the story window 1 (`request_binding.purpose: s3_labelling`)? Anything unreadable, absent or
-    not a mapping answers False: the plan is owed (HEAD behaviour) - the direction is toward refusing, never toward a pass (AR-28)."""
+    """Is the NEWEST S3 strategist dispatch of the story window 1 (`request_binding.purpose: s3_labelling`)? Only `qa-test-strategist`
+    records count (`s3_strategist_records`), as in `story_run.s3_window` (t-2277 FL-5): the first-look runner's dispatch (purpose
+    `first_look`) is never window 1 and never hides one. Anything unreadable, absent or not a mapping answers False: the plan is owed
+    (HEAD behaviour) - the direction is toward refusing, never toward a pass (AR-28)."""
     try:
         from controller import s3_window_of
         state = _read_json(art_dir / "state" / "controller.json")
-        return s3_window_of(stage_dispatch(state.get("dispatches"), "S3")) == "labelling"
+        return s3_window_of(stage_dispatch(s3_strategist_records(state.get("dispatches")), "S3")) == "labelling"
     except Exception:
         return False
+
+
+def _optional_placed(agent: str, task: str, model: dict | None = None):
+    """`(stage entry, row, record)` when the stop of `agent` is an OPTIONAL dispatch of a stage (t-2277 FL-5: the first look, a `qa-runner`
+    of purpose `first_look` in S3), else None: the stage's own `optional_dispatches` rows (`stage_guard.optional_stage_of_dispatch`, the one
+    reader) matched against the story's running dispatch (the held one when a caller holds it). A role no stage names in an optional row,
+    a stop that names no story, an unreadable state: None - the role is judged by its own stage as before (AR-28)."""
+    try:
+        model = model if model is not None else SG.stage_model()
+        if agent not in SG.optional_roles(model) or not task or task == "unknown-task" or not is_story_folder(artifact_root(), task):
+            return None
+        dispatches = _read_json(artifact_root() / task / "state" / "controller.json").get("dispatches")
+        return SG.optional_stage_of_dispatch(model, agent, dispatches, name=held_dispatch())
+    except Exception:
+        return None
 
 
 def _window_one_errors(art_dir: Path) -> list:
@@ -811,12 +894,20 @@ def required_outputs_errors(agent: str, task: str = "") -> list:
     if not stage:
         return []
     required =stage.get("required_outputs") or []
-    if not required:
+    placed = _optional_placed(agent, task, model)       # t-2277 FL-5: the first look is judged by its own output, not by S3's plan files
+    if not required and placed is None:
         return []
     ticket = task if task and task != "unknown-task" else _ticket_for_stage(stage["id"])
     if not ticket:
         return []
     art_dir = artifact_root() / ticket
+    if placed is not None:
+        # t-2277 FL-5: an optional dispatch owes its OWN output (the row's `output`, `stage_guard.optional_outputs`), never the stage's
+        # `required_outputs` (the twin of the plan / investigation filters below): the first look owes `work/first-look.yaml`, the S1
+        # reference walk `work/reference-snapshot.yaml` (t-2181 PC-9b).
+        missing = [name for name in SG.optional_outputs(placed[1]) if not _output_present(art_dir, name)]
+        return [f"{stage['id']} ({agent}, {placed[1]['purpose']}) is missing required output(s) for {ticket}: {', '.join(missing)} - write "
+                "them before finishing, or hand the orchestrator a halt with the reason instead of an incomplete handoff."] if missing else []
     if stage["id"] == "S3" and _s3_window_one(art_dir):
         # G1-11: window 1 of S3 labels work/grounding.yaml and writes no plan; its output is judged by GT, and only the
         # findings whose fix is the ROLE's (a driver or conductor finding is not the role's to fix: FR-2).
@@ -970,14 +1061,11 @@ def _live_dispatch(agent: str, task: str):
     if not ticket or not stage_id:
         return None
     state = _read_json(artifact_root() / ticket / "state" / "controller.json")
-    raw = state.get("dispatches")
-    if isinstance(raw, dict):
-        rows = [dict(d, id=d.get("id") or key) if isinstance(d, dict) else d for key, d in raw.items()]
-    else:
-        rows = raw if isinstance(raw, list) else []
-    live = [d for d in rows if isinstance(d, dict) and d.get("status") == "running"
-            and str(d.get("role") or "") == agent and str(d.get("stage") or "") == stage_id]
-    return live[0] if len(live) == 1 else None
+    import dispatch_identity
+    # AR-13: the one reader. `dispatch_identity.own` reads the rows itself (`records` fills the id from the mapping key) and looks the
+    # name up through `held`: a held dispatch (the caller's own, `holding_dispatch`) or a named one (the environment) picks its own
+    # record; with no name the count rule, as before. No hand-built rows here.
+    return dispatch_identity.own(state.get("dispatches"), role=agent, stage=stage_id, name=held_dispatch() or None)
 
 
 def dispatch_scope(agent: str, task: str) -> list:
@@ -1402,6 +1490,9 @@ def _stage_id(agent: str, task: str = "") -> str:
         stages = SG.stages_of_role(model, agent)
         if not stages:
             return ""
+        optional = _optional_placed(agent, task, model)
+        if optional is not None:       # t-2277 FL-5: an optional dispatch stands on the stage whose row names it (the first look: S3)
+            return str(optional[0].get("id") or "")
         dispatches = None
         if len(stages) > 1 and not (held_stage() and any(st.get("id") == held_stage() for st in stages)):
             if task and task != "unknown-task":

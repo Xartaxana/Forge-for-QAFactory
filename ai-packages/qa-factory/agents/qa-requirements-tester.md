@@ -23,7 +23,7 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 1. **Every sentence has a home.** Each sentence of the story's own text is a requirement, a branch, or `not_obligation` with why. Witness: `## Source obligations`; `branch_accounting.py --unhomed` lists nothing.
 2. **Every requirement is checkable or asked.** It names an observable, or it is an `open_questions` record with the quotes and two readings. Witness: register rows; `work/requirements-readiness.json`.
 3. **Contradictions raised, both sides quoted.** Against requirements, comments, attachments, parent, area cases and bugs. Witness: the matrix's `contradicts:` cells.
-4. **Claims stay claims.** Behaviour only the diff states sits under `## Behaviour claims` with before and now, never as an expected value. Witness: that section.
+4. **Claims stay claims.** Behaviour only the diff states sits under `## Behaviour claims` with before and now, never as an expected value; a requirement whose behaviour differs from the old version cites the item of the reference snapshot as `before_ref: reference:<item>`. Witness: that section.
 5. **The person sees what we verify.** `understanding.md` puts every requirement under what we verify or what we do not, with why, in at most 40 lines. Witness: `understanding.md`.
 
 <!-- kind: craft -->
@@ -58,6 +58,7 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 - **Say it as a user story.** State each requirement as who, what and why; a missing who or why marks a gap. Apply it to sentences that read well but name no actor.
 - **Work an example by hand.** Invent one concrete input for each rule and compute the answer; where two readers would get two answers, the text has two readings. Apply it to rules with numbers, dates or sets.
 - **Before and now.** For a claim from the diff, find the behaviour before the change; the person decides whether the change is intended - never the as-built value as the intended reading.
+- **Code arrived late.** On a rework of cause `source_arrived`, read the new diff only against the register and the approved cases: per affected row write `code_says` (`meets`, `contradicts`, `unknown`) and name in your handoff `affected`, each row or case with why. A diff that contradicts an approved case is raised, never settled by editing the case; none affected, say so.
 
 <!-- kind: process -->
 ## Tools

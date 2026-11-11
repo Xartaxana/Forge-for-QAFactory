@@ -1,0 +1,125 @@
+# Forge CI on GitHub, the test-quarantine watch (ported from .gitlab-ci.yml jobs quarantine-watch and quarantine-watch-report;
+# spec td-15 D.1). tools/test_workflows.py judges it.
+#   quarantine-watch         two shards of `selftest.py --quarantined` (only the "quarantine" rows of
+#                            ai-packages/qa-factory/scripts/tests/test-layers.json); a measurement, never red
+#   quarantine-watch-report  `tools/test_quarantine.py ci-summary` joins the shard records into ci-out/quarantine-watch.json
+#                            (the artifact quarantine-watch-report, member quarantine-watch.json); never red
+# START (the three starts of the GitLab rules):
+#   - the schedule below: cron "0 3 * * 1,4" of plans/test-quarantine/config.json, read by GitHub as UTC;
+#   - the Run button / `python tools/ci_read.py start --workflow quarantine-watch.yml --ref <branch>` (the GitLab
+#     web/api pipeline with QUARANTINE_WATCH=1: on GitHub the dispatch of THIS workflow is that variable);
+#   - a push to the quarantine branch that changes the plugin version (.claude-plugin/plugin.json: a release).
+# WHY A WORKFLOW OF ITS OWN: GitHub has no pipeline variables on a schedule, and a `schedule` event starts every job of the
+# workflow it is written in. A separate file is the GitHub form of `QUARANTINE_WATCH=1` / `!= "1"`: the watch schedule
+# starts only this file, the nightly schedule (nightly.yml) never starts this file.
+# A schedule on GitHub runs the file of the DEFAULT branch; the checkout below names the quarantine branch, so a scheduled
+# watch measures that branch as the GitLab schedule on it did. The branch literal equals plans/test-quarantine/config.json
+# "branch" (tools/test_workflows.py holds the junction).
+# The run's facts reach ci-summary and selftest under the GitLab names they read: CI_COMMIT_SHA (the checked-out sha),
+# CI_PIPELINE_ID (the run id), CI_PIPELINE_SOURCE (schedule / push; a dispatch is "web"), CI_PIPELINE_CREATED_AT (the
+# time the first job started, UTC). Secrets: none.
+name: quarantine-watch
+run-name: quarantine-watch ${{ inputs.ref || github.ref_name }}
+
+on:
+  schedule:
+    - cron: "0 3 * * 1,4"     # 03:00 UTC, Monday and Thursday
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch or sha to watch (empty: the quarantine branch)"
+        required: false
+        default: main
+  push:
+    branches: [main]
+    paths: [ai-packages/qa-factory/.claude-plugin/plugin.json]
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  EVENT_NAME: ${{ github.event_name }}
+  CI_PIPELINE_ID: ${{ github.run_id }}
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      created_at: ${{ steps.t.outputs.created_at }}
+    steps:
+      - id: t
+        run: echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+  quarantine-watch:
+    needs: start
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    continue-on-error: true       # allow_failure: a measurement
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]             # parallel: 2
+    env:
+      NODE_INDEX: ${{ matrix.shard }}
+      NODE_TOTAL: ${{ strategy.job-total }}
+      CI_PIPELINE_CREATED_AT: ${{ needs.start.outputs.created_at }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || (github.event_name == 'push' && github.sha) || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: quarantined tests, one shard
+        run: |
+          OUT="$GITHUB_WORKSPACE/ci-out"; mkdir -p "$OUT"
+          export CI_COMMIT_SHA="$(git rev-parse HEAD)"
+          case "$EVENT_NAME" in workflow_dispatch) export CI_PIPELINE_SOURCE=web ;; *) export CI_PIPELINE_SOURCE="$EVENT_NAME" ;; esac
+          cd ai-packages/qa-factory
+          python -B scripts/selftest.py --quarantined --jobs 4 --shard "$NODE_INDEX/$NODE_TOTAL" --watch-out "$OUT/quarantine-watch-$NODE_INDEX-of-$NODE_TOTAL.json" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: quarantine-watch-shard-${{ matrix.shard }}
+          path: ci-out/
+          retention-days: 14
+
+  quarantine-watch-report:
+    # when: always -- read after a red or cancelled shard too; an unreadable shard makes the record incomplete, not the job
+    needs: [start, quarantine-watch]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    env:
+      CI_PIPELINE_CREATED_AT: ${{ needs.start.outputs.created_at }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || (github.event_name == 'push' && github.sha) || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        continue-on-error: true   # no shard artifact at all = an incomplete record, never a red job
+        with:
+          pattern: quarantine-watch-shard-*
+          path: ci-out
+          merge-multiple: true
+      - name: join the shard records
+        run: |
+          export CI_COMMIT_SHA="$(git rev-parse HEAD)"
+          case "$EVENT_NAME" in workflow_dispatch) export CI_PIPELINE_SOURCE=web ;; *) export CI_PIPELINE_SOURCE="$EVENT_NAME" ;; esac
+          python tools/test_quarantine.py ci-summary --from "ci-out/quarantine-watch-*.json" --out ci-out/quarantine-watch.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: quarantine-watch-report
+          path: ci-out/quarantine-watch.json
+          retention-days: 14

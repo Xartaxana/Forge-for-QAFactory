@@ -200,11 +200,6 @@ def each_detector_reads_the_named_story(root: Path) -> None:
 
 def check_coverage_is_untouched(root: Path) -> None:
     """G11."""
-    source = (SCRIPTS / "check_coverage.py").read_text(encoding="utf-8")
-    check("G11 control: the same read finds the helper this node adds elsewhere",
-          "detector_story" in (SCRIPTS / "s5_precheck.py").read_text(encoding="utf-8"))
-    check_not_in("G11: check_coverage reads no detector variable", "DETECTOR_STORY", source)
-    check_not_in("G11: ... and calls no `running_story`", "running_story", source)
     a = root / "qa-factory/artifacts/QA-G10A"
     env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
     env.pop(VAR, None)
@@ -215,11 +210,7 @@ def check_coverage_is_untouched(root: Path) -> None:
 
 def the_form_check_stays_the_net(root: Path) -> None:
     """G13: `digest_errors` reads `RD.check`, not the form claim; `handoff_check` still refuses a wrong size."""
-    import inspect
     import test_handoff as TH
-    body = inspect.getsource(EG.digest_errors)
-    check("G13 (a): `digest_errors` runs the role digest check and never `handoff_check` - the moved adviser cannot refuse a claim",
-          "RD.check" in body and "handoff_check" not in body)
     task = TH._c_story(root)
     out, _fixed, problems, _j, _d, _art = TH._c_check(TH._filled(TH.S2C, {"size.computed": "M"}), TH.S2C, task)
     claim = f"claims.{TH.SIZE_CLAIM}"

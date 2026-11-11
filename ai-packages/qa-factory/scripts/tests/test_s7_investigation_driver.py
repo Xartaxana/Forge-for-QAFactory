@@ -170,8 +170,9 @@ def k_m3_11_dispatch_then_the_close() -> None:
                  (("run_role", "investigation", False), ['LINES {"purpose": "investigation", "stage": "S7"}']))
         check_eq("K-M3-11: the close is the `s7.no_failures` one: today's words + the suffix, the register in the evidence",
                  moves[1], ("code_only", "S7", NO_FAILURES + suffix, ["work/run-report.json", REGISTER]))
-        check_eq("K-M3-11: the order inside the gate: project, then the targets, then the gaps AFTER the dispatch",
-                 fakes.calls, [("project", "S7"), ("unresolved", "budget"), ("unresolved", "budget"), ("close_gaps", WHY_END)])
+        # t-1991 U3a: `s7_close_places` runs BEFORE the gate and computes the places over `unresolved_targets` (one leading read, the first call)
+        check_eq("K-M3-11: the order: the places' read, then inside the gate project, then the targets, then the gaps AFTER the dispatch",
+                 fakes.calls, [("unresolved", "budget"), ("project", "S7"), ("unresolved", "budget"), ("unresolved", "budget"), ("close_gaps", WHY_END)])
         check_in("K-M3-11: the dispatch is said", "3 observation(s) the run left open are not investigated; one bounded read-only", printed)
         check_eq("K-M3-11: the skip tail stays (no TRIAGE dispatch happened)", moves[3][1][-1], "S7: no failures to triage")
     finally:
@@ -627,18 +628,9 @@ def k_m5_the_probes_used_so_far() -> None:
 def k_w4_sr_the_skill_road() -> None:
     text = (PLUGIN_ROOT / "skills" / "qa-story" / "phases" / "s7.md").read_text(encoding="utf-8").replace("\r\n", "\n")
     squashed = " ".join(text.split())
-    check_eq("K-W4-SR: the section exists once, before `## Exit`", (text.count("## Investigation — before every close by code"),
-             text.index("## Investigation — before every close by code") < text.index("## Exit")), (1, True))
-    for command in ("`investigation.py project --task-root <TASK_ROOT> --dispatch S7`", "`investigation.py unresolved --task-root <TASK_ROOT>`"):
-        check("K-W4-SR: the card line and the section spell " + command[:40], text.count(command) >= 2, command)
-    for needle in ("A member of `pass_members` with status `running` → no close", "`budget_problems` not empty → no dispatch",
-                   '--why "the investigation is not available"', '--why "the investigation ended before this target"', "`gate_b_answered` `true`",
-                   "--purpose investigation", "with `--not-complete`", "`http` itself refuses a second investigation in one S7 chain",
-                   "work/exploratory-findings.jsonl", "`gate_b_answered`"):
-        check("K-W4-SR: the section carries " + needle[:50], " ".join(needle.split()) in squashed, needle)
+    # the section's rules are rows of design/role-rules.json; this join of the section with the code's `WHY_TEXTS` stays
     check("K-W4-SR: the three whys are the three of `investigation.WHY_TEXTS`, each in the section",
           all(f'"{w}"' in squashed or f"“{w}”" in squashed or w in squashed for w in investigation.WHY_TEXTS[:2]) and "gate B is already decided" in squashed)
-    check("K-W4-SR: the pointers in the Entry check, Code answers first and Exit", text.count("section Investigation") >= 4)
 
 
 def main() -> None:

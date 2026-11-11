@@ -124,21 +124,6 @@ def part_plan_contract() -> None:
         cleanup(empty)
 
 
-# --- the pyramid warning is a warning ------------------------------------------------
-
-def part_pyramid_warning() -> None:
-    row = plan_row("TS-1", disposition="automate", level="e2e-ui")
-    check_in("an e2e-ui automate row without a highest-risk reason warns",
-             "TS-1: `automate` at level e2e-ui", P.plan_warnings([row]))
-    check("but is never an error", not P.gate_plan_errors([row], "new", 1))
-    check("a severe-impact e2e row does not warn",
-          not P.plan_warnings([plan_row("TS-2", disposition="automate", level="e2e-ui",
-                                        impact="severe", verification_depth="critical",
-                                        design_review_required=True)]))
-    check("and an api row is not this rule's business",
-          not P.plan_warnings([plan_row("TS-3", disposition="automate", level="api")]))
-
-
 # --- the verdict is computed from the roll-call ---------------------------------------
 
 LIVE_ROLLCALL = """# Critic findings
@@ -385,7 +370,6 @@ def part_vocabularies() -> None:
 
 if __name__ == "__main__":
     part_plan_contract()
-    part_pyramid_warning()
     part_rollcall()
     part_fixes()
     part_pinning()

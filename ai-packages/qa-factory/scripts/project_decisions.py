@@ -25,7 +25,6 @@ import os
 import re
 import sys
 import tempfile
-import time
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -191,17 +190,29 @@ def _replace_table(text: str, rows: list[dict], heading: str = HEADING, header: 
 
 @contextmanager
 def lock(root: Path, timeout: float = 10.0):
-    lock_dir = root / "qa-factory" / "state" / ".project-decisions.lock"
-    lock_dir.parent.mkdir(parents=True, exist_ok=True); deadline = time.monotonic() + timeout
-    while True:
-        try: lock_dir.mkdir(); break
-        except FileExistsError:
-            if time.monotonic() >= deadline: raise TimeoutError("project decisions lock is busy")
-            time.sleep(0.05)
+    # an OS byte lock on a FILE (TR4-2 part D); the older generation's `.project-decisions.lock` FOLDER is never touched
+    import event_store as ES
+    lock_file = root / "qa-factory" / "state" / "project-decisions.lock"
+    try:
+        held = ES.take_file_lock(lock_file, timeout, purpose="project decisions", record_holder=True)
+    except ES.LockBusy as exc:
+        raise TimeoutError(f"project decisions lock is busy; {exc.holder_clause}") from exc
+    except ES.LockBroken as exc:
+        raise TimeoutError(str(exc)) from exc
     try: yield
-    finally:
-        try: lock_dir.rmdir()
-        except FileNotFoundError: pass
+    finally: held.release()
+
+
+def _registry_busy_line(action: str, exc: TimeoutError) -> str:
+    """The one stderr line of a refused registry lock, for every CLI handler: a lock that cannot be made says its own sentence
+    (no 'another writer', no retry advice); a busy one keeps the busy line and adds the holder clause the lock recorded (FR-1, FR-2)."""
+    import event_store as ES
+    if isinstance(exc.__cause__, ES.LockBroken):
+        return f"project_decisions: {action} refused - {exc}"
+    line = f"project_decisions: {action} refused - the registry is busy (another writer); run the same command again"
+    cause = exc.__cause__
+    holder = cause.holder_clause if getattr(cause, "holder", None) else ""
+    return f"{line} ({holder})" if holder else line
 
 
 def _atomic(path: Path, text: str) -> None:
@@ -656,9 +667,8 @@ def _record_stand_fact(action: str, args, record) -> dict:
     except ValueError as exc:
         print(f"project_decisions: {action} refused - {exc}", file=sys.stderr)
         raise SystemExit(2)
-    except TimeoutError:
-        print(f"project_decisions: {action} refused - the registry is busy (another writer); run the same command again",
-              file=sys.stderr)
+    except TimeoutError as exc:
+        print(_registry_busy_line(action, exc), file=sys.stderr)
         raise SystemExit(2)
 
 
@@ -841,9 +851,8 @@ def _record_finding(args) -> dict:
         # still raises: the pre-tool guard calls it that way (guard_pre_tool.py).
         print(f"project_decisions: add-finding refused - {exc}", file=sys.stderr)
         raise SystemExit(2)
-    except TimeoutError:
-        print("project_decisions: add-finding refused - the registry is busy (another writer); "
-              "run the same command again", file=sys.stderr)
+    except TimeoutError as exc:
+        print(_registry_busy_line("add-finding", exc), file=sys.stderr)
         raise SystemExit(2)
 
 

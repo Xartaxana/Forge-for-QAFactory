@@ -74,8 +74,10 @@ def every_recorded_state_has_a_row(text: str) -> None:
           "expectation_changes" in MP.BY_RECORD, str(MP.BY_RECORD))
     check("introduced_helpers is a merge key of manifest_put (BY_HELPER)",
           "introduced_helpers" in MP.BY_HELPER, str(MP.BY_HELPER))
+    check("provisional is a merge key of manifest_put (BY_ID, t-2181 PC-3)",
+          "provisional" in MP.BY_ID, str(MP.BY_ID))
     for key in sorted(set(MP.BY_CASE) | set(MP.BY_INSTANCE) | set(MP.APPEND_ONLY) | set(MP.BY_RECORD)
-                      | set(MP.BY_HELPER)):
+                      | set(MP.BY_HELPER) | set(MP.BY_ID)):
         check(f"the manifest's {key}[] has a way out in the walk", key in rows,
               str(sorted(rows))[:200])
     for record in ("stage_overrides", "gate_waivers", "remarks"):
@@ -96,7 +98,7 @@ def every_door_the_walk_names_exists(text: str) -> None:
 
     # The retraction keys, read out of manifest_put rather than out of this test.
     source = (harness.SCRIPTS / "manifest_put.py").read_text(encoding="utf-8")
-    for key in ("retracted_instances", "retracted_obligations"):
+    for key in ("retracted_instances", "retracted_obligations", "retracted_provisional"):
         check(f"{key} is a key manifest_put handles", f'"{key}"' in source, key)
         check("and the walk names it as the door", key in text, key)
 
@@ -170,6 +172,10 @@ def a_manifest_row_leaves_by_its_own_door() -> None:
     merged, _summary = MP.merge(dict(manifest), {"retracted_obligations": ["R-1-OB1"]})
     check_eq("a retracted obligation leaves obligation_bindings[]",
              merged.get("obligation_bindings"), [])
+    held = {"provisional": [{"id": "P-1", "status": "open"}, {"id": "P-2", "status": "open"}]}
+    merged, _summary = MP.merge(held, {"retracted_provisional": ["P-1"]})
+    check_eq("a retracted assumption stays as history with its status, its neighbour is untouched",
+             [(row["id"], row["status"]) for row in merged["provisional"]], [("P-1", "retracted"), ("P-2", "open")])
 
 
 def a_blocked_row_leaves_when_its_instance_goes_green(text: str) -> None:

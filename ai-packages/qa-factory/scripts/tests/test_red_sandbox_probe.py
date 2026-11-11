@@ -28,7 +28,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from harness import check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir, use_project  # noqa: E402
 
-import contract as C  # noqa: E402
 import execution_request as ER  # noqa: E402
 import probe_by_code as PBC  # noqa: E402
 import proof_level as PL  # noqa: E402
@@ -372,26 +371,21 @@ def accepted() -> None:
         check_eq("t-043 C: it carries the code sha and the per-test identity of the bytes it read (D2)",
                  (receipt.get("test_code_sha"), receipt.get("instance_identity")),
                  (now["test_code_sha"], now["instance_identity"]))
+        # t-2064 fix round G, B3 (EP-W): the python test has a check reader, so the receipt is `one_check`: it proves the one check it
+        # names, and NOTHING is published to the manifest - no binding, no row ref (the critic names it with a `product` entry).
+        check_eq("the receipt proves the one check it names", (receipt.get("scope"), [c["key"] for c in receipt.get("checks") or []]),
+                 ("one_check", [f"tests/test_calc.py:{ASSERT_LINE}"]))
         manifest = manifest_of(root)
-        bindings = {b["obligation_id"]: b for b in manifest.get("obligation_bindings") or []}
-        check_eq("the manifest carries the obligation binding manifest_put.py merged",
-                 (bindings.get("OB-ADD-1") or {}).get("sensitivity"), "proven")
-        check_eq("naming the published receipt",
-                 (bindings.get("OB-ADD-1") or {}).get("probe_receipt_ref"), result["receipts"][0]["path"])
-        # TP2-2553: the receipt existed and delivery read the other place. The same
-        # fragment now carries it into `tests[]` as a patch, and the author's row survives it.
+        check_eq("the manifest carries no obligation binding for a one-check receipt", manifest.get("obligation_bindings"), None)
         row = next(t for t in manifest["tests"] if t.get("instance_id") == "test_add")
-        ref = ((row.get("sensitivity_proof") or {}).get("receipt_ref") or {})
-        check_eq("the instance row carries the receipt delivery reads",
-                 ref.get("path"), result["receipts"][0]["path"])
-        check_eq("with the hash that binds it", ref.get("sha256"), result["receipts"][0]["sha256"])
+        check_eq("the instance row names no receipt", row.get("sensitivity_proof"), None)
         check_eq("and the author's row keeps its file", row.get("file"), "tests/test_calc.py")
         check_eq("and its case links", row.get("covers"), ["TC-100"])
         check_eq("one instance row, not two", len([t for t in manifest["tests"]
                                                    if t.get("instance_id") == "test_add"]), 1)
-        check_eq("the contract's own validator takes the receipt", C.sensitivity_proof_issues(row, task_root), [])
-        check_eq("and reached() reads it as the product level",
-                 PL.reached(row, manifest, task_root)["level"], "catches_broken_product")
+        check_eq("so reached() reads no level for the test as a whole", PL.reached(row, manifest, task_root)["level"], None)
+        check_in("and the note names the door: the `product` entry in the probe's model file",
+                 "`product` entry", " ".join(result["notes"]))
         # D11: the verdict of a launched run is on record, with what it mutated
         record = json.loads(PL.probe_record_path(task_root, "test_add", "product").read_text(encoding="utf-8"))
         check_eq("the product record says intended_failure, with the identity measured BEFORE the sandbox",
@@ -402,24 +396,24 @@ def accepted() -> None:
         check_eq("...and the product file the mutation touched, with the bytes it held (before_sha256) and their code",
                  record["mutated_files"], [{"path": "calc.py", "sha256": RS.digest(root / "calc.py"),
                                             "code_sha": PL.code_sha((root / "calc.py").read_bytes(), "calc.py")}])
-        # AC1: the same probe again is ANSWERED - by the receipt it just wrote - and nothing runs or moves
-        snap = {p.name: p.read_bytes() for p in (task_root / "work" / "probes" / "product").glob("*")}
+        # fix round H: a one-check receipt has no level, yet the same product probe again is answered by `already_probed` (item 4 of
+        # `proof_level.already_probed`, kind="product"). Killing mutation: drop the `kind="product"` argument in red_sandbox.probe.
+        receipt_file = task_root / result["receipts"][0]["path"]
+        before_receipt = receipt_file.read_bytes()
         again = probe(root, mutation_request(root))
-        check_eq("a second probe of the same bytes: already_probed", again["status"], "already_probed")
-        check_eq("...by the receipt", (again["instances"]["test_add"]["by"], again["receipts"]), ("receipt", []))
-        check_in("...naming the block a person's word passes", 'block "already probed on these bytes"', again["words"])
-        check_eq("...with no launch and no sandbox", (len(launches(root)) - seeded, sandboxes(root)), (1, []))
-        check_eq("...and the record is byte-identical", {p.name: p.read_bytes() for p in
-                                                        (task_root / "work" / "probes" / "product").glob("*")}, snap)
+        check_eq("a second probe of the same bytes: already_probed, no second run", again["status"], "already_probed")
+        check_eq("...and the receipt file is untouched", receipt_file.read_bytes(), before_receipt)
+        check_eq("...and publishes nothing either", manifest_of(root), manifest)
     finally:
         finish_project(root)
 
 
 def upgrades_a_live_receipt_and_keeps_the_other_instances() -> None:
-    """Live then product (edge row 7): the product receipt REPLACES the live one, and the binding's
-    `instance_ids` is the UNION - `manifest_put` replaces that list, and the published one held
-    only this run's instance, erasing the instance a live probe had already listed. Since t-043 C a live
-    receipt on the same bytes ANSWERS the probe (F6 a); the upgrade happens on new bytes or with a person's word."""
+    """Live then product (edge row 7), since t-2064 fix round G (B3): the product receipt of a test whose checks the factory can list is
+    `one_check` and publishes NOTHING, so the live ref and the binding (and its `instance_ids`) stay as they were - a receipt that proves
+    one check is neither a downgrade of the live one nor a proof of the obligation. (A `whole_unlisted` receipt still replaces and unions:
+    `test_probe_product_publish.py`.) Since t-043 C a live receipt on the same bytes ANSWERS the probe (F6 a); the probe runs again only
+    on new bytes or with a person's word."""
     root = project(fake())
     task_root = task_of(root)
     try:
@@ -459,26 +453,17 @@ def upgrades_a_live_receipt_and_keeps_the_other_instances() -> None:
         result = probe(root, mutation_request(root))
         check_eq("with a person's word the product probe is accepted", result["status"], "accepted")
         after = json.loads(manifest_path.read_text(encoding="utf-8"))
-        row = next(t for t in after["tests"] if t.get("instance_id") == "test_add")
-        binding = next(b for b in after["obligation_bindings"] if b["obligation_id"] == "OB-ADD-1")
-        new = result["receipts"][0]
-        check_eq("live then product: the row's ref is upgraded",
-                 (row["sensitivity_proof"]["receipt_ref"]["path"], row["sensitivity_proof"]["receipt_ref"]["sha256"]),
-                 (new["path"], new["sha256"]))
-        check_eq("live then product: the binding's ref is upgraded", binding["probe_receipt_ref"], new["path"])
-        check_eq("live then product: the other instance is still listed, and this one is added",
-                 binding["instance_ids"], ["other", "test_add"])
-        check_eq("live then product: the binding's own fields survive", binding.get("design_assessment"), "sufficient")
-        got = PL.reached(row, after, task_root)
-        check_eq("after: the higher level is what the row reaches", (got["level"], got["issues"]),
-                 ("catches_broken_product", []))
+        # t-2064 fix round G, B3: the python test's product receipt is `one_check` - it proves one check and has no level for the test,
+        # so it publishes NOTHING: the live ref and the binding stay exactly as they were (never a downgrade, never a false proof)
+        check_eq("live then product: a one-check receipt moves nothing in the manifest", after, manifest)
+        check_eq("and a receipt was still written, as a one-check one",
+                 json.loads((task_root / result["receipts"][0]["path"]).read_text(encoding="utf-8")).get("scope"), "one_check")
+        got = PL.reached(after["tests"][0], after, task_root)
+        check_eq("after: the row still reaches the live level", (got["level"], got["issues"]), ("live", []))
         check_in("...and the word is on record in the notes", "probe it again, I asked", " ".join(result["notes"]))
-        # a second product probe of the same instance lists it once (the word still stands)
+        # a second product probe of the same instance changes nothing either (the word still stands)
         result = probe(root, mutation_request(root))
-        again = json.loads(manifest_path.read_text(encoding="utf-8"))
-        check_eq("a second product probe lists the instance once",
-                 next(b for b in again["obligation_bindings"] if b["obligation_id"] == "OB-ADD-1")["instance_ids"],
-                 ["other", "test_add"])
+        check_eq("a second product probe moves nothing", json.loads(manifest_path.read_text(encoding="utf-8")), manifest)
     finally:
         finish_project(root)
 

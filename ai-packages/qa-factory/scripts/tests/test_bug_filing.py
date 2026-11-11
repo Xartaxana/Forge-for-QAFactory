@@ -86,6 +86,12 @@ claims:
   every_filed_bug_names_its_draft_and_its_case_or_says_why_not: true
   no_bug_was_filed_for_a_draft_the_person_did_not_choose: true
   nothing_was_written_to_the_tracker_by_the_role: true
+tried:
+  - requirement: {rid}
+    technique: searched the tracker for a duplicate of the draft by its title
+    observation: no existing issue matched the draft
+    evidence: work/bug-drafts/move.json
+tried_note: "-"
 unresolved: []
 blocked:
   field: none
@@ -389,34 +395,72 @@ def f5b_gate_b_choice_edges() -> None:
         cleanup(root)
 
 
-def f6_a_bug_only_in_the_story_folder() -> None:
-    """t-442 (canon part D). `story_bugs` says where a bug lies: the project's `qa-factory/bugs/` is the canonical home, a bug
-    that exists ONLY in the story's own folder is still counted and is also listed under `outside_home`, with its reason."""
-    root = temp_dir("qa-bugfile-f6-")
+def f7_one_bug_many_manifestations() -> None:
+    """t-2187 N4 (row 5.13): the bug file of a draft with 2+ manifestations carries every case, `## Cause` and `## Manifestations`
+    (each line: its case and its red test or why there is none). Without the resolved draft nothing new is checked and the
+    producer SAYS so; an old draft or a one-manifestation draft files exactly as before."""
+    import artifact_producer as AP
+    root = temp_dir("qa-bugfile-f7-")
     try:
-        decision = {"id": "gateB-QA-1", "gate": "B", "status": "approved", "selected_drafts": ["work/bug-drafts/move.json"]}
-        task = story(root, decision=decision)
-        got = BR.story_bugs(task)
-        check_eq("F6 a bug file only in the story's folder is counted: one record, home `task`",
-                 [(r["id"], r["homes"]) for r in got["records"]], [("BUG-1", ["task"])])
-        check_eq("F6 ... and is listed under outside_home (one row, its id and home)",
-                 [(row["id"], row["homes"]) for row in got["outside_home"]], [("BUG-1", ["task"])])
-        check_in("F6 ... with the reason, in words", "this bug file lies in the story's own folder, not in the project's bug folder "
-                 "(qa-factory/bugs); it is counted anyway", got["outside_home"][0]["reason"] if got["outside_home"] else "")
-        check_eq("F6 ... its path is the story's file", [Path(p).name for p in got["outside_home"][0]["paths"]] if got["outside_home"] else None,
-                 ["BUG-1.md"])
-        # control: the same bug also in the project's folder, joined by the gate B decision id: it is in its home
-        (root / "qa-factory" / "bugs").mkdir(parents=True, exist_ok=True)
-        (root / "qa-factory" / "bugs" / "BUG-1.md").write_text(BUG, encoding="utf-8")
-        both = BR.story_bugs(task)
-        check_eq("F6 control: a copy in the project's folder joins it: one record in both homes",
-                 [(r["id"], sorted(r["homes"])) for r in both["records"]], [("BUG-1", ["project", "task"])])
-        check_eq("F6 ... and then nothing is outside its home", both["outside_home"], [])
+        task = story(root)
+        base = "# BUG-1\n\n## User impact\n\nx\n\n## Initial state\n\ny\n"
+        merged_body = (base + "\n## Cause\n\nthe field turns any unreadable value into 1.\n\n## Manifestations\n\n"
+                       "- TC-002: type -1; seen 11; red test: `pytest t1.py -k neg`\n"
+                       "- TC-007: type 1.5; seen 11; no test: manual check only, not in the regression\n")
+        fm = {"id": "BUG-1", "title": "Quantity coerced", "status": "Open", "severity": "minor", "area": "cart", "found_by": "x",
+              "violates": "requirement:R-5", "impact": "degraded", "created": "2026-11-10T10:00:00", "source_draft": "work/bug-drafts/qty.json",
+              "gate_b_decision_id": "gateB-QA-1", "confirmation": "unconfirmed", "cases": ["TC-002", "TC-007"], "requirements": ["R-5"],
+              "red_test": "t1.py -- pytest t1.py -k neg"}
+
+        def put(draft) -> None:
+            (task / "work" / "bug-drafts" / "qty.json").write_text(json.dumps(draft), encoding="utf-8")
+
+        def errs(front, body, **kw) -> list:
+            return [e for e in AP.validate("bug", {"frontmatter": front, "body": body}, **kw) if "FORM" in e or "source draft" in e]
+
+        two = {"title": "t", "case": "TC-002", "manifestations": [
+            {"action": "type -1", "start_state": "selected", "seen": "11", "case": "TC-002", "evidence": "e1",
+             "red_test": {"path": "t1.py", "command": "pytest t1.py -k neg"}},
+            {"action": "type 1.5", "start_state": "erased", "seen": "11", "case": "TC-007", "evidence": "e2",
+             "red_test_none": "manual check only, not in the regression"}]}
+        put(two)
+        check_eq("F7 a merged bug file with every case, both sections and each line: clean", errs(fm, merged_body, task_root=task), [])
+        got = errs(fm, base, task_root=task)
+        check("F7 no `## Cause` and no `## Manifestations`: a FORM error for each, with the door",
+              any('no "## Cause" section' in e for e in got) and any('no "## Manifestations" section' in e for e in got)
+              and all("work/bug-text/qty.md" in e for e in got), str(got))
+        got = errs(dict(fm, cases=["TC-002"]), merged_body, task_root=task)
+        check("F7 a manifestation's case missing from `cases`: refused, names it", len(got) == 1 and "'cases' lacks ['TC-007']" in got[0], str(got))
+        got = errs(fm, merged_body.replace("pytest t1.py -k neg", "pytest"), task_root=task)
+        check("F7 a line without its red test command: refused", len(got) == 1 and "red test command" in got[0], str(got))
+        got = errs(fm, merged_body.replace("no test: manual check only, not in the regression", "later"), task_root=task)
+        check("F7 a line without the reason it has no red test: refused", len(got) == 1 and "reason it has no red test" in got[0], str(got))
+        got = errs(fm, merged_body.replace("- TC-007:", "- TC-9:"), task_root=task)
+        check("F7 a line that does not name its case: refused", any("does not name the case TC-007" in e for e in got), str(got))
+        # no resolved draft: nothing new is checked, and the producer says so (never a pass)
+        left: list = []
+        check_eq("F7 no task root: the merged-draft check is not run, no error", errs(fm, base, not_checked=left), [])
+        check_eq("F7 ... and the producer says it was not checked", left, ["the manifestations of the source draft were not checked (no task root)"])
+        check_eq("F7 ... a caller passing no list still gets no error and no exception", errs(fm, base), [])
+        errors: list = []
+        V.check_bug_form(Path("BUG-1.md"), dict(fm), base, errors)
+        check_eq("F7 check_bug_form with draft=None: today's errors (none) and no not-checked claim of a pass", errors, [])
+        # an unreadable draft is a FORM line, never a pass
+        (task / "work" / "bug-drafts" / "qty.json").unlink()
+        got = errs(fm, merged_body, task_root=task)
+        check("F7 the draft is gone: one FORM line says it cannot be read", len(got) == 1 and "cannot be read" in got[0], str(got))
+        # old draft and a one-manifestation draft: valid exactly as today
+        put({"title": "t", "case": "TC-002"})
+        check_eq("F7 an old draft (no manifestations): no new error", errs(dict(fm, cases=["TC-002"]), base, task_root=task), [])
+        put(dict(two, manifestations=two["manifestations"][:1]))
+        check_eq("F7 a one-manifestation draft: valid as today (no sections asked)", errs(dict(fm, cases=["TC-002"]), base, task_root=task), [])
+        put(dict(two, manifestations="not a list"))
+        check_eq("F7 a malformed `manifestations`: reads as none, no new error", errs(dict(fm, cases=["TC-002"]), base, task_root=task), [])
     finally:
         cleanup(root)
 
 
 for step in (f1_the_contract, f2_the_words, f3_filing_of, f4_the_report_and_the_header, f4b_the_producer_offers_the_keys, f5_gate_b_not_chosen,
-             f5b_gate_b_choice_edges, f6_a_bug_only_in_the_story_folder):
+             f5b_gate_b_choice_edges, f7_one_bug_many_manifestations):
     step()
 finish("test_bug_filing")

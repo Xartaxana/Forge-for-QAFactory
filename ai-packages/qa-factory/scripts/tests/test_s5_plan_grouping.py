@@ -30,7 +30,6 @@ import test_s5_plan as BASE  # noqa: E402  (its fixtures; its checks run only un
 from test_s5_plan_check import Fake, good_plan, has, mutate  # noqa: E402
 
 put = BASE.put
-PACKAGE = SCRIPTS.parent
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "run-12586-s5-plan" / "s5-plan.json"
 FIXTURE_CASES = ("TC-001", "TC-002", "TC-003", "TC-004", "TC-005", "TC-006", "TC-007", "TC-008", "TC-009", "TC-011")
 GROUPED = ("TC-001", "TC-002", "TC-004", "TC-005", "TC-006", "TC-007", "TC-011")      # the seven api cases of one file
@@ -358,45 +357,6 @@ def k9_the_key():
                                               row("T-2", ["TC-2"], file="src/test/CalcSpec.java", level="unit")]})), 1)
 
 
-# --- K10 / K-G2: the text of the rule in its carriers (DOC-DISPATCH witness) ----------------------------------------
-
-def squeeze(text):
-    return " ".join(text.split())
-
-
-def missing_keys(text, must, forbidden=()):
-    """The keys the text fails: a `must` string absent, or a `forbidden` one present (whitespace folded)."""
-    flat = squeeze(text)
-    return [f"missing: {key}" for key in must if key not in flat] + [f"forbidden: {key}" for key in forbidden if key in flat]
-
-
-# Verbatim from spec t-1502 5.1 K10, written before the run.
-KEYS = {"agents/qa-automator.md": (("the expected value, taken from each case's oracle, are its parameters", "never shares an instance", "apart_reason"), ()),
-        "references/test-code-patterns.md": (("the data and the expected value (from the case's oracle) are the parameter's data",
-                                              "on that case's `pytest.param`", "apart_reason"),
-                                             ("Parameterize only when setup, action and oracle are the same",)),
-        "references/code-review-rubric.md": (("never a `blocker` on its own", "apart_reason"), ())}
-
-
-def k10_the_rule_in_three_carriers():
-    for rel, (must, forbidden) in KEYS.items():
-        text = (PACKAGE / rel).read_text(encoding="utf-8")
-        check_eq(f"K10: {rel} carries the rule", missing_keys(text, must, forbidden), [])
-    # the negative control: cut one key out of a carrier and the same script must go red
-    text = (PACKAGE / "agents/qa-automator.md").read_text(encoding="utf-8")
-    cut = squeeze(text).replace("never shares an instance", "")
-    check_eq("K10 (negative control): a carrier without a key is reported", missing_keys(cut, *KEYS["agents/qa-automator.md"]),
-             ["missing: never shares an instance"])
-    old = (PACKAGE / "references/test-code-patterns.md").read_text(encoding="utf-8") + "\nParameterize only when setup, action and oracle are the same\n"
-    check_eq("K10 (negative control): the old sentence back is reported",
-             missing_keys(old, *KEYS["references/test-code-patterns.md"]), ["forbidden: Parameterize only when setup, action and oracle are the same"])
-    # the slices the roles are handed carry the same sentence (they are generated: a stale slice would hand the old rule)
-    for role in ("qa-automator", "qa-code-critic"):
-        slice_text = (PACKAGE / "references" / "slices" / role / "test-code-patterns.md").read_text(encoding="utf-8")
-        check_eq(f"K10: the slice of test-code-patterns for {role} is the new rule",
-                 missing_keys(slice_text, KEYS["references/test-code-patterns.md"][0], KEYS["references/test-code-patterns.md"][1]), [])
-
-
 # --- G-2: `fit: new` allows `parameterize`; the two meanings of `consolidates` ---------------------------------------------
 
 TWO_LISTS = "`consolidates` means two lists: in the S5 plan, the tests a consolidated test merges; in the manifest, the cases the instance proves"      # without the full stop: it closes a parenthesis in two carriers
@@ -435,9 +395,7 @@ def kg2_fit_new_parameterize():
 
 
 def kg2_two_lists_in_three_places():
-    where = {"handoffs/vocabulary.yaml": TWO_LISTS, "references/artifact-contract-automation.md": TWO_LISTS}
-    for rel, phrase in where.items():
-        check_eq(f"G-2 K5: {rel} carries the phrase", missing_keys((PACKAGE / rel).read_text(encoding="utf-8").replace("\n# ", " "), (phrase,)), [])
+    # the two carriers' words are the row `consolidates-means-two-lists` of design/role-rules.json; the finding's text stays here
     root = temp_dir("qa-s5grp-g2b-")
     try:
         plan = mutate(good_plan(), lambda p: p["tests"][0].__setitem__("shape", "consolidate"))
@@ -445,8 +403,6 @@ def kg2_two_lists_in_three_places():
         finding = next(f for f in SP.check_report(root, Fake(("TC-1", "TC-2", "TC-3")))[0] if "`consolidates`" in f)
         check_in("G-2 K5: the finding of an empty `consolidates` carries the phrase", TWO_LISTS, finding)
         check_in("G-2 K5: ... after its fix, in one line", "fix: list the tests it merges (", finding)
-        cut = squeeze((PACKAGE / "handoffs/vocabulary.yaml").read_text(encoding="utf-8").replace("\n# ", " ")).replace("means two lists", "")
-        check_eq("G-2 K5 (negative control): a carrier without the phrase is reported", missing_keys(cut, (TWO_LISTS,)), [f"missing: {TWO_LISTS}"])
     finally:
         cleanup(root)
 
@@ -483,7 +439,6 @@ def main():
     k6_helpers()
     k8_check_command()
     k9_the_key()
-    k10_the_rule_in_three_carriers()
     kg2_fit_new_parameterize()
     kg2_two_lists_in_three_places()
     finish("test_s5_plan_grouping")

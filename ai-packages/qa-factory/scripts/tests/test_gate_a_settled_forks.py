@@ -323,28 +323,13 @@ def test_k6_the_callers() -> None:
 
 
 def test_k7_the_contract_says_it() -> None:
-    """K7 (doc-witness): the keys are those of the DoD text, written before the run; the last line is the negative control."""
+    """K7: the settled-fork form of the register template reads back through the one reader (the role-text keys of the form are
+    rows of design/role-rules.json)."""
     template = (PLUGIN / "references" / "templates" / "requirements-register.md").read_text(encoding="utf-8")
-    contract = (PLUGIN / "references" / "artifact-contract-plan.md").read_text(encoding="utf-8")
-    # (the tester's slice of the plan contract no longer exists - X1 B-B removed it; the full contract above is the carrier)
-    form = '`"<their words>" (<file>.txt)`'      # F2 (t-1752): the quote form of a decided fork, stated once in the contract, carried by its slice
-    keys = {"template": (template, ["Q1 b adopted", "question at gate A", "STARTS", '"<their words>" (<file>.txt)']),
-            "contract": (contract, ["`Decision` cell STARTS with the id of the register question", "Q1 b adopted", "question at gate A", form,
-                                    "the matrix holds requirement sources against each other only", "`code_says: contradicts` cell"])}
-    # spec t-1765 X1 (B-D, "moved"): the tester's charter no longer carries the three role keys ("`Decision` cell of a fork",
-    # "STARTS with that question's id", "question at gate A"); the contract, its slice and the template above hold the rule.
-    for where, (text, needles) in keys.items():
-        for needle in needles:
-            check_in(f"K7: {where} carries `{needle}`", needle, text)
-    check_not_in("K7 negative control: the same check on a text without the key reports it missing",
-                 "STARTS with the id of the register question", contract.replace("STARTS with the id of the register question", "x"))
     # the template's own sample row reads through the one reader (FR-12: the sample is data, not prose)
     check_eq("K7: the template's sample forks read back through the reader", PC.register_fork_questions(template), {"R-2": ["Q1"]})
     quotes = PC.register_fork_quotes(template)
     check("K7 (F2): the template's quote-form sample row reads back through `register_fork_quotes`", list(quotes) == ["R-3"], str(quotes))
-    risk = (PLUGIN / "references" / "risk-policy.md").read_text(encoding="utf-8")
-    check_not_in("K7 (F2): risk-policy no longer says the matrix holds disagreements with the code", "or with the code", risk)
-    check_in("K7 (F2): ... it points at `code_says`", "the register's `code_says` cell, not a matrix row", risk)
 
 
 if __name__ == "__main__":

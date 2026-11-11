@@ -28,16 +28,16 @@ created, rows_total, candidates, planned`, the pyramid count, and a
 Plus `## Recommended regression`: the EXISTING tests that defend the blast radius, never one this story writes:
 `Command: <the project's own test command> <target> <target>`; one item per path `- \`<path>\` (blast:B-n[, blast:B-m]) - stand: <what it needs | no stand requirements>`
 (paths from `tests_root`, on the main branch); `Developers: <component checks>`. Nothing to name:
-`No regression: <reason>` alone (`regression_scope.py`).
+`No regression: <reason>` alone.
 **Validator** disposition and `defect hypothesis` class from their closed lists, each with its
 reason (`regression` alone is no class, `regression:BUG-NNN` is; cases inherit it);
-`level` on every `automate` row; every observable with a source; the oracle rule above; no anti-pattern
+every observable with a source; the oracle rule above; no anti-pattern
 row (visibility-, title-, URL- or first-record-only) on `automate`; a gate-A override: `overridden: true`.
+`evidence_policy` of a `manual-agent` obligation is ONE word as text: `api | cli | no_write | static | ui`; detail goes in `completion_condition`.
 `work/test-plan.json` is `{"rows": [ ... ]}` — the rows for the scripts, a
-compound requirement decomposed per obligation (`coverage-design.md`). Every row names its register ids in `requirements` (`["R-9"]`), as in the `R`
-column; a requirement waiting for a question still gets its row. A row the `## Contradiction matrix` touches carries
+compound requirement decomposed per obligation (`coverage-design.md`). Each row names its register ids in `requirements` (`["R-9"]`); a requirement waiting for a question still gets its row. A row the `## Contradiction matrix` touches carries
 `source_conflict: true` or `oracle_unknown: true`; both force `design_review_required` and
-become a gate-A question. The S3 exit gate is `planning_contract.py`.
+become a gate-A question.
 
 **A row that rests on an open register question** (`question_refs` `["Q1"]` or its `reason` names
 it) says what each answer does. `if_answered` is `{"Q1": {"a": <patch>, "b": <patch>, "not_needed":
@@ -51,7 +51,7 @@ patch's `reason` never names its own question id; once any row has `question_ref
 **A question the register does not hold.** Write `"new:<n>"` (n from 1 to 99) in the row's `question_refs` and an entry in the row's
 `new_questions`: `{"key": "new:<n>", "question", "source_says": [{"quote", "where"}], "readings": [{"reading", "from", "if_chosen"}, two or
 more], "severity", "owner_role"}`. `if_answered` is keyed `"new:<n>"` the same way. Code raises it as the next `Q-n` at S3 close and
-rewrites the ref, the branch key and the `test-plan.md` cell; an unusable entry is refused.
+rewrites the ref, the branch key and the `test-plan.md` cell.
 
 **Branches in the plan.** Every register branch (`BN-n`) and every branch read in an existing test (`candidate_branches`:
 `{"id": "BN-T1", "r": "R-n", "from": "<candidate id>", "text": "..."}`) is named in a row's `branches` or excluded in
@@ -60,7 +60,7 @@ id, when a person decided>"}`); a `skip`/`unverifiable` row excludes its named b
 `context-bundle.json` `existing_test_candidates` entry is named in `candidates_walked` (`{"candidates": ["<id>"], "took": ["BN-T1"]}`
 or `{"candidates": ["<id>"], "none": "<why>"}`; `[]` for none). A `manual-agent`/`manual-human` row carries `rung_basis`
 `{"kind": "measured | impossible | person_word | judgement", "ref": "<probe or question id, or environment reason>"}` (`not_measured` refused; P0 adds `reason`).
-`branch_accounting.py` refuses a homeless branch, an unwalked candidate and a manual row without `rung_basis`.
+`branch_accounting.py` refuses what is missing.
 
 **Requests.** `requests` on a row (`[{"request": "<key>", "failures": ["500"]}]`), or top-level `request_homes` (`[{"request", "failure": "500|timeout|*", "reason"}]`).
 
@@ -77,7 +77,7 @@ labels: behaviour_change, implements, infrastructure, refactoring, test_code, un
 
 ## Fields the plan validator checks (coverage-observation-v1)
 
-Every row is planned on `coverage-observation-v1`; CODE writes the `coverage_contract_revision` mark when S3 closes: do not write it
+Each row is planned on `coverage-observation-v1` and carries `schema_version: 2` too; CODE writes the `coverage_contract_revision` mark when S3 closes: do not write it
 (another revision is refused: re-plan). The S3 gate refuses a row unless:
 
 `coverage_delta` (on the row):
@@ -109,7 +109,7 @@ Every row is planned on `coverage-observation-v1`; CODE writes the `coverage_con
 - `no_leak`: `payload_assertion_ref`, the check reading the denied payload.
 
 ```json
-{"coverage_obligations": [{"obligation_id": "OB-1", "requirement_refs": [{"ref": "R-4", "revision": "r1"}],
+{"schema_version": 2, "coverage_obligations": [{"obligation_id": "OB-1", "requirement_refs": [{"ref": "R-4", "revision": "r1"}],
 "planned_check_refs": ["c1", "c2"], "observation_contract": {"claim_kind": ["ordinary"],
 "oracle_ref": {"ref": "R-4", "revision": "r1"}, "controls": [], "completion_ref": "c2",
 "surfaces": [{"id": "S-1", "boundary": "API", "status": "planned", "assertion_ref": "c1"}],

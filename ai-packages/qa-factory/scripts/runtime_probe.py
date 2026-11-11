@@ -283,12 +283,18 @@ def _stands_of_profile(cfg: dict, profile: str, environments: list) -> list:
     return kept
 
 
-def pick_environment(cfg: dict, environment: str, profile: str = "") -> tuple:
+def pick_environment(cfg: dict, environment: str, profile: str = "", references=()) -> tuple:
     """(the stand's name, refusal): the one named, else the only one the project has - or, with `profile`, the only one that can
-    be that profile's stand (`_stands_of_profile`)."""
+    be that profile's stand (`_stands_of_profile`). `references`: the names of the stands that run an OLD version of a side
+    (`stand_identity.reference_stands`; S-c, t-2181 PC-9b): a stand nobody named is never picked among them - a reference stand's
+    build is not asked, and its row must not turn "the only stand" into "two stands that cannot be told apart". INVARIANT: only
+    the IMPLICIT pick skips them; a stand the caller names is returned as named (the story's own stand is still asked, and a
+    walk of the reference names it itself), and with `references` empty the function is as it was."""
     environments = [e for e in (cfg.get("environments") or []) if isinstance(e, dict)]
     if environment:
         return environment, ""
+    skipped = {str(r) for r in (references or ())}
+    environments = [e for e in environments if str(e.get("name") or "") not in skipped]
     environments = _stands_of_profile(cfg, profile, environments)
     if len(environments) == 1:
         return str(environments[0].get("name") or ""), ""
@@ -1394,7 +1400,7 @@ def suggest(cfg: dict, project_root: Path, profile: str, environment: str, conta
     The spec's argv is the PORTABLE form (`PORTABLE_HEAD`), never this machine's python or
     plugin path; `plugin_scripts` stays in the signature for the callers that pass it. The
     checkout in it is the PORTABLE form too (`portable_checkout`): what is printed is what is stored."""
-    environment, refusal = pick_environment(cfg, environment, profile)
+    environment, refusal = pick_environment(cfg, environment, profile, SI.reference_of_running_story())
     if refusal:
         return None, refusal
     checkout, refusal = pick_checkout(cfg, profile, checkout)
@@ -1527,6 +1533,31 @@ def do_suggest(ns) -> int:
     return 0
 
 
+REFERENCE_REASON = "a reference stand: the old version runs here by design, its build is not asked"   # the probe's words for a skipped stand
+
+
+def reference_skip(ns, task_root) -> dict:
+    """The record of a probe that compared NOTHING because `--environment` names a stand that runs an OLD version of a side of this story
+    (S-c, t-2181 PC-9b; `stand_identity.reference_stands`), else {}. It says what `no_changed_file` says (`not_applicable`, that reason
+    code): the story's code does not run on this stand, so there is no build identity to verify - the gates that read the code
+    (profile_contract) already pass it on any stand kind and need no new word. POSITION INVARIANT: after the story is resolved (its
+    record names the references) and before anything is read or run (git, docker, the checkout): nothing was observed. The story's OWN
+    stand is never skipped, even when a record names it twice (`pipeline.environment`): the safe direction is to ask. Never raises."""
+    try:
+        name = str(getattr(ns, "environment", "") or "")
+        if not name or task_root is None:
+            return {}
+        side, own = SI.reference_side(hooklib.project_root(), Path(task_root).name, name)      # the one reader (F3), the same as C8's
+        if not side or name == own:
+            return {}
+        return {"profile_id": ns.profile, "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"), "environment_id": name,
+                "expected_source_revision": "unknown", "observed_runtime_identity": "", "evidence_refs": [],
+                "provenance": {"technical_verification": False}, "result": "not_applicable", "reason": REFERENCE_REASON,
+                "reason_code": NO_CHANGED_FILE, "comparisons": [], "container": getattr(ns, "container", ""), "checkout": str(ns.checkout or "")}
+    except Exception:
+        return {}
+
+
 def main() -> int:
     try:
         import console_io
@@ -1572,6 +1603,10 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         story = hooklib.story_cli("runtime_probe.py", key=ns.task)
+    skipped = reference_skip(ns, story)
+    if skipped:
+        print(json.dumps(skipped))
+        return 0
     if not ns.checkout:
         print("runtime_probe: --checkout is required: the application checkout the stand should run, which is "
               "where the revision to compare with comes from. `runtime_probe.py --suggest --profile <P>` derives "

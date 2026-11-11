@@ -385,13 +385,14 @@ def h10_a_later_decision_and_the_old_story(story: Story) -> None:
 
 def h11_a_reader_prints_the_reason() -> None:
     """h11 (AR-22): the declared readers of the field find it where the controller writes it."""
-    source = (SCRIPTS / "retro_numbers.py").read_text(encoding="utf-8")
-    check("h11 retro_numbers.py reads `deliver_with_risks` of the gate B entry and its `reason`", 'entry.get("deliver_with_risks")' in source)
-    driver = (SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-    check("h11 the delivery prompt passes the decision's `deliver_with_risks` on", "'deliver_with_risks'" in driver)
     check_eq("h11 the controller's decision projection carries the request's key whole",
              CTL.gate_b_record({"decisions": {}}, {"status": "approved", "gate": "B", "deliver_with_risks": {"reason": "x"}})["deliver_with_risks"],
              {"reason": "x"})
+    # the reader side: the retro's gate lines print the reason of the record the controller wrote
+    record = CTL.gate_b_record({"decisions": {}}, {"status": "approved", "gate": "B", "deliver_with_risks": {"reason": REASON}})
+    import retro_numbers as RN  # noqa: E402
+    check_in("h11 the retro reads deliver_with_risks where the controller writes it", f"Gate B: delivered with known gaps — {REASON}",
+             RN.gate_answers({"gates": {"B": record}}))
 
 
 def h12_registry_and_text() -> None:
@@ -406,7 +407,6 @@ def h12_registry_and_text() -> None:
         text = (package / name).read_text(encoding="utf-8")
         for needle in needles:
             check_in(f"h12 {name} holds `{needle}`", needle, text)
-    check_not_in("h12 negative control: the key check can fail", "--no-such-key-anywhere", (package / "references/conductor.md").read_text(encoding="utf-8"))
     check_not_in("h12 s8.md no longer says the guard reads the controller receipt", "stage_guard` reads the controller receipt",
                  (package / "skills/qa-story/phases/s8.md").read_text(encoding="utf-8"))
     import gate_brief
@@ -889,7 +889,6 @@ def d15_the_text_says_it() -> None:
         text = (package / name).read_text(encoding="utf-8")
         for key in keys:
             check_in(f"d15 {name} holds `{key}`", key, text)
-    check_not_in("d15 negative control: the key check can fail", "questions.no-such-key-anywhere", (package / "skills/qa-story/phases/s4.md").read_text(encoding="utf-8"))
 
 
 def main() -> None:

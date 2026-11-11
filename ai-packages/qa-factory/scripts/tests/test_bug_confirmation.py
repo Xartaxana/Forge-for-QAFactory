@@ -47,6 +47,8 @@ DRAFT = {
     "manual_steps": ["open the diff of revision 4 against revision 3",
                      "the removed node sits at the top left corner, not among its neighbours"],
     "confirmation": "unconfirmed",
+    "mechanism": {"status": "unknown", "why": "the cause was not traced in this fixture"},
+    "red_test_none": "manual check only",
 }
 
 LEGACY_BUG = """---

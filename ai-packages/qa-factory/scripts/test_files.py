@@ -15,6 +15,9 @@ the question the consumers actually ask, answered per consumer, because the unsa
                                                                                   folder / a place the config names; a
                                                                                   name ALONE never (G1-1, see below)
   "test_body"  arch_check, repo_map (advice)             noise                    names_a_test or a config file
+               guard_pre_tool.window_file_check          a test body unclaimed:   (the same verdict; only a literal True
+               (a window claims a test file)             two windows tear it      claims; False or None passes: a fence on a
+                                                                                  write, outside FR-59's scope, declared pass)
   "test_place" repo_map helper (advice)                  noise                    v.test
   "name"       judge_run.wanted_names                    noise                    a segment names a test or is a
                                                                                   test folder name

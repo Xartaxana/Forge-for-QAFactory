@@ -421,7 +421,7 @@ def the_readers_of_closure_see_executing():
     try:
         pipeline = pipeline_of(task)
         saved = (CTL.code_close_conflicts, CTL.code_close_facts)
-        CTL.code_close_conflicts, CTL.code_close_facts = (lambda s, st: [], lambda s, st: {"running": [], "behind": None, "completed": False})
+        CTL.code_close_conflicts, CTL.code_close_facts = (lambda s, st, v=None: [], lambda s, st, v=None: {"running": [], "behind": None, "completed": False})
         try:
             got = refused(lambda: EX.s6_close_from_state(task, {"stages": {}, "scope": ["TC-1"]}, ["TC-1"]))
         finally:

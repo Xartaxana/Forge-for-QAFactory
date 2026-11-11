@@ -26,7 +26,7 @@ inputs:
     required: true
   - path: work/impl-diff.txt
     what: the implementation, in full - see `implementation.diff` below for what full means
-    required: true          # absent only when implementation_source is `ungrounded`
+    required: true          # absent when implementation_source is `ungrounded` or `current-code`
   - path: work/source-inventory.json
     what: every source with its decision, the person's review and the accepted gaps
     required: true
@@ -43,7 +43,7 @@ header:
 implementation:
   source: <one of vocabulary.implementation_sources - diff|current-code|ungrounded>
   reference: <the MR id, branch or commit the diff came from, or what current-code was read from>
-  diff:
+  diff:                    # filled only for source `diff`
     path: work/impl-diff.txt
     files: <how many files the diff touches>
     hunks: <how many hunks in total>

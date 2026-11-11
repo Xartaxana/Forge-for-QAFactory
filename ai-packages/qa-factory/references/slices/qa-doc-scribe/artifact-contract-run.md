@@ -63,7 +63,7 @@ draft; a person decides) needs `control` with `result: effect_without_change`. `
 `runner_said` (the runner's own words) · `evidence` (a text file the runner's attempt captured, task-relative, under the
 case's `work/evidence/manual/<case>/a<n>/`) · `quote` (at most 300 characters from that file, as it holds them). An observation row: `instance_id` `<case>#obs<n>`, `attempt_id`, verdict `APP_BUG` | `NO_DEFECT` (+ quoting `reason`).
 
-Optional, for the Thens a red stops (analyst rule 2c): `blocked_thens` [] of `{then, blocking_check, detail}` - a Then
+Optional, for the Thens a red stops (red-Then triage): `blocked_thens` [] of `{then, blocking_check, detail}` - a Then
 that cannot answer while the defect of case `blocking_check` stands (the verdict stays) · `blocking_check` str - this
 row's red is that case's defect (no second draft) · `diagnostic` `{evidence, thens?, observed}` - the ONE run without the
 red assert (`evidence/diagnostic-<label>.json`, `red_sandbox.py --diagnostic`) · `reorder` bool - independent Thens sit
@@ -83,3 +83,4 @@ it, derived by code), the report, `validate_artifacts.py`. A bug filed from a dr
 `requirements` in its frontmatter; no case is `cases: []` with `no_case_reason`. A bug with no `source_draft` is an older one and is
 read as before. The reporter's hand-off form is `s8-bug-reporter-to-scribe`: `scope` (one row per draft the person answered
 about, or the one row `gate_b` / `nothing_chosen`), `filed`, `not_filed`, `quarantined`; it never says whether a tracker has the bug.
+A draft with 2+ `manifestations` is one bug: `cases`, `requirements` are the unions, `red_test` the primary's, and the body adds `## Cause` and `## Manifestations` (a line each: case, action, start, seen, red test command or why none).

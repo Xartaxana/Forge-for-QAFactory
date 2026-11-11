@@ -81,7 +81,7 @@ def w_brief() -> None:
         check_eq("W7 the sizing reader raising: ONE line saying it was not measured, nothing raised",
                  walk(register(2, functions(2))), ["Functions to walk: not measured: sizing.functions_of, a defect of the factory"])
     src = (SCRIPTS / "brief_pack.py").read_text(encoding="utf-8")
-    s3 = src[src.index('    if stage == "S3":\n        # G1-2'):src.index('    if stage == "S2":\n        head += user_path_failure_lines(')]
+    s3 = src[src.index('    if stage == "S3" and not first_look:'):src.index('    if stage == "S2":\n        head += user_path_failure_lines(')]
     check_eq("W10 build adds the walk line inside the S3 block, once", s3.count("head += walk_lines("), 1)
     check_eq("W10 ... and nowhere else in `build`", src.count("head += walk_lines("), 1)
     charter = (PLUGIN / "agents" / "qa-test-strategist.md").read_text(encoding="utf-8")

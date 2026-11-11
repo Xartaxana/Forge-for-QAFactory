@@ -160,7 +160,7 @@ def t4_t7_through_the_brief() -> None:
         # SD_HEAD_MAX_BYTES) leaves the budget too; the template is still the 498 B left out (asserted below), the head is the 1019 B rest.
         template_bytes = len("\n".join(brief_pack.digest_template_lines(ROLE, "S4", "S4-qa-case-designer-1", {"scope": ["TC-001", "TC-002"]})).encode("utf-8")) + 1
         check_eq("N4 ... the template is 498 B", template_bytes, 498)
-        check_eq("N4 ... the budget leaves the section out (and the charter head): bytes - budget_bytes", big["bytes"] - big["budget_bytes"], 1517)
+        check_eq("N4 ... the budget leaves the section out (and the charter head): bytes - budget_bytes", big["bytes"] - big["budget_bytes"], 1515)  # 1517 -> 1515: the FL-4 fix round trimmed 2 B of a charter head (F5, craft-line trim)
     finally:
         harness.cleanup(root)
 

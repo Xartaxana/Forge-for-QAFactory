@@ -15,6 +15,7 @@ Each test names the ONE mutation that kills it (builder-rules 7a):
   test_a19_*                                                      -> `charter.is_charter(text)` branch always taken
 Run: python -B -m pytest scripts/tests/test_charter_form.py -q
 """
+import re
 import sys
 from pathlib import Path
 
@@ -124,8 +125,11 @@ def test_extra_and_reordered_sections():
 
 
 def test_old_role_file_is_not_a_charter():
-    runner = (PLUGIN / "agents" / "qa-runner.md").read_text(encoding="utf-8")
-    assert charter.is_charter(runner) is False              # the negative control of the branch
+    # the negative control of the branch: a role file of the old form is a shipped charter with its kind markers taken off (X7-3: the
+    # runner was the old-form file here; it is a charter now, so the control is built from one)
+    old_form = re.sub(r"(?m)^<!-- kind: (craft|process) -->\n", "", (PLUGIN / "agents" / "qa-runner.md").read_text(encoding="utf-8"))
+    assert charter.is_charter((PLUGIN / "agents" / "qa-runner.md").read_text(encoding="utf-8")) is True
+    assert charter.is_charter(old_form) is False
     assert charter.is_charter(charter_text()) is True
     fenced = "```\n<!-- kind: craft -->\n```\n## Heading\n"
     assert charter.is_charter(fenced) is False               # a marker inside a fence is not a marker
@@ -205,3 +209,6 @@ def test_a19_refuses_a_malformed_charter_and_an_old_file(tmp_path, capsys):
     refused = _a19_findings(old, charter_text().split("<!-- kind: process -->")[0].replace("tools: Read, Write\n", "tools: Read\n")
                             + "# qa-scout\n\nNo sections here.\n")
     assert any("missing section(s)" in f for f in refused)       # not a charter: judged by the old list, still refused
+
+
+if __name__ == "__main__": raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

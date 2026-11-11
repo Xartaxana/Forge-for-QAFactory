@@ -67,6 +67,7 @@ A check whose implementation is not installed yet is itself a `factory_defect` f
 step that would have failed is worth less than no rehearsal at all.
 """
 import functools
+import hashlib
 import json
 import re
 import subprocess
@@ -81,7 +82,7 @@ from contract import HANDED_MATCH_PREFIX, STAND_GAP_MATCH_PREFIX, remedy_errors 
 # `hooklib.project_root` uses), never guessed - the ONE walk, shared with `case_stamp` and `sizing`.
 from critic_rollcall import project_root_of as _project_root  # noqa: E402
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
-from stand_gaps import GATE_STAGE  # noqa: E402  (gate -> the stage it stands in front of: the ONE table)
+from stand_gaps import GATE_STAGE, ROLE_NAMED, ROLE_SCOPES  # noqa: E402 (gate -> the stage it stands in front of: the ONE table)
 from hooklib import sorted_paths  # noqa: E402
 
 FACTORY_FIXABLE = "factory_fixable"
@@ -491,6 +492,84 @@ def plan_rows_of(task_root: Path, dispositions) -> list:
         if isinstance(row, dict) and str(row.get("disposition") or "") in dispositions:
             out.append((case, row))
     return out
+
+
+def default_login_needed(task_root, cfg) -> bool:
+    """Does this story need the stand's DEFAULT account (the project's login keys)? The ONE rule of gate A (`check_s5_credentials`)
+    and S6 (`Driver.stand_login_problem`) - AR-19: both ask the same question of the same data. PURE: reads the plan, the cases, the
+    registry and the config; writes nothing. ERROR DIRECTION: toward True - a question too many, never one too few; any exception is True.
+
+    True when ANY of: (a) a case declares `{"stand_account": "default"}`; (b) the plan has an `automate` row; (c) an executed case (`automate`,
+    `manual-agent`) has no `kind: account` precondition with a `stand_account` role (an `env` account counts as none, toward asking); (d) the plan, a case's preconditions, a case's plan row cannot be read, or a row's disposition is
+    outside `contract.DISPOSITIONS`; (e) an executed case (`automate`, `manual-agent`) declares `case_seeds` - seeding runs as default;
+    (f) an executed `manual-agent` case declares a role whose account is not `known` on the chosen stand, or no stand is chosen, or the
+    registry cannot be read - the runner creates such an account as default. EXCEPT (N3) a role whose roster state is a live `not_needed`
+    with no load problem (its cases are carried as not run, the runner never walks them) and a guest (`sign_in: none`). Only `manual-human`
+    / `skip` / `unverifiable` rows, or no case at all, need no login. The facts are read as data (AR-29): no word of a case is judged."""
+    try:
+        import contract
+        import project_knowledge as PK
+        import stand_gaps
+        root = Path(task_root)
+        plan = root / "work" / "test-plan.json"
+        if not plan.is_file():
+            return True
+        rows = json.loads(plan.read_text(encoding="utf-8-sig"))
+        if isinstance(rows, dict):
+            rows = rows.get("rows")
+        if not isinstance(rows, list):
+            return True
+        by_row = {str(r.get("id") or r.get("ts")): r for r in rows if isinstance(r, dict)}
+        if any(not isinstance(r, dict) or str(r.get("disposition") or "") not in contract.DISPOSITIONS
+               or r.get("disposition") == "automate" for r in rows):
+            return True
+        roles = []
+        for case, meta in sorted(contract.case_index(root).items()):
+            row = by_row.get(str((meta or {}).get("plan_row") or ""))
+            if not isinstance(row, dict):
+                return True
+            raw = case_preconditions_raw(Path(meta["path"]).read_text(encoding="utf-8", errors="replace"))
+            items, errors = parse_preconditions(raw)
+            if errors:
+                return True
+            checks = [next(iter(i["check"].items())) for i in items]
+            if any(name == "stand_account" and str(spec).strip() == "default" for name, spec in checks):
+                return True
+            if row["disposition"] not in ("automate", "manual-agent"):
+                continue
+            if any(name == "case_seeds" for name, _ in checks):
+                return True
+            named = [str(spec).strip() for i, (name, spec) in zip(items, checks)
+                     if i.get("kind") == "account" and name == "stand_account" and str(spec).strip()]
+            if not named:
+                return True
+            roles.extend(named)
+        if not roles:
+            return False
+        stand = stand_gaps.stand_name(root)
+        project = stand_gaps.project_of(root)
+        if project is None or not isinstance(cfg, dict) \
+                or not any(isinstance(e, dict) and str(e.get("name") or "") == stand for e in cfg.get("environments") or []):
+            return True
+        guests = None
+        for role in dict.fromkeys(roles):
+            account = PK.state(project, PK.ACCOUNTS_KEY, stand, role, cfg)
+            if account["problem"]:
+                return True
+            if account["state"] == PK.KNOWN:
+                continue
+            word = PK.state(project, PK.ROLES_KEY, "", role, cfg)
+            if word["state"] == PK.NOT_NEEDED and not word["problem"]:
+                continue
+            if guests is None:
+                roster = PK.roster(project, cfg, stand)
+                guests = set() if roster["problem"] else {_role_form(e["role"]) for e in roster["elements"]
+                                                          if e.get("sign_in") == "none" and e.get("state") == PK.KNOWN}
+            if _role_form(role) not in guests:
+                return True
+        return False
+    except Exception:
+        return True
 
 
 # Dispositions whose cases never reach a stand the factory identifies: a person checks those by hand with no probe.
@@ -1135,6 +1214,47 @@ def _id_token(subject) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "-", str(subject or "").strip()).strip("-")
 
 
+ROLE_GAP_PREFIX, PRODUCT_ROLE_PREFIX = "RA-", "PR-"
+ROLE_NAME_CLIP = 40                          # characters of a stand or role name in the lead of the card's finding
+# (`ROLE_SCOPES` and `ROLE_NAMED`, the cases a role card names, are `stand_gaps`'s: one home for what the card and its lines agree on)
+ACCOUNT_MARK = "[knowledge:credentials_by_role]"   # a DATA token in the MACHINE field `mark` of the "acting on your earlier answers" note, for counting later; never in the text a person reads
+
+
+def _lossless_token(text) -> str:
+    """The readable id token of a name when the fold keeps every character (`_id_token` changes nothing but the separators), else ""."""
+    tok = _id_token(text)
+    return tok if tok and tok.replace("-", " ") == str(text).strip() else ""
+
+
+def role_gap_tokens(stand, role, packet_forms=()) -> tuple:
+    """`(stand token, role token)` of a role card's ids (t-2142 §3 (2), N1). Built separately, each lossless-or-hash (a stand name holding a `-`
+    or whitespace is hashed whole, so `RA-<stand>-<role>` reads back to one pair; F4): a role whose fold
+    keeps every character of its normal form takes the readable token (it maps back to exactly ONE form, since a form holds no `-`);
+    any other (a name in Cyrillic letters, `admin-` followed by one) takes the first 8 hex of the sha1 of the form, so no lossy form ever takes a token another
+    role could also take, whatever the stand's spelling. A stand name is compared exactly (§2): the token is its own when lossless, else
+    the sha1 prefix of the exact name. Defensive: when two distinct forms of this packet still give one role token (a prefix
+    collision), both widen to 16 hex. Pure."""
+    form = _role_form(role)
+    tok = _lossless_token(form)
+    digest = hashlib.sha1(form.encode("utf-8")).hexdigest()
+    tok = tok or digest[:8]
+    if any(other != form and (_lossless_token(other) or hashlib.sha1(other.encode("utf-8")).hexdigest()[:8]) == tok
+           for other in packet_forms or ()):
+        tok = digest[:16]
+    name = str(stand or "")
+    # a stand token is readable only when it holds no `-` and no whitespace: with one, `RA-dev-a-b` could be stand `dev-a` + role `b` or stand
+    # `dev` + role `a b` (F4, the Lead's decision) - such a stand takes the hash of its exact name, so the first `-` ends the stand token
+    stok = _id_token(name) if _id_token(name) == name.strip() and not re.search(r"[-\s]", name) else ""
+    return (stok or hashlib.sha1(name.encode("utf-8")).hexdigest()[:8], tok)
+
+
+def role_gap_id(stand, role, packet_forms=()) -> str:
+    """The id of a role card: `RA-<stand token>-<role token>` (`role_gap_tokens`). One `RA-...: <word>` answer, and one `stand gap: RA-...`
+    override, can never pass two cards; the same role on the same stand gets the same id in every rehearsal."""
+    stok, tok = role_gap_tokens(stand, role, packet_forms)
+    return f"{ROLE_GAP_PREFIX}{stok}-{tok}"
+
+
 class Rehearsal:
     """One run's inputs, read once. Each check appends findings; nothing of the story's is written.
 
@@ -1175,6 +1295,11 @@ class Rehearsal:
         # automate row belongs to, and the answer cannot change while one rehearsal runs.
         self._keyed = None
         self._automate = None
+        # t-2142 PK0-4: what `check_role_accounts` carded, read by `check_case_preconditions` and `_probe_actor` (one card per fact).
+        # `_role_carded`: {(stand name, role form)} the role card holds; `_account_carded`: {role form: "role" | "case" | "not_needed"} - "role" the
+        # role card asks for the account, "case" the per-case card asks for its keys, "not_needed" no card exists (the person's word). Both are filled before the steps that read them.
+        self._role_carded = set()
+        self._account_carded = {}
 
     def keyed_profiles(self) -> dict:
         """`s5_profiles` for this story, computed once per rehearsal."""
@@ -1255,6 +1380,8 @@ class Rehearsal:
         case and the gap's own id, `TC-008, gap PC-2` (the card heads such a gap by `PC-2`). Counted over the gaps the
         rehearsal holds NOW; `add` renames the findings that carry a name again when a later gap changes the count."""
         rows = [r for r in self.stand_gaps if isinstance(r, dict)]
+        if any(str(r.get("id")) == str(gap_id) and r.get("scope") in ROLE_SCOPES for r in rows):
+            return str(gap_id)          # a role card is named by its own id (`RA-dev-auditor`): it holds several cases, never one
         level = next((r for r in rows if str(r.get("id")) == str(gap_id) and r.get("scope") == "level"), None)
         if level is not None:
             return f"the {level.get('contour')} tests"          # a level gap speaks of its tests, never of its id (R1)
@@ -1942,6 +2069,332 @@ class Rehearsal:
                 name, spec = next(iter(item["check"].items()))
                 if item.get("kind") == "account" and name == "stand_account" and str(spec).strip():
                     out.setdefault(str(spec).strip(), []).append(case)
+        # TR3-10 D8 (F14): the project's EXTRA accounts of a role a manual case names are probed too, so `walk_pool.pool_of` can keep
+        # only the handles with an `ok` row. `self._extra_accounts` = {handle: (role, position)} tells `_probe_actor` which rows are
+        # extras (a failed extra is a note and "dropped", never a question). The supply is read ONLY through its reader (AR-13); its
+        # notes are not a refusal here (a bad block reads as no extras). Obtain users are not probed (they open as guest).
+        self._extra_accounts = {}
+        if not out:
+            return out
+        import config_contract
+        accounts = config_contract.walk_supply(self.config)[0].get("accounts")
+        more = accounts.get("more_accounts") if isinstance(accounts, dict) else None
+        if not isinstance(more, dict) or not more:
+            return out
+        import manual_capture as MC
+        import walk_pool
+        stand = self._selected_environment()
+        roles = stand.get("credentials_by_role") if isinstance(stand, dict) and isinstance(stand.get("credentials_by_role"), dict) else {}
+
+        def pair_of(handle):
+            try:
+                return tuple(MC.resolve_actor(self.config, stand, handle, self.task_root)[:2])
+            except ValueError:
+                return None
+        taken = {pair for pair in (pair_of(actor) for actor in out) if pair}
+        for actor, cases in list(out.items()):
+            real = "default" if actor == "default" else (account_role(roles, actor) or actor)
+            for position, handle in enumerate(walk_pool._by_role(more, real) or [], 1):
+                if handle in self._extra_accounts:          # listed under two roles: probed once, for the cases of both
+                    out[handle] = out[handle] + [c for c in cases if c not in out[handle]]
+                    continue
+                pair = pair_of(handle)
+                if handle in out or (pair and pair in taken):        # the base handle itself, or the same key pair: one account
+                    continue
+                if pair:
+                    taken.add(pair)
+                out[handle] = list(cases)
+                self._extra_accounts[handle] = (actor, position)
+        return out
+
+    @staticmethod
+    def _cases_phrase(cases: list) -> tuple:
+        """`(the cases as the card's lines name them, the verb that follows)`: up to `ROLE_NAMED` ids (explained on the card's
+        `the test:` line, which comes first), else their number. Never names an id the `the test:` line does not."""
+        ids = [str(c) for c in cases]
+        if len(ids) > ROLE_NAMED:
+            return f"the {len(ids)} cases", "are"
+        named = ids[0] if len(ids) == 1 else ", ".join(ids[:-1]) + " and " + ids[-1]
+        return named, "is" if len(ids) == 1 else "are"
+
+    @classmethod
+    def _role_options(cls, variant: str, role: str, stand: str, cases: list) -> list:
+        """The answers of a role card, each with its three price lines (human-questions.md item 6; t-2142 §3 (2), fork FK-9 (a)).
+        An option of an offered word (`theirs`, `accept`) carries `says` - the card writes the word from the data file; any other carries
+        `head`, the person's own words on a line of their own. Pure text: nothing here reads or records anything."""
+        named, are = cls._cases_phrase(cases)
+        it_they = "it checks" if len(cases) == 1 else "they check"
+        accept = {"option": "accept", "says": "only this story",
+                  "factory": f"nothing runs for {named}.",
+                  "you": f"this answer; the next story that needs \"{role}\" on \"{stand}\" asks again.",
+                  "story": f"{named} {are} reported as not run on this stand; what {it_they} stays unverified and is an open item of the "
+                           "report; delivery: not known."}
+        if variant == "twins":
+            return [{"option": "theirs",
+                     "says": "you remove the wrong one from the stand's entry in qa-factory/config.json by hand (the factory never edits it)",
+                     "factory": "the gate is rehearsed again after your change; no agent works.",
+                     "you": "this answer, and that edit of your project's settings file.",
+                     "story": f"{named} {are} checked as the account that stays; delivery unchanged."}, accept]
+        return [{"option": "keys",
+                 "head": "the names of the two variables in the project's env file that hold its login and password (never the values), "
+                         f"in your own words on a line of their own: kept for \"{stand}\" from now on, the next stories do not ask",
+                 "factory": "a record only, then the gate is rehearsed again; no agent works.",
+                 "you": "this answer, and putting the login and password into the env file yourself if they are not there yet.",
+                 "story": f"{named} {are} checked as \"{role}\"; delivery unchanged."},
+                accept,
+                {"option": "not_a_role", "head": "\"not a role of this product\", in your own words on a line of their own",
+                 "factory": "a record for the whole project; no agent works.",
+                 "you": "this answer; to undo it, say so in a later story.",
+                 "story": f"{named} {are} reported as not run with your words as the reason, and later stories report the cases that need "
+                          f"\"{role}\" the same way without asking; delivery: not known."}]
+
+    @staticmethod
+    def _confirm_options(role: str) -> list:
+        """The answers of the confirm card (§3 (6)): in the person's own words, naming the role; none is a word code reads."""
+        return [{"option": "yes", "head": "yes, it is a role of the product",
+                 "factory": "a record for the whole project; no agent works.", "you": "this answer.",
+                 "story": f"unchanged; later stories show \"{role}\" as a confirmed role; delivery unchanged."},
+                {"option": "no", "head": "no, it is not (say what it is instead, if it has another name)",
+                 "factory": "a record for the whole project; no agent works.", "you": "this answer, and the other name if it has one.",
+                 "story": f"this story's plan stays as it is; later stories do not show \"{role}\" as a role; delivery unchanged."},
+                {"option": "leave", "head": "leave it", "factory": "nothing runs.",
+                 "you": f"nothing more now; you are asked again in the next story whose plan names \"{role}\".",
+                 "story": "unchanged; delivery unchanged."}]
+
+    def _answered_cases(self, rows: list, cases: list) -> set:
+        """The cases of one role the person already answered in this story, by the two existing readers (t-2142 §3 (2), N5): an `accept as
+        blocked` APPLIED through the per-case question (`stand_gaps.level_applied`), or a LIVE `accept` on the case's own card for this
+        account item (`stand_gaps.decisions`, keyed by `precondition_gap_id`) or on its carry key. A revoked record accepts nothing (the
+        reader drops it); a read that fails drops nothing - toward asking. Pure."""
+        import stand_gaps
+        done = set()
+        try:
+            applied = stand_gaps.level_applied(self.task_root, {"cases": list(cases)})
+            done.update(applied or [])
+        except Exception:
+            pass
+        try:
+            taken = {key: v for key, v in stand_gaps.decisions(self.task_root).items() if v.get("option") == "accept"}
+            for row in rows:
+                if str(row["id"]) in taken or any(stand_gaps.names_case({"case_id": key}, row["case"]) for key in taken):
+                    done.add(row["case"])
+        except Exception:
+            pass
+        return done
+
+    def check_role_accounts(self) -> None:
+        """ONE card per (stand, role) a case of the story needs an account for and the project holds none (t-2142 PK0-4; the owner's
+        word: a question once answered is not asked in every story and not once per case). Joins three DATA readers and judges nothing:
+        the cases' own declarations (`stand_gaps.declared_preconditions`: `{"stand_account": R}`), the registry and the config
+        (`project_knowledge.state`: config first) and the answers already given in this story (`level_applied`, `decisions`).
+
+        A role whose account the project holds asks nothing here (an earlier answer the person gave is said once, in one note). A
+        role the person said is `not_needed` (a live registry row) asks nothing either: its cases go to `covered_gaps` (`_cover_not_needed`,
+        the "decided once" road; the registry unreadable, a revoked row or a later `known` row ask as any other role). The role card is
+        a ROW of `self.stand_gaps` (the road the per-case cards use) with ONE finding whose lead is the question and whose door is the
+        card; the role's account items leave the per-case cards (`_role_carded`), and an `unmet` actor of the sign-in probe is a note,
+        not a second card (`_account_carded`). A noticed role this story's plan names gets the confirm card: a row, no finding - silence
+        keeps it unconfirmed (FK-10). The registry is only read. Everything is worked out first (`_plan_role_accounts`: the rows, the
+        leads) and written last (`_write_role_accounts`), and a raise while writing takes back everything written, so a card is never
+        left without its finding and the per-case cards stay as they were."""
+        if self.project_root is None:
+            return
+        import project_knowledge as PK
+        plan = self._plan_role_accounts(PK)
+        mark = {"stand_gaps": len(self.stand_gaps), "findings": len(self.findings), "covered_gaps": len(self.covered_gaps),
+                "info": len(self.info), "named": len(self._named), "doors": list(self._doors),
+                "role_carded": set(self._role_carded), "account_carded": dict(self._account_carded)}
+        try:
+            self._write_role_accounts("role_accounts", plan)
+        except Exception:
+            del self.stand_gaps[mark["stand_gaps"]:], self.findings[mark["findings"]:], self.covered_gaps[mark["covered_gaps"]:]
+            del self.info[mark["info"]:], self._named[mark["named"]:]
+            self._doors, self._role_carded, self._account_carded = mark["doors"], mark["role_carded"], mark["account_carded"]
+            raise
+
+    def _declared_role_forms(self) -> dict:
+        """`{role form: {"role": the role as a case wrote it first, "rows": its declared `stand_account` rows}}`: the cases' own
+        declarations, read by `stand_gaps.declared_preconditions`; `default`, `env:...` and `created:...` are no product role."""
+        import stand_gaps
+        from config_contract import reserved_role
+        declared = [r for r in stand_gaps.declared_preconditions(self.task_root)
+                    if isinstance(r.get("check"), dict) and isinstance(r["check"].get("stand_account"), str)]
+        by_form: dict = {}
+        for row in declared:
+            spec = row["check"]["stand_account"].strip()
+            if spec and not reserved_role(spec):
+                by_form.setdefault(_role_form(spec), {"role": spec, "rows": []})["rows"].append(row)
+        return by_form
+
+    def _plan_role_accounts(self, PK) -> dict:
+        """Read and join, write nothing: `{"stand", "planned" (each with its finished row, id and lead), "acting", "carded_case",
+        "problem", "decided_not", "confirm"}` for `_write_role_accounts` (F6: a failure here leaves the rehearsal as it was)."""
+        root = self.project_root
+        stand = self._selected_environment()
+        stand_name = str(stand.get("name") or "").strip() if stand else ""
+        rehearsal_cfg = self.config.get("gate_rehearsal") if isinstance(self.config.get("gate_rehearsal"), dict) else {}
+        will_ask_keys = not rehearsal_cfg.get("skip_preconditions")        # the per-case step (project_root is set here)
+        by_form = self._declared_role_forms()
+        planned, acting, carded_case, problem = [], [], [], ""
+        decided_not = []        # PK0-9: [(form, role, cases, the registry row)] - a live `not_needed` row decides, no card
+        ctx = None
+        if stand_name and by_form:
+            held = PK.roster(root, self.config, stand_name)
+            in_roster = {_role_form(e["role"]) for e in held.get("elements") or []}
+            for form, entry in by_form.items():
+                role = entry["role"]
+                said = PK.state(root, PK.ROLES_KEY, "", role)
+                if said["state"] == PK.NOT_NEEDED and isinstance(said.get("row"), dict):
+                    # (2b): the person's latest word on the role is "not a role of this product" - it wins over a config account (the
+                    # roster reads the same); an unreadable registry, a revoked row or a later `known` row never get here (they ask)
+                    cases = list(dict.fromkeys(str(r["case"]) for r in entry["rows"]))
+                    answered = self._answered_cases(entry["rows"], cases)
+                    decided_not.append((form, role, [c for c in cases if c not in answered], said["row"]))
+                    continue
+                st = PK.state(root, PK.ACCOUNTS_KEY, stand_name, role, cfg=self.config)
+                problem = problem or str(st.get("problem") or "") or str(said.get("problem") or "")
+                if st["state"] == PK.KNOWN:
+                    if st.get("row") is not None:
+                        acting.append(st["row"])
+                    if will_ask_keys:
+                        ctx = ctx or self._precondition_ctx(rehearsal_cfg)
+                        if self._stand_account(role, ctx)[0] == "unmet":
+                            carded_case.append(form)
+                    continue
+                cases = list(dict.fromkeys(str(r["case"]) for r in entry["rows"]))
+                answered = self._answered_cases(entry["rows"], cases)
+                cases = [c for c in cases if c not in answered]
+                if cases:
+                    planned.append({"form": form, "role": role, "cases": cases, "in_roster": form in in_roster,
+                                    "variant": "twins" if st.get("twins") else "malformed" if st.get("malformed") else "missing",
+                                    "twins": list(st.get("twins") or [])})
+        # the packet's forms: the carded roles and the covered ones, so both kinds of id are made against the same set (D1)
+        forms = [p["form"] for p in planned] + [form for form, *_rest in decided_not]
+        where = ""
+        if planned or any(cases for _f, _r, cases, _row in decided_not):
+            ctx = ctx or self._precondition_ctx(rehearsal_cfg)
+            # F5: `where` is the PATH the apply guard and `remedy_path` read - the file the runner reads; words only when the project names none
+            where = self._place_of(ctx["files"], ctx["how"])
+            for plan in planned:
+                plan.update(self._role_card_plan(PK, stand_name, plan, forms, where))
+        return {"stand": stand_name, "planned": planned, "acting": acting, "carded_case": carded_case, "problem": problem,
+                "decided_not": decided_not, "forms": forms, "where": where, "confirm": self._confirm_rows(PK, root)}
+
+    def _role_row(self, stand_name: str, role: str, cases: list, forms: list, where: str, fact: dict, variant: str, in_roster: bool) -> dict:
+        """The row of a role gap, the ONE builder of the role card (`_role_card_plan`) and of the covered role (`_cover_not_needed`): the id by
+        `role_gap_id`, the remedy `where` the env-file path (words only when the project names none), the offers by the variant. Pure."""
+        gap_id = role_gap_id(stand_name, role, forms)
+        return {"id": gap_id, "scope": "role", "role": role, "stand": stand_name, "case": "", "cases": cases, "kind": "account",
+                "check": {"stand_account": role}, "fact": fact,
+                "remedy": {"kind": "credential", "where": where or "the project's env file", "where_words": "the project's env file",
+                           "change": f"two variables for the role {role}",
+                           "offers": ["theirs", "accept"] if variant == "twins" else ["accept"]},
+                "options": self._role_options(variant, role, stand_name, cases), "variant": variant,
+                "in_roster": in_roster, "state": "unmet", "detail": ""}
+
+    def _role_card_plan(self, PK, stand_name: str, plan: dict, forms: list, where: str) -> dict:
+        """The finished card of one planned role: `{"gap_id", "row", "lead", "fact"}`. Pure (the row by `_role_row`, the lead by `_role_lead`)."""
+        role, cases = plan["role"], plan["cases"]
+        fact = {"key": PK.ACCOUNTS_KEY, "environment": stand_name, "element": role}
+        if plan["twins"]:
+            fact["twins"] = plan["twins"]
+        row = self._role_row(stand_name, role, cases, forms, where, fact, plan["variant"], plan["in_roster"])
+        return {"gap_id": row["id"], "row": row, "fact": fact,
+                "lead": self._role_lead(plan["variant"], stand_name, role, len(cases), row["id"])}
+
+    def _write_role_accounts(self, check: str, plan: dict) -> None:
+        """Write what `_plan_role_accounts` worked out: the covered roles, then each role card with its finding, the confirm cards and the
+        notes. `check_role_accounts` takes the whole write back if anything here raises."""
+        stand_name = plan["stand"]
+        for form, role, cases, row in plan["decided_not"]:
+            self._role_carded.add((stand_name, form))          # its account items leave the per-case cards too: nothing here is asked
+            self._account_carded[form] = "not_needed"          # and the sign-in probe says so, not "waits for the card" (no card exists)
+            if cases:
+                self._cover_not_needed(check, stand_name, role, cases, row, plan["forms"], plan["where"])
+        for card in plan["planned"]:
+            self.stand_gaps.append(card["row"])
+            self._role_carded.add((stand_name, card["form"]))
+            self._account_carded[card["form"]] = "role"
+            self.add(check, PERSON_DECIDES, card["lead"], self.card_door(card["gap_id"]), gap=card["gap_id"],
+                     subject=card["gap_id"][len(ROLE_GAP_PREFIX):], cases=card["cases"], fact=card["fact"])
+        for form in plan["carded_case"]:
+            self._account_carded.setdefault(form, "case")
+        self.stand_gaps.extend(plan["confirm"])
+        if plan["problem"]:
+            self.note(check, "What you told the factory in earlier stories could not be read this time, so only the project's own settings "
+                             "were used to find the accounts of this story's roles; a role with no account there is asked.", problem=plan["problem"])
+        import project_knowledge as PK
+        line = PK.acting_line(plan["acting"])
+        if line:
+            self.note(check, line, mark=ACCOUNT_MARK)          # the marker is the machine field `mark`, never the text a person reads
+
+    def _cover_not_needed(self, check, stand_name: str, role: str, cases: list, row: dict, forms: list, where: str = "") -> None:
+        """PK0-9 (§3 (2b)): a role the person said is not a product role raises no card and no finding. The role card's row goes to
+        `covered_gaps` - the "decided once" road (B-414) - with the registry row under `property` (`record: project_knowledge`), so the
+        driver's existing carry reports the role's cases as not run, the packet says so in one line, and `ask again` takes it back."""
+        import stand_gaps
+        gap = self._role_row(stand_name, role, cases, forms, where, {"key": "product.roles", "environment": "", "element": role},
+                             "missing", False)
+        gap_id = gap["id"]
+        gap["property"] = stand_gaps.pk_property(row, gap_id)
+        gap["case_titles"] = stand_gaps.case_titles_of(self.task_root, cases)         # AR-21: the titles travel with the gap (B2)
+        self.covered_gaps.append(gap)
+        self.note(check, f"`{gap_id}`: not asked - {stand_gaps.covered_says(gap)} ({row.get('id')})")
+
+    def _role_lead(self, variant: str, stand: str, role: str, count: int, gap_id: str) -> str:
+        """The lead of a role card's finding: the fact and the question, at most `BRIEF_CUT` characters once `GAP_SLOT` is the gap's name
+        (the packet cuts a finding there, so the question must be inside it). The stand and the role are clipped to `ROLE_NAME_CLIP`, and
+        further when the line would still be longer; the case count says how many cases wait. The lead names no case id, so no per-case
+        block can match it - its door is the gap id (`card_door`)."""
+        twins = variant == "twins"
+        plural, verb = ("" if count == 1 else "s"), ("s" if count == 1 else "")
+        forms = [
+            f"{GAP_SLOT} — a card at this gate: the stand \"{{s}}\" "
+            + ("records two accounts the role \"{r}\" could mean; which one is it?" if twins else
+               f"has no account for the role \"{{r}}\", which {count} case{plural} need{verb}; which account should the factory use?"),
+            f"{GAP_SLOT}: the stand \"{{s}}\" "
+            + ("records two accounts the role \"{r}\" could mean; which one is it?" if twins else
+               f"has no account for the role \"{{r}}\", which {count} case{plural} need{verb}; which account should the factory use?"),
+            f"{GAP_SLOT}: " + ("two accounts for \"{r}\" on \"{s}\"; which one is it?" if twins else
+                               "no account for \"{r}\" on \"{s}\"; which account should the factory use?"),
+            # the last form names no gap: an id of any length (it is the lossless token of the names) can leave no room for the question
+            # inside `BRIEF_CUT`, and the card's own heading names the id (F8)
+            ("two accounts for \"{r}\" on \"{s}\"; which one is it?" if twins else
+             "no account for \"{r}\" on \"{s}\"; which account should the factory use?")]
+
+        def clip(text: str, n: int) -> str:
+            return text if len(text) <= n else text[:max(n - 1, 1)].rstrip() + "…"
+        s, r = clip(stand, ROLE_NAME_CLIP), clip(role, ROLE_NAME_CLIP)
+        for position, form in enumerate(forms):
+            room = BRIEF_CUT - len(form.format(s="", r="").replace(GAP_SLOT, gap_id))
+            if room >= len(s) + len(r) or room >= 16 or position == len(forms) - 1:
+                if room < len(s) + len(r):
+                    half = max(room // 2, 4)
+                    s, r = clip(s, max(min(len(s), half), 4)), clip(r, max(room - min(len(s), half), 4))
+                return form.format(s=s, r=r)
+        return forms[-1].format(s=clip(stand, 4), r=clip(role, 4))
+
+    def _confirm_rows(self, PK, root) -> list:
+        """The confirm card rows (§3 (6)): ONE per noticed role (`noticed_unconfirmed`) that the strategist's `product_roles` names in THIS
+        story - a noticed role this story does not name is not shown. No finding: the card does not hold the gate. [] when nothing is
+        noticed, the form names no role, or the registry cannot be read (an unknown is not shown as a fact)."""
+        out = []
+        roles, _reason = PK.story_roles(self.task_root)
+        seen = set()
+        for item in roles:
+            st = PK.state(root, PK.ROLES_KEY, "", item["role"])
+            role = item["role"]
+            if st["state"] != PK.NOTICED or _role_form(role) in seen:
+                continue
+            seen.add(_role_form(role))
+            _stok, tok = role_gap_tokens("", role)
+            where = " ".join(str(item.get("where") or "").split())[:160]
+            sentence = (f"the plan checks \"{role}\" as a separate role" + (" (no sign-in)" if item.get("sign_in") == "none" else "")
+                        + (f", from {where}" if where else ""))
+            out.append({"id": f"{PRODUCT_ROLE_PREFIX}{tok}", "scope": "product_role", "role": role, "stand": "", "case": "", "cases": [],
+                        "kind": "role", "what": sentence, "check": {}, "remedy": {"offers": []},
+                        "fact": {"key": PK.ROLES_KEY, "environment": "", "element": role}, "options": self._confirm_options(role),
+                        "variant": "noticed", "in_roster": False, "state": PK.NOTICED, "detail": ""})
         return out
 
     def check_actor_sign_in(self) -> None:
@@ -1982,7 +2435,36 @@ class Rehearsal:
         three = (f"one of three: give access - fix the account or the stand, or put the right login and password where the "
                  f"runner reads them (never in the chat) and tell me, and I rehearse again; or check {shown} yourself by hand "
                  f"and say so; or say that this check is not needed. ")
-        state, detail = self._stand_account(actor, ctx)
+        extra = getattr(self, "_extra_accounts", {}).get(actor)
+        carded = self._account_carded.get(_role_form(actor))
+        if carded == "not_needed" and not extra:
+            # PK0-9 (§3 (2b), FR-7): the person said this is no role of the product, so whatever its account state (a config account
+            # included: not_needed wins over it) it is never signed in and raises no card and no finding; checked BEFORE the state
+            self.note(check, f"the sign-in of {actor} was not tried: you said it is not a role of this product")
+            return row
+        if extra:
+            # TR3-10 D8 (F14): an EXTRA account of the project. INVARIANT: its failure is a note and "dropped from the pool", never a
+            # question and never a stop of gate A (the base account's question stays as it is); the handle is never printed (the role
+            # and the position are), and `pool_of` keeps only handles with an `ok` row.
+            block = f"sign-in of extra account {extra[1]} of the role {extra[0]}"
+
+            def drop(why: str) -> dict:
+                self.note(check, f"{block} {why}; it is dropped from the pool of that role and no question is asked about it")
+                return row
+            try:
+                user, secret = MC.resolve_actor(self.config, stand, actor, self.task_root)[:2]
+            except ValueError:
+                return drop("is not an account the runner can sign in as")
+            values = ctx.get("values") or {}
+            if ctx.get("env_error") or any(key not in values for key in (user, secret)):
+                return drop("was not tried: its keys are not set where the runner reads them")
+            state, detail = "met", ""
+        else:
+            state, detail = self._stand_account(actor, ctx)
+        if state == "unmet" and not extra and carded:
+            # PK0-4: a card already asks about this account (the role card, or the per-case card for its keys): ONE card per fact
+            self.note(check, f"the sign-in of {actor} waits for the card about its account")
+            return row
         if state == "unmet":
             self.add(check, PERSON_DECIDES, f"{block} was not tried: {detail} ({shown})",
                      three + self.waiver_command(block, "", "accept"), cases=list(cases))
@@ -1995,10 +2477,14 @@ class Rehearsal:
             row["recipe_sha"] = MC.recipe_sha(recipe)
             result = self._probe_sign_in(MC, recipe, actor, stand)
         except MC.BrowserUnavailable as exc:
+            if extra:
+                return drop("could not be tried: no browser could be opened here")
             self.add(check, FACTORY_DEFECT, f"{block} could not be tried: no browser could be opened here ({str(exc)[:120]})",
                      SIGN_IN_FACTORY_DOOR, cases=list(cases))
             return row
         except Exception as exc:  # a recipe or an account the reader refuses: the project's record, the factory's to fix
+            if extra:
+                return drop(f"could not be proved ({type(exc).__name__})")
             self.add(check, FACTORY_FIXABLE, f"{block} could not be proved: {' '.join(str(exc).split())[:240]}",
                      SIGN_IN_RECIPE_DOOR, cases=list(cases))
             return row
@@ -2010,11 +2496,15 @@ class Rehearsal:
                                  "the sign-in field being gone (a weak proof)")
         elif result.get("kind") == "not_landed":
             row["outcome"] = "failed"
+            if extra:
+                return drop("was not let in by the stand")
             self.add(check, PERSON_DECIDES,
                      f"{block}: the stand did not let it in - the login was submitted and the page did not land. "
                      f"{shown} need it.", three + self.waiver_command(block, "", "accept"), cases=list(cases),
                      detail=str(result.get("detail") or "")[:300])
         else:
+            if extra:
+                return drop("could not be proved: the sign-in recipe does not fit the login page, or none is recorded")
             self.add(check, FACTORY_FIXABLE,
                      f"{block} could not be proved: the project's sign-in recipe does not fit its login page, or none is "
                      f"recorded ({str(result.get('kind') or 'no result')}).",
@@ -3555,7 +4045,12 @@ class Rehearsal:
             stand = surfaces.stand_of_profile(self.config, profile_id, stand)      # the PROFILE's stand, not the story's (F-6, AR-19)
         except ValueError as exc:       # the factory's table is broken: said as it is, never a guess at a stand
             return "", "", " ".join(str(exc).split())
-        environment, refusal = rp.pick_environment(self.config, stand, profile_id)
+        # t-2181 PC-9b (critic t-2513 F10): the same rule as the probe's own pick - only the IMPLICIT pick (no stand named) skips the stands
+        # that run an OLD version of a side, so a reference stand never turns "the only stand" into "two stands that cannot be told apart"
+        import stand_identity as SI
+        project, task_root = getattr(self, "project_root", None), getattr(self, "task_root", None)
+        references = () if stand or project is None or task_root is None else SI.reference_stands(project, Path(task_root).name)
+        environment, refusal = rp.pick_environment(self.config, stand, profile_id, references)
         checkout = ""
         if not refusal:
             checkout, refusal = rp.pick_checkout(self.config, profile_id, "")
@@ -3814,7 +4309,17 @@ class Rehearsal:
             self.unavailable(check, f"env_probe.parse_env_file ({type(exc).__name__}: {exc})")
             return
         rel = self._place_of(files, how)
-        if how.startswith("config") and files and not any(Path(p).is_file() for p in files):
+        # PK0-5: the default login is asked on need - ONE rule with S6 (`default_login_needed`, AR-19). The integrations' keys and the
+        # keys a case names are asked as before; the absent-file card follows the same need when none of them is asked either.
+        login = integration_login_keys(env_cfg)
+        asked, not_asked = self._integration_keys(env_cfg, values, login)
+        needed = default_login_needed(self.task_root, self.config)
+        try:
+            case_keys, keys_read = self._case_env_names()
+        except Exception:
+            case_keys, keys_read = set(), False
+        if how.startswith("config") and files and not any(Path(p).is_file() for p in files) \
+                and (needed or asked or case_keys or not keys_read):
             self.add(check, PERSON_DECIDES,
                      f"`{rel}` — the environment file this project's runner reads — is not on "
                      f"disk, and every credential {self.next_stage} needs is read from it",
@@ -3824,8 +4329,6 @@ class Rehearsal:
         # when this story needs the integration (t-218, F2a): on cmp2 three AWS keys and three
         # accounts were put to the person for a story whose cases touch neither, the very block
         # `env_probe` stopped raising on 23.09 - this sibling detector was left out.
-        login = integration_login_keys(env_cfg)
-        asked, not_asked = self._integration_keys(env_cfg, values, login)
         for entry in not_asked:
             name, why = entry[0], entry[1]
             if len(entry) > 2 and entry[2]:
@@ -3838,7 +4341,10 @@ class Rehearsal:
                 # beside "none of the N recorded has keys missing" (F-3a)
                 self.note(INTEGRATION_CHECK if len(entry) > 3 else check, f"keys of {name} not asked: {why}",
                           **({"declared": True} if len(entry) > 3 else {}))
-        missing = [key for key in dict.fromkeys(login) if key not in values]
+        missing = [key for key in dict.fromkeys(login) if key not in values] if needed else []
+        if not needed:
+            self.note(check, "the stand's default account is not asked: no case of this story signs in with it, seeds data or creates an "
+                      "account (each names its own recorded account or none).")
         if missing:
             # The accounts `credentials_by_role` records as "not provisioned" left this check
             # (t-218, F2b): a case that needs an account says so in its `preconditions`
@@ -4678,6 +5184,10 @@ class Rehearsal:
                          "the check is the factory's own and nothing of yours to repair: the gate "
                          "is shown without it, and S5 reports the case as blocked if the stand "
                          "really lacks it")
+            # PK0-4: an account item the role card of this (stand, role) holds is asked THERE, once - never again on the case's own card
+            stand_name = str(self._selected_environment().get("name") or "")
+            open_items = [row for row in open_items if not (
+                next(iter(row[0]["check"])) == "stand_account" and (stand_name, _role_form(row[0]["check"]["stand_account"])) in self._role_carded)]
             carded = self._card_items(check, case_id, open_items, shared)
             open_items = [row for row in open_items if row not in carded]
             # `none` is the designer's prose reason, kept for what only a person can know. All
@@ -5081,9 +5591,13 @@ class Rehearsal:
                 unstated |= {str(u) for u in (derived.get("unstated") or [])}
         except Exception as exc:
             self.unavailable(check, f"critic_rollcall ({type(exc).__name__}: {exc})")
+        # t-2187 N2 (F-2 (a)): the drafts that merge 2+ manifestations under a cause the factory cannot re-read, read once for all of them
+        import contract as _contract
+        merged_bad = dict(BR.merged_unconfirmed(self.task_root, [(p.name, d) for p, d in drafts if isinstance(d, dict)]))
+        triage_rows = step_rows_report[0]
         for path, draft in drafts:
             name = str(draft.get("id") or path.stem)
-            case = " ".join(str(draft.get("case") or draft.get("cases") or "").split()) or name
+            case = (BR.draft_cases(draft) or [name])[0]      # the label of the card: the draft's primary case, read through the one reader (AR-13)
             if BR.is_code_reading(draft):
                 # POSITION: before `draft_verdicts`. A code-reading draft (t-1676) rests on an oracle and an S1 fact, never on a triage
                 # row, so it must never meet "without a triage verdict"; it is reached ONLY by `evidence == "code-reading"` exactly - a
@@ -5114,11 +5628,15 @@ class Rehearsal:
                          "not APP_BUG — only APP_BUG becomes a bug",
                          "S7 owns the verdict; the draft is withdrawn or the verdict corrected; "
                          + self.waiver_command(block))
-            named = set(str(case).replace(",", " ").split())
+            # the cases of the draft are the union `BR.draft_cases` reads (`case`, `cases`, `manifestations[].case`): a merged draft whose
+            # second case the critic never read is a bug from an unreviewed case (t-2187 N2, 5.3); the label above stays the primary case
+            label_tokens = set(str(case).replace(",", " ").split())
+            named = label_tokens | {token for cell in BR.draft_cases(draft) for token in cell.replace(",", " ").split()}
+            which = case if (named & unreviewed) <= label_tokens else ", ".join(sorted(named & unreviewed))
             if unreviewed and named & unreviewed:
                 block = f"{case} bug draft from an unreviewed case"
                 self.add(check, FACTORY_FIXABLE,
-                         f"{block} — {case} never reached the case critic (it is in the "
+                         f"{block} — {which} never reached the case critic (it is in the "
                          f"roll-call's unreviewed list) and a bug draft was written from it "
                          f"({path.name}) — a case nobody reviewed cannot produce a bug",
                          "send the critic back over that case, or "
@@ -5151,6 +5669,18 @@ class Rehearsal:
                          f"{block} — {case}'s bug draft ({path.name}) is missing {', '.join(other)}",
                          "S7 completes the draft before the gate reads it; "
                          + self.waiver_command(block))
+            # P28 (X7-5): the red test travels with the bug - `red_test` or `red_test_none`; the one reader is contract.red_test_problems
+            # (FR-17). A draft dated before the cutoff (its `created`, else the file's own day) is not asked.
+            import datetime
+            from contract import red_test_owed, red_test_problems
+            made = datetime.date.fromtimestamp(path.stat().st_mtime).isoformat()
+            red_problems = red_test_problems(draft) if red_test_owed(draft, made) else []
+            if red_problems:
+                block = f"{case} bug draft without its red test"
+                self.add(check, FACTORY_FIXABLE,
+                         f"{block} — {case}'s bug draft ({path.name}): {'; '.join(red_problems)}",
+                         "S7 adds `red_test` (or `red_test_none` with the reason) to the draft; "
+                         + self.waiver_command(block))
             # HF8-16: a `reproduction` receipt the code cannot check is the analyst's to fix BEFORE the person is shown the
             # draft as "unconfirmed"; the READER is bug_records (AR-13), this only names what it found. A draft with no field
             # is no finding. The missing-APP_BUG case has its own finding above and is not said twice.
@@ -5163,6 +5693,39 @@ class Rehearsal:
                          f"({details[:600]}), so the gate shows the bug as unconfirmed",
                          "S7 fixes the entry or removes it (evidence is a non-empty file under evidence/; a fresh_data_rerun "
                          "names the attempt of a later run that failed again); " + self.waiver_command(block))
+            # One bug, many manifestations (t-2187 N2). The READERS are bug_records' (AR-13); this only names what they found. A merge
+            # whose cause cannot be re-read comes first and carries the mechanism's first problem, so the same defect is not two cards.
+            if path.name in merged_bad:
+                block = f"{case} bug draft merges manifestations without a confirmed cause"
+                self.add(check, FACTORY_FIXABLE,
+                         f"{block} — {case}'s bug draft ({path.name}) puts several manifestations under one cause the factory cannot "
+                         f"confirm: {merged_bad[path.name]}",
+                         "S7 fixes the basis (a shared `defect_location` line can be cited as a `code_line`), or splits the draft and "
+                         "links the parts with `possibly_same_cause`; " + self.waiver_command(block))
+            else:
+                mechanism_found = BR.mechanism_problems(self.task_root, draft)
+                if mechanism_found:
+                    block = f"{case} bug draft cause does not stand"
+                    self.add(check, FACTORY_FIXABLE,
+                             f"{block} — {case}'s bug draft ({path.name}) has a `mechanism` the factory cannot accept: "
+                             + "; ".join(f"{reason} ({detail})" for reason, detail in mechanism_found)[:600],
+                             "S7 fixes the `mechanism` (or writes status unknown with the reason); " + self.waiver_command(block))
+            manifestation_found = BR.manifestation_problems(self.task_root, draft, triage_rows)
+            if manifestation_found:
+                block = f"{case} bug draft manifestations do not stand"
+                self.add(check, FACTORY_FIXABLE,
+                         f"{block} — {case}'s bug draft ({path.name}) lists manifestations the factory cannot accept: "
+                         + "; ".join(f"{reason} ({detail})" for reason, detail in manifestation_found)[:600],
+                         "S7 fixes the manifestations or removes the one that does not stand; " + self.waiver_command(block))
+            # F-5 (a): every triage draft made on or after the day `contract.BUG_MECHANISM_CUTOFF` names carries `mechanism` (the empty
+            # outcome is status unknown with the reason). `None` = nobody is asked yet (FR-38: no charter has asked for the field).
+            # The day rule is `contract.mechanism_owed`, the one reader of the cutoff (AR-13).
+            if "mechanism" not in draft and _contract.mechanism_owed(draft, made):
+                block = f"{case} bug draft without its cause"
+                self.add(check, FACTORY_FIXABLE,
+                         f"{block} — {case}'s bug draft ({path.name}) says nothing about the cause of the defect",
+                         "S7 adds `mechanism`: what the cause is and how far the analyst got (confirmed, unverified or unknown, "
+                         "with the reason it is not known); " + self.waiver_command(block))
 
     def check_delivery_inputs(self) -> None:
         check = "delivery"
@@ -5198,7 +5761,7 @@ def run(task_root, gate: str = "A") -> dict:
     if gate == "A":
         steps = (r.check_gate_decision, r.check_stage_guard, r.check_prepare,
                  r.check_role_permissions, r.check_cases, r.check_planning_contract,
-                 r.check_vcs, r.check_stand, r.check_case_environment_gaps, r.check_actor_sign_in,
+                 r.check_vcs, r.check_stand, r.check_case_environment_gaps, r.check_role_accounts, r.check_actor_sign_in,
                  r.check_s5_executor, r.check_s5_dependencies, r.check_s5_toolchain, r.check_s5_stand_limits,
                  r.check_s5_reporter, r.check_s5_runtime_probe,
                  r.check_s5_credentials,

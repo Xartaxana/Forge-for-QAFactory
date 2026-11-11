@@ -26,6 +26,7 @@ hides a bug.
 Read-only (FR-45): nothing is created, changed or deleted. The one exception is `write_draft_texts` (the readable text of
 each draft, `work/bug-text/`), which only `delivery_summary.write` calls; a reader never does.
 """
+import datetime
 import json
 import re
 import sys
@@ -251,10 +252,65 @@ def _step_words(value) -> list:
     return [_one_line(item) for item in items if isinstance(item, (str, int, float)) and _one_line(item)]
 
 
-def bug_text(data: dict, priority: str = "", word: str = "", kinds=None, problems=None) -> str:
+def _cause_lines(view: dict) -> list:
+    """`## Cause` of a bug with 2+ manifestations (t-2187 N2, 5.17), printed from `cause_view` (M3: the one reader the packet and the
+    report print from too): the statement, how it was confirmed IN WORDS (`cause_how_words`), and one `Not verified:` line per claim no
+    basis entry confirms (FR-41). A cause that is not confirmed - or whose basis no longer stands - is never printed as one: it says
+    "Cause not established" / "Not confirmed"."""
+    view = view or {}
+    status, statement, why = view.get("status"), view.get("statement") or "", view.get("why") or ""
+    lines = ["## Cause"]
+    if status == "confirmed":
+        how = cause_how_words(view)
+        lines.append(statement or "The draft states no cause.")
+        lines.append(f"Confirmed {how}." if how else "How the cause was confirmed is not stated.")
+    elif status == "unverified":
+        lines.append("Not confirmed: " + (statement or "the draft states no cause"))
+        lines.append("What is missing: " + (why or "not stated"))
+    else:
+        lines.append(f"Cause not established: {why or 'the draft does not say why'}.")
+    lines += [f"Not verified: {says}" for says in view.get("unverified") or []]
+    return lines
+
+
+RECHECK_SENTENCE = "After the fix, re-check every manifestation; one that still fails is a separate bug."
+
+
+def _manifestation_lines(data: dict) -> list:
+    """`## Manifestations` of a bug with 2+ manifestations (t-2187 N2, 5.17): ALL of them, no cap, one numbered line each: its case (M4:
+    `validate_artifacts.check_bug_form` asks the filed bug's section for each manifestation's case and red test, and this text is what
+    its refusal tells the reporter to copy from, so every part it asks for is here), the action, the start state, what was seen, the
+    requirement it breaks (a manifestation carries no `expected` text of its own: the requirement is what it is expected against) and
+    its red test command or `no test: <reason>`. A part a manifestation does not carry is said ("no test stated", "no requirement named",
+    "no case named"), never left out (FR-41)."""
+    lines = ["## Manifestations"]
+    for number, entry in enumerate(manifestation_entries(data), start=1):
+        case = _one_line(entry.get("case"))
+        parts = [f"case {case}" if case else "no case named",
+                 _one_line(entry.get("action")) or "an action the draft does not state"]
+        for label, key in (("start", "start_state"), ("seen", "seen")):
+            text = _one_line(entry.get(key))
+            if text:
+                parts.append(f"{label}: {text}")
+        requirement = _one_line(entry.get("requirement"))
+        parts.append(f"expected: as requirement {requirement} says" if requirement else "expected: no requirement named")
+        test = entry.get("red_test")
+        command = _one_line(test.get("command")) if isinstance(test, dict) else ""
+        reason = _one_line(entry.get("red_test_none"))
+        parts.append(f"red test: {command}" if command else f"no test: {reason}" if reason else "no test stated")
+        lines.append(f"{number}. " + "; ".join(parts))
+    lines.append(RECHECK_SENTENCE)       # spec 8.4: the way a merged bug is closed; the executor is the person after this run
+    return lines
+
+
+def bug_text(data: dict, priority: str = "", word: str = "", kinds=None, problems=None, cause=None) -> str:
     """A draft as text a person reads: the title, the impact with its priority, the steps, what was expected, what was
     seen and how sure the factory is. No field names and no JSON: a part the draft does not carry says so in a
-    sentence (FR-41), it is never left out silently."""
+    sentence (FR-41), it is never left out silently. A draft with 2+ manifestations (t-2187 N2) adds `## Cause` and
+    `## Manifestations` AFTER the rest (every manifestation, no cap: the packet shows up to six and points here); a draft with
+    one manifestation or none gets the text it always got, byte for byte. `cause` is `cause_view(task, data)` as the caller that holds
+    the task root built it (so a basis that no longer stands is not printed as confirmed); a caller with no task root passes none and
+    gets the draft-only reading (`cause_view(None, data)`)."""
     data = data if isinstance(data, dict) else {}
     impact = _one_line(data.get("impact") or data.get("damage_class"))
     title = _one_line(data.get("title")) or "A bug without a title"
@@ -270,6 +326,8 @@ def bug_text(data: dict, priority: str = "", word: str = "", kinds=None, problem
         lines += ["", f"## {heading}", _one_line(value) or absent]
     lines += ["", "## How sure the factory is",
               reproduction_words({"confirmation": word, "reproduced_how": kinds or [], "reproduction_problems": problems or []})]
+    if len(manifestation_entries(data)) >= 2:
+        lines += [""] + _cause_lines(cause if cause is not None else cause_view(None, data)) + [""] + _manifestation_lines(data)
     return "\n".join(lines) + "\n"
 
 
@@ -279,7 +337,7 @@ def write_draft_texts(task) -> list:
     "text": <path relative to the task, "" when none was written>, "problem": <why, "" when written>}]`. A draft that is not
     a JSON object, or a text that cannot be written, is skipped with its problem and the others are still written (a bug
     the person is to read must not wait for another one). Called from `delivery_summary.write` ONLY: gate B reads these
-    files, it never writes them (FR-45)."""
+    files, it never writes them (FR-45). The text of a draft with 2+ manifestations holds all of them (`bug_text`, t-2187 N2, 5.17)."""
     from event_store import atomic_text   # the one atomic text writer (AR-13); newline="" keeps the "\n" of the text
     task = Path(task)
     out = []
@@ -301,9 +359,10 @@ def write_draft_texts(task) -> list:
                 entry["problem"] = "the draft is not readable"
                 out.append(entry)
                 continue
-            word, kinds, problems = confirmation_of(task, data, *facts)
+            word, kinds, problems = confirmation_of(task, data, *facts, draft=True)
             impact = _one_line(data.get("impact") or data.get("damage_class"))
-            atomic_text(target, bug_text(data, str((scale.get(impact) or {}).get("priority") or ""), word, kinds, problems))
+            atomic_text(target, bug_text(data, str((scale.get(impact) or {}).get("priority") or ""), word, kinds, problems,
+                                         cause_view(task, data)))
             entry["text"] = target.relative_to(task).as_posix()
         except (OSError, ValueError) as exc:
             entry["problem"] = f"the text could not be written ({type(exc).__name__})"
@@ -374,7 +433,15 @@ def pair_drafts(drafts: list, rows, filed=()) -> dict:
     `same_location` (D1-C2, Q4-d): `[(location, [names])]`, the triage-road drafts that name ONE defect place (`draft_location`), two
     or more of them, sorted by location. Left out: a draft with no place, a code-reading draft (its own one-per-requirement rule),
     a draft that says `distinct_defect`, and a draft in `filed` (the names of the drafts a filed bug names in `source_draft`: a filed
-    bug is not rewritten, E-C18)."""
+    bug is not rewritten, E-C18).
+
+    One bug, many manifestations (t-2187 N2, 5.1): an APP_BUG row named by a `manifestations[].triage_row` of a draft is covered by
+    that draft as well (a bare instance covers every attempt, as a `triage_ref` does) - EXCEPT a row with `blocking_check`, which a
+    manifestation never covers (the blocker rule above stands). Two more keys: `manifestation_no_row` (`[(name, label)]`: a
+    manifestation names a `triage_row` that is no row, or none that can be read) and `manifestation_not_app_bug` (`[(name, label,
+    [verdict])]`: its row exists and none of its verdicts is APP_BUG). A probe or an absorbed code-reading entry names no row and covers
+    nothing. Error direction: only toward `app_bug_without_draft` (a draft is owed). PURE: it reads no file - what reads files
+    (`merged_unconfirmed`) is a separate function."""
     verdicts = triage_verdicts(rows)
     no_row: list = []
     not_app_bug: list = []
@@ -389,6 +456,26 @@ def pair_drafts(drafts: list, rows, filed=()) -> dict:
         elif APP_BUG not in found:
             not_app_bug.append((name, sorted({v for v in found if v})))
     keys = {draft_triage_key(draft) for _name, draft in drafts if not is_code_reading(draft)}
+    covered_by_manifestation: set = set()
+    manifestation_no_row: list = []
+    manifestation_not_app_bug: list = []
+    for name, draft in drafts:
+        if is_code_reading(draft):
+            continue
+        for entry in manifestation_entries(draft):
+            if not entry.get("triage_row"):
+                continue      # a probe, or an entry absorbed from a code-reading draft: it names no row and covers none
+            key = draft_triage_key({"triage_ref": entry["triage_row"]})
+            label = (f"{key[0]}@{key[1]}" if key[1] else key[0]) or "(a triage_row that names no instance_id)"
+            found = verdicts.get(key) or []
+            if not found:
+                if (name, label) not in manifestation_no_row:
+                    manifestation_no_row.append((name, label))
+            elif APP_BUG not in found:
+                if not any(n == name and lab == label for n, lab, _v in manifestation_not_app_bug):
+                    manifestation_not_app_bug.append((name, label, sorted({v for v in found if v})))
+            else:
+                covered_by_manifestation.add(key)
     app_rows = 0
     uncovered: list = []
     duplicate: list = []
@@ -401,7 +488,7 @@ def pair_drafts(drafts: list, rows, filed=()) -> dict:
         instance, attempt = _row_instance(row), str(row.get("attempt_id") or "").strip()
         label = f"{instance}@{attempt}" if attempt else instance
         blocker = row.get("blocking_check") if isinstance(row.get("blocking_check"), str) else ""
-        if blocker.strip():
+        if blocker.strip():     # (a manifestation never covers such a row: `covered_by_manifestation` is read below for the others only)
             own = [name for name, draft in drafts
                    if draft_triage_key(draft) in ((instance, attempt), (instance, "")) and instance]
             if own:
@@ -416,7 +503,10 @@ def pair_drafts(drafts: list, rows, filed=()) -> dict:
         if not instance:
             uncovered.append("(a row with no instance_id)")
         elif (instance, attempt) not in keys and (instance, "") not in keys:
-            uncovered.append(label)
+            # a row a manifestation names is covered, unless the row says its red is another case's defect (`blocking_check`)
+            if (blocker.strip() or ((instance, attempt) not in covered_by_manifestation
+                                    and (instance, "") not in covered_by_manifestation)):
+                uncovered.append(label)
     places: dict = {}
     for name, draft in drafts:
         place = draft_location(draft)
@@ -426,13 +516,15 @@ def pair_drafts(drafts: list, rows, filed=()) -> dict:
     same = [(place, sorted(names)) for place, names in sorted(places.items()) if len(names) > 1]
     return {"no_row": no_row, "not_app_bug": not_app_bug, "app_bug_rows": app_rows, "code_reading": code_reading,
             "app_bug_without_draft": uncovered, "duplicate_draft": duplicate, "blocker_draft_misses_case": misses,
-            "same_location": same}
+            "same_location": same, "manifestation_no_row": manifestation_no_row,
+            "manifestation_not_app_bug": manifestation_not_app_bug}
 
 
 def _blocker_cover(row: dict, blocker: str, pool: list, drafts: list):
     """How the draft of a blocker covers `row` (an APP_BUG row with `blocking_check`): True when some APP_BUG row of ANOTHER
     case that the blocker names has a draft listing the row's case in `cases`; the blocker's label (a string) when such a row
-    has a draft that does not list it; False when nothing covers it. The blocker resolves among the triage rows only
+    has a draft that does not list it (the draft's cases are `draft_cases`: `case`, `cases` and `manifestations[].case`); False when
+    nothing covers it. The blocker resolves among the triage rows only
     (`contract.case_matches` on the row's `case`, `contract.same_id` on its names); a row naming no case is covered by nobody."""
     case = str(row.get("case") or "").strip()
     if not case:
@@ -453,7 +545,7 @@ def _blocker_cover(row: dict, blocker: str, pool: list, drafts: list):
         for _name, draft in drafts:
             if not instance or draft_triage_key(draft) not in ((instance, attempt), (instance, "")):
                 continue
-            listed = draft.get("cases") if isinstance(draft, dict) and isinstance(draft.get("cases"), list) else []
+            listed = draft_cases(draft)      # t-2187 N2: the union of `case`, `cases` and `manifestations[].case`, through the one reader
             if any(isinstance(c, str) and C.case_matches(case, c) for c in listed):
                 return True
             miss = other_case or instance
@@ -474,6 +566,8 @@ R_CR_NO_FACT = "the code fact is not one S1 recorded or the code does not hold i
 R_CR_CHECK_STATE = "the check state is not one of not_executed / unverifiable"
 R_CR_SUPERSEDED = "a failing test speaks for this requirement now"
 R_CR_TWICE = "two code-reading drafts for one requirement"
+# The red test travels with the bug (P28, X7-5): the draft check, shape only - `contract.red_test_problems` is the one reader.
+R_RED_TEST = "the red test (or why there is none) is not with the draft"
 
 
 def is_code_reading(draft) -> bool:
@@ -579,6 +673,32 @@ def _fact_problem(task, fact, by_id, bundle_why) -> str:
     return ""
 
 
+def _walk_stands_for(task, draft, wanted) -> bool:
+    """Does a `walk` entry of this draft stand (`_walk_receipt_problem` says nothing is wrong: record of THIS draft and its place,
+    answer `bug`, `answer_problems` == [] now) AND its record's `expectation` is the requirement `wanted` from source `requirement`?
+    Data only. Error direction DOWN: anything unreadable, unnamed or unproven is False (AR-28); it may refuse a true bug."""
+    try:
+        entries = draft.get("reproduction") if isinstance(draft, dict) else None
+        if not isinstance(entries, list):
+            return False
+        names = _names_of_draft(task, draft)
+        for entry in entries:
+            if not (isinstance(entry, dict) and str(entry.get("kind") or "").strip() == "walk"):
+                continue
+            if _evidence_problem(Path(task), entry.get("evidence"))[0]:
+                continue
+            record = json.loads((Path(task).resolve() / str(entry.get("evidence")).strip()).read_bytes().decode("utf-8-sig"))
+            expectation = record.get("expectation") if isinstance(record, dict) else None
+            if not (isinstance(expectation, dict) and expectation.get("source") == "requirement"
+                    and _norm(expectation.get("id")) == wanted):
+                continue
+            if any(not _walk_receipt_problem(task, name, draft, entry)[0] for name in names):
+                return True
+    except Exception:  # noqa: BLE001 - an unknown never lifts
+        return False
+    return False
+
+
 def _oracle_problems(task, draft, rid, questions, register) -> list:
     """`[(code, detail)]` for the draft's `oracle`. Question form: `branch_accounting._confirmed` (answered, the row unchanged, settled:
     `not_needed` is no expectation) and the quote in the recorded words or the chosen reading. Requirement form (an unambiguous
@@ -624,7 +744,10 @@ def _oracle_problems(task, draft, rid, questions, register) -> list:
     row = rows.get(wanted)
     import branch_accounting as BA
     fid = _norm((draft.get("fact") or {}).get("id")) if isinstance(draft.get("fact"), dict) else ""
-    if not row or not fid or BA._says((row or {}).get("code_says")) != ("contradicts", fid):
+    contradicts = bool(row and fid and BA._says((row or {}).get("code_says")) == ("contradicts", fid))
+    if row and not contradicts and _walk_stands_for(task, draft, wanted):
+        contradicts = True      # t-1991 U2b: a standing walk receipt of this draft whose expectation is this requirement
+    if not contradicts:
         return [(R_CR_NO_ORACLE, f"{wanted} does not say `code_says: contradicts: <fact id>` for this draft's fact: with no settled answer "
                  "the requirement must be unambiguous and its register row must record the contradiction")]
     if quote not in _norm(row.get("requirement")):
@@ -649,10 +772,12 @@ def _code_reading_problems(task, draft, drafts, questions, register) -> list:
     missing = [f for f in C.BUG_DRAFT_CODE_READING_REQUIRED if not draft.get(f)]
     if missing:
         problems.append((R_CR_FIELDS, "missing " + ", ".join(f"`{f}`" for f in missing)))
+    if C.red_test_owed(draft, datetime.date.today().isoformat()):   # an undated draft is read as written today
+        problems += [(R_RED_TEST, detail) for detail in C.red_test_problems(draft)]
     state = _norm(draft.get("check_state"))
     if "check_state" not in missing and state not in C.CODE_READING_CHECK_STATES:
         problems.append((R_CR_CHECK_STATE, f"`check_state` {state!r} is not one of {list(C.CODE_READING_CHECK_STATES)}: a code-reading "
-                         "draft exists only where no run spoke"))
+                         "draft exists only where no factory test spoke; a walk of the analyst may be its receipt"))
     found = C.REQ_ID_RE.findall(str(draft.get("violates") or ""))
     rid = found[0] if found else ""
     if "violates" not in missing and not rid:
@@ -674,10 +799,12 @@ def _code_reading_problems(task, draft, drafts, questions, register) -> list:
         verdicts = triage_verdicts(step_facts(task)[0])
         import traceability as T
         speaking = [str(n) for n, d in others if not is_code_reading(d) and APP_BUG in draft_verdicts(d, verdicts)
-                    and rid in C.REQ_ID_RE.findall(T._dumped_for_ids([d.get(f) for f in T.DRAFT_REQUIREMENT_FIELDS if d.get(f)]))]
+                    and (rid in C.REQ_ID_RE.findall(T._dumped_for_ids([d.get(f) for f in T.DRAFT_REQUIREMENT_FIELDS if d.get(f)]))
+                         or rid in draft_requirements(d))]       # m5: a merged draft's `manifestations[].requirement` speaks for R too
         if speaking:
             problems.append((R_CR_SUPERSEDED, f"a failing test now speaks for {rid} ({', '.join(speaking)}): add this draft's code fact "
-                             "to that draft and withdraw this one"))
+                             "to that draft as a manifestation (`from_draft: <this draft's file>` and its `evidence`), or to its "
+                             "existing fields, and withdraw this one"))
     return problems
 
 
@@ -711,6 +838,11 @@ R_NO_REPORT = "the run report could not be read"
 R_NO_TRIAGE = "no APP_BUG triage row"
 R_NO_DRAFT = "the draft of this bug is not there"
 R_NO_RECEIPT = "no reproduction receipt behind it"
+# The walk receipt (t-1991 U2): the record `place_answers.py write` keeps. The words are closed; the detail never carries a path.
+R_WALK_RECORD = "the walk record cannot be read"
+R_WALK_ANSWER = "the walk did not say bug, or its answer does not stand"
+R_WALK_PLACE = "the walk was of another place"
+_WALK_WRITER = "place_answers.py"
 
 
 def _evidence_problem(task: Path, evidence) -> tuple:
@@ -748,6 +880,106 @@ def _attempt_rows(report, instance: str, attempt: str) -> list:
     return out
 
 
+def _names_of_draft(task, draft) -> list:
+    """The file names of the drafts of the story whose JSON equals `draft` (the callers of the step hand over the draft, not its
+    name; a walk record names a draft by file). `[]` when none is found or the folders cannot be read."""
+    names: list = []
+    try:
+        for path in draft_paths(task):
+            try:
+                if C.load_json(path) == draft:
+                    names.append(path.name)
+            except Exception:  # noqa: BLE001 - an unreadable draft is no match
+                continue
+    except Exception:  # noqa: BLE001
+        return []
+    return names
+
+
+def _draft_is_of_place(PA, task, name, place) -> bool:
+    """True when the live draft file `name` is a draft of `place` by `place_answers.place_of_draft` - the one reading of "which place a
+    draft belongs to" (F13: one answer of a place raises every draft of that place, not only the one it names). False for a name that
+    is no listed, readable draft: the error goes down (a record never lifts a draft of another place)."""
+    name = str(name or "").strip()
+    try:
+        path = next((p for p in draft_listing(task)[0] if p.name == name), None) if name else None
+        draft = hooklib.read_json(path, None, kind=dict) if path is not None else None
+        return draft is not None and PA.place_of_draft(task, name, draft) == place
+    except Exception:  # noqa: BLE001 - an unknown never lifts
+        return False
+
+
+def _walk_receipt_problem(task, draft_name, draft, entry) -> tuple:
+    """`(code, detail)` of a `walk` entry whose record does not stand, `("", "")` when it stands (t-1991 §3.3). Data only (AR-29): the
+    record is `evidence/place-answer-<id>.json`, an object written by `place_answers.py`, whose answer is `bug`, names THIS draft
+    and the place `place_answers.place_of_draft` gives it, and passes `place_answers.answer_problems` NOW (the one judge of an
+    answer, AR-13: the capture is in the recorder's index and unchanged, the expectation has a source). The error goes DOWN: a
+    record that cannot be read or checked never lifts a draft. The marker `writer` names the writer; it is not a security boundary."""
+    record = hooklib.read_json(Path(task).resolve() / str(entry.get("evidence")).strip(), None, kind=dict)   # the package's one JSON reader (F16)
+    if record is None:
+        return R_WALK_RECORD, "the walk record is not readable JSON (an object was expected)"
+    if record.get("writer") != _WALK_WRITER:
+        return R_WALK_RECORD, f"the walk record is not an object written by {_WALK_WRITER}"
+    try:
+        import place_answers as PA
+    except Exception:  # noqa: BLE001 - an unknown never lifts
+        return R_WALK_RECORD, "the walk record cannot be checked"
+    if record.get("answer") != "bug":
+        return R_WALK_ANSWER, f"the walk answered {record.get('answer')!r}, not bug"
+    try:
+        place = PA.place_of_draft(task, draft_name, draft)
+    except Exception:  # noqa: BLE001
+        return R_WALK_RECORD, "the walk record cannot be checked"
+    if record.get("place") != place or not (record.get("draft") == draft_name or _draft_is_of_place(PA, task, record.get("draft"), place)):
+        return R_WALK_PLACE, f"the walk record is of {record.get('place')!r} and draft {record.get('draft')!r}, not this draft"
+    problems = PA.answer_problems(task, record, dispatch=record.get("dispatch"))
+    if problems:
+        return R_WALK_ANSWER, "the walk answer does not stand: " + problems[0][:200]
+    return "", ""
+
+
+def _app_bug_problem(draft, rows) -> tuple:
+    """The draft-wide fact 1: its triage row says APP_BUG. `(code, detail)` or `()`."""
+    if APP_BUG not in draft_verdicts(draft, triage_verdicts(rows)):
+        return (R_NO_TRIAGE, "the draft's `triage_ref` finds no triage row with the verdict APP_BUG")
+    return ()
+
+
+def _current_red_problem(draft, report) -> tuple:
+    """The draft-wide fact 2: when the report is readable, the instance's CURRENT result is red. `(code, detail)` or `()`; a report
+    that cannot be read adds none (as before: the entries then rest on their own checks)."""
+    if not (isinstance(report, dict) and bool(report)):
+        return ()
+    instance = draft_triage_key(draft)[0]
+    try:
+        current = C.current_instance_results(report).get(instance)
+    except Exception:
+        return ()
+    if current is None:
+        return (R_NO_CURRENT, f"the run report holds no current row of {instance!r}")
+    if not CS.is_red_row(current):
+        status = C.result_status(current)
+        code = R_GREEN if status == "passed" else R_NOT_RED_NOW   # a skipped / not-run / unknown row is not "green"
+        return (code, f"the current result of {instance!r} is {status or 'not recorded'}")
+    return ()
+
+
+def _walk_has_no_run(draft, report) -> bool:
+    """Is a draft one with no `current_results` row by construction: a code-reading draft, or a triage key that names a failure of
+    kind `manual` / `observation` (F6)? An unreadable report or key is False (the red-now fact then stays on)."""
+    if is_code_reading(draft):
+        return True
+    instance = draft_triage_key(draft)[0]
+    if not instance or not isinstance(report, dict):
+        return False
+    try:
+        failures = C.triage_failures(report)[0]
+    except Exception:  # noqa: BLE001
+        return False
+    return any(kind in ("manual", "observation") and instance in (got.get("names") or [])
+               for (kind, _name), got in failures.items())
+
+
 def reproduction_problems(task, draft, rows, report) -> tuple:
     """`(valid_entries, problems)` of a draft's `reproduction` receipts; pure, never raises. `problems` is a list of
     `(code, detail)`: `code` is a closed word (a person may read it), `detail` names the path or the field (the role
@@ -768,25 +1000,35 @@ def reproduction_problems(task, draft, rows, report) -> tuple:
         return [], [(R_NOT_LIST, f"`reproduction` must be a list of {{kind, evidence, observed}} entries, not {type(entries).__name__}")]
     task = Path(task)
     instance, attempt = draft_triage_key(draft)
-    if APP_BUG not in draft_verdicts(draft, triage_verdicts(rows)):
-        return [], [(R_NO_TRIAGE, "the draft's `triage_ref` finds no triage row with the verdict APP_BUG")]
     report_ok = isinstance(report, dict) and bool(report)
     if report_ok:
         try:
-            current = C.current_instance_results(report).get(instance)
+            C.current_instance_results(report)
         except Exception:
-            current, report_ok = None, False
-        if report_ok:
-            if current is None:
-                return [], [(R_NO_CURRENT, f"the run report holds no current row of {instance!r}")]
-            if not CS.is_red_row(current):
-                status = C.result_status(current)
-                code = R_GREEN if status == "passed" else R_NOT_RED_NOW   # a skipped / not-run / unknown row is not "green"
-                return [], [(code, f"the current result of {instance!r} is {status or 'not recorded'}")]
+            report_ok = False
+    # The two draft-wide facts, per entry kind (t-1991 §3.3 POSITION). Every non-walk entry is judged by BOTH, exactly as before;
+    # a `walk` entry skips the APP_BUG fact only for a code-reading draft (no triage row by construction) and the red-now fact
+    # only for a draft with no current result by construction (code-reading, or a manual check / observation).
+    wide = _app_bug_problem(draft, rows) or _current_red_problem(draft, report)
+    has_walk = any(isinstance(e, dict) and str(e.get("kind") or "").strip() == "walk" for e in entries)
+    if wide and not has_walk:
+        return [], [wide]
+    walk_wide = ()
+    if has_walk:
+        no_report = () if (report_ok or is_code_reading(draft)) else (R_NO_REPORT, "run-report.json cannot be read")   # an unknown never lifts
+        walk_wide = (() if is_code_reading(draft) else _app_bug_problem(draft, rows)) or no_report \
+            or (() if _walk_has_no_run(draft, report) else _current_red_problem(draft, report))
     valid: list = []
     problems: list = []
+    wide_said = False
     for number, entry in enumerate(entries, start=1):
         label = f"reproduction[{number}]"
+        walking = isinstance(entry, dict) and str(entry.get("kind") or "").strip() == "walk"
+        if wide and not walking:
+            if not wide_said:
+                problems.append(wide)
+                wide_said = True
+            continue
         if not isinstance(entry, dict):
             problems.append((R_NOT_OBJECT, f"{label} must be an object"))
             continue
@@ -802,6 +1044,20 @@ def reproduction_problems(task, draft, rows, report) -> tuple:
         if code:
             problems.append((code, f"{label}: {detail}"))
             continue
+        if kind == "walk":
+            if walk_wide:
+                problems.append((walk_wide[0], f"{label}: {walk_wide[1]}"))
+                continue
+            first = (R_WALK_PLACE, "no draft file of the story has this content")   # the name is the file's: found by content
+            for index, name in enumerate(_names_of_draft(task, draft)):
+                got = _walk_receipt_problem(task, name, draft, entry)
+                if not got[0]:
+                    first = got
+                    break
+                first = got if index == 0 else first        # the first file's reason stands (no branching on a reason's text, F17)
+            if first[0]:
+                problems.append((first[0], f"{label}: {first[1]}"))
+                continue
         if kind == "fresh_data_rerun":
             wanted = entry.get("attempt_id")
             wanted = wanted.strip() if isinstance(wanted, str) else ""
@@ -860,7 +1116,7 @@ def _draft_of(task: Path, ref) -> dict:
     return {}
 
 
-def confirmation_of(task, data, rows=None, report=None) -> tuple:
+def confirmation_of(task, data, rows=None, report=None, *, draft=False) -> tuple:
     """`(word, kinds, problems)`: THE reader of the step of one bug (AR-13). `data` is a draft, or what a filed bug / a
     proposal carries: `{confirmation, source_draft}`. `kinds` are the kinds of the valid receipts (closed words),
     `problems` the closed REASON words (`reproduction_problems` codes, deduplicated), never a path. `rows` / `report` are
@@ -874,7 +1130,12 @@ def confirmation_of(task, data, rows=None, report=None) -> tuple:
       the filed file says it beside a valid receipt, F-1; the receipt is the step, the file's word is the default). A
       draft that is not there, or has no receipts, adds no reason for an `unconfirmed` word;
     - `reproduced_by_factory` written by a role holds only if a valid receipt backs it, same places; otherwise
-      `unconfirmed` with the reason. A typo reads `unconfirmed` (`contract.bug_confirmation`)."""
+      `unconfirmed` with the reason. A typo reads `unconfirmed` (`contract.bug_confirmation`).
+    - `draft=True` (the CALLER says it read a DRAFT, never guessed from content): a draft with no `confirmation` word, or an empty one,
+      is `unconfirmed` - the form says the analyst ALWAYS writes it, and an unknown is never a pass (FR-59, AR-28). The default
+      (`draft=False`) is the legacy reading of a FILED bug: no word is `confirmed_by_person`."""
+    if draft and not (isinstance(data, dict) and str(data.get("confirmation") or "").strip()):
+        return "unconfirmed", [], []
     word = C.bug_confirmation(data)
     if word in (_PERSON, _RERUN):
         return word, [], []
@@ -903,6 +1164,7 @@ def confirmation_of(task, data, rows=None, report=None) -> tuple:
 
 _FRESH_WORDS = "failed again on another run, and the analyst says on fresh data"
 _SCRIPT_WORDS = "the analyst's own script reproduced it"
+_WALK_WORDS = "the analyst walked it on the stand"
 
 
 def reproduction_words(record, cut=None) -> str:
@@ -915,7 +1177,8 @@ def reproduction_words(record, cut=None) -> str:
     record = record if isinstance(record, dict) else {}
     if record.get("confirmation") == REPRODUCED:
         kinds = [k for k in (record.get("reproduced_how") or []) if k in C.BUG_REPRODUCTION_KINDS]
-        parts = ([_FRESH_WORDS] if "fresh_data_rerun" in kinds else []) + ([_SCRIPT_WORDS] if "own_script" in kinds else [])
+        parts = ([_FRESH_WORDS] if "fresh_data_rerun" in kinds else []) + ([_SCRIPT_WORDS] if "own_script" in kinds else []) \
+            + ([_WALK_WORDS] if "walk" in kinds else [])
         return "reproduced by the factory — " + " and ".join(parts or ["it failed again"]) + "; no person has confirmed it yet"
     reasons = [str(r) for r in (record.get("reproduction_problems") or []) if str(r).strip()]
     if reasons:
@@ -1344,7 +1607,7 @@ def story_bugs(task_root, project_root=None) -> dict:
                 record["homes"].append("drafts")
             paired += 1
             continue
-        word, kinds, problems = confirmation_of(task, data, *facts_once())
+        word, kinds, problems = confirmation_of(task, data, *facts_once(), draft=True)
         draft_records.append({"id": str(data.get("id") or path.stem),
                               "title": _one_line(data.get("title") or data.get("summary")) or TITLE_UNREADABLE,
                               "confirmation": word, "state": "", "filed": False,
@@ -1505,7 +1768,8 @@ def draft_location(data) -> str:
 
 def draft_requirements(data) -> list:
     """The requirements a draft says it breaks: the valid ids of its `requirements` list (sorted, unique); when that gives none, the
-    R ids in `violates` (a string) and in `oracle.requirement`; else []."""
+    R ids in `violates` (a string) and in `oracle.requirement`; else []. Plus, always, the valid ids of
+    `manifestations[].requirement` (t-2187: the bug's requirements are the union of its manifestations')."""
     if not isinstance(data, dict):
         return []
     listed = data.get("requirements")
@@ -1515,6 +1779,11 @@ def draft_requirements(data) -> list:
         for text in (data.get("violates"), oracle.get("requirement") if isinstance(oracle, dict) else None):
             if isinstance(text, str):
                 ids.update(C.REQ_ID_RE.findall(text))
+    # t-2187 N1 (AR-26): the requirement each manifestation names is one the bug breaks - the union, on top of the reading above
+    for entry in manifestation_entries(data):
+        text = entry.get("requirement")
+        if isinstance(text, str) and C.REQ_ID_RE.fullmatch(text.strip()):
+            ids.add(text.strip())
     return sorted(ids)
 
 
@@ -1528,10 +1797,433 @@ def filed_draft_names(task) -> set:
 
 
 def same_location_problems(paired: dict) -> list:
-    """One line per group of `pair_drafts(...)["same_location"]`: what is wrong and the two doors out of it (FR-1, FR-57)."""
-    return [f"the drafts {', '.join(names)} name one defect place {place}; merge them into one draft (every requirement in "
-            "`requirements`, every case in `cases`), or write `distinct_defect: <why>` on each draft that is another defect"
+    """One line per group of `pair_drafts(...)["same_location"]`: what is wrong and the two doors out of it (FR-1, FR-57). The merge
+    door names `manifestations` (t-2187 N2, 5.16): a merged draft covers each row through its `manifestations[].triage_row`, so no APP_BUG
+    row is left without a draft by either door."""
+    return [f"the drafts {', '.join(names)} name one defect place {place}; merge them into one draft whose `manifestations` hold "
+            "every row, or write `distinct_defect: <why>` on each draft that is another defect"
             for place, names in (paired or {}).get("same_location") or []]
+
+
+# --- one bug, many manifestations (spec t-2187, node N1): the readers and the problem lists of the merged draft ------------
+# A draft may carry the shared cause (`mechanism`) and every way it shows (`manifestations[]`). These are the ONE readers of
+# those keys (AR-13). Code checks DATA here: the shape of the keys, that each reference stands (a code line through
+# `_fact_problem`, a run through `place_answers.capture_stands`, a triage row in the rows), and that a witness is PRESENT. Whether a
+# run discriminates, whether two rows share a cause, whether to merge is the analyst's judgment, accepted by the scribe and the
+# person at gate B (AR-29). Error direction: DOWN - what cannot be re-read does not stand, never a pass. A draft with neither key
+# (an old one) yields no problem: it is never re-litigated (AR-23). Nothing here refuses itself; the callers (`handoff_check`,
+# `gate_preflight`, the gate B packet, the bug text, the report) print what these return, with the door.
+R_MECH_SHAPE = "`mechanism` is not shaped as {statement, status, basis, claims, why}"
+R_MECH_STATUS = "`mechanism.status` is not one of confirmed / unverified / unknown"
+R_MECH_STATEMENT = "`mechanism.statement` is missing: say in one sentence what the cause is when the status is confirmed or unverified"
+R_MECH_WHY = "`mechanism.why` is missing: say what is missing when the cause is unknown or unverified"
+R_MECH_BASIS_SHAPE = "`mechanism.basis` is not a list of objects"
+R_MECH_BASIS_ID = "a `mechanism.basis` entry has no `id`, or two share one"
+R_MECH_BASIS_KIND = "a `mechanism.basis` entry has a `kind` that is not code_line / run / person"
+R_MECH_CODE_LINE = "a `code_line` basis does not stand"
+R_MECH_RUN = "a `run` basis does not stand"
+R_MECH_NO_BASIS = "`mechanism.status` is confirmed and no basis entry stands"
+R_MECH_CLAIM = "a `mechanism.claims` entry is malformed, or cites a basis id that is not there or does not stand"
+R_MAN_SHAPE = "`manifestations` is not a list of objects"
+R_MAN_FIELDS = "a manifestation lacks `action`, `start_state`, `seen` or `evidence`"
+R_MAN_SOURCE = "a manifestation names neither a `triage_row` nor a `probe` (nor `from_draft` with `evidence`), or names both"
+R_MAN_NO_ROW = "a manifestation's `triage_row` is no row of work/triage.json"
+R_MAN_NOT_APP_BUG = "a manifestation's `triage_row` is a row whose verdict is not APP_BUG"
+R_MAN_PROBE = "a manifestation's `probe` does not stand"
+R_MAN_RED_TEST = "a manifestation carries no red test (or why there is none), or both"
+R_MAN_PRIMARY = "the first manifestation is not the draft's own row"
+
+
+def manifestation_entries(draft) -> list:
+    """The dict entries of `draft["manifestations"]`; [] when the key is absent or not a list (a caller that must refuse says so
+    through `manifestation_problems`: this reader never raises)."""
+    items = draft.get("manifestations") if isinstance(draft, dict) else None
+    return [e for e in items if isinstance(e, dict)] if isinstance(items, list) else []
+
+
+def is_absorbed(entry) -> bool:
+    """A manifestation absorbed from a code-reading draft: it names `from_draft` and neither a `triage_row` nor a `probe` (nothing was
+    run for it: spec t-2187 3.2). The ONE test of that shape (AR-13): `manifestation_problems` does not ask it for `seen` and
+    `start_state`, and `manifestation_summary` marks it as found by reading the code."""
+    return (isinstance(entry, dict) and bool(_text(entry.get("from_draft"))) and not entry.get("triage_row")
+            and not entry.get("probe"))
+
+
+def draft_cases(draft) -> list:
+    """Every case a draft speaks for: `case`, `cases` and `manifestations[].case`, in that order, as written (no case-form parsing:
+    a cell is kept whole), without repeats; [] for a draft that names none. The ONE reader of a draft's cases (AR-13)."""
+    if not isinstance(draft, dict):
+        return []
+    out: list = []
+    for value in (draft.get("case"), draft.get("cases"), *[e.get("case") for e in manifestation_entries(draft)]):
+        for item in value if isinstance(value, list) else [value]:
+            text = item.strip() if isinstance(item, str) else ""
+            if text and text not in out:
+                out.append(text)
+    return out
+
+
+def manifestation_refs(draft) -> list:
+    """`[(instance_id, attempt_id)]` the manifestations' `triage_row`s name, in order, without repeats (the shapes `draft_triage_key`
+    reads; a bare instance is `(instance, "")` and covers every attempt, as a `triage_ref` does). An entry that is not an object,
+    names no row or no instance is skipped: it covers nothing (error direction: a draft is owed, never waived)."""
+    out: list = []
+    for entry in manifestation_entries(draft):
+        key = draft_triage_key({"triage_ref": entry.get("triage_row")})
+        if key[0] and key not in out:
+            out.append(key)
+    return out
+
+
+def manifestation_summary(draft) -> list:
+    """One line per manifestation: `<action>; start: <start_state>; seen: <seen>` (an empty part is left out; whitespace squashed);
+    [] when the draft has no `manifestations`. A reader that shows an ordinary bug as today prints nothing for fewer than two. An
+    entry absorbed from a code-reading draft (`is_absorbed`: nothing was run) ends with "(found by reading the code, not run)"."""
+    lines = []
+    for entry in manifestation_entries(draft):
+        parts = [_one_line(entry.get("action"))]
+        for label, key in (("start", "start_state"), ("seen", "seen")):
+            text = _one_line(entry.get(key))
+            if text:
+                parts.append(f"{label}: {text}")
+        if is_absorbed(entry):
+            parts.append("(found by reading the code, not run)")
+        lines.append("; ".join(p for p in parts if p))
+    return lines
+
+
+def _text(value) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _fold(text) -> str:
+    """Whitespace squashed, casefolded: how a quote is compared with the words it claims to come from."""
+    return " ".join(str(text or "").split()).casefold()
+
+
+PERSON_QUOTE_MIN = 12       # non-space characters: a shorter quote ("one bug", "e") says nothing about THESE bugs and never stands
+
+
+def _person_gap(task, draft, entry) -> str:
+    """"" when a `person` basis entry stands, else why not, in words the analyst can act on (FR-1). The entry NAMES its dispatch
+    (t-2187 M1): `{id, kind: person, dispatch, quote}`. It stands only when (i) that dispatch is an S7 rework record marked as the
+    person's words (`place_answers.person_words_of`, the one reader the `person` source of a place answer uses too), (ii) the cases the
+    rework was asked for (its `scope` - the record names no drafts) COVER every case of the merged draft (`draft_cases`; a draft that
+    names no case is covered by nothing), and (iii) the quote, whitespace-squashed and casefolded, is in THAT dispatch's words and has
+    at least `PERSON_QUOTE_MIN` non-space characters. Invariant: a merge is accepted on the person's word only when the words were
+    spoken about these bugs; words against the merge, or about another rework, never legitimise it - the error goes toward "split".
+    Whether the words mean "merge" stays the scribe's and the person's question (AR-29). An entry in the old shape (no `dispatch`) does
+    not stand. A story with no event journal or an unreadable state gives no words."""
+    expected = ("name the S7 rework dispatch the person's words were recorded in (`dispatch`), whose cases cover this draft's, and quote "
+                f"at least {PERSON_QUOTE_MIN} non-space characters of those words (`quote`)")
+    dispatch = _text(entry.get("dispatch"))
+    if not dispatch:
+        return f"it names no `dispatch`; {expected}"
+    try:
+        import place_answers as PA
+        info, why = PA.person_words_of(Path(task), dispatch)
+    except Exception:  # noqa: BLE001 - an unreadable record confirms nothing
+        return "the recorded words could not be read"
+    if info is None:
+        return f"dispatch {dispatch} is not a recorded person's words ({why}); {expected}"
+    if info["stage"] != "S7":
+        return f"dispatch {dispatch} is not a rework of S7; {expected}"
+    cases = draft_cases(draft)
+
+    def covered(case) -> bool:
+        return any(case == member or _case_match(member, case) for member in info["scope"])
+    if not cases or not all(covered(case) for case in cases):
+        return f"the rework {dispatch} was not asked for the cases of this draft ({', '.join(cases) or 'none named'}); {expected}"
+    quote = _fold(entry.get("quote")) if isinstance(entry.get("quote"), str) else ""
+    if len("".join(quote.split())) < PERSON_QUOTE_MIN:
+        return f"`quote` is shorter than {PERSON_QUOTE_MIN} non-space characters; {expected}"
+    if quote not in _fold(info["words"]):
+        return f"`quote` is not in the words of dispatch {dispatch}; {expected}"
+    return ""
+
+
+def _case_match(member, case) -> bool:
+    try:
+        return bool(C.case_matches(str(member), case))
+    except Exception:  # noqa: BLE001 - a case that cannot be compared is not covered
+        return False
+
+
+def mechanism_problems(task, draft) -> list:
+    """`[(reason, detail)]`: why the draft's `mechanism` does not stand; [] when it stands, and [] for a draft with no `mechanism` key
+    (an old draft; the obligation to write one is `contract.BUG_MECHANISM_CUTOFF`'s, not this function's). Checked:
+    - shape: an object; `status` exactly one of `contract.MECHANISM_STATUSES` (`Confirmed` is no such word); `statement`, when
+      present, text - and non-empty text when the status is `confirmed` or `unverified` (t-2187 A2; optional for `unknown`, whose
+      `why` is the text); `why` non-empty when the status is `unknown` or `unverified`; `basis` a list of objects when present (absent
+      reads as the empty list), each with a unique `id` and a `kind` of `contract.MECHANISM_BASIS_KINDS`;
+    - a `code_line` entry stands by `_fact_problem(task, {path, line, quote}, None, "")` - no `id` goes in, so the code-place branch
+      runs and no second code-line verifier exists; a `run` entry stands by `place_answers.capture_stands` (the capture is in the
+      recorder's index of the case it names, unchanged, and holds the quote); a `person` entry is a known kind that is not checkable
+      by code, but stands (t-2187 A1, M1) by `_person_gap`: it names its `dispatch`, an S7 rework recorded as the person's words whose
+      cases cover the draft's, and its `quote` (at least `PERSON_QUOTE_MIN` non-space characters) is in THAT dispatch's words; otherwise
+      it does not stand (and is no problem, unless it was the only basis of a confirmed cause: then the problem names what is expected);
+    - `confirmed` needs at least one standing entry; every `claims[].confirmed_by` id must be a basis entry that stands (an empty
+      list is a claim that is NOT verified, and is not a problem: the packet prints it as such, FR-41).
+    Not checked, by design (AR-29): whether a run discriminates, whether the statement is the cause. A capture that is also a
+    manifestation's `evidence` is not a problem. Reads only (FR-45)."""
+    return _mechanism_scan(task, draft)[0]
+
+
+def _mechanism_scan(task, draft) -> tuple:
+    """`(problems, standing)`: `mechanism_problems`' list and the ids of the basis entries that stand - the ONE walk of the basis, so the
+    problem list and `cause_view`'s count of how a cause was confirmed cannot disagree (M3)."""
+    if not isinstance(draft, dict) or "mechanism" not in draft:
+        return [], set()
+    mech = draft["mechanism"]
+    if not isinstance(mech, dict):
+        return [(R_MECH_SHAPE, f"`mechanism` is {type(mech).__name__}, not an object")], set()
+    out = _mech_head_step(mech)
+    basis, standing, seen_ids, person_gaps = _mech_basis_walk(task, draft, mech, out)
+    if mech.get("status") == "confirmed" and not standing:
+        detail = "no `code_line`, `run` or `person` entry stands" if basis else "`basis` is empty"
+        out.append((R_MECH_NO_BASIS, detail + ("; " + "; ".join(person_gaps) if person_gaps else "")))
+    out += _mech_claim_step(mech, standing, seen_ids)
+    return out, standing
+
+
+def _mech_head_step(mech: dict) -> list:
+    """The `status`, `statement` and `why` checks of a `mechanism` object, in the order the reasons are reported."""
+    out: list = []
+    status = mech.get("status")
+    if not isinstance(status, str) or status not in C.MECHANISM_STATUSES:
+        out.append((R_MECH_STATUS, f"got {status!r}; the words are {', '.join(C.MECHANISM_STATUSES)}, written exactly"))
+    if mech.get("statement") is not None and not isinstance(mech.get("statement"), str):
+        out.append((R_MECH_SHAPE, "`mechanism.statement` is not text"))
+    elif status in ("confirmed", "unverified") and not _text(mech.get("statement")):
+        out.append((R_MECH_STATEMENT, f"status is {status}"))       # t-2187 A2: a cause that is not said is not a cause
+    if status in ("unknown", "unverified") and not _text(mech.get("why")):
+        out.append((R_MECH_WHY, f"status is {status}"))
+    return out
+
+
+def _mech_basis_step(task, kind: str, entry: dict, label: str) -> list:
+    """`[(reason, detail)]` of one basis entry of a checkable kind: a `code_line` by `_fact_problem`, a `run` by `place_answers.capture_stands`."""
+    if kind == "code_line":
+        why = _fact_problem(task, {k: entry.get(k) for k in ("path", "line", "quote")}, None, "")
+        return [(R_MECH_CODE_LINE, f"{label}: {why}")] if why else []
+    if kind == "run":
+        import place_answers as PA
+        try:
+            found = PA.capture_stands(Path(task), _text(entry.get("case")), entry.get("capture"), entry.get("quote"), field="basis")
+        except Exception as exc:  # noqa: BLE001 - a check that could not run is not a pass
+            found = [f"the capture could not be verified ({type(exc).__name__})"]
+        return [(R_MECH_RUN, f"{label}: {line}") for line in found]
+    return []
+
+
+def _mech_basis_walk(task, draft: dict, mech: dict, out: list) -> tuple:
+    """The ONE walk of `mechanism.basis`: appends its problems to `out`; returns `(basis list, standing ids, seen ids, person gaps)`."""
+    basis = mech.get("basis", [])
+    standing: set = set()
+    seen_ids: set = set()
+    person_gaps: list = []
+    if not isinstance(basis, list):
+        out.append((R_MECH_BASIS_SHAPE, f"`mechanism.basis` is {type(basis).__name__}"))
+        basis = []
+    for index, entry in enumerate(basis, 1):
+        label = f"basis entry {index}"
+        if not isinstance(entry, dict):
+            out.append((R_MECH_BASIS_SHAPE, f"{label} is not an object"))
+            continue
+        bid = _text(entry.get("id"))
+        if not bid or bid in seen_ids:
+            out.append((R_MECH_BASIS_ID, f"{label}: id {bid!r}"))
+        label = f"basis entry {bid or index}"
+        kind = entry.get("kind")
+        if not isinstance(kind, str) or kind not in C.MECHANISM_BASIS_KINDS:
+            out.append((R_MECH_BASIS_KIND, f"{label}: kind {kind!r}"))
+            seen_ids.add(bid)
+            continue
+        problems = _mech_basis_step(task, kind, entry, label)
+        out += problems
+        stands = not problems
+        if kind == "person":
+            gap = _person_gap(task, draft, entry)
+            stands = not gap
+            if gap:
+                person_gaps.append(f"{label}: {gap}")
+        if stands and bid and bid not in seen_ids:
+            standing.add(bid)
+        seen_ids.add(bid)
+    return basis, standing, seen_ids, person_gaps
+
+
+def _mech_claim_step(mech: dict, standing: set, seen_ids: set) -> list:
+    """The `claims[]` checks: each claim has `says` and a `confirmed_by` list, and every id it cites is a basis entry that stands."""
+    out: list = []
+    claims = mech.get("claims", [])
+    if not isinstance(claims, list):
+        out.append((R_MECH_CLAIM, "`mechanism.claims` is not a list"))
+        claims = []
+    for index, claim in enumerate(claims, 1):
+        cited = claim.get("confirmed_by", []) if isinstance(claim, dict) else None
+        if not isinstance(claim, dict) or not _text(claim.get("says")) or not isinstance(cited, list):
+            out.append((R_MECH_CLAIM, f"claim {index} needs `says` (text) and `confirmed_by` (a list of basis ids)"))
+            continue
+        for bid in cited:
+            if not isinstance(bid, str) or bid not in standing:
+                out.append((R_MECH_CLAIM, f"claim {index} cites {bid!r}: "
+                            + ("not a basis id" if not isinstance(bid, str) or bid not in seen_ids else "that entry does not stand")))
+    return out
+
+
+LOST_EVIDENCE = "the evidence behind it could not be re-read"
+_COUNT_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+
+def count_word(n: int) -> str:
+    """A count as a word up to ten, as digits beyond: how every carrier says "from two starting states" (FR-10)."""
+    return _COUNT_WORDS[n] if isinstance(n, int) and 0 <= n < len(_COUNT_WORDS) else str(n)
+
+
+def cause_view(task, draft) -> dict:
+    """The ONE reader of a draft's cause facts (t-2187 M3, AR-13): the bug text, the gate B packet and the report print from it and can no
+    longer disagree. `{}` for a draft with no `mechanism` object (an old draft is read as today). Else:
+    `status` - the EFFECTIVE word: `confirmed` only when the draft says so AND `mechanism_problems` finds nothing (a basis that cannot be
+    re-read is a cause not established: `unknown`, with `why` = `LOST_EVIDENCE`, never a pass: FR-41, FR-59); a word that is none of the
+    contract's three, or `unverified` with no statement, reads `unknown`; `written` - the word the draft wrote ("" when it is not one of
+    the three); `statement`, `why` (one line each, whole: the carriers clip); `by_code` - a `code_line` entry stands; `runs` - the number
+    of DISTINCT start states of the `run` entries that stand (a run with no start state counts for none: one counting rule); `by_person` -
+    a `person` entry stands; `unverified` - the `says` of every claim no basis entry confirms; `links` - `[{"draft", "why"}]` of
+    `possibly_same_cause`. With `task` None (a caller that holds no task root) nothing is re-read: the `code_line` and `run` entries count as
+    written, a `person` entry never counts, and `status` is the written word. Judges nothing about whether the statement is the cause (AR-29)."""
+    mech = draft.get("mechanism") if isinstance(draft, dict) else None
+    if not isinstance(mech, dict):
+        return {}
+    written = mech.get("status") if isinstance(mech.get("status"), str) and mech["status"] in C.MECHANISM_STATUSES else ""
+    statement, why = _one_line(mech.get("statement")), _one_line(mech.get("why"))
+    status = written or "unknown"
+    if status == "unverified" and not statement:
+        status = "unknown"         # a hypothesis with no words has nothing to print as one: it is said as not established
+    if task is None:
+        problems, standing = [], None
+    else:
+        try:
+            problems, standing = _mechanism_scan(task, draft)
+        except Exception:  # noqa: BLE001 - a check that could not run is not a pass
+            problems, standing = [("the cause could not be checked", "")], set()
+    if status == "confirmed" and problems:
+        status, why = "unknown", LOST_EVIDENCE
+    basis = [b for b in (mech.get("basis") if isinstance(mech.get("basis"), list) else []) if isinstance(b, dict)]
+    live = [b for b in basis if (b.get("kind") in ("code_line", "run") if standing is None else _text(b.get("id")) in standing)]
+    states = {_fold(b.get("start_state")) for b in live if b.get("kind") == "run" and _fold(b.get("start_state"))}
+    claims = [c for c in (mech.get("claims") if isinstance(mech.get("claims"), list) else []) if isinstance(c, dict)]
+    return {"status": status, "written": written, "statement": statement, "why": why,
+            "by_code": any(b.get("kind") == "code_line" for b in live), "runs": len(states),
+            "by_person": any(b.get("kind") == "person" for b in live),
+            "unverified": [_one_line(c.get("says")) for c in claims
+                           if _one_line(c.get("says")) and not (isinstance(c.get("confirmed_by"), list) and c["confirmed_by"])],
+            "links": cause_links(draft)}
+
+
+def cause_links(draft) -> list:
+    """`[{"draft": <as written>, "why": <one line>}]`: the drafts this one names in `possibly_same_cause`, in order, whatever its
+    `mechanism` (a draft with no cause can still be linked). The ONE reader of the key (AR-13): the packet and the report map the names to
+    their own row numbers."""
+    links = draft.get("possibly_same_cause") if isinstance(draft, dict) else None
+    return [{"draft": _text(e.get("draft")), "why": _one_line(e.get("why"))}
+            for e in (links if isinstance(links, list) else []) if isinstance(e, dict) and _text(e.get("draft"))]
+
+
+def cause_how_words(view: dict) -> str:
+    """How a cause was confirmed, IN WORDS, from `cause_view`: "by the line of the application code that does it", "by trying it from
+    <two> starting states", "on your word at gate B", joined by " and "; "" when it names none. The one phrase builder of the three
+    carriers (M3)."""
+    view = view or {}
+    parts = []
+    if view.get("by_code"):
+        parts.append("by the line of the application code that does it")
+    if view.get("runs"):
+        parts.append(f"by trying it from {count_word(view['runs'])} starting state{'' if view['runs'] == 1 else 's'}")
+    if view.get("by_person"):
+        parts.append("on your word at gate B")
+    return " and ".join(parts)
+
+
+def manifestation_problems(task, draft, rows) -> list:
+    """`[(reason, detail)]`: why the draft's `manifestations[]` do not stand; [] when they do, and [] for a draft with no
+    `manifestations` key (an old draft). `rows` is the list of `work/triage.json` rows. Per entry: an object with non-empty text
+    `action`, `start_state`, `seen`, `evidence`; EXACTLY one of `triage_row` (a row of `rows` whose verdicts include APP_BUG: the
+    shapes `draft_triage_key` reads, a bare instance covers every attempt) and `probe` (`{case, capture, quote}` that
+    `place_answers.capture_stands` accepts) - except an entry absorbed from a code-reading draft (`is_absorbed`), which names `from_draft`
+    and its `evidence` and neither of the two (spec t-2187 3.2) and is not asked for `start_state` and `seen` (nothing was run); a red test or a reason there is none, through `contract.red_test_problems`.
+    The first entry rests on the draft's own row: with a draft-level `triage_ref`, `manifestations[0].triage_row` names the same row -
+    equal instance, and equal attempt or no attempt on either side (a bare instance and a full key of it are one row).
+    Shape and cross-references only; whether the entry is the same bug is the analyst's judgment (AR-29). Reads only (FR-45)."""
+    if not isinstance(draft, dict) or "manifestations" not in draft:
+        return []
+    items = draft["manifestations"]
+    if not isinstance(items, list) or any(not isinstance(e, dict) for e in items):
+        return [(R_MAN_SHAPE, f"`manifestations` is {type(items).__name__}" if not isinstance(items, list) else "an entry is not an object")]
+    verdicts = triage_verdicts(rows)
+    out: list = []
+    for index, entry in enumerate(items, 1):
+        label = f"manifestation {index}"
+        asked = ("action", "evidence") if is_absorbed(entry) else ("action", "start_state", "seen", "evidence")    # m4: nothing was run for an absorbed one
+        lacking = [k for k in asked if not _text(entry.get(k))]
+        if lacking:
+            out.append((R_MAN_FIELDS, f"{label} lacks {', '.join(lacking)}"))
+        has_row, has_probe = bool(entry.get("triage_row")), bool(entry.get("probe"))
+        absorbed = bool(_text(entry.get("from_draft"))) and bool(_text(entry.get("evidence")))
+        if has_row == has_probe and not (absorbed and not has_row):
+            out.append((R_MAN_SOURCE, f"{label}: " + ("both are given" if has_row else "neither is given")))
+        if has_row:
+            found = verdicts.get(draft_triage_key({"triage_ref": entry["triage_row"]})) or []
+            if not found:
+                out.append((R_MAN_NO_ROW, f"{label}: {entry['triage_row']!r}"))
+            elif APP_BUG not in found:
+                out.append((R_MAN_NOT_APP_BUG, f"{label}: verdicts {sorted({v for v in found if v})}"))
+        if has_probe:
+            probe = entry["probe"]
+            if not isinstance(probe, dict):
+                out.append((R_MAN_PROBE, f"{label}: `probe` is not an object"))
+            else:
+                import place_answers as PA
+                try:
+                    found = PA.capture_stands(Path(task), _text(probe.get("case")), probe.get("capture"), probe.get("quote"), field="probe")
+                except Exception as exc:  # noqa: BLE001 - a check that could not run is not a pass
+                    found = [f"the capture could not be verified ({type(exc).__name__})"]
+                out += [(R_MAN_PROBE, f"{label}: {line}") for line in found]
+        out += [(R_MAN_RED_TEST, f"{label}: {line}") for line in C.red_test_problems(entry)]
+    own = draft_triage_key(draft)
+    if items and own != ("", ""):
+        first = draft_triage_key({"triage_ref": items[0].get("triage_row")})
+        # t-2187 A-first: the SAME row when the instances are equal and the attempts are equal OR either side names none (a bare
+        # instance covers every attempt, the rule `triage_ref` has always had); a different instance is never the same row
+        if not (first[0] == own[0] and (first[1] == own[1] or not first[1] or not own[1])):
+            out.append((R_MAN_PRIMARY, f"the draft's row is {own[0]}@{own[1]}, the first manifestation's is {first[0]}@{first[1]}"))
+    return out
+
+
+def merged_unconfirmed(task, drafts) -> list:
+    """`[(name, first problem)]` (t-2187 N2, F-2 (a)): every draft that merges 2+ manifestations under one cause the factory cannot
+    re-read - `mechanism` absent, or its status not exactly `confirmed`, or `mechanism_problems(task, draft)` non-empty. `drafts` is
+    `[(name, draft dict)]`; `task` the task root (code lines and captures are read from it). A draft with 0 or 1 manifestation is
+    never listed (an ordinary bug, an old draft: no refusal). A `manifestations` list of 2+ items counts even when an item is junk:
+    the shape is `manifestation_problems`' business, and an unreadable merge is not a pass. A `person` basis stands here only through
+    `_person_gap` (it names its dispatch, the rework covers the draft's cases, the quote is in that dispatch's words: M1). Error direction: only toward "split" - what cannot be
+    re-read does not stand. Whether the run discriminates is the analyst's judgment, accepted by the scribe and the person (AR-29).
+    Reads only (FR-45): the callers that hold the task root (`handoff_check._claim_bug_has_a_draft`, `gate_preflight.check_bug_drafts`)
+    print what it returns, with the door; `pair_drafts` stays pure and does not call it."""
+    out: list = []
+    for name, draft in drafts or []:
+        items = draft.get("manifestations") if isinstance(draft, dict) else None
+        if not isinstance(items, list) or len(items) < 2:
+            continue
+        found = mechanism_problems(task, draft)
+        if found:
+            reason, detail = found[0]
+            out.append((name, f"{reason} ({detail})"))
+        elif "mechanism" not in draft:
+            out.append((name, "the draft names several manifestations and no `mechanism`"))
+        elif draft["mechanism"].get("status") != "confirmed":
+            out.append((name, f"the cause is {_text(draft['mechanism'].get('status'))!r}, not confirmed"))
+    return out
 
 
 def main(argv=None) -> int:

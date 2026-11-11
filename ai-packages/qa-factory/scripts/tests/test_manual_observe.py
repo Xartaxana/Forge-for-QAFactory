@@ -390,6 +390,8 @@ def k5_owner_of_the_block():
             (blocked / "env_blocked.json").write_text(json.dumps(
                 {"id": CASE, "probe_line": "login by code: did not land", "remedy": "r", "owner": owner, "do_not_retry": True}),
                 encoding="utf-8")
+            # the real producer (`_login_blocked`) ends the attempt with a failed `ui` step: that is the evidence a login was SENT
+            (blocked / "steps.jsonl").write_text(json.dumps({"command": "ui", "outcome": "failed"}) + "\n", encoding="utf-8")
             browser = ObsBrowser(flow=True)
             code, out, err, _ = TMC.ui_run(t, SIGN_IN_FILE, browser)
             check_eq(f"K5 owner {owner}: fill-account after a do_not_retry block", code, want)
@@ -504,50 +506,11 @@ def k6_plain_run_and_never_fails_a_step():
 # K7: the three texts (DOC-WITNESS; the keys are quoted from the DoD, with a negative control)
 # --------------------------------------------------------------------------------------------
 
-def missing(keys, text):
-    flat = " ".join(text.split())
-    return [k for k in keys if k not in flat]
-
-
 def k7_texts():
-    docs = {
-        "scripts/manual_capture.py": ["fill-account", "sign in ONCE", "The agent drives the UI as a user"],
-        "agents/qa-runner.md": ["You drive the UI as a user", "its screenshot only for a failed step",
-                                "the goal of the check is yours", "sign in ONCE", "`fill-account`"],
-        "references/manual-evidence.md": ["fill-account", "sign in ONCE", "NOT in `captures.jsonl`", "{step, outcome, screenshot, text}"],
-        "references/manual-capture-steps.json": ["fill-account"],
-        # t-1550 F4: the carriers the roles are told the forms from (role_cli echoes `input` in its refusals) and the exits
-        "references/role-commands.json": ["fill-account <selector> <actor> user|secret", "sign in ONCE", "[--as <account>]",
-                                          "{generated_username}", "{generated_password}"],
-        "design/state-exits.md": ["fill-account <selector> <actor> user|secret", "sign in ONCE", "owner: `user`"],
-    }
-    for path, keys in docs.items():
-        text = (PKG / path).read_text(encoding="utf-8")
-        check_eq(f"K7 {path}: every new phrase is there", missing(keys, text), [])
-        check_not_in(f"K7 {path}: the old prohibition is gone", "never sign in through steps", " ".join(text.lower().split()))
-    runner = " ".join((PKG / "agents/qa-runner.md").read_text(encoding="utf-8").split())
-    for key in ("An obstacle the excerpt or the screenshot shows", "is cleared and the step is run again",
-                "Record FAIL only when the product does not do what the case demands",
-                "fails twice with nothing in its way on the screen is `inconclusive`, with the limitation named"):
-        check_in(f"K7 F10 qa-runner.md: {key[:50]}", key, runner)
-    check_not_in("K7 F10: the old retry rule is gone", "a second failure is FAIL", runner)
-    for path in ("agents/qa-runner.md", "references/manual-evidence.md"):
-        flat = " ".join((PKG / path).read_text(encoding="utf-8").split())
-        check_not_in(f"K7 F9 {path}: no `else the default` (an unlisted account is refused)", "else the default", flat)
-        check_not_in(f"K7 F9 {path}: ... nor `else the stand's default`", "else the stand's default", flat)
-    designer = " ".join((PKG / "agents/qa-case-designer.md").read_text(encoding="utf-8").split())
-    # spec t-1765 X1 (B-D, "moved"): the form of `--as` is the reference's (manual-evidence.md), not the designer charter's
-    evidence = " ".join((PKG / "references/manual-evidence.md").read_text(encoding="utf-8").split())
-    check_in("K7 F9 manual-evidence.md: the `--as env:USER_KEY/SECRET_KEY` form is where the designer's cases are pointed",
-             "--as env:USER_KEY/SECRET_KEY", evidence)
-    check_not_in("K7 F9 control: a wrong form is not there", "--as env:USER/SECRET/EXTRA", evidence)
-    check_not_in("K7 F9 qa-case-designer.md: it no longer says the capture signs in as an env check's user",
-                 "the capture signs in as it", designer)
-    check_eq("K7 NEGATIVE control: a phrase that is not in the text is reported missing",
-             missing(["NO-SUCH-PHRASE-7f3a"], (PKG / "agents/qa-runner.md").read_text(encoding="utf-8")), ["NO-SUCH-PHRASE-7f3a"])
-    # raised 9000 -> 9500 by HF8-19 N1a (item 8: the Then quotes and the re-judge, 9384 B measured); the next raise needs a trim first
-    check("K7: qa-runner.md is under its 9500 B ceiling", len((PKG / "agents/qa-runner.md").read_bytes()) <= 9500,
-          str(len((PKG / "agents/qa-runner.md").read_bytes())))
+    # The role-text keys of K7 (runner charter, manual-evidence.md, role-commands.json) live in design/role-rules.json (TD-5.3.3).
+    # X7-3: the 9500 B ceiling is dropped (R-drop): the runner is a charter, `charter.charter_errors` holds its size (150 lines)
+    check("K7: qa-runner.md is a charter of the form (its size is held by charter_errors)",
+          __import__("charter").charter_errors((PKG / "agents/qa-runner.md").read_text(encoding="utf-8")) == [])
     check("K7: manual-evidence.md is under its 12000 B ceiling", len((PKG / "references/manual-evidence.md").read_bytes()) <= 12000)
 
 

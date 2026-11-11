@@ -190,6 +190,13 @@ class Scan(ast.NodeVisitor):
                     self.person_use.append((second.value, ctx, node.lineno))
         elif isinstance(func, ast.Name) and func.id == "vars" and node.args and self._is_self(node.args[0]):
             self.refused.append(("`vars(self)` hides every attribute it touches", node.lineno))
+        elif isinstance(func, ast.Name) and func.id == "once_on" and node.args and self._is_self(node.args[0]):
+            # `once_on(self, "<name>", make)` keeps `<name>` on the instance: a touch of that attribute, read like getattr
+            second = node.args[1] if len(node.args) > 1 else None
+            if isinstance(second, ast.Constant) and isinstance(second.value, str):
+                self.self_use.append((second.value, "load", node.lineno, "once_on"))
+            else:
+                self.refused.append(("`once_on(self, <non-literal>, ...)` hides the attribute it touches", node.lineno))
         if isinstance(func, ast.Attribute) and self._is_state(func.value):
             if func.attr in ("get", "setdefault", "pop", "__contains__", "__getitem__", "__setitem__", "__delitem__"):
                 first = node.args[0] if node.args else None
@@ -812,6 +819,10 @@ def bad_fixtures() -> None:
     expect("L3 a non-literal getattr without a row", "L3", "chosen at run time",
            source=BASE_SOURCE.replace("self.low()", "getattr(self, 'low' + str(1))()"))
     expect("L3 self.__dict__", "L3", "`self.__dict__`", source=BASE_SOURCE.replace("self.low()", "self.__dict__\n        self.low()"))
+    expect("L3 once_on(self, 'x', make) is a touch of `x`", "L3", "nothing owns `hidden_lock`",
+           source=BASE_SOURCE.replace("self.low()", "once_on(self, 'hidden_lock', dict)\n        self.low()"))
+    expect("L3 once_on(self, <non-literal>, make)", "L3", "`once_on(self, <non-literal>, ...)`",
+           source=BASE_SOURCE.replace("self.low()", "once_on(self, str(1), dict)\n        self.low()"))
     expect("L3 vars(self)", "L3", "`vars(self)`", source=BASE_SOURCE.replace("self.low()", "vars(self)\n        self.low()"))
     expect("L3 me = self", "L3", "makes an alias", source=BASE_SOURCE.replace("self.low()", "me = self\n        self.low()"))
     expect("L3 a lambda closing over self", "L3", "nothing owns `lam`",

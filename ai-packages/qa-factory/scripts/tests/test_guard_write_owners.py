@@ -73,6 +73,7 @@ def registry_rows() -> list:
 
 def path_for(task: Path, project: Path, key: str) -> Path:
     """Where an artifact of this key lives, as the registry spells it."""
+    key = key.replace("<", "_").replace(">", "_").replace("*", "x")      # `<case>` and `*` are not legal Windows file names (t-2087 F8; a per-dispatch key `...-*.md` is matched by fnmatch, so `x` stands for the `*`)
     if key.startswith("project:"):
         return project / key[len("project:"):].rstrip("/") / "FILE.md" \
             if key.endswith("/") else project / key[len("project:"):]

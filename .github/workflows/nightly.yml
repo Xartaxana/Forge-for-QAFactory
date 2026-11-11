@@ -4,6 +4,11 @@
 #   install-smoke        install_smoke.py, a job of its own next to the shards (not after them)
 #   package-full-report  joins the shard outputs and diffs scripts/slow_tests.json against them (--slow-tests --from)
 #   crap-measure         the CRAP report under coverage; nightly only, a measurement (never red for the release verdict)
+#   test-redundancy      every package test file under coverage with its own name as the context (tools/test_redundancy.py,
+#                        TD-12; 1-3 hours; a measurement): ONLY a dispatched run with the input TEST_REDUNDANCY=1, or one whose
+#                        ref starts with measure/ (also inside the canon, which calls this file); REDUNDANCY_SCOPE=keep -> --keep-only.
+#                        Start: python tools/ci_read.py start --workflow nightly.yml --ref <branch> --var TEST_REDUNDANCY=1 [--var REDUNDANCY_SCOPE=keep]
+# The quarantine watch is NOT here: it is quarantine-watch.yml with its own schedule, so neither schedule starts the other's jobs.
 # board-check is not ported: it mirrors piles to GitLab issues (tools/piles_gitlab.py) and there is no port to
 # GitHub Issues (owner's word, plan O6).
 # MINUTES: a private repo on GitHub Free has 2000 Linux minutes a month. The job "skip-if-unchanged" stops the
@@ -19,12 +24,29 @@ on:
         description: "branch or sha to run the full tier on"
         required: false
         default: main
+      # the GitLab pipeline variables of the test-redundancy job, under the same names (ci_read.py start --var KEY=VALUE)
+      TEST_REDUNDANCY:
+        description: "1 = also run the test-redundancy measurement (1-3 hours); empty = not"
+        required: false
+        default: ""
+      REDUNDANCY_SCOPE:
+        description: "keep = measure only the keep rows of test-layers.json (--keep-only); empty = every test file"
+        required: false
+        default: ""
   workflow_call:
     inputs:
       ref:
         type: string
         required: false
         default: main
+      TEST_REDUNDANCY:            # passed by canon.yml (the GitLab api pipeline with TEST_REDUNDANCY=1 is the canon plus it)
+        type: string
+        required: false
+        default: ""
+      REDUNDANCY_SCOPE:
+        type: string
+        required: false
+        default: ""
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -197,3 +219,49 @@ jobs:
           name: crap-report
           path: ci-out/crap/
           retention-days: 14
+
+  test-redundancy:
+    # .gitlab-ci.yml test-redundancy: a measurement, never a gate (continue-on-error = allow_failure; the run and the report are
+    # `|| true` so the totals print even when files were red). Its rule `(web || api) && (TEST_REDUNDANCY == "1" || ref =~ ^measure/)`
+    # is a dispatched run (the event of a called run is the caller's, so the canon on a measure/ ref runs it too) whose input
+    # TEST_REDUNDANCY is "1" or whose ref starts with measure/; never a schedule, push or pull request. No needs (`needs: []`).
+    if: github.event_name == 'workflow_dispatch' && (inputs.TEST_REDUNDANCY == '1' || startsWith(inputs.ref, 'measure/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    continue-on-error: true
+    env:
+      REDUNDANCY_SCOPE: ${{ inputs.REDUNDANCY_SCOPE }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install -q pytest coverage==7.16.2
+          python -m coverage --version
+          python -m coverage debug sys
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: test redundancy (smoke on one file, then the whole run and its report)
+        run: |
+          mkdir -p ci-out/redundancy
+          python -c "import sysconfig; open(sysconfig.get_paths()['purelib'] + '/zz_coverage_startup.pth', 'w').write('import coverage; coverage.process_startup()\n')"
+          python tools/test_redundancy.py run --package ai-packages/qa-factory --out ci-out/redundancy-smoke --jobs 2 --only "test_adapter_forms.py" || true
+          python tools/test_redundancy.py report --data ci-out/redundancy-smoke/data/.coverage --runs ci-out/redundancy-smoke/runs.json --out ci-out/redundancy-smoke || true
+          head -n 14 ci-out/redundancy-smoke/test-redundancy.md || true
+          if [ "$REDUNDANCY_SCOPE" = "keep" ]; then python tools/test_redundancy.py run --package ai-packages/qa-factory --out ci-out/redundancy --jobs 4 --keep-only > ci-out/redundancy/run-log.txt 2>&1 || true; else python tools/test_redundancy.py run --package ai-packages/qa-factory --out ci-out/redundancy --jobs 4 > ci-out/redundancy/run-log.txt 2>&1 || true; fi
+          tail -n 5 ci-out/redundancy/run-log.txt
+          python tools/test_redundancy.py report --data ci-out/redundancy/data/.coverage --runs ci-out/redundancy/runs.json --out ci-out/redundancy || true
+          sed -n '/^## A\./,$p' ci-out/redundancy/test-redundancy.md | head -n 40 || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-redundancy
+          path: |
+            ci-out/redundancy/*.md
+            ci-out/redundancy/*.json
+          retention-days: 30

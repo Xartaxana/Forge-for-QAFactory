@@ -4,7 +4,9 @@
 #   gh workflow run canon.yml -f ref=<branch>
 #   gh run watch            # or: gh run list --workflow canon.yml ; gh run view <id> --log-failed
 # What it runs: tier 1 + tier 2 (forge-check.yml) AND the full tier (nightly.yml package-full) on the same ref,
-# on a clean Linux python:3.12 machine -- the same thing the docker canon proved on the owner's machine.
+# on a clean Linux python:3.12 machine -- the same thing the docker canon proved on the owner's machine; plus the
+# test-redundancy measurement of nightly.yml when the input TEST_REDUNDANCY is 1 or the ref starts with measure/.
+# The quarantine watch is never part of the canon (quarantine-watch.yml; the full selftest skips the quarantine rows).
 # The clock (.gitlab-ci.yml canon-clock): the wall time of the whole canon against 60 minutes, read after a red job too.
 # The hour is a norm to measure, not a gate on duration yet: the door `canon-over-hour: <reason>` in the head commit message
 # is measured in the first week on GitHub (owner's word 28.10.2026, decision FK-4) and tightened or loosened from that number.
@@ -19,6 +21,17 @@ on:
         description: "branch or sha to canonise"
         required: true
         default: main
+      # the GitLab api pipeline with TEST_REDUNDANCY=1 [REDUNDANCY_SCOPE=keep] = the canon plus the test-redundancy job
+      # (nightly.yml); `ci_read.py start --ref <b> --var TEST_REDUNDANCY=1` sends them. Empty = the canon alone. The clock
+      # then measures the measurement too, as the GitLab clock stage after it did.
+      TEST_REDUNDANCY:
+        description: "1 = also run the test-redundancy measurement (1-3 hours); empty = not"
+        required: false
+        default: ""
+      REDUNDANCY_SCOPE:
+        description: "keep = measure only the keep rows of test-layers.json; empty = every test file"
+        required: false
+        default: ""
 
 jobs:
   start:
@@ -38,6 +51,8 @@ jobs:
     uses: ./.github/workflows/nightly.yml
     with:
       ref: ${{ inputs.ref }}
+      TEST_REDUNDANCY: ${{ inputs.TEST_REDUNDANCY }}
+      REDUNDANCY_SCOPE: ${{ inputs.REDUNDANCY_SCOPE }}
   clock:
     needs: [start, checks, full]
     if: always()

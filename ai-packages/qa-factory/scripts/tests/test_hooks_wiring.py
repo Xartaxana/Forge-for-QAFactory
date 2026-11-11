@@ -231,7 +231,9 @@ def part2b_open_notes_no_config(wiring: dict, tmp_root: Path) -> bool:
     # project with no `qa-factory/` at all it creates `qa-factory/` and `state/` to do it (measured by probe, 07.10.2026).
     # That file is the ONLY allowed difference; anything else a hook leaves behind fails here. When exit_gate.py learns to
     # stay out of a project with no config, this name has no work left to do and goes.
-    known = ["qa-factory/state/.exit_gate_blocks.json"]
+    # TR4-2 part D: exit_gate takes the one file-lock helper (event_store.take_file_lock), which by design never deletes its
+    # lock file, so the known file leaves exactly its own `.lock` sidecar - that name only, nothing wider.
+    known = ["qa-factory/state/.exit_gate_blocks.json", "qa-factory/state/.exit_gate_blocks.json.lock"]
     ok = check("open notes, no config: the file list under the project is unchanged after every hook ran "
                "(but for the one file exit_gate.py is known to write)",
                [p for p in new if p not in known] == [] and [p for p in before if p not in listing()] == [],
@@ -281,7 +283,9 @@ def part5_role_specific_runtime_injection(tmp_root: Path) -> bool:
         "qa-case-critic": ["plugin:references/coverage-design.md", "plugin:references/risk-policy.md"],
         "qa-automator": ["plugin:references/execution-lifecycle.md"],
         "qa-code-critic": ["plugin:references/execution-lifecycle.md"],
-        "qa-runner": ["plugin:references/manual-evidence.md"],
+        # t-1957 N4: the walk charter replaced manual-evidence.md in the runner's injection (inject-map.json); the old grammar is reached by the path
+        # a fallback brief names (brief_pack.fallback_grammar_line), not injected
+        "qa-runner": ["plugin:references/walk-charter.md"],
     }
     proj = tmp_root / "runtime-injection"
     proj.mkdir(parents=True, exist_ok=True)

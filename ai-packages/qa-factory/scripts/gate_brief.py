@@ -65,6 +65,9 @@ MAX_LINES = 40
 # lines: a delivery with fourteen bugs is a real delivery, and folding its list would put the
 # person back to opening files to answer.
 MAX_BUGS = 15
+# One bug drafted from several ways it shows (t-2187): the packet lists this many ways under a bug and says how many more there are;
+# the readable text of the bug holds them all.
+MAX_MANIFESTATIONS_SHOWN = 6
 # There is no cap on the number of questions the cover sheet shows. It was 6, and on TP1-13797
 # the packet said "Open questions (11)" over six cards: five questions a person had to decide
 # were cut without a word (FR-41, B-216). Every open question gets its card; a story that has
@@ -380,9 +383,9 @@ def portable(path, task_root: Path) -> str:
     machine path in it is neither clickable nor anybody else's path."""
     try:
         target = Path(path).resolve()
-        for base in (task_root.resolve(), *task_root.resolve().parents):
-            if (base / "qa-factory" / "config.json").is_file():
-                return target.relative_to(base).as_posix()
+        base = _project_root_of(task_root)
+        if base is not None:
+            return target.relative_to(base).as_posix()
         return target.relative_to(task_root.resolve().parent).as_posix()
     except Exception:
         return Path(str(path)).name
@@ -880,12 +883,26 @@ def gate_b_split(task_root) -> tuple:
         return rows, []
 
 
+def _role_card(gap) -> bool:
+    """Is this gap the role card (one stand, one role, several cases) or the confirm card of a noticed role? (`stand_gaps.ROLE_SCOPES`)"""
+    import stand_gaps
+    return isinstance(gap, dict) and gap.get("scope") in stand_gaps.ROLE_SCOPES
+
+
+def _offers_nothing(gap) -> bool:
+    """A card whose `remedy.offers` is the EMPTY list takes no word: it informs and is never an open id of the answer block."""
+    remedy = gap.get("remedy") if isinstance(gap, dict) and isinstance(gap.get("remedy"), dict) else {}
+    return isinstance(remedy.get("offers"), list) and not remedy["offers"]
+
+
 def stand_gap_form_ids(gaps) -> dict:
     """{gap id: the id the person writes}: the bare case id, or - when two gaps share one (two areas, one number) -
     the gap's own key, which is the one thing that tells them apart. A LEVEL gap is written by its contour (`web: accept`
     answers every web test of the story); a contour and a case id that clash are two gaps sharing one id, so both fall back
     to their own keys (B-414 R3)."""
     def written(g) -> str:
+        if _role_card(g):
+            return ""       # a role card (t-2142 PK0-4) holds several cases: it is written by its own gap id (`RA-dev-auditor`)
         return str((g.get("contour") if g.get("scope") == "level" else g.get("case_id")) or "")
     counts = Counter(written(g) or str(g.get("id") or "") for g in gaps)
     return {str(g.get("id")): (written(g) if written(g) and counts[written(g)] == 1 else str(g.get("id"))) for g in gaps}
@@ -1485,6 +1502,13 @@ def _gap_heading(gap: dict, forms: dict, files: dict, card: bool = True) -> str:
     """The heading of one card (B-414 R3): a LEVEL gap says it is a whole level and which cases it costs (six named, then "and K
     more"); a case gap is today's heading and, on its card (`card`), says it is one case - the one-line list of the cards beyond the
     limit keeps today's text."""
+    if _role_card(gap):
+        role, form = str(gap.get("role") or ""), forms[str(gap.get("id"))]
+        if gap.get("scope") == "product_role":
+            return f"{form} — \"{role}\", a role the test strategist found in this story's requirements"
+        count = len(gap.get("cases") or [])
+        return (f"{form} — the account of the role \"{role}\" on the stand \"{gap.get('stand') or 'this stand'}\" "
+                f"({count} case{'' if count == 1 else 's'})")
     if gap.get("scope") == "level":
         cases = [str(c) for c in gap.get("cases") or []]
         shown = ", ".join(case_ref(c, files) for c in cases[:LEVEL_CASES_NAMED])
@@ -1509,7 +1533,6 @@ def _covered_block(covered: list, forms: dict) -> list:
     """`## Decided once for this environment (N)` (B-414 R3): one line per gap the environment record covers - what it says
     cannot be checked here, the date and the person's own words (names only, at most 160 characters) - and the line that has one
     asked again. Shown at both gates, for a level and for a case gap alike."""
-    import environment_record as ER
     import stand_gaps
     if not covered:
         return []
@@ -1518,7 +1541,10 @@ def _covered_block(covered: list, forms: dict) -> list:
         row = gap.get("property") if isinstance(gap.get("property"), dict) else {}
         name = forms.get(str(gap.get("id")), stand_gaps._label(gap))
         words = _one_line(stand_gaps.names_only(row.get("words")), COVERED_WORDS_LIMIT)
-        lines.append(f"- {name}: {ER.says(row)} — you wrote on {str(row.get('at') or '')[:10]}: \"{words}\"")
+        if stand_gaps.pk_property_of(gap):       # PK0-9: a not-a-role answer says its own date inside the sentence
+            lines.append(f"- {name}: {stand_gaps.covered_says(gap)} — you wrote: \"{words}\"")
+        else:
+            lines.append(f"- {name}: {stand_gaps.covered_says(gap)} — you wrote on {str(row.get('at') or '')[:10]}: \"{words}\"")
     ask = next(iter(environment_words()), None)
     if ask:
         lines += ["", f"To have one asked again, write `<name>: {ask['word']}` on a line of its own."]
@@ -1595,13 +1621,39 @@ def _understood_line(gap: dict) -> str:
                                                 else "the factory's helper left a note it cannot print here (names only)")
 
 
+def _option_lines(gap: dict, options: list, ctx: CardCtx) -> list:
+    """The answers of a card of project knowledge, each followed by the three price lines (`_price_labels`; t-2142 §3 (2), (6)). An
+    option of an offered word (`says`) is written with its word from the data file and the card's own id; any other option is the
+    person's own words on a line of their own (`head`). The labels and the words are data: nothing here is a word of code."""
+    labels = _price_labels()
+    role = str(gap.get("role") or "")
+    lines = [f"  the answers, in your own words on a line of their own, naming \"{role}\":" if gap.get("scope") == "product_role"
+             else "  the answers:"]
+    form = ctx.forms[str(gap.get("id"))]
+    for option in options:
+        word = ctx.word_of.get(str(option.get("option")))
+        if option.get("says") and word:
+            head = f"`{form}: {word}` - {option['says']}"
+        else:
+            head = str(option.get("head") or option.get("says") or "")
+        lines.append(f"  - {head}")
+        lines += [f"    {label} {option.get(key, '')}" for label, key in zip(labels, ("factory", "you", "story"))]
+    return lines
+
+
 def _card(gap: dict, answer: dict, asked_again: str, task_root, had_gate_a: bool, ctx: CardCtx) -> tuple:
     """(the lines of one card in full, ending with a blank line, whether the gap is still open): the test, what is missing, the fix, and
     the answer the person already gave - or, with none, that it is asked here (and, at a story that holds a gate A word, that none covers it)."""
     import stand_gaps
-    lines = [f"Stand gap: {_gap_heading(gap, ctx.forms, ctx.files)}"]
-    lines.append(f"  the test: {stand_gaps.names_only(gap.get('the_test'))[:200]}")
-    lines.append(f"  missing:  {stand_gaps.names_only(gap.get('missing'))[:240]}")
+    word = "Product role to confirm" if gap.get("scope") == "product_role" else "Stand gap"
+    lines = [f"{word}: {_gap_heading(gap, ctx.forms, ctx.files)}"]
+    # a card of project knowledge writes its two lines whole: `_role_card_words` already bounds them (3 titles of 70 characters, then
+    # "and K more", then the sign-in phrase) and a cut would drop the end of the sentence (t-2142 PK0-4, F2)
+    whole = _role_card(gap)
+    lines.append(f"  the test: {stand_gaps.names_only(gap.get('the_test'))[:None if whole else 200]}")
+    lines.append(f"  missing:  {stand_gaps.names_only(gap.get('missing'))[:None if whole else 240]}")
+    if gap.get("scope") == "role" and gap.get("in_roster") is False:
+        lines.append(f"  \"{gap.get('role')}\" is not among the product's roles yet; an account for it adds it.")
     if gap.get("changed_since"):
         lines.append("  your earlier answer for this environment does not apply now: "
                      + stand_gaps.names_only(gap["changed_since"])[:240])
@@ -1611,10 +1663,17 @@ def _card(gap: dict, answer: dict, asked_again: str, task_root, had_gate_a: bool
     if gap.get("understood"):
         # B-416 N7: what the factory's helper read of the unread report - the card is the person's only stop for it, with this
         lines.append(_understood_line(gap))
-    fix = stand_gaps.fix_line(gap.get("remedy"))
-    # a reporter card's line may carry the command the profile records (B-220 F6): it is longer, so it gets a longer limit,
-    # and a limit never cuts INSIDE a backquoted command - half a command is worse than none
-    lines.append(f"  the fix:  {_clip_whole_spans(fix, 480) if (gap.get('remedy') or {}).get('kind') == 'reporter' else fix[:240]}")
+    options = [o for o in gap.get("options") or [] if isinstance(o, dict)] if _role_card(gap) else []
+    if options:
+        # a card of project knowledge: the answers with their price lines (human-questions.md item 6) instead of `the fix:`; an
+        # answered card shows the answer, not the question (FR-7)
+        if not answer or asked_again:
+            lines.extend(_option_lines(gap, options, ctx))
+    else:
+        fix = stand_gaps.fix_line(gap.get("remedy"))
+        # a reporter card's line may carry the command the profile records (B-220 F6): it is longer, so it gets a longer limit,
+        # and a limit never cuts INSIDE a backquoted command - half a command is worse than none
+        lines.append(f"  the fix:  {_clip_whole_spans(fix, 480) if (gap.get('remedy') or {}).get('kind') == 'reporter' else fix[:240]}")
     if gap.get("lasting") == "fault":
         import environment_record
         lines.append("  " + environment_record.fault_line(gap.get("reason_class")))    # why `accept always` is not offered (M13)
@@ -1725,7 +1784,7 @@ def stand_gap_card_lines(task_root, gaps: list, decided: dict | None = None, lim
         else:
             card, is_open = _card(gap, answer, asked_again, task_root, had_gate_a, ctx)
             lines.extend(card)
-        if is_open:
+        if is_open and not _offers_nothing(gap):        # a card that takes no word (the confirm card) is no open id of the answer block
             open_ids.append(gid)
     if limit is not None and len(gaps) > limit:
         # one line each, and the same words answer them: the card above is the explanation of the four
@@ -1810,6 +1869,7 @@ GATE_A_DOCUMENTS = (("understanding", "understanding.md"), ("plan", "test-plan.m
 # it whole. `GATE_MESSAGE` lives under `work/`; its record - what `gate_shown.py` (the Stop hook) reads as "gate A was asked in
 # this session" - under `state/`. `phases/s4.md` names the message file as a literal; `test_gate_shown.py` pins that it agrees.
 GATE_MESSAGE = "gate-a-message.md"
+REFERENCE_BEHAVIOURS = "reference-behaviours.md"      # F1 (t-2551): every behaviour of the old version the factory saw, written beside the message
 GATE_MESSAGE_RECORD = "gate-message.json"
 
 
@@ -1837,6 +1897,18 @@ def documents(task_root: Path) -> dict:
             path = task_root / "work" / artifact_name
         if Path(path).is_file():
             out[name] = portable(path, task_root)
+    return out
+
+
+def documents_with_reference(task_root: Path, reference: dict) -> dict:
+    """`documents` plus, for a story whose reference snapshot was read and holds behaviours, the document of every behaviour seen
+    (`work/reference-behaviours.md`, F1). It is listed because `write_gate_message` writes it with the message; the driver path
+    (`QA_FACTORY_RUN_MODE=driver`) writes no message file, so it names no document there (FR-37: a path named is a path written).
+    Sets `reference["document"]` (the path) for the count line's pointer."""
+    out = documents(task_root)
+    if reference.get("state") == "read" and reference.get("total") and os.environ.get(RUN_MODE_ENV, "").strip() != "driver":
+        reference["document"] = f"work/{REFERENCE_BEHAVIOURS}"
+        out["reference behaviours"] = reference["document"]
     return out
 
 
@@ -2236,6 +2308,7 @@ def collect(task: str, root: Path | None = None) -> dict:
     # After `_proved_warnings` (a proved line is reported as proved, never as not established), before the cut (OH1-11).
     warnings, not_established = _not_established(warnings)
     excluded = _excluded_by_words(task_root)
+    reference = reference_facts(task_root)
     return {
         "task": task,
         "gate": "A",
@@ -2272,8 +2345,9 @@ def collect(task: str, root: Path | None = None) -> dict:
         "unearned_automation": unearned_automation(rows),
         "sizing": sizing_line(task_root),
         "grounding": grounding_facts(task_root),
+        "reference": reference,
         "halts": [h for h in (pipeline.get("halts") or []) if isinstance(h, dict)],
-        "documents": documents(task_root),
+        "documents": documents_with_reference(task_root, reference),
         "judge": judge_facts(task, task_root),
         "missing_inputs": [m for m in missing if m != "None"] + ([] if findings else ["critic-findings.md"]),
     }
@@ -3289,7 +3363,9 @@ def write_gate_message(task_root, text, session_id, now=None):
     "asked" fact the Stop hook reads (`gate_shown.py`); a message without its record is not an open gate, and a failed
     message write leaves no record. Returns the message path; None, and nothing written, when `task_root` is not a
     directory (a typo in `--task` creates nothing, as `keep_shown_attachments`). A failed write raises OSError: the caller
-    says it. `session_id` "" is an unbound record: the hook refuses nobody for it (FR-2)."""
+    says it. `session_id` "" is an unbound record: the hook refuses nobody for it (FR-2).
+    Also the one writer of `work/reference-behaviours.md` (F1, AR-14), for a story whose reference snapshot was read: written BEFORE the
+    message, from the same `reference_facts` the block counts from; a story with no reference, or an unreadable snapshot, gets no file."""
     import hashlib
     from datetime import timezone
     import event_store
@@ -3297,6 +3373,9 @@ def write_gate_message(task_root, text, session_id, now=None):
     if not root.is_dir():
         return None
     path = root / "work" / GATE_MESSAGE
+    behaviours = reference_behaviours_text(reference_facts(root))      # F1: a story with a reference; None otherwise, nothing written
+    if behaviours:
+        event_store.atomic_text(root / "work" / REFERENCE_BEHAVIOURS, behaviours)
     event_store.atomic_text(path, text)
     stamp = (datetime.now(timezone.utc) if now is None else now).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     event_store.atomic_json(root / "state" / GATE_MESSAGE_RECORD, {
@@ -3532,10 +3611,228 @@ def _grounding_lines(data: dict) -> list:
     return [""] + out if out else []
 
 
+# --- gate A: a story with a reference, the OLD version as a second stand (t-2181 PC-9c; the owner's D3 and F-7, W1 of 11.11.2026) --------
+# In "as before" mode the packet shows only what the person must look at: where the story differs from the old version, the requirements
+# that ask to match it with nothing seen to match, what was seen and no case uses, and the gaps of the walk; the rest is ONE count. Code
+# reads and counts (AR-26: the unit is the requirement; the reader of the snapshot is `reference_snapshot.read`, of the register `contract`,
+# AR-13); whether an item shows what a Then says is the case critic's judgment, not this block's. What was seen on the reference stand is
+# a SAMPLE of the old version: the block names it so, and reads no run of the story, so a run recorded there is never shown as evidence (W1).
+REFERENCE_SHOWN = 8          # names listed per list (differences, requirements with nothing seen, unused items, gaps, parity requirements), then "and K more"
+REFERENCE_CLIP = 100         # characters of one requirement text, one behaviour name or one old/new text in the block
+REFERENCE_SAMPLE = ("What the factory saw of the old version is a sample of how it behaved. It is not a test result of this story and is not "
+                    "evidence for it.")
+
+
+def _project_root_of(task_root):
+    """The project root above a story folder (the nearest ancestor that carries `qa-factory/config.json`), None when there is none."""
+    try:
+        resolved = Path(task_root).resolve()
+        for base in (resolved, *resolved.parents):
+            if (base / "qa-factory" / "config.json").is_file():
+                return base
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _reference_clip(text, limit: int = REFERENCE_CLIP) -> str:
+    said = " ".join(str(text or "").split())
+    return said if len(said) <= limit else said[:limit].rstrip() + "..."
+
+
+def _reference_item_name(item: dict) -> str:
+    """A behaviour of the old version by its words (area and the user's path), never by its id."""
+    area, path = _reference_clip(item.get("area"), 50), _reference_clip(item.get("user_path"), 70)
+    return " — ".join(part for part in (area, path) if part) or _reference_clip(item.get("observed")) or "a behaviour without a description"
+
+
+def _reference_uses(task_root, ids: set) -> tuple:
+    """(snapshot item ids that a Then of some case cites with `precedent` `reference:<item>`, requirement ids those cases rest on).
+    The case reader of record is `story_cases`; the `then_oracles` and `basis` lines are read by `contract` (AR-13). A case that cannot be
+    read cites nothing here: the unused list then names more, never fewer."""
+    used, rests = set(), set()
+    try:
+        cases, _problems = story_cases(task_root)
+    except Exception:  # noqa: BLE001
+        return used, rests
+    for case in cases.values():
+        try:
+            text = Path(case["path"]).read_text(encoding="utf-8", errors="replace")
+            entries, _ = C.then_oracles_from_text(text)
+            basis = C.requirement_id(str(C.front_line(text, "basis") or "").strip().strip("\"'"))
+        except Exception:  # noqa: BLE001
+            continue
+        for entry in entries or []:
+            found = C.REFERENCE_REF_RE.match(str(entry.get("ref") or "").strip()) if entry.get("source") == "precedent" else None
+            if found and found.group(1) in ids:
+                used.add(found.group(1))
+                if basis:
+                    rests.add(basis)
+    return used, rests
+
+
+def reference_facts(task_root) -> dict:
+    """What gate A shows of a story's reference: `{"state": "none"}` (no side has a reference: the packet is as it was), `{"state":
+    "unreadable", "env"}` (a reference is named and its snapshot is absent or cannot be read), or `{"state": "read", "env", "total",
+    "differing": [{r, words, before, now, differs}], "parity_gaps": [{r, words}], "unused": [names], "gaps": [lines], "carried",
+    "parity": [R ids], "register_unread", "behaviours": [{name, observed, standing, r}]}` (`behaviours`: every item with its standing
+    carried / differs / unused, the facts of the document). Never raises, writes nothing. The error direction is toward saying more: a
+    register that cannot be read is `register_unread` (differences and gaps are then NOT known, never none). An item cited by a differing
+    claim is counted under its difference and is not "unused" (N1): unused means no case uses it AND no difference shows it.
+    With two sides that each carry a reference only the first stand's name is the default `env` (N3: one snapshot per story, whose own
+    `reference_env` wins). A story archived under `_archive` names no reference stand and reads `none` (N4: gate A is not built for one)."""
+    project = _project_root_of(task_root)
+    if project is None:
+        return {"state": "none"}
+    try:
+        import stand_identity as SI
+        named = SI.reference_stands(project, Path(task_root).name)
+    except Exception:  # noqa: BLE001
+        return {"state": "none"}
+    if not named:
+        return {"state": "none"}
+    env = sorted(named)[0]
+    try:
+        import reference_snapshot as RS
+        snap = RS.read(task_root)
+    except Exception:  # noqa: BLE001
+        snap = None
+    if snap is None:
+        return {"state": "unreadable", "env": env}
+    items = [i for i in snap["items"] if isinstance(i, dict) and str(i.get("id") or "").strip()]
+    by_id = {str(i["id"]): i for i in items}
+    gaps = [_reference_clip(g, 160) for g in (snap.get("gaps") if isinstance(snap.get("gaps"), list) else []) if str(g).strip()]
+    register_unread, rows, claims, parity = False, {}, [], set()
+    try:
+        path = Path(C.artifact(task_root, "requirements-register.md"))
+        text = C.read_text(path) if path.is_file() else ""
+        rows = {row["r"]: row for row in C.register_rows(text)}
+        claims, parity = C.behaviour_claims(text), C.parity_ids(text)
+        register_unread = not text.strip() or not rows
+    except Exception:  # noqa: BLE001
+        register_unread = True
+    used, rests = _reference_uses(task_root, set(by_id))
+
+    def words(r):
+        return _reference_clip((rows.get(r) or {}).get("requirement"), 90)
+
+    differing, seen_by_claim, cited, differs_in = [], set(), set(), {}
+    for claim in claims:
+        found = C.REFERENCE_REF_RE.match(str(claim.get("before_ref") or "").strip())
+        if not found:
+            continue
+        item = found.group(1)
+        if item in by_id:
+            cited.add(str(claim["r"]))
+        if claim.get("differs") in ("yes", "unknown"):
+            differing.append({"r": claim["r"], "words": words(claim["r"]), "before": _reference_clip(claim.get("before")),
+                              "now": _reference_clip(claim.get("now")), "differs": claim.get("differs")})
+            if item in by_id:
+                seen_by_claim.add(item)
+                differs_in.setdefault(item, []).append(str(claim["r"]))
+    parity_gaps = [{"r": r, "words": words(r)} for r in sorted(parity - cited - rests)]
+    unused_ids = [ident for ident in by_id if ident not in used and ident not in seen_by_claim]
+    standing = {ident: ("differs" if ident in seen_by_claim else "unused" if ident in unused_ids else "carried") for ident in by_id}
+    # `behaviours`: EVERY item by its words with its standing, the facts of the document `work/reference-behaviours.md` (F1); the block above
+    # counts from the same lists, so the file and the count line cannot disagree
+    behaviours = [{"name": _reference_item_name(item), "observed": _reference_clip(item.get("observed"), 400), "standing": standing[ident],
+                   "r": differs_in.get(ident, [])} for ident, item in by_id.items()]
+    return {"state": "read", "env": str(snap.get("reference_env") or env), "total": len(by_id), "differing": differing,
+            "parity_gaps": parity_gaps, "unused": [_reference_item_name(by_id[ident]) for ident in unused_ids], "gaps": gaps,
+            "parity": sorted(parity), "register_unread": register_unread, "behaviours": behaviours,
+            "carried": len(by_id) - len(seen_by_claim) - len(unused_ids)}
+
+
+def _reference_names(names: list, shown: int = REFERENCE_SHOWN) -> str:
+    return "; ".join(names[:shown]) + (f"; and {len(names) - shown} more" if len(names) > shown else "")
+
+
+def _reference_lines(data: dict) -> list:
+    """The gate A block of a story with a reference (D3): a bounded block that starts with a blank line; [] for a story with no reference
+    (the packet is byte for byte what it was). A snapshot that cannot be read is ONE line saying so (the rest of the brief is shown as it is,
+    AR-28); zero differences and zero gaps is ONE line with the count, never an empty heading (F-7: the approval confirms the requirements
+    that ask to match the old version). Words for a person: no ids of snapshot items, no keys, no paths."""
+    ref = data.get("reference") or {}
+    env = " ".join(str(ref.get("env") or "").split())
+    if ref.get("state") == "unreadable":
+        return ["", f"**The old version, as the reference** — this story has the old version ({env}) as a reference, but what the factory saw "
+                    "of it could not be read, so where the story differs from it is not known; the rest of this brief is as it is for a story "
+                    "with no reference."]
+    if ref.get("state") != "read":
+        return []
+    total, parity = int(ref.get("total") or 0), [str(r) for r in ref.get("parity") or []]
+    differing, parity_gaps = ref.get("differing") or [], ref.get("parity_gaps") or []
+    unused, gaps, unread = ref.get("unused") or [], ref.get("gaps") or [], bool(ref.get("register_unread"))
+    # F-7: the approval confirms the parity scope, in BOTH forms; with no parity requirement it says it confirms none (F4)
+    confirms = (" Your approval confirms that these requirements ask to match the old version: " + _reference_names(parity).replace("; ", ", ") + "."
+                ) if parity else ("" if unread else
+                                  " No requirement is marked as asking to match the old version, so your approval confirms none.")
+    listed = " All of them are listed in the document below." if ref.get("document") else ""
+    if not (differing or parity_gaps or unused or gaps or unread) and total:
+        return ["", f"**The old version, as the reference** — this story matches the old version ({env}) on all {total} behaviours the factory saw "
+                    f"of it.{listed} {REFERENCE_SAMPLE}{confirms}"]
+    out = ["", f"## The old version as the reference ({env})", REFERENCE_SAMPLE]
+    if unread:
+        out.append("- The list of requirements could not be read, so where the story differs from the old version, and which requirements "
+                   "ask to match it, is not known.")
+    out.extend(_reference_list("Where the story differs from the old version, or it is not known whether it does", [
+        f"{d['r']}" + (f" ({d['words']})" if d["words"] else "") + f": the old version {d['before'] or 'is not described'}; "
+        f"the story now {d['now'] or 'is not described'}" + ("" if d["differs"] == "yes" else " (not known whether this is a difference)")
+        for d in differing]))
+    out.extend(_reference_list("Requirements that ask to match the old version, with nothing seen of it to match",
+                               [f"{g['r']}" + (f" ({g['words']})" if g["words"] else "") for g in parity_gaps]))
+    out.extend(_reference_list("Seen in the old version and used by no test case", unused))
+    out.extend(_reference_list("What the factory could not see of the old version", gaps))
+    carried = int(ref.get("carried") or 0)
+    out.append(f"{carried} of the {total} behaviours the factory saw in the old version are carried over as they are.{listed}" if total
+               else "The factory saw no behaviour of the old version.")
+    if confirms:
+        out.append(confirms.strip())
+    return out
+
+
+def _reference_list(heading: str, items: list) -> list:
+    """ONE list of the reference block: `heading (n):`, at most REFERENCE_SHOWN `- item` lines, then `- and K more`; [] for no item (F2: the
+    four lists of the block are this one renderer, so the cap is one rule with one test)."""
+    if not items:
+        return []
+    out = [f"{heading} ({len(items)}):"] + [f"- {item}" for item in items[:REFERENCE_SHOWN]]
+    if len(items) > REFERENCE_SHOWN:
+        out.append(f"- and {len(items) - REFERENCE_SHOWN} more")
+    return out
+
+
+def reference_behaviours_text(ref: dict):
+    """The document `work/reference-behaviours.md` (F1): every behaviour of the old version the factory saw, by its words (area, the user's
+    path, what was seen), each marked carried over / differs from the story (with the requirement) / used by no test case; then what the
+    walk could not see. From the SAME facts as the gate A block (`reference_facts`), so the file and the count line cannot disagree. Not
+    capped (a long document, linked from the brief). None when there is no behaviour to list: no reference, an unreadable snapshot, or none seen."""
+    if not isinstance(ref, dict) or ref.get("state") != "read" or not ref.get("behaviours"):
+        return None
+    env = " ".join(str(ref.get("env") or "").split())
+    out = [f"# The old version as the factory saw it ({env})", "", REFERENCE_SAMPLE, "",
+           f"{len(ref['behaviours'])} behaviours were seen. Each is marked: carried over as it is, differs from the story, or used by no test case.", ""]
+    marks = (("differs", "Differs from the story"), ("carried", "Carried over as they are"), ("unused", "Used by no test case"))
+    for key, title in marks:
+        rows = [b for b in ref["behaviours"] if b.get("standing") == key]
+        if not rows:
+            continue
+        out += [f"## {title} ({len(rows)})", ""]
+        for b in rows:
+            said = f" ({', '.join(b['r'])})" if key == "differs" and b.get("r") else ""
+            out.append(f"- {b['name']}{said}: " + (b.get("observed") or "what was seen is not described"))
+        out.append("")
+    if ref.get("gaps"):
+        out += [f"## What the factory could not see ({len(ref['gaps'])})", ""] + [f"- {g}" for g in ref["gaps"]] + [""]
+    return "\n".join(out)
+
+
 def render(data: dict) -> str:
     lines = _head_lines(data)
     grounding = _grounding_lines(data)       # G2-5: right after the cover sheet; the cap grows by exactly their length
     lines.extend(grounding)
+    reference = _reference_lines(data)       # PC-9c: a story with a reference; [] otherwise, so the packet of a story with none is unchanged
+    lines.extend(reference)
     lines.extend(_after_approval(data))
     questions = data.get("open_questions") or []
     question_lines = _question_lines(data, questions)
@@ -3572,6 +3869,7 @@ def render(data: dict) -> str:
            + len(cards) + max(0, len(question_lines) - ((2 + shown) if questions else 0))      # GW1-32: the answer block outlives the cap with no question too
            + (len(judged) + 1 if judged else 0)
            + len(grounding)      # G2-5: a bounded block (<= 5 lines) of the head, never cut by the cap
+           + len(reference)      # PC-9c: a bounded block (<= 6 * (REFERENCE_SHOWN + 2) lines) of the head, the same way
            + len(_answered_lines(data))      # HF4-8: a bounded block (<= ANSWERS_SHOWN + 2 lines) the links below must outlive
            + len(_by_words_lines(data))      # RN1-14: a bounded block (<= LEFT_OUT_CAP + 1 lines) the same way
            + (len(data["adapted_lines"]) + 1 if data.get("adapted_lines") else 0)     # B-416 N8: a bounded block (<= 7 lines) the links must outlive
@@ -3586,14 +3884,8 @@ def render(data: dict) -> str:
 
 def project_config(task_root: Path) -> dict:
     """The onboarded project's config, found by the same marker everything else uses."""
-    try:
-        for base in (task_root.resolve(), *task_root.resolve().parents):
-            candidate = base / "qa-factory" / "config.json"
-            if candidate.is_file():
-                return read_json(candidate, {}) or {}
-    except Exception:
-        pass
-    return {}
+    base = _project_root_of(task_root)
+    return (read_json(base / "qa-factory" / "config.json", {}) or {}) if base is not None else {}
 
 
 def _first(data: dict, *keys):
@@ -4023,11 +4315,11 @@ def packet_items(task_root: Path, gate: str = "A") -> list:
     cfg = C.case_config(task_root)  # this story's project decides what a case id looks like
     found = []
     if str(gate).upper() == "B":
+        import bug_records as BR
         for _path, draft in bug_drafts(task_root):
-            for key in ("id", "case", "cases"):
-                value = draft.get(key)
-                for item in (value if isinstance(value, list) else [value]):
-                    found += _item_ids(str(item or ""), cfg)
+            # the draft's cases are THE reader's (t-2187: a case a merged bug names only in one of its manifestations is still in the packet)
+            for item in (draft.get("id"), *BR.draft_cases(draft)):
+                found += _item_ids(str(item or ""), cfg)
         for row in undrafted_discrepancies(task_root):
             found += _item_ids(str(row.get("case") or ""), cfg)
         return sorted(dict.fromkeys(found))
@@ -4071,12 +4363,15 @@ def undrafted_discrepancies(task_root: Path) -> list:
     """
     manifest = read_json(task_root / "work" / "automation-manifest.json")
     drafted = set()
+    import bug_records as BR
     for _path, draft in bug_drafts(task_root):
-        for key in ("case", "cases", "case_id"):
-            value = draft.get(key)
-            for case in (value if isinstance(value, list) else [value]):
-                if str(case or "").strip():
-                    drafted.add(C.split_case_key(str(case).strip())[1])
+        # `case`, `cases` and `manifestations[].case` are THE reader's (t-2187): a case covered only by a manifestation is spoken for
+        cells = list(BR.draft_cases(draft))
+        value = draft.get("case_id")
+        cells += list(value if isinstance(value, list) else [value])
+        for case in cells:
+            if str(case or "").strip():
+                drafted.add(C.split_case_key(str(case).strip())[1])
     out = []
     for row in C.manifest_unresolved(manifest if isinstance(manifest, dict) else {}):
         reason = str(row.get("reason") or "")
@@ -4111,11 +4406,16 @@ def bug_rows(task_root: Path, config: dict | None = None) -> list:
         scan_notes = [str(n) for n in scan.get("notes") or []]     # E-C3/E-C4: what the scan could not read; said at gate B beside a mark (F6b)
     except Exception:
         open_keys, scan_notes = {}, []
-    for number, (path, data) in enumerate(bug_drafts(task_root), start=1):
+    drafts = bug_drafts(task_root)
+    numbers = {}     # a draft's file name and stem -> its number in this packet, so `possibly_same_cause` is said in numbers, never in file names
+    for number, (path, _data) in enumerate(drafts, start=1):
+        numbers.setdefault(path.name, number)
+        numbers.setdefault(path.stem, number)
+    for number, (path, data) in enumerate(drafts, start=1):
         if facts is None:
             facts = BR.step_facts(task_root)
         # the step of the bug is THE one reader's (HF8-16, AR-13): the packet, the report and the summary count the same
-        word, kinds, problems = BR.confirmation_of(task_root, data, *facts)
+        word, kinds, problems = BR.confirmation_of(task_root, data, *facts, draft=True)
         impact = str(data.get("impact") or data.get("damage_class") or "").strip()
         priority = str((scale.get(impact) or {}).get("priority") or "")
         duplicate = ""
@@ -4145,6 +4445,16 @@ def bug_rows(task_root: Path, config: dict | None = None) -> list:
         }
         if mark_key and scan_notes:
             row["scan_notes"] = scan_notes
+        # one bug, many manifestations (t-2187): keys exist only when the draft carries them, so an ordinary bug's row is as before
+        ways = BR.manifestation_summary(data)
+        if len(ways) >= 2:
+            row["manifestations"] = [way[:MANIFESTATION_CLIP] for way in ways]
+        mechanism = _mechanism_row(task_root, data)
+        if mechanism:
+            row["mechanism"] = mechanism
+        linked = _linked_rows(data, numbers, number)
+        if linked:
+            row["possibly_same_cause"] = linked
         if BR.is_code_reading(data):
             # a bug candidate found by reading the code against an oracle, never by a run (t-1676): the packet marks it and shows the
             # oracle's words and the code place, all from the draft's own fields (the checker already held them against their sources)
@@ -4158,7 +4468,190 @@ def bug_rows(task_root: Path, config: dict | None = None) -> list:
         if text is not None and text.is_file():
             row["text"] = portable(text, task_root)   # a readable file only; no text written yet means no path field (HF8-20, I5)
         rows.append(row)
+    _symmetric_links(rows)
     return rows
+
+
+MANIFESTATION_CLIP = 220     # characters of one way-it-shows line in the packet; the readable text of the bug holds it whole
+
+
+def _mechanism_row(task_root: Path, data: dict) -> dict:
+    """What gate B says about a draft's `mechanism` (t-2187), from `bug_records.cause_view` - the one reader of the cause facts the bug text
+    and the report print from too (M3): {status, statement, why, how, unverified}; {} for a draft with no `mechanism` object (an old draft
+    is never re-litigated). `status` is `confirmed` ONLY when the view says so (the draft says so AND its basis stands: FR-59). `how` is
+    `{code_line, runs, person}` - which basis kinds stand and how many distinct start states the runs were tried from. Judges nothing
+    about whether the statement is the cause."""
+    import bug_records as BR
+    view = BR.cause_view(task_root, data)
+    if not view:
+        return {}
+    return {"status": view["status"], "statement": view["statement"][:300], "why": view["why"][:200],
+            "how": {"code_line": view["by_code"], "runs": view["runs"], "person": view["by_person"]},
+            "unverified": [says[:200] for says in view["unverified"]]}
+
+
+def _symmetric_links(rows: list) -> None:
+    """Make `possibly_same_cause` read the same from both rows of a link (m1): `_linked_rows` shows a link on the row that wrote it, and
+    `_linked_groups` takes it from either side, so B shows "Possibly the same cause as A" also when only A names B (the sentence "each
+    naming the other" is then true of what the person sees). Mutates the rows; a link to a number that is no row of the packet adds nothing."""
+    by_n = {r["n"]: r for r in rows}
+    for row in rows:
+        for link in list(row.get("possibly_same_cause") or []):
+            other = by_n.get(link["n"])
+            if other is not None and other is not row and row["n"] not in [x["n"] for x in other.get("possibly_same_cause") or []]:
+                other.setdefault("possibly_same_cause", []).append({"n": row["n"], "why": link["why"]})
+
+
+def _linked_rows(data: dict, numbers: dict, own: int) -> list:
+    """`[{"n": <number in this packet>, "why": <one sentence>}]` for the drafts this one names in `possibly_same_cause`; a name that is
+    no draft of this packet, or this draft itself, is skipped (a file name is never shown). The other side of a one-way link is added by
+    `_symmetric_links` once every row exists."""
+    import bug_records as BR
+    out = []
+    for link in BR.cause_links(data):
+        name = link["draft"]
+        n = numbers.get(Path(name).name) or numbers.get(Path(name).stem)
+        if n and n != own and n not in [x["n"] for x in out]:
+            out.append({"n": n, "why": _one_line(link["why"], 200)})
+    return out
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if not text or text[-1] in ".!?" else text + "."
+
+
+def merged_bug_row_lines(row: dict) -> list:
+    """The lines a bug row gets under its head and evidence line (t-2187, spec 8.1): the cause, what is not verified, the ways it shows
+    (letters a), b), ... up to `MAX_MANIFESTATIONS_SHOWN`, then how many more), and the drafts it may share a cause with. A bug with one
+    manifestation and no mechanism gives []; with one manifestation and a cause that is not established it gives that one line."""
+    lines = []
+    mech = row.get("mechanism") or {}
+    ways = row.get("manifestations") or []
+    if mech and mech.get("status") == "unverified":
+        # a hypothesis is printed as one, never as the cause and never as confirmed (FR-41, FR-59): its words, then the draft's reason
+        lines.append("   " + _sentence("Possible cause, not verified: " + mech["statement"])
+                     + (" " + _sentence(mech["why"]) if mech.get("why") else ""))
+    elif mech and mech.get("status") != "confirmed":
+        # an unknown cause is never printed as a cause (FR-41): what is missing, in the draft's words
+        lines.append("   " + _sentence("Cause not established" + (f": {mech['why']}" if mech.get("why") else "")))
+    elif mech and len(ways) >= 2:
+        import bug_records as BR
+        how = BR.cause_how_words({"by_code": mech["how"]["code_line"], "runs": mech["how"]["runs"], "by_person": mech["how"].get("person")})
+        lines.append("   " + _sentence("Cause, confirmed" + (" " + how if how else "")
+                                       + (": " + mech["statement"] if mech["statement"] else "")))
+        lines += [f"   Not verified: {claim.rstrip('.')}." for claim in mech["unverified"]]
+    if len(ways) >= 2:
+        for letter, way in zip(QUESTION_LETTERS, ways[:MAX_MANIFESTATIONS_SHOWN]):
+            lines.append(f"   {letter}) {way}")
+        if len(ways) > MAX_MANIFESTATIONS_SHOWN:
+            more = len(ways) - MAX_MANIFESTATIONS_SHOWN
+            lines.append(f"   (+{more} more" + (", in the bug text)" if row.get("text") else ")"))
+    for link in row.get("possibly_same_cause") or []:
+        lines.append(f"   Possibly the same cause as {link['n']}" + (f" (not verified: {link['why'].rstrip('.')})." if link["why"] else " (not verified)."))
+    return lines
+
+
+def _linked_groups(rows: list) -> list:
+    """Groups of SHOWN rows tied by `possibly_same_cause`, as sorted lists of numbers (t-2187, F-6). A link counts from either side (A names B,
+    B need not name A) and chains join (1-2, 2-3 is one group 1 2 3); a link to a draft that is not shown in this packet joins nothing, so
+    no `merge` is ever offered for a bug the person cannot see."""
+    shown = {r["n"] for r in rows}
+    parent = {n: n for n in shown}
+
+    def find(n):
+        while parent[n] != n:
+            parent[n] = parent[parent[n]]
+            n = parent[n]
+        return n
+
+    linked = set()
+    for row in rows:
+        for other in row.get("possibly_same_cause") or []:
+            if other["n"] in shown and other["n"] != row["n"]:
+                parent[find(row["n"])] = find(other["n"])
+                linked.update((row["n"], other["n"]))
+    out = {}
+    for n in sorted(linked):
+        out.setdefault(find(n), []).append(n)
+    return sorted(out.values())
+
+
+def _numbers_in_words(group: list) -> str:
+    names = [str(n) for n in group]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def merged_bug_block(rows: list) -> list:
+    """ONE question after the list of bugs when some of them were drafted as one bug from several ways it shows, or are linked as possibly
+    the same cause (t-2187, human-questions rule 3 and 6): what the factory did, why it cannot decide alone, and the closed answers each with
+    the three price lines. `file` and `not a bug` are answers the gate already reads; `split` (these are different bugs) and `merge` (for
+    drafts linked as possibly the same cause: they are one bug) are words that ask a change, so no code parses them (FR-12): the conductor
+    reads the answer and runs the analyst's rework (skills/qa-story/phases/s8.md). `file`, `split`, `not a bug` are offered for the rows
+    with two or more ways it shows only; `merge` for the linked groups only. The intro says "has one cause" only of a row whose cause is
+    confirmed (M2); the other merged rows are said as drafted one bug with the cause not confirmed. The linked groups always get both
+    `merge` and `file` (keep them apart, each naming the other: the display of a link is symmetric, `_symmetric_links`), in the mixed
+    packet too (m2); with no merged row the block has its own intro. [] when there is neither."""
+    merged = [r for r in rows if len(r.get("manifestations") or []) >= 2]
+    groups = _linked_groups(rows)
+    if not merged and not groups:
+        return []
+    labels = _price_labels()
+    rework = ("one more working session of the failure analyst, then the report is rebuilt and this gate is shown again",
+              "this answer, and one more look at this gate",
+              "nothing stays unverified by this choice; delivery waits until the gate is shown again")
+    merge_head = ("or ".join(f"`merge` {' '.join(str(n) for n in g)} " for g in groups).rstrip()
+                  + " — they are one bug; draft them together.")      # last, as the spec orders it (F-6)
+    options = []
+    linked_file = (f"`file` {', '.join(str(n) for g in groups for n in g)} — file them as separate bugs, each naming the other as possibly "
+                   "the same cause.",
+                   ("nothing beyond filing them", "nothing more",
+                    "if one fix does not cure both, nothing is lost: each bug keeps its own checks, and the link tells whoever fixes it to look "
+                    "at the other; delivery unchanged"))
+    if merged:
+        numbers = ", ".join(str(r["n"]) for r in merged)
+        # M2: the intro says "has one cause" only of a row whose cause is confirmed and standing (`mechanism.status`); any other merged
+        # row (the person waived the rehearsal finding, or its basis stopped standing after S7) is said as drafted one bug, cause not confirmed
+        sure = [r for r in merged if (r.get("mechanism") or {}).get("status") == "confirmed"]
+        unsure = [r for r in merged if r not in sure]
+
+        def intro_of(group: list, confirmed: bool) -> str:
+            if len(group) == 1:
+                n, k = group[0]["n"], len(group[0]["manifestations"])
+                return (f"The factory found that {n} has one cause behind {k} different-looking problems and drafted it as one bug, so a "
+                        "fix is checked against all of them." if confirmed else
+                        f"The factory drafted {n} as one bug from {k} different-looking problems, but could not confirm one cause behind "
+                        "them; a fix is checked against all of them.")
+            named = " and ".join(f"{r['n']} ({len(r['manifestations'])} problems)" for r in group)
+            return (f"The factory found that {named} each have one cause behind several different-looking problems and drafted each as one "
+                    "bug, so a fix is checked against all of them." if confirmed else
+                    f"The factory drafted {named} each as one bug from several different-looking problems, but could not confirm one cause "
+                    "behind them; a fix is checked against all of them.")
+        intro = " ".join(intro_of(group, flag) for group, flag in ((sure, True), (unsure, False)) if group)
+        intro += " It cannot know whether you want them tracked apart. For each such bug:"
+        options = [
+            (f"`file` {numbers} — file it as one bug listing every way it shows.",
+             ("one working session of the bug writer", "nothing more",
+              "each way it shows keeps its own test or check; after the fix every one is re-checked, and one still failing becomes its own "
+              "bug; delivery unchanged")),
+            (f"`split` {numbers} — these are different bugs; draft them apart.", rework),
+            (f"`not a bug` {numbers} — do not file it.",
+             ("a record only", "nothing more", "the problems stay in the report as found and not filed; delivery unchanged"))]
+        if groups:
+            options += [(merge_head, rework), linked_file]      # m2: a linked pair in a mixed packet also gets its keep-apart option
+    else:
+        # linked drafts only: the factory suspects one cause and could not confirm it. `file` is the word gate B already has for
+        # "file what is drafted"; here it keeps them apart, each draft already naming the other as possibly the same cause
+        suspected = (f"bugs {_numbers_in_words(groups[0])}" if len(groups) == 1
+                     else "the bugs in each of these groups: " + "; ".join(_numbers_in_words(g) for g in groups))
+        intro = (f"The factory suspects that {suspected} share one cause, but it could not confirm it, so it drafted them as separate bugs. "
+                 "It cannot know whether you want them tracked together or apart. For each group:")
+        options = [(merge_head, rework), linked_file]
+    lines = ["", "## One bug or several", intro]
+    for letter, (head, prices) in zip(QUESTION_LETTERS, options):
+        lines.append(f"({letter}) {head}")
+        lines += [f"{label} {text}." for label, text in zip(labels, prices)]
+    return lines
 
 
 def code_reading_block(rows: list) -> list:
@@ -4234,10 +4727,9 @@ def filing_line(task_root: Path, config: dict) -> str:
     receipt = {}
     try:
         import tracker_write
-        for base in (task_root.resolve(), *task_root.resolve().parents):
-            if (base / "qa-factory" / "config.json").is_file():
-                receipt = tracker_write.load_receipt(base)
-                break
+        base = _project_root_of(task_root)
+        if base is not None:
+            receipt = tracker_write.load_receipt(base)
         state = tracker_write.readiness_line(dict(receipt or {}, channel=receipt.get("channel")
                                                   or channel))
     except Exception:
@@ -4333,14 +4825,18 @@ def render_gate_b(task: str, root: Path | None = None) -> str:
                          "rather than filing a new bug; name its number only if you want a separate one")
             elif row["duplicate"]:
                 head += f". Possibly a duplicate of {row['duplicate']} — your call"
-            if row.get("code_reading"):
-                head += " · by reading the code, not proven by a run"     # INSTEAD of the reproduction words: no run spoke (t-1676)
+            ways = len(row.get("manifestations") or [])
+            if ways >= 2:    # "one cause" only when the cause is confirmed; an unknown cause is never named as one (FR-41)
+                head += f" · {'one cause, ' if (row.get('mechanism') or {}).get('status') == 'confirmed' else ''}{ways} ways it shows"
+            if row.get("code_reading") and row.get("confirmation") != "reproduced_by_factory":
+                head += " · by reading the code, not proven by a run"   # INSTEAD of the reproduction words: no factory test spoke (t-1676); a walk of the analyst may be its receipt (t-1991)
             elif row.get("confirmation") in ("unconfirmed", "reproduced_by_factory"):
                 # one sentence for the report, the table legend, this packet and the fragment (bug_records, FR-10)
                 import bug_records as BR
                 head += " · " + BR.reproduction_words(row)
             lines.append(head + ".")
             lines.append(f"   {row['evidence']}")
+            lines += merged_bug_row_lines(row)
             if row.get("code_reading"):
                 lines.append(f"   {row['oracle_where']}: \"{row['oracle_quote']}\"; the code: {row['fact_where']}"
                              + (f" - {row['fact_note']}" if row.get("fact_note") else ""))
@@ -4352,6 +4848,7 @@ def render_gate_b(task: str, root: Path | None = None) -> str:
         if notes:      # a draft carries a mark the scan could not check (E-C3/E-C4): said, so "your call" is not read as a verified duplicate
             lines.append("Note: " + "; ".join(notes))
         lines += code_reading_block(rows[:MAX_BUGS])      # the numbers of the shown rows only (E-26)
+        lines += merged_bug_block(rows[:MAX_BUGS])        # t-2187: the door of a bug drafted from several ways it shows; [] changes no byte
         if undrafted:
             # The same fact, in the packet that has drafts too: a list of drafts a person answers
             # must not read as the whole of what this story found (FR-10).
@@ -4441,6 +4938,10 @@ def render_gate_b(task: str, root: Path | None = None) -> str:
     lines.append(f"- delivery summary: {portable(summary_text, task_root)}" if summary_text.is_file()
                  else "- delivery summary: the delivery summary is not written yet")
     lines.append(f"- test report: {portable(task_root / 'test-report.md', task_root)}")
+    import brief_pack          # t-1884 M-2: the scribe's form (its `tried` table) is read here, by the person at gate B
+    scribe_form = brief_pack.last_accepted_form(task_root, "S8", "qa-doc-scribe")
+    if scribe_form:
+        lines.append(f"- the scribe's form (what it tried): {portable(task_root / scribe_form, task_root)}")
     return "\n".join(lines) + "\n"
 
 

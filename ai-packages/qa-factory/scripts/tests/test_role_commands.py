@@ -47,6 +47,25 @@ BROKEN = {
     "manual_capture.py app": ["app", "--task-root", "{task}", "--case", "X", "--steps-file", "{bad}"],
     "manual_capture.py http": ["http", "--task-root", "{task}", "--case", "X", "--method", "GET",
                                "--url", "http://localhost:1/"],
+    # t-2003: the answer of the S7 analyst for a place; the broken call is the missing --dispatch/--place (a refusal through RefusingParser, with the card)
+    "place_answers.py write": ["write", "--task-root", "{task}", "--file", "{bad}"],
+    # t-2003: the walker's commands (qa-runner); `open`, `close` and `serve` are the driver's and have no row. The broken call is the missing
+    # --walk (and --item) - a refusal through RefusingParser with the card; a walk that was never opened is held in walk_examples
+    "walk_session.py open": ["open", "--task-root", "{task}"],
+    "walk_session.py item": ["item", "--task-root", "{task}"],
+    "walk_session.py step": ["step", "--task-root", "{task}"],
+    "walk_session.py look": ["look", "--task-root", "{task}"],
+    "walk_session.py final": ["final", "--task-root", "{task}"],
+    "walk_session.py verdict": ["verdict", "--task-root", "{task}"],
+    "walk_session.py claim": ["claim", "--task-root", "{task}"],
+    "walk_session.py done": ["done", "--task-root", "{task}"],
+    "walk_session.py status": ["status", "--task-root", "{task}"],
+    # t-2277 FL-2: the walker's first look. `put`'s broken call is neither --file nor --null (the card shows --file only: --null is the driver's);
+    # `show` without --task-root is a refusal through RefusingParser (with the card)
+    "first_look.py put": ["put", "--task-root", "{task}"],
+    "first_look.py show": ["show"],
+    # t-2181 PC-9b: the runner's `reference_snapshot.py put`; the broken call is the missing --reference/--items-file (a refusal through RefusingParser, with the card)
+    "reference_snapshot.py put": ["put", "--task-root", "{task}"],
     "manual_evidence.py export": ["export", "--task-root", "{task}", "--input", "{bad}",
                                   "--output", "{root}/exported.json"],
     "artifact_producer.py publish": ["publish", "--kind", "triage", "--task-root", "{task}",
@@ -340,6 +359,100 @@ def subprocess_examples(root: Path) -> None:
             *plan_row("--add-row", json.dumps({"id": "TS-4", "w_yes": True})), "title")
     card_names(command, "--task", "--task-root", "--row", "--set", "--add-row")
 
+    # --- place_answers.py write: an answer of the analyst for a place of its own (t-2003) ------------------------------------
+    command = "place_answers.py write"
+    task9 = story("QA-9")
+    place = "new-role-cmd"
+    folder = task9 / "work" / "evidence" / "manual" / f"settle-{place}" / "a1"
+    folder.mkdir(parents=True)
+    (folder / "001-page.txt").write_text("Total: 10.5 EUR", encoding="utf-8")
+    row = {"path": (folder / "001-page.txt").relative_to(task9).as_posix(), "kind": "page", "phase": "post_action",
+           "content_hash": hashlib.sha256((folder / "001-page.txt").read_bytes()).hexdigest()}
+    (folder / "captures.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    answer = {"place": place, "answer": "impossible", "expectation": {"source": "none", "id": "", "quote": ""},
+              "seen": {"quote": "Total: 10.5", "capture": row["path"]}, "why": "the stand has no such page"}
+    answer_file = root / "answer.json"
+
+    def place_write(record, *extra):
+        answer_file.write_text(json.dumps(record), encoding="utf-8")
+        return seen(run_script("place_answers.py", "write", "--task-root", task9, "--dispatch", "S7-qa-failure-analyst-1",
+                               "--place", place, "--file", answer_file, *extra, cwd=root))
+
+    refused("place_answers: an impossible answer with no `why`", command,
+            *place_write({k: v for k, v in answer.items() if k != "why"}), "why")
+    accepted_example(command, *place_write(answer))
+    check("place_answers: the record the card names is on disk",
+          (task9 / "evidence" / f"place-answer-{place}.json").is_file())
+    refused("place_answers: a second answer for the same place without --replace", command, *place_write(answer), "--replace")
+    card_names(command, "--task-root", "--dispatch", "--place", "--file", "--replace", "expectation", "seen", "question", "why", "draft")
+
+
+def first_look_examples() -> None:
+    """The cards of `first_look.py put` and `first_look.py show` (t-2277 FL-2): a story with a register, an opened first-look attempt and a
+    capture of the walk is fed the rows file exactly as the `put` card says and ACCEPTED (exit 0, written true); a file with one requirement
+    missing is a refusal with its door; `show` prints the record. The calls go through `first_look.main` (`role_cli.run_guarded`)."""
+    import contextlib
+    import io
+    import tempfile
+    import test_first_look as T
+    FL = T.FL
+
+    def run(*argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = FL.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+    with tempfile.TemporaryDirectory() as tmp:
+        s = T.Story(tmp)
+        caps = s.ready()
+        base = ["--task-root", str(s.task)]
+        command = "first_look.py put"
+        rows = s.rows(caps)
+        code, out, err = run("put", *base, "--file", str(s.file({"rows": rows[:1]})))
+        refused("first_look put: a file with no row for R-2", command, code, out + err, "no row for R-2", quotes=False)
+        code, out, err = run("put", *base, "--file", str(s.file({"rows": rows})))
+        accepted_example(command, code, out + err)
+        check_in("first_look put: the printed JSON says written true", '"written": true', out)
+        check("first_look put: the record the card names is on disk", FL._record_path(s.task).is_file())
+        card_names(command, "--task-root", "--file", "rows", "blocked_by", "evidence", "quote", "gaps")
+        check("first_look put: the card does not offer --null to the walker", not names(command, "--null") or "no --null for you" in card(command))
+        command = "first_look.py show"
+        code, out, err = run("show", *base)
+        accepted_example(command, code, out + err)
+        check_in("first_look show: a line per requirement", "R-1 | confirms", out)
+        card_names(command, "--task-root", "--json")
+
+
+def reference_snapshot_example() -> None:
+    """The card of `reference_snapshot.py put` (t-2181 PC-9b): an items file with one item that cites an old test, written as the card says,
+    is ACCEPTED (exit 0, the snapshot is on disk); an item with no evidence and no old test is a refusal that writes nothing."""
+    import contextlib
+    import io
+    import tempfile
+    import reference_snapshot as RS
+    command = "reference_snapshot.py put"
+    item = {"id": "cart-total", "area": "cart", "user_path": "open the cart", "observed": "total 10", "old_test": "tests/cart.spec.ts:3",
+            "locators_portable": "unknown"}
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "qa-factory" / "artifacts" / "QA-1"
+        (root / "work").mkdir(parents=True)
+        (root / "pipeline.json").write_text(json.dumps({"ticket": "QA-1"}), encoding="utf-8")
+
+        def run(items):
+            f = Path(tmp) / "items.json"
+            f.write_text(json.dumps(items), encoding="utf-8")
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = RS.main(["put", "--task-root", str(root), "--reference", "old", "--items-file", str(f)])
+            return code, out.getvalue(), err.getvalue()
+        code, out, err = run({"items": [{k: v for k, v in item.items() if k != "old_test"}], "gaps": []})
+        check("reference_snapshot put: an item with no capture and no old test is refused, nothing written",
+              code == 2 and not (root / "work" / "reference-snapshot.yaml").exists(), out + err)
+        code, out, err = run({"items": [item], "gaps": []})
+        accepted_example(command, code, out + err)
+        check("reference_snapshot put: the snapshot the card names is on disk", (root / "work" / "reference-snapshot.yaml").is_file())
+        card_names(command, "--task-root", "--reference", "--items-file", "--replace", "items", "gaps", "evidence", "old_test")
+
 
 def diagnostic_example() -> None:
     """The card of `red_sandbox.py --diagnostic` (t-1508 R4, Q1), end to end on the world of test_red_sandbox_diagnostic: the
@@ -599,6 +712,105 @@ def manual_examples() -> None:
         S.cleanup(t)
 
 
+def walk_examples() -> None:
+    """The cards of the walker's seven commands (t-2003), end to end over a REAL loopback server (the walk is opened the way
+    test_walk_session opens it: the server runs in a thread of this process, the recorder is the scripted fake of that test - no browser,
+    no network). Every call goes through `role_cli.run_guarded` like a role's call. `close` is the driver's: no row; `open` has the analyst's
+    reopen row (t-1991 U3b; the example opens a case lane, the card's call differs only by `--place settle`)."""
+    import threading
+    import test_walk_record as WR
+    import test_walk_session as W
+    WS, S, CASE = W.WS, W.S, W.CASE
+    rig = W.Rig()
+    try:
+        def spawn(argv, log):
+            thread = threading.Thread(target=WS.main, args=(argv[3:],), daemon=True)
+            thread.start()
+            return thread
+        WS.SEAMS["spawn"] = spawn
+        WR.request(rig, thens=("1",))
+        base = ["--task-root", str(rig.t.task), "--walk", W.WALK]
+
+        def go(name, *extra):
+            return S.run([name, *base, *extra], main=WS.main, command=f"walk_session.py {name}")
+
+        command = "walk_session.py open"
+        code, out, err = S.run(["open", *base, "--actor", "user"], main=WS.main, command=command)
+        refused("walk open: the example without --items", command, code, out + err, "--items")
+        code, out, err = go("open", "--items", CASE, "--actor", "user")
+        accepted_example(command, code, out + err)
+        card_names(command, "--task-root", "--walk", "--place", "--items", "--actor")
+
+        command = "walk_session.py item"
+        code, out, err = go("item", "--item", CASE)
+        accepted_example(command, code, out + err)
+        code, out, err = go("item", "--item", "TC-NOT-IN-THE-WALK")
+        refused("walk item: an item that is not in the walk", command, code, out + err, "is not in walk")
+        card_names(command, "--task-root", "--walk", "--item", "--as")
+
+        command = "walk_session.py step"
+        code, out, err = go("step", "--item", CASE)
+        refused("walk step: neither --line nor --steps-file", command, code, out + err, "--steps-file")
+        code, out, err = go("step", "--item", CASE, "--line", W.GO.strip())
+        accepted_example(command, code, out + err)
+        check_in("walk step: the answer is ONE JSON object with status done", '"status": "done"', out)
+        card_names(command, "--task-root", "--walk", "--item", "--line", "--steps-file", "--as", "--stop-on", "--final")
+
+        command = "walk_session.py look"
+        code, out, err = go("look", "--item", CASE)
+        accepted_example(command, code, out + err)
+        card_names(command, "--task-root", "--walk", "--item", "--as", "--selector")
+
+        steps = rig.t.task / "steps.txt"
+        steps.write_text('click "#a"\n', encoding="utf-8")
+        code, out, err = go("step", "--item", CASE, "--steps-file", str(steps))
+        check("walk step: a --steps-file, as the card says, is accepted", code == 0, (out + err)[-300:])
+
+        command = "walk_session.py final"
+        code, out, err = go("final", "--item", CASE)
+        accepted_example(command, code, out + err)
+        card_names(command, "--task-root", "--walk", "--item", "--as")
+
+        command = "walk_session.py claim"
+        code, out, err = go("claim", "--item", CASE, "--instance", "17")
+        refused("walk claim: the example without --kind", command, code, out + err, "--kind")
+        code, out, err = go("claim", "--item", CASE, "--kind", "book", "--instance", "17")
+        accepted_example(command, code, out + err)
+        card_names(command, "--task-root", "--walk", "--item", "--kind", "--instance", "--all")
+
+        command = "walk_session.py verdict"
+        verdict = rig.t.task / "verdict.json"
+        verdict.write_text(json.dumps({"thens": [{"n": 1, "result": "pass"}]}), encoding="utf-8")
+        code, out, err = go("verdict", "--item", CASE, "--file", str(verdict))
+        refused("walk verdict: a pass with no quote", command, code, out + err, "quote the capture")
+        verdict.write_text(json.dumps({"thens": [{"n": 1, "result": "pass", "quote": "button: Pay"}], "observations": [], "teardown": "none"}),
+                           encoding="utf-8")
+        code, out, err = go("verdict", "--item", CASE, "--file", str(verdict))
+        accepted_example(command, code, out + err)
+        check("walk verdict: the result record the card names is on disk",
+              (rig.t.task / "work" / "walks" / W.WALK / f"{CASE}.json").is_file())
+        card_names(command, "--task-root", "--walk", "--item", "--file", "thens", "observations", "teardown", "pass", "unreached")
+
+        command = "walk_session.py done"
+        code, out, err = go("done")
+        accepted_example(command, code, out + err)
+        card_names(command, "--task-root", "--walk")
+
+        command = "walk_session.py status"
+        code, out, err = go("status")
+        accepted_example(command, code, out + err)
+        check_in("walk status: the printed JSON says status ok and the walk's state", '"state": "ready"', out)
+        code, out, err = S.run(["status", "--task-root", str(rig.t.task), "--walk", "S6-never-opened"], main=WS.main, command=command)
+        refused("walk status: a walk that was never opened", command, code, out + err, "is unknown here")
+        card_names(command, "--task-root", "--walk")
+
+        code, out, err = go("close")
+        check_eq("walk: the driver's close ends 0 (no row of its own)", code, 0)
+    finally:
+        WS.SEAMS.update(clock=None, spawn=None)
+        rig.done()
+
+
 def main() -> int:
     root = temp_project()
     try:
@@ -659,6 +871,9 @@ def main() -> int:
     manual_examples()
     app_example()
     diagnostic_example()
+    walk_examples()
+    first_look_examples()
+    reference_snapshot_example()
     check_eq("every one of the cards had its own example fed to its command and accepted (one key each)",
              sorted(ACCEPTED), sorted(COMMANDS))
     return finish("test_role_commands")

@@ -555,7 +555,7 @@ def claude_path_is_as_it_was() -> None:
 # --- K-6 I-1: the host is read only where the node says -------------------------------------------
 def host_is_read_only_where_the_node_says() -> None:
     allowed = {"__init__", "host_refusal", "claude_cmd", "host_prompt", "host_note", "run_claude", "continue_command", "describe", "codex_cmd",
-               "mark_host"}
+               "mark_host", "host_window_reason"}
     tree = ast.parse((harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8"))
     driver = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Driver")
     readers = {fn.name for fn in driver.body if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) for n in ast.walk(fn)

@@ -15,7 +15,7 @@ Each check names the ONE mutation it kills:
   t5  a write that fails prints an empty line instead of the findings / the fallback line has no prefix
   t6  `[-4:]` without the prefix in `finish` / a fallback line that loses the prefix
   t7  `[:4]` back in `_handoff_check` / no file for a long list
-  t8  "still holds the context" back / the SKILL.md text names no rework_mode / s3.md has no paragraph
+  t8  "still holds the context" back / the S3 refusal names no rework_mode / the s3.md paragraph is over its size budget
   t9  the `--reason` loses the package path on its way to the card
   t10 a finding is cut at a line ceiling instead of wrapped
   t11 the S3 exit raises on a malformed stages.json (a list root, `stages` not a list, a row not an object)
@@ -457,7 +457,7 @@ def the_form_refusal_lists_every_problem():
 
 def the_texts_say_the_rule_by_rework_mode():
     """KILLS: "still holds the context" back in the refusal; a gate refusal that lets the finding list go one per
-    message; a SKILL.md or s3.md without the rule; an S5 (resume) text that says NEW agent."""
+    message; an s3.md remarks paragraph over its size budget; an S5 (resume) text that says NEW agent."""
     fresh, resume = stage_done.rework_launch_text("S3"), stage_done.rework_launch_text("S5")
     check_in("t8: S3 (fresh): a NEW agent", "as a NEW agent", fresh)
     check_in("t8: S5 (resume): SendMessage the delta", "SendMessage the delta", resume)
@@ -484,13 +484,9 @@ def the_texts_say_the_rule_by_rework_mode():
     finally:
         cleanup(project)
     s3 = (harness.PLUGIN_ROOT / "skills" / "qa-story" / "phases" / "s3.md").read_text(encoding="utf-8")
-    check_in("t8: s3.md has the paragraph", "**Remarks after S3 closes.**", s3)
+    # the paragraph's words are a row of design/role-rules.json (s3-remarks-paragraph-after-s3-closes); the size budget stays here
     paragraph = s3[s3.index("**Remarks after S3 closes.**"):].split("\n", 1)[0]
-    check(f"t8: and it is at most 600 bytes ({len(paragraph.encode())})", len(paragraph.encode()) <= 600)
-    check_in("t8: it gives the complete waiver door", '--task <TICKET> --stage S3 --block "<part of the line>"', paragraph)
-    skill = (harness.PLUGIN_ROOT / "skills" / "qa-story" / "SKILL.md").read_text(encoding="utf-8")
-    check_in("t8: SKILL.md launches a rework by the stage's rework_mode", "launch its card by the stage's `rework_mode`", skill)
-    check_not_in("t8: and no longer says the card goes to this session only", "this session only", skill)
+    check(f"t8: the s3.md remarks paragraph is at most 600 bytes ({len(paragraph.encode())})", len(paragraph.encode()) <= 600)
 
 
 # --- t9: end to end -----------------------------------------------------------------------------------------

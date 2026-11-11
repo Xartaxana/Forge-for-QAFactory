@@ -58,6 +58,18 @@
     "extra_keys": [],
     "integrations": []
   },
+  "manual": {
+    "walkers": 3,
+    "accounts_way": { "words": "not known", "self_sign_up": {}, "more_accounts": {}, "limit_by_role": {} },
+    "data_way": { "words": "not known", "pools": {}, "may": "not known" }
+  },
+  "manual_note": "How many manual walkers (S6 lanes) work at once: walkers is a whole number of 1 or more; 1 runs one walker at a time, which is the road before lanes existed. Two walkers never sign in as the same account and never walk the same case; a story whose lanes would share either runs them in turn.",
+  "manual_supply_note": "How this project gets more test accounts and which records manual walkers may share or make, recorded by the factory from the person's own words (never typed in by hand). accounts_way.words and data_way.words are the person's words, whole; `not known` means the person was not asked yet. accounts_way.self_sign_up.roles names the lane accounts a user who signed up on the app's own page stands for; accounts_way.more_accounts maps a role to env-file key pairs `env:USER_KEY/SECRET_KEY` (key names only, never a value); accounts_way.limit_by_role maps a role to the most lanes of it at once. data_way.pools maps a kind of record to {existing: [instance ids], create_request, delete_request}; data_way.may is one of `only use what exists`, `may create, never delete`, `may create and delete` (anything else reads `not known`, and walkers only use what exists).",
+  "manual_capture": {
+    "type_delay_ms": 50,
+    "settle_ms": 300
+  },
+  "manual_capture_note": "How the manual-agent capture (scripts/manual_capture.py) behaves on this project. type_delay_ms: the pause between two characters of a `fill` step, which keys the text as a person does (a text that would take longer than the step limit at this pace is refused, door `fill --whole`). settle_ms: how long the call waits after a step that acts or types, so the requests it caused arrive while that step is still the current one. Other keys of this object (login.ui, login.http, capture_profile, element_wait_s) are the project's own and are recorded by onboarding.",
   "test_data": {
     "accounts_by_role": "",
     "seeds": "",
@@ -86,8 +98,8 @@
   "tracker_write_note": "The RIGHT to create an issue is probed by tracker_write.py without creating one: direct API -> mypermissions + createmeta; an agent channel -> channels.<name>.writes (true|false) plus one question the orchestrator asks and records. bugs_project defaults to the first adapters.ticket.project_keys entry. probe.max_age_h is how old a stored answer may be at S0, gate_b_max_age_h at the gate B rehearsal.",
   "sizing": { "weights": { "P0": 1.6, "P1": 1.3, "P2": 1.0, "P3": 0.6 } },
   "sizing_note": "sizing.py weighs every verifiable requirement by the priority its impact class maps to (impact_scale) - never one multiplier for a whole story. All keys optional; an omitted tier keeps the default.",
-  "dispatch": { "abandoned_after_s": 600, "never_started_after_s": 180, "native_completion_grace_s": 300, "ui_window_cases": 2, "api_window_cases": 4, "mechanical_rounds": 1 },
-  "dispatch_windows_note": "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others (execution.s5_window_cases overrides the non-UI size when set) - one dispatch each, never merged; on the plan form (S5 with a reviewed plan), the cases one test covers are one window even over the cap. mechanical_rounds is how many mechanical fixes the critic worded (a sleep, a raw locator) go back to the author per window; each is closed by the author's own green run on the new bytes, never by another critic, and spends no repair cap - only a repair whose cause is test_defect spends the cap of two.",
+  "dispatch": { "abandoned_after_s": 600, "never_started_after_s": 180, "native_completion_grace_s": 300, "ui_window_cases": 2, "api_window_cases": 4, "mechanical_rounds": 1, "parallel_windows": 3 },
+  "dispatch_windows_note": "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others (execution.s5_window_cases overrides the non-UI size when set) - one dispatch each, never merged; on the plan form (S5 with a reviewed plan), the cases one test covers are one window even over the cap. mechanical_rounds is how many mechanical fixes the critic worded (a sleep, a raw locator) go back to the author per window; each is closed by the author's own green run on the new bytes, never by another critic, and spends no repair cap - only a repair whose cause is test_defect spends the cap of two. parallel_windows is how many S5 windows work at once: windows run in parallel; serial if the build compiles the whole test folder (record 1).",
   "dispatch_note": "dispatch_liveness.py: how long a role's subagent transcript may stay silent before the dispatch counts as abandoned, and how long a dispatch with no transcript may wait before it counts as never launched. abandoned_after_s is also how long a host receipt that is not terminal, with no other evidence, counts as a live launch: a fresh receipt is alive, an older one is unknown and only a person's release closes it. native_completion_grace_s is how long after a Codex worker's own clean task_complete its stop hooks may still send it back: a worker that completed less than that ago counts as alive, an older completion counts as a return. It also bounds how long a rollout cut mid-row still counts as alive after its last whole row, so changing it changes both. A host that keeps no transcripts answers unknown and nothing is closed by absence.",
   "gate_rehearsal": { "skip_collect": false, "collect_timeout_s": 120, "skip_preconditions": false, "precondition_timeout_s": 5, "skip_executor": false, "skip_reporter": false, "reporter_timeout_s": 180, "reporter_probe_test": {} },
   "gate_rehearsal_reporter_note": "Before gate A the rehearsal runs ONE existing test through each execution profile's own commands.one_test, with the report written into the OS temp directory and never into the task's evidence: a profile whose run leaves no report the factory can read becomes a stand-gap card (kind reporter, id RP-<profile>) carrying the flag that cures it - karma/ng --reporters junit plus karma-junit-reporter, jest --reporters=jest-junit, dotnet --logger \"junit;LogFilePath=<path>\" - instead of stopping the first real run of S5. reporter_probe_test names the test: one string for all profiles, or {\"<profile_id>\": \"<node id or file>\"}; empty means the first node id of the gate's own collect for pytest, else the first test file under the profile's cwd. reporter_timeout_s caps that run; skip_reporter turns the step off, and waiver.py --stage S5 --block \"stand gap: RP-<profile>\" passes the card on a person's word.",
@@ -159,5 +171,6 @@
   "retro": {"orchestrator_share_max": 0.35},
   "retro_note": "Share of a story's priced cost the orchestrator itself may spend on dispatching, re-assembling requests, repeated acceptances and holding context before the retro and the Factory tab call it a finding about the factory. A fraction, not a percentage.",
   "metrics": {"window_days": 30, "severity_weights": {"blocker": 8, "critical": 5, "major": 3, "minor": 1}, "bugginess_report_share": 0.5, "hot_cache_min_percent": 90},
-  "collect": {"stall_quiet_hours": 24}
+  "collect": {"stall_quiet_hours": 24},
+  "first_look": {"reachable_floor_percent": 30}
 }

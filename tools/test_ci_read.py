@@ -412,6 +412,56 @@ def test_start_with_a_non_ascii_ref_and_a_slash_goes_into_the_json_as_is_and_out
     assert out == "dispatched canon.yml for ????/x?[31m; find the run: ci_read.py pipelines\n"
 
 
+def test_start_with_one_var_adds_one_input_next_to_ref(net, capsys):
+    net.routes = [("/dispatches", _Resp(b"", status=204))]
+    assert ci_read.main(["start", "--ref", "b", "--workflow", "nightly.yml", "--var", "TEST_REDUNDANCY=1"]) == 0
+    req = net.requests[0]
+    assert req.full_url == BASE + "/actions/workflows/nightly.yml/dispatches"
+    assert json.loads(req.data) == {"ref": "main", "inputs": {"ref": "b", "TEST_REDUNDANCY": "1"}}
+    assert capsys.readouterr().out == "dispatched nightly.yml for b TEST_REDUNDANCY=1; find the run: ci_read.py pipelines\n"
+
+
+def test_start_with_two_vars_keeps_both_and_a_value_may_hold_equals_or_be_empty(net, capsys):
+    net.routes = [("/dispatches", _Resp(b"", status=204))]
+    argv = ["start", "--workflow", "nightly.yml", "--var", "TEST_REDUNDANCY=1", "--var", "REDUNDANCY_SCOPE=keep"]
+    assert ci_read.main(argv) == 0
+    assert json.loads(net.requests[0].data)["inputs"] == {"ref": "main", "TEST_REDUNDANCY": "1", "REDUNDANCY_SCOPE": "keep"}
+    assert ci_read.main(["start", "--var", "A=x=y", "--var", "B="]) == 0
+    assert json.loads(net.requests[1].data)["inputs"] == {"ref": "main", "A": "x=y", "B": ""}
+    assert net.requests[1].full_url == BASE + "/actions/workflows/canon.yml/dispatches"      # the default workflow
+
+
+@pytest.mark.parametrize("argv, text", [
+    (["start", "--var", "TEST_REDUNDANCY"], "start: --var expects KEY=VALUE"),           # a pair without "="
+    (["start", "--var", "=1"], "start: --var expects KEY=VALUE"),                        # an empty key
+    (["start", "--var", " =1"], "start: --var expects KEY=VALUE"),                       # a blank key
+    (["start", "--var", "A=1", "--var", "A=2"], "start: --var A is given twice"),
+    (["start", "--var", "ref=x"], "start: the input ref is given by --ref"),
+    (["start", "--workflow", "../x.yml"], "--workflow expects a file name of .github/workflows"),
+    (["start", "--workflow", "canon"], "--workflow expects a file name of .github/workflows"),
+])
+def test_a_bad_var_or_workflow_is_refused_exit_2_naming_the_form_before_any_request(argv, text, net, monkeypatch, capsys):
+    monkeypatch.delenv("GITHUB_TOKEN")                  # the refusal comes before the token is read
+    assert ci_read.main(argv) == 2
+    out = capsys.readouterr().out
+    assert out.startswith(text) and net.requests == []
+
+
+def test_start_without_vars_sends_the_body_as_before(net):
+    net.routes = [("/dispatches", _Resp(b"", status=204))]
+    assert ci_read.main(["start", "--ref", "x"]) == 0
+    assert json.loads(net.requests[0].data) == {"ref": "main", "inputs": {"ref": "x"}}
+
+
+def test_start_422_with_vars_names_the_inputs_and_404_names_the_chosen_workflow(net, capsys):
+    net.error = http_error(422, '{"message":"Unexpected inputs provided"}')
+    assert ci_read.main(["start", "--var", "NOPE=1"]) == 1
+    assert capsys.readouterr().out.startswith("HTTP 422: canon.yml refused the inputs")
+    net.error = http_error(404, '{"message":"Not Found"}')
+    assert ci_read.main(["start", "--workflow", "quarantine-watch.yml"]) == 1
+    assert capsys.readouterr().out.startswith("quarantine-watch.yml is not on the default branch")
+
+
 def test_start_404_says_canon_is_not_on_the_default_branch_and_403_prints_the_status(net, capsys):
     net.error = http_error(404, '{"message":"Not Found"}')
     assert ci_read.main(["start"]) == 1

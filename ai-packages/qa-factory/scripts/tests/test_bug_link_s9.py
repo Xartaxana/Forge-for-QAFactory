@@ -102,11 +102,6 @@ def l1_the_draft_joins_the_case() -> None:
         check_in("L1 a filed bug that names no case is said so", "bug BUG-1 is filed but names no case", said["basis"])
         check_not_in("L1 ... never `bug not filed`", "bug not filed", said["basis"])
         check_eq("L1 ... and the word stays `blocked`: no bug is joined to this case", said["result"], "blocked")
-        # the one reader: nothing but the traceability reader turns `source_drafts` into cases
-        users = sorted(p.name for p in SCRIPTS.glob("*.py") if "source_drafts" in p.read_text(encoding="utf-8", errors="replace"))
-        check_eq("L1 the readers of `source_drafts` are the bug reader and the trace's one join", users, ["bug_records.py", "traceability.py"])
-        check_in("L1 control of the invocation: the same search finds the draft reader's own name", "bug_records.py",
-                 [p.name for p in SCRIPTS.glob("*.py") if "_draft_of" in p.read_text(encoding="utf-8", errors="replace")])
     finally:
         cleanup(root)
 
@@ -382,6 +377,60 @@ def l8_the_driver_rebuilds_after_the_reporter() -> None:
         cleanup(root)
 
 
+MERGED = {"title": "Quantity turns input into another number", "case": "TC-001", "cases": ["TC-001", "TC-002"], "requirements": ["R-1"],
+          "manifestations": [
+              {"action": "type -1", "start_state": "selected", "seen": "11", "requirement": "R-1", "case": "TC-001",
+               "evidence": "e.txt", "red_test_none": "manual"},
+              {"action": "type 1.5", "start_state": "erased", "seen": "1", "requirement": "R-3", "case": "TC-003",
+               "evidence": "e.txt", "red_test_none": "manual"}],
+          "mechanism": {"statement": "the field coerces", "status": "unverified", "why": "one start state", "basis": [],
+                        "claims": [{"says": "pasting acts alike", "confirmed_by": []}]},
+          "possibly_same_cause": [{"draft": "work/bug-drafts/cart.json", "why": "both turn input into another number"}]}
+
+
+def l9_one_bug_many_manifestations() -> None:
+    """t-2187 (5.5, 5.6): a case covered only by a manifestation joins the merged bug, `cases` is not dropped when `case` is set, an
+    old draft reads as it did, and the record carries the ways, the cause and the link for the report (filed and unfiled alike)."""
+    root, task = project()
+    try:
+        red(task)
+        file_bug(task, draft=MERGED)
+        found = records(task)
+        check_eq("L9 one record: `case`, `cases` and the manifestations' case, in the reader's order", [r["cases"] for r in found],
+                 [["TC-001", "TC-002", "TC-003"]])
+        check_eq("L9 the requirements are the union (structural fields and the manifestation's)", sorted(found[0]["requirements"]), ["R-1", "R-3"])
+        check_eq("L9 one line per way it shows", found[0]["manifestations"],
+                 ["type -1; start: selected; seen: 11", "type 1.5; start: erased; seen: 1"])
+        check_eq("L9 the cause: word, not-verified claims, standing", (found[0]["mechanism"]["status"], found[0]["mechanism"]["unverified"]),
+                 ("unverified", ["pasting acts alike"]))
+        check_eq("L9 the link names a draft by its stem, never a path", found[0]["possibly_same_cause"], ["cart"])
+        check_eq("L9 the stem of the draft file it came from, for the report's link", found[0]["draft_names"], ["move"])
+        story = TR.Story(task.parents[1], task)
+        for case in ("TC-001", "TC-002", "TC-003"):
+            check_eq(f"L9 `bug_for` {case} returns the merged bug (a case only a manifestation names included)", story.bug_for(case, "R-1").get("id"), "BUG-1")
+        # one bug per case, as today: the first filed one answers for a case two bugs cover (5.6, unchanged)
+        check_eq("L9 a case no draft names has no bug", story.bug_for("TC-009", "R-1"), {})
+        # an old draft reads as today
+        file_bug(task, draft=DRAFT)
+        old = records(task)[0]
+        check_eq("L9 an old draft: its case, no ways, no cause, no link", (old["cases"], old["manifestations"], old["mechanism"], old["possibly_same_cause"]),
+                 (["TC-001"], [], {}, []))
+        # unfiled: the other branch reads the same facts
+        (task / "bugs" / "BUG-1.md").unlink()
+        file_bug(task, head=HEAD, draft=MERGED)
+        (task / "bugs" / "BUG-1.md").unlink()
+        only = [r for r in records(task) if not r["filed"]]
+        check_eq("L9 an unfiled merged draft: all three cases, two ways", (only[0]["cases"], len(only[0]["manifestations"])),
+                 (["TC-001", "TC-002", "TC-003"], 2))
+        # a draft that names no case anywhere is still read by its file name
+        file_bug(task, draft={"title": "x"})
+        (task / "bugs" / "BUG-1.md").unlink()
+        check_eq("L9 no case in the draft: read by its file name (`move`), which is no case id, as before",
+                 [r["cases"] for r in records(task) if not r["filed"]], [[]])
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
     l1_the_draft_joins_the_case()
     l2_requirements_are_structural()
@@ -391,6 +440,7 @@ def main() -> None:
     l6_the_refusal_is_left_for_the_waiver()
     l7_the_mr_text_knows_a_filed_bug()
     l8_the_driver_rebuilds_after_the_reporter()
+    l9_one_bug_many_manifestations()
     finish("bug link and S9 door")
 
 

@@ -4,11 +4,14 @@ The journal is authoritative; callers validate before append. Snapshots are cach
 Never infer a successful operation from a lost process or an incomplete last line.
 """
 import contextlib
+import errno
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import stat
+import threading
 import time
 import uuid
 
@@ -113,14 +116,19 @@ def _is_windows():
 
 REPLACE_ATTEMPTS = 8
 LOCK_POLL_SECONDS = 0.05
+# The wait of every short read-modify-write lock of the package's state files (lease registry, claims, stand lease,
+# stand health, estimation ledger): the same 10 s on both platforms, never infinite. A lock held longer is a refusal
+# that names the lock file and the holder (LockBusy), not a hang. Callers read it as `event_store.SHORT_RMW_LOCK_WAIT_S`
+# at call time, so one patch of this attribute reaches every site.
+SHORT_RMW_LOCK_WAIT_S = 10
 # The marker every store writes when a projection fails after its commit, unless the store names its
 # own. The controller's projection owns this name; `controller --operation recover` removes it.
 STALE_MARKER = "projection-stale.json"
 # How long a lifecycle COMMAND (the CLI of controller, stage_done, manifest_put, story_step)
-# waits for an in-flight writer before it gives up. It is read by those CLIs' `main` and only
-# there: a hook that calls the same library function (SubagentStop's record_return, the
-# telemetry and cost hooks) never inherits it and keeps failing at once, because a hook that
-# waits stalls the host's own tool call.
+# waits for an in-flight writer before it gives up. It is read by those CLIs' `main` and by
+# SubagentStop's `record_return` (TR3-14: with parallel windows a sibling's commit holds the lock
+# for a moment; its worst case is 3 tries x 10 s + 1.2 s = 31.2 s). The telemetry and cost hooks
+# do NOT inherit it and keep failing at once, because a hook that waits stalls the host's own tool call.
 LIFECYCLE_WAIT_SECONDS = 10
 
 
@@ -197,6 +205,237 @@ def _wait_budget(wait_seconds):
                          "pass 0 to fail at once or a number such as 10 to wait"
                          % (wait_seconds,))
     return max(0.0, wait)
+
+
+# --------------------------------------------------------------------------------------------
+# the one file lock of the package (TR4-2): one byte of one file, a timeout on both platforms
+# --------------------------------------------------------------------------------------------
+
+# The errno values a non-blocking lock call answers while ANOTHER handle holds the byte (moved from
+# probe_by_code.py): every other errno is a primitive that cannot run, never "held".
+HELD_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK, errno.EDEADLK})
+_HOLDER_READ_BYTES = 4096
+
+
+def _lock_platform_is_windows():
+    # The lock primitive's OWN platform seam: `_is_windows` stays the replace-retry seam only, so a test
+    # that flips this one on Linux supplies a fake `msvcrt` and never imports the real one.
+    return os.name == "nt"
+
+
+class LockBusy(TimeoutError):
+    """The lock stayed held for the whole wait. `.path` (Path), `.waited_s` (float), `.holder` (dict, `{}` when
+    none is recorded). `str()` is a whole sentence naming the lock file, the seconds, the recorded holder (or that
+    none is recorded) and the door."""
+
+    def __init__(self, path, waited_s=0.0, holder=None):
+        self.path = Path(path)
+        self.waited_s = float(waited_s)
+        self.holder = dict(holder) if isinstance(holder, dict) else {}
+        clause = self.holder_clause
+        super().__init__("%s is held for over %g s: nothing was done under it. %s%s."
+                         % (self.path, round(self.waited_s, 2), clause[:1].upper(), clause[1:]))
+
+    @property
+    def holder_clause(self):
+        """The holder words a caller appends to its own busy head (`"; " + clause`). A recorded holder is advice, never proof."""
+        pid = self.holder.get("pid")
+        if pid is not None:
+            return ("held by process %s since %s, if that process is gone the lock frees itself"
+                    % (pid, self.holder.get("since") or "an unknown time"))
+        return "no holder recorded - released when that process ends: wait and repeat"
+
+
+class LockBroken(OSError):
+    """The lock could not be TRIED. `.path`, `.reason` (str), `.stage` in {"open", "platform", "lock"}: "open" = the
+    file or its folder cannot be opened or made; "platform" = msvcrt/fcntl cannot be imported; "lock" = the lock call
+    failed with an errno outside HELD_ERRNOS. This is not another writer."""
+
+    def __init__(self, path, reason="", stage="lock"):
+        self.path = Path(path)
+        self.reason = str(reason)
+        self.stage = stage
+        super().__init__("%s cannot be locked (%s): nothing was done under it. This is not another writer: %s must be a "
+                         "writable file." % (self.path, self.reason, self.path))
+
+
+def os_try_lock(fd):
+    """THE one primitive: one NON-blocking try on byte 0 of `fd`. Raises OSError (errno in HELD_ERRNOS when held) or
+    ImportError. The only code in the package that calls `msvcrt.locking(.., LK_NBLCK, 1)` / `fcntl.flock(.., LOCK_NB)`."""
+    os.lseek(fd, 0, 0)
+    if _lock_platform_is_windows():
+        import msvcrt
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _os_unlock(fd):
+    os.lseek(fd, 0, 0)
+    if _lock_platform_is_windows():
+        import msvcrt
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+def _open_lock_fd(path, flags):
+    return os.open(str(path), flags | getattr(os, "O_BINARY", 0), 0o666)   # umask makes it 0o644, as the old copies did
+
+
+def lock_holder(path):
+    """The recorded holder `{pid, since, purpose}` of a lock file, or `{}`; never raises. The ONE reader of the holder
+    bytes: it reads from offset 1 and never byte 0 (a held byte raises PermissionError on Windows). A record is advice
+    for a reader, never a condition of holding, and the pid is never probed for liveness."""
+    try:
+        fd = _open_lock_fd(path, os.O_RDONLY)
+    except OSError:
+        return {}
+    try:
+        os.lseek(fd, 1, 0)
+        raw = os.read(fd, _HOLDER_READ_BYTES)
+        value = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError):
+        return {}
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+    pid = value.get("pid") if isinstance(value, dict) else None
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return {}
+    since, purpose = value.get("since"), value.get("purpose")
+    return {"pid": pid, "since": since if isinstance(since, str) else "", "purpose": purpose if isinstance(purpose, str) else ""}
+
+
+def file_lock_state(path):
+    """"held" | "free" | "unknown" for a lock file; it opens read-only and never creates or writes (a missing file or a
+    folder is "unknown": it did not try, so it never says "free")."""
+    try:
+        fd = _open_lock_fd(path, os.O_RDONLY)
+    except OSError:
+        return "unknown"
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return "unknown"
+        try:
+            os_try_lock(fd)
+        except OSError as exc:
+            return "held" if exc.errno in HELD_ERRNOS else "unknown"
+        except ImportError:
+            return "unknown"
+        with contextlib.suppress(Exception):
+            _os_unlock(fd)
+        return "free"
+    except OSError:
+        return "unknown"
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+
+
+class FileLock:
+    """A held lock: `.path`, `.waited_s`. `release()` is idempotent and never raises (an unlock error is dropped: closing
+    the handle releases the lock anyway); it may be called from another thread, the fd is swapped out under a guard so a
+    double release never double-closes."""
+
+    def __init__(self, path, fd, waited_s, record_holder):
+        self.path = Path(path)
+        self.waited_s = float(waited_s)
+        self._fd = fd
+        self._record_holder = bool(record_holder)
+        self._guard = threading.Lock()
+
+    def release(self):
+        with self._guard:
+            fd, self._fd = self._fd, None
+        if fd is None:
+            return
+        if self._record_holder:                     # the truncate comes BEFORE the unlock: the next holder's record must not be cut
+            with contextlib.suppress(Exception):
+                os.ftruncate(fd, 1)
+        with contextlib.suppress(Exception):
+            _os_unlock(fd)
+        with contextlib.suppress(OSError):
+            os.close(fd)
+
+
+def _record_holder_bytes(fd, purpose):
+    """Step 1 of the byte order: truncate to byte 0 FIRST, then write the record at offset 1. A failure of either step is
+    dropped: the lock stays held and a failed write leaves "no holder recorded", never the previous holder."""
+    record = {"pid": os.getpid(), "since": time.strftime("%Y-%m-%dT%H:%M:%S"), "purpose": str(purpose or "")}
+    with contextlib.suppress(Exception):
+        os.ftruncate(fd, 1)
+        os.lseek(fd, 1, 0)
+        os.write(fd, json.dumps(record, separators=(",", ":")).encode("utf-8"))
+
+
+def _try_once(path, fd, lock_call):
+    """One try. Returns True when taken, False when busy; raises LockBroken when the lock cannot be tried."""
+    try:
+        if not os.fstat(fd).st_size:                # byte 0 exists before the try; a PermissionError of this first write is "busy" (D2)
+            os.lseek(fd, 0, 0)
+            os.write(fd, b"0")
+    except PermissionError:
+        return False
+    except OSError as exc:
+        raise LockBroken(path, exc, "open") from exc
+    try:
+        lock_call(fd)
+        return True
+    except ImportError as exc:
+        raise LockBroken(path, exc, "platform") from exc
+    except OSError as exc:
+        if exc.errno in HELD_ERRNOS:
+            return False
+        raise LockBroken(path, exc, "lock") from exc
+
+
+def take_file_lock(path, wait_s=0.0, *, purpose="", record_holder=False, poll_s=LOCK_POLL_SECONDS,
+                   clock=None, sleep=None, lock_call=None):
+    """Take the lock of `path`, polling a NON-blocking try every `poll_s` until a monotonic deadline; returns a `FileLock`
+    the caller releases (a lock held across calls). `wait_s` None/negative = one try; a flag or a non-finite number is a
+    ValueError. Raises `LockBusy` when held for the whole wait, `LockBroken` (never "acquired") when the lock cannot be
+    tried. A holder is recorded only where `record_holder` is True (locks under qa-factory/state/): a lock file in a
+    project's tracked tree stays the single byte "0". The lock file is never deleted, renamed or replaced."""
+    budget = _wait_budget(wait_s)
+    clock = clock or time.monotonic
+    sleep = sleep or time.sleep
+    lock_call = lock_call or os_try_lock
+    path = Path(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = _open_lock_fd(path, os.O_RDWR | os.O_CREAT)
+    except OSError as exc:
+        raise LockBroken(path, exc, "open") from exc
+    started = clock()
+    deadline = started + budget
+    try:
+        while not _try_once(path, fd, lock_call):
+            now = clock()
+            if now >= deadline:
+                raise LockBusy(path, now - started, lock_holder(path))
+            sleep(poll_s)
+        if record_holder:
+            _record_holder_bytes(fd, purpose)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        raise
+    return FileLock(path, fd, clock() - started, record_holder)
+
+
+@contextlib.contextmanager
+def hold_file_lock(path, wait_s=0.0, *, purpose="", record_holder=False, poll_s=LOCK_POLL_SECONDS,
+                   clock=None, sleep=None, lock_call=None):
+    """`take_file_lock` as a block; released in `finally`, the block's own exception goes on."""
+    lock = take_file_lock(path, wait_s, purpose=purpose, record_holder=record_holder, poll_s=poll_s,
+                          clock=clock, sleep=sleep, lock_call=lock_call)
+    try:
+        yield lock
+    finally:
+        lock.release()
 
 
 class EventStore:
@@ -304,38 +543,24 @@ class EventStore:
         rely on a conflict meaning "someone else is writing, skip". A lifecycle command
         that would rather wait for an in-flight writer passes `wait_seconds` > 0: the lock
         is polled every 50 ms until a monotonic deadline, then the same StateConflict is
-        raised. The lock file is only ever opened, never deleted or truncated.
+        raised. The lock file is only ever opened, never deleted or truncated. The mechanics
+        are the package's one file lock (`take_file_lock`); a lock that cannot be opened or
+        opened (a folder at the path) or whose platform module is missing is re-raised as the
+        helper's `LockBroken`; a lock call failing with an errno outside HELD_ERRNOS stays
+        the same `StateConflict` as a busy lock, as before.
         """
-        budget = _wait_budget(wait_seconds)
-        self.state.mkdir(parents=True, exist_ok=True)
-        with (self.state / "events.lock").open("a+b") as f:
-            f.seek(0, 2)
-            if not f.tell():
-                f.write(b"0")
-                f.flush()
-            deadline = time.monotonic() + budget
-            while True:
-                f.seek(0)
-                try:
-                    if os.name == "nt":
-                        import msvcrt
-                        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-                    else:
-                        import fcntl
-                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except OSError as exc:
-                    if time.monotonic() >= deadline:
-                        raise StateConflict("task has an active state writer") from exc
-                    time.sleep(LOCK_POLL_SECONDS)
-            try:
-                yield
-            finally:
-                f.seek(0)
-                if os.name == "nt":
-                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+        try:
+            held = take_file_lock(self.state / "events.lock", wait_seconds, record_holder=False)
+        except LockBusy as exc:
+            raise StateConflict("task has an active state writer") from exc
+        except LockBroken as exc:
+            if exc.stage == "lock":
+                raise StateConflict("task has an active state writer") from exc
+            raise
+        try:
+            yield
+        finally:
+            held.release()
 
     def read(self, repair_tail=False):
         raw = self.log.read_bytes() if self.log.exists() else b""

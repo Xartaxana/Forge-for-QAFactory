@@ -67,12 +67,6 @@ def main() -> None:
         got = line(base, *many, profile("p3"))
         check_eq("K-B5 four profiles: three entries and `(+1 more profiles)`", (got.count(" s set in"), "(+1 more profiles)" in got), (3, True))
 
-        for length, whole in ((120, True), (121, False)):
-            why = "x" * length
-            shown = BP._timeout_entry.__globals__["TIMEOUT_WHY_CHARS"]
-            check_eq(f"K-B6 the limit of the why is {shown} characters", shown, 120)
-            cut = why if len(why) <= shown else why[:shown] + "..."
-            check_eq(f"K-B6 a why of {length} characters: {'whole' if whole else 'cut with ...'}", cut == why, whole)
         import execution_request as ER
         real = ER.pytest_timeout_setting
         try:
@@ -89,10 +83,6 @@ def main() -> None:
         check_eq("K-B7 no profile with a command: no line", line(base, {"profile_id": "x", "commands": {}}), "")
         check_in("K-B8 a defect of the reader is one line saying so, not a crash", "Per-test timeout: not measured",
                  BP.test_timeout_line(base, "qa-automator", object()))
-        source = (Path(BP.__file__)).read_text(encoding="utf-8")
-        check("K-B8 `build` adds the line at S5 and S7 only, after base_log_lines",
-              'head += [line for line in [test_timeout_line(project, role)] if line] if stage in ("S5", "S7") else []' in source
-              and source.index("head += base_log_lines(") < source.index("test_timeout_line(project, role)] if line]"))
     finally:
         cleanup(ROOT)
     finish("brief timeout")

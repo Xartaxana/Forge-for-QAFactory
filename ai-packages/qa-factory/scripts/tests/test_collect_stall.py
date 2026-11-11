@@ -177,6 +177,59 @@ def k_signals():
     check_eq("mark None (never collected): every signal counts", ids(CS.judge(f(5), None, NOW)), ["K7"])
 
 
+def k3_stop_record():
+    """TR4-11: K3 and the person's stop record. Clearing a K3 is the unsafe side (a missing transcript), so every key that must STAY a
+    stall is pinned beside the one that clears: expectations are the spec's (t-2222 item 11.1) and the plan critic's F-1, not what the code prints."""
+    mark3 = NOW - 90 * H
+    judge3 = lambda f: CS.judge(f, mark3, NOW, 24)  # noqa: E731
+    began = mark3 + 5
+    launched = {"kind": "launched", "call": "role", "dispatch_id": "S5-x-1", "started_at": began}
+    call_id = f"S5-x-1@{began}"
+    stop = {"kind": "stopped_by_person", "who": "person", "at": mark3 + 20, "since": mark3 + 1, "cut": [call_id]}
+    runs = lambda *rows: facts(driver_runs=list(rows))  # noqa: E731
+    v = judge3(runs(launched, stop))
+    check("k3_cleared_by_stop_record_of_same_process: no signal, named in `ignored` with the stop time",
+          ids(v) == [] and v["unreadable_reasons"] == []
+          and any(i["why"] == f"stopped by the person at {mark3 + 20}" for i in v["ignored"]), str(v))
+    check_eq("k3_kept_without_stop_record", ids(judge3(runs(launched))), ["K3"])
+    check_eq("k3_kept_for_row_before_since: the row began before the stopping process (a dead earlier driver), even if `cut` names it",
+             ids(judge3(runs(launched, dict(stop, since=began + 1)))), ["K3"])
+    check_eq("k3 (since AT the row's start) clears", ids(judge3(runs(launched, dict(stop, since=began)))), [])
+    check_eq("k3_kept_for_row_after_stop: the stop row stands BEFORE the launched row in the file",
+             ids(judge3(runs(stop, launched))), ["K3"])
+    for label, bad in (("since is a word", {"since": "yesterday"}), ("at is a word", {"at": "yesterday"}),
+                       ("since is a list", {"since": [1]})):
+        v = judge3(runs(launched, dict(stop, **bad)))
+        check(f"k3_unreadable_stop_record_is_unreadable ({label}): the row stays K3 AND the story is unreadable",
+              ids(v) == ["K3", "unreadable"] and any("not a time" in r for r in v["unreadable_reasons"]), str(v))
+    check_eq("k3_stop_record_of_other_who_ignored: `who` other than person", ids(judge3(runs(launched, dict(stop, who="conductor")))), ["K3"])
+    no_who = {k: v for k, v in stop.items() if k != "who"}
+    check_eq("k3 a record with no `who` is not honoured", ids(judge3(runs(launched, no_who))), ["K3"])
+    for key in ("since", "at"):
+        v = judge3(runs(launched, {k: x for k, x in stop.items() if k != key}))
+        check(f"k3 a record with no `{key}` is not honoured, silently", ids(v) == ["K3"] and v["unreadable_reasons"] == [], str(v))
+    check_eq("k3 a record with no `cut` (an older writer) clears nothing",
+             ids(judge3(runs(launched, {k: v for k, v in stop.items() if k != "cut"}))), ["K3"])
+    check_eq("k3 a `cut` that is not a list clears nothing", ids(judge3(runs(launched, dict(stop, cut=call_id)))), ["K3"])
+    check_eq("k3 an empty `cut` clears nothing", ids(judge3(runs(launched, dict(stop, cut=[])))), ["K3"])
+    # two processes on one story: A (a dead one) launched the SAME dispatch at another second; B's record cuts only B's own row
+    other = dict(launched, started_at=began + 3)
+    v = judge3(runs(launched, other, dict(stop, cut=[f"S5-x-1@{began + 3}"], since=began)))
+    check("k3_cut_names_exactly_its_rows: the row the record does not name stays K3 beside the one it does",
+          ids(v) == ["K3"] and v["signals"][0]["at"] == began and len(v["ignored"]) == 1, str(v))
+    check_eq("k3 a row launched AFTER the stop row stays K3 though its id is in `cut`", ids(judge3(runs(stop, launched))), ["K3"])
+    check_eq("k3 a stop record with an ISO time is read like an epoch",
+             ids(judge3(runs(launched, dict(stop, at=iso(mark3 + 20), since=iso(mark3 + 1))))), [])
+    # a younger row (inside the quiet window) is named for the stop, not "may be running now"
+    fresh = dict(launched, started_at=NOW - 5)
+    v = CS.judge(runs(fresh, dict(stop, cut=[f"S5-x-1@{NOW - 5}"], since=NOW - 9, at=NOW - 2)), NOW - 100 * H, NOW, 24)
+    check("k3 a cut row inside the quiet window is named for the stop", ids(v) == [] and "stopped by the person" in v["ignored"][0]["why"], str(v))
+    # a conductor call: the id is `<call>@<started_at>` when there is no dispatch id
+    cond = {"kind": "launched", "call": "conductor", "dispatch_id": "", "started_at": began}
+    check_eq("k3 a conductor call is cut by `conductor@<started_at>`",
+             ids(judge3(runs(cond, dict(stop, cut=[f"conductor@{began}"])))), [])
+
+
 def k6_dispatch_status():
     # abandoned / never_started: the dispatch's start (the `dispatch` event's created_at) is the window
     for status in ("abandoned", "never_started"):
@@ -655,19 +708,23 @@ def loop_table():
         check("L-T0b an absent table is refused", False)
     except ValueError:
         check("L-T0b an absent table is refused", True)
-    # L-T1: every key / kind / values word of the shipped table is a literal of the driver; `route` is not an L4 value
+    # L-T1: the table-to-driver join (AR-22): every key / kind / inner / field / value word of the shipped table is a literal the driver
+    # writes (ONE text read of story_run.py: no importable object carries these words); the L4 values are the driver's OWED_TOKENS
+    # (imported) or `debt`, and `route` (code's own owe_route, no person) is not one
+    import story_run as SR  # noqa: E402
     src = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-    check("L-T1 positive control: the driver source holds \"window_rounds\"", '"window_rounds"' in src)
+    owed = set(SR.Driver.OWED_TOKENS)
+    missing = []
     for row in good["records"]:
         for word in [row.get("key"), row.get("kind"), row.get("inner"), row["field"], *row.get("values", [])]:
-            if word:
-                check(f"L-T1 {row['id']} {word!r} is a literal of story_run.py", f'"{word}"' in src)
-    owed = src.split("OWED_TOKENS = (", 1)[1].split(")", 1)[0]
-    for row in good["records"]:
+            if word and f'"{word}"' not in src:
+                missing.append(f"{row['id']}:{word}")
         if row["id"] == "L4":
-            check(f"L-T1 L4 {row['key']}: every value is an owed token or `debt` (the driver's own list)",
-                  all(f'"{v}"' in owed or v == "debt" for v in row["values"]), owed)
-            check("L-T1 `route` (code's own owe_route, no person) is NOT an L4 value", "route" not in row["values"])
+            missing += [f"L4 {row['key']}:{v} (not an owed token)" for v in row["values"] if v not in owed and v != "debt"]
+            if "route" in row["values"]:
+                missing.append(f"L4 {row['key']}:route")
+    check("L-T1 every word of collect-loops.json is a literal the driver writes, L4 values within OWED_TOKENS", not missing,
+          "missing: " + ", ".join(missing))
     # L-T1b: the pass-key form is tied to the real builder
     for kind in ("round", "mechanical"):
         check(f"L-T1b PASS_KEY matches repair_pass_key({kind})",
@@ -853,6 +910,7 @@ def main():
         i0_and_gate()
         l_reader_and_dispatch_keys(tmp)
         k_signals()
+        k3_stop_record()
         k6_dispatch_status()
         statuses_come_from_controller()
         running_now_and_current()

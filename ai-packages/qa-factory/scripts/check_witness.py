@@ -24,6 +24,7 @@ from validate_artifacts import NEXT_STEPS, _story_root
 from hooklib import project_root
 from detector_verdict import one_line  # noqa: E402 - a finding is one physical line in a detector's output
 import contract as C  # noqa: E402
+import planning_contract as PC  # noqa: E402 - the one reader of the open-question owner words (`question_owners`)
 
 # The triage matrix is the contract's own list, not a second copy: a verdict added there (NOT_EXECUTED,
 # written by code at S7) was refused here as "outside the matrix" while this file kept its own tuple.
@@ -84,28 +85,37 @@ def _witness_errors(value, short_msg: str) -> list:
 
 MISSING_FILE_MSG = 'the witness names a run_suite summary `{p}` but no such file exists — a witness is a file, not a retelling (FB-27)'
 
-def _all_handed(d: dict) -> bool:
-    """Every test this manifest carries belongs to a case the person took over.
-
-    Then there is no run to witness, because nothing in this session could launch one
-    (TP2-2536: Maestro/iOS, no Xcode for the agent). The code still exists and was
-    reviewed; demanding a run_witness here would leave the manifest with one way out —
-    naming a summary that was never written."""
+def _excused(d: dict) -> str:
+    """`acceptance.run_witness_excused`, the ONE reader of "no run to witness" (B3); a failed import is "owed"."""
     try:
-        import contract
-        handed = {row["case"] for row in contract.handed_tests(d)}
+        import acceptance
+        return acceptance.run_witness_excused(d)
     except Exception:
-        return False
-    if not handed:
-        return False
-    for test in d.get("tests") or []:
-        if not isinstance(test, dict):
-            continue
-        linked = set(contract.manifest_test_links(test)) | {str(test.get("case") or "")}
-        if not (linked & handed):
-            return False
-    return True
+        return ""
 
+
+def _collect_covers(row: dict, files: set) -> bool:
+    """A whole collect over every file of `files`: not `partial` (a partial collect listed only the healthy files), and its `files`
+    (what `run_suite.py --collect-only` records) or the files of its `scope` node ids name every one of them."""
+    if not isinstance(row, dict) or row.get("kind") != "collect" or row.get("partial"):
+        return False
+    named = {str(f).replace("\\", "/") for f in row.get("files") or []}
+    named |= {str(n).partition("::")[0].replace("\\", "/") for n in row.get("scope") or []}
+    return files <= named
+
+
+def _collect_row_missing(d: dict) -> list:
+    """`[]` when the manifest's `runs[]` holds a WHOLE launch of `kind: collect` over the files of every pending test (what
+    `run_suite.py --collect-only` records), else the one refusal naming it and its door. A pending-only manifest has no run to
+    witness, so the collect is its only evidence: a partial collect or a collect of another file stands for no pending test."""
+    runs = d.get("runs") if isinstance(d.get("runs"), list) else []
+    files = {str(t.get("file") or "").replace("\\", "/") for t in C.manifest_tests(d)}
+    if any(_collect_covers(r, files) for r in runs):
+        return []
+    return ["every test of this manifest is pending implementation (its side is absent), so no run_witness is owed - but the "
+            "collect is: `runs[]` holds no whole (not partial) row of `kind: collect` over " + (", ".join(sorted(files)) or "its test files")
+            + "; run `run_suite.py --task <TICKET> --collect-only --tests <test files> -- <test command>` and append the row it "
+            "prints through manifest_put.py --fragment"]
 
 
 def _readiness_form(d: dict) -> list:
@@ -125,10 +135,11 @@ def _readiness_form(d: dict) -> list:
         + [f"aspects.{k}: n/a without a reason — silently skipping an aspect is forbidden"
            for k, v in (d.get("aspects") or {}).items()
            if isinstance(v, dict) and v.get("status") == "n/a" and not v.get("reason")]
-        + [f"open_questions[{i}]: needs question, severity (blocker|major|minor) and owner_role (po_ba|dev_arch|qa)"
+        + [f"open_questions[{i}]: needs question, severity (blocker|major|minor) and owner_role ({'|'.join(PC.question_owners())})"
+           + (f": {PC.owner_role_flaw(q.get('owner_role'))}" if q.get("owner_role") and PC.owner_role_flaw(q.get("owner_role")) else "")
            for i, q in enumerate(d.get("open_questions", []))
            if not (q.get("question") and q.get("severity") in ("blocker", "major", "minor")
-                   and q.get("owner_role") in ("po_ba", "dev_arch", "qa"))]
+                   and not PC.owner_role_flaw(q.get("owner_role")))]
     )
 
 
@@ -216,7 +227,8 @@ def readiness_check(d: dict, task_root=None) -> dict:
 
 RULES = {
     "automation-manifest.json": lambda d: (
-        ([] if _all_handed(d) else
+        ([] if _excused(d) == "handed" else
+         _collect_row_missing(d) if _excused(d) == "pending" else
          _witness_errors(d.get("run_witness"), f'run_witness missing or shorter than {MIN_WITNESS_LEN} chars — the path to the run_suite summary (evidence/<label>-<ts>.json) with the exit code and the totals line is mandatory'))
         + [f"tests[{i}] without case/file/status" for i, t in enumerate(d.get("tests", []))
            if not (t.get("case") and t.get("file") and t.get("status"))]

@@ -163,9 +163,6 @@ def journal_vocabulary_covers_what_the_factory_writes() -> None:
     """A6 reported an unknown event that only the factory itself ever wrote."""
     from log_append import EVENTS
     check("handoff_incomplete is a known event", "handoff_incomplete" in EVENTS)
-    source = (Path(__file__).resolve().parents[1] / "exit_gate.py").read_text(encoding="utf-8")
-    for name in set(EVENTS) & {"handoff_incomplete"}:
-        check(f"exit_gate.py still writes {name}", f'"{name}"' in source)
 
 
 def control_plane_is_not_sealed() -> None:

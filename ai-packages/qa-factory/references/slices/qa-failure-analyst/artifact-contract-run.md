@@ -57,7 +57,7 @@ draft; a person decides) needs `control` with `result: effect_without_change`. `
 `runner_said` (the runner's own words) · `evidence` (a text file the runner's attempt captured, task-relative, under the
 case's `work/evidence/manual/<case>/a<n>/`) · `quote` (at most 300 characters from that file, as it holds them). An observation row: `instance_id` `<case>#obs<n>`, `attempt_id`, verdict `APP_BUG` | `NO_DEFECT` (+ quoting `reason`).
 
-Optional, for the Thens a red stops (analyst rule 2c): `blocked_thens` [] of `{then, blocking_check, detail}` - a Then
+Optional, for the Thens a red stops (red-Then triage): `blocked_thens` [] of `{then, blocking_check, detail}` - a Then
 that cannot answer while the defect of case `blocking_check` stands (the verdict stays) · `blocking_check` str - this
 row's red is that case's defect (no second draft) · `diagnostic` `{evidence, thens?, observed}` - the ONE run without the
 red assert (`evidence/diagnostic-<label>.json`, `red_sandbox.py --diagnostic`) · `reorder` bool - independent Thens sit
@@ -69,6 +69,12 @@ and `carried_by` are written by code after a reorder round, never by the role; s
 `reruns >= 3`, without a `mechanism` from the list, or without a `fix_result` is rejected.
 `fix_result` other than `fixed` puts the test in the ledger as `not_verified_flaky` and
 makes `delivery_ready` false.
+
+### Surprise rows
+
+A `<case>#sur-<id>` row (the recorder's id, `a2-ui-S3`) or the `<case>#sur-overflow` row (uncited lines past 30; they are in the
+record's `surprises[]`) has `attempt_id` and a verdict `APP_BUG` | `NO_DEFECT`, as an `#obs` row; a `NO_DEFECT` quote stands in that
+surprise's own line. A line cited by `"surprise": "<id>"` is judged in its observation.
 
 ### FLAKY — a test defect
 
@@ -84,29 +90,26 @@ exists only after a gate B decision names this file.
 ```json
 {"title": "…", "impact": "degraded", "violates": "requirement:R-4", "case": "TC-004",
  "triage_ref": {"instance_id": "test_removed_node[chromium]", "attempt_id": "a3"},
- "manual_steps": ["open the diff of revision 4 against 3"], "confirmation": "unconfirmed"}
+ "manual_steps": ["open the diff of revision 4 against 3"],
+ "red_test": {"path": "tests/test_diff.py::test_removed_node", "command": "pytest tests/test_diff.py::test_removed_node"},
+ "confirmation": "unconfirmed"}
 ```
 
 Required: `title` · `impact` (a class from the scale) · `violates` (the plan row's oracle
 grammar) · `case` · `triage_ref`, naming a `triage.json` row whose verdict is `APP_BUG` ·
 `manual_steps` [], what a PERSON does in the product to see the defect, never the test's
-assertion line · `confirmation` — `unconfirmed` (nobody outside the run has seen it; it counts
+assertion line · `red_test {path, command}` (the failing test that shows the defect and re-checks the fix) **or**
+`red_test_none: <why>` (e.g. `manual check only`) - one of the two, never neither, never both; the red test travels with the bug ·
+`confirmation` — `unconfirmed` (nobody outside the run has seen it; it counts
 toward nothing) until `confirmed_by_person` at gate B or `confirmed_by_rerun` on another stand; the code derives `reproduced_by_factory` from `reproduction`, below.
-Optional `reproduction`: `[{kind, evidence, observed, attempt_id}]`, `kind` `fresh_data_rerun` or `own_script`; `evidence`
-a non-empty file under `evidence/`; a `fresh_data_rerun` names the `attempt_id` of a later attempt that failed again.
-Optional: `plan_row`, `expected`, `actual`, `possible_duplicate`, siblings, `cases` - the cases the draft covers: its own
+Optional `reproduction`: `[{kind, evidence, observed, attempt_id}]`, `kind` `fresh_data_rerun`, `own_script` or `walk`; `evidence`
+a non-empty file under `evidence/`; a `fresh_data_rerun` names the `attempt_id` of a later attempt that failed again; a `walk` names `evidence/place-answer-<id>.json`, the record `place_answers.py write` made for this draft's `bug` answer.
+Optional: `plan_row`, `expected`, `actual`, `possible_duplicate`, `cases` - the cases the draft covers: its own
 and every case whose `triage.json` row names it through `blocking_check` (the blocker's draft is the only draft).
 Also optional: `defect_location` (`file:line`), `requirements` (`["R-n"]`, all it breaks), `extends_open_bug` (`{"key","summary"}`: the open source bug that is `match`; shown only when the key is verified), `distinct_defect` (`"<why>"`: shares a place, another defect).
+**One cause, several ways it shows:** `mechanism` `{statement, status: confirmed|unverified|unknown, basis: [{id, kind: code_line {path, line, quote} | run {case, capture, quote, start_state} | person {dispatch, quote}}], claims: [{says, confirmed_by: [basis ids]}], why}` - `why` says what is missing when `status` is not `confirmed`; a claim with no `confirmed_by` reads "not verified"; unknown: `{status: "unknown", why}`, `basis: []`. `manifestations`: `[{action, start_state, seen, requirement, case, triage_row | probe {case, capture, quote}, evidence, red_test | red_test_none, from_draft}]`, the first is the draft's own row; 2+ only when `status` is `confirmed` and its basis stands. `person` stands only when `dispatch` is the S7 rework of the person's words for these cases and `quote` (12+ characters) is in them. A code-reading draft is absorbed as `from_draft` + `evidence` (`path:line`), no row, no probe. `possibly_same_cause`: `[{draft, why}]` - separate drafts you suspect share a cause you could not confirm (not `possible_duplicate`: that names a tracker issue). Without these keys: one manifestation, cause not stated. `siblings` is legacy: nothing reads it.
 **Second form, `evidence: "code-reading"`** (no `triage_ref`, `case`): `{"title", "impact", "violates", "oracle": {"question"|"requirement": "Q7"|"R-24", "quote": "<verbatim>"}, "fact": {"id", "path", "line"} | {"path", "line", "quote"}, "check_state": "not_executed"|"unverifiable", "manual_steps": [...]}`. Requirement oracle: its row says `code_says: contradicts: <that id>`; code place: whole line.
 
 **Checked** at the gate B rehearsal, before the list is shown: no `triage_ref`, a
 verdict other than `APP_BUG`, a case the roll-call leaves unreviewed, or no `manual_steps` —
 each a `factory_fixable` finding S7 repairs, each passed by a person's word (`waiver.py`).
-
-## `bugs/BUG-n.md` — the filing header (HF8-21)
-
-**Writer** `qa-bug-reporter`, S8, after gate B. **Readers** `bug_records.py` (`filing_of`: the file, and whether the tracker has
-it, derived by code), the report, `validate_artifacts.py`. A bug filed from a draft of this run carries `source_draft`, `cases` and
-`requirements` in its frontmatter; no case is `cases: []` with `no_case_reason`. A bug with no `source_draft` is an older one and is
-read as before. The reporter's hand-off form is `s8-bug-reporter-to-scribe`: `scope` (one row per draft the person answered
-about, or the one row `gate_b` / `nothing_chosen`), `filed`, `not_filed`, `quarantined`; it never says whether a tracker has the bug.

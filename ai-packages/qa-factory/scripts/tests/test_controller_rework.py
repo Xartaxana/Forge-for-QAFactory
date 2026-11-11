@@ -321,7 +321,7 @@ def rework_is_built_from_the_accepted_work():
         except ValueError as exc:
             message = str(exc)
         check_in("an invented purpose is answered with the list of real ones",
-                 "must be one of: build, collect", message)
+                 "must be one of: bind, build, collect", message)
     finally:
         cleanup(root)
 
@@ -613,6 +613,16 @@ def a_never_started_repair_relaunches_with_its_original_request():
             check_eq("relaunching a round that never started spends no extra round",
                      (ledger_after["counted"], ledger_after["by_cause"]),
                      (ledger_before["counted"], ledger_before["by_cause"]))
+            # t-2183 F1: the same id under a FRESH idempotency key is no replay - it is refused by name, nothing dispatched
+            fresh = dict(action["dispatch_request"], idempotency_key=str(action["dispatch_request"].get("idempotency_key")) + "-fresh")
+            fresh.pop("expected_revision", None)
+            dispatched_before = [e for e in controller.store.read() if e["type"] == "dispatch"]
+            check_in("a recorded id under a fresh key is refused: resume, do not replace",
+                     "resume existing dispatch", refusal(lambda: controller.apply("dispatch", dict(fresh))))
+            check_eq("and no dispatch event was committed for it",
+                     ([e for e in controller.store.read() if e["type"] == "dispatch"] == dispatched_before,
+                      any(e["idempotency_key"] == fresh["idempotency_key"] for e in controller.store.read())),
+                     (True, False))
         finally:
             LIFE.without_hooklib()
     finally:

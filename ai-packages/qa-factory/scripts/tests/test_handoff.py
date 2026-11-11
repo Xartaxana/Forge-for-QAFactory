@@ -212,6 +212,7 @@ def a_form_is_written_and_then_repaired_by_code() -> None:
                             ("claims.every_instance_ran", True),
                             ("claims.every_expectation_change_after_red_is_recorded", True),
                             ("claims.manifest_matches_the_tests", True),
+                            ("tried_note", "fixture: nothing was tried beyond the shared run"),
                             ("for_the_reviewer[0]", "the shared helper holds the oracle")):
             handoff.set_value(doc, path, value)
             doc = handoff.parse(doc.text())
@@ -1400,6 +1401,64 @@ def two_fields_cut_at_once_and_a_later_cut_of_another_field_keeps_the_first_row(
 BUG_CLAIM = "no_bug_reaches_the_gate_without_a_draft_and_a_triage_row"
 
 
+def the_bug_draft_claim_reads_the_manifestations() -> None:
+    """t-2187 N2 (5.2, F-2 (a)): the S7 claim covers an APP_BUG row through a draft's manifestations, refuses a manifestation that names no row or
+    a row that is not APP_BUG, and refuses a merge whose cause the factory cannot re-read - each with its door. Mutation (named, not run):
+    drop the `BR.merged_unconfirmed` loop -> the 'cannot confirm' keys; drop the `manifestation_*` loops -> the two door keys."""
+    import handoff_check as H
+    claim = H.CLAIMS[BUG_CLAIM]
+    rows = [{"instance_id": f"t_{n}", "attempt_id": "a1", "case": f"TC-{n}", "verdict": "APP_BUG"} for n in (1, 2, 3)]
+    rows.append({"instance_id": "t_9", "attempt_id": "a1", "verdict": "ENV_ISSUE"})
+    ref = lambda n: {"instance_id": f"t_{n}", "attempt_id": "a1"}   # noqa: E731
+
+    def man(n, **over):
+        return {"action": f"a{n}", "start_state": "s", "seen": "x", "triage_ref": None, "triage_row": ref(n), "evidence": "e", "red_test_none": "m", **over}
+    line = "const q = f(1);"
+    good = {"statement": "s", "status": "confirmed", "basis": [{"id": "b1", "kind": "code_line", "path": "src/P.tsx", "line": 2, "quote": line}]}
+
+    def merged(mech=None, mans=None, **over):
+        body = {"title": "t", "triage_ref": ref(1), "case": "TC-1", "manifestations": mans or [man(1), man(2), man(3)], **over}
+        if mech is not None:
+            body["mechanism"] = mech
+        return body
+    root = temp_project("qa-handoff-n2-")
+    try:
+        (root / "src").mkdir(exist_ok=True)
+        (root / "src" / "P.tsx").write_text("a\n" + line + "\n", encoding="utf-8")   # the project root holds the code the basis cites
+
+        def verdict(name, drafts):
+            task = root / "qa-factory" / "artifacts" / name
+            (task / "work" / "bug-drafts").mkdir(parents=True)
+            (task / "work" / "triage.json").write_text(json.dumps({"triage": rows}), encoding="utf-8")
+            for fname, body in drafts.items():
+                (task / "work" / "bug-drafts" / fname).write_text(json.dumps(body), encoding="utf-8")
+            return claim(H.Artifacts(task))
+        import bug_records as BR
+        got = verdict("n2-three", {"m.json": merged(good)})
+        check_eq("N2 5.2: three APP_BUG rows, one merged draft whose basis stands: the claim holds", got[0], True)
+        check_in("N2 5.2: ... and says what it paired", "every draft rests on an APP_BUG row and every APP_BUG row has its draft", got[1])
+        got = verdict("n2-nr", {"m.json": merged(good, mans=[man(1), man(2, triage_row={"instance_id": "t_77", "attempt_id": "a1"}), man(3)])})
+        check_eq("N2 5.2: a manifestation naming no row: refused", got[0], False)
+        check_in("N2 5.2: ... with its door", "names the row t_77@a1, which is no row of work/triage.json - add the row the manifestation names, or remove the manifestation", got[1])
+        got = verdict("n2-env", {"m.json": merged(good, mans=[man(1), man(9), man(2), man(3)])})
+        check_in("N2 5.2: a manifestation naming a row that is not APP_BUG: refused, naming the verdict and the door",
+                 "names the row t_9@a1, whose verdict is ENV_ISSUE, not APP_BUG - the verdict is corrected, or the manifestation is removed", got[1])
+        got = verdict("n2-uncovered", {"m.json": merged(good, mans=[man(1), man(2)])})
+        check_in("N2 5.2: the row no manifestation names is still owed a draft", "no draft for the APP_BUG row t_3@a1", got[1])
+        broken = dict(good, basis=[{"id": "b1", "kind": "code_line", "path": "src/Nope.tsx", "line": 1, "quote": "x"}])
+        for label, mech in (("a basis that does not stand", broken), ("no mechanism at all", None), ("status unknown", {"status": "unknown", "why": "w"})):
+            got = verdict("n2-" + label.split()[0] + str(len(label)), {"m.json": merged(mech)})
+            check_eq(f"N2 F-2: {label}, three manifestations: refused", got[0], False)
+            check("N2 F-2: ... naming the draft, its first problem and the two doors (fix the basis / split with possibly_same_cause)",
+                  "the draft m.json puts several manifestations under one cause the factory cannot confirm" in got[1]
+                  and "fix the basis (a shared `defect_location` line can be cited as a `code_line`), or split the draft and link the parts with `possibly_same_cause`" in got[1], got[1])
+        got = verdict("n2-one", {"m.json": merged(broken, mans=[man(1)])})
+        check_not_in("N2 F-2: a draft with ONE manifestation and a broken mechanism is no merge: no 'cannot confirm' line", "cannot confirm", got[1])
+        check_eq("N2 old draft: no manifestations, no new line", BR.merged_unconfirmed(root, [("o.json", {"title": "t"})]), [])
+    finally:
+        cleanup(root)
+
+
 def the_bug_draft_claim_reads_the_json_drafts() -> None:
     """G1-9 (t-1078): `no_bug_reaches_the_gate_without_a_draft_and_a_triage_row` counted `work/bug-drafts/*.md` while the
     writer produces `*.json`, so it refused every story with APP_BUG rows and passed a draft with no row. It now pairs
@@ -1521,7 +1580,8 @@ def the_bug_draft_claim_reads_the_json_drafts() -> None:
         fact = {"id": "XPANBFLFA-167 price sync / subtotal", "path": "MyBooks/src/lib/services/cartService.ts", "line": 103}
         cr = {"title": "The cart total uses the current price", "impact": "money", "violates": "requirement:R-24", "evidence": "code-reading",
               "oracle": {"question": "Q7", "quote": "the price shown when added is kept"}, "fact": fact, "check_state": "not_executed",
-              "manual_steps": ["add a book at 6, change its price to 8, open the cart"], "confirmation": "unconfirmed"}
+              "manual_steps": ["add a book at 6, change its price to 8, open the cart"], "confirmation": "unconfirmed",
+              "red_test_none": "no run spoke: the defect is read from the code"}
 
         def cr_story(name, answered):
             task = story(root, name, drafts={"BD-1.json": cr})
@@ -2242,6 +2302,7 @@ def main() -> None:
     the_implementation_checkout_has_one_survivor_and_never_asks_for_an_empty_id()
     the_bug_draft_claim_gives_no_verdict_on_a_folder_it_cannot_list()
     the_bug_draft_claim_reads_the_json_drafts()
+    the_bug_draft_claim_reads_the_manifestations()
     two_fields_cut_at_once_and_a_later_cut_of_another_field_keeps_the_first_row()
     a_field_over_its_limit_is_cut_by_code_with_the_whole_text_kept()
     length_is_cut_only_when_it_is_the_forms_only_problem()

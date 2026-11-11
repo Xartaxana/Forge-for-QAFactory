@@ -552,9 +552,6 @@ def the_record() -> None:
     finally:
         env_probe._fetch, SA._open, SA.login = real_fetch, real_open, real_login
         cleanup(root)
-    p4 = " ".join((PACKAGE / "skills" / "qa-onboarding" / "phases" / "p4-generate.md").read_text(encoding="utf-8").split())
-    check("K-W7 p4 tells the role to copy login.record whole and assembles no object by hand",
-          "login.record" in p4 and '"status": <the code>' not in p4)
     check("K-W8 the stand_access docstring documents the outcome key", '"outcome"' in (SA.__doc__ or ""))
 
 
@@ -670,8 +667,9 @@ def the_login_source() -> None:
             check_in(f"S1 {kind}: the line names the kind", f"environment.access.kind {kind}", out.row["probe_line"])
             check_in(f"S1 {kind}: and that nothing was sent", "nothing was sent", out.row["probe_line"])
             check_in(f"S1 {kind}: the door names the key to record", "manual_capture.login.http", out.row["remedy"])
-            check_eq(f"S1 {kind}: user-owned, no retry, no cause (the login-by-code variant)",
-                     (out.row["owner"], out.row.get("do_not_retry"), "cause" in out.row), ("user", True, False))
+            check_eq(f"S1 {kind}: factory-owned, no retry, cause login_unknown (t-1955 N2: nothing was sent)",
+                     (out.row["owner"], out.row.get("do_not_retry"), out.row.get("cause")),
+                     ("factory", True, MC.LOGIN_UNKNOWN_CAUSE))
             check_not_in(f"S1 {kind}: no project name", "Test Project 1", out.row["probe_line"] + out.row["remedy"])
     own = {"http": {"path": "/own/login", "token_field": "access_token"}}
     for kind in ("harness_command", "bearer_env", "oidc_password"):
@@ -774,25 +772,7 @@ def the_login_source() -> None:
 
 
 def the_docs() -> None:
-    p4_old = ("`login: failed` or `liveness: dead` is a stand problem, not a config problem: keep the block,\n"
-              "record `login_probe` with the code that came back, and carry it into the phase-3 summary as a\n"
-              "`[DEFERRED: ...]` with its backlog row.")
-
-    def p4_ok(text: str) -> bool:
-        flat = " ".join(text.split())
-        return (all(k in flat for k in ("login.accepted_fields", "login.refusal", "login.complained", "config problem"))
-                and "`login: failed` or `liveness: dead` is a stand problem, not a config problem" not in flat)
-
-    phases = PACKAGE / "skills" / "qa-onboarding" / "phases"
-    p4 = (phases / "p4-generate.md").read_text(encoding="utf-8")
-    p2 = " ".join((phases / "p2-interview.md").read_text(encoding="utf-8").split())
-    doctor = (PACKAGE / "skills" / "qa-doctor" / "SKILL.md").read_text(encoding="utf-8")
     steps = json.loads((PACKAGE / "references" / "manual-capture-steps.json").read_text(encoding="utf-8"))
-    check("K-D1 docs_carry_the_rule: p4 holds the keys and not the old sentence", p4_ok(p4))
-    check("K-D1 negative control: today's :257-259 paragraph FAILS the same predicate", not p4_ok(p4_old))
-    check_in("K-D1 p2 names the row", "references/login-body-fields.json", p2)
-    check_in("K-D1 p2 keeps the pinned literal", "confirm what phase 1 found", p2)
-    check_in("K-D1 qa-doctor names the class", "login-field-unknown", doctor)
     check("K-D1 the manual-capture default recipe has no body", "body" not in steps["login"]["http"])
 
 

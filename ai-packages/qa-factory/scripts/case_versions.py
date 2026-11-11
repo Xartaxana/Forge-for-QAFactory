@@ -23,7 +23,6 @@ import argparse
 import contextlib
 import hashlib
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -31,34 +30,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import contract as C  # noqa: E402
 import hooklib  # noqa: E402
 from role_cli import command_from_argv, epilog, refuse, run_guarded  # noqa: E402
-from event_store import atomic_json  # noqa: E402
+from event_store import LockBroken, LockBusy, atomic_json, take_file_lock  # noqa: E402
 
 
 @contextlib.contextmanager
 def store_lock(store: Path):
-    store.mkdir(parents=True, exist_ok=True)
-    with (store / ".case-versions.lock").open("a+b") as handle:
-        if not handle.tell():
-            handle.write(b"0")
-            handle.flush()
-        handle.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise RuntimeError("case version store has an active writer") from exc
-        try:
-            yield
-        finally:
-            handle.seek(0)
-            if os.name == "nt":
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+    # The store may be the shared cases_root (a tracked tree): record_holder stays False, the file stays one byte.
+    held = _take_lock(store / ".case-versions.lock", "case version store has an active writer")
+    try:
+        yield
+    finally:
+        held.release()
+
+
+def _take_lock(path: Path, busy_head: str):
+    """One try on the package's file lock; the caller's own exception type (RuntimeError) in both outcomes, and the
+    words follow the outcome: busy = the head + the holder clause, broken = the LockBroken sentence (never the busy head)."""
+    try:
+        return take_file_lock(path, 0.0, record_holder=False)
+    except LockBusy as exc:
+        raise RuntimeError(busy_head + "; " + exc.holder_clause) from exc
+    except LockBroken as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def portable_source_path(source: Path, root: Path | None = None) -> str:
@@ -193,29 +186,11 @@ def link_path(task_root: Path) -> Path:
 
 @contextlib.contextmanager
 def task_link_lock(task_root: Path):
-    state = Path(task_root) / "state"
-    state.mkdir(parents=True, exist_ok=True)
-    with (state / ".story-case-links.lock").open("a+b") as handle:
-        if not handle.tell():
-            handle.write(b"0"); handle.flush()
-        handle.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise RuntimeError("story case links have an active writer") from exc
-        try:
-            yield
-        finally:
-            handle.seek(0)
-            if os.name == "nt":
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+    held = _take_lock(Path(task_root) / "state" / ".story-case-links.lock", "story case links have an active writer")
+    try:
+        yield
+    finally:
+        held.release()
 
 
 def _matching(pool: dict, key: str, cfg: dict | None = None):

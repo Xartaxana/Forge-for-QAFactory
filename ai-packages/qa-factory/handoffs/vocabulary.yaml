@@ -60,6 +60,7 @@ row_states:
   blocked: {used_by: any, meaning: something outside the role stops it; `blocked.problem` in the file says what (a row with it empty is refused)}
   blocked_by_env: {used_by: [qa-automator, qa-runner], meaning: "the stand, not the product and not the test"}
   env_blocked: {used_by: [qa-runner, qa-doc-scribe], meaning: the run's own word for a stand block}
+  unprepared_walk: {used_by: [qa-runner], meaning: "an unprepared manual-agent case closed by `manual_evidence.py unprepared`, walked or not; no pass or fail"}
   pending_implementation: {used_by: [qa-automator, qa-test-strategist], meaning: the product does not carry this behaviour yet}
   contradicts_requirement: {used_by: [qa-automator, qa-code-critic], meaning: "the implementation contradicts the approved case; handed over RED, never adjusted"}
   handed_to_person: {used_by: any, meaning: only a person can settle it; the question is in `blocked`}
@@ -96,7 +97,7 @@ row_states:
   ASSERT_STRICTER: {restricted_to: [qa-failure-analyst], meaning: "the same action without the change under test shows the same value, and the requirement does not ask what the assert asks; the person decides"}
   NOT_EXECUTED: {restricted_to: [qa-failure-analyst], meaning: "the check did not answer; code writes it at S7 for a manual check whose own record says what stopped it"}
   RUNNER_MISREAD_EVIDENCE: {restricted_to: [qa-failure-analyst], meaning: "the manual runner's verdict contradicts the text its own attempt captured; the runner judges the same captures again, no bug"}
-  NO_DEFECT: {restricted_to: [qa-failure-analyst], meaning: "a manual runner's observation (<case>#obs<n>) judged not a bug, with a reason quoting the recorded evidence; valid on an observation only, never on a failed Then"}
+  NO_DEFECT: {restricted_to: [qa-failure-analyst], meaning: "a manual runner's observation or recorder surprise (<case>#obs<n>, <case>#sur-<id>) judged not a bug, the reason quoting the recorded evidence; never on a failed Then"}
 
 # Why an item may stay open when a stage closes.
 unresolved_reasons:
@@ -131,7 +132,7 @@ probe_verdicts:
   no_failure: the assertion never fires — dead or tautological; a defect of the test
   wrong_location: the test fell before its assertion; `actual_location` says whose fault that is
   not_executed: the probe did not run; `notes` name the cause, never the author's round
-  incomplete: the probe ran but the tool could not read the run well enough to judge the test (an error row, an unresolved frame, a message its table does not know, a launcher that may not rebuild); `notes` name what it could not read; a tooling finding, never a verdict on the test
+  incomplete: the probe ran but the tool could not read the run well enough to judge the test (an error row, an unresolved frame, a launcher that may not rebuild): a tooling finding, never a verdict on the test; or it failed at the mutated line with a text the tool cannot read (`cause: judgment`), and the code critic judges it (`probe_by_code.py --judge`)
 
 # --------------------------------------------------------------------------------------------
 # The closed lists the handoff contracts name. They were scattered across phase files, role
@@ -245,9 +246,9 @@ flaky_decisions: [another_round, quarantine]
 # Whether a bug has been reproduced outside the run (s7, gate-b).
 bug_confirmations: [unconfirmed, reproduced_by_factory, confirmed_by_person, confirmed_by_rerun]
 
-# What kind of reproduction an S7 bug draft's `reproduction` entry records (s7): a rerun of the red test on fresh data, or the
-# analyst's own script. The code derives `reproduced_by_factory` from a checked entry; it does not read the role's word.
-bug_reproduction_kinds: [fresh_data_rerun, own_script]
+# What kind of reproduction an S7 bug draft's `reproduction` entry records (s7): a rerun of the red test on fresh data, the
+# analyst's own script, or a walk of the analyst on the stand (a place-answer record). The code derives `reproduced_by_factory` from a checked entry; it does not read the role's word.
+bug_reproduction_kinds: [fresh_data_rerun, own_script, walk]
 
 # Why a filed bug is NOT in the tracker (HF8-21): the person's own words in the report, read by `bug_records.filing_of` and
 # printed by the report. `contract.BUG_NOT_SENT_REASONS` mirrors the keys (a test holds them equal); the values are the words.

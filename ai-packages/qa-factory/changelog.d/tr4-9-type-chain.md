@@ -1,0 +1,1 @@
+- Manual walk: a typing chain no longer carries from one actor to another, and two spellings of one field (`#qty`, `input#qty`) continue it when the browser backend says they resolve to one element (`same_field`; a doubt means a new field).

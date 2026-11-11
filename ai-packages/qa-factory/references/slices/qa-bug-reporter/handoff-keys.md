@@ -40,6 +40,11 @@ Contract `s8-bug-reporter-to-scribe` (fill `work/handoffs/<dispatch>.yaml`; `han
 - `claims.every_filed_bug_names_its_draft_and_its_case_or_says_why_not` (required) - true|false
 - `claims.no_bug_was_filed_for_a_draft_the_person_did_not_choose` (required) - true|false
 - `claims.nothing_was_written_to_the_tracker_by_the_role` (required) - true|false
+- `tried[].requirement` (required) - the bug draft id
+- `tried[].technique` (required) - the duplicate search or the reproduction attempt, as you ran it
+- `tried[].observation` (required) - what you found, in one line
+- `tried[].evidence` (required) - the path (and anchor) where it shows
+- `tried_note` (optional) - why the table is empty, or a dash when it has rows
 - `unresolved[].id` (required) - draft ref or instance id
 - `unresolved[].reason` (required) - one of vocabulary.unresolved_reasons
 - `unresolved[].detail` (required) - what exactly is missing, and what would settle it

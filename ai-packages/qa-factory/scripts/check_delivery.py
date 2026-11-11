@@ -1799,6 +1799,30 @@ def handed_records(artifacts: Path) -> list:
     return out
 
 
+def unprepared_records(ledger: dict) -> list:
+    """One record per manual case the factory failed to prepare and the manual agent walked without a result (F5(e) 3, AR-27):
+    kind `unprepared_walk` (`after_checks`, owner factory) - the case is a "Left with you" item under its own name, with the
+    reason as what is left to check. The ONE reader of the ledger's `unprepared_walks` (the list `ledger.build` writes from
+    `manual_evidence.unprepared_rows`); a ledger without the key has none. The walk never proves a requirement: coverage
+    keeps `verified` False and the requirement keeps its own kind (Fork 13 A, AR-28). The record carries no `requirements`: the
+    walk row holds none, and `build_left_items` fills the item's from the case index."""
+    out = []
+    for walk in (ledger or {}).get("unprepared_walks") or []:
+        if not isinstance(walk, dict) or not walk.get("case"):
+            continue
+        case = str(walk["case"])
+        reason = str(walk.get("reason") or "no reason recorded")
+        if walk.get("walked") is False:      # t-1955 N3: derived from the recorder's files, never the runner's word
+            to_check = ("the factory could not prepare this check and it was not walked either - not walked: "
+                        + str(walk.get("not_walked") or "no reason recorded") + "; the factory's reason: " + reason)
+        else:
+            to_check = "the factory could not prepare this check and the agent walked it without a result: " + reason
+        out.append({"text": "", "kind": "unprepared_walk", "case": case, "ref": case,
+                    "to_check": to_check,
+                    "source": "ledger"})
+    return out
+
+
 def _check_after_words(blocker_cases: list, facts: dict) -> str:
     """T3 (HF2-3 D8, `human_text`-checked): `check after {case} ({case title}) is fixed` - the "Left with you" words of a
     blocked Then whose row carries no `detail`. `{case}` is each case `ledger.blocker_cases` names (several joined by `and`,
@@ -1847,15 +1871,19 @@ def blocked_records(artifacts: Path, facts: dict | None = None) -> list:
     return out
 
 
-def _is_factory_data_gap(artifacts: Path, test: dict) -> bool:
-    """True when the probe's record of THIS test's current bytes says the factory's detector row lacks the failure's wording
-    (`proof_level.probe_factory_data_gap`, RN1-9 E15). The bytes are read under the project the story sits in (the nearest
-    ancestor of `artifacts` carrying the marker; none: the process's own project), never under a guess; a test file that is gone
-    gives an empty hash and False (FR-41: an unknown is not upgraded to a typed claim)."""
+def _owes_factory_judgment(artifacts: Path, test: dict) -> bool:
+    """True when the probe's record of THIS test's current bytes is `incomplete` with `cause: judgment`, judged or not
+    (`proof_level.probe_owes_judgment`, t-1968 N2: `unjudged` or `cannot_judge`). The bytes are read under the project the story
+    sits in (the nearest ancestor of `artifacts` carrying the marker; none: the process's own project), never under a guess; a
+    test file that is gone gives an empty hash and False (FR-41: an unknown is not upgraded to a typed claim). ALSO False when
+    `proof_level.probe_plain_call_owed` is True for the record (t-2064 fix round G, R2): the state "models owed / rows not selected"
+    is the critic's work (`review_unverified`), never "the cause is the factory's" (FR-19, AR-27)."""
     try:
         from runtime_paths import nearest_project
         sha = PL.current_test_sha(test, nearest_project(artifacts))
-        return PL.probe_factory_data_gap(artifacts, C.test_instance_id(test), sha)
+        if PL.probe_plain_call_owed(artifacts, C.test_instance_id(test), sha):
+            return False
+        return PL.probe_owes_judgment(artifacts, C.test_instance_id(test), sha) != ""
     except Exception:
         return False
 
@@ -1865,8 +1893,8 @@ def unverified_records(artifacts: Path, facts: dict | None = None) -> list:
     read from the manifest's OWN verdict - a typed field - and not from a ledger state. A row a triage verdict turned green
     (a fixed FLAKY) is `passed_green` in the ledger and still carries the debt (`delivery_summary` always said so), so the
     ledger row alone would lose it and the verdict would read `yes` over an unverified test. A test whose probe failed at the
-    mutated line while the factory's detector row lacks the wording (E15, `cause: data_row`) is the same debt under the kind
-    `review_unverified_factory`: the person may still check it, the cause is the factory's (`factory_data_gap_findings` says so)."""
+    mutated line on a text the factory cannot read and no judgment proved it (E15, `cause: judgment`) is the same debt under the
+    kind `review_unverified_factory`: the person may still check it, the cause is the factory's (`factory_data_gap_findings` says so)."""
     from traceability import is_dead_test
     facts = facts or gather(artifacts)
     out = []
@@ -1874,28 +1902,28 @@ def unverified_records(artifacts: Path, facts: dict | None = None) -> list:
         if not L.is_unverified(test) or is_dead_test(test):
             continue
         links = [_bare(c) for c in C.manifest_test_links(test, facts["cfg"])] or [_bare(test.get("case") or "")]
-        kind = "review_unverified_factory" if _is_factory_data_gap(artifacts, test) else "review_unverified"
+        kind = "review_unverified_factory" if _owes_factory_judgment(artifacts, test) else "review_unverified"
         for case in [c for c in dict.fromkeys(links) if c]:
             out.append({"text": "", "kind": kind, "case": case, "ref": case, "source": "ledger"})
     return out
 
 
 def factory_data_gap_findings(artifacts: Path, facts: dict | None = None) -> list:
-    """One factory finding per unverified manifest test whose probe gap is the factory's own data (RN1-9, E15): `code:
-    PROBE_DETECTOR_ROW_MISSING`, `entity` the instance id, `owner: factory`. THE ONE WRITER (AR-14) of that finding on every
-    road (the report's Factory defects block and the findings of `doc`); no stage writes it by hand. The same set of tests as
-    `unverified_records` gives the kind `review_unverified_factory`."""
+    """One factory finding per unverified manifest test whose probe failed at the mutated line on a text the factory could not
+    read and which no judgment proved (RN1-9, E15; t-1968 N2, `cause: judgment`): `code: PROBE_NOT_JUDGED`, `entity` the instance
+    id, `owner: factory`. THE ONE WRITER (AR-14) of that finding on every road (the report's Factory defects block and the findings
+    of `doc`); no stage writes it by hand. The same set of tests as `unverified_records` gives the kind
+    `review_unverified_factory`."""
     from traceability import is_dead_test
     facts = facts or gather(artifacts)
     out = []
     for test in C.manifest_tests(facts["manifest"]):
-        if not L.is_unverified(test) or is_dead_test(test) or not _is_factory_data_gap(artifacts, test):
+        if not L.is_unverified(test) or is_dead_test(test) or not _owes_factory_judgment(artifacts, test):
             continue
         iid = C.test_instance_id(test)
-        out.append({"code": "PROBE_DETECTOR_ROW_MISSING", "entity": iid, "owner": "factory",
-                    "detail": f"factory: the probe of {iid} failed at the mutated line, but the detector row does not know the "
-                              "failure's wording (cause: data_row); the test is left with you unprobed - the factory's data to "
-                              "correct"})
+        out.append({"code": "PROBE_NOT_JUDGED", "entity": iid, "owner": "factory",
+                    "detail": f"factory: the probe of {iid} failed at the mutated line with a text the factory could not read, "
+                              "and no judgment proved it; the test is left with you unprobed"})
     return out
 
 
@@ -2012,7 +2040,33 @@ _DEFAULT_HOW = (
     ("changed_unrun", lambda key, item, facts, control:
         f"How: run `run_suite.py --mine {item['case'] or '<case>'}` on a stand - the test changed after its last run and no "
         "stand was confirmed here, so the factory could not run it again"),
+    # t-2181 PC-5 (S15): a green that met a side which was not real is run again where that side is real (E-R1: a red there is the
+    # side's bug, and goes back to the factory as a rework). The sides named are the ones THIS case's proof missed (typed, from the
+    # ledger's own units); only when it names none does the story's current record stand in; with none left the door is the plain re-run.
+    ("on_substitute", lambda key, item, facts, control:
+        "How: run " + (", ".join(item["tests"]) or key) + " again where " + _unreal_sides_words(key, facts)
+        + " (relaunch the story with `--side <name>=real` once the code or the real service is there)"),
+    ("sides_unknown", lambda key, item, facts, control:
+        "How: run " + (", ".join(item["tests"]) or key) + " again - it ran while the project's record of its sides could not be read, "
+        "so what it proved is not known"),
+    # t-2277 J-C7 (PC-5 fix round): a green on an open first-look placeholder proves nothing; the door is the run against the real element
+    ("placeholder_open", lambda key, item, facts, control:
+        "How: run " + (", ".join(item["tests"]) or key) + " again once the product has the element - the marked locator gets settled "
+        "by that run (a green against the real element, then the placeholder row is settled with the run as its evidence)"),
 )
+
+
+def _unreal_sides_words(case: str, facts: dict) -> str:
+    """`<sides> is real` / `<a> and <b> are real` for the how-line of an `on_substitute` item: the sides THIS case's unproven units
+    missed (`ledger.missed_sides`, typed - never parsed from a row's detail), else the sides of the story that are not `real` now
+    (`contract.story_sides`, the one reader - it never raises by its own contract), else `the side it met is real` (a side that
+    became real after the run, or an unreadable record)."""
+    names = L.missed_sides(facts.get("manifest") or {}, facts.get("report") or {}, case, facts.get("cfg") or None)
+    if not names:
+        names = [n for n, s in C.story_sides(facts.get("pipeline") or {}).items() if s.get("reality") != "real"]
+    if not names:
+        return "the side it met is real"
+    return " and ".join(names) + (" is real" if len(names) == 1 else " are real")
 
 
 def build_left_items(records: list, facts: dict, doc: dict | None = None) -> list:
@@ -2123,7 +2177,7 @@ def build_left_items(records: list, facts: dict, doc: dict | None = None) -> lis
                     " ".join(str(clauses.get(n) or f"Then {n}").split())
                     + (f" - the part: {parts[n]}" if parts.get(n) else "")
                     for n in numbers)
-        elif meta.get("path"):
+        elif meta.get("path") and not (item["to_check"] and "unprepared_walk" in item["kinds"]):
             try:
                 import traceability as T
                 item["to_check"] = "; ".join(T.case_thens(Path(meta["path"])).values())
@@ -2298,6 +2352,34 @@ def pending_implementation_record(ref: str) -> dict:
             "case": "", "ref": ref, "source": "grounding"}
 
 
+def awaiting_words(hold: dict, doc: dict | None = None) -> dict:
+    """`{words, label}` of a hold read by `contract.awaiting`, by its `cause` (t-2277 PC-5; the table is `awaiting_words` of
+    `references/delivery-verdict-kinds.json`, data, AR-1). A cause the table does not hold reads as the default cause
+    (`contract.AWAITING_DEFAULT_CAUSE`) - an unknown cause never hides the hold. A `stopped` hold adds the table's `stopped_suffix` and
+    the person's own words (`awaiting.stopped.words`, carried whole, never read - FR-12); its label says it was stopped. Never raises."""
+    table = ((DV.load_kinds()[0] if doc is None else doc).get("awaiting_words")) or {}
+    cause = str(hold.get("cause") or "")
+    row = table.get(cause) if isinstance(table.get(cause), dict) else table.get(C.AWAITING_DEFAULT_CAUSE)
+    row = row if isinstance(row, dict) else {}
+    words = str(row.get("words") or "waiting for the code this story is about")
+    label = str(row.get("label") or words)
+    if hold.get("state") == "stopped":
+        stopped = hold.get("stopped") if isinstance(hold.get("stopped"), dict) else {}
+        said = " ".join(str(stopped.get("words") or "").split())
+        suffix = str(table.get("stopped_suffix") or "the person stopped waiting")
+        words = f"{words}; {suffix}" + (f': "{said}"' if said else "")
+        label = f"{label} ({suffix})"
+    return {"words": words, "label": label}
+
+
+def awaiting_record(hold: dict, doc: dict | None = None) -> dict:
+    """The ONE record of a story held for code (C10, B4): kind `awaiting_implementation` (`no`, owner product), the sentence under the
+    family `grounding:` (a behaviour the story asks for that does not work yet - the product's, FR-19). It carries the `cause` and the
+    `state` typed, so a reader never reads the sentence."""
+    return {"text": "grounding: " + awaiting_words(hold, doc)["words"], "kind": "awaiting_implementation", "case": "", "ref": "awaiting",
+            "source": "check", "cause": str(hold.get("cause") or ""), "state": str(hold.get("state") or "")}
+
+
 def _pending_implementation_records(artifacts: Path) -> list:
     """G2-5 (FR-21, the owner's B4): a requirement of N (`GT.coverage_of`: the register's ids minus the implementation-only ones, minus the
     ones the base slice shows untouched, minus `outside_diff` with a `where`) the table calls `not_implemented` is a `pending_implementation`
@@ -2398,45 +2480,60 @@ def assess(artifacts: Path, finalized_delivery: bool = False) -> dict:
     def own(texts, kind: str) -> None:
         records.extend({"text": str(t), "kind": kind, "case": "", "ref": "", "source": "check"} for t in texts)
 
-    own(witness_reasons(artifacts), "factory_record")
-    records += completeness_records(artifacts, facts)
-    own(lifecycle_reasons(artifacts), "factory_record")
-    own(case_version_reasons(artifacts), "factory_record")
-    own(delivery_manifest_reasons(artifacts, finalized=finalized_delivery), "factory_record")
-    records += traceability_records(artifacts, facts)
-    own(run_reasons(artifacts), "run_not_deliverable")
-    own(triage_reasons(artifacts), "triage_gap")
-    own(factory_finding_reasons(artifacts), "factory_record")
-    records += handed_records(artifacts)
-    records += blocked_records(artifacts, facts)
-    records += unverified_records(artifacts, facts)
+    # t-2181 PC-5 (C10, B4): a story held for code (`contract.awaiting`: awaiting or stopped) is read FIRST and gives ONE record, kind
+    # `awaiting_implementation` (`no`, owner product), with the words of its `cause`. No other check is run (no bug candidate, no gate B
+    # reason): a pre-code story has no result a new bug could rest on, and the diff-story `pending_implementation` below stays a
+    # different, ordinary record (`no`). ONE exception (AR-27, the Lead's fork): a RED a recorded S7 verdict already stands behind (a
+    # ledger row `failed:*`, kind `red`) keeps its own record beside the hold - C13 refuses S6-S8 while a story is held, so such a red
+    # was written BEFORE the hold (a story that went through S7 and parked later: rework after `reality=absent`, a re-park). The
+    # verdict is `no` either way, so it cannot get weaker; the bug just never disappears from the report under its own owner.
+    hold = C.awaiting(facts["pipeline"])
+    held = hold["state"] != "none"
+    kinds_doc, gap_read = DV.load_kinds()[0], ([], "")
+    if held:
+        records.append(awaiting_record(hold, kinds_doc))
+        doc = mark_handed(L.build(artifacts), artifacts)
+        records += [rec for rec in ledger_records(doc, facts) if rec["kind"] == RED_KIND]
+    else:
+        own(witness_reasons(artifacts), "factory_record")
+        records += completeness_records(artifacts, facts)
+        own(lifecycle_reasons(artifacts), "factory_record")
+        own(case_version_reasons(artifacts), "factory_record")
+        own(delivery_manifest_reasons(artifacts, finalized=finalized_delivery), "factory_record")
+        records += traceability_records(artifacts, facts)
+        own(run_reasons(artifacts), "run_not_deliverable")
+        own(triage_reasons(artifacts), "triage_gap")
+        own(factory_finding_reasons(artifacts), "factory_record")
+        records += handed_records(artifacts)
+        records += blocked_records(artifacts, facts)
+        records += unverified_records(artifacts, facts)
 
-    doc = mark_handed(L.build(artifacts), artifacts)
-    records += ledger_records(doc, facts)
-    # F1 (P21): no case with an observed failure reads kind `handed` - the hand-off record of a case whose ledger row is
-    # `failed:*` (any triage class but the stand's: an ENV_ISSUE is the person's answer to the card, and `handed` is one
-    # of its words) is dropped; the failed row's own kind decides, and `after_checks` stays out of reach while it stands -
-    # EXCEPT `failed:ASSERT_STRICTER` (HF2-18, N6): the analyst's own word, held by its control experiment
-    # (`contract.triage_control_problems`; a row without it is a `triage:` reason, so `no`), reads kind `assert_stricter`
-    # (`after_checks`) with no recorded word of the person - the one observed failure that does, besides an ENV_ISSUE the
-    # person answered. The owner's order (25.10): such a red is not a bug; it is a line in "Left with you".
-    kinds_doc = DV.load_kinds()[0]
-    red = _red_cases(doc, facts, _stricter_cases(facts), kinds_doc)
-    # HF2-3 (F6): only the WHOLE-case hand-off goes. A record that carries a Then (`handed_records`: a Then the person took
-    # beside the case's own result) is a Then no run answered, and the case's red does not answer it either (the person's
-    # debt stays on the list beside the `failed:*` row)
-    records[:] = [rec for rec in records
-                  if not (rec["kind"] == "handed" and not rec.get("then") and _bare(rec.get("case") or "") in red)]
-    own(["manual evidence export: " + str(issue) for issue in doc.get("manual_evidence", {}).get("errors", [])],
-        "factory_record")
-    own(coverage_reasons(doc, handed_plan_rows(artifacts)), "coverage_gap")
-    # TQ1-20: POSITION after the filter above (it must not drop a branch) and before `decide` (which must see it).
-    records += branch_records(artifacts)
-    # G2-3 (FR-22): the bug candidates; same position as the branches (after the filter, which must not drop one; before `decide`)
-    records += grounding_records(artifacts, doc, facts)
-    # RN1-15: the requirements the person called not implemented; same position (after the filter, before `decide`)
-    gap_read = _read_product_gaps(artifacts)       # once per assess: the records and the finding read the same carrier (F10)
-    records += product_gap_records(artifacts, facts, gap_read)
+        doc = mark_handed(L.build(artifacts), artifacts)
+        records += ledger_records(doc, facts)
+        records += unprepared_records(doc)
+        # F1 (P21): no case with an observed failure reads kind `handed` - the hand-off record of a case whose ledger row is
+        # `failed:*` (any triage class but the stand's: an ENV_ISSUE is the person's answer to the card, and `handed` is one
+        # of its words) is dropped; the failed row's own kind decides, and `after_checks` stays out of reach while it stands -
+        # EXCEPT `failed:ASSERT_STRICTER` (HF2-18, N6): the analyst's own word, held by its control experiment
+        # (`contract.triage_control_problems`; a row without it is a `triage:` reason, so `no`), reads kind `assert_stricter`
+        # (`after_checks`) with no recorded word of the person - the one observed failure that does, besides an ENV_ISSUE the
+        # person answered. The owner's order (25.10): such a red is not a bug; it is a line in "Left with you".
+        red = _red_cases(doc, facts, _stricter_cases(facts), kinds_doc)
+        # HF2-3 (F6): only the WHOLE-case hand-off goes. A record that carries a Then (`handed_records`: a Then the person took
+        # beside the case's own result) is a Then no run answered, and the case's red does not answer it either (the person's
+        # debt stays on the list beside the `failed:*` row)
+        records[:] = [rec for rec in records
+                      if not (rec["kind"] == "handed" and not rec.get("then") and _bare(rec.get("case") or "") in red)]
+        own(["manual evidence export: " + str(issue) for issue in doc.get("manual_evidence", {}).get("errors", [])],
+            "factory_record")
+        own(coverage_reasons(doc, handed_plan_rows(artifacts)), "coverage_gap")
+        # TQ1-20: POSITION after the filter above (it must not drop a branch) and before `decide` (which must see it).
+        records += branch_records(artifacts)
+        # G2-3 (FR-22): the bug candidates; same position as the branches (after the filter, which must not drop one; before `decide`)
+        records += grounding_records(artifacts, doc, facts)
+        # RN1-15: the requirements the person called not implemented; same position (after the filter, before `decide`)
+        gap_read = _read_product_gaps(artifacts)       # once per assess: the records and the finding read the same carrier (F10)
+        records += product_gap_records(artifacts, facts, gap_read)
 
     # THE VERDICT: from the kinds, never from a sentence (F1). `decide` is `no` for a kind it does not know and for
     # a file it cannot read; the person's third word needs at least one item that counts (`VERDICT_WITHOUT_ITEMS`).

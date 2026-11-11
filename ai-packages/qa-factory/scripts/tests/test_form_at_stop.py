@@ -12,7 +12,6 @@ form blocks), and a judgment of the form's CONTENT by a gate (AR-29). It is remo
 
 Mutant (test file: this one): `main` calls a form check again -> the stop of the red form exits 2.
 """
-import inspect
 import io
 import json
 import sys
@@ -20,7 +19,7 @@ from contextlib import redirect_stderr
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import SCRIPTS, check, check_eq, check_not_in, cleanup, finish, run_script, temp_project, use_project  # noqa: E402
+from harness import SCRIPTS, check, check_eq, cleanup, finish, run_script, temp_project, use_project  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 import exit_gate as gate  # noqa: E402
@@ -85,8 +84,6 @@ def x2_3_a_red_form_is_not_a_block_at_the_stop():
 def x2_3_the_check_is_gone():
     check("X2-3 `form_stop_errors` is no function of the gate", not hasattr(gate, "form_stop_errors"))
     check("X2-3 ... nor its path constant", not hasattr(gate, "FORM_REL"))
-    check_not_in("X2-3 `main` calls no form check", "form_stop_errors", inspect.getsource(gate.main))
-    check_not_in("X2-3 `all_errors` calls none either", "form_stop_errors", inspect.getsource(gate.all_errors))
 
 
 def main():

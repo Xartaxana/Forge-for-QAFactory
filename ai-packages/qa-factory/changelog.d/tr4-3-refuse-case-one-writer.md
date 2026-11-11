@@ -1,0 +1,1 @@
+- The driver writes the "not checked" record of a case (`refused` in its request.json) through one helper instead of three copies; the records written are unchanged, and a test counts the writers so a new copy fails.

@@ -165,6 +165,104 @@ def in_config(cfg, environment_id: str, profile_id: str) -> str:
     return ""
 
 
+def reference_stands(project_root, task: str = "") -> dict:
+    """`{stand name: side name}` of the stands that run an OLD version of a side for this story (S-c, t-2181 PC-9b): the story's own
+    record of its sides (`contract.story_sides`, the ONE reader: `pipeline.sides` first, then the registry's `environments.reference_for`
+    rows). `task` names the story (its pipeline.json under the artifact root); '' reads the registry alone. NEVER raises, writes nothing.
+    DIRECTION OF ERROR: an unreadable record reads {} - the caller then asks about a stand it should have skipped (more questions), and
+    a run is never refused on a record nobody could read; the run's own gates refuse an unreadable story."""
+    try:
+        import hooklib
+        pipeline = {}
+        if str(task or "").strip():
+            read = hooklib.read_json(hooklib.artifact_root(root=Path(project_root)) / str(task) / "pipeline.json", {})
+            pipeline = read if isinstance(read, dict) else {}
+        if not (isinstance(pipeline.get("sides"), dict) and pipeline["sides"]):
+            # t-2181 PC-9b (critic t-2513 B3): a story with no `sides` record and a project with no knowledge record has no reference - a
+            # `reference` comes only from those two carriers (`contract.story_sides`), the default side carries none. Answered BEFORE
+            # `contract` is imported (0.5 s cold): a story with no reference pays nothing for the question.
+            import project_knowledge as PK
+            if not PK.record_path(project_root).is_file():
+                return {}
+        import contract as C
+        sides = C.story_sides(pipeline, root=Path(project_root))
+        return {str(s["reference"]): str(name) for name, s in sides.items()
+                if isinstance(s, dict) and isinstance(s.get("reference"), str) and s["reference"].strip()}
+    except Exception:
+        return {}
+
+
+def reference_side(project_root, task, stand) -> tuple:
+    """`(side, own)` - THE one reader of "is this stand a reference of this story, and is it also the story's own stand" (AR-13; critic
+    t-2513 F3: C8 and the probe's skip read the same answer). `side` is the side `stand` is the reference of ('' when it is none, or an
+    argument is empty); `own` is the story's own stand (`pipeline.environment`) and is read only when `side` is not '' ('' when unreadable).
+    `side` and `own == stand` together are a CONTRADICTION of the record: one stand named as the old version and as the stand under test.
+    Both callers take the safe direction on it - C8 refuses and names the record (never the same stand as a door), the probe does not
+    skip and asks. NEVER raises, writes nothing."""
+    name, key = str(stand or "").strip(), str(task or "").strip()
+    if not name or not key:
+        return "", ""
+    side = reference_stands(project_root, key).get(name, "")
+    if not side:
+        return "", ""
+    try:
+        import hooklib
+        pipeline = hooklib.read_json(hooklib.artifact_root(root=Path(project_root)) / key / "pipeline.json", {})
+        return side, (str(pipeline.get("environment") or "").strip() if isinstance(pipeline, dict) else "")
+    except Exception:
+        return side, ""
+
+
+REFERENCE_RUNS_DIR = "reference-runs"     # work/<this>: the blocks of runs made on a reference stand, apart from `work/run-blocks` (t-2277 W1)
+# the evidence-receipt folders under `work/` that no role may write into (artifact_producer.publish, artifact_packet.work_path): ONE tuple (F3)
+PROTECTED_RECEIPT_FOLDERS = ("run-blocks", "manual-blocks", "baseline-receipts", REFERENCE_RUNS_DIR)
+REFERENCE_RUN_WORDS = "a run on the reference stand - a sample, not the story's result"
+
+
+def reference_run_mark(project_root, task, stand) -> dict:
+    """The mark a run block carries when its target is a reference stand of the story (t-2277 W1, owner 11.11.2026: the factory runs the
+    test, records that it did not run on the story's code, and never counts the result as the story's): `{"stand", "side", "story_code":
+    False, "words"}`, or {} when `stand` is no reference of this story, an argument is empty, or the record contradicts itself (own stand ==
+    reference: that is a data contradiction C8 still refuses, never a sample). The one reader of the question is `reference_side` (AR-13).
+    NEVER raises, writes nothing. An older run block has no mark and reads as the story's own stand, as before."""
+    name = str(stand or "").strip()
+    side, own = reference_side(project_root, task, name)
+    if not side or own == name:
+        return {}
+    return {"stand": name, "side": side, "story_code": False, "words": REFERENCE_RUN_WORDS}
+
+
+def reference_runs(task_root) -> list:
+    """The run blocks of `work/reference-runs` (the samples), oldest name first, each the parsed object; a file that is not a JSON object
+    is left out (the report names a count of what it read, never a guess). They live apart from `work/run-blocks` on purpose: every reader
+    of the story's evidence (`run_history.read_run_blocks` and everything built on it: the reducer, the ledger, the proof stamp, the
+    delivery verdict) reads that one folder, so a sample can never become the story's evidence by a reader that forgot to skip it
+    (AR-13, AR-15). NEVER raises."""
+    import json
+    out = []
+    try:
+        for path in sorted((Path(task_root) / "work" / REFERENCE_RUNS_DIR).glob("*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8-sig"))
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                out.append(data)
+    except Exception:
+        return []
+    return out
+
+
+def reference_of_running_story(task: str = "") -> dict:
+    """`reference_stands` of the project this process works in, for a caller that has no project root at hand (the stand-picking
+    functions): the project is the one `hooklib.project_root()` names. A project that cannot be named reads {} (see above)."""
+    try:
+        import hooklib
+        return reference_stands(hooklib.project_root(), task)
+    except Exception:
+        return {}
+
+
 def repo_for(cfg, profile_id: str) -> str:
     for repo in (cfg or {}).get("implementation_repos") or []:
         if isinstance(repo, dict) and str(repo.get("execution_profile_id") or "") == profile_id:

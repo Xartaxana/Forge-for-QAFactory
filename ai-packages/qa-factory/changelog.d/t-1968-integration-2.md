@@ -1,0 +1,2 @@
+- Test pins follow the reviewed probe nodes: the gate-registry comparison count is 142 (`probe_by_code._judge_detector_rows`, row `probe_verdict`), and the written probe record's key set carries `target`.
+- No behaviour of the package changes in this fragment.

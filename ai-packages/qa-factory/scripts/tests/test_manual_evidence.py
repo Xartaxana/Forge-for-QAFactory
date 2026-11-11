@@ -147,15 +147,7 @@ PKG = Path(__file__).resolve().parents[2]
 
 # K5. The keys are quoted VERBATIM from spec t-250 §5 and fixed here, before the run; a key picked after the
 # fact would be the performer checking itself. One negative control below proves the checker can fail.
-DOC_KEYS = {
-    "references/manual-evidence.md": ["runtime_identity", "pass needs `completion` in a post_action `proves`",
-                                      "static reason equals the planned text", "pre_action", "post_action",
-                                      "before_change"],
-    "references/artifact-contract-run.md": ["input refs carry `content_hash`", "exported rows add `sha256`"],
-    "design/state-exits.md": ["an S6 manual case with no record", "a refused `prepare`", "an inconclusive record"],
-}
-# §5: "s6-runner-to-analyst.yaml `manual_observations` gains `before_change`" - the key sits INSIDE that block.
-YAML_BLOCK, YAML_KEY = "manual_observations:", "before_change:"
+# The role-text keys of this block live in design/role-rules.json (TD-5.3.3); what stays is the state-exits table of design/.
 # §5: "each with its door" - the command or word the row's way out names.
 STATE_EXIT_DOORS = {"an S6 manual case with no record": ["manual_evidence.py build", "manual_capture.py"],
                     "a refused `prepare`": ["semantic_reopen", "the person's answer"],
@@ -166,37 +158,12 @@ def missing_keys(text, keys):
     return [key for key in keys if key not in text]
 
 
-def yaml_block(text, name):
-    lines, out, inside = text.splitlines(), [], False
-    for line in lines:
-        if line.startswith(name):
-            inside = True
-            continue
-        if inside and line and not line.startswith((" ", "\t", "#")):
-            break
-        if inside:
-            out.append(line)
-    return "\n".join(out)
-
-
 def doc_keys():
-    for rel, keys in DOC_KEYS.items():
-        text = (PKG / rel).read_text(encoding="utf-8")
-        check_eq(f"K5 {rel}: every key is there", missing_keys(text, keys), [])
-    block = yaml_block((PKG / "handoffs" / "s6-runner-to-analyst.yaml").read_text(encoding="utf-8"), YAML_BLOCK)
-    check(f"K5 s6-runner-to-analyst.yaml: `{YAML_KEY}` is inside `{YAML_BLOCK}`", YAML_KEY in block, block[:200])
     walk = (PKG / "design" / "state-exits.md").read_text(encoding="utf-8").splitlines()
     for label, doors in STATE_EXIT_DOORS.items():
         row = next((line for line in walk if line.startswith("| " + label)), "")
         check(f"K5 state-exits.md: the row `{label}` exists", bool(row))
         check_eq(f"K5 state-exits.md: and `{label}` names its door", missing_keys(row, doors), [])
-    # the negative control: one key deliberately absent -> the checker reports it (an evergreen checker is a broken one)
-    text = (PKG / "references" / "manual-evidence.md").read_text(encoding="utf-8")
-    cut = text.replace("before_change", "before_chang")
-    check_eq("K5 negative control: a doc with one key removed is reported", missing_keys(cut, DOC_KEYS["references/manual-evidence.md"]),
-             ["before_change"])
-    check_eq("K5 negative control: a yaml block without the key is reported",
-             YAML_KEY in yaml_block("manual_observations:\n  - case: x\nclaims:\n  before_change: y\n", YAML_BLOCK), False)
 
 
 def prepare_cases():
@@ -631,7 +598,6 @@ import grammar as G  # noqa: E402
 # F8 (FR-38). The key is the code's own refusal, word for word (manual_evidence.validate, the api/cli rule), fixed here
 # before the run: the doc must tell the runner what the code will refuse it with.
 API_STATE_WORDS = "api/cli requires request/output and post_action state evidence"
-DOC_KEYS_T277 = {"references/manual-evidence.md": [API_STATE_WORDS, "--state-url"]}
 
 
 def api_build_cases():
@@ -686,11 +652,8 @@ def api_build_cases():
 
 def doc_keys_t277():
     """F8: manual-evidence.md states the api/cli post_action `state` requirement in the words the code refuses with."""
-    for rel, keys in DOC_KEYS_T277.items():
-        text = (PKG / rel).read_text(encoding="utf-8")
-        check_eq(f"F8 {rel}: every key is there", missing_keys(text, keys), [])
-        check_eq("F8 negative control: the doc with the words cut is reported",
-                 missing_keys(text.replace(API_STATE_WORDS, "api/cli requires something"), keys), [API_STATE_WORDS])
+    check_in("F8 references/manual-evidence.md: the code's refusal words are quoted", API_STATE_WORDS,
+             (PKG / "references" / "manual-evidence.md").read_text(encoding="utf-8"))
     # the key IS the code's refusal: derive it from validate() on an api record that has the request but no state
     shutil.rmtree(ROOT, ignore_errors=True)
     before, after = ROOT / "work/evidence/before.png", ROOT / "work/evidence/after.png"
@@ -779,22 +742,11 @@ IMAGE = "image:sha256:" + "b" * 64
 # t-300 N2 K-N2.15 doc keys, quoted VERBATIM from the DoD before the paragraphs were written (the t-279 keys they replace -
 # the image identity, `build-sha.txt`, "Automation needs `matched`" - described what the capture no longer takes): a doc that
 # names the build the person confirmed, the word's name in the lifecycle, and the file the person's decision lives in.
-DOC_KEYS_N2 = {"references/manual-evidence.md": ["confirmed by the person"],
-               "references/execution-lifecycle.md": ["person_confirmed"],
-               "skills/qa-story/phases/s5.md": ["qa-factory/records/stand-identity.json"]}
-DOC_ABSENT_N2 = {"references/manual-evidence.md": ["Dockerfile"]}
-
-
 def doc_keys_n2():
-    """K-N2.15: key presence, with its NEGATIVE controls (one key removed -> reported; the absent word planted -> reported)."""
-    for rel, keys in DOC_KEYS_N2.items():
-        text = (PKG / rel).read_text(encoding="utf-8")
-        check_eq(f"K-N2.15 {rel} holds its key(s)", missing_keys(text, keys), [])
-        check_eq(f"K-N2.15 negative control {rel}: the key removed is reported", missing_keys(text.replace(keys[0], "x" * 3), keys), keys)
-    for rel, words in DOC_ABSENT_N2.items():
-        text = (PKG / rel).read_text(encoding="utf-8")
-        check_eq(f"K-N2.15 {rel} says none of {words}", [w for w in words if w in text], [])
-        check_eq(f"K-N2.15 negative control {rel}: the word planted is reported", [w for w in words if w in text + " " + words[0]], words)
+    """K-N2.15: s5.md names the file the person's decision lives in (a path the code writes, FR-37). The role-text keys of the
+    block live in design/role-rules.json (TD-5.3.3)."""
+    text = (PKG / "skills" / "qa-story" / "phases" / "s5.md").read_text(encoding="utf-8")
+    check_in("K-N2.15 s5.md names the stand identity file", "qa-factory/records/stand-identity.json", text)
 
 
 def pc_probe(row, task=None, **fields):
@@ -973,7 +925,278 @@ def n2_validators_list_all():
     check("a valid result and policy raise neither", not any(e.startswith("invalid result") or e.startswith("invalid evidence_policy") for e in good))
 
 
+def _dict_policy_task(*, manual=("ui", "api", "impl"), rows=("TS-7",), mutate=None):
+    """A task whose plan, like arm B's TS-14/15/16, holds a RECORD as `evidence_policy` on the obligations of `rows`."""
+    arm_b = json.loads((Path(__file__).resolve().parent / "fixtures" / "manual-evidence" / "arm-b-dict-policies.json")
+                       .read_text(encoding="utf-8"))
+    t = S.make_task(manual=manual)
+    for index, row_id in enumerate(rows):
+        row = t.row(row_id)
+        policy = arm_b[sorted(arm_b)[index % len(arm_b)]]
+        row["evidence_policy"] = policy
+        for ob in row["coverage_obligations"]:
+            ob["evidence_policy"] = policy
+    if mutate:
+        mutate(t)
+    t.write_plan()
+    return t
+
+
+def f5_only_the_cases_own_shape_errors_unprepare_it():
+    """M1 (t-1945): the plan check is whole-plan, but a malformed evidence rule unprepares only the case whose OWN obligations carry
+    it. Mixed plan: TS-7 (ui) holds a record, TS-12 (api) a valid word -> the api case is prepared normally, the ui case is walkable;
+    every row malformed (arm B) -> every case walkable."""
+    api, ui = S.CASES["api"], S.CASES["ui"]
+    t = _dict_policy_task(manual=("ui", "api"), rows=("TS-7",))
+    try:
+        with t.patched():
+            request = M.prepare_request(t.task, api, ["OB-12"])
+            check_eq("M1: a valid word in another row leaves this case prepared (a request, not a refusal)",
+                     (request["case"], request["evidence_policy"]), (api, "api"))
+            try:
+                M.prepare_request(t.task, ui, ["OB-7"])
+                check("M1: the case holding the record is refused", False)
+            except M.Refused as exc:
+                check_eq("M1: ...and it is the walkable one", exc.walkable, True)
+    finally:
+        S.cleanup(t)
+    t = _dict_policy_task(manual=("ui", "api"), rows=("TS-7", "TS-12"))
+    try:
+        with t.patched():
+            for case, ids in ((ui, ["OB-7"]), (api, ["OB-12"])):
+                try:
+                    M.prepare_request(t.task, case, ids)
+                    check(f"M1: all rows malformed: {case} is refused", False)
+                except M.Refused as exc:
+                    check_eq(f"M1: all rows malformed: {case} is walkable", exc.walkable, True)
+    finally:
+        S.cleanup(t)
+
+
+def f5_unprepared_cases():
+    """F5 (B-15, t-1936 N5): a malformed evidence rule is the FACTORY's failure; only the factory's own failures are walked
+    unprepared, every story-owned refusal stays a refusal. Test names are the spec's (F5.4), as labels."""
+    import coverage_contract as CC
+    from unittest import mock
+    ui, impl = S.CASES["ui"], S.CASES["impl"]
+    # --- test_dict_policy_walkable_after_story_checks (the arm B shape) ---------------------------------------------------
+    t = _dict_policy_task()
+    try:
+        with t.patched():
+            try:
+                M.prepare_to_file(t.task, ui, ["OB-7"])
+                check("test_dict_policy_walkable_after_story_checks: a dict policy is not prepared", False)
+            except M.Refused as exc:
+                walkable = exc
+        check("test_dict_policy_walkable_after_story_checks: walkable", walkable.walkable is True)
+        check_in("test_dict_policy_walkable_after_story_checks: the reason is in words", "an evidence rule that is not one word",
+                 walkable.reason)
+        check_in("test_dict_policy_walkable_after_story_checks: the five words are in the detail",
+                 "api|cli|no_write|static|ui", walkable.detail)
+        check_in("test_dict_policy_walkable_after_story_checks: the row's obligation id is in the detail", "OB-7", walkable.detail)
+        doc = json.loads(M.request_path(t.task, ui).read_text(encoding="utf-8"))
+        check_eq("test_preparation_failure_writes_unprepared_request: the file holds `unprepared`, never `refused`",
+                 ("unprepared" in doc, "refused" in doc), (True, False))
+        check_eq("test_preparation_failure_writes_unprepared_request: reason, door, ids, revision, gate A ref",
+                 (doc["unprepared"]["reason"], doc["unprepared"]["obligation_ids"], doc["unprepared"]["source_revision"],
+                  doc["unprepared"]["gate_a_decision_ref"], bool(doc["unprepared"]["door"])),
+                 (walkable.reason, ["OB-7"], S.SOURCE, "gateA-1", True))
+        check_eq("test_preparation_failure_writes_unprepared_request: case, version, covers",
+                 (doc["case"], bool(doc["case_version"]), doc["covers"]), (ui, True, ["R-7"]))
+        check("test_preparation_failure_writes_unprepared_request: no evidence_policy and no required fields (nothing to bind)",
+              "evidence_policy" not in doc and "required_actual_fields" not in doc)
+        with t.patched():
+            got = M.prepare_for_block(t.task, ui)
+        check_eq("prepare_for_block: a walkable case is (ids, no refusal, the reason)", got, (["OB-7"], "", walkable.reason))
+        check_eq("request_actors reads an unprepared request as it reads a refused one: no accounts, no crash",
+                 M.request_actors(t.task, ui), ([], ""))
+        check_eq("unprepared_request: the one reader of the marker", M.unprepared_request(t.task, ui)["reason"], walkable.reason)
+        check_eq("unprepared_request: a case with no request file has none", M.unprepared_request(t.task, "NOPE_TC_001"), None)
+    finally:
+        S.cleanup(t)
+
+    # --- the story-owned refusals stay refusals, with a dict policy beside them (E5.6) ---------------------------------
+    def refused_not_walkable(label, case, ids, needle, task):
+        with task.patched():
+            try:
+                M.prepare_to_file(task.task, case, ids)
+                check(f"{label}: refused", False)
+            except M.Refused as exc:
+                check_eq(f"{label}: not walkable", exc.walkable, False)
+                check_in(f"{label}: the story's own reason", needle, exc.reason)
+        shape = json.loads(M.request_path(task.task, case).read_text(encoding="utf-8"))
+        check_eq(f"{label}: request.json is `refused`, not `unprepared`", ("refused" in shape, "unprepared" in shape), (True, False))
+        with task.patched():
+            got = M.prepare_for_block(task.task, case)
+        check_eq(f"{label}: prepare_for_block names the refusal and walks nothing", (got[0], bool(got[1]), got[2]), ([], True, ""))
+
+    t = _dict_policy_task(rows=("TS-15",))
+    try:
+        refused_not_walkable("test_dict_policy_with_expectation_gap_not_walkable (TS-15)", impl, ["OB-15"],
+                             "expectation unconfirmed", t)
+    finally:
+        S.cleanup(t)
+    t = S.make_task(manual=("impl",))
+    try:
+        refused_not_walkable("test_expectation_gap_not_walkable", impl, ["OB-15"], "expectation unconfirmed", t)
+    finally:
+        S.cleanup(t)
+    t = _dict_policy_task()
+    try:
+        with t.patched(), mock.patch.object(S.FakeController, "_validate_gate_a_content_current", create=True,
+                                            side_effect=ValueError("Gate A plan changed")):
+            try:
+                M.prepare_to_file(t.task, ui, ["OB-7"])
+                check("test_gate_a_drift_not_walkable: refused", False)
+            except ValueError as exc:
+                check_eq("test_gate_a_drift_not_walkable: not walkable", getattr(exc, "walkable", False), False)
+            check_eq("test_gate_a_drift_not_walkable: prepare_for_block refuses", bool(M.prepare_for_block(t.task, ui)[1]), True)
+        refused_not_walkable("test_unpinned_case_not_walkable", "TP1-15045_TC_099", ["OB-7"], "not among the cases pinned", t)
+    finally:
+        S.cleanup(t)
+
+    def other_error(task):
+        task.row("TS-12")["coverage_obligations"][0]["oracle_status"] = "maybe"       # a plan error that is not a policy shape
+    t = _dict_policy_task(mutate=other_error)
+    try:
+        refused_not_walkable("test_other_validate_plan_error_not_walkable", ui, ["OB-7"],
+                             "the approved plan does not pass its own checks", t)
+    finally:
+        S.cleanup(t)
+    for label, field, value, needle in (("decision still `new`", "decision", "new", "as `new`"),
+                                       ("only a recommendation", "execution_scope", "recommended_regression", "only a recommendation"),
+                                       ("oracle unresolved", "oracle_status", "unresolved", "does not pass its own checks")):
+        def scope(task, field=field, value=value):
+            task.row("TS-7")["coverage_obligations"][0][field] = value
+            if field == "oracle_status":
+                task.row("TS-7")["coverage_obligations"][0].pop("oracle_source_ref", None)
+        t = _dict_policy_task(mutate=scope)
+        try:
+            refused_not_walkable(f"test_scope_refusals_not_walkable ({label})", ui, ["OB-7"], needle, t)
+        finally:
+            S.cleanup(t)
+
+    # --- a crash of OUR preparation after the scope checks: walkable, the traceback kept (F5(c) item 4) --------------------
+    t = S.make_task(manual=("ui",))
+    try:
+        with t.patched(), mock.patch.object(M, "_actor_preconditions", side_effect=RuntimeError("boom in the actors")):
+            try:
+                M.prepare_to_file(t.task, ui, ["OB-7"])
+                check("test_tail_exception_walkable_keeps_trace: refused", False)
+            except M.Refused as exc:
+                tail = exc
+            got = M.prepare_for_block(t.task, ui)
+        check("test_tail_exception_walkable_keeps_trace: walkable", tail.walkable is True)
+        check_in("test_tail_exception_walkable_keeps_trace: the type and the words", "RuntimeError: boom in the actors", tail.reason)
+        marker = M.unprepared_request(t.task, ui)
+        check("test_tail_exception_walkable_keeps_trace: the traceback is in the request file, at most 20 lines",
+              "RuntimeError" in marker.get("trace", "") and len(marker["trace"].splitlines()) <= M.TRACE_LINES)
+        check_eq("test_tail_exception_walkable_keeps_trace: and the block gets the case", (got[0], got[1]), (["OB-7"], ""))
+        # mixed policies, and an empty completion condition, are the factory's too (item 3)
+        for label, selected in (("mixed policies", [{"evidence_policy": "ui", "completion_condition": "c"},
+                                                    {"evidence_policy": "api", "completion_condition": "c"}]),
+                                ("an empty completion condition", [{"evidence_policy": "ui", "completion_condition": ""}])):
+            try:
+                M._request_tail(t.task, ui, {}, {}, ["OB-7"], selected, {}, {}, {}, "door")
+                check(f"item 3: {label} is refused", False)
+            except M.Refused as exc:
+                check_eq(f"item 3 (E5.2): {label} is walkable", exc.walkable, True)
+    finally:
+        S.cleanup(t)
+
+    # --- the record: write_block, validate_manual_current, the reader ------------------------------------------------------
+    t = _dict_policy_task()
+    try:
+        with t.patched():
+            M.prepare_for_block(t.task, ui)
+            reason = M.unprepared_request(t.task, ui)["reason"]
+
+            def walk(**over):
+                record = {"schema_version": 2, "case": ui, "obligation_ids": ["OB-7"], "unprepared": {"reason": reason},
+                          "observations": [], "finding": "work/evidence/manual/x/finding.md", "dispatch_id": "S6-qa-runner-1",
+                          "attempt_started_at": "2026-10-01T10:00:00+00:00", "attempt_ended_at": "2026-10-01T10:05:00+00:00",
+                          "source_revision": S.SOURCE}
+                record.update(over)
+                return record
+            issues = CC.validate_manual_current(t.task, walk())
+            check_eq("test_unprepared_never_empty_issues: an honest unprepared record yields exactly [UNPREPARED]", issues, [CC.UNPREPARED])
+            check_eq("test_unprepared_only_helper: True exactly for [UNPREPARED]",
+                     (CC.unprepared_only(issues), CC.unprepared_only([]), CC.unprepared_only([CC.UNPREPARED, "x"]),
+                      CC.unprepared_only(None)), (True, False, False, False))
+            path = M.write_block(t.task, [walk()], declared=True)
+            written = json.loads(path.read_text(encoding="utf-8"))["manual_checks"][0]
+            check_eq("test_write_block_accepts_unprepared_record: written whole, with no result",
+                     ("unprepared" in written, "result" in written), (True, False))
+            for label, bad, needle in (
+                    ("test_unprepared_record_with_result_refused", walk(result="pass"), "an unprepared walk records no result"),
+                    ("test_unprepared_record_with_result_refused (then_quotes)", walk(then_quotes=[]), "records no result"),
+                    ("test_unprepared_marker_without_request_refused (other reason)", walk(unprepared={"reason": "I say so"}),
+                     "unprepared marker without an unprepared request"),
+                    ("an unprepared walk of other obligations", walk(obligation_ids=["OB-12"]), "names the obligations of its request")):
+                try:
+                    M.write_block(t.task, [bad], declared=True)
+                    check(f"{label}: refused", False)
+                except ValueError as exc:
+                    check_in(f"{label}: refused with the words", needle, str(exc))
+        report = {"current_manual_checks": [dict(walk(), evidence_validated=False, current_obligation_ids=["OB-7"]),
+                                            {"case": "x", "result": "pass", "evidence_validated": True}]}
+        rows = M.unprepared_rows(report)
+        check_eq("test_unprepared_rows_reader: one row, the case, ids, reason, observations, finding",
+                 rows, [{"case": ui, "obligation_ids": ["OB-7"], "reason": reason, "observations": [],
+                         "finding": "work/evidence/manual/x/finding.md"}])
+        check_eq("test_unprepared_rows_reader: a report with none, or no list, has none",
+                 (M.unprepared_rows({}), M.unprepared_rows({"current_manual_checks": [{"result": "pass"}]}), M.unprepared_rows(None)),
+                 ([], [], []))
+    finally:
+        S.cleanup(t)
+    t = S.make_task(manual=("ui",))
+    try:
+        with t.patched():
+            M.prepare_to_file(t.task, ui, ["OB-7"])         # a PREPARED case: its request holds no `unprepared`
+            record = {"schema_version": 2, "case": ui, "obligation_ids": ["OB-7"], "unprepared": {"reason": "to escape the quote rule"},
+                      "observations": [], "dispatch_id": "d", "attempt_started_at": "2026-10-01T10:00:00+00:00",
+                      "attempt_ended_at": "2026-10-01T10:05:00+00:00", "source_revision": S.SOURCE}
+            check_eq("test_unprepared_marker_without_request_refused: a prepared case's runner cannot write the marker",
+                     CC.validate_manual_current(t.task, record)[:2], [CC.UNPREPARED, "unprepared marker without an unprepared request"])
+            try:
+                M.write_block(t.task, [record], declared=True)
+                check("test_unprepared_marker_without_request_refused: write_block refuses", False)
+            except ValueError as exc:
+                check_in("test_unprepared_marker_without_request_refused: write_block refuses", "without an unprepared request", str(exc))
+    finally:
+        S.cleanup(t)
+
+
+def pc5a_c11_about_is_checked_against_the_stories_sides():
+    """t-2181 PC-5a C11: a walked case's `about` names sides of THIS story (read through `contract.story_sides`); a name that
+    is no side is refused with a door, a story with no record of its sides reads the default side, no `about` is not checked."""
+    shutil.rmtree(ROOT, ignore_errors=True)
+    try:
+        before, after = ROOT / "work/evidence/before.png", ROOT / "work/evidence/after.png"
+        before.parent.mkdir(parents=True)
+        before.write_bytes(b"before")
+        after.write_bytes(b"after")
+        row = record(before, after)
+        (ROOT / "pipeline.json").write_text(json.dumps({"sides": {"ui": {"reality": "real"}, "backend": {"reality": "substituted"}}}),
+                                            encoding="utf-8")
+        text = lambda value: "\n".join(M.validate_record(dict(row, about=value), ROOT))
+        check_eq("PC-5a C11: a record with no `about` is as valid as before", M.validate_record(row, ROOT), [])
+        check_eq("PC-5a C11: `about` naming the story's sides is valid", M.validate_record(dict(row, about=["ui", "backend"]), ROOT), [])
+        check_in("PC-5a C11: a name that is not a side is refused, naming it and the sides", "'cart', not a side of this story (its sides: backend, ui)",
+                 text(["ui", "cart"]))
+        check_in("PC-5a C11: the refusal names a door", "Door: name only those sides in `about`", text(["cart"]))
+        check_in("PC-5a C11: a string is refused as a shape", "about must be an array of side names", text("ui"))
+        (ROOT / "pipeline.json").unlink()
+        check_in("PC-5a C11: a story with no record of its sides has the default side `product` only", "its sides: product", text(["ui"]))
+        check_eq("PC-5a C11: ... and `product` is valid there", M.validate_record(dict(row, about=["product"]), ROOT), [])
+    finally:
+        shutil.rmtree(ROOT, ignore_errors=True)
+
+
 def main():
+    pc5a_c11_about_is_checked_against_the_stories_sides()
+    f5_unprepared_cases()
+    f5_only_the_cases_own_shape_errors_unprepare_it()
     n2_validators_list_all()
     legacy_checks()
     n2_k9_the_persons_word_in_validate_and_the_baseline_that_refuses_it()

@@ -163,11 +163,6 @@ NINE = EIGHT + ["delta"]
 class RegisterDeltaAndClaimOrigin(unittest.TestCase):
     """G1-3: the register's `delta` column and the claims' `origin` column - both read by their header only."""
 
-    def test_claim_columns_are_eight_and_origin_is_last(self):
-        self.assertEqual(8, len(C.CLAIM_COLUMNS))
-        self.assertEqual("origin", C.CLAIM_COLUMNS[-1])
-        self.assertEqual(("r", "before", "before_ref", "now", "now_ref", "differs", "question"), C.CLAIM_COLUMNS[:-1])
-
     def test_a_register_of_seven_eight_and_nine_columns_is_read(self):
         row7 = ["R-1", "x", "story", "-", "yes", "AC-1", "diff:a.py:1"]
         for columns, cells in ((SEVEN, row7), (EIGHT, row7 + ["degraded"]), (NINE, row7 + ["degraded", "new"])):
@@ -299,13 +294,6 @@ class RegisterRequirementKeyReaders(unittest.TestCase):
 class SliceKeysAndPartitionKey(unittest.TestCase):
     """HF2-3 (3a1-K3, K3b): ONE spelling of a partition and ONE list of the keys that make an `unresolved[]` row a slice."""
 
-    def test_the_key_groups(self):
-        self.assertEqual(("instance_id", "instance_ids"), C.UNRESOLVED_INSTANCE_KEYS)
-        self.assertEqual(("partition", "partitions"), C.UNRESOLVED_PARTITION_KEYS)
-        self.assertEqual(C.UNRESOLVED_INSTANCE_KEYS + C.UNRESOLVED_PARTITION_KEYS, C.UNRESOLVED_SLICE_KEYS)
-        self.assertEqual("thens", C.UNRESOLVED_THENS_KEY)
-        self.assertNotIn(C.UNRESOLVED_THENS_KEY, C.UNRESOLVED_SLICE_KEYS)
-
     def test_slice_scoped_reads_the_constant_and_thens_is_not_a_slice(self):
         for key in C.UNRESOLVED_SLICE_KEYS:                       # a loop over the constant: a new key is covered at once
             self.assertTrue(C._slice_scoped({"case": "TC-1", key: "x"}), key)
@@ -327,10 +315,6 @@ class SliceKeysAndPartitionKey(unittest.TestCase):
             self.assertEqual(key, C.partition_key(value), repr(value))
         self.assertEqual(C.partition_key("msteams"), C.partition_key("P-msteams"))
         self.assertNotEqual(C.partition_key("P-a"), C.partition_key("P-b"))
-
-    def test_the_reasons(self):
-        self.assertIn("blocked_by_check", C.UNRESOLVED_REASONS)
-        self.assertEqual(("handed_to_person", "blocked_by_check"), C.THEN_REMAINDER_REASONS)
 
 
 def window_with(item: dict) -> dict:
@@ -354,10 +338,6 @@ class RedWindowShape(unittest.TestCase):
 
     def errors(self, **item):
         return C.window_shape_errors(window_with(item))
-
-    def test_the_constants(self):
-        self.assertEqual("probe_not_applicable", C.PROBE_NOT_APPLICABLE_KEY)
-        self.assertEqual(("red",), C.PROBE_NOT_APPLICABLE_WHY)
 
     def test_a_red_instance_with_the_block_is_whole_and_without_it_is_today(self):
         self.assertEqual([], self.errors(probe_not_applicable=RED_BLOCK))

@@ -323,10 +323,6 @@ def k3_real_hook(base: Path) -> None:
 
 # --- K3b: the role CLIs that only call role_cli.run_guarded (critic t-523 F1) ----------------------
 
-RUN_GUARDED_CLIS = ("context_bundle.py", "artifact_producer.py", "execution_fingerprint.py",
-                    "manual_capture.py", "manual_evidence.py")
-
-
 def k3b_run_guarded() -> None:
     """context_bundle.py has no setup of its own: its refusal (role_cli.py's dash) is printed by
     run_guarded, so the guard at run_guarded's entry is the only thing that sets the stream."""
@@ -344,9 +340,6 @@ def k3b_run_guarded() -> None:
                   DASH_UTF8 in got.stderr and b"\x97" not in got.stderr
                   and got.returncode == control.returncode,
                   f"exit {got.returncode} stderr {got.stderr[-300:]!r}")
-        for name in RUN_GUARDED_CLIS:  # the class: every one of them reaches run_guarded without a setup of its own
-            source = (SCRIPTS / name).read_text(encoding="utf-8")
-            check(f"K3b {name} calls run_guarded", "run_guarded" in source)
     finally:
         cleanup(base)
 
@@ -504,10 +497,6 @@ def k5_first_statement() -> None:
     other = {k: v for k, v in sites.items() if k not in ("console_io.py", "install_smoke.py")}
     check("K5 no reconfigure( loop remains outside console_io.py and install_smoke's fallback",
           not other, str(other))
-    check_eq("K5 install_smoke keeps exactly one reconfigure( (the line-buffering fallback)",
-             sites.get("install_smoke.py"), 1)
-    check("K5 the harness keeps its own loop (not this node's file)",
-          reconfigure_sites(SCRIPTS / "tests").get("harness.py") == 1)
 
 
 # --- K6 ----------------------------------------------------------------------------------------

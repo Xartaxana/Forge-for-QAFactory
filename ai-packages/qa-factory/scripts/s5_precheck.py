@@ -54,6 +54,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -68,7 +69,7 @@ from run_history import (expectation_changes, expectation_records, function_key,
                          read_run_blocks, record_for, record_functions)
 from hooklib import sorted_paths
 
-CHECKS = ("manifest", "bindings", "oracle", "run_mapping", "smell", "environment", "obligations", "plan")
+CHECKS = ("manifest", "bindings", "oracle", "run_mapping", "smell", "environment", "obligations", "plan", "sides")
 # What the code does NOT check for a test file it cannot read by AST (any language but Python): the result's
 # `unchecked[]` rows name them, so the OK line and the code critic never take silence for a pass (B-407 C, FR-41).
 UNCHECKED_CHECKS = ("Then assertions", "contradictions", "smells")
@@ -91,7 +92,13 @@ CHANGED_AFTER_RED = "changed-after-red"
 # `oracle` family, outside WORD_PASSABLE_TAGS: a person settles it only by answering the question (the gate's
 # INPUT changes), never by a waiver (FR-4, FR-58, FR-59).
 OPEN_ORACLE_ASSERTED = "open-oracle-asserted"
-WORD_PASSABLE_TAGS = (CHANGED_AFTER_RED,)
+# The family `sides` (t-2181 PC-4, C1-C6) is NOT in PASSABLE (S10): two tags of it are passable BY TAG, nothing else of it.
+# `sides-undeclared` (C1): a test of a story with a non-real side that declares no `sides` - the person may say the
+# declaration is not needed; `provisional-open-on-real` (C6 a): an open provisional row whose side is now real - the person's
+# word `substitute kept: <side>` keeps it. A C2-C5 finding and the other C6 ones are repairs no word passes.
+SIDES_UNDECLARED = "sides-undeclared"
+PROVISIONAL_OPEN_ON_REAL = "provisional-open-on-real"
+WORD_PASSABLE_TAGS = (CHANGED_AFTER_RED, SIDES_UNDECLARED, PROVISIONAL_OPEN_ON_REAL)
 # Tags no judge may downgrade to a hint. A judge answers whether the code still demands the
 # Then's value; the change a red run forced is a fact about two runs, which only the record and
 # the critic's verdict speak to.
@@ -1080,6 +1087,23 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
                         "(or removes the instance from its `instance_ids`). Never hand-edit "
                         "automation-manifest.json", "blocked-but-green"))
                 continue
+        if reason == AC.PENDING_OUTCOME and AC.blocked_row_instances(entry):
+            # The fourth sanctioned way a case is in both lists (t-2181 PC-4, B1): the row names the instances of the case that are
+            # written and cannot run yet (their side does not exist). A row that names its instances is instance-scoped, so it is
+            # not "both lists"; whether an instance is REALLY excused stays with `check_sides` (C5) and the run mapping - no second
+            # excuse rule here. A green tests[] row of a named instance is the contradiction (the twin of `blocked-but-green`).
+            named = AC.blocked_row_instances(entry)
+            stale = [t for t in greens if set(C.instance_id_aliases(t, cfg)) & named]
+            if stale:
+                ids = ", ".join(sorted({C.test_instance_id(t) for t in stale}))
+                findings.append(_finding(
+                    "manifest", case,
+                    f"{ids} is `green` while its unresolved[] row says {AC.PENDING_OUTCOME} - a test that passed was not pending, "
+                    "and the row hides a real result",
+                    "send the green tests[] entry through manifest_put.py and retract the pending row "
+                    f"(`{{\"retracted_unresolved\": [\"{case}\"]}}`), or remove the instance from its `instance_ids`. Never hand-edit "
+                    "automation-manifest.json", "pending-but-green"))
+            continue
         if reason == BLOCKED_BY_CHECK:
             # That reason is a Then's (`then_bindings`), never a whole case's: a case row that says it hides which
             # Thens the red stops. The row is named, not read as anything else (no `both-lists`, no `partial-green`).
@@ -1881,7 +1905,7 @@ def _why_no_row(entry: dict, rows: list) -> str:
 
 
 def check_run_mapping(case: str, entries: list, targets: list, rows: list, findings: list,
-                      handed: bool = False, blocked=()) -> None:
+                      handed: bool = False, blocked=(), pending=()) -> None:
     if handed:
         return  # nothing ran it here and nothing was supposed to: the person runs it
     by_instance: dict = {}
@@ -1890,6 +1914,11 @@ def check_run_mapping(case: str, entries: list, targets: list, rows: list, findi
     cfg = C.case_config()
     for entry in entries:
         iid = C.test_instance_id(entry)
+        if iid in pending:
+            # The side this test touches does not exist yet (t-2181 PC-4, C5, `acceptance.pending_instances`): it is written and
+            # collected, never run, so no reporter row is owed. The excuse is the run mapping's ONLY: `check_sides` still
+            # judges the test's declaration and its provisional rows (C1-C4), and a test not named by the reader runs.
+            continue
         if iid in blocked:
             # The stand blocked this one (t-219, `acceptance.blocked_instances`): the manifest says no run
             # reached a verdict, and a run block that holds a red row of it - or none - is what that looks like.
@@ -1931,6 +1960,433 @@ def check_run_mapping(case: str, entries: list, targets: list, rows: list, findi
     # way to silence it was to write one test per case. What matters is that every Then
     # clause and partition of the case is bound to an instance that covers it, which
     # `check_bindings` checks, and that every instance has a reporter row, which is above.
+
+
+# --- the sides of the story (t-2181 PC-4, C1-C6) ------------------------------------------------------------------------
+# DATA ONLY (AR-29): shape and cross-references of what the automator wrote - `tests[].sides`, `then_bindings[].about`,
+# `provisional[]`, the `pending_implementation` rows - against the ONE sides reader (`contract.story_sides`, handed in) and
+# the run blocks. Whether a placeholder is reasonable, a Then really speaks about a side, or the run "reached past the
+# locator" is the code critic's judgment and is read nowhere here.
+PROVISIONAL_KINDS_PATH = C.PROVISIONAL_KINDS_PATH   # read through `C.provisional_kinds()`, the one reader; the path is only named in a refusal
+# The marker of ANY row (`contract.provisional_marker_re` builds the one of a given id and is what the hash uses; this one
+# only lists the ids a file carries, for C4).
+ANY_MARKER_RE = re.compile(r"qa-provisional:\s*(P-\d+)(?![\w-])")
+SETTLED_STATUSES = C.PROVISIONAL_SETTLED      # the ONE tuple, in `contract` (the ledger reads it too, AR-13)
+
+
+def _stamp_is_real(block: dict, side: str, plain: bool) -> bool:
+    """Did the execution `block` record `side` as `real`? A block with no stamp recorded no non-real side, which reads as
+    real ONLY when the story's sides are all real and `sides_unknown` is not set (`plain`, C6 b); a block that carries
+    `sides_unknown`, or a stamp that does not say `real` for the side, is not."""
+    if not isinstance(block, dict) or block.get("sides_unknown"):
+        return False
+    met = block.get("sides_met")
+    if isinstance(met, dict):
+        return met.get(side) == "real"
+    return plain
+
+
+def _scope_has(ctx, case: str) -> bool:
+    """Is `case` one of the cases of the window this check was asked about? With no scope every case is (the whole-story read)."""
+    return ctx.scope_cases is None or any(C.case_matches(str(case or ""), c, cfg=ctx.cfg) for c in ctx.scope_cases)
+
+
+def _row_in_scope(ctx, row: dict) -> bool:
+    """A provisional row belongs to a window when one of its `dependents` is a case of it. A row with no readable dependent in any
+    case belongs to EVERY window: fail-closed, a row nobody owns is never skipped (B5)."""
+    deps = row.get("dependents")
+    cases = ([str(d.get("case") or "") for d in deps if isinstance(d, dict) and str(d.get("case") or "").strip()]
+             if isinstance(deps, list) else [])
+    return not cases or any(_scope_has(ctx, c) for c in cases)
+
+
+def _run_blocks(ctx) -> list:
+    """The story's run blocks, read once per check."""
+    if ctx.blocks is None:
+        ctx.blocks = read_run_blocks(ctx.task_root)[0]
+    return ctx.blocks
+
+
+def _latest_runs(ctx) -> dict:
+    """`{instance_id: (status, block data)}`: the LATEST row of each instance over the story's run blocks, whatever its status
+    (`contract.result_status`'s words); a collect-only block is no run and is skipped. ONE rule for a later non-terminal row: it wins
+    (a `skipped` after a `failed` leaves the instance with no terminal run - the safe direction for J-C9 (d) and for C5 alike).
+    A status is terminal when it is in `contract.TERMINAL_RESULT_STATUSES`."""
+    latest: dict = {}
+    for item in _run_blocks(ctx):
+        data = item["data"]
+        if str(data.get("kind") or "") == "collect":
+            continue
+        for result in data.get("results") or []:
+            if isinstance(result, dict):
+                latest[str(result.get("instance_id") or "")] = (C.result_status(result), data)
+    return latest
+
+
+def _sides_declared(ctx) -> None:
+    """C1 / C2: what every test of the window declares about its sides, and what its Thens say they are about."""
+    add, sides, names, non_real = ctx.add, ctx.sides, ctx.names, ctx.non_real
+    for entry in ctx.tests:
+        iid = C.test_instance_id(entry)
+        if not iid:
+            continue
+        case = str(entry.get("case") or "")
+        declared = entry.get("sides")
+        if non_real and declared is None:
+            add(case, f"{iid}: the story has a side that is not real ({', '.join(non_real)}) and this test declares no `sides`",
+                "send `sides` for the test through `manifest_put.py --fragment` - `{side: real|substituted|absent}` for every side "
+                "it touches, `{}` when it touches none (an empty declaration is read conservatively, never as proof)",
+                f"{SIDES_UNDECLARED}-{iid}")
+        elif declared is not None and not isinstance(declared, dict):
+            add(case, f"{iid}: `sides` is {type(declared).__name__}, not an object of side -> reality",
+                "send `sides` as `{side: real|substituted|absent}`", f"sides-shape-{iid}")
+        elif isinstance(declared, dict):
+            for name in sorted(str(n) for n in declared if str(n) not in sides):
+                add(case, f"{iid}: `sides` names {name!r}, which is not a side of this story (its sides: {names})",
+                    "use a side name exactly as the story records it (case and spelling), or drop the key", f"sides-name-{iid}-{name}")
+    for row in ctx.manifest.get("then_bindings") or []:
+        if not isinstance(row, dict) or row.get("about") is None or not _scope_has(ctx, row.get("case")):
+            continue
+        case, about = str(row.get("case") or ""), row.get("about")
+        label = f"Then {row.get('then')} of {case or '-'}"
+        if not isinstance(about, list):
+            add(case, f"{label}: `about` is {type(about).__name__}, not a list of sides", "send `about` as `[<side>, ...]`",
+                f"about-shape-{case}-{row.get('then')}")
+            continue
+        for name in sorted({str(n) for n in about if str(n) not in sides}):
+            add(case, f"{label}: `about` names {name!r}, which is not a side of this story (its sides: {names})",
+                "use a side name exactly as the story records it, or drop it from `about`",
+                f"about-name-{case}-{row.get('then')}-{name}")
+
+
+def _sides_provisional(ctx) -> None:
+    """C3 / C4: the provisional rows of the window and the markers in its test files."""
+    add, sides, names, cfg = ctx.add, ctx.sides, ctx.names, ctx.cfg
+    for sentence in ctx.prov["skipped"]:
+        add("", f"provisional registry: {sentence}", "repair the row or field through `manifest_put.py --fragment`",
+            "provisional-unreadable-" + hashlib.sha256(sentence.encode("utf-8")).hexdigest()[:8])
+    kinds = C.provisional_kinds()
+    kinds = None if kinds is None else set(kinds)
+    bound = [(str(b.get("case") or ""), C.then_number(b.get("then")))
+             for b in ctx.manifest.get("then_bindings") or [] if isinstance(b, dict)]
+    for row in ctx.rows_here:
+        pid = str(row.get("id"))
+        if str(row.get("status") or "") == "retracted":
+            continue
+        kind = str(row.get("kind") or "")
+        if kinds is None:
+            add("", f"provisional {pid}: the kinds file {PROVISIONAL_KINDS_PATH.name} could not be read, so its kind {kind!r} "
+                "is not verified", "report it as a defect of the installed package; nothing here can settle it",
+                f"provisional-kind-unverified-{pid}")
+        elif kind not in kinds:
+            add("", f"provisional {pid}: kind {kind!r} is not one of {', '.join(sorted(kinds))}",
+                "use a kind of references/provisional-kinds.json", f"provisional-kind-{pid}")
+        side = str(row.get("settles_on") or "")
+        if side not in sides:
+            add("", f"provisional {pid}: `settles_on` {side!r} is not a side of this story (its sides: {names})",
+                "name the side whose becoming real settles the row, exactly as the story records it", f"provisional-side-{pid}")
+        home = row.get("home") if isinstance(row.get("home"), dict) else {}
+        file = str(home.get("file") or "").strip()
+        if not file:
+            add("", f"provisional {pid}: the row names no home file", "send `home: {file, line_hint}` - the project's one place for "
+                "the locator, contract or mock", f"provisional-home-{pid}")
+        else:
+            # the WRITER's root (`manifest_put.stamp_provisional` hashes against `hooklib.project_root()`): one function for both (F8)
+            _digest, why = C.marked_line_hash(hooklib.project_root(), file, pid)
+            if why:
+                add("", f"provisional {pid}: {why}", f"put the comment `qa-provisional: {pid}` on the line of the placeholder in "
+                    f"{file} (the test language's comment syntax), or correct `home.file`", f"provisional-home-{pid}")
+        dependents = row.get("dependents")
+        for dep in dependents if isinstance(dependents, list) else []:
+            ok = isinstance(dep, dict) and any(
+                C.case_matches(bc, str(dep.get("case") or ""), cfg=cfg) and bt == C.then_number(dep.get("then"))
+                for bc, bt in bound)
+            if not ok:
+                add("", f"provisional {pid}: dependent {dep!r} is not a (case, Then) of `then_bindings`",
+                    "list only Thens that are bound in `then_bindings`, as `{case, then}`",
+                    f"provisional-dependent-{pid}-{str(dep.get('case') if isinstance(dep, dict) else dep)}")
+        if dependents is not None and not isinstance(dependents, list):
+            add("", f"provisional {pid}: `dependents` is {type(dependents).__name__}, not a list", "send `dependents` as "
+                "`[{case, then}]`", f"provisional-dependents-{pid}")
+    held = {str(r.get("id")) for r in ctx.prov["rows"]}
+    seen_files: set = set()
+    for entry in ctx.tests:
+        relative = str(entry.get("file") or "")
+        path = resolve_test_file(ctx.task_root, relative) if relative else None
+        if path is None or path in seen_files:
+            continue
+        seen_files.add(path)
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for pid in sorted({m.group(1) for m in ANY_MARKER_RE.finditer(text)} - held):
+            add(str(entry.get("case") or ""), f"{relative} carries the marker `qa-provisional: {pid}` and the manifest has no "
+                f"provisional[] row {pid}", "send the row through `manifest_put.py --fragment` (kind, what, assumed_from, home, "
+                "settles_on), or take the marker out of the file", f"provisional-marker-{pid}")
+
+
+def _sides_pending(ctx) -> None:
+    """C5 / C6 (c): the pending rows of the window against the reader and the runs. One finding per row after an arrival: an
+    instance whose latest run is terminal is not asked to run again (C6 c owns that state, F10)."""
+    import acceptance as AC
+    add, names, cfg, sides, manifest = ctx.add, ctx.names, ctx.cfg, ctx.sides, ctx.manifest
+    rows = [r for r in AC.pending_rows(manifest) if _scope_has(ctx, r.get("case"))]
+    if not (ctx.sided and rows):
+        return
+    by_alias = AC.tests_by_alias(manifest, cfg)
+    latest = {iid: data for iid, (status, data) in _latest_runs(ctx).items() if status in C.TERMINAL_RESULT_STATUSES}
+    for row in rows:
+        case = str(row.get("case") or "")
+        named = [n for n in AC.blocked_row_names({"instance_ids": row["instance_ids"]}) if n in by_alias]
+        got = [next((latest[a] for a in [n, *C.instance_id_aliases(by_alias[n], cfg)] if a in latest), None) for n in named]
+        excused = AC.pending_instances(manifest, [{"instance_id": n} for n in named], None, sides)
+        for iid, run in zip(named, got):
+            if iid not in excused and run is None:
+                add(case, f"{iid} is listed as `pending_implementation`, but no side it declares is `absent` in the story "
+                    f"(its sides: {names}; the test declares {by_alias[iid].get('sides')!r}): it can run, so it owes its run",
+                    "run it (`run_suite.py --mine <case>`) and retract the row, or declare the absent side in the test's "
+                    "`sides` when one really is", f"pending-not-excused-{iid}")
+        if named and all(g is not None for g in got) and all(
+                _stamp_is_real(g, s, ctx.plain) for n, g in zip(named, got)
+                for s in (by_alias[n]["sides"] if isinstance(by_alias[n].get("sides"), dict) else {})):
+            add(case, f"the `pending_implementation` row of {case or '-'} still stands, and every instance it names "
+                f"({', '.join(named)}) has run stamped real on every side its test names",
+                f"retract it so the runs decide: `{FRAGMENT_ROAD}` with `{{\"retracted_unresolved\": [\"{case}\"]}}` "
+                "(a slice row is kept by design until the automator retracts it)", f"pending-row-leftover-{case}")
+
+
+def _sides_settled(ctx) -> None:
+    """C6 (a) / (b): the provisional rows of the window after an arrival. The hash relation reads only what the TOOL stamped
+    (`home_hash`, `evidence.home_hash_after`); a role is never asked for either (F7)."""
+    add, sides, manifest = ctx.add, ctx.sides, ctx.manifest
+    for row in ctx.rows_here:
+        pid, status = str(row.get("id")), str(row.get("status") or "")
+        side = str(row.get("settles_on") or "")
+        if status == "open" and (sides.get(side) or {}).get("reality") == "real" and not _accounting_row(ctx, row):
+            add("", f"provisional {pid} is still open and its side {side!r} is now real - a placeholder that outlived its side "
+                f"({row.get('what') or 'no description'})",
+                f"settle it in the bind round (run the test on the real side, then status settled_matched or settled_edited with "
+                f"`evidence.run`), or retract it; when the person decides the substitute stays, the automator marks it "
+                f"kept_by_decision citing their word `substitute kept: {side}`", f"{PROVISIONAL_OPEN_ON_REAL}-{pid}")
+        if status not in SETTLED_STATUSES:
+            continue
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        run = str(evidence.get("run") or "").strip()
+        fix = (f"run the test on the real side, then send the row with `status` and `evidence: {{run: <the run block id>}}` for "
+               f"{pid} through `manifest_put.py --fragment` - the tool records the hash of the marked line itself")
+        if not run:
+            add("", f"provisional {pid} is {status} and cites no run block (`evidence.run`)", fix, f"provisional-evidence-{pid}")
+            continue
+        blocks = _run_blocks(ctx)
+        block = next((i["data"] for i in blocks if run in (str(i["data"].get("block_id") or ""), i["name"][:-5])), None)
+        collects = [r for r in manifest.get("runs") or [] if isinstance(r, dict) and r.get("kind") == "collect"
+                    and run in (str(r.get("label") or ""), str(r.get("block_id") or ""))]
+        if block is None or str(block.get("kind") or "") == "collect" or collects:
+            add("", f"provisional {pid} cites {run!r} as its run, and " + ("that is a collect, which runs nothing"
+                if (block is not None or collects) else "no run block has that id"), fix, f"provisional-evidence-{pid}")
+            continue
+        if not _stamp_is_real(block, side, ctx.plain):
+            add("", f"provisional {pid} is {status} on run {run!r}, whose stamp does not say side {side!r} was real",
+                "settle it on a run made while that side was real (the run block's `sides_met`)", f"provisional-stamp-{pid}")
+        file = str((row.get("home") or {}).get("file") or "") if isinstance(row.get("home"), dict) else ""
+        digest, why = C.marked_line_hash(hooklib.project_root(), file, pid)
+        before, after = str(row.get("home_hash") or ""), str(evidence.get("home_hash_after") or "")
+        if why:
+            add("", f"provisional {pid} is {status}, but its marked line cannot be compared: {why}",
+                f"keep the comment `qa-provisional: {pid}` on the line in {file or 'its home file'}", f"provisional-hash-{pid}")
+        elif status == "settled_matched" and digest != before:
+            add("", f"provisional {pid} is settled_matched, but the marked line changed since its `home_hash` was recorded",
+                "record it settled_edited: send the row with `status: settled_edited` and `evidence.run` through "
+                "`manifest_put.py --fragment` - the tool records the hash of the line as it is now", f"provisional-hash-{pid}")
+        elif status == "settled_edited" and (digest == before or after != digest):
+            add("", f"provisional {pid} is settled_edited, but " + ("the marked line is unchanged" if digest == before
+                else "the marked line changed after the tool recorded its `evidence.home_hash_after`"),
+                "record settled_matched, or send the row again (`status` and `evidence.run`) through `manifest_put.py --fragment` "
+                "- the tool records the hash of the marked line as it is now", f"provisional-hash-{pid}")
+
+
+def _accounting_row(ctx, row) -> bool:
+    """The J-C5 accounting row: a `placeholder_locator` with `assumed_from: first_look:<R-n>` (`contract.first_look_row`) whose kind
+    allows a real side (`on_real: first_look_only`) and whose side IS real. Only such a row escapes C6 (a); whether its basis holds is
+    `_sides_placeholders`. A row of any other kind on a real side, or a first-look row of a kind that says `never`, is not one."""
+    side = (ctx.sides.get(str(row.get("settles_on") or "")) or {}) if isinstance(row, dict) else {}
+    return side.get("reality") == "real" and C.first_look_row(row) and C.provisional_kind_on_real(row.get("kind")) == "first_look_only"
+
+
+def _first_look_basis(ctx) -> tuple:
+    """`({R-n: row}, "")` of the first-look record, or `({}, why)` when it cannot ground an accounting row: absent or unreadable, stale
+    (about other code or another register - `first_look.read` says so; a stale record never confirms anything), or a `null` record
+    (no rows). Read once per check, through the ONE reader (`first_look.read`)."""
+    if ctx.basis is None:
+        import first_look as FL
+        got = FL.read(ctx.task_root)
+        if got["problem"]:
+            ctx.basis = ({}, got["problem"])
+        elif got["stale"]:
+            ctx.basis = ({}, "the first-look record is about other code or another register than the current ones")
+        else:
+            ctx.basis = ({str(r.get("req") or ""): r for r in got["rows"]}, "")
+    return ctx.basis
+
+
+def _basis_refusal(ctx, row) -> str:
+    """Why the first-look record does not hold the requirement of this accounting row as missing/unreachable because of the product
+    ("" when it does). The words are the data file's (`first-look-statuses.json`, through `first_look.data`): the statuses that need a
+    `blocked_by`, and the `blocked_by` words the share counts (all but `share_excludes`): `access` and `nature` are never the product's."""
+    import first_look as FL
+    recorded, why = _first_look_basis(ctx)
+    req = str(row.get("assumed_from") or "").strip().split(":", 1)[-1]
+    if why:
+        return why
+    held = recorded.get(req)
+    words = FL.data()
+    if held is None:
+        return f"the first-look record has no row for {req}"
+    ok_status = [str(w) for w in words.get("blocked_by_required_for") or []]
+    ok_by = [str(w) for w in words.get("blocked_by") or [] if w not in (words.get("share_excludes") or [])]
+    if held.get("status") not in ok_status:
+        return f"the first-look record says {req} is {held.get('status')!r}, not {' or '.join(ok_status)}"
+    if held.get("blocked_by") not in ok_by:
+        return f"the first-look record blocks {req} by {held.get('blocked_by')!r}, not by {' or '.join(ok_by)}"
+    return ""
+
+
+def _linked_tests(ctx, row) -> list:
+    """The tests of the window linked to an open accounting row (J-C9): those whose `provisional` names it, and those bound in
+    `then_bindings` to a Then of its `dependents`. One entry per instance, in `tests[]` order."""
+    import acceptance as AC
+    pid, cfg = C.provisional_id(row), ctx.cfg
+    by_alias = AC.tests_by_alias(ctx.manifest, cfg)
+    names = {iid for iid, ids in ctx.prov["by_test"].items() if pid in ids}
+    deps = [d for d in row.get("dependents") or [] if isinstance(d, dict)] if isinstance(row.get("dependents"), list) else []
+    for b in ctx.manifest.get("then_bindings") or []:
+        if isinstance(b, dict) and any(C.case_matches(str(b.get("case") or ""), str(d.get("case") or ""), cfg=cfg)
+                                       and C.then_number(b.get("then")) == C.then_number(d.get("then")) for d in deps):
+            entry = by_alias.get(str(b.get("instance_id") or "").strip())
+            if entry is not None:
+                names.add(C.test_instance_id(entry))
+    return [t for t in ctx.tests if C.test_instance_id(t) in names]
+
+
+def _terminal_run_of(ctx, entry) -> bool:
+    """Does the story hold a run row of this test whose latest status is terminal (`contract.TERMINAL_RESULT_STATUSES`)? A skipped,
+    xfail, deselected, collected-only or absent row is not a run (`_latest_runs`: a later non-terminal row wins)."""
+    latest = _latest_runs(ctx)
+    return any(latest.get(alias, ("", None))[0] in C.TERMINAL_RESULT_STATUSES for alias in C.instance_id_aliases(entry, ctx.cfg))
+
+
+def _cases_of(entry) -> list:
+    """The case of a test and the cases it covers."""
+    return [str(entry.get("case") or ""), *[str(c) for c in entry.get("covers") or []]]
+
+
+def _env_blocked(ctx, entry) -> bool:
+    """Is an instance of this test in an `unresolved[]` row `blocked_by_env`? A row naming no instance counts for every test of its case
+    (the safe direction: more refusals, never fewer)."""
+    import acceptance as AC
+    aliases = set(C.instance_id_aliases(entry, ctx.cfg))
+    cases = _cases_of(entry)
+    for r in C.manifest_unresolved(ctx.manifest):
+        if str(r.get("reason") or "") != AC.BLOCKED_OUTCOME:
+            continue
+        named = set(AC.blocked_row_names(r))
+        if aliases & named or (not named and any(C.case_matches(str(r.get("case") or ""), c, cfg=ctx.cfg) for c in cases if c)):
+            return True
+    return False
+
+
+def _handed(ctx, entry) -> bool:
+    """Is a case of this test handed to the person (`contract.handed_tests`, the one list of hand-offs)?"""
+    return any(C.case_matches(str(h.get("case") or ""), c, cfg=ctx.cfg) for h in C.handed_tests(ctx.manifest) for c in _cases_of(entry) if c)
+
+
+def _sides_placeholders(ctx) -> None:
+    """J-C5 / J-C9 (t-2277): the open accounting rows of the window and the tests linked to them. DATA only: whether a test really leans
+    on the placeholder is the code critic's judgment and is read nowhere here.
+
+    J-C5: an open accounting row stands only while the first-look record holds its requirement missing/unreachable because of the
+    product, fresh. J-C9 for every test T linked to such a row: (a) T declares the row in `tests[].provisional`; (b) no instance of T is
+    `blocked_by_env`; (c) T is not handed to the person; (d) T has a terminal run row. ERROR DIRECTION of (a) (m-new-2): the declaration
+    is required of a test that does not touch the placeholder too - the result is a needless `placeholder_open` (the ledger takes the
+    green of a declaring test from every Then), never a green on an unsettled placeholder. The declaration is accounting, not a claim."""
+    import ledger as L
+    add = ctx.add
+    held = {str(r.get("id")) for r in ctx.prov["rows"]}
+    for entry in ctx.tests:
+        iid = C.test_instance_id(entry)
+        for pid in ctx.prov["by_test"].get(iid, []):
+            if pid not in held:
+                add(str(entry.get("case") or ""), f"{iid}: `provisional` names {pid}, which is no row of `provisional[]`",
+                    "name only rows the manifest holds (send the row first), or drop the id from the test's `provisional`",
+                    f"provisional-unknown-{iid}-{pid}")
+    opened = L.open_placeholder_rows(ctx.manifest)
+    for row in ctx.rows_here:
+        pid = C.provisional_id(row)
+        if pid not in opened or not _accounting_row(ctx, row):
+            continue
+        why = _basis_refusal(ctx, row)
+        if why:
+            add("", f"provisional {pid} is the accounting row of a red test on a real side (`{row.get('assumed_from')}`), and {why}",
+                "retract the row (`status: retracted` through `manifest_put.py --fragment`): the test then runs on the real side and a red "
+                "stays red; when the first look is what is missing or old, ask the conductor for a new one - a row on a real side is "
+                "never a license, only the account of what the first look saw", f"placeholder-basis-{pid}")
+        for entry in _linked_tests(ctx, row):
+            iid, case = C.test_instance_id(entry), str(entry.get("case") or "")
+            if pid not in ctx.prov["by_test"].get(iid, []):
+                add(case, f"{iid} is linked to the open placeholder {pid} (a Then of its `dependents` is bound to it) and does not declare it",
+                    f"send `provisional: [{pid}]` for {iid} through `manifest_put.py --fragment` - the declaration is accounting, not a claim "
+                    f"that the test leans on the placeholder; a needless one costs a re-pass line, a missing one a green on a placeholder",
+                    f"placeholder-undeclared-{iid}-{pid}")
+            if _env_blocked(ctx, entry):
+                add(case, f"{iid} is tied to the open placeholder {pid} and sits in an `unresolved[]` row `blocked_by_env`",
+                    "take it out of that row and run it: its red on the real side is the account of the placeholder, not an env block",
+                    f"placeholder-test-blocked-{iid}-{pid}")
+            if _handed(ctx, entry):
+                add(case, f"{iid} is tied to the open placeholder {pid} and its case is handed to the person",
+                    "remove the hand-off row and run the test: it fails on the real side, and the red names the requirement",
+                    f"placeholder-test-handed-{iid}-{pid}")
+            if not _terminal_run_of(ctx, entry):
+                add(case, f"{iid} is tied to the open placeholder {pid} and no run block holds a passed/failed row of it "
+                    "(missing, skipped, xfail, deselected or collect-only)", "run it once (`run_suite.py --mine <case>`): the row of the open "
+                    "placeholder never excuses the run", f"placeholder-test-norun-{iid}-{pid}")
+
+
+def check_sides(manifest: dict, sides: dict, task_root, findings: list, scope=None) -> None:
+    """C1-C6 of t-2181 §1.3: appends findings of the family `sides` (outside PASSABLE, S10). `sides` is `contract.story_sides`
+    of the story's pipeline. A story with no `pipeline.sides` record, every side real, no `sides_unknown` and no provisional
+    rows is read exactly as before: nothing here runs (TEMPORAL: until PC-2 nothing makes a side non-real). Which finding a
+    person's word may pass: only `sides-undeclared` (C1) and `provisional-open-on-real` (C6 a), by tag.
+
+    `scope` is the window's `{case: [instance ids]}` (the dispatch scope of `run`): tests, `then_bindings`, pending rows and
+    provisional rows are judged only when they fall in it, so a window is not refused over another window's test (B5, the
+    TP1-15045 class). A provisional row belongs to a window by its `dependents`; a row with no readable dependent is judged in
+    every window. `scope=None` is the whole-story read."""
+    task_root = Path(task_root)
+    prov = C.manifest_provisional(manifest)
+    rows = prov["rows"]
+    unknown = bool(_load(task_root / "pipeline.json").get("sides_unknown"))
+    non_real = sorted(name for name, side in sides.items() if side.get("reality") != "real")
+    sided = bool(non_real) or unknown or any(side.get("source") != "default" for side in sides.values())
+    if not (sided or rows or prov["skipped"] or any(prov["by_test"].values())):
+        return          # (a test that declares a P-n is read even when no row exists: `provisional-unknown-*`, J-C9 (a))
+
+    def add(case: str, message: str, fix: str, tag: str) -> None:
+        findings.append(_finding("sides", case, message, fix, tag))
+
+    ids = None if scope is None else {str(i) for v in scope.values() if isinstance(v, list) for i in v if i}
+    ctx = SimpleNamespace(
+        manifest=manifest, sides=sides, task_root=task_root, add=add, prov=prov, sided=sided, non_real=non_real,
+        # every side real and nothing unknown: an absent stamp reads as real (C6 b)
+        plain=not non_real and not unknown, cfg=C.case_config(), names=", ".join(sorted(sides)) or "(none)", blocks=None, basis=None,
+        scope_cases=None if scope is None else [str(c) for c in scope], tests=[], rows_here=[])
+    ctx.tests = [t for t in C.manifest_tests(manifest) if ids is None or C.test_instance_id(t) in ids]
+    ctx.rows_here = [r for r in rows if _row_in_scope(ctx, r)]
+    _sides_declared(ctx)
+    _sides_provisional(ctx)
+    _sides_pending(ctx)
+    _sides_settled(ctx)
+    _sides_placeholders(ctx)
 
 
 def _asserted_status_codes(asserts: list) -> list:
@@ -4030,13 +4486,9 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
     manifest = _load(C.artifact(task_root, "automation-manifest.json"))
     rows = run_block_rows(task_root)
     cases = scope_cases(task_root, manifest, dispatch_id)
-    findings: list = []
-    hints: list = []
     # What the code saw in the test code and the critic judges (X7-2): smells, relative oracles, parametrisation candidates, copies.
-    # It goes out in an `ADVICE` block (`report`), is filed in `work/advice-S5.json` by the exit gate, and never moves `ok`.
-    advice: list = []
-    notes: list = []
-    every_target: list = []
+    # `advice` goes out in an `ADVICE` block (`report`), is filed in `work/advice-S5.json` by the exit gate, and never moves `ok`.
+    findings, hints, advice, notes, every_target = ([] for _ in range(5))
     texts: dict = {}
     parsed_files: dict = {}
 
@@ -4047,6 +4499,12 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
     # so the round's budget is not spent on it.
     s7_round = is_s7_fix_round(task_root, dispatch_id)
     check_manifest(manifest, cases, findings, store_root=task_root, hints=hints if s7_round else None)
+    # The sides of the story (t-2181 PC-4, N6): called HERE, after `check_manifest` has returned and not from inside it - a
+    # manifest that makes `check_manifest` raise never reaches it - and before the run mapping, whose excuse (`pending` below)
+    # it does not judge: C3 holds whether or not an instance is excused from running. The ONE reader of the sides, once.
+    sides = C.story_sides(_load(task_root / "pipeline.json"))
+    scope_ids = {case: [C.test_instance_id(e) for e in instances_of_case(manifest, case)] for case in cases}
+    check_sides(manifest, sides, task_root, findings, scope_ids)
     # Right after the manifest invariants and before `passed_by_word`: the family is `manifest`, outside PASSABLE, so no
     # word and no `*` removes what it finds (HF2-12). The config and the plan are what make `profile_id` and
     # `obligation_refs` demandable; a call without them would demand neither.
@@ -4057,10 +4515,13 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
         if hasattr(C, "handed_tests") else set()
     # The instances of this scope the stand blocked, from the ONE reader, with the run blocks read (t-219): the
     # run mapping does not ask for a reporter row of an instance that never reached a verdict.
-    scope_ids = {case: [C.test_instance_id(e) for e in instances_of_case(manifest, case)] for case in cases}
     import acceptance as AC
     blocked = set(AC.blocked_instances(
         manifest, [{"instance_id": i} for ids in scope_ids.values() for i in ids if i], scope_ids, task_root))
+    # The instances whose side does not exist yet, from the ONE reader (C5), asked with the sides reader's output so all
+    # three conditions are checked at this exit; read once, beside `blocked`, and handed to the run mapping as a second excused set.
+    pending = set(AC.pending_instances(
+        manifest, [{"instance_id": i} for ids in scope_ids.values() for i in ids if i], scope_ids, sides))
 
     # The question register, read ONCE per window by the one reader (AR-13). The import is not guarded: a failure to
     # import propagates (`detector_main` turns it into UNREADABLE, never OK, FR-59). A register that cannot be read gives
@@ -4093,7 +4554,7 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
         targets = functions_of_case(files, case_aliases(case, entries), case_functions(entries))
         texts[case], parsed_files[case] = text, files
         every_target += [(case, pyfile, name, node) for pyfile, name, node in targets]
-        check_run_mapping(case, entries, targets, rows, findings, case in handed_cases, blocked)
+        check_run_mapping(case, entries, targets, rows, findings, case in handed_cases, blocked, pending)
         if text:
             check_bindings(manifest, case, text, files, targets, findings)
             check_open_oracle_asserted(task_root, case, text, manifest, findings, notes, questions)
@@ -4159,7 +4620,7 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
 def advice_block(result: dict) -> list:
     """The lines of the `ADVICE — <n>` block of a result (`detector_verdict`'s contract, form 1 (e)): one `- ` line per piece of
     advice, the `[<check> <id>] <message> — fix: <fix>` text of a finding. `[]` when there is none (no header is printed for 0).
-    Advice never moves `ok` and never reaches the author or the person: the exit gate files it for the code critic."""
+    Advice never moves `ok` and is never a refusal: `report` prints it on the author's own stdout and the exit gate files it for the code critic."""
     rows = [row for row in result.get("advice") or [] if isinstance(row, dict)]
     return [f"ADVICE — {len(rows)}"] + ["- " + finding_line(row) for row in rows] if rows else []
 
@@ -4185,7 +4646,7 @@ def report(result: dict) -> int:
                 f"contradictions or smells (the code critic reads them in full): {', '.join(files)}"
                 if files else "")
         print(f"OK: S5 exit checks pass for {len(result.get('cases') or [])} case(s) "
-              "(manifest invariants, Then bindings, oracle, run mapping, test smells, "
+              "(manifest invariants, Then bindings, oracle, run mapping, "
               "obligation bindings)" + left + "."
               + (" The hint above is advice about the shape you chose, not a repair: take it "
                  "or answer it in the manifest's `shape` line." if result.get("hints") else ""))
@@ -4237,9 +4698,12 @@ def running_dispatch(task_root: Path, role: str = "qa-automator", stage: str = "
     EVERY case in the manifest: on TP1-15045 the automator of window TC-001/TC-002 was
     refused its own handoff over a TC-014 finding that belonged to a window closed a day
     earlier, and halted. The gate judges the handoff in front of it, so the check is scoped
-    to the dispatch that is handing off; with no running dispatch, or two, it stays unscoped."""
-    live = dispatch_ids(task_root, "running", role, stage)
-    return live[0] if len(live) == 1 else None
+    to the dispatch that is handing off. WHICH dispatch is the finisher's is `dispatch_identity.own` (AR-13, the one reader): a name
+    (`QA_FACTORY_DETECTOR_DISPATCH`, else `QA_FACTORY_DRIVER_RUN`) picks its own record, never another window's; with no name the
+    count rule: with no running dispatch, or two, it answers None (the caller then does not read None as "every case")."""
+    import dispatch_identity
+    found = dispatch_identity.own(_state_view(Path(task_root))["dispatches"], role, stage)
+    return str(found["id"]) if found and found.get("id") else None
 
 
 RETURNED_STATUS = "returned_unaccepted"      # `controller.RETURNED`: a stop with no bind receipt (the finisher's window)
@@ -4259,11 +4723,13 @@ def window_dispatch(task_root: Path, role: str = "qa-automator", stage: str = "S
     (the scope is then not read as "every case" by the caller that cares, `branch_accounting.s5_scope`). INVARIANT: (b) is read
     only after (a) found nothing, so a running window is never judged by a returned one; a repair round on a returned window
     is judged over its own cases, never over a window closed a day earlier (TP1-15045)."""
-    found = running_dispatch(task_root, role, stage)
+    import dispatch_identity
+    found = running_dispatch(task_root, role, stage)     # (a): a name picks its own running record, never a sibling's
     if found:
         return found
-    returned = dispatch_ids(task_root, RETURNED_STATUS, role, stage)
-    return returned[0] if len(returned) == 1 else None
+    # (b): a name that is a returned window is picked by `own` the same way; a held name that fits neither is None (never the count rule); an unheld name falls to the count rule in `own`
+    returned = dispatch_identity.own(_state_view(Path(task_root))["dispatches"], role, stage, statuses=(RETURNED_STATUS,))
+    return str(returned["id"]) if returned and returned.get("id") else None
 
 
 def detector_main(root=None) -> int:
@@ -4280,6 +4746,11 @@ def detector_main(root=None) -> int:
             return 0
         step = "reading the running dispatch"
         dispatch = window_dispatch(task_root)
+        # Two or more windows run and the gate did not say whose handoff this is: every case of the manifest is NOT the answer
+        # (TP1-15045: a window refused over another window's finding). INVARIANT: never `run(root, None)` here (AR-28).
+        if dispatch is None and len(dispatch_ids(task_root, "running")) >= 2:
+            print(DV.unreadable_line("two or more windows are running and this check was not told whose handoff it judges"))
+            return DV.EXIT_UNREADABLE
         # The PLAN dispatch writes no manifest: its detector is the plan's own check (`s5_plan.check`). POSITION: before the
         # manifest is looked for. INVARIANT: a window dispatch (and a run with none) takes every road it took before.
         step = "checking the plan"

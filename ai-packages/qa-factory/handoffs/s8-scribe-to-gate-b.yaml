@@ -35,18 +35,33 @@ inputs:
     required: true
 
 inputs_read:
-  - path: work/handoffs/<the analyst's dispatch>.yaml
+  - path: work/handoffs/<the author's dispatch>.yaml
     version: <its window id>
     drafts_received: <n>
   - path: work/ledger.json
     version: <hash>
     rows: <n>
 
+# The analyst's handoff is ACCEPTED by this role (X7-6b, stage S7 `acceptance_by`): the verdict word below is read for it. `ok` accepts it (no
+# quote needed); `concerns` sends it back to the analyst for one repair round and makes the report written from it stale - then the section
+# `stage_acceptance` is owed (see `required_when`). The analyst's form is named in `inputs_read` above. A concern about your own REPORT
+# belongs in `unresolved`, not in the verdict word: only a `concerns` with a `stage_acceptance` section reopens S7.
+required_when:
+  concerns: [stage_acceptance]
+
 header:
   role: qa-doc-scribe
   stage: S8
   window: <TICKET>
   verdict: <one of vocabulary.header_verdicts>
+
+# Acceptance of the analyst's handoff (X7-6b), owed on `header.verdict: concerns`: the failure class and a verbatim quote (path#anchor, at
+# most 300 characters) of the analyst's artifact; the driver records it with `stage_done.py --acceptance`.
+stage_acceptance:
+  failure_class: <spec|capability|data|tooling>
+  quote: "<the analyst's own words, with path#anchor>"
+  witness_paths:
+    - <task-relative path the verdict rests on, or omit when none>
 
 delivery:
   ready: <yes|after_checks|no>             # the ledger's `delivery_verdict` word; `after_checks` = ready once the person finishes the checks left with them
@@ -125,6 +140,16 @@ claims:
   traceability_table_exists_on_disk: <true|false>   # work/traceability.json was never written on
                                                     # TP1-13797 and no check asked for it
   s8_was_closed_before_the_gate_was_asked: <true|false>
+
+# For each claim you made in the report, the code block it rests on (claim x code block; spec t-1765 X7-7): the person at gate B
+# can follow it. Empty only with `tried_note` saying why nothing was tried. Never relaxed by `required_when` or by the verdict.
+# Distinct from `blocked.tried` below, which is what failed while filling this form.
+tried:
+  - requirement: <the claim of the report, in a few words>
+    technique: <the code block or tool output the claim rests on>
+    observation: <what it shows, in one line>
+    evidence: <the path (and anchor) where it shows>
+tried_note: <why the table is empty, or a dash when it has rows>
 
 unresolved:
   - id: <row or item>

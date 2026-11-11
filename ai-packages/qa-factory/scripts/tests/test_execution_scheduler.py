@@ -48,7 +48,38 @@ def request(instance: str, key: str, resource=None) -> dict:
     }
 
 
+def test_lease_lock_held_past_the_wait_propagates_the_helper_exception_naming_the_holder():
+    """TR4-2 C: a registry lock held past the wait is the helper's LockBusy, whole (no SchedulerError conversion), for all
+    three registry calls; the wait is the module constant, shortened here so nothing waits 10 s."""
+    import event_store as EV
+    from event_store import LockBusy, take_file_lock
+    root = Path(tempfile.mkdtemp(prefix="qa-scheduler-lock-"))
+    registry = LeaseRegistry(root)
+    holder = take_file_lock(registry.lock_path, 0, purpose="test holder", record_holder=True)
+    saved = EV.SHORT_RMW_LOCK_WAIT_S
+    EV.SHORT_RMW_LOCK_WAIT_S = 0.2
+    try:
+        calls = (lambda: registry.snapshot(),
+                 lambda: registry.acquire({"job_id": "j", "workers": 1, "resources": {}}, 1, {}),
+                 lambda: registry.release("j", 0, ""))
+        for call in calls:
+            try:
+                call()
+                raised = None
+            except LockBusy as exc:
+                raised = exc
+            assert raised is not None, "a held registry lock must refuse, not run unlocked"
+            assert "held by process %d" % os.getpid() in str(raised).lower(), str(raised)
+            assert raised.path == registry.lock_path and raised.holder.get("pid") == os.getpid()
+    finally:
+        EV.SHORT_RMW_LOCK_WAIT_S = saved
+        holder.release()
+    assert registry.snapshot() == {"schema_version": 1, "leases": []}, "free again after the holder let go"
+
+
 def main() -> None:
+    test_lease_lock_held_past_the_wait_propagates_the_helper_exception_naming_the_holder()
+    check("a held lease lock is the helper's LockBusy naming the holder (snapshot, acquire, release)", True)
     (ROOT / "qa-factory" / "state").mkdir(parents=True)
     (ROOT / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
     (ROOT / "test.py").write_text(
@@ -130,6 +161,49 @@ def main() -> None:
                     for name in ("a", "b")]
     check("shared capacity one serializes subprocess groups",
           max(row["start"] for row in shared_times) >= min(row["end"] for row in shared_times))
+
+    # TR4-2 C, the run-loop site: the registry cannot be locked AFTER the child began. The child is killed, the group is
+    # `failed` with the helper's sentence, and the lease taken for it is released (never a live child under a lease).
+    import event_store
+    import execution_scheduler as ES
+    slow_runner = ROOT / "slow_run_suite.py"
+    slow_runner.write_text("import time\nfrom pathlib import Path\nPath('slow-started').write_text('1')\ntime.sleep(60)\n",
+                           encoding="utf-8")
+    real_locked = ES.LeaseRegistry._locked
+
+    def refusing(self, purpose):
+        if purpose == "lease child identity":
+            raise event_store.LockBusy(self.lock_path, 0.2, {"pid": 4242, "since": "2026-11-10T00:00:00"})
+        return real_locked(self, purpose)
+    ES.LeaseRegistry._locked = refusing
+    try:
+        receipt = execute_schedule({"requests": [request("lk-a", "lock-lost-a")], "min_selected_instances": 2},
+                                   ROOT, slow_runner, pipe_grace_s=2.0)
+    finally:
+        ES.LeaseRegistry._locked = real_locked
+    lost = receipt["groups"][0]
+    check("TR4-2 C: a registry lock lost after the child began fails the group with the holder sentence",
+          lost["status"] == "failed" and "held by process 4242" in lost["error"].lower())
+    check("TR4-2 C: the killed child's lease is released and the group is not marked as keeping it",
+          "lease_released" not in lost and "lease_error" not in lost and LeaseRegistry(ROOT).snapshot()["leases"] == [])
+
+    # F1 (t-2196): the registry cannot be locked at the NORMAL close of a group. `execute_schedule` returns normally,
+    # the group row is kept with `lease_released: false` and the helper's sentence in `lease_error`.
+    def refusing_release(self, purpose):
+        if purpose == "lease release":
+            raise event_store.LockBusy(self.lock_path, 0.2, {"pid": 4343, "since": "2026-11-10T00:00:00"})
+        return real_locked(self, purpose)
+    ES.LeaseRegistry._locked = refusing_release
+    try:
+        receipt = execute_schedule({"requests": [request("lr-a", "lock-release-a")], "min_selected_instances": 2},
+                                   ROOT, fake_runner)
+    finally:
+        ES.LeaseRegistry._locked = real_locked
+    kept = receipt["groups"][0]
+    check("F1: a lock lost at the normal close keeps the group row, with `lease_released: false` and the sentence",
+          kept.get("lease_released") is False and "held by process 4343" in kept.get("lease_error", "").lower())
+    check("F1: and the receipt is returned (execute_schedule did not raise)", receipt["groups"] and kept["status"] in ("unknown", "completed"))
+    event_store.atomic_json(LeaseRegistry(ROOT).path, {"schema_version": 1, "leases": []})   # the leaked lease stays until recover(); cleared for the later checks
 
     config = json.loads((ROOT / "qa-factory" / "config.json").read_text())
     config["execution"] = {"parallel": {"mode": "serial", "min_selected_instances": 2,

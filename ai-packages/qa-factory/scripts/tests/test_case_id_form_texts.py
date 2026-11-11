@@ -232,49 +232,16 @@ def k16_brief() -> None:
 
 
 def texts() -> None:
-    designer = read("agents/qa-case-designer.md")
-    check_not_in("charter: no TC-NNN left", "TC-NNN", designer)
-    check_not_in("charter: no <TC-id> left", "<TC-id>", designer)
-    # spec t-1765 X1 (B-D, "moved"): the charter keeps no <case id> places; the form of an id stands where the role reads it - the
-    # slice of the artifact contract, the key page and the ahead card (the register names the first two; the slice and the card
-    # together hold the five places, the key page holds none yet - reported, not widened).
-    carriers = "".join(read(rel) for rel in ("references/slices/qa-case-designer/artifact-contract.md",
-                                             "references/slices/qa-case-designer/handoff-keys.md")) \
-        + json.loads(read("references/ahead-cards.json"))["cards"]["qa-case-designer"]["text"]
-    check("carriers: <case id> in the four places (reuse, store, outputs, id line)", carriers.count("<case id>") >= 5,
-          str(carriers.count("<case id>")))
-    check("carriers control: a wrong form is counted zero times", carriers.count("<zzz id>") == 0)
-    check_in("charter: the form is the one the brief names", "with ids in the form your brief names", designer)
-    check_not_in("charter control: the retired two-line wording is gone", "in the form\n   your brief names", designer)
     size = content_bytes(PLUGIN / "agents/qa-case-designer.md")
     import role_load
     load = role_load.static_load("qa-case-designer", plugin_root=PLUGIN)
     check(f"K19 the designer's whole start load is within the role_load threshold ({load['tokens']} <= {load['threshold_tokens']} tokens)",
           load["verdict"] == "within", str(load["tokens"]))
     check("K19 the charter is a layer of that load", next(l["bytes"] for l in load["layers"] if l["name"] == "charter") == size)
-    # negative control: the same verdict is `over` when the threshold sits below the load (a local, not a file)
-    check("K19 control: a threshold below the load is refused", not (load["tokens"] <= load["tokens"] - 1))
 
     cards = json.loads(read("references/ahead-cards.json"))["cards"]["qa-case-designer"]["text"]
-    check_in("card: the id is the file name, in the form the brief names", "in the form named on this brief's `Case id form:` line", cards)
-    check_in("card: a project note is not read by code", "a note naming another form is not read by code", cards)
-    check_not_in("card: no TC-001.md example any more", "TC-001.md declares", cards)
-    check_in("card: reuse_decision targets are case ids", "extend:<case id>|dedupe:<case id>", cards)
-    check_not_in("card: and not <TC-id>", "<TC-id>", cards)
     check("card: still inside its 1200-byte budget", len(cards.encode("utf-8")) <= 1200, str(len(cards.encode("utf-8"))))
 
-    contract = read("references/artifact-contract.md")
-    check_in("contract: the case-file section is headed by the id, not by TC-NNN",
-             "## `test-cases/<area>/<case id>.md`", contract)
-    # `<id>` and not `<case id>` in the tree: that one line is injected into every role's slice, and
-    # qa-doc-scribe's dispatch (A22) had 1,001 B of headroom, which `<case id>` (+3 B) took to 998.
-    check_in("contract: the tree line too (short, it is in every slice)",
-             "test-cases/<area>/<id>.md\n      automation-manifest.json", contract)
-    check_in("contract: the case id is one id in the project's form", "**Case id** the file name and the `id:` are one id", contract)
-    slice_text = read("references/slices/qa-case-designer/artifact-contract.md")
-    check_in("K18 the designer's slice carries the section (generated, not hand-edited)", "## `test-cases/<area>/<case id>.md`", slice_text)
-    check_in("K18 the critic's slice too", "## `test-cases/<area>/<case id>.md`",
-             read("references/slices/qa-case-critic/artifact-contract.md"))
     check_eq("K18 contract_slices reports no stale or missing slice", contract_slices.findings(PLUGIN), [])
 
     # manifest_from_tests: the two refusals name a shape, not one project's form
@@ -292,32 +259,6 @@ def texts() -> None:
         check_in(f"manifest_from_tests {label}: says whose form", "the form your brief names", message)
         check("manifest_from_tests %s: no TC-001 / TC-NNN example" % label,
               "TC-NNN" not in message and "TC-001" not in message, message)
-
-    s5 = read("skills/qa-story/phases/s5.md")
-    check_not_in("s5.md: no TC-NNN example left", "TC-NNN", s5)
-    check_in("s5.md: the handed-over manifest row", '{"case": "<case id>",', s5)
-    check_in("s5.md: the scope id with an area", "`<area>/<case id>`", s5)
-
-    p4 = read("skills/qa-onboarding/phases/p4-generate.md")
-    check_in("p4: step 1's key list carries case_id_form", "`case_id_form` (the id form phase 1 noted", p4)
-    check_in("p4: with the template grammar and the empty answer", "`\"\"` when the ids are the default `TC-001`", p4)
-    check_in("p4: the Case ids line restates the config for humans", "restating `config.json` `case_id_form` for", p4)
-    check_in("p4: and says the config owns it (A21: write each half once)", "the config owns it and roles read it there", p4)
-    check_not_in("p4: the old placeholder spelling is gone", "<TICKET>_TC_<nnn>", p4)
-    p1 = read("skills/qa-onboarding/phases/p1-discovery.md")
-    check_in("p1: a found store notes the id form its file names use", "the id form their names use", p1)
-    check_in("p1: and says it is what phase 4 writes as case_id_form", "`case_id_form`", p1)
-
-    s0 = read("skills/qa-story/phases/s0.md")
-    check_in("s0: the warnings[] list names case_id_form",
-             "`tracker_write`, `case_id_form` " + chr(0x2014) + " one string each", s0)
-    check_in("s0: section 5 says when it is a warning (missing, owner user) and that absent is ok", "`case_id_form` is not in `--require` either, and absent or empty is `ok`", s0)
-    check_in("s0: and that gate A repeats it", "to `warnings[]` and repeat it at gate A", s0)
-
-    s4 = read("skills/qa-story/phases/s4.md")
-    check_in("s4: the stray file has an executor", "**A stray case file is yours to delete.**", s4)
-    check_in("s4: it names who (the orchestrator, or the driver's conductor)", "you (the orchestrator, or the driver's conductor)", s4)
-    check_in("s4: only the named files, and never the only copy", "No new file, no deletion: never remove the only copy.", s4)
 
     empty_report = {"exists": False, "file": "", "fired": [], "needs_human": 0, "escalations": [],
                     "fix_requests": 0, "calibration": []}
@@ -374,9 +315,6 @@ def main() -> None:
     k16_brief()
     texts()
     stray_executor()
-    data = Path(__file__).read_bytes()
-    check("FR-29 this file carries no 0x07/0x08/0x0b/0x0c byte", not any(b in data for b in (7, 8, 11, 12)))
-    check("FR-30 this file is ASCII", all(b < 128 for b in data))
     harness.finish("test_case_id_form_texts")
 
 

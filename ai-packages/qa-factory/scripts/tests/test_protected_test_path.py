@@ -578,10 +578,12 @@ def guarded(event: dict) -> tuple:
     except SystemExit as exc:
         code = exc.code
     guarded.rows = journal_rows(root)[before:]
+    guarded.err = err.getvalue()
     return code, "\n".join([err.getvalue()] + [str(r.get("notes") or "") for r in guarded.rows])
 
 
 guarded.rows = []
+guarded.err = ""
 
 
 def call(tool: str, root: Path, rel: str, role="qa-automator", ticket=TICKET, **tool_input) -> dict:
@@ -1022,6 +1024,49 @@ def part_legacy_port() -> None:
         cleanup(root)
 
 
+def part_notices_to_journal() -> None:
+    """RH1-5 B8 (moved from test_app_boundary_notices): the guard's advice about the config, and a pass, go to the journal
+    as a `hook_signal` and never to stderr at exit 0."""
+    import test_locations as TL
+    import uuid
+    run = uuid.uuid4().hex[:8]       # the once-per-session marker lives in the OS temp: a fresh session id per run
+
+    def raising(*_a, **_k):
+        raise RuntimeError("cannot check")
+
+    cases = (("H4 protected paths not on disk", ("no_such_dir",), None, None, "protected paths not found"),
+             ("H7 protected_app_paths empty", (), None, None, "protected_app_paths is empty"),
+             ("H6 test_locations problems", ("src",), {"test_locations": [""]}, None, "test_locations in qa-factory/config.json"),
+             ("H5 location check raised", ("src",), {"test_locations": [""]}, raising, "could not be checked (RuntimeError)"))
+    for label, protected, extra, patch, fragment in cases:
+        root = project("qa-tpg-notice-", protected=protected, config_extra=extra)
+        real = TL.location_problems
+        try:
+            use_project(root)
+            event = call("Write", root, "tests/x.py", role="", ticket="")
+            event["session_id"] = f"{label[:2]}-{run}"
+            if patch:
+                TL.location_problems = patch
+            code, _said = guarded(event)
+            rows = [r for r in guarded.rows if fragment in str(r.get("notes"))]
+            check_eq(f"{label}: one config signal, nothing on stderr, no block", (len(rows), rows[0]["kind"] if rows else None, guarded.err, code),
+                     (1, "config", "", None))
+            if label.startswith("H4"):
+                guarded(event)
+                check_eq("H4: once per session: the second call adds none", len(guarded.rows), 0)
+        finally:
+            TL.location_problems = real
+            cleanup(root)
+    root = project("qa-tpg-notice-", stories={TICKET: [grant_entry("src/tests/")]})
+    try:
+        use_project(root)
+        code, _said = guarded(call("Write", root, "src/tests/test_new.py"))
+        check_eq("H8: a permission pass is a pass_recorded signal and nothing on stderr",
+                 (code, [r.get("kind") for r in guarded.rows], guarded.err), (None, ["pass_recorded"], ""))
+    finally:
+        cleanup(root)
+
+
 def part_patch_move_key() -> None:
     from host_adapter import mutation_events, normalize
     event = normalize({"tool_name": "apply_patch", "cwd": str(SCRIPTS), "tool_input": {"command": (
@@ -1062,6 +1107,7 @@ def main() -> None:
     part_first_word_door()
     part_first_word_reading()
     part_legacy_port()
+    part_notices_to_journal()
     part_patch_move_key()
     finish("test_protected_test_path")
 

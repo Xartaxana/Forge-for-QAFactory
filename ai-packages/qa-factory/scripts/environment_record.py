@@ -379,8 +379,9 @@ def _refuse(message: str) -> int:
     return 2
 
 
-def _words(ns, command: str):
-    """The person's words from `--words-file`, or the refusal text (a `str`) - read ONCE, before any file is touched."""
+def _words(ns, command: str, script: str = "environment_record.py"):
+    """The person's words from `--words-file`, or the refusal text (a `str`) - read ONCE, before any file is touched.
+    `script` names the command line in the door text: project_knowledge.py shares this reader."""
     import person_words
     try:
         words = person_words.read(None, ns.words_file, "--words")
@@ -388,7 +389,7 @@ def _words(ns, command: str):
         return None, str(exc)
     if not str(words or "").strip():
         return None, ("--words-file is required: the person's own words, exactly as they were given. "
-                      + person_words.door(f"environment_record.py {command}"))
+                      + person_words.door(f"{script} {command}"))
     return words, ""
 
 
@@ -488,18 +489,24 @@ def cmd_show(ns) -> int:
     return 1 if problem else 0
 
 
+def command_parser(description: str, show_fn):
+    """`(parser, subparsers)` with the `show [--json]` command already in: the one command-line start of this record family
+    (project_knowledge.py builds its own parser through it)."""
+    ap = argparse.ArgumentParser(description=description)
+    sub = ap.add_subparsers(dest="command", required=True)
+    show = sub.add_parser("show")
+    show.add_argument("--json", action="store_true")
+    show.set_defaults(fn=show_fn)
+    return ap, sub
+
+
 def main(argv=None) -> int:
     try:
         import console_io
         console_io.utf8_stdio()
     except ImportError:
         pass
-    ap = argparse.ArgumentParser(description="The environment record: what a person accepted once as a property of this "
-                                             "environment.")
-    sub = ap.add_subparsers(dest="command", required=True)
-    show = sub.add_parser("show")
-    show.add_argument("--json", action="store_true")
-    show.set_defaults(fn=cmd_show)
+    ap, sub = command_parser("The environment record: what a person accepted once as a property of this environment.", cmd_show)
     rec = sub.add_parser("record")
     rec.add_argument("--task", required=True)
     rec.add_argument("--contour", default="")

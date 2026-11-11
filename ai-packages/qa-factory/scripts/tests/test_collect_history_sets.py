@@ -101,12 +101,20 @@ def k1_registry_tie():
 
 
 def k2_recorded_tree():
-    check_eq("K2 setup: the fixture holds the 94 files of the recorded 13877 history plus the 14857 shapes, the 30 census shapes (t-706) and 4 negative rows", len(TREE), 94 + 20 + 30 + 4)
     wrong = [(r["rel"], r["entry"], hit("h", r["rel"])) for r in TREE if hit("h", r["rel"]) != r["entry"]]
     check_eq("K2: every fixture row matches the entry the spec assigns (None for a negative row)", wrong, [])
-    check_eq("K2: the fixture holds 19 briefs (18 of the history + the S9 shape) and 11 handoffs, all B16",
-             ({r["entry"] for r in TREE if r["rel"].startswith(("work/briefs/S", "work/handoffs/"))},
-              sum(1 for r in TREE if r["rel"].startswith("work/briefs/S")), sum(1 for r in TREE if r["rel"].startswith("work/handoffs/"))), ({"B16"}, 19, 11))
+    check_eq("K2: the briefs and handoffs of the history are all B16",
+             {r["entry"] for r in TREE if r["rel"].startswith(("work/briefs/S", "work/handoffs/"))}, {"B16"})
+
+
+def x9_retro_form_is_packed():
+    """X9 (F-8 a): the S9 retro form, whose `tried` table the NEXT story's retro brief reads (brief_pack.prior_retro_lines), is packed by
+    B16 - a pin, nothing to wire. Negative control: the table without B16 packs nothing of it."""
+    path = "work/handoffs/S9-qa-retro-analyst-1.yaml"
+    check_eq("X9: the S9 retro form is packed (B16)", hit("h", path), "B16")
+    no_b16 = copy.deepcopy(SETS)
+    no_b16["entries"] = [e for e in no_b16["entries"] if e["id"] != "B16"]
+    check_eq("X9 negative control: with B16 removed the same path matches nothing", hit("h", path, C.compile_entries(no_b16)), None)
 
 
 def materialise(root, rows):
@@ -131,7 +139,7 @@ def k3_end_to_end():
     check_eq("K3: no file of the history is skipped as unknown", unknown, [])
     b15 = [s for s in m["skipped"] if s["set"] == "B" and s["reason"].startswith("product code")]
     check("K3 (B-1): the product-code files make ONE grouped skipped row of set B whose files equals the number materialised",
-          len(b15) == 1 and b15[0].get("files") == n_b15 and n_b15 == 14, str(b15))
+          len(b15) == 1 and b15[0].get("files") == n_b15, str(b15))
     check("K3 (B-1): the grouped row names the pattern, not a story path", len(b15) == 1 and not b15[0]["src_rel"].startswith("artifacts/"), str(b15))
     check("K3: the product-code marker is in no archive member", all(MARKER.encode() not in data for data in read_parts(res).values()))
     got = {r["src_rel"] for r in m["files"]}
@@ -238,6 +246,7 @@ def k11_empty_table():
 
 k1_registry_tie()
 k2_recorded_tree()
+x9_retro_form_is_packed()
 k3_end_to_end()
 k4_negative_controls()
 k5_empty_history()

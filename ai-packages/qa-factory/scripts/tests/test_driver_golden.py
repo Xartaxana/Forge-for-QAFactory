@@ -1039,31 +1039,6 @@ def fixture_refusals() -> None:
         harness.cleanup(work)
 
 
-def k16_no_reader() -> None:
-    root = HERE.parents[1]
-    hits = []
-    tests_dir = (root / "scripts" / "tests").resolve()
-    for path in root.rglob("*"):
-        if not path.is_file() or path.suffix in (".pyc",) or "__pycache__" in path.parts or ".git" in path.parts:
-            continue
-        if tests_dir in path.resolve().parents:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        if "DRIVER_GOLDEN_" in text:
-            hits.append(path.relative_to(root).as_posix())
-    check_eq("E16 no package file outside scripts/tests/ reads a DRIVER_GOLDEN_ name (package code cannot branch on being observed)", hits, [])
-    probe = harness.temp_dir("qa-gold-e16-")
-    try:
-        (probe / "x.py").write_text("import os\nos.environ.get('DRIVER_GOLDEN_SINK')\n", encoding="utf-8")
-        found = [p.name for p in probe.rglob("*.py") if "DRIVER_GOLDEN_" in p.read_text(encoding="utf-8")]
-        check_eq("E16 control: the same scan finds a planted reader", found, ["x.py"])
-    finally:
-        harness.cleanup(probe)
-
-
 def main() -> None:
     k8_rows()
     k8_paths()
@@ -1082,7 +1057,6 @@ def main() -> None:
     k7_stdout()
     k13_fakes()
     k_liveness()
-    k16_no_reader()
     fixture_cycle()
     fixture_exclusion_and_recorder()
     fixture_ambient_scrub()

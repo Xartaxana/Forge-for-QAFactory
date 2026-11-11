@@ -1,0 +1,1 @@
+- Test harness: the role-text rule pins of eight more test files (S3 remarks, S3 strategist rounds, S5 plan grouping, S7 investigation driver, session identity, story run S3 windows, story run S7, story step manual block) became 20 rows of `design/role-rules.json`, read by `scripts/role_rules.py` (wave 5 of 6); no behaviour check changed.

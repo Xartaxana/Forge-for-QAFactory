@@ -1079,8 +1079,10 @@ def run(task_root: Path, project_root=None, ticket_type: str = None,
         result["size_override"] = existing.get("size_override")
         result["size_override_reason"] = existing.get("size_override_reason")
 
-    existing_path.parent.mkdir(parents=True, exist_ok=True)
-    existing_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    # TR3-15: published by replace (the one publisher, `event_store`), never written in place: the gate, the report and `story_step` read
+    # this file while another window's exit may be rewriting it. The bytes are the same as before (no trailing newline added).
+    from event_store import atomic_text
+    atomic_text(existing_path, json.dumps(result, indent=2, ensure_ascii=False))
     return result
 
 

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,6 +18,12 @@ import hooklib
 import stage_done
 # The REAL reader of the combined refusal (C2-1), not a copy of its grammar.
 from detector_verdict import split_items
+
+# t-2113: since TR1-9 B3 the `code_only` refusal for a running row also names who holds the close and the release door
+# (`_code_close_holders_words`). The first sentence is what these checks pin, so the clause is cut before comparing; its own words
+# are pinned by the "names the holder and the release door" check of A-K11.
+import re
+HOLDER_CLAUSE = re.compile(r"(checkpoint active work before (?:code-only completion|revising scope|reopening Gate A|invalidation)) \(.*?`\)")
 
 FAILS = 0
 CHECKS = 0
@@ -863,9 +870,9 @@ CHAIN_BEFORE = {
     ],
     'rework call': [
         ['ValueError', "stage 'S99' must be one of: S0, S1, S2, S3, S4, S5, S6, S7, S8, S9"],
-        ['ValueError', "purpose 'zz' must be one of: build, collect, diagnostic, flaky_diagnostic, initial, investigation, manual, quality, red_probe, repair_verify, s3_labelling, s5_plan"],
+        ['ValueError', "purpose 'zz' must be one of: bind, build, collect, diagnostic, first_look, flaky_diagnostic, initial, investigation, manual, quality, red_probe, reference_walk, repair_verify, s3_labelling, s5_plan"],
         ['ValueError', '--reason must say what this round repairs; it is what the role reads'],
-        ['ValueError', "--cause 'zzz' must be one of: test_defect, mechanical, environment, tooling, reviewer_error, question_answer, ticket_changed"],
+        ['ValueError', "--cause 'zzz' must be one of: test_defect, mechanical, environment, tooling, reviewer_error, question_answer, source_arrived, ticket_changed"],
         ['ValueError', 'case(s) outside the approved scope: TC-9; the approved scope is TC-1'],
     ],
     'rework prior': [
@@ -987,7 +994,7 @@ def controller_chains_are_refused_whole():
                 call()
             except (StateConflict, ValueError) as exc:
                 # the temp dir is a different one every run: the text is compared with its place named `<ROOT>`
-                text = str(exc)
+                text = HOLDER_CLAUSE.sub(r"\1", str(exc))
                 for place in (base_root, base_root.resolve()):
                     text = text.replace(str(place), "<ROOT>").replace(place.as_posix(), "<ROOT>")
                 # the texts below were captured on Windows: `<ROOT>\main` is the one spelling, whatever the platform's separator
@@ -1466,7 +1473,6 @@ def the_stage_names_the_agent_of_its_last_bind() -> None:
 def code_close_conflicts_is_the_one_predicate() -> None:
     """HF3-6 A-K11 (AR-13): "this stage can be closed by code now" is ONE function. `code_only` refuses by it, and
     `execution_request.s6_close_dispatch` allows the S6 close context by it; the same messages, in the same order."""
-    import inspect
 
     def check_eq(name, got, want):
         return check(name, got == want, f"got {got!r}, wanted {want!r}")
@@ -1500,7 +1506,12 @@ def code_close_conflicts_is_the_one_predicate() -> None:
             except (StateConflict, ValueError) as exc:   # a clean state meets the evidence reference next (ValueError)
                 refused = str(exc).splitlines()
             # the operation refuses by the same facts: one sentence, or the numbered text of all of them
-            ours = [line.split(") ", 1)[-1] for line in refused if line[:1].isdigit() and ") " in line[:4]] or refused
+            ours = [HOLDER_CLAUSE.sub(r"\1", line.split(") ", 1)[-1]) for line in refused if line[:1].isdigit() and ") " in line[:4]] or \
+                [HOLDER_CLAUSE.sub(r"\1", line) for line in refused]
+            if "checkpoint active work before code-only completion" in " ".join(want):
+                check(f"A-K11 {label}: the running sentence names the holder and the release door (TR1-9 B3)",
+                      "(dispatch d1)" in " ".join(refused) and "controller.py --operation release --dispatch d1" in " ".join(refused),
+                      f"{refused}")
             if want:
                 check(f"A-K11 {label}: Controller.validate refuses with the predicate's messages", ours == want,
                       f"{refused}")
@@ -1568,10 +1579,6 @@ def code_close_conflicts_is_the_one_predicate() -> None:
               [text for _cls, text in controller_module.code_close_conflicts(
                   {"dispatches": {}, "stages": {**done, "S6": {"status": "pending"}}}, "S7")]
               == ["required prior logical stage incomplete"])
-        source = inspect.getsource(Controller.validate)
-        check("A-K11 census: Controller.validate calls the predicate", "code_close_conflicts(" in source)
-        check("A-K11 census: and no longer spells its sentence",
-              "checkpoint active work before code-only completion" not in source)
     finally:
         import shutil
         shutil.rmtree(scratch, ignore_errors=True)
@@ -1663,6 +1670,287 @@ def the_s3_gate_runs_on_every_s3_acceptance():
             GT.exit_findings = real_exit
         check("G1-5 plan errors and grounding findings are ONE refusal: the plan's head first, then `S3 grounding: `",
               text.startswith("S3 structured test plan invalid: ") and "; S3 grounding: " in text, text[:200])
+
+
+# --- TR4-7: every "checkpoint active work" refusal reads what holds and whether it is alive through ONE helper -----------------------------
+def holding_controller(verdicts):
+    """A Controller with no store whose liveness reader answers per dispatch id (`verdicts`: id -> dict, or an Exception to raise)."""
+    c = Controller.__new__(Controller)
+    c._project_root = lambda: Path(".")
+    c._dispatch_starts = lambda: {}
+    c.store = types.SimpleNamespace(root=Path("QA-TR47"))     # the story's name is read by the plan-scope check that follows the refusal
+
+    def reader(project, record, now=None, names=None):
+        verdict = verdicts[record["id"]]
+        if isinstance(verdict, Exception):
+            raise verdict
+        return verdict
+    c._liveness = reader
+    return c
+
+
+def tr4_7_state(*rows):
+    return {"source_revision": "r", "scope": ["TC-1"], "revision": 5, "decisions": {}, "stages": {},
+            "dispatches": {ident: {"id": ident, "stage": stage, "role": role, "status": "running", "scope": ["TC-1"]}
+                           for ident, stage, role in rows}}
+
+
+TR4_7_CALLS = {
+    "revise_plan": ("revise_plan", {"scope": ["TC-1"], "plan_revision": "p2", "reason": "why"}, "checkpoint active work before revising scope"),
+    "semantic_reopen": ("semantic_reopen", {"affected_scope": ["TC-1"], "reason": "why"}, "checkpoint active work before reopening Gate A"),
+    "invalidate": ("invalidate", {"affected_scope": ["TC-1"], "reason": "why", "dispatch_ids": ["S5-w1"]},
+                   "checkpoint active work before invalidation"),
+}
+
+
+def tr4_7_refusal(c, name, state):
+    op, request, _text = TR4_7_CALLS[name]
+    try:
+        c.validate(op, dict(request), state)
+    except (StateConflict, ValueError) as exc:
+        return str(exc)
+    return ""
+
+
+def test_tr4_7_a_dead_holder_does_not_block_any_site():
+    dead = {"state": "abandoned", "evidence": ["the session ended"]}
+    state = tr4_7_state(("S5-w1", "S5", "qa-automator"), ("S5-w2", "S5", "qa-code-critic"))
+    c = holding_controller({"S5-w1": dead, "S5-w2": {"state": "returned", "evidence": []}})
+    for name, (_op, _request, sentence) in TR4_7_CALLS.items():
+        assert sentence not in tr4_7_refusal(c, name, state), name
+    held = c._holding(state)
+    assert held["holders"] == [] and held["dead"] == ["S5-w1", "S5-w2"], held
+
+
+def test_tr4_7_a_live_holder_is_refused_by_name_with_its_door():
+    state = tr4_7_state(("S5-w1", "S5", "qa-automator"))
+    c = holding_controller({"S5-w1": {"state": "alive", "evidence": []}})
+    for name, (_op, _request, sentence) in TR4_7_CALLS.items():
+        text = tr4_7_refusal(c, name, state)
+        assert sentence in text, (name, text)
+        for needle in ("S5-w1", "qa-automator", "S5", "is still running", "wait for it", "--operation checkpoint --dispatch S5-w1",
+                       "--operation release --dispatch S5-w1"):
+            assert needle in text, (name, needle, text)
+
+
+def test_tr4_7_unknown_and_an_unreadable_verdict_keep_the_refusal_and_say_so():
+    state = tr4_7_state(("S5-w1", "S5", "qa-automator"))
+    for verdict in ({"state": "unknown", "evidence": []}, RuntimeError("boom"), None, {"state": "something-new"}):
+        c = holding_controller({"S5-w1": verdict})
+        for name, (_op, _request, sentence) in TR4_7_CALLS.items():
+            text = tr4_7_refusal(c, name, state)
+            assert sentence in text and "could not tell" in text and "S5-w1" in text, (name, verdict, text)
+    c = Controller.__new__(Controller)
+    c._project_root = lambda: None
+    c._dispatch_starts = lambda: {}
+    assert c._holding(state)["holders"] == ["S5-w1"], "no project to read in: it holds"
+
+
+def test_tr4_7_several_holders_are_each_named_and_a_dead_one_is_left_out():
+    state = tr4_7_state(("S5-w1", "S5", "qa-automator"), ("S5-w2", "S5", "qa-code-critic"))
+    c = holding_controller({"S5-w1": {"state": "alive"}, "S5-w2": {"state": "alive"}})
+    text = tr4_7_refusal(c, "revise_plan", state)
+    assert "S5-w1" in text and "S5-w2" in text and "qa-automator" in text and "qa-code-critic" in text, text
+    mixed = holding_controller({"S5-w1": {"state": "alive"}, "S5-w2": {"state": "abandoned"}})
+    text = tr4_7_refusal(mixed, "revise_plan", state)
+    assert "S5-w1" in text and "S5-w2" not in text, text
+    # an invalidation counts only the dispatches it names
+    state["dispatches"]["other"] = {"id": "other", "stage": "S5", "role": "qa-automator", "status": "running", "scope": ["TC-1"]}
+    c = holding_controller({"S5-w1": {"state": "alive"}, "S5-w2": {"state": "alive"}, "other": {"state": "alive"}})
+    try:
+        c.validate("invalidate", {"affected_scope": ["TC-1"], "reason": "why", "dispatch_ids": ["S5-w1", "S5-w2"]}, state)
+        text = ""
+    except StateConflict as exc:
+        text = str(exc)
+    assert "S5-w1" in text and "S5-w2" in text and "other" not in text, text
+
+
+def test_tr4_7_no_running_row_means_no_refusal_whatever_a_stage_says():
+    state = tr4_7_state()
+    state["stages"] = {"S5": {"status": "running", "dispatch_id": "gone"}}
+    c = holding_controller({})
+    for name, (_op, _request, sentence) in TR4_7_CALLS.items():
+        assert sentence not in tr4_7_refusal(c, name, state), name
+    assert c._holding(state) == {"holders": [], "dead": [], "verdicts": {}}
+
+
+TR4_7_DEAD = {"state": "abandoned", "evidence": ["the session ended"]}
+
+
+def tr4_7_story(td, scope=("TC-1",)):
+    """A real Controller over a store with ONE running dispatch `S0-w` (stage S0)."""
+    sub = mark_project(Path(td)) / "main"
+    sub.mkdir()
+    c = Controller(sub)
+    c.apply("initialize", {"scope": list(scope), "source_revision": "r", "known_paths": {"root": str(sub)}, "idempotency_key": "init"})
+    c.apply("dispatch", {"id": "S0-w", "stage": "S0", "role": "qa-worker", "scope": ["TC-1"], "input_hash": "h", "budget": {},
+                         "known_paths": {}, "idempotency_key": "d1"})
+    return c
+
+
+def tr4_7_repairs(c):
+    return [e for e in c.store.read() if e.get("type") == "state_repair"]
+
+
+def tr4_7_refused(call):
+    try:
+        call()
+    except StateConflict as exc:
+        return str(exc)
+    return ""
+
+
+def test_tr4_7_apply_records_a_dead_dispatch_once_and_the_operation_goes_on():
+    with tempfile.TemporaryDirectory(prefix="qa-tr47-") as td:
+        c = tr4_7_story(td)
+        revision = c.state()["revision"]
+        request = {"scope": ["TC-1"], "plan_revision": "p2", "reason": "why", "expected_revision": revision, "idempotency_key": "rp1"}
+        c._liveness = lambda project, record, now=None, names=None: {"state": "alive", "evidence": []}
+        refused = tr4_7_refused(lambda: c.apply("revise_plan", dict(request)))
+        assert "checkpoint active work before revising scope" in refused and "S0-w" in refused and "qa-worker" in refused, refused
+        assert c.state()["dispatches"]["S0-w"]["status"] == "running", "a live dispatch is never closed"
+        assert not tr4_7_repairs(c), "a live dispatch is never repaired"
+        c._liveness = lambda project, record, now=None, names=None: TR4_7_DEAD
+        # B1 (d): the caller's revision is NOT carried past the repair: it is judged against the fresh one, by the ordinary rule
+        stale = tr4_7_refused(lambda: c.apply("revise_plan", dict(request, idempotency_key="rp2")))
+        assert stale == "stale expected revision", stale
+        state = c.state()
+        assert state["dispatches"]["S0-w"]["status"] != "running", state["dispatches"]["S0-w"]
+        repairs = tr4_7_repairs(c)
+        assert len(repairs) == 1 and repairs[0]["payload"]["fixes"][0]["dispatch_id"] == "S0-w", repairs
+        assert "the session ended" in repairs[0]["payload"]["fixes"][0]["reason"], repairs
+        # F4: the record names the operation that closed the row, not `recover`
+        assert repairs[0]["payload"]["reason"] == "revise_plan closed dispatches nobody is doing", repairs[0]["payload"]
+        assert repairs[0]["payload"]["fixes"][0]["reason"].startswith("revise_plan: S0-w was recorded as running"), repairs
+        # the stale caller reads the state and sends again: nothing running, nothing to repair, the operation goes on
+        c.apply("revise_plan", dict(request, expected_revision=c.state()["revision"], idempotency_key="rp3"))
+        assert len(tr4_7_repairs(c)) == 1, "no second repair"
+
+
+def test_tr4_7_a_writer_between_the_read_and_the_repair_is_not_overwritten():
+    with tempfile.TemporaryDirectory(prefix="qa-tr47-race-") as td:
+        c = tr4_7_story(td)
+        c._liveness = lambda project, record, now=None, names=None: TR4_7_DEAD
+        real = c.liveness_fixes
+
+        def fixes_then_the_other_writer_acts(state=None, now=None, by=None):
+            fixes = real(state, now, by=by)
+            c.store.commit("release", {"dispatch_id": "S0-w", "words": "the person set it free", "reason": "x"}, "rel:race")
+            return fixes
+        c.liveness_fixes = fixes_then_the_other_writer_acts
+        assert c.close_settled(c.state(), by="revise_plan") == [], "the revision moved: nothing is written"
+        assert not tr4_7_repairs(c), "the repair never lands on a state it did not read"
+        assert c.state()["dispatches"]["S0-w"]["status"] == "released_by_person", c.state()["dispatches"]["S0-w"]
+        # the operation re-reads and proceeds on the fresh state: nothing runs any more
+        c.apply("revise_plan", {"scope": ["TC-1"], "plan_revision": "p2", "reason": "why", "idempotency_key": "rp-race"})
+        assert not tr4_7_repairs(c) and c.state()["dispatches"]["S0-w"]["status"] == "released_by_person"
+
+
+def test_tr4_7_an_event_committed_in_between_is_not_let_through_by_the_caller_revision():
+    with tempfile.TemporaryDirectory(prefix="qa-tr47-gap-") as td:
+        c = tr4_7_story(td)
+        c._liveness = lambda project, record, now=None, names=None: TR4_7_DEAD
+        before = c.state()["revision"]
+        real = c.liveness_fixes
+
+        def fixes_then_a_decision(state=None, now=None, by=None):
+            fixes = real(state, now, by=by)
+            c.store.commit("decision", {"id": "dec-1", "gate": "A", "status": "approved"}, "k-dec-gap")
+            return fixes
+        c.liveness_fixes = fixes_then_a_decision
+        request = {"scope": ["TC-1"], "plan_revision": "p2", "reason": "why", "expected_revision": before, "idempotency_key": "rp-gap"}
+        text = tr4_7_refused(lambda: c.apply("revise_plan", dict(request)))
+        assert text == "stale expected revision", text
+        assert not tr4_7_repairs(c), "no repair on a revision it did not read"
+        assert not [e for e in c.store.read() if e.get("type") == "revise_plan"], "the stale request committed nothing"
+        assert c.state()["dispatches"]["S0-w"]["status"] == "running", "the row was not touched"
+
+
+def test_tr4_7_an_admitted_s5_window_never_repairs_a_sibling():
+    with tempfile.TemporaryDirectory(prefix="qa-tr47-window-") as td:
+        c = tr4_7_story(td, scope=("TC-1", "TC-2"))
+        c.store.commit("release", {"dispatch_id": "S0-w", "words": "w", "reason": "x"}, "k-rel-s0")
+        c.store.commit("dispatch", {"id": "S5-qa-automator-1", "stage": "S5", "role": "qa-automator", "scope": ["TC-1"],
+                                    "input_hash": "h", "budget": {}, "known_paths": {}}, "k-w1", None, None, c.project)
+        c._liveness = lambda project, record, now=None, names=None: TR4_7_DEAD
+        state = c.state()
+        window = {"id": "S5-qa-automator-2", "stage": "S5", "role": "qa-automator", "scope": ["TC-2"], "parallel_window": True}
+        assert c._holder_would_refuse("dispatch", window, state) is False, "admitted beside the sibling: nothing refuses"
+        assert c._holder_would_refuse("dispatch", dict(window, parallel_window=False), state) is True
+        assert c._holder_would_refuse("dispatch", dict(window, scope=["TC-1"]), state) is True, "a shared case is refused"
+        assert c._holder_would_refuse("revise_plan", {}, state) is True
+        assert c._holder_would_refuse("revise_plan", {}, dict(state, dispatches={})) is False
+        calls = []
+        real = c.close_settled
+        c.close_settled = lambda *a, **k: calls.append(k.get("by")) or real(*a, **k)
+        try:
+            c.apply("dispatch", dict(window, input_hash="h", budget={}, known_paths={}, idempotency_key="k-w2"))
+        except (StateConflict, ValueError):
+            pass            # the rest of the admission may refuse this bare packet: only the prelude is judged here
+        assert calls == [], "an admitted window never reaches the repair"
+        assert not tr4_7_repairs(c) and c.state()["dispatches"]["S5-qa-automator-1"]["status"] == "running"
+        try:
+            c.apply("dispatch", {"id": "S5-qa-automator-3", "stage": "S5", "role": "qa-automator", "scope": ["TC-2"], "input_hash": "h",
+                                 "budget": {}, "known_paths": {}, "idempotency_key": "k-w3"})
+        except (StateConflict, ValueError):
+            pass
+        assert calls == ["dispatch"], "a sequential dispatch blocked by a dead-reading holder is freed through the repair"
+        assert c.state()["dispatches"]["S5-qa-automator-1"]["status"] != "running"
+
+
+def test_tr4_7_a_repair_leaves_a_row_that_is_no_longer_running_alone():
+    with tempfile.TemporaryDirectory(prefix="qa-tr47-reducer-") as td:
+        c = tr4_7_story(td)
+        c.store.commit("release", {"dispatch_id": "S0-w", "words": "the person set it free", "reason": "x"}, "k-rel-red")
+        row = dict(c.state()["dispatches"]["S0-w"])
+        stages = {name: dict(entry) for name, entry in c.state()["stages"].items()}
+        c.store.commit("state_repair", {"fixes": [{"kind": "abandoned", "dispatch_id": "S0-w", "stage": "S0", "role": "qa-worker",
+                                                   "digest": "", "reason": "late repair"}], "reason": "t"}, "k-late-repair")
+        after = c.state()
+        assert after["dispatches"]["S0-w"] == row, (row, after["dispatches"]["S0-w"])
+        assert after["stages"] == stages, "the stage of a row that moved on is not reopened"
+
+
+def test_tr4_7_invalidate_reads_liveness_for_the_named_dispatches_only():
+    state = tr4_7_state(("S5-w1", "S5", "qa-automator"), ("S5-w2", "S5", "qa-code-critic"))
+    asked = []
+    c = holding_controller({"S5-w1": {"state": "alive"}, "S5-w2": {"state": "alive"}})
+    inner = c._liveness
+    c._liveness = lambda project, record, now=None, names=None: asked.append(record["id"]) or inner(project, record, now, names)
+    text = tr4_7_refusal(c, "invalidate", state)
+    assert "S5-w1" in text and "S5-w2" not in text, text
+    assert asked == ["S5-w1"], asked
+
+
+def test_tr4_7_the_s6_close_context_reads_liveness_through_the_same_helper():
+    import execution_request as ER
+    import controller as controller_module_
+    state = {"revision": 3, "stages": {**{f"S{i}": {"status": "completed"} for i in range(6)}, "S6": {"status": "pending"}},
+             "dispatches": {"S6-a": {"id": "S6-a", "stage": "S6", "role": "qa-runner", "status": "running"},
+                            "S6-b": {"id": "S6-b", "stage": "S6", "role": "qa-runner", "status": "running"}}}
+    real = controller_module_.Controller
+
+    def said_for(factory, td):
+        controller_module_.Controller = factory
+        try:
+            ER.s6_close_from_state(Path(td), state, ["TC-1"])
+            return ""
+        except ER.MineRefusal as exc:
+            return str(exc)
+
+    def cannot_build(root):
+        raise OSError("no store")
+    with tempfile.TemporaryDirectory(prefix="qa-tr47-s6-") as td:
+        try:
+            alive = holding_controller({"S6-a": {"state": "alive"}, "S6-b": {"state": "alive"}})
+            said = said_for(lambda root: alive, td)
+            # several holders: a door per holder, never the first alone (critic t-2183 F2; pin A-K2 of test_execution_request)
+            assert "S6-a" in said and "S6-b" in said and "is still running" in said and "`--dispatch S6-a` or `--dispatch S6-b`" in said, said
+            dead = holding_controller({"S6-a": {"state": "abandoned"}, "S6-b": {"state": "returned"}})
+            assert "a dispatch is open" not in said_for(lambda root: dead, td)
+            assert "a dispatch is open" in said_for(cannot_build, td), "a reader that cannot be built keeps the refusal"
+        finally:
+            controller_module_.Controller = real
 
 
 def main() -> int:
@@ -1968,9 +2256,9 @@ def main() -> int:
 
         # (a) a late `accept` with `stage_complete` on the code-closed S6 (a real dispatch, a real receipt).
         before = code_close_s6("a")
-        zero.apply("dispatch", {"id": "late-s6", "stage": "S6", "role": "qa-worker", "scope": ["TC-1"], "input_hash": "late",
+        zero.apply("dispatch", {"id": "late-s6", "stage": "S6", "role": "qa-runner", "execution_kind": "automation", "scope": ["TC-1"], "input_hash": "late",
                                 "budget": {}, "known_paths": {}, "idempotency_key": "dispatch-late-s6"})
-        record_stage_acceptance(zero_root, "S6")  # X7-6: S6 closes over its consumer's accept record
+        record_stage_acceptance(zero_root, "S6", "late-s6")         # X7-6c: S6 closes over the consumer's record, never on the author's own finish
         zero.apply("accept", {"id": "late-s6", "status": "accepted", "stage_complete": True,
                               "evidence_refs": [evidence_ref(zero_root, "late-s6.txt")], "idempotency_key": "accept-late-s6"})
         late = zero.state()["stages"]["S6"]
@@ -2111,6 +2399,22 @@ def main() -> int:
     the_stage_names_the_agent_of_its_last_bind()
     code_close_conflicts_is_the_one_predicate()
     the_s3_gate_runs_on_every_s3_acceptance()
+    for tr4_7 in (test_tr4_7_a_dead_holder_does_not_block_any_site, test_tr4_7_a_live_holder_is_refused_by_name_with_its_door,
+                  test_tr4_7_unknown_and_an_unreadable_verdict_keep_the_refusal_and_say_so,
+                  test_tr4_7_several_holders_are_each_named_and_a_dead_one_is_left_out,
+                  test_tr4_7_no_running_row_means_no_refusal_whatever_a_stage_says,
+                  test_tr4_7_apply_records_a_dead_dispatch_once_and_the_operation_goes_on,
+                  test_tr4_7_the_s6_close_context_reads_liveness_through_the_same_helper,
+                  test_tr4_7_a_writer_between_the_read_and_the_repair_is_not_overwritten,
+                  test_tr4_7_an_event_committed_in_between_is_not_let_through_by_the_caller_revision,
+                  test_tr4_7_an_admitted_s5_window_never_repairs_a_sibling,
+                  test_tr4_7_a_repair_leaves_a_row_that_is_no_longer_running_alone,
+                  test_tr4_7_invalidate_reads_liveness_for_the_named_dispatches_only):
+        try:
+            tr4_7()
+            check(tr4_7.__name__, True)
+        except AssertionError as exc:
+            check(tr4_7.__name__, False, str(exc)[:400])
     print(f"=== test_controller_state: {CHECKS - FAILS}/{CHECKS} ok ===")
     return 1 if FAILS else 0
 

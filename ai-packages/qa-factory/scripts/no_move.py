@@ -67,6 +67,33 @@ def move_ids(spec: dict | None = None) -> list:
     return list(move_rows(spec))
 
 
+# The data columns of a `moves` row that say HOW the move may be offered (t-1936 F2, AR-1: which move takes `args` and which is never
+# an option is a data row, not a literal in code). `args`: "rework" (the closed list `check_args` checks) or null (an option for this
+# move carries none). `offerable`: false means the move is never a person's choice, and `not_offered` says why.
+ARGS_KINDS = ("rework",)
+NOT_OFFERED_DEFAULT = "the move is never an option"
+
+
+def move_columns(row: dict, strict: bool = True) -> tuple:
+    """`(args, offerable, not_offered)` of one row of `moves`. BOTH worlds (E2.1): a missing `args` column reads `rework` for the row
+    `rework_stage` and `None` for any other; a missing `offerable` reads true unless the row's token is `—` (today's rule). A value
+    outside the columns' vocabulary (E2.2) is `DataUnreadable` naming the row - `strict=False` (the prompt's moves section, which must
+    never fail to render) reads it on the safe side: no `args`, not offerable."""
+    name = str(row.get("id"))
+    args = row["args"] if "args" in row else ("rework" if name == "rework_stage" else None)
+    if args is not None and not (isinstance(args, str) and args in ARGS_KINDS):
+        if strict:
+            raise DataUnreadable(f"moves.{name}.args: `{args}` is neither \"rework\" nor null")
+        args = None
+    offerable = row["offerable"] if "offerable" in row else str(row.get("token") or "") != "—"
+    if not isinstance(offerable, bool):
+        if strict:
+            raise DataUnreadable(f"moves.{name}.offerable: `{offerable}` is not true or false")
+        offerable = False
+    why = row.get("not_offered")
+    return args, offerable, ("" if offerable else (why.strip() if isinstance(why, str) and why.strip() else NOT_OFFERED_DEFAULT))
+
+
 # --- which moves are open (F2) -------------------------------------------------------------------------------------
 def rework_blockers(facts: dict) -> list:
     """The facts, in the order of `rework_stages`, `running`, `closed`, `attempts`, that keep a rework closed - an unread (`None`) fact
@@ -237,11 +264,17 @@ def moves_section(spec: dict, open_ids: list, facts: dict, site=()) -> str:
              "Code checked the state precondition of each row of `moves` in references/conductor-actions.json. Only these "
              "may be offered or taken now; the rest of each precondition is yours to judge:"]
     for move in open_ids:
-        token = str((rows.get(move) or {}).get("token") or "")
-        if move == "rework_stage":
+        row = rows.get(move) or {}
+        token = str(row.get("token") or "")
+        args, offerable, _why = move_columns(row, strict=False)      # F2: the columns say which move takes "args" and which is never an option
+        if not offerable:
+            lines.append(f"- `{move}` — " + ("yours to run, never an option" if row.get("word") == "own"
+                                              else "run on the person's own words, never an option"))
+            continue
+        if args == "rework":
             lines.append(rework_args_list(facts))        # C2-6: the row carries the closed list of the option's "args"
             continue
-        lines.append(f"- `{move}`" + (f" — token `{token}`" if token and token != "—" else ""))
+        lines.append(f"- `{move}`" + (f" — token `{token}`" if token and token != "—" else "") + "; option carries no \"args\"")
     if not open_ids:
         lines.append("- none")
     if site:
@@ -318,8 +351,55 @@ def prose_refusal(question: str, seen, spec: dict, normalize, site=()) -> str:
     return f"the question names {names}, which {'is' if len(extra) == 1 else 'are'} not one of its options"
 
 
+CONDUCTOR_FOUND = "What the conductor found:"
+CONDUCTOR_TEXT_LIMIT = 1200         # the `lead` limit of a person's text; a longer conductor text is cut and ends with the mark below
+CONDUCTOR_CUT_MARK = "…"
+UNOFFERED_GENERIC = "the conductor's own options for this question could not be used, so only the answers below are read"
+UNOFFERED_CLOSED = "the factory cannot offer that move in the story's present state"
+
+
+def unoffered_reason(token: str, spec: dict, normalize, facts) -> str:
+    """The plain words for a vocabulary token the conductor's text quotes that the shown answers do not carry (E2.7): when the token
+    belongs to a move whose state precondition does NOT hold in `facts`, that fact (a `rework` closed by the story's state says which);
+    otherwise - the move is open, or the facts could not be read (FR-41: an unknown is never told as a reason) - that the conductor's
+    own options could not be used."""
+    move = next((mid for mid, row in move_rows(spec).items() if normalize(str(row.get("token") or "")) == token), "")
+    if not move or not isinstance(facts, dict) or not facts or open_moves(facts, [move]):
+        return UNOFFERED_GENERIC
+    return ("sending a stage back is not open now: " + rework_closed_reason(facts)) if move == "rework_stage" else UNOFFERED_CLOSED
+
+
+def conductor_found(text: str, offered, spec: dict, normalize, facts=None, site=()) -> tuple:
+    """`(block, token_lines)` for a conductor `question` whose options were refused (t-1936 F2.2 (a), FR-9, AR-17): `block` is the fixed
+    line `What the conductor found:` and the conductor's text VERBATIM, cut at `CONDUCTOR_TEXT_LIMIT` characters (the cut ends with the
+    mark); `token_lines` is one code line per token of the closed vocabulary (a move's word, a door of the site) the WHOLE text quotes
+    that is not among the `offered` normalized tokens: `` `<token>` is not offered here: <why> `` (FR-10); `offered` None (not known yet) gives
+    no line. An empty text gives `("", [])` (today's behaviour). Tokens are compared, words are never read (FR-12)."""
+    text = str(text or "").strip()
+    if not text:
+        return "", []
+    shown = text if len(text) <= CONDUCTOR_TEXT_LIMIT else text[:CONDUCTOR_TEXT_LIMIT - len(CONDUCTOR_CUT_MARK)] + CONDUCTOR_CUT_MARK
+    site = [normalize(str(door)) for door in site or ()]
+    if offered is None:             # the answers shown are not known yet (a closed question of a site, the floor): no line is claimed (FR-41)
+        return CONDUCTOR_FOUND + "\n" + shown, []
+    extra = sorted((named_tokens(text, normalize) & (reserved_tokens(spec, normalize) | set(site))) - set(offered))
+    return CONDUCTOR_FOUND + "\n" + shown, [f"`{token}` is not offered here: {unoffered_reason(token, spec, normalize, facts)}" for token in extra]
+
+
+def conductor_lead(lead: str, text: str, offered, spec: dict, normalize, facts=None, site=()) -> str:
+    """`lead` followed by the conductor's block (`conductor_found`) and its token lines, one paragraph; `lead` unchanged for an empty text."""
+    block, lines = conductor_found(text, offered, spec, normalize, facts, site)
+    if not block:
+        return lead
+    return "\n\n".join(part for part in (str(lead).rstrip(), "\n".join([block, *lines])) if part)
+
+
 def validate_options(verdict: dict, open_ids: list, spec: dict, normalize, words: dict, site=(), facts=None, chosen=False, chosen_move="") -> tuple:
     """`(options, "")` when the verdict's options may be used, else `(None, <the rule it breaks>)`.
+
+    t-1936 F2: the columns of the `moves` rows decide. A move whose `offerable` is false (`resume_with_words`, `story_fact`, `revoke_exclusion`)
+    is refused with the row's `not_offered` text; an option with `args` on a move whose `args` column is null LOSES the key, stays an option
+    and carries `args_dropped: True`; a bad column value raises `DataUnreadable` naming the row (the caller treats it as an unusable answer).
 
     Valid only when ALL hold: the action is `ask_person` or `stop`; a list of at least 2 dicts; every token non-empty and
     not "—"; the normalized tokens unique; every `move` is open; each token is its move's own token in conductor-actions.json
@@ -350,26 +430,30 @@ def validate_options(verdict: dict, open_ids: list, spec: dict, normalize, words
         if token in seen:
             return None, f"two options carry the token `{token}`"
         seen.add(token)
-        move = str(option.get("move") or "")
+        move, args_kind = str(option.get("move") or ""), None       # a site door has no row: it takes no "args" either
         if move == SITE_DOOR:
             if token not in site or token in reserved_tokens(spec, normalize):
                 return None, f"the option `{token}` names a door the question does not read, or one that is a move's own word"
         elif move not in open_ids or move not in rows:
             return None, f"the option `{token}` names the move `{move}`, which is not open here"
-        elif not (own := normalize(str(rows[move].get("token") or ""))) or own == "—" or own != token:
-            return None, f"the token `{token}` is not the token of the move `{move}`"
+        else:
+            args_kind, offerable, not_offered = move_columns(rows[move])          # F2: `DataUnreadable` naming the row on a bad column
+            if not offerable:
+                return None, f"the option `{token}` names the move `{move}`, which is never an option: {not_offered}"
+            if not (own := normalize(str(rows[move].get("token") or ""))) or own == "—" or own != token:
+                return None, f"the token `{token}` is not the token of the move `{move}`"
         says, factory, person = (str(option.get(key) or "").strip() for key in ("says", "factory", "person"))
         story = story_line(option.get("story"), spec, words)
         if not (says and factory and person and story):
             return None, f"the option `{token}` lacks its says / factory / person / story lines (story is a dict)"
         row = {"token": shown, "norm": token, "move": move, "says": says, "factory": factory, "person": person, "story": story}
-        if move == "rework_stage":
+        if args_kind == "rework":
             args, why = check_args(option.get("args"), facts or {})
             args_rule = args_rule or why
             if args:
                 row["args"] = args
         elif "args" in option:
-            return None, f"the option `{token}` carries \"args\", which only the `rework` option may"
+            row["args_dropped"] = True       # F2 (Fork 3-B): the key goes, the option stays; nothing else about the option is relaxed (E2.3)
         out.append(row)
     rule = prose_refusal(str(verdict.get("question") or ""), seen, spec, normalize, site)
     if rule:
@@ -417,10 +501,20 @@ def code_close_offer(key: str, facts: dict) -> tuple:
 
     ERROR DIRECTION: too few options is the safe error; `go on` is offered only for a non-empty block that is in neither `passed` nor
     `refused` (FR-59: an unknown block gives no pass); `stop` is always offered, and `retry` joins it when the rules left it alone (one
-    option is no question). `DataUnreadable` for a key the table does not hold."""
+    option is no question). `DataUnreadable` for a key the table does not hold.
+
+    `code_close.behind` (B-20, AR-25: the close is refused because an EARLIER stage is not closed): the offer is decided by one fact,
+    `awaits` (the earlier stage stands finished and waits for its consumer role's acceptance, which a word of the person can give).
+    `go on` is offered exactly then; `retry` and `stop` always. The key is not a row of `CODE_CLOSE_OFFERS`: the S9 generic walk of
+    that table (every key under every block) does not apply to it, its only fact is `awaits`."""
+    facts = facts if isinstance(facts, dict) else {}
+    if key == "code_close.behind":
+        if facts.get("awaits"):
+            return ["go on", "retry", "stop"], []
+        return ["retry", "stop"], ["Going on as it is is not possible here: the earlier stage is not waiting for an acceptance that a word of "
+                                   "yours could give."]
     if key not in CODE_CLOSE_OFFERS:
         raise DataUnreadable(f"CODE_CLOSE_OFFERS: no row for `{key}`")
-    facts = facts if isinstance(facts, dict) else {}
     block = str(facts.get("block") or "")
     spent = [str(b) for b in list(facts.get("passed") or []) + list(facts.get("refused") or [])]
     tokens, absent = list(CODE_CLOSE_OFFERS[key]), []

@@ -300,10 +300,21 @@ def _record_words(record: str) -> str:
     return ANY_RECORD
 
 
+def _settled_by_analyst(task: Path, target_id: str) -> bool:
+    """Does `place_answers.settled_answer` (the ONE reader, AR-13) say the analyst settled this target? A reader that raises or cannot
+    be imported says no: the target is projected as before (the error goes toward asking)."""
+    try:
+        import place_answers
+        return place_answers.settled_answer(task, target_id)[1] == "settled"
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
 def project(task_root, dispatch) -> dict:
     """{"added", "corrected", "skipped", "printed"} - each target of `investigation_targets` goes into the findings
     register once: no chain -> `add` (status `unverified`); a code-only chain whose observation changed -> one `correct`;
-    a chain a role touched, or a withdrawn one -> left alone. Each unreadable record becomes a `coverage_gap`.
+    a chain a role touched, or a withdrawn one -> left alone; a target the analyst settled on the stand (`place_answers.settled_answer`
+    says `settled`) -> left alone, so gate B is never asked a question about it. Each unreadable record becomes a `coverage_gap`.
     What the role still decides: everything after the line exists (probe it, correct it, withdraw it)."""
     out = {"added": [], "corrected": [], "skipped": [], "printed": []}
     writer = _writer()
@@ -319,6 +330,9 @@ def project(task_root, dispatch) -> dict:
     for target in found["targets"]:
         chain = chains.get(target["id"], [])
         if chain and (chain[-1]["op"] == "withdraw" or not all(is_code_line(line) for line in chain)):
+            out["skipped"].append(target["id"])
+            continue
+        if _settled_by_analyst(task, target["id"]):      # the analyst settled this place: no question is put on it, no line changed (FR-10)
             out["skipped"].append(target["id"])
             continue
         fields = _fields(task, target, out["printed"], rows)
@@ -369,12 +383,15 @@ def _unrooted(task: Path, text: str) -> str:
 
 
 def unresolved_targets(task_root, budget) -> dict:
-    """{"unresolved": [target], "resolved": [(id, why)], "context": {id: [line]}} - which targets still wait.
+    """{"unresolved": [target], "resolved": [(id, why)], "context": {id: [line]}, "settled": [target]} - which targets still wait.
 
     Resolved: (i) a role recorded an evidenced outcome (status above `unverified`, `probe.runs` >= 1); (ii) a role
     withdrew the chain or wrote a `coverage_gap`; (iii) the case has a `work/triage.json` row whose verdict is one of the
     budget's `resolving_verdicts` AND whose evidence is a file under `work/evidence/` (a verdict word alone resolves
-    nothing). Every other row is attached as context, never as a resolution. The evidence judge errs only toward
+    nothing); (iv) the analyst settled the place on the stand: `place_answers.settled_answer` says `settled` (a record that
+    stands AND its carrier exists); such a target is also listed whole under `settled`. A record that does not stand, or
+    whose carrier is missing, resolves nothing, and `place_answers` raising resolves nothing and adds one context line.
+    Every other row is attached as context, never as a resolution. The evidence judge errs only toward
     UNRESOLVED. A `resolving_verdicts` that is not a list resolves nothing. What the role still decides: whether a
     context line changes what it investigates."""
     task = Path(task_root)
@@ -386,7 +403,7 @@ def unresolved_targets(task_root, budget) -> dict:
     triage = hooklib.read_json(task / "work" / "triage.json", None, kind=dict)
     rows = triage.get("triage") if isinstance(triage, dict) else None
     rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
-    out = {"unresolved": [], "resolved": [], "context": {}}
+    out = {"unresolved": [], "resolved": [], "context": {}, "settled": []}
     for target in targets:
         chain = chains.get(target["id"], [])
         active = chain[-1] if chain else None
@@ -415,6 +432,15 @@ def unresolved_targets(task_root, budget) -> dict:
                            + (f"; evidence: {_unrooted(task, issue)}" if issue else ""))
             if not why and verdict in verdicts and not issue:
                 why = f"triage {verdict} with evidence {_s(row.get('evidence'))}"
+        if not why:                                # (iv) the analyst settled this place on the stand (spec t-1991, `place_answers`)
+            try:
+                import place_answers
+                record, state, _reason = place_answers.settled_answer(task, target["id"])
+                if state == "settled" and record is not None:
+                    why = f"settled by {_s(record.get('dispatch'))}: {_s(record.get('answer'))}"
+                    out["settled"].append(target)
+            except Exception:                      # an answer that cannot be read resolves nothing (FR-59)
+                context.append("place answers: the analyst's answer could not be read")
         if why:
             out["resolved"].append((target["id"], why))
         else:

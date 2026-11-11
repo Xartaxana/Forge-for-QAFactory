@@ -196,7 +196,58 @@ def declared_preconditions(task_root: Path) -> list:
 # `output_tail` (not in this list: made in `_gate_a_gaps`): the raw end of a run's output, for the conductor (`stand_gaps.py --json`,
 # the driver state `shown_gaps`); never printed on a card.
 _PASS_THROUGH = ("scope", "contour", "reason_class", "exit_code", "check", "kind", "property_key", "lasting", "pc_id",
-                 "changed_since", "understood")
+                 "changed_since", "understood", "role", "fact", "options", "variant", "in_roster", "case_titles")
+ROLE_SCOPES = ("role", "product_role")      # the two cards of project knowledge: the ONE home (gate_preflight and gate_brief read it; t-2142 PK0-4)
+ROLE_NAMED, ROLE_TITLE = 3, 70              # cases a role card names with their titles (the `the test:` line AND the option/price lines), and the characters of a title
+
+
+CASE_FILE_MISSING = "the case file was not found - open the story's cases"
+
+
+def case_titles_of(task_root, cases) -> dict:
+    """`{case id: what_the_test_does(its file)}` for the cases that have a file; a case with none is absent (its words are
+    `CASE_FILE_MISSING` in `named_cases`). The data a covered role gap carries so that its line can explain each id (t-2142 PK0-9 B2)."""
+    texts = _case_texts(Path(task_root))
+    return {str(c): what_the_test_does(texts[str(c)]) for c in cases if texts.get(str(c))}
+
+
+def named_cases(cases, titles: dict) -> str:
+    """`TC-1 (title), TC-2 (title) and TC-3 (title), and K more`: up to `ROLE_NAMED` cases by id and title (a case with no title says its
+    file was not found), then their number. The ONE list of the role card's `the test:` line and of the covered role line. Pure."""
+    cases = [str(c) for c in cases or [] if c]
+    named = [f"{c} ({_one(titles.get(c) or CASE_FILE_MISSING)})" for c in cases[:ROLE_NAMED]]
+    more = f", and {len(cases) - ROLE_NAMED} more" if len(cases) > ROLE_NAMED else ""
+    return (named[0] if len(named) == 1 else ", ".join(named[:-1]) + " and " + named[-1] if named else "") + more
+
+
+def _role_card_words(row: dict, texts: dict, stand: str) -> tuple:
+    """`(the_test, missing)` of a role card or a confirm card (t-2142 §3 (2), (6)): each case by its id and its TITLE (the first use of
+    an id explains it, `what_the_test_does`), up to `ROLE_NAMED`, then their number; what is missing by the card's variant. Names only,
+    no value, no key. Pure."""
+    role, scope = str(row.get("role") or ""), row.get("scope")
+    if scope == "product_role":
+        return (str(row.get("what") or ""),
+                f"your word that \"{role}\" is a role of the product; until then it stays marked as not confirmed")
+    cases = [str(c) for c in (row.get("cases") or []) if c]
+    listed = named_cases(cases, {c: what_the_test_does(texts[c]) for c in cases if texts.get(c)})
+    the_test = f"{listed} sign{'s' if len(cases) == 1 else ''} in as \"{role}\""
+    variant = row.get("variant")
+    if variant == "twins":
+        twins = ", ".join(f"\"{t}\"" for t in ((row.get("fact") or {}).get("twins") or []))
+        missing = (f"the project's settings record two accounts the role \"{role}\" could mean on \"{stand}\" ({twins}), "
+                   "so the factory cannot tell which")
+    elif variant == "malformed":
+        missing = (f"the project's settings hold an entry for \"{role}\" on \"{stand}\" that does not name two variables, "
+                   "so the factory cannot sign in as it")
+    else:
+        missing = (f"an account for the role \"{role}\" on \"{stand}\": the project records none, so the factory cannot sign in as it; "
+                   "the other cases of this story do not need it and are not held by it")
+    return the_test, missing
+
+
+def _one(text: str) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= ROLE_TITLE else text[:ROLE_TITLE].rsplit(" ", 1)[0].rstrip(",;:. ") + "…"
 
 
 def _integration_row(row: dict) -> bool:
@@ -249,6 +300,8 @@ def _gate_a_gaps(task_root: Path, rows, texts=None, stand=None) -> list:
                "reason": "precondition", "owner": str(row.get("owner") or ""),
                "source": "case preconditions", "state": str(row.get("state") or ""), "stand": stand or ""}
         gap.update({key: row[key] for key in _PASS_THROUGH if key in row})
+        if row.get("scope") in ROLE_SCOPES:         # t-2142 PK0-4: the role card and the confirm card speak by their cases' titles
+            gap["the_test"], gap["missing"] = _role_card_words(row, texts, stand or "this stand")
         if ran and detail:
             gap["output_tail"] = names_only(detail)
         if cases:
@@ -545,6 +598,8 @@ def _integration_ids(task_root, case, cfg=None):
 
 
 ENV_BY = "environment-record"      # the `by` of an override the driver wrote from the environment record (R8(c), B-414)
+PK_BY = "project-knowledge"        # the same, written from a row of the project-knowledge registry (a not-a-role answer, t-2142 PK0-9)
+PK_RECORD = "project_knowledge"    # the `record` a covered gap's `property` names when it is a registry row (ENV rows carry none)
 
 
 def _carried_reasons(task_root, case, answer, pipeline=None, only=None) -> list:
@@ -666,7 +721,7 @@ def _c2(ctx) -> list:
             if before is row:
                 continue                  # the baseline itself is not a change (FR-41: only a recorded difference is)
             fields = (("revision", "the commit"), ("image", "the image"), ("stand_definition_sha", "the stand's address"))
-            if answer.get("by") == ENV_BY:
+            if answer.get("by") in (ENV_BY, PK_BY):      # PK0-9: a not-a-role answer is not about the build either
                 fields = tuple(f for f in fields if f[0] == "stand_definition_sha")
             moved = [name for field, name in fields if row.get(field) != before.get(field)]
             if moved:
@@ -705,19 +760,36 @@ def _c4(ctx) -> list:
     must still be live, and `environment_record.covering` must find it under the key the SAME subject has NOW - so a record
     taken back (in another story, or by `ask again`), a command that changed, a stand that was re-pointed, a record that
     cannot be read, and a carry that names no record at all each reopen the case. A carry that never rested on the record
-    (a person's own word) has no such rule."""
+    (a person's own word) has no such rule. PK0-9: a property with `record` == PK_RECORD rests on the registry instead (its row
+    live, the role still `not_needed`, the registry readable); the environment record is read only for a property that rests on it."""
     answer = ctx["answer"]
     props = answer.get("property") if isinstance(answer.get("property"), list) else []
-    if not props and answer.get("by") != ENV_BY:
+    if not props and answer.get("by") not in (ENV_BY, PK_BY):
         return []
     why = "the recorded environment property no longer holds ({})"
     if not props:
         return [why.format("the answer names no record of it")]
-    import environment_record as ER
     task_root = ctx["task_root"]
     project = project_of(task_root)
     if project is None:
         return [why.format("the project's own record cannot be found")]
+    pk_props = [p for p in props if isinstance(p, dict) and p.get("record") == PK_RECORD]
+    props = [p for p in props if not (isinstance(p, dict) and p.get("record") == PK_RECORD)]
+    if pk_props:                      # PK0-9 (N4): a not-a-role answer rests on its registry row and on the role still being `not_needed`
+        import project_knowledge as PK
+        pk_rows, pk_problem = PK.load(project)
+        if pk_problem:
+            return [why.format("the record of earlier answers cannot be read")]
+        for prop in pk_props:
+            row = next((r for r in pk_rows if isinstance(r, dict) and str(r.get("id")) == str(prop.get("id"))), None)
+            if row is None or row.get("revoked_at"):
+                return [why.format("it was taken back")]
+            element = str(prop.get("subject") or "").split("|", 2)[-1]
+            if PK.state(project, PK.ROLES_KEY, "", element)["state"] != PK.NOT_NEEDED:
+                return [why.format("the person's answer about the role has changed")]
+    if not props:                     # the environment record is read only for a property that rests on it
+        return []
+    import environment_record as ER
     rows, problem = ER.load(project)
     if problem:
         return [why.format("the environment record cannot be read")]
@@ -888,7 +960,8 @@ def _label(gap) -> str:
 
 
 def gate_b_split(task_root, gaps=None, pipeline=None) -> tuple:
-    """`(the gate B gaps that are ASKED, the LEVEL gaps the environment record covers)`.
+    """`(the gate B gaps that are ASKED, the gaps the project's records cover)`: the covered ones are the environment record's LEVEL
+    gaps and the registry's role gaps (a role the person said is not a product role; `_pk_covered`).
 
     A row is covered when ALL hold (R7, FR-10 - the delivery check reads the same rule): the story carries the record's override
     of the level gap (`by` == ENV_BY, read from the raw `stage_overrides`); the row's own carry rests on that record, is the
@@ -900,40 +973,107 @@ def gate_b_split(task_root, gaps=None, pipeline=None) -> tuple:
     task_root = Path(task_root)
     gaps = collect(task_root, "B") if gaps is None else list(gaps)
     pipeline = pipeline if isinstance(pipeline, dict) else (_read_json(task_root / "pipeline.json", {}) or {})
-    env_keys = {r["key"] for r in _live_records(pipeline) if r["stage"] == CARRY_STAGE and r["entry"].get("by") == ENV_BY}
+    live = [r for r in _live_records(pipeline) if r["stage"] == CARRY_STAGE]
+    env_keys = {r["key"] for r in live if r["entry"].get("by") == ENV_BY}
+    pk_keys = {r["key"] for r in live if r["entry"].get("by") == PK_BY}          # PK0-9 (N4): a not-a-role answer
     project = project_of(task_root)
-    if not env_keys or project is None or not gaps:
+    if (not env_keys and not pk_keys) or project is None or not gaps:
         return gaps, []
     import environment_record as ER
-    rows, problem = ER.load(project)
+    import project_knowledge as PK
+    rows, problem = ER.load(project)             # an unreadable record skips only ITS grouping (toward asking)
     if problem:
-        return gaps, []
+        rows, env_keys = [], set()
+    pk_rows, pk_problem = PK.load(project)
+    if pk_problem:
+        pk_rows, pk_keys = [], set()
     answers, _had = gate_b_answers(task_root, gaps, pipeline)
-    asked, groups = [], {}
+    asked, groups, pk_groups = [], {}, {}
     for gap in gaps:
         answer = answers.get(str(gap.get("id"))) or {}
+        settled = answer.get("option") == "accept" and answer.get("gate") == "A" and not answer.get("change") and not gap.get("ran_red")
+        pk_prop = next((p for p in answer.get("property") or [] if isinstance(p, dict) and p.get("record") == PK_RECORD), None) \
+            if answer.get("by") == PK_BY else None
+        if pk_prop is not None:
+            pk_row = next((r for r in pk_rows if isinstance(r, dict) and str(r.get("id")) == str(pk_prop.get("id"))
+                           and not r.get("revoked_at")), None)
+            gid = str(pk_prop.get("gap") or "")
+            if settled and pk_row is not None and gid and gid in pk_keys:
+                pk_groups.setdefault(gid, {"row": pk_row, "prop": pk_prop, "cases": []})["cases"].append(str(gap.get("case_id") or gap.get("id")))
+            else:
+                asked.append(gap)
+            continue
         level = next((p for p in answer.get("property") or [] if isinstance(p, dict)
                       and (p.get("subject") or {}).get("scope") == "level"), None) if answer.get("by") == ENV_BY else None
         row = next((r for r in rows if level and str(r.get("id")) == str(level.get("id"))), None)
         key = f"RP-{level['subject'].get('contour')}" if level else ""
-        if (row is None or key not in env_keys or answer.get("option") != "accept" or answer.get("gate") != "A"
-                or answer.get("change") or gap.get("ran_red")):
+        if row is None or key not in env_keys or not settled:
             asked.append(gap)
             continue
         groups.setdefault(key, {"row": row, "cases": []})["cases"].append(str(gap.get("case_id") or gap.get("id")))
     covered = [{"id": key, "gate": "B", "stage": GATE_STAGE["B"], "scope": "level", "case_id": "", "case": "",
                 "contour": str(g["row"]["subject"].get("contour")), "cases": g["cases"], "property": g["row"]}
                for key, g in groups.items()]
-    return asked, covered
+    return asked, covered + _pk_covered(task_root, pk_groups)
+
+
+def pk_property(row: dict, gap_id: str, subject=None) -> dict:
+    """The `property` of a covered role gap: the registry row with its `record`, its `subject` (`product.roles||<element>` unless given),
+    the covered gap's id and the person's words and story out of its provenance. The ONE builder, for gate A (`_cover_not_needed`) and
+    gate B (`_pk_covered`). Pure."""
+    provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
+    return dict(row, record=PK_RECORD, subject=subject or f"product.roles||{row.get('element')}", gap=gap_id,
+                words=provenance.get("words", ""), story=provenance.get("story", ""))
+
+
+def _pk_covered(task_root, pk_groups: dict) -> list:
+    """The covered role gaps of gate B, one per `pk_groups` entry (`{gap id: {"row", "prop", "cases"}}`), each carrying the titles of
+    its cases (`case_titles`) so that the covered line explains every id."""
+    out = []
+    for gid, g in pk_groups.items():
+        out.append({"id": gid, "gate": "B", "stage": GATE_STAGE["B"], "scope": "role", "case_id": "", "case": "",
+                    "cases": g["cases"], "case_titles": case_titles_of(task_root, g["cases"]),
+                    "property": pk_property(g["row"], gid, g["prop"].get("subject"))})
+    return out
+
+
+def pk_property_of(gap) -> dict:
+    """The registry row a covered gap rests on (`property.record` == PK_RECORD), or {} - the ONE dispatch of every reader of the
+    covered road (t-2142 PK0-9): an environment-record row carries no `record`, and its road is unchanged."""
+    row = gap.get("property") if isinstance(gap, dict) else None
+    return row if isinstance(row, dict) and row.get("record") == PK_RECORD else {}
+
+
+def covered_says(gap) -> str:
+    """The sentence for what a covered gap says, as the person reads it. An environment-record row: the record's own
+    (`environment_record.says`). A registry row (a role the person said is not a product role): the role, the story and the date
+    of the answer and the cases that are reported as not run for it."""
+    row = pk_property_of(gap)
+    if not row:
+        import environment_record as ER
+        return ER.says(gap.get("property") if isinstance(gap.get("property"), dict) else {})
+    element = " ".join(str(row.get("subject") or "").split("|", 2)[-1].split()) or str(gap.get("role") or "this role")
+    when, story = str(row.get("at") or "")[:10], " ".join(str(row.get("story") or "").split())
+    cases = [str(c) for c in gap.get("cases") or []]
+    titles = gap.get("case_titles") if isinstance(gap.get("case_titles"), dict) else {}
+    named = named_cases(cases, titles) if cases else "its cases"          # each id explained by its title (explained_ids, FR-6)
+    return (f"\"{element}\" is not a role of this product (your answer" + (f" in {story}" if story else "")
+            + (f" on {when}" if when else "") + f"), so {named} {'is' if len(cases) == 1 else 'are'} reported as not run")
 
 
 def covered_entries(covered) -> list:
     """The entries `Driver.accepted_cases` and `write_carries` take for covered gaps: an `accept` the environment record gives,
-    with the record's words and date in the line, and its row (`id`, `subject`) as the typed `property`."""
+    with the record's words and date in the line, and its row (`id`, `subject`) as the typed `property`. A registry row (PK0-9) gives
+    `by` PK_BY, a line built by `covered_says`, and `property` with its `record`, `subject` and the covered gap's id."""
     out = []
     for gap in covered:
         row = gap.get("property") if isinstance(gap.get("property"), dict) else {}
         words = " ".join(str(row.get("words") or "").split())
+        if pk_property_of(gap):
+            out.append({"gap": gap, "option": "accept", "by": PK_BY, "line": f"{words} ({covered_says(gap)})",
+                        "property": [{"id": str(row.get("id")), "record": PK_RECORD, "subject": row.get("subject"),
+                                      "gap": str(row.get("gap") or gap.get("id"))}]})
+            continue
         out.append({"gap": gap, "option": "accept", "by": ENV_BY,
                     "line": f"{words} (recorded for this environment on {str(row.get('at') or '')[:10]}, {row.get('id')})",
                     "property": [{"id": str(row.get("id")), "subject": row.get("subject")}]})
@@ -986,16 +1126,19 @@ def write_environment_overrides(task_root, task, covered, gap_ids, run, words_fi
                 "start of another stand gap's, so no answer is written for it as a whole")
             continue
         code, text = run("waiver.py", "--task", task, "--stage", CARRY_STAGE, "--block", f"{C.STAND_GAP_MATCH_PREFIX} {gid}",
-                         *words_args(words_file, C.person_decision("accept", entry["line"]), "env-gap"), "--by", ENV_BY)
+                         *words_args(words_file, C.person_decision("accept", entry["line"]), "env-gap"), "--by", entry["by"])
         if code:
             failed.add(gid)
             say(f"gate A: {_label(gap)}: the answer recorded for this environment could not be written to this story "
                 f"({' '.join(text.split())[-160:]}); the card is shown again at gate B")
             continue
         stored = annotate_override(task_root, CARRY_STAGE, f"{C.STAND_GAP_MATCH_PREFIX} {gid}", {"property": entry["property"]})
-        import environment_record as ER
-        say(f"gate A: {_label(gap)}: not asked - you recorded on {str(gap['property'].get('at') or '')[:10]} that "
-            f"{ER.says(gap['property'])}" + (f" (the record could not be stored with the answer: {stored})" if stored else ""))
+        if entry["by"] == PK_BY:
+            said = f"not asked - {covered_says(gap)}"
+        else:
+            import environment_record as ER
+            said = f"not asked - you recorded on {str(gap['property'].get('at') or '')[:10]} that {ER.says(gap['property'])}"
+        say(f"gate A: {_label(gap)}: {said}" + (f" (the record could not be stored with the answer: {stored})" if stored else ""))
     return failed
 
 
@@ -1033,8 +1176,11 @@ def write_carries(task_root, task, gaps, entries, cases, decided, failed_cases, 
         earlier = len(case_ids - {str(e["gap"].get("id")) for e in mine})
         said = (C.person_decision("accept", " / ".join(dict.fromkeys(str(e["line"]) for e in mine)))
                 + (f" ({earlier} other stand gap(s) of this case were accepted in an earlier answer)" if earlier else ""))
-        from_record = [e for e in mine if e.get("by") == ENV_BY]
-        by = ["--by", ENV_BY] if from_record and len(from_record) == len(mine) and not earlier else []
+        from_record = [e for e in mine if e.get("by") in (ENV_BY, PK_BY)]
+        # `--by` only when EVERY entry of the case rests on ONE record (PK0-9: environment record or registry); a mix has none, its
+        # `property` still names both so `_c4` checks each by its own record
+        by_all = {e.get("by") for e in from_record}
+        by = ["--by", next(iter(by_all))] if from_record and len(from_record) == len(mine) and len(by_all) == 1 and not earlier else []
         match = f"{C.STAND_GAP_MATCH_PREFIX} {case}"
         code, text = run("waiver.py", "--task", task, "--stage", CARRY_STAGE, "--block", match,
                          *words_args(words_file, said, "carry"), *by)
@@ -1067,12 +1213,15 @@ def revoke_environment_overrides(task_root, task, gap, run, words_file, say=prin
         if record["stage"] == CARRY_STAGE and any(isinstance(p, dict) and str(p.get("id")) == str(row.get("id")) for p in props):
             mine[record["key"]] = str(record["entry"].get("match"))
     done = []
+    # PK0-9: the same road for a registry row, said in its own words - ONE source of the two wordings (D2)
+    held, source = (("its entry in the record of earlier answers", "record of earlier answers") if pk_property_of(gap)
+                    else ("its record for this environment", "environment record"))
     for key, match in mine.items():
         code, text = run("waiver.py", "--revoke", "--task", task, "--stage", CARRY_STAGE, "--block", match,
-                         *words_args(words_file, f"the person asked for {_label(gap)} again: its record for this environment "
-                                                 f"({row.get('id')}) is taken back", "env-revoke"))
+                         *words_args(words_file, f"the person asked for {_label(gap)} again: {held} ({row.get('id')}) is taken back",
+                                     "env-revoke"))
         if code:
-            say(f"gate A: {key}: the answer taken from the environment record could not be taken back "
+            say(f"gate A: {key}: the answer taken from the {source} could not be taken back "
                 f"({' '.join(text.split())[-160:]})")
         else:
             done.append(key)

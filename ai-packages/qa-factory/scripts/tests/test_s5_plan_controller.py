@@ -455,7 +455,9 @@ def k11_words_and_nesting():
     calls = [n for n in ast.walk(validate) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
              and n.func.attr in ("_s5_plan_problems", "_s5_plan_accept_problems")]
     check_eq("validate: the two branches are one call each", sorted(c.func.attr for c in calls), ["_s5_plan_accept_problems", "_s5_plan_problems"])
-    check("validate: the nesting did not grow (the pinned depth is the one before B1b)", depth(validate) <= 18, str(depth(validate)))
+    # `depth` counts an `elif` as one more level, so the op chain of `validate` grows by one per op: 18 before B1b, 19 since c1f65a401 (PC-6)
+    # added `elif op in HOLD_OPERATIONS:` to that chain (the new op's own branch is one call; no nested block was added to B1b's branches).
+    check("validate: the nesting did not grow (the pinned depth is 19: B1b's 18 plus PC-6's one elif)", depth(validate) <= 19, str(depth(validate)))
 
 
 # --- the chain fix round (t-1340): t-1320 F-1, F-2, F-3 -----------------------------------------------------------------------

@@ -1355,6 +1355,96 @@ def a_blocked_instance_is_built_with_its_outcome_and_list():
         cleanup(project)
 
 
+def a_pending_instance_owes_no_probe_and_a_substituted_one_does():
+    """t-2181 PC-4 (C5): an instance written for a side that does not exist yet (`acceptance.pending_instances`: a
+    `pending_implementation` row names it, its test declares an `absent` side, the sides reader says `absent`) is never run, so
+    the window asks no probe of it; the same instance on a SUBSTITUTED side runs, and its probe is owed exactly as before."""
+    project = temp_project("qa-window-pending-")
+    use_project(project)
+    try:
+        task = project / "qa-factory" / "artifacts" / TICKET
+        (task / "work").mkdir(parents=True)
+        test_file(project, "TC-1", "test_a")
+        write(task / "pipeline.json", {"sides": {"ui": {"reality": "real", "source": "launch"},
+                                                 "backend": {"reality": "absent", "source": "launch"}}})
+
+        def story(declared):
+            row = novelty_row("test_a[x]", disposition="new_or_changed", critic_verdict="unverified",
+                              obligation_refs=[{"obligation_id": "OB-1", "obligation_hash": "oh-1"}],
+                              assertion_id="tests/test_tc-1.py:3", defect_location="src/tc1.py:9", sides={"backend": declared})
+            write(task / "work/automation-manifest.json", {"schema_version": 2, "tests": [row], "unresolved": [
+                {"case": "TC-1", "reason": "pending_implementation", "instance_ids": ["test_a[x]"]}]})
+
+        def probe_owed():
+            _window, notes = built_with_notes(task)
+            return [n for n in notes if n[0] == "test_a[x]" and n[1] == "probe"]
+
+        story("absent")
+        check_eq("PC-4: an instance of an absent side, named by its pending row, owes no probe", probe_owed(), [])
+        story("substituted")
+        check_eq("PC-4: the same instance declared substituted is not pending: its probe is owed", len(probe_owed()), 1)
+        story("absent")
+        write(task / "pipeline.json", {"sides": {"ui": {"reality": "real", "source": "launch"},
+                                                 "backend": {"reality": "real", "source": "arrival"}}})
+        check_eq("PC-4: the author's word `absent` is not enough - the sides reader says real: the probe is owed",
+                 len(probe_owed()), 1)
+    finally:
+        cleanup(project)
+
+
+def a_pending_instance_window_is_shaped_and_a_claim_alone_is_refused():
+    """t-2181 PC-4 (B2): the window of a pending instance carries the excuse's own outcome with an empty fingerprint and no evidence,
+    owes no probe in the shape check, passes `validate_window` without an outcome gap, and a record that merely CLAIMS the outcome
+    (no row, a side the story does not call absent) is refused; the substituted twin keeps its probe demand."""
+    project = temp_project("qa-window-pending2-")
+    use_project(project)
+    try:
+        task = project / "qa-factory" / "artifacts" / TICKET
+        (task / "work").mkdir(parents=True)
+        test_file(project, "TC-1", "test_a")
+        write(task / "pipeline.json", {"sides": {"ui": {"reality": "real", "source": "launch"},
+                                                 "backend": {"reality": "absent", "source": "launch"}}})
+
+        def story(declared, rows=True):
+            row = novelty_row("test_a[x]", disposition="new_or_changed", critic_verdict="unverified",
+                              obligation_refs=[{"obligation_id": "OB-1", "obligation_hash": "oh-1"}],
+                              assertion_id="tests/test_tc-1.py:3", defect_location="src/tc1.py:9", sides={"backend": declared})
+            write(task / "work/automation-manifest.json", {"schema_version": 2, "tests": [row], "unresolved": [
+                {"case": "TC-1", "reason": "pending_implementation", "instance_ids": ["test_a[x]"]}] if rows else []})
+
+        def item_of(window):
+            return next(i for i in window["instances"] if i["instance_id"] == "test_a[x]")
+
+        story("absent")
+        window, notes = built_with_notes(task)
+        item = item_of(window)
+        check_eq("PC-4 B2: the item carries the pending outcome, an empty fingerprint and no evidence",
+                 (item.get("outcome"), item.get("execution_fingerprint"), item.get("evidence_refs"), "probe" in item),
+                 ("pending_implementation", "", [], False))
+        check_eq("PC-4 B2: no note asks the author for an outcome, a fingerprint, a probe or evidence",
+                 [n for n in notes if n[0] == "test_a[x]" and n[1] in ("outcome", "execution_fingerprint", "probe", "evidence")], [])
+        check_eq("PC-4 B2: the built window has no shape error (no probe owed, the outcome is a window outcome)",
+                 C.window_shape_errors(window), [])
+        gaps = validate_window(window, task)
+        check_eq("PC-4 B2: validate_window names no outcome, probe or staleness gap for it (the excuse is the reader's)",
+                 [g for g in gaps if g.endswith(":test_a[x]") and g.split(":")[0] in
+                  ("product", "sensitivity", "semantic_sensitivity", "stale_run", "pending_implementation")], [])
+        # a forged claim: the record says pending, the manifest has no row
+        story("absent", rows=False)
+        forged = copy.deepcopy(window)
+        check_in("PC-4 B2: a record that only CLAIMS the outcome, with no row behind it, is a gap",
+                 "product:test_a[x]", validate_window(forged, task))
+        story("substituted")
+        check_in("PC-4 B2: a claim on a side the manifest declares substituted is a gap as well",
+                 "product:test_a[x]", validate_window(forged, task))
+        story("substituted")
+        window2, _notes = built_with_notes(task)
+        check_in("PC-4 B2: the substituted twin keeps its probe demand", "probe is missing",
+                 " ".join(C.window_shape_errors(window2)))
+    finally:
+        cleanup(project)
+
+
 # ---- t-299 (B-253 item g, Q7 B'): the window no longer promises a person's word it does not read ----------
 #
 # cmp2r, 02.10 (08-window-6b.txt, 08-waiver-s5.txt): the critic's window was NOT acceptable over two instances the
@@ -2362,6 +2452,8 @@ def main():
     an_unknown_level_and_a_false_claim_are_named_with_their_doors()
     the_vocabulary_missing_is_said_not_guessed()
     a_missing_run_block_is_named_with_its_command()
+    a_pending_instance_owes_no_probe_and_a_substituted_one_does()
+    a_pending_instance_window_is_shaped_and_a_claim_alone_is_refused()
     a_window_of_handed_cases_with_no_instance_is_acceptable_as_unresolved()
     an_area_keyed_scope_takes_the_controllers_rule_not_a_looser_one()
     finish("window record")

@@ -16,7 +16,7 @@ hand-written decisions before Gate A could be recorded):
   --operation gate-decision --gate A --words-file <path> [--build-only]
   --operation rework --stage S4 --role qa-case-designer --cases TC-012,TC-014
       --reason "<why>" [--rows TS-3] [--purpose repair_verify] [--build-only]
-      [--cause test_defect|mechanical|environment|tooling|reviewer_error|question_answer|ticket_changed]
+      [--cause test_defect|mechanical|environment|tooling|reviewer_error|question_answer|source_arrived|ticket_changed]
   --operation gate-preflight --gate A     (read-only rehearsal, gate_preflight.run)
 
 One more takes only a person's word, because a dispatch nobody is doing must never outlive it:
@@ -40,7 +40,7 @@ import tempfile
 import time
 
 import event_store
-from event_store import (DerivedViewStale, EventStore, IdempotencyKeyReused, StateConflict, atomic_json,
+from event_store import (DerivedViewStale, EventCommitted, EventStore, IdempotencyKeyReused, StateConflict, atomic_json,
                          content_hash, retry_shared, shared_file)
 from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, gate_orders, load_config, sorted_paths,
                      story_closed, story_closure, story_root, story_root_at)
@@ -52,10 +52,38 @@ from runtime_policy import (DEFAULT_LIMITS, resolve_model, checkpoint_due, cumul
 TERMINAL = {"accepted", "blocked", "incomplete", "paused"}
 PURPOSES = {"initial", "repair_verify", "red_probe", "diagnostic",
             "flaky_diagnostic", "build", "collect", "manual", "quality", "s3_labelling", "s5_plan",
-            "investigation"}
+            "investigation",
+            # t-2181 PC-6 / t-2277: three words of a dispatch's purpose, each the reader of one new road. `bind` - the S5 round
+            # after code arrived (its S5 record reads `window` through `s5_part_of`, which knows only `s5_plan`); `reference_walk` -
+            # the S1 walk of the older version (PC-9b sends it); `first_look` - the S1 look at the new version (FL-6 sends it).
+            # PC-6 owns the words, the senders are PC-7, PC-9b and FL-6 (AR-1: a closed set is data, one writer).
+            "bind", "reference_walk", "first_look"}
 # Window 1 of S3 (G1-11): the strategist labels `work/grounding.yaml` and writes no plan. The word is written at dispatch time into
 # `request_binding.purpose` and read ONLY through `s3_window_of`; `PURPOSES` is the closed set (AR-1).
 S3_LABELLING = "s3_labelling"
+# The first look at the new version (t-2277 FL-5): an OPTIONAL qa-runner dispatch of S3 (`stages.json` S3 `optional_dispatches`) that walks
+# the register's requirements before any plan exists. It runs no half of the plan, so it names no `execution_kind` and no case.
+FIRST_LOOK = "first_look"
+# The reference walk (t-2181 PC-9b): the OPTIONAL qa-runner dispatch of S1 (`stages.json` S1 `optional_dispatches`) that walks the OLD version of a side
+# on its reference stand. Same shape as the first look: no plan, so no `execution_kind`; `runner_kind_required` admits it by its row, not by this word.
+REFERENCE_WALK = "reference_walk"
+
+
+def runner_kind_required(state, role, purpose) -> bool:
+    """Does a qa-runner request of this story have to say which half it runs (`execution_kind` manual / automation)? THE one predicate of
+    `prepare` and `apply` (AR-13): true for a qa-runner in the new plan-contract mode, EXCEPT an optional dispatch - one whose purpose is
+    exactly the `purpose` of an `optional_dispatches` row of `stages.json` that names this role (the first look of S3, the reference
+    walk of S1; read through `stage_guard.optional_purposes`, AR-1: the words are data) has no plan to be a half of. Error direction:
+    toward the refusal - any other purpose, an absent one, a non-mapping state, a role that is not the runner, or a row table that
+    cannot be read keeps today's answer. Pure up to reading `stages.json`; never raises."""
+    if role != "qa-runner" or not isinstance(state, dict) or state.get("plan_contract_mode") != "new":
+        return False
+    try:
+        import stage_guard
+        optional = stage_guard.optional_purposes(stage_guard.stage_model(), role)
+    except Exception:
+        optional = set()
+    return not (isinstance(purpose, str) and purpose in optional)
 
 
 def s3_window_of(record) -> str:
@@ -81,7 +109,14 @@ S5_PLAN = "s5_plan"
 WORD_PLAN_BEFORE_WINDOWS = "plan before windows"
 WORD_PLAN_FORM_SWITCH = "plan form switch"
 WORD_PLAN_REVIEW_ROUND = "plan review round"
+# t-1937 TR3-4: the person's word that passes the backstop refusal of an S5 completion beside a running window (P13). Its own words:
+# no other word of this block is a whole-word part of it.
+WORD_CLOSE_BESIDE_RUNNING = "close beside a running window"
+WORD_CLOSE_BESIDE_RUNNING_LANE = "close beside a running lane"   # the S6 twin: a manual lane, not a window (P9)
 S5_PLAN_ROLES = ("qa-automator", "qa-code-critic")
+# t-1937 TR3-4: the roles whose S5 WINDOW dispatches may run beside each other (`Controller._window_beside_running`). The two roles
+# of a window's chain; every other role, stage or plan dispatch keeps the rule "one running dispatch" (AR-1: closed variety is data).
+S5_WINDOW_ROLES = ("qa-automator", "qa-code-critic")
 
 
 def s5_part_of(item) -> str:
@@ -170,6 +205,8 @@ DENIALS_FILE = "state/dispatch-denials.jsonl"
 STALE_AFTER_CLOSURE = "stale_after_closure"
 # The one stage that legitimately runs on a closed story: the retro reads what the story did.
 RETRO_STAGE = "S9"
+# The operations whose refusal reads "what is running" (TR4-7): `apply` records a dead holder before they validate.
+HOLDING_OPS = frozenset({"revise_plan", "semantic_reopen", "invalidate", "dispatch", "resume"})
 # Dispatch statuses that still claim somebody owes the story something.
 OPEN_AFTER_CLOSURE = {"running", "blocked", "paused", "incomplete", RETURNED, ABANDONED}
 # RH1-6 (owner's F-2): the block a person's word passes when the open items of gate A cannot be listed, or an item has no block a
@@ -200,7 +237,8 @@ PROBE_GAP_WORD = "probe_gap"
 CONTRADICTS_WORD = "contradicts_requirement"
 # The roles that run a repair/review loop and therefore carry a repair cap.
 REPAIR_LOOP_ROLES = {"qa-automator", "qa-code-critic", "qa-case-designer", "qa-case-critic",
-                     "qa-requirements-tester", "qa-test-strategist"}      # X2-7: the authors of S2/S3 repair on the stage critic's word
+                     "qa-requirements-tester", "qa-test-strategist",      # X2-7: the authors of S2/S3 repair on the stage critic's word
+                     "qa-runner", "qa-failure-analyst"}                   # X7-6c (B1): the authors of S6/S7 repair on their CONSUMER's word: `prepare` carries the round count
 
 
 # Why a round after the first one exists. Only `test_defect` spends the repair cap: on
@@ -221,7 +259,10 @@ REPAIR_LOOP_ROLES = {"qa-automator", "qa-code-critic", "qa-case-designer", "qa-c
 # spends none of the cap, and a reviewer's finding that names it reads as `test_defect`, the same safe side. It stands
 # BEFORE `ticket_changed`, which stays the last word of the list (`test_story_run_freshness.py` K26 pins it).
 REVIEWER_CAUSES = ("test_defect", "mechanical", "environment", "tooling", "reviewer_error")
-REPAIR_CAUSES = REVIEWER_CAUSES + ("question_answer", "ticket_changed")
+# `source_arrived` (t-2181 PC-6) is the DRIVER's word as well: code arrived for a story that waited for it, and the S0-S2 work
+# that follows is not a defect of any test, so it spends none of the cap and a reviewer's finding that names it reads as
+# `test_defect`. It stands BEFORE `ticket_changed`, which stays the last word of the list.
+REPAIR_CAUSES = REVIEWER_CAUSES + ("question_answer", "source_arrived", "ticket_changed")
 # A mechanical fix (a sleep, a raw locator outside a page object, a lint) is a finding the
 # critic words — file, what is wrong, what to do — and the AUTHOR makes as it sees fit. The
 # critic is NOT dispatched again: the author re-runs only the instances whose files changed,
@@ -235,6 +276,10 @@ DISPATCH_DEFAULTS = {"mechanical_rounds": 1, "ui_window_cases": 2, "api_window_c
 # What the first S5 window learned and the next must not rediscover (page objects and their
 # load gates, stand rules, fixtures, env files, id spelling). Task-relative.
 S5_NOTES = "work/s5-notes.md"
+# TR3-15: from windows on, the notes are one file per dispatch, `work/s5-notes/<dispatch>.md` (`S5-qa-automator-N` and `S5-qa-code-critic-N`
+# each write their own; `references/artifact-writers.json` claims `work/s5-notes/S5-qa-automator-*.md` and `work/s5-notes/S5-qa-code-critic-*.md`),
+# so two windows never edit one file. S5_NOTES stays the one file of a story from before. A role reads ALL of them (shared knowledge).
+S5_NOTES_DIR = "work/s5-notes"
 
 
 def repair_cause(dispatch):
@@ -306,8 +351,9 @@ def repair_ledger(dispatches, dispatch):
     opens a new window, counted 0. `DISCOUNTED` itself is read as before by its other readers.
     """
     key = ledger_key(dispatch)
-    own = {str(d.get("id") or name): d for name, d in dispatches.items()
-           if isinstance(d, dict) and ledger_key(d) == key}
+    # An S7 investigation is a read-only pass beside the triage, never a repair round of it (X7-6c): it spends no round.
+    own = {_dispatch_ident(d, name): d for name, d in dispatches.items()
+           if isinstance(d, dict) and ledger_key(d) == key and not s7_part_of(d)}
 
     def root(name):
         return lineage_root(own, name, ("parent_retry",))
@@ -487,10 +533,11 @@ def names_contradicts(payload) -> bool:
 # that counts blocks left; it now reads `MANUAL_WINDOW_CASES` below). The refusal's text below says "1..5" as a literal on purpose:
 # `tools/controller-blocks-gen.py` reads the message from the source, and `design/controller-blocks.md` quotes it.
 MANUAL_BLOCK_CASES = 5
-# The size of the window the doors OFFER (SC2-38 item 3): one case per manual runner dispatch, run in turn. The ceiling above
-# stays what a block may name (`--scope` of 2..5 is lawful; a rework block and a story in flight keep it). Both readers of the
-# offered size pass it explicitly to `manual_blocks`: `story_step._manual_block_door` and `Driver.MANUAL_BLOCK_MAX`.
-MANUAL_WINDOW_CASES = 1
+# The size of the window the doors OFFER (SC2-38 item 3; t-1957 N5s: three, the cases of one account set walk together): up to three
+# cases per manual runner dispatch, run in turn. The ceiling above stays what a block may name (`--scope` of 2..5 is lawful; a rework
+# block and a story in flight keep it). The readers of the offered size pass it explicitly to `walk_lanes` (below):
+# `story_step._manual_block_door`, `Driver.MANUAL_BLOCK_MAX` and `story_progress._block_position`.
+MANUAL_WINDOW_CASES = 3
 # The most members a refusal of the scope names (R1, R3, R4 and the pin problem of gate A): the text is finite and the
 # number is named when it is cut (FR-41). One constant for every text that lists scope members (CX1-11, E9).
 SCOPE_SHOWN = 20
@@ -577,6 +624,40 @@ def manual_blocks(cases, size=MANUAL_BLOCK_CASES) -> list:
         raise ValueError(f"a block holds at least one case, got size {size}")
     cases = list(cases)
     return [cases[at:at + size] for at in range(0, len(cases), size)]
+
+
+def walk_lanes(cases, keys, size) -> list:
+    """The manual cases cut into WALK LANES (t-1957 N5s, spec 3.6): cases that share the key of their account set walk together, in the
+    order of `cases` inside a key, at most `size` to a lane; lanes come in the order of their first case. `keys` is `{case: key}`
+    (`lane_keys` builds it; `""` = no account named = guest). A case with NO usable key (absent from `keys`, `None`, not text - an
+    unreadable request) is a lane of its own: an account is never guessed for a case (E5s.8). THE one cut (AR-15, AR-19): the driver,
+    `story_step.py start`'s door and the progress line call it. Pure: reads nothing. A `size` below 1 (or not a number) is read as 1: the
+    error direction is the smallest lane, never a lane that merges accounts or an empty one."""
+    size = size if isinstance(size, int) and size >= 1 else 1
+    groups: dict = {}
+    for case in dict.fromkeys(str(c) for c in cases):
+        key = (keys or {}).get(case)
+        groups.setdefault(("key", key) if isinstance(key, str) else ("own", case), []).append(case)
+    return [members[at:at + size] for members in groups.values() for at in range(0, len(members), size)]
+
+
+def lane_keys(task_root, cases) -> dict:
+    """`{case: key of its account set}` for `walk_lanes`: `manual_capture.lane_key`, with the case left OUT (its own lane) when its
+    request cannot be read (`manual_evidence.request_actors` says why) - `lane_key` alone would read that as a guest. A request that
+    is absent or refused names no account: `""`. A `task_root` of `None` has no requests to read: every case is `""`."""
+    keys: dict = {}
+    if task_root is None:
+        return {str(c): "" for c in cases}
+    import manual_capture as MC
+    import manual_evidence as ME
+    for case in dict.fromkeys(str(c) for c in cases):
+        try:
+            if ME.request_actors(task_root, case)[1]:
+                continue
+            keys[case] = MC.lane_key(task_root, case)
+        except Exception:       # a case id the evidence folder refuses: it has no readable request either
+            continue
+    return keys
 
 
 def manual_done_cases(state, stage="S6") -> set:
@@ -711,8 +792,94 @@ def repair_doors(stage, keys):
                         for key in keys)
 
 
-def code_close_facts(state, stage):
+def code_close_passed_label(verdict):
+    """How a running row that is NOT work any more reads, from its `dispatch_liveness` verdict; None when it still holds the close.
+
+    Pure. The direction of error is the refusal (FR-59, AR-28): only a verdict that is a dict AND says the session is over
+    releases the row. `abandoned`, `never_started`, `returned` (the row is still `running`, so the work ended and was never
+    accepted) release it; `alive`, `unknown`, a verdict that is not a dict and any state this function does not know hold it."""
+    if not isinstance(verdict, dict):
+        return None
+    word = verdict.get("state")
+    if word == "returned":
+        return "returned, never accepted"
+    if word == "abandoned":
+        return "abandoned"
+    if word == "never_started":
+        return "never started"
+    return None
+
+
+# How a dispatch row that is not `running` but was never accepted reads in a close's name (AR-27): the status is the row's own.
+STOPPED_LABELS = {RETURNED: "returned, never accepted", ABANDONED: "abandoned"}
+STOPPED_DEFAULT_LABEL = "stopped, never accepted"
+
+
+def _dispatch_ident(row, key):
+    """The id a dispatch row goes by: its own `id`, else its key in `state["dispatches"]` (one reading for the close readers)."""
+    return str(row.get("id") or key) if isinstance(row, dict) else str(key)
+
+
+def _stopped_passed_over(dispatches, number, verdicts):
+    """`[(id, label)]` of the rows of the closing stage and earlier ones that stopped and were never accepted (a status of
+    `OPEN_AFTER_CLOSURE` that is not `running`), unless an accepted LATER row of the same stage and role replaced the work.
+    Read only with `verdicts` (the `code_only` operation). A row with no readable stage number is left out: it names nothing to close."""
+    rows = [(key, row) for key, row in dispatches.items() if isinstance(row, dict)]
+    out = []
+    for index, (key, row) in enumerate(rows):
+        status = row.get("status")
+        stage = row.get("stage")
+        if (not isinstance(status, str) or status == "running" or status not in OPEN_AFTER_CLOSURE
+                or not isinstance(stage, str) or not stage[1:].isdigit() or int(stage[1:]) > number):
+            continue
+        if any(later.get("status") == "accepted" and later.get("stage") == stage and later.get("role") == row.get("role")
+               for _k, later in rows[index + 1:]):
+            continue
+        out.append((_dispatch_ident(row, key), STOPPED_LABELS.get(status, STOPPED_DEFAULT_LABEL)))
+    return out
+
+
+def code_close_note(passed_over):
+    """The one sentence of a close that passed over dispatches that were not work any more (AR-27): it goes into the stage's close
+    note, so the report reads it. `passed_over` is `facts["passed_over"]`: `[(dispatch id, label), ...]`; empty gives ''."""
+    if not passed_over:
+        return ""
+    return ("; passed over, not holding the close: "
+            + ", ".join(f"{ident} ({label})" for ident, label in passed_over))
+
+
+def _code_close_holders_words(state, holders, verdicts, checkpoint=False):
+    """The sentence tail of a running refusal: each holder in the story's words and the doors (FR-1, FR-2, FR-9).
+
+    ONE wording for every "checkpoint active work" refusal (TR4-7, AR-13): the holder by id, role and stage, whether its
+    session is known to be alive or the factory could not tell (FR-59), and the doors. `checkpoint=True` (the refusals of an
+    operation that changes the plan, the gate or the records) adds the door the caller can use at once: checkpoint it."""
+    dispatches = state.get("dispatches") if isinstance(state.get("dispatches"), dict) else {}
+    rows = {}
+    for key, row in dispatches.items():
+        rows[_dispatch_ident(row, key)] = row if isinstance(row, dict) else {}
+    parts = []
+    for ident in holders:
+        row = rows.get(ident, {})
+        verdict = (verdicts or {}).get(ident)
+        live = isinstance(verdict, dict) and verdict.get("state") == "alive"
+        what = (f"the {row.get('role') or 'role'}'s work of {row.get('stage') or 'a stage'} (dispatch {ident}) "
+                + ("is still running" if live else "may still be running: the factory could not tell whether its session ended"))
+        door = (f"checkpoint it with `controller.py --operation checkpoint --dispatch {ident} --status paused --reason \"<why>\" --brief`, "
+                if checkpoint else "")
+        parts.append(what + f"; wait for it to finish, {door}or free it with the person's word: "
+                            f"`{person_words.door(f'controller.py --operation release --dispatch {ident}')}`")
+    return " (" + "; ".join(parts) + ")"
+
+
+def code_close_facts(state, stage, verdicts=None):
     """The facts of a code-only close of `stage` that `code_close_conflicts` decides by (AR-13): the ONE reading.
+
+    `verdicts` (dispatch id -> `dispatch_liveness` verdict, read by the CALLER: this function stays pure) lets a running row that
+    is not work any more (`code_close_passed_label`) leave `running` and appear in `passed_over` as `(id, label)`, and so does every
+    row of the closing and earlier stages that stopped and was never accepted (`_stopped_passed_over`: B4, it is named whether or
+    not `close_settled` ran first); a row with no verdict stays running. With no `verdicts` the facts are what they always were,
+    without the `passed_over` key.
 
     `{"running": [dispatch id, ...], "behind": ("S<i>", status or None) | None, "completed": bool}` - which dispatches
     are running, the FIRST earlier stage that is neither completed nor skipped (with its recorded status), and whether
@@ -731,19 +898,24 @@ def code_close_facts(state, stage):
         status = entry.get("status") if isinstance(entry, dict) else None
         return status if isinstance(status, str) else None
 
-    running = []
+    running, passed_over = [], []
     for key, row in dispatches.items():
         if not isinstance(row, dict) or status_of(row) in (None, "running"):
-            running.append(str(row.get("id") or key) if isinstance(row, dict) else str(key))
+            ident = _dispatch_ident(row, key)
+            label = code_close_passed_label((verdicts or {}).get(ident)) if isinstance(row, dict) else None
+            (passed_over.append((ident, label)) if label else running.append(ident))
     behind = next(((f"S{i}", status_of(stages.get(f"S{i}"))) for i in range(number)
                    if status_of(stages.get(f"S{i}")) not in ("completed", "skipped")), None)
     own = stages.get(stage)
     unknown_own = bool(own) and (not isinstance(own, dict)
                                  or (own.get("status") is not None and not isinstance(own.get("status"), str)))
-    return {"running": running, "behind": behind, "completed": status_of(own) == "completed" or unknown_own}
+    facts = {"running": running, "behind": behind, "completed": status_of(own) == "completed" or unknown_own}
+    if verdicts is not None:
+        facts["passed_over"] = passed_over + _stopped_passed_over(dispatches, number, verdicts)
+    return facts
 
 
-def code_close_conflicts(state, stage):
+def code_close_conflicts(state, stage, verdicts=None):
     """The state conflicts that refuse a code-only close of `stage`, in refusal order: `[(StateConflict, message), ...]`.
 
     ONE predicate for "this stage can be closed by code right now" (AR-13): `Controller.validate` (the `code_only`
@@ -755,10 +927,12 @@ def code_close_conflicts(state, stage):
     reads as "not closable" or as having something running, never as a pass for a closed or working story.
     The three checks and their messages are the ones the `code_only` branch has always carried.
     """
-    facts = code_close_facts(state, stage)
+    facts = code_close_facts(state, stage, verdicts)
     problems = []
     if facts["running"]:
-        problems.append((StateConflict, "checkpoint active work before code-only completion"))
+        # with verdicts read (the `code_only` operation) the sentence also names who holds the close and the doors
+        problems.append((StateConflict, "checkpoint active work before code-only completion"
+                         + (_code_close_holders_words(state, facts["running"], verdicts) if verdicts is not None else "")))
     if facts["behind"]:
         problems.append((StateConflict, "required prior logical stage incomplete"))
     if facts["completed"]:
@@ -794,6 +968,52 @@ def set_stage(state, stage, entry):
         merged["later_work_settled"] = True
         merged.pop("active_dispatch_id", None)
     state["stages"][stage] = merged
+
+
+def _manual_lane_like(item) -> bool:
+    """An S6 manual qa-runner dispatch (the kind `Controller._lane_beside_running` admits beside another). Pure; never raises."""
+    return (isinstance(item, dict) and item.get("stage") == "S6" and item.get("role") == "qa-runner"
+            and item.get("execution_kind") == "manual")
+
+
+def _scope_cases(item):
+    """The set of case ids of a dispatch record's `scope`, or None when it is not a non-empty list of non-empty strings (an unreadable
+    scope is not disjoint, AR-28). The one reader for the S5 window and the S6 lane admission. Pure; the caller passes a dict."""
+    scope = item.get("scope")
+    if not isinstance(scope, list) or not scope or not all(isinstance(c, str) and c for c in scope):
+        return None
+    return set(scope)
+
+
+def stage_entry_beside_running(state, d, entry):
+    """The entry the stage of dispatch `d` is given by an accept/checkpoint that wrote `entry` (t-1937 TR3-4, S-2).
+
+    Two S5 windows can run at once (`Controller._window_beside_running`), and the one that stops first used to write `pending` (or its
+    stop status) over a stage that another window is still working in: every reader of "the stage is running" then misread it
+    (`run_suite.active_story_stage`, the guard, `exit_gate`). INVARIANT: while another S5 dispatch is `running`, the stage stays
+    `running`, with the id of a running one (the lowest id, so a replay gives the same state); a `completed` entry is never touched
+    (the backstop in accept validate refuses a close beside a running window, and a journal that holds one keeps it). Derived from
+    the state at this event's sequence, so the replay is deterministic. A story with no two running dispatches gets `entry` back, the
+    same object: its replay is byte-identical to the one before this function (`replay_serial_journal_identical`)."""
+    if d.get("stage") not in ("S5", "S6") or entry.get("status") == "completed":
+        return entry
+    if d.get("stage") == "S6":
+        # t-2147 TR3-9d (critic B5): an S6 manual lane stops beside a running S6 manual sibling. Only manual qa-runner dispatches
+        # of S6 count, so a story with one running dispatch gets `entry` back, the same object (serial replay byte-identical).
+        if not _manual_lane_like(d):
+            return entry
+        running = sorted(str(o.get("id")) for o in state["dispatches"].values()
+                         if isinstance(o, dict) and o.get("status") == "running" and o.get("id") != d.get("id")
+                         and _manual_lane_like(o))
+        if not running:
+            return entry
+        return {"status": "running", "dispatch_id": running[0]}
+    running = sorted(str(o.get("id")) for o in state["dispatches"].values()
+                     if isinstance(o, dict) and o.get("stage") == "S5" and o.get("status") == "running"
+                     and o.get("id") != d.get("id"))
+    if not running:
+        return entry
+    return {"status": "running", "dispatch_id": running[0]}
 
 
 def reopen_stage(state, stage, reason, marker="repaired_by_recover"):
@@ -844,8 +1064,9 @@ def reopen_stage(state, stage, reason, marker="repaired_by_recover"):
 #   state_repair `stage_completed` naming a dispatch (a role ran)        DROP (`repaired_by_recover` is what stays)
 #   state_repair `stage_completed` naming NO dispatch                    the first rule above (nothing ran, so a
 #                                                                          code-closed stage keeps its receipt)
-#   `code_only` event                                                    WRITES them (fresh entry with the receipt)
-STAGE_RUN_MARKS = ("rerun_after", "code_only", "receipt_id", "later_work_status", "later_work_settled")
+#   `code_only` event                                                    WRITES them (fresh entry with the receipt, and the
+#                                                                          `passed_over` names of the work it closed over)
+STAGE_RUN_MARKS = ("rerun_after", "code_only", "receipt_id", "later_work_status", "later_work_settled", "passed_over")
 
 
 def _carry_run_marks(previous, entry):
@@ -1276,6 +1497,98 @@ def dispatch_life_key(dispatch) -> str:
     return ":r" + str(len(resumes)) if isinstance(resumes, list) and resumes else ""
 
 
+# --- the story held for code (t-2181 PC-6, t-2277 J-4) --------------------------------------------------------------------
+# ONE state, two causes: `s5_absent_side` (a deliverable side is absent after S5; held from S6) and `first_look_stop` (the person
+# stopped after the first look; held from S3). The record is `state["awaiting"]` = {since, sides, packet, s5_dispatch, cause,
+# held_from[, stopped: {at, words}]}; it is read ONLY through `contract.awaiting` (which gives a record without `cause` / `held_from`
+# the old reading `s5_absent_side` / `S6`, AR-13) and is projected to `pipeline.awaiting`. The word `first_look_stop` is a protocol
+# word of the record, like the operation names; the stage a hold starts at is DATA of the record (`held_from`), never a stage
+# number in code.
+FIRST_LOOK_STOP = "first_look_stop"
+HELD_FROM_RE = re.compile(r"^S[0-9]$")
+
+
+def _project_hold(state, kind, p, event):
+    """The four events of the hold folded into `state["awaiting"]` (and the fifth, `first_look_continued`, into `first_look_continue`).
+    `await` writes the record whole, replacing any earlier one (a stopped mark with it); `stop_waiting` marks it stopped; `arrive`
+    clears it; `first_look_continued` records the person's word beside the keys it was given and clears a `first_look_stop` hold that
+    is not stopped. Pure on `(state, payload, event)`, so a replay gives the same state."""
+    at = stamp_utc(event.get("created_at"))
+    record = state.get("awaiting") if isinstance(state.get("awaiting"), dict) else None
+    if kind == "await":
+        entry = {"since": str(p.get("since") or at), "sides": copy.deepcopy(p.get("sides") if isinstance(p.get("sides"), dict) else {}),
+                 "packet": copy.deepcopy(p.get("packet")),
+                 "s5_dispatch": None if p.get("cause") == FIRST_LOOK_STOP else p.get("s5_dispatch"),
+                 # the identity of THIS hold: the `await` event's own number (a hold's idempotency keys carry it, F1)
+                 "opened": event.get("sequence")}
+        entry.update({key: str(p[key]) for key in ("cause", "held_from") if p.get(key)})
+        state["awaiting"] = entry
+    elif kind == "arrive":
+        state.pop("awaiting", None)
+    elif kind == "stop_waiting":
+        if record is not None:
+            state["awaiting"] = dict(record, stopped={"at": str(p.get("at") or at), "words": str(p.get("words") or "")})
+    elif kind == "first_look_continued":
+        state["first_look_continue"] = {"source_head": p.get("source_head"), "register_hash": p.get("register_hash"),
+                                        "words": str(p.get("words") or ""), "at": str(p.get("at") or at)}
+        if record is not None and record.get("cause") == FIRST_LOOK_STOP and not record.get("stopped"):
+            state.pop("awaiting", None)
+
+
+def _hold_of(s):
+    """(hold, number): the story's hold as `contract.awaiting` reads it from the controller state's own record (never re-parsed
+    here), and the number of the stage it starts at. A `held_from` that is not `S<digit>` reads as the reader's default stage
+    (`contract.AWAITING_DEFAULT_HELD_FROM`): the record is written by `await`, whose validation refuses any other spelling, so only
+    a hand-damaged record reaches that line, and the default holds from S6 (the original t-2181 reading)."""
+    import contract
+    hold = contract.awaiting({"awaiting": s.get("awaiting")} if isinstance(s, dict) else {})
+    text = hold["held_from"] if HELD_FROM_RE.match(hold["held_from"]) else contract.AWAITING_DEFAULT_HELD_FROM
+    return hold, int(text[1:])
+
+
+def _stage_no(record):
+    """The number of a dispatch's stage; 99 for a stage that is not `S<digit>` - an unreadable stage reads as HELD, never as free."""
+    stage = str((record or {}).get("stage") or "")
+    return int(stage[1:]) if HELD_FROM_RE.match(stage) else 99
+
+
+def _hold_doors(number):
+    """The ONE text of the three doors out of a story held for code (FR-2, AR-9, AR-13): `arrive` (the code comes), `stop`
+    (the person ends the wait) and `rework` (the person's words reopen the stages below `held_from`, S0..S<number-1>). Every
+    controller site that names the doors (`next`, the rework refusal, the four operations' refusals) reads them here."""
+    return {"arrive": "relaunch the story with the code (`--mr`, `--branch`, `--commit` or `--side <side>=real`): that is `arrive`",
+            "stop": f"`{person_words.door('controller.py --operation stop_waiting')}` ends the wait",
+            "rework": (f"a rework of S0-S{number - 1} with the person's words reopens a stopped story "
+                       f"(`{person_words.door('controller.py --operation rework --stage <stage> --role <role>')}`)")}
+
+
+def _hold_action(s, hold, number, held_ids):
+    """The answer `next` gives for a story held for code: `awaiting_implementation` (the record, the never-started dispatches from
+    `held_from` listed in `held`) or `awaiting_stopped` (terminal: the person stopped the wait, nothing is relaunched). Both name
+    the cause, the stage the hold starts at and every door that leads out (FR-2, AR-9, AR-25)."""
+    cause, held_from = hold["cause"], f"S{number}"
+    door = _hold_doors(number)
+    if hold["state"] == "stopped":
+        stopped = hold.get("stopped") if isinstance(hold.get("stopped"), dict) else {}
+        return {"action": "awaiting_stopped", "cause": cause, "held_from": held_from, "at": stopped.get("at"),
+                "words": stopped.get("words"), "revision": s["revision"],
+                "reason": f"the person stopped the wait on {str(stopped.get('at') or '')[:10]}: no stage from {held_from} runs and nothing is "
+                          f"relaunched. Doors: {door['rework']}; {door['arrive']}"}
+    doors = [door["arrive"], door["stop"], door["rework"]]
+    if cause == FIRST_LOOK_STOP:
+        doors.insert(1, f"`{person_words.door('controller.py --operation first_look_continue --source-head <H> --register-hash <R>')}` "
+                        "carries on as it is (the driver passes the keys of `first_look.py show --json`)")
+    else:
+        doors.insert(1, "the person's answer `not ours` to the driver's question about the absent side records that side as another "
+                        "team's and lifts the hold (the driver runs `arrive` naming it)")
+    return {"action": "awaiting_implementation", "cause": cause, "held_from": held_from, "since": hold.get("since"),
+            "sides": hold.get("sides"), "packet": hold.get("packet"), "s5_dispatch": hold.get("s5_dispatch"),
+            "held": [{"dispatch_id": d.get("id"), "stage": d.get("stage"), "role": d.get("role"),
+                      "reason": str(d.get("reason") or "this dispatch never reached an agent")} for d in held_ids],
+            "revision": s["revision"],
+            "reason": f"this story is held for code ({cause}): no stage from {held_from} runs until " + "; ".join(doors)}
+
+
 def projection(events):
     state = {"schema_version": 2, "revision": 0, "dispatches": {}, "decisions": {},
              "scope": [], "stages": {}, "invalidation": [], "mutations": {}, "policies": {},
@@ -1399,6 +1712,11 @@ def projection(events):
                     # this dispatch — but it stops being work anybody waits for, and its stage
                     # goes back to startable. Nothing the role wrote is touched.
                     dispatch = state["dispatches"].get(fix["dispatch_id"])
+                    if dispatch and dispatch.get("status") != "running":
+                        # B1 (TR4-7): `liveness_fixes` reads `running` rows only, so a row that is anything else NOW was moved by
+                        # another writer after the repair read it (accepted, returned, released): the repair does not touch it
+                        # and does not reopen its stage
+                        continue
                     if dispatch:
                         dispatch.update(status=fix["kind"], repaired_by_recover=True,
                                         reason=fix.get("reason", ""))
@@ -1495,6 +1813,15 @@ def projection(events):
             # from the rework and a replay of the journal gives the same state.
             if isinstance(p.get("rerun_after"), dict):
                 apply_rerun_after(state, p["id"], p["stage"], p["rerun_after"])
+            # t-2181 PC-6 (B4): the person's rework of S0..held_from-1 on a STOPPED story. Like `reopened_at` above, the word travels
+            # on the event that carries the rework (a separate event could outlive a dispatch that never committed): the story is
+            # awaiting again, and the rework runs inside the hold.
+            if isinstance(p.get("await_reopened"), dict) and isinstance(state.get("awaiting"), dict):
+                # `reopened` is the identity of this reopening (the dispatch event's own number): a later stop is a new hold
+                state["awaiting"] = dict({key: value for key, value in state["awaiting"].items() if key != "stopped"},
+                                         reopened=event.get("sequence"))
+        elif kind in ("await", "arrive", "stop_waiting", "first_look_continued"):
+            _project_hold(state, kind, p, event)
         elif kind == "request_cancel":
             from worker_lifecycle import cancellation
             state["dispatches"][p["id"]]["cancellation"] = cancellation(p)
@@ -1527,10 +1854,10 @@ def projection(events):
                     state.setdefault("budget_warning_markers", {}).get(scope_key, []))
                 state["budget_warning_markers"][scope_key] = notices["emitted"]
                 d["budget_warnings"] = notices["new_markers"]
-            set_stage(state, d["stage"], {
+            set_stage(state, d["stage"], stage_entry_beside_running(state, d, {
                 "status": "completed" if p["status"] == "accepted" and p.get("stage_complete")
                 else "pending" if p["status"] == "accepted" else p["status"],
-                "dispatch_id": p["id"], "reason": p.get("reason", "")})
+                "dispatch_id": p["id"], "reason": p.get("reason", "")}))
         elif kind == "resume":
             # FB-4: the SAME agent goes on with a dispatch stopped for a person. The stop and the first life's return move
             # into `resumes[]` (nothing is lost, and the live record no longer shows the first life's review digest as the
@@ -1596,6 +1923,16 @@ def projection(events):
         elif kind == "code_only":
             state["stages"][p["stage"]] = {"status": "completed", "code_only": True,
                                                "reason": p["reason"], "receipt_id": p["id"]}
+            # TR1-9 B3/B4: the work this close passed over is set aside BY the receipt: `superseded` is in DISCOUNTED, so `next` does
+            # not wait on a closed stage and `dispatch` is not refused by it; the stage entry keeps the names for the report.
+            passed = [item for item in p.get("passed_over") or [] if isinstance(item, dict) and item.get("id")]
+            if passed:
+                state["stages"][p["stage"]]["passed_over"] = copy.deepcopy(passed)
+            for item in passed:
+                row = state["dispatches"].get(str(item["id"]))
+                if isinstance(row, dict):
+                    row["status"] = "superseded"
+                    row["passed_over_by"] = p["id"]
         elif kind == "invalidate":
             state["invalidation"].append(copy.deepcopy(p))
             if p.get("source_revision"):
@@ -1823,7 +2160,9 @@ class Controller:
                 if plan is not None:
                     request["plan_rows"] = sorted({str(row["id"]) for row in plan
                                                    if isinstance(row, dict) and str(row.get("id") or "")})
-            if options["role"] == "qa-runner" and state.get("plan_contract_mode") == "new":
+            if options["role"] == "qa-runner" and options.get("purpose") == FIRST_LOOK:
+                request["purpose"] = FIRST_LOOK     # the first look carries its purpose from `prepare` on (t-2277 FL-5), so `apply` sees it
+            if runner_kind_required(state, options["role"], options.get("purpose")):
                 kind = options.get("execution_kind")
                 if kind not in {"manual", "automation"}:
                     raise ValueError("new-task qa-runner packet requires execution_kind manual or automation")
@@ -1878,7 +2217,7 @@ class Controller:
                 "stage_complete": options.get("stage_complete", False), "evidence_refs": evidence,
                 "expected_revision": state["revision"], "idempotency_key": "accept:" + options["dispatch_id"]}
             # Semantic acceptance inputs must remain explicit; the builder only supplies hashes.
-            for key in ("window", "unresolved", "reason", "counters"):
+            for key in ("window", "unresolved", "reason", "counters", "open_windows"):
                 if key in options: packet["accept_request"][key] = options[key]
         return packet
 
@@ -2188,6 +2527,65 @@ class Controller:
             if rank(best) == 0:
                 break
         return best
+
+    def _verdicts_of(self, state, ids):
+        """dispatch id -> `_liveness` verdict, for each of `ids` that names a row of `state`: THE one reading of "is this running row
+        alive" for every site that blocks or closes on a `running` row (AR-13; `_close_verdicts` and `_holding` are views of it). A reader
+        that raises, or no project to read in, gives an `unknown` verdict: it holds (FR-59, AR-28). Reads only the rows it is asked for."""
+        verdicts = {}
+        dispatches = state.get("dispatches") if isinstance(state.get("dispatches"), dict) else {}
+        rows = {_dispatch_ident(row, key): row for key, row in dispatches.items() if isinstance(row, dict)}
+        wanted = [ident for ident in ids if ident in rows]
+        if not wanted:
+            return verdicts
+        project = None
+        try:
+            project = self._project_root()
+            starts = self._dispatch_starts() if project is not None else {}
+        except Exception:
+            project, starts = None, {}
+        for ident in wanted:
+            try:
+                if project is None:
+                    raise LookupError("no project to read the session in")
+                verdicts[ident] = self._running_verdict(project, dict(rows[ident], id=ident), starts)
+            except Exception as error:
+                verdicts[ident] = {"state": "unknown", "evidence": [f"the liveness reader failed: {error}"]}
+        return verdicts
+
+    def _close_verdicts(self, state, stage):
+        """The verdicts of every row `code_close_facts` reads as running (any stage's, the closing stage's own too): `_verdicts_of`."""
+        return self._verdicts_of(state, code_close_facts(state, stage)["running"])
+
+    def _running_verdict(self, project, dispatch, starts, now=None):
+        """The `_liveness` verdict of ONE row read as running: the one call `liveness_fixes` and `_close_verdicts` share (its start
+        time comes from `starts`, the dispatch ids' launch times). Raises what the reader raises; the callers say what that means."""
+        return self._liveness(project, dict(dispatch, started_at=starts.get(str(dispatch.get("id")))), now)
+
+    def _holding(self, state, ids=None):
+        """What holds a plan, a gate or a record change, and is it alive: THE one reading for every "checkpoint active work" refusal
+        (TR4-7; AR-13, AR-25), a view of `_verdicts_of` (the reader TR1-9 and the close use).
+
+        Returns `{"holders": [ids], "dead": [ids], "verdicts": {id: verdict}}` over the rows whose status is `running` (and, with `ids`,
+        only those of them: liveness is read for no other row), in the state's order (none is picked by position: the refusal names
+        every holder). A row is `dead` only when the liveness verdict says the session is over (`code_close_passed_label`); `alive`,
+        `unknown`, a reader that raises, no project to read in and a verdict that is no dict all keep the row a HOLDER (FR-59, AR-28):
+        a live dispatch is never read as dead. Pure: it reads, it writes nothing (FR-45); `apply` records a dead holder before it validates."""
+        dispatches = state.get("dispatches") if isinstance(state.get("dispatches"), dict) else {}
+        running = [_dispatch_ident(row, key) for key, row in dispatches.items()
+                   if isinstance(row, dict) and row.get("status") == "running"]
+        if ids is not None:
+            running = [ident for ident in running if ident in ids]
+        verdicts = self._verdicts_of(state, running)
+        dead = [ident for ident in running if code_close_passed_label(verdicts.get(ident))]
+        return {"holders": [ident for ident in running if ident not in dead], "dead": dead, "verdicts": verdicts}
+
+    def _holders_tail(self, state, ids=None):
+        """The sentence tail naming the live holders (`ids`: only those of them, else all), or `""` when none holds (dead ones do
+        not). The caller raises its own pinned sentence plus this tail."""
+        held = self._holding(state, ids)
+        holders = held["holders"]
+        return _code_close_holders_words(state, holders, held["verdicts"], checkpoint=True) if holders else ""
 
     def _pinned_links(self):
         """The story's pinned CaseVersions: the links that carry a case id AND a version (one filter for the
@@ -3255,7 +3653,7 @@ class Controller:
         return candidates[-1] if candidates else None
 
     def build_rework_request(self, stage, role, cases, reason, purpose="repair_verify", rows=None,
-                             cause=None, words_given=False):
+                             cause=None, words_given=False, parallel_window=False):
         """A dispatch request that sends a role back over part of its own accepted work.
 
         Rework was guesswork: the orchestrator hand-built the packet three times and was
@@ -3271,6 +3669,10 @@ class Controller:
         the request carry the `rerun_after` stamp (`_rerun_stamp`). A reason typed by code
         (`--reason`: the driver's repairs, the conductor's refusal repairs) is the factory's own
         finding, and a rework it asks for never stales a stage it did not name.
+
+        `parallel_window` (t-1937 TR3-4) is the driver's scheduler asking for this round to run beside a running S5 window
+        (`--parallel-window`): the request then carries `parallel_window: True`, which `_window_beside_running` reads at dispatch.
+        Anything but the boolean True adds nothing, so every other caller builds the request it always built.
         """
         state = self.state()
         stage, role = str(stage or ""), str(role or "")
@@ -3295,8 +3697,35 @@ class Controller:
                 problems.append((ValueError, "--reason must say what this round repairs; it is what the role reads"))
         if cause and cause not in REPAIR_CAUSES:
             problems.append((ValueError, f"--cause {cause!r} must be one of: " + ", ".join(REPAIR_CAUSES)))
+        # t-2181 PC-6 (C12; t-2277 J-C8): a story HELD FOR CODE refuses the rework of any stage from `held_from` (the story's state,
+        # so a StateConflict, FR-46) and, once the person stopped the wait, any rework of the stages below it that is not their
+        # words. INVARIANT: no dispatch of a stage the hold keeps closed is built here, and a STOPPED story is reopened only by
+        # a person's word (`await_reopened` rides on the rework's own dispatch event, the projection removes `stopped`), never
+        # by a reason typed by code. Every refusal names the doors (FR-2, AR-9).
+        hold, held_number = _hold_of(state)
+        reopens_hold = False
+        if stage_ok and hold["state"] != "none":
+            number = int(stage[1:])
+            door = _hold_doors(held_number)
+            doors = f"doors: {door['arrive']}; {door['stop']}; {door['rework']}"
+            if number >= held_number:
+                problems.append((StateConflict, f"this story is held for code ({hold['cause']}) from S{held_number}: a rework of {stage} "
+                                                f"would run a stage the hold keeps closed. {doors}"))
+            elif hold["state"] == "stopped":
+                if words_given:
+                    reopens_hold = True
+                else:
+                    problems.append((StateConflict, f"this story was stopped while it waited for code: a rework of {stage} reopens it, "
+                                                    f"which is the person's word - `--reason` (typed by code) is refused; pass "
+                                                    f"`--words-file <file>` with their own words. {doors}"))
         wanted = [str(case).strip() for case in (cases or []) if str(case).strip()]
         wanted_rows = [str(row).strip() for row in (rows or []) if str(row).strip()]
+        # X7-6c (B2): the author of a stage its CONSUMER sent back (a `reject` record of S6 / S7) is reworked over the scope of the dispatch the
+        # record reviewed - that is the unit the consumer judged, one half for the runner, and the repair ledger counts the round under the
+        # same key as the first dispatch. The call carries no `--cases`: the record is the reason's source, not a case list.
+        sent_back = self._consumer_reject_parent(state, stage, role) if stage_ok and not wanted else None
+        if sent_back:
+            wanted = [str(case) for case in sent_back.get("scope") or [] if str(case).strip()]
         if stage_ok and not wanted and int(stage[1:]) > 3:
             # RH1-10 (DC1-13, B-AC4): the refusal names a door. Its receivers are the direct `--operation rework` callers (the
             # driver's roads never reach it: `no_move.check_args` and `answer_pairs_owed` stop an empty S4+ list first). It names
@@ -3382,6 +3811,8 @@ class Controller:
             # cases; cases of two blocks take the later); none holds it -> the last of the half. Its input_hash/budget/paths are its own.
             held = [d for d in prior if set(map(str, d.get("manual_case_ids") or [])) & set(canonical)]
             parent = held[-1] if held else None
+        if sent_back and prior:
+            parent = sent_back       # X7-6c: the consumer judged THIS dispatch; a later one (an S7 investigation) is no parent of its repair
         if stage_ok and stage == "S5" and purpose != S5_PLAN and prior:
             parent, resumable, spans = self._s5_window_parent(state, prior, canonical)
             if len(spans) > 1 and not words_given:      # F5: a person's words over several windows are not refused
@@ -3450,6 +3881,8 @@ class Controller:
         if cause:
             request["repair_cause"] = cause
         request.update(reopen)
+        if reopens_hold:
+            request["await_reopened"] = {"words": str(reason)}
         # The record says whose reason this is (t-694, F1): only a rework built from the person's words file carries the mark,
         # and the gate note quotes only such a reason as "your words". Same input as the stamp below (`words_given`), not a second test.
         if words_given:
@@ -3462,7 +3895,25 @@ class Controller:
                 request["rerun_after"] = stamp
         if self._read_first(stage):
             request["read_first"] = self._read_first(stage)
+        if parallel_window is True:
+            request["parallel_window"] = True
         return request
+
+    def _consumer_reject_parent(self, state, stage, role):
+        """The dispatch record a CONSUMER role sent back (X7-6c): the `reviewed_dispatch` of the stage's latest acceptance record when that
+        record is a `reject` of a stage with a consumer, the dispatch is an accepted one of `stage` by `role`, and `role` is the stage's author.
+        None otherwise - then nothing about the call changes (a stage with no `acceptance_by`, no record, an `accept`, another role). Reads only."""
+        import acceptance
+        stage_def = acceptance.stage_def_of(stage)
+        roles = stage_def.get("roles") or []
+        if not acceptance.consumer_of(stage) or not roles or roles[0] != role:
+            return None
+        record = acceptance.stage_acceptance(self._pipeline(), stage)
+        if not (isinstance(record, dict) and record.get("verdict") == "reject"):
+            return None
+        parent = (state.get("dispatches") or {}).get(str(record.get("reviewed_dispatch") or ""))
+        ok = isinstance(parent, dict) and parent.get("stage") == stage and parent.get("role") == role and parent.get("status") == "accepted"
+        return parent if ok else None
 
     @classmethod
     def _record_kind(cls, dispatch):
@@ -3590,9 +4041,9 @@ class Controller:
         stamp = {
             "stages": [name for name in (f"S{i}" for i in range(number + 1, 9))
                        if (state["stages"].get(name) or {}).get("status") == "completed"],
-            "reviews": [str(d.get("id") or name) for name, d in state["dispatches"].items()
+            "reviews": [_dispatch_ident(d, name) for name, d in state["dispatches"].items()
                         if Controller._is_review_of(d, stage, role) and set(d.get("scope") or []) & set(wanted)],
-            "decisions": [str(d.get("id") or name) for name, d in state["decisions"].items()
+            "decisions": [_dispatch_ident(d, name) for name, d in state["decisions"].items()
                           if Controller._is_decision_after(d, number)]}
         return stamp if any(stamp.values()) else {}
 
@@ -3847,7 +4298,17 @@ class Controller:
         return self._dispatch_setting("api_window_cases") or 1
 
     def _read_first(self, stage):
-        return [S5_NOTES] if stage == "S5" and (self.store.root / S5_NOTES).is_file() else []
+        """The S5 notes files that exist, task-relative: the old single file first, then every per-dispatch file in name order
+        (TR3-15). A folder that cannot be listed adds nothing (the old file still stands); other stages: []."""
+        if stage != "S5":
+            return []
+        found = [S5_NOTES] if (self.store.root / S5_NOTES).is_file() else []
+        try:
+            found += [f"{S5_NOTES_DIR}/{p.name}" for p in sorted((self.store.root / S5_NOTES_DIR).glob("*.md"), key=lambda p: p.name)
+                      if p.is_file()]
+        except OSError:
+            pass
+        return found
 
     def _window_stand_signal(self, state, dispatch):
         """The `stand_signal` of the latest run summary of this window, or None.
@@ -3990,7 +4451,7 @@ class Controller:
         read: the error direction is "the window is written" (its cases are not cut again), never a lost window."""
         wanted = {str(case) for case in scope or []}
         dispatches = state.get("dispatches") if isinstance(state, dict) else None
-        records = {str(d.get("id") or name): d for name, d in (dispatches.items() if isinstance(dispatches, dict) else ())
+        records = {_dispatch_ident(d, name): d for name, d in (dispatches.items() if isinstance(dispatches, dict) else ())
                    if isinstance(d, dict) and d.get("stage") == "S5" and d.get("role") == "qa-automator"
                    and s5_part_of(d) != "plan"}
         order = list(records)
@@ -4368,6 +4829,15 @@ class Controller:
         if latest is not None:      # the orders of gate B beside the decision: the produced statuses (AR-14, one writer)
             pipeline.setdefault("gates", {})["B"] = gate_b_record(state, latest)
         pipeline["controller_revision"] = state["revision"]
+        # t-2181 PC-6: the hold beside the stages and gates (AR-14, the controller is its one writer). `contract.awaiting` reads it
+        # from here for every reader that has the story's file and no controller state (the guard, the doctor, the archive); an
+        # `arrive` removes the key, and `first_look_continue` stays a record until a new first look replaces it.
+        if isinstance(state.get("awaiting"), dict):
+            pipeline["awaiting"] = copy.deepcopy(state["awaiting"])
+        else:
+            pipeline.pop("awaiting", None)
+        if isinstance(state.get("first_look_continue"), dict):
+            pipeline["first_look_continue"] = copy.deepcopy(state["first_look_continue"])
         stamp_closure(pipeline, state)
         atomic_json(pipeline_path, pipeline)
         return pipeline
@@ -4486,6 +4956,45 @@ class Controller:
             f"`controller.py --task-root {self.store.root} --operation recover` refreshes it "
             f"{where}", recorded_in=recorded_in) from failure
 
+    def _is_replay(self, request):
+        """Does the store already hold an event under this request's `idempotency_key` (the key `event_store` answers a replay
+        by)? No key, or a store that cannot be read, is no replay (the prelude then runs: its repair is guarded by the revision
+        and the row's status, and the commit that follows meets the same unreadable store)."""
+        key = request.get("idempotency_key")
+        if not isinstance(key, str) or not key:
+            return False
+        try:
+            return any(event.get("idempotency_key") == key for event in self.store.read())
+        except Exception:
+            return False
+
+    def _holder_would_refuse(self, operation, request, current):
+        """Would a `running` row of `current` REFUSE this holding operation (the only case in which `apply` may close a dead one)?
+        `revise_plan`, `semantic_reopen` and `invalidate`: any running row. `dispatch` and `resume`: a running row that the S5 window
+        clause (`_window_beside_running`, the same call `validate` and `_resume_problems` make) does not admit beside the request;
+        a resume of an unknown id has no holder to blame (its own refusal stands). Error direction: when in doubt it says True (the
+        repair is guarded by the revision and by the row's status, so a needless attempt costs a read, never a wrong write)."""
+        dispatches = [d for d in (current.get("dispatches") or {}).values() if isinstance(d, dict)]
+        running = [d for d in dispatches if d.get("status") == "running"]
+        if not running:
+            return False
+        if operation == "dispatch":
+            recorded = {_dispatch_ident(row, key) for key, row in (current.get("dispatches") or {}).items() if isinstance(row, dict)}
+            if isinstance(request.get("id"), str) and request.get("id") in recorded and self._is_replay(request):
+                # a TRUE replay - the id is recorded AND the store already holds an event under this request's idempotency key -
+                # is answered by the store before `validate` (FR-45; or refused as a reuse of the key): no holder refuses it, and
+                # the repair must not close the very row the replay names. A recorded id under a FRESH key is no replay: the
+                # prelude runs as for any dispatch and `validate` refuses it ("resume existing dispatch")
+                return False
+            return not self._window_beside_running(request, current, running)
+        if operation == "resume":
+            target = (current.get("dispatches") or {}).get(request.get("id")) if isinstance(request.get("id"), str) else None
+            if not isinstance(target, dict):
+                return False
+            beside = [d for d in running if d is not target]
+            return bool(beside) and not self._window_beside_running(target, current, beside, flagged=False)
+        return True
+
     def apply(self, operation, request):
         # A gate `decision` reads the gate A open items BEFORE the store lock is taken (M5, AR-12): the rehearsal starts subprocesses, so
         # it must not run inside `store.commit`'s callback; `validate` then reuses that read (`items_scope`). The call below re-enters
@@ -4501,6 +5010,16 @@ class Controller:
             lease = current.get("leases", {}).get("orchestrator")
             if lease and request.get("owner_session_id") != lease.get("owner_session_id"):
                 raise StateConflict("controller mutation rejected: stale or missing orchestrator lease")
+            if operation in HOLDING_OPS and self._holder_would_refuse(operation, request, current):
+                # TR4-7 (AR-25, FR-59): a `running` row whose session is provably over is not work: it is RECORDED as a stop (the one
+                # writer, `close_settled`: a `state_repair` event that says what proved it, the finding) BEFORE the refusals below read
+                # the state, so it neither blocks nor stays `running`. Alive and unknown change nothing. B1: it runs only when a
+                # running row would REFUSE this request (an admitted S5 window never touches its siblings), the repair is committed
+                # only against the revision it read (another writer acted: nothing is written) and the state is read AGAIN either
+                # way. The caller's `expected_revision` is never carried past a repair: a repair moves the revision, so the caller is
+                # judged against the fresh one by the ordinary rule ("stale expected revision": it reads the state and sends again).
+                self.close_settled(current, by=operation)
+                current = self.state()
             if operation == "revise_plan":
                 # the lease is checked HERE (CX2-17 C-2): the owner is not a fact of the plan - the projection does
                 # `state.update(payload)` and a replay compares the payload (FR-45) - and `validate` refuses a field it does not
@@ -4528,6 +5047,21 @@ class Controller:
                 if isinstance(request.get("manual_case_ids"), list) and request["manual_case_ids"]:
                     request["manual_case_ids"] = self._manual_keys(request["manual_case_ids"], current)
                 self._stamp_dispatch(request, current)
+            if (operation == "code_only" and isinstance(request.get("reason"), str) and request["reason"]
+                    and isinstance(request.get("stage"), str) and request["stage"][1:].isdigit()):
+                # TR1-9 (AR-27): a close that passes over a dispatch which is not work any more says so BY NAME in the stage's close
+                # note, and TYPED in the event (`passed_over: [{id, label}]`, B3/B4): the projection sets those rows aside and the stage
+                # entry keeps the names, which `report_facts` and the driver's finding read. Own copy; `validate` recomputes it.
+                passed = code_close_facts(current, request["stage"], self._close_verdicts(current, request["stage"])).get("passed_over")
+                request["passed_over"] = [{"id": ident, "label": label} for ident, label in passed or []]
+                if passed and code_close_note(passed) not in request["reason"]:
+                    request["reason"] = request["reason"] + code_close_note(passed)
+            if operation == "await":
+                # t-2181 PC-6: the sides of the record are what the ONE reader says now (`contract.story_sides`, AR-13), written
+                # into the event so a replay of the journal gives the same record; a caller's own `sides` is never kept (for
+                # `first_look_stop` too: "sides from the reader"). Own copy of the request, as the dispatch scope above.
+                import contract
+                request["sides"] = contract.story_sides(self._pipeline())
             if operation == "accept" and "stage_complete" not in request:
                 # The last role of a stage closes it. Saying nothing used to mean "not
                 # complete", so S4 stayed open after its critic was accepted and gate A
@@ -4597,7 +5131,7 @@ class Controller:
         # and never undoes the commit.
         try:
             with self.store.deferred_after_commit():
-                receipt = self.store.commit(operation, request, key, revision,
+                receipt = self.store.commit(EVENT_KIND.get(operation, operation), request, key, revision,
                                             lambda events, p: self.validate(operation, p, projection(events)),
                                             self.project)
                 self._after_commit(operation, request, key=key, revision=revision)
@@ -4808,8 +5342,9 @@ class Controller:
         if not state.get("source_revision"):
             raise StateConflict("initialize task before work")
         if op == "revise_plan":
-            if any(d["status"] == "running" for d in state["dispatches"].values()):
-                raise StateConflict("checkpoint active work before revising scope")
+            held = self._holders_tail(state)       # TR4-7: a dispatch whose session is over does not hold the plan (`apply` recorded it)
+            if held:
+                raise StateConflict("checkpoint active work before revising scope" + held)
             problems = []
             if not isinstance(p.get("scope"), list) or not p.get("plan_revision") or not p.get("reason"):
                 problems.append((ValueError, "plan revision requires scope, content revision and reason"))
@@ -4851,8 +5386,9 @@ class Controller:
             if not p.get("reason") or not isinstance(affected, list) or not affected or not self._within(affected, state["scope"]):
                 raise ValueError("semantic reopen needs reason and nonempty affected current scope")
             problems = []
-            if any(d.get("status") == "running" for d in state["dispatches"].values()):
-                problems.append((StateConflict, "checkpoint active work before reopening Gate A"))
+            held = self._holders_tail(state)       # TR4-7: the same reading as every "checkpoint active work" refusal
+            if held:
+                problems.append((StateConflict, "checkpoint active work before reopening Gate A" + held))
             if not self._current_gate_a(state):
                 problems.append((StateConflict, "semantic reopen requires current approved Gate A"))
             self._raise_all(problems)
@@ -4894,6 +5430,8 @@ class Controller:
             errors = validate_plan(rows, require_v2=True)
             if errors or preview.get("valid") is not True:
                 raise StateConflict("coverage migration dry_run failed: " + "; ".join(errors or ["receipt invalid"]))
+        elif op in HOLD_OPERATIONS:
+            self._hold_op_refusal(op, p, state)
         elif op in ("reopen_story", "leave_unlaunched", "settle_order"):
             if op == "settle_order":
                 self._settle_order_refusal(p, state)
@@ -4901,7 +5439,15 @@ class Controller:
                 self._held_work_refusal(op, p, state)
         elif op == "dispatch":
             validate_record("Dispatch", p)
-            if any(d["status"] == "running" for d in state["dispatches"].values()):
+            # t-1937 TR3-4 (S-1, B1). POSITION: the FIRST check of this branch, before `required` (so it reads `p` with `.get`: the
+            # fields may be absent), and it only decides whether the running dispatches below REFUSE this one. INVARIANT: every
+            # check after it still runs on an admitted dispatch (the closure test, the id, the scope, the gates), and anything the
+            # clause does not hold keeps the old refusal, byte for byte - the stage, the role, the plan, the flag, the scopes, the cap.
+            # t-2147 TR3-9d: the S6 lane clause stands in the SAME condition. INVARIANT: each clause demands ALL running dispatches
+            # be of its own kind, so a mixed set (an S5 window beside an S6 lane, a lane beside a suite) keeps the old refusal.
+            _running_now = [d for d in state["dispatches"].values() if d["status"] == "running"]
+            if _running_now and not (self._window_beside_running(p, state, _running_now)
+                                     or self._lane_beside_running(p, state, _running_now)):
                 # HF8-15 (2): text only - the rule (one running dispatch) is unchanged. The prefix stays the one every reader
                 # matches (`story_run.KNOWN_REFUSALS`, the door table); the ids and, while an S5 code critic runs, the move that
                 # sends its author back (`story_step.py finish --needs-author`) are what the run of 12586 lacked.
@@ -4928,7 +5474,7 @@ class Controller:
             if p.get("role") == "qa-case-critic" and self._current_gate_a(state):
                 problems.append((StateConflict, "CASE_REVIEW_AFTER_GATE_A: use technical_normalize or semantic_reopen before a new review"))
             self._raise_all(problems)
-            if p.get("role") == "qa-runner" and state.get("plan_contract_mode") == "new":
+            if runner_kind_required(state, p.get("role"), p.get("purpose")):
                 kind = p.get("execution_kind")
                 if kind not in {"manual", "automation"}:
                     raise ValueError("new-task qa-runner dispatch requires execution_kind manual or automation")
@@ -5036,7 +5582,7 @@ class Controller:
                 spent = ledger["counted"]
                 free = ("A round that is not about a defect of the test spends none of the "
                         "cap: dispatch it with `repair_cause` mechanical | environment | "
-                        "tooling | reviewer_error | question_answer | ticket_changed and a `reason`. ")
+                        "tooling | reviewer_error | question_answer | source_arrived | ticket_changed and a `reason`. ")
                 if cause == "mechanical" and p["role"] not in AUTHOR_ROLES:
                     # After a mechanical fix the critic is not dispatched again: the author's
                     # green run on the new bytes closes the round (`acceptance.mechanical_round`).
@@ -5168,6 +5714,8 @@ class Controller:
                         "Dispatch the `dispatch_request` that `controller.py --operation next` "
                         "prints for it, as it stands; different work is a new dispatch, sent "
                         "without `relaunch_of`")
+            # F5: the stopped story and `await_reopened` are checked where the dispatch commits, not only where the rework is built
+            self._hold_dispatch_refusal(p, state)
             guard = self.stage_guard_errors(p["stage"], role=p.get("role"))
             if guard:
                 raise StateConflict("; ".join(guard))
@@ -5203,6 +5751,11 @@ class Controller:
                 # and nothing said which id to accept instead or how to get one. A stopped
                 # dispatch has exactly two ways on, and the refusal names them both.
                 retry = self._retry_children(state["dispatches"], d.get("id"))
+                if d.get("passed_over_by") and not retry:
+                    # TR1-9 B3 (AR-25): a row a code close passed over has a way out: its stage is closed without it
+                    raise StateConflict(f"{d.get('id')} was passed over when its stage was closed by code (receipt {d['passed_over_by']}): "
+                                        f"its work is not taken; going back over the stage is `controller.py --task-root {self.store.root} "
+                                        "--operation rework`")
                 if op == "accept" and retry:
                     # The retry marks its parent `superseded` the moment it is dispatched, so
                     # the status alone never pointed at the id that carries the work now.
@@ -5266,7 +5819,11 @@ class Controller:
                 # leaves the stage with no role to close it. TP2-2553 accepted both S4
                 # roles that way; gate A then refused with "stage not completed" and the only
                 # road out was a duplicate `S4-qa-case-critic-2` over unchanged evidence.
-                if (p.get("stage_complete") is False and not p.get("unresolved")
+                # t-1937 TR3-4 (B3). POSITION: before the refusal below, which it may lift. INVARIANT: only `open_windows` that names
+                # real OTHER windows of the stage lifts it, never with `unresolved`; the silent `false` on a truly last window (no
+                # `open_windows`) is refused exactly as before. A bad name is its own refusal, naming the windows.
+                self._raise_all(self._open_windows_problems(d, p, state))
+                if (p.get("stage_complete") is False and not p.get("unresolved") and "open_windows" not in p
                         and self._closes_stage(d, state)):
                     raise StateConflict(
                         f"accepting {d.get('id')} with stage_complete: false leaves "
@@ -5308,10 +5865,9 @@ class Controller:
                 if d["stage"] == "S3":
                     self._s3_completion_gate(d, p, state)
                 if p.get("stage_complete"):
-                    # X2-5 (E-B11). POSITION: after every check of this branch that exists today, before the S5/S6 branches (so the acceptance
-                    # refusal comes before the S6 derived-scope refusal below). INVARIANT: a stage without `acceptance_by` (S5, S7-S9) is
-                    # refused nothing new; S2-S4 and S6 (X7-6) do not close without an `accept` record for the author's last dispatch,
-                    # or a person's recorded word (P13).
+                    # X2-5 (E-B11). POSITION: after every check of this branch that exists today, before the S5/S6 branches. INVARIANT: a stage
+                    # without `acceptance_by` (S0, S1, S5, S8, S9) is refused nothing new; S2, S3, S4, S6 and S7 do not close without an `accept`
+                    # record for the author's last dispatch, or a person's recorded word (P13).
                     from acceptance import stage_acceptance_refusal
                     refusal, passed = stage_acceptance_refusal(self._pipeline(), d, state, self._passed_by_person)
                     if refusal:
@@ -5320,12 +5876,20 @@ class Controller:
                 if d["stage"] == "S5" and p.get("stage_complete"):
                     # ONE list (K1): every independent gap of the window at once, in tiers; the
                     # tiers and what each one stops are in `_s5_completion_problems`.
-                    self._raise_all(self._s5_completion_problems(d, p, state, review))
-                if d["stage"] == "S6" and p.get("stage_complete") and state.get("plan_contract_mode") == "new":
-                    problems = self._s6_completion_problems(d, state)
-                    blocking, _ = self._passed_by_person("S6", problems)
+                    # t-1937 TR3-4 (item 5): the backstop first in the list, the rest of the tiers as they were.
+                    self._raise_all(self._s5_running_beside_problems(d, state)
+                                    + self._s5_completion_problems(d, p, state, review))
+                if d["stage"] == "S6" and p.get("stage_complete"):
+                    # t-2147 TR3-9d (the S6 twin of the S5 backstop above): the code gate UNDER the driver's close predicate.
+                    # INVARIANT: S6 never closes over a manual lane still at work; a story with no running manual sibling is
+                    # refused nothing new.
+                    # ONE list (K1, as the S5 branch above): the backstop first, then the derived-scope gap.
+                    s6_gaps = self._s6_running_beside_problems(d, state)
+                    blocking = []
+                    if state.get("plan_contract_mode") == "new":
+                        blocking, _ = self._passed_by_person("S6", self._s6_completion_problems(d, state))
                     if blocking:
-                        raise StateConflict(
+                        s6_gaps.append((StateConflict,
                             "; ".join(blocking) + ". Accept this dispatch with `stage_complete: "
                             "false`, dispatch that half (`controller.py --operation stage-scope` "
                             "with `execution_kind` names its cases; the qa-runner packet carries "
@@ -5335,7 +5899,8 @@ class Controller:
                             "the last S6 dispatch complete the stage. If a person closes S6 "
                             "without it: `"
                             + person_words.door(f"waiver.py --task {self._ticket()} --stage S6 "
-                                                "--block \"derived scope\"") + "`.")
+                                                "--block \"derived scope\"") + "`."))
+                    self._raise_all(s6_gaps)
             elif p["status"] == "accepted":
                 raise ValueError("checkpoint is not acceptance; use accept with validated evidence")
             elif not p.get("checkpoint") or not p.get("reason"):
@@ -5393,8 +5958,16 @@ class Controller:
             if not isinstance(p.get("evidence_refs"), list) or not p["evidence_refs"]:
                 problems.append((ValueError, "code-only receipt requires evidence"))
             self._raise_all(problems)
-            problems += code_close_conflicts(state, stage)   # AR-13: the one predicate of "closable by code now"
+            # AR-13: the one predicate of "closable by code now"; the liveness verdicts are read HERE and passed in (the predicate
+            # stays pure), and a verdict that cannot be read keeps the row running (FR-59, AR-28)
+            verdicts = self._close_verdicts(state, stage)
+            problems += code_close_conflicts(state, stage, verdicts)
             self._raise_all(problems)
+            # B4: the close names exactly what it passes over. A verdict that flipped between `apply` (which wrote the names into the
+            # request) and now would close over work no one named, so the request is sent again (the state moved).
+            named = [{"id": ident, "label": label} for ident, label in code_close_facts(state, stage, verdicts).get("passed_over") or []]
+            if (p.get("passed_over") or []) != named:
+                raise StateConflict("the state moved while the close was prepared: the dispatches it passes over changed, send it again")
             # K1 (C4-4): the list holds (the fields run above refused it otherwise); every reference that does not resolve
             problems += [(ValueError, issue) for issue in self._ref_issues(p["evidence_refs"], "code-only evidence")]
             self._raise_all(problems)
@@ -5410,8 +5983,9 @@ class Controller:
                     x not in state["decisions"] for x in p.get("decision_ids", [])):
                 raise StateConflict("invalidation names unknown records")
             # the two checks below read `state["dispatches"][x]`: they run only once the ids are known
-            if any(state["dispatches"][x]["status"] == "running" for x in p.get("dispatch_ids", [])):
-                problems.append((StateConflict, "checkpoint active work before invalidation"))
+            held = self._holders_tail(state, set(p.get("dispatch_ids", [])))
+            if held:       # TR4-7: only the named dispatches count (liveness is read for them alone), and only the live ones
+                problems.append((StateConflict, "checkpoint active work before invalidation" + held))
             if any(not set(state["dispatches"][x].get("scope") or []).intersection(affected)
                    for x in p.get("dispatch_ids", [])):
                 problems.append((StateConflict, "invalidation may name only dispatches in its affected scope"))
@@ -5678,6 +6252,104 @@ class Controller:
                                             "request again"))
         return problems
 
+    def _config_cap(self, reader_name):
+        """The cap a `config_contract` reader (THE reader of its key, AR-13) gives over the project's own config. No project, an absent
+        or unreadable file, a config that is not an object: the reader's default (3), never a refusal. One body for both caps (AR-15)."""
+        import config_contract
+        project, config = self._project_root(), None
+        if project is not None:
+            try:
+                config = config_contract.read_config_file(project)       # the one reader of the file (AR-13, axis 16)
+            except (config_contract.ConfigUnreadable, OSError):
+                config = None
+        return getattr(config_contract, reader_name)(config)[0]
+
+    def _parallel_cap(self):
+        """How many S5 windows may run at once: `config_contract.parallel_windows` over the project's own config."""
+        return self._config_cap("parallel_windows")
+
+    def _window_beside_running(self, p, state, running, flagged=True):
+        """May dispatch (or resumed dispatch) `p` run BESIDE the `running` dispatches (t-1937 TR3-4: S-1, S-3, B1)? True only when ALL hold:
+        `p` carries `parallel_window` literally True (`flagged`; a resume is the driver's restart road and carries no flag, so its
+        caller passes `flagged=False`); `p` and every running one are S5 WINDOW dispatches (stage S5, a role of `S5_WINDOW_ROLES`, not
+        the plan); every scope is a non-empty list of case ids and is disjoint from `p`'s - the scope of a `returned_unaccepted`
+        sibling too, though it is not counted; `len(running) + 1` is within the cap (`_parallel_cap`).
+
+        Error direction: it may answer False needlessly (the old refusal then stands, which only costs a wait); it must never answer
+        True for two dispatches that share a case, for a flag that is not the boolean True, for a scope it cannot read, or for any
+        stage or role outside the clause - an unreadable thing is not disjoint (AR-28). Reads `p` with `.get`: it runs before
+        `required`. Pure; never raises."""
+        try:
+            if flagged and p.get("parallel_window") is not True:
+                return False
+
+            def window_like(item):
+                return (isinstance(item, dict) and item.get("stage") == "S5" and item.get("role") in S5_WINDOW_ROLES
+                        and s5_part_of(item) != "plan")
+
+            cases_of = _scope_cases
+            if not window_like(p) or not running or not all(window_like(r) for r in running):
+                return False
+            mine = cases_of(p)
+            if mine is None:
+                return False
+            # a returned-but-unaccepted S5 dispatch is not running (not counted), yet its cases are still the work of its window
+            held = [r for r in (state.get("dispatches") or {}).values()
+                    if isinstance(r, dict) and r.get("status") == RETURNED and r.get("stage") == "S5"
+                    and s5_part_of(r) != "plan" and r.get("id") != p.get("id")]
+            for other in list(running) + held:
+                theirs = cases_of(other)
+                if theirs is None or theirs & mine:
+                    return False
+            return len(running) + 1 <= self._parallel_cap()
+        except Exception:
+            return False
+
+    def _walkers_cap(self):
+        """How many S6 manual lanes may run at once: `config_contract.walkers` over the project's own config."""
+        return self._config_cap("walkers")
+
+    def _lane_beside_running(self, p, state, running, flagged=True):
+        """May S6 manual lane `p` (or a resumed one) run BESIDE the `running` dispatches (t-2147 TR3-9d, the twin of
+        `_window_beside_running`)? True only when ALL hold: `flagged` -> `p.get("walk_lane") is True` (a resume carries no flag, its
+        caller passes `flagged=False`); `p` and every running one are stage S6, role `qa-runner`, `execution_kind` "manual"; every scope
+        is a non-empty list of case ids and is disjoint from `p`'s (the scope of a `returned_unaccepted` S6 sibling too); `p` AND every
+        running one carry `walk_lane` True and a `walk_actor` that is a string ("" = guest) - a record lacking either is an UNKNOWN
+        account and admits nothing (critic B9); the `walk_actor` values are pairwise distinct; `len(running) + 1` is within the cap
+        (`_walkers_cap`).
+
+        Error direction: it may answer False needlessly (the old refusal stands: a wait); it must never answer True for two lanes that
+        share a case or an account, for an account it cannot read, for a flag that is not the boolean True or for any stage, role or
+        kind outside the clause - an unreadable thing is not distinct (AR-28). Reads `p` with `.get`: it runs before `required`.
+        Pure; never raises."""
+        try:
+            if flagged and p.get("walk_lane") is not True:
+                return False
+
+            def lane_like(item):
+                return (_manual_lane_like(item) and item.get("walk_lane") is True
+                        and isinstance(item.get("walk_actor"), str))
+
+            cases_of = _scope_cases
+            if not running or not lane_like(p) or not all(lane_like(r) for r in running):
+                return False
+            mine = cases_of(p)
+            if mine is None:
+                return False
+            held = [r for r in (state.get("dispatches") or {}).values()
+                    if isinstance(r, dict) and r.get("status") == RETURNED and _manual_lane_like(r)
+                    and r.get("id") != p.get("id")]
+            for other in list(running) + held:
+                theirs = cases_of(other)
+                if theirs is None or theirs & mine:
+                    return False
+            actors = [p["walk_actor"]] + [r["walk_actor"] for r in running]
+            if len(set(actors)) != len(actors):
+                return False
+            return len(running) + 1 <= self._walkers_cap()
+        except Exception:
+            return False
+
     def _resume_problems(self, p, state):
         """Every reason this `resume` request is refused, at once (R2); [] when the stopped dispatch goes on."""
         dispatches = state.get("dispatches") or {}
@@ -5689,8 +6361,13 @@ class Controller:
             problems = self._noted(problems, "(the agent, budget and stop checks did not run: it is not a stopped dispatch)")
         else:
             problems = self._resume_stop_problems(d, p)
-        running = sorted(str(o.get("id")) for o in dispatches.values() if o.get("status") == "running" and o is not d)
-        if running:
+        beside = [o for o in dispatches.values() if o.get("status") == "running" and o is not d]
+        running = sorted(str(o.get("id")) for o in beside)
+        # t-1937 TR3-4 (S-3): a stopped S5 window resumes beside its running siblings (the driver's restart road: no flag, the
+        # stage + role + scope + cap clause carries it). INVARIANT: a resume of anything else keeps the refusal, and two
+        # dispatches never share a case.
+        if running and not (self._window_beside_running(d, state, beside, flagged=False)
+                            or self._lane_beside_running(d, state, beside, flagged=False)):
             problems.append((StateConflict, f"sequential task already has an active dispatch: {', '.join(running)}. Finish "
                                             f"or checkpoint it first (`story_step.py finish` / `story_step.py pause`), then "
                                             f"`{self._resume_door(d.get('id'))}`"))
@@ -6016,7 +6693,7 @@ class Controller:
         if not planned:
             return []
         windows, written, plan = planned["windows"], planned["written"], planned["plan"]
-        records = {str(d.get("id") or name): d for name, d in (state.get("dispatches") or {}).items() if isinstance(d, dict)}
+        records = {_dispatch_ident(d, name): d for name, d in (state.get("dispatches") or {}).items() if isinstance(d, dict)}
         out = []
         for window in windows:
             index = window.get("index")
@@ -6342,7 +7019,7 @@ class Controller:
             print("S5 window acceptance record: passed by a person's recorded word — "
                   + str((passed[0] or {}).get("decision") or "")[:300])
             return []
-        from contract import PROBE_GAP_MATCH_PREFIX, PROBE_MISSING_ERROR, window_shape_errors
+        from contract import PROBE_MISSING_ERROR, window_shape_errors
         # EVERY structural gap at once, before any field-by-field check. On
         # TP2-2553 the shape was learned one refusal at a time, and the
         # critic's last interval ran close to two hours for it.
@@ -6358,11 +7035,16 @@ class Controller:
             if any(outcomes.get(label) == "passed" for label in owed):
                 # HF1-14: a probe that cannot run here is passed only by the person's word for THAT instance, recorded
                 # by the orchestrator (the critic returns the item); this refusal stays a stop and reads no word.
-                door = (" A probe that cannot run here is passed only by the person's word for that instance, "
-                        "recorded by the orchestrator: `"
-                        + person_words.door(f"waiver.py --task {self._ticket()} --stage S5 "
-                                            f"--block \"{PROBE_GAP_MATCH_PREFIX} <instance id>\"")
-                        + "`; then `window_record.py` builds the record again.")
+                # F4 (t-2007): the door follows what each owed test's probe record says - the critic's `--judge`, the person's
+                # `probe not proved:` word, or this `probe gap:` word - never the word for a test it cannot close
+                from window_record import PROBE_GAP_RECORD, probe_gap_keys_line, probe_word_door  # the ONE text of these doors (AR-13)
+                door = probe_word_door(
+                    window, self.store.root, self._ticket(),
+                    " A probe that cannot run here is passed only by the person's word for the case key of that test, "
+                    "recorded by the orchestrator: `"
+                    + PROBE_GAP_RECORD.replace("<T>", self._ticket())
+                    + "`; then `window_record.py` builds the record again."
+                    + probe_gap_keys_line(window, self.store.root))
             red = [label for label in owed if outcomes.get(label) == "failed"]
             if red:
                 from window_record import RED_ROW_DOOR  # the ONE text of this door (AR-13)
@@ -6385,6 +7067,98 @@ class Controller:
                 problems, "(the window's gap checks - quality receipts, instance outcomes, reviews - "
                           "did not run: they read fields the items above refuse)")
         return self._s5_gap_problems(d, p, window)
+
+    def _open_windows_problems(self, d, p, state):
+        """`[(class, message)]` for the accept field `open_windows` (t-1937 TR3-4, B3), `[]` when it is absent or names real windows.
+
+        The field is the scheduler's word that OTHER windows of the stage are still open, which is why accepting this one with
+        `stage_complete: false` does not leave the stage with no role to close it. It is a list of case ids, each a case of a window
+        of `stage_scope` that is NOT this dispatch's own (a window meeting this dispatch's cases is its own), and it does not travel
+        with `unresolved` (that pair already says why the stage stays open). Every refusal names the windows the story has and the
+        door (FR-1, FR-2). With `stage_complete: true` the field lifts nothing - the refusal it lifts is for `false` only. A stage
+        whose windows cannot be read has none to name: every name is then refused with that said (AR-28, FR-59)."""
+        if "open_windows" not in p:
+            return []
+        from detector_verdict import named
+        given, stage = p.get("open_windows"), str(d.get("stage") or "")
+        own = {str(case) for case in d.get("scope") or []}
+        try:
+            windows = self.stage_scope(stage, state).get("windows") or []
+        except (StateConflict, ValueError, OSError):
+            windows = []
+        others = [sorted({str(case) for case in w.get("scope") or []}) for w in windows
+                  if isinstance(w, dict) and not own & {str(case) for case in w.get("scope") or []}]
+        others = [w for w in others if w]
+        real = {case for w in others for case in w}
+        have = ("the other windows of " + stage + " are: " + "; ".join(", ".join(w) for w in others)
+                if others else f"no other window of {stage} could be read from the approved plan")
+        door = (f"Door: `story_step.py finish --task {self._ticket()} --dispatch-id {d.get('id')} --digest \"<digest>\" "
+                "--not-complete --open-windows <cases of the windows still open>`")
+        if p.get("unresolved"):
+            return [(ValueError, "open_windows requires a plain --not-complete, not unresolved: unresolved already says why "
+                                 f"{stage} stays open. Drop one of the two. {door}")]
+        if (not isinstance(given, list) or not given
+                or not all(isinstance(case, str) and case.strip() for case in given)):
+            return [(ValueError, f"open_windows must be a non-empty list of case ids, one or more of each other window still open "
+                                 f"(got {given!r}); {have}. {door}")]
+        bad = [case for case in given if case not in real]
+        if bad:
+            why = "this dispatch's own cases do not count" if set(bad) & own else "no such window"
+            return [(ValueError, f"open_windows requires cases of another window of {stage}; {named(bad, SCOPE_SHOWN)} "
+                                 f"{'is' if len(bad) == 1 else 'are'} not one ({why}); {have}. {door}")]
+        return []
+
+    def _s5_running_beside_problems(self, d, state):
+        """`[(class, message)]` when this S5 completion would close the stage while another S5 dispatch is `running` (t-1937 TR3-4,
+        item 5), else `[]`. The code gate UNDER the driver's own close predicate (`s5_open_windows`): never reached when the
+        predicate is right, and the one thing between a wrong predicate and a stage closed over a window at work. The refusal names
+        the running dispatches and their cases and the door (`--not-complete --open-windows <their cases>`); a person's recorded
+        word (`close beside a running window`) passes it like any S5 close refusal (P13), and the pass is recorded (FR-4)."""
+        refused = self._beside_running_refusal(d, state, "S5", lambda o: isinstance(o, dict) and o.get("stage") == "S5",
+                                               WORD_CLOSE_BESIDE_RUNNING)
+        if refused is None:
+            return []
+        blocking, cases = refused
+        return [(StateConflict, blocking[0] + ". The stage closes with the last window to finish: finish this one with "
+                 f"`--not-complete --open-windows {','.join(cases) or '<the cases of the running windows>'}` "
+                 f"(`story_step.py finish --task {self._ticket()} --dispatch-id {d.get('id')} --digest \"<digest>\" "
+                 "--not-complete --open-windows ...`). If a person decides the stage closes now, the conductor records their words: `"
+                 + person_words.door(f"waiver.py --task {self._ticket()} --stage S5 --block \"{WORD_CLOSE_BESIDE_RUNNING}\"") + "`.")]
+
+    def _beside_running_refusal(self, d, state, stage, like, word):
+        """The shared body of the S5 and S6 close backstops (AR-15): `(blocking lines, cases of the running ones)` when `d`
+        would complete `stage` while another dispatch `like` selects is `running` and no person's recorded `word` passes it, else
+        None; a pass by the word is recorded (FR-4). Each stage keeps only its door sentence, raised on `blocking[0]` - the list
+        `_passed_by_person` has filtered, the shape `tools/controller-blocks-gen.py` routes to the person."""
+        running = sorted((o for o in state["dispatches"].values()
+                          if like(o) and o.get("status") == "running" and o.get("id") != d.get("id")),
+                         key=lambda o: str(o.get("id")))
+        if not running:
+            return None
+        cases = sorted({str(case) for o in running for case in o.get("scope") or []})
+        what = (f"{d.get('id')} would complete {stage} while {', '.join(str(o.get('id')) for o in running)} "
+                f"{'is' if len(running) == 1 else 'are'} still running"
+                + (f" (cases {', '.join(cases)})" if cases else ""))
+        blocking, passed = self._passed_by_person(stage, [f"{stage} {word}: {what}"])
+        if not blocking:
+            self._record_person_pass(stage, d.get("id"), passed)
+            return None
+        return blocking, cases
+
+    def _s6_running_beside_problems(self, d, state):
+        """`[(class, message)]` when this S6 completion would close the stage while another S6 manual lane is `running` (t-2147
+        TR3-9d), else `[]`. The twin of `_s5_running_beside_problems` (one shared body, `_beside_running_refusal`): the refusal names
+        the running lanes and their cases and the door (wait, or finish this lane with `--not-complete`, the S5 twin's road - a
+        paused lane is not a finished one); a person's recorded word (`close beside a running lane`) passes it as any close
+        refusal (P13), and the pass is recorded (FR-4)."""
+        refused = self._beside_running_refusal(d, state, "S6", _manual_lane_like, WORD_CLOSE_BESIDE_RUNNING_LANE)
+        if refused is None:
+            return []
+        blocking, _ = refused
+        return [(StateConflict, blocking[0] + ". The stage closes with the last lane to finish: wait for the running lane, or finish "
+                 f"this one without closing the stage (`story_step.py finish --task {self._ticket()} --dispatch-id {d.get('id')} "
+                 "--digest \"<digest>\" --not-complete`). If a person decides the stage closes now, the conductor records their words: `"
+                 + person_words.door(f"waiver.py --task {self._ticket()} --stage S6 --block \"{WORD_CLOSE_BESIDE_RUNNING_LANE}\"") + "`.")]
 
     def _tier3_call(self, helper, *args):
         """Run a helper of the collecting tier; its refusal ends the tier as the last item."""
@@ -6527,8 +7301,8 @@ class Controller:
         """Tier 4: what `validate_window` finds, as items - the four gap checks collected."""
         from acceptance import (CONTRADICTS_REQUIREMENT, PROBE_GAP_KIND, PROBE_GAP_UNRECORDED_KIND,
                                 probe_gap_named, validate_window)
-        from contract import PROBE_GAP_MATCH_PREFIX
-        gaps = validate_window(window, self.store.root)
+        from window_record import PROBE_GAP_RECORD, probe_gap_keys_line, probe_word_door  # the ONE text of these doors (AR-13)
+        gaps =validate_window(window, self.store.root)
         problems = []
         # A probe gap no recorded word of the person names (HF1-14, E12): refused WHETHER OR NOT the completion carries
         # a typed `unresolved` pair, because a caller's pair is not the person's word (M3). The door is the
@@ -6538,12 +7312,15 @@ class Controller:
             problems.append((
                 StateConflict,
                 "this window claims a probe gap no recorded word of the person names (" + ", ".join(unrecorded)
-                + "): a typed `unresolved` pair does not pass it. If the person accepts that this test is not "
-                "probed here, the orchestrator records `"
-                + person_words.door(f"waiver.py --task {self._ticket()} --stage S5 --block \""
-                                    f"{PROBE_GAP_MATCH_PREFIX} <instance id>\"")
-                + "`, then `window_record.py --task " + self._ticket() + " --dispatch " + str(d.get("id"))
-                + "` builds the record again; otherwise a probe of the test (`probe_by_code.py`) writes the receipt"))
+                + "): a typed `unresolved` pair does not pass it."
+                + probe_word_door(
+                    window, self.store.root, self._ticket(),
+                    " If the person accepts that this test is not probed here, the orchestrator records `"
+                    + PROBE_GAP_RECORD.replace("<T>", self._ticket())
+                    + "` for the case key of that test, then `window_record.py --task " + self._ticket() + " --dispatch "
+                    + str(d.get("id"))
+                    + "` builds the record again; otherwise a probe of the test (`probe_by_code.py`) writes the receipt"
+                    + probe_gap_keys_line(window, self.store.root))))
         # A gap that says "the person runs this one" is not the same kind of gap
         # as "nothing proves this behaviour". It closes the window by code, with
         # no receipt and no waiting — but only when the handoff is named in the
@@ -6602,12 +7379,11 @@ class Controller:
         if probe_gaps and not problems:
             # An informed pass is recorded (FR-4): the block, the person's words (read from the story's own pipeline,
             # not from the window) and who. Only when nothing else refuses the window.
-            # A gap the FACTORY named (`named` key `factory:...`, RN1-9 E15) is not a person's pass: it is not written here.
+            # The factory names no gap of its own (t-1968 N2): every named gap is a person's word.
             named = probe_gap_named(window, self.store.root)
             self._record_person_pass("S5", d.get("id"), [
                 {"error": g, "decision": (named.get(g.partition(":")[2]) or {}).get("words", ""),
-                 "by": "human"} for g in probe_gaps
-                if not str((named.get(g.partition(":")[2]) or {}).get("key") or "").startswith("factory:")])
+                 "by": "human"} for g in probe_gaps])
         return problems
 
     @staticmethod
@@ -6790,7 +7566,7 @@ class Controller:
                  if isinstance(ref, dict)]
         if not any("findings" in Path(name).name.lower() for name in names):
             problems.append(said + "no findings file in the accepted evidence (a name containing "
-                            "`findings`, e.g. `work/test-code/critic-findings.md`); the repair "
+                            "`findings`, e.g. `work/test-code/critic-findings-<your dispatch>.md`); the repair "
                             "prompt points the author at that file, and a digest in the chat is "
                             "not one")
         bindings = manifest.get("obligation_bindings")
@@ -7041,7 +7817,7 @@ class Controller:
         latest = None if any(when is None for when in times) else max(times)
         return not self._launched_after(dispatch, latest, starts, now)
 
-    def liveness_fixes(self, state=None, now=None):
+    def liveness_fixes(self, state=None, now=None, by=None):
         """The `running` dispatches this host can PROVE nobody is doing, and what became of them.
 
         0.7.6 asked the opposite question — "is there any record of a launch?" — and on the
@@ -7056,6 +7832,9 @@ class Controller:
         the status this writes, so a denial that closed a live agent let a second one start
         beside it. A denial that lost that way leaves the dispatch to the ordinary liveness
         verdict below - alive and unknown close nothing.
+
+        `by` is the word of the operation that asked (the reason then says WHO closed the row: `dispatch: X was recorded ...`);
+        without it the reason is the `recover` one, byte for byte.
         """
         state = self.state() if state is None else state
         dispatches = state.get("dispatches") or {}
@@ -7078,7 +7857,7 @@ class Controller:
                 try:
                     import dispatch_liveness
                     # every spelling of this story's name is asked: a closure by inference needs that NO name holds it
-                    verdict = self._liveness(project, dict(dispatch, started_at=starts.get(identifier)), now)
+                    verdict = self._running_verdict(project, dispatch, starts, now)
                 except Exception:
                     continue
                 kind = {dispatch_liveness.NEVER_STARTED: NEVER_STARTED,
@@ -7090,7 +7869,7 @@ class Controller:
             fix = {"kind": kind, "dispatch_id": dispatch.get("id"),
                    "stage": dispatch.get("stage"), "role": dispatch.get("role"),
                    "digest": str(dispatch.get("returned_digest") or ""),
-                   "reason": f"recover: {identifier} was recorded as running but its role "
+                   "reason": f"{by or 'recover'}: {identifier} was recorded as running but its role "
                              f"{told[kind]} — " + "; ".join(evidence)}
             life = dispatch_life_key(dispatch)
             if life:
@@ -7103,13 +7882,25 @@ class Controller:
         """Only the never-launched ones; `recover` and the doctor name that kind separately."""
         return [fix for fix in self.liveness_fixes(state) if fix["kind"] == NEVER_STARTED]
 
-    def close_settled(self, state=None):
-        """Journal the closure of every dispatch nobody is doing. Idempotent; returns the fixes."""
-        fixes = self.liveness_fixes(state)
+    def close_settled(self, state=None, by=None):
+        """Journal the closure of every dispatch nobody is doing. Idempotent; returns the fixes it WROTE.
+
+        The repair is committed only against the revision it read (B1, TR4-7): another writer that acted in between (a `finish`
+        accepting a window, the stop hook, a person's word) changed what the fixes were built from, so NOTHING is written, `[]`
+        comes back, and the caller reads the state again. `by` names the asking operation in the event's reason (AR-27)."""
+        state = self.state() if state is None else state
+        fixes = self.liveness_fixes(state, by=by)
         if fixes:
-            self.store.commit("state_repair",
-                              {"fixes": fixes, "reason": "recover closed dispatches nobody is doing"},
-                              "state_repair:" + content_hash(fixes), None, None, self.project)
+            reason = f"{by} closed dispatches nobody is doing" if by else "recover closed dispatches nobody is doing"
+            try:
+                self.store.commit("state_repair", {"fixes": fixes, "reason": reason},
+                                  "state_repair:" + content_hash(fixes), state.get("revision"), None, self.project)
+            except EventCommitted:
+                raise       # the event IS in: only the derived views are stale
+            except StateConflict as exc:
+                if str(exc) != "stale expected revision":
+                    raise
+                return []
         return fixes
 
     def record_return(self, dispatch_id, digest, agent=""):
@@ -7418,8 +8209,14 @@ class Controller:
         """The whole request of the two held-work ops, built by code from state (the `build_checkpoint_request` pattern)."""
         ids = self._dispatch_ids(dispatch_ids)
         request = dict({"dispatch_ids": ids, "words": str(words or "")}, **extra)
+        return self._request_scaffold(request, state, op + ":" + ",".join(sorted(ids)) + ":" + content_hash(str(words or "")))
+
+    @staticmethod
+    def _request_scaffold(request, state, key):
+        """The part every code-built request of a person's word shares (the `build_checkpoint_request` pattern): the revision it
+        was read at, the idempotency key, and the lease holder's session when one is held."""
         request["expected_revision"] = state.get("revision")
-        request["idempotency_key"] = op + ":" + ",".join(sorted(ids)) + ":" + content_hash(str(words or ""))
+        request["idempotency_key"] = key
         lease = (state.get("leases") or {}).get("orchestrator") or {}
         if lease.get("owner_session_id"):
             request["owner_session_id"] = lease["owner_session_id"]
@@ -7462,6 +8259,121 @@ class Controller:
         receipt = self.apply("leave_unlaunched", request)
         return {"left": True, "dispatch_ids": request["dispatch_ids"], "words": str(words), "receipt": receipt,
                 "next_action": self.next_action()}
+
+    @staticmethod
+    def _hold_op_refusal(op, p, state):
+        """`validate` of the four operations of the story held for code (t-2181 PC-6; t-2277 J-C10): every problem of the call at
+        once (K1) - the call's own fields first (ValueError), then the story's state (StateConflict) - each with the door that
+        leads on (FR-2, AR-9). Nothing is written on a refusal. `await`: a cause comes with the stage it holds from (and the
+        other way round), and a stopped story is not re-held by a bare `await`. `arrive`: nothing to refuse (with nothing held it
+        only records the arrival). `stop_waiting`: the
+        person's words, a story that is awaiting. `first_look_continue`: the person's words, the keys the caller computed
+        (`source_head` text, `register_hash` of 64 hex - stored as given, never parsed or computed here, AR-13), and a hold that
+        is NOT `s5_absent_side` and NOT stopped (or no hold at all: then the call only records)."""
+        hold, number = _hold_of(state)
+        words, shape, problems = str(p.get("words") or ""), [], []
+        doors = _hold_doors(number)
+        door_arrive, door_stop, door_rework = doors["arrive"], doors["stop"], doors["rework"]
+        if op == "await":
+            cause, held_from = p.get("cause"), p.get("held_from")
+            if (cause is None) != (held_from is None):
+                shape.append((ValueError, "`cause` and `held_from` go together: a cause names why the story is held and `held_from` the "
+                                          "stage it holds from (`S6` for `s5_absent_side`, `S3` for `first_look_stop`); send both, or "
+                                          "neither (then the record reads `s5_absent_side` from S6)"))
+            elif cause is not None:
+                if not (isinstance(cause, str) and cause.strip()):
+                    shape.append((ValueError, "`cause` must be a non-empty word naming why the story is held, e.g. `s5_absent_side` or `first_look_stop`"))
+                if not (isinstance(held_from, str) and HELD_FROM_RE.match(held_from)):
+                    shape.append((ValueError, f"`held_from` must be a stage id `S0`..`S9`, got {held_from!r}"))
+            if hold["state"] == "stopped":
+                problems.append((StateConflict, f"this story was stopped while it waited, and a bare `await` does not take that back: {door_arrive}, "
+                                                f"or {door_rework}"))
+        elif op == "arrive":
+            pass    # nothing to refuse: with nothing held it only RECORDS the arrival road (t-2181 3.2, F4), like `first_look_continue`
+        else:
+            if not words.strip():
+                shape.append((ValueError, f"--words-file records the person's own words: {op.replace('_', ' ')} is their decision, not the "
+                                          f"factory's. Pass --words-file <path to their words, as they were given>"))
+            if op == "stop_waiting":
+                if hold["state"] == "none":
+                    problems.append((StateConflict, "nothing is held for code, so there is no wait to stop: `--operation next` says what the story does now"))
+                elif hold["state"] == "stopped":
+                    problems.append((StateConflict, f"the wait was stopped already: {door_arrive}, or {door_rework}"))
+            else:
+                head, register = p.get("source_head"), p.get("register_hash")
+                keys = ("the driver passes the values of `first_look.py show --json` (`current_keys`): `--source-head` the heads text, "
+                        "`--register-hash` the 64 hex of the register")
+                if not (isinstance(head, str) and head.strip()):
+                    shape.append((ValueError, f"--source-head is the text of the code heads the first look saw, as the caller computed it: {keys}"))
+                if not (isinstance(register, str) and re.fullmatch(r"[0-9a-fA-F]{64}", register)):
+                    shape.append((ValueError, f"--register-hash must be 64 hex characters, got {register!r}: {keys}"))
+                if hold["state"] == "stopped":
+                    problems.append((StateConflict, f"the wait was stopped: `first_look_continue` does not reopen it. {door_arrive}, or {door_rework}"))
+                elif hold["state"] == "awaiting" and hold["cause"] != FIRST_LOOK_STOP:
+                    problems.append((StateConflict, f"this story is held for {hold['cause']}, and only the code arriving clears that hold, never "
+                                                    f"a word: {door_arrive}; {door_stop}; or, for a missing side that is another team's, the "
+                                                    "person's answer `not ours` to the driver's question about it, which the driver "
+                                                    "carries out as the side recorded another team's and `arrive` naming that side"))
+        Controller._raise_all(shape)
+        Controller._raise_all(problems)
+
+    def _hold_dispatch_refusal(self, p, state):
+        """`validate` of a `dispatch` on a story held for code (F5, E-W1). INVARIANT: a STOPPED story starts no dispatch except the
+        rework a person's words reopen it with - `await_reopened` (the mark the projection reads to remove `stopped`) is accepted
+        ONLY on a stopped hold, on the shape `build_rework_request` builds (`_is_rework_shape`), with `person_words` true and
+        non-empty words, for a stage BELOW `held_from`; a hand-written dispatch carrying it with words typed by code is refused,
+        and so is any other dispatch of a stopped story. A story that is awaiting (not stopped) is not touched here: the stage
+        guard (`rule_awaiting_code`) keeps its stages from `held_from` closed."""
+        hold, number = _hold_of(state)
+        reopened, door = p.get("await_reopened"), _hold_doors(number)
+        shape, problems = [], []
+        if reopened is not None:
+            words = reopened.get("words") if isinstance(reopened, dict) else None
+            if not (isinstance(words, str) and words.strip()) or p.get("person_words") is not True:
+                shape.append((ValueError, "`await_reopened` is the person's word reopening a stopped story: it carries their own words "
+                                          "(`{\"words\": <text>}`) on a rework built from `--words-file` (`person_words` true), never a "
+                                          "reason typed by code. Use `controller.py --operation rework --stage <stage> --role <role> "
+                                          "--words-file <file>`"))
+            if hold["state"] != "stopped":
+                problems.append((StateConflict, "`await_reopened` reopens a STOPPED story and this one is not stopped: "
+                                                "`--operation next` says what the story does now"))
+            elif not self._is_rework_shape(state, p) or _stage_no(p) >= number:
+                problems.append((StateConflict, f"a stopped story is reopened only by the rework of an accepted dispatch of S0-S{number - 1} "
+                                                f"(`rework_of` names it); {p.get('stage')} is not that. Doors: {door['rework']}; {door['arrive']}"))
+        elif hold["state"] == "stopped":
+            problems.append((StateConflict, f"this story was stopped while it waited for code: no dispatch starts on it by itself. "
+                                            f"Doors: {door['rework']}; {door['arrive']}"))
+        self._raise_all(shape)
+        self._raise_all(problems)
+
+    def _hold_request(self, op, words, state, **fields):
+        """The whole request of `stop_waiting` / `first_look_continue`, built by code from the state (the `_held_work_request`
+        pattern): the person's words and the keys as given, the revision, the lease, one idempotency key per hold, words and keys -
+        a repeat of the same call is the same answer, a later hold has its own identity: the event numbers of its `await` (`opened`)
+        and of the rework that reopened it (`reopened`), never its `since` (a reopening keeps that), F1."""
+        hold, _ = _hold_of(state)
+        request = dict({"words": str(words or "")}, **fields)      # no time in the payload: `at` is the event's own, so a retry replays
+        content = "|".join([str(words or "")] + [str(fields[key]) for key in sorted(fields)]
+                           + [str(hold.get("opened")), str(hold.get("reopened"))])
+        return self._request_scaffold(request, state, f"{op}:{content_hash(content)}")
+
+    def stop_waiting(self, words):
+        """The person's `stop waiting` (t-2181 PC-6): the story held for code is `stopped` with their words and the time; every
+        reader does nothing further (E-W1). The way out stays: their rework of S0..held_from-1 with words, or `arrive`."""
+        request = self._hold_request("stop_waiting", words, self.state())
+        receipt = self.apply("stop_waiting", request)
+        return {"stopped": True, "words": str(words), "receipt": receipt, "next_action": self.next_action()}
+
+    def first_look_continue(self, words, source_head, register_hash):
+        """The person's `continue` after the first look stopped the story (t-2277 J-C10): clears a `first_look_stop` hold and
+        records `first_look_continued {source_head, register_hash, words, at}` (projected as `pipeline.first_look_continue`). The
+        two keys are what the caller computed through `first_look.current_keys` and are STORED AS GIVEN: this operation neither
+        computes nor parses them (AR-13) and depends on nothing a first-look module defines. Without a hold it only records."""
+        request = self._hold_request("first_look_continue", words, self.state(),
+                                     source_head=source_head, register_hash=register_hash)
+        receipt = self.apply("first_look_continue", request)
+        return {"continued": True, "words": str(words), "source_head": source_head, "register_hash": register_hash,
+                "receipt": receipt, "next_action": self.next_action()}
 
     def _settle_order_refusal(self, p, state):
         """`validate` of `settle_order`: every problem of the call at once, the call's own fields first (ValueError), then the
@@ -8077,6 +8989,20 @@ class Controller:
                     action["packet"] = packet
                 action["reason"] = Controller._retry_reason(last, packet)
             return action
+        # t-2181 PC-6 (B3, B4), t-2277 J-4: the story HELD FOR CODE. POSITION: after the returned / stopped dispatches above (work that
+        # somebody started is settled first) and BEFORE `if unlaunched:` and the stage loop. INVARIANT this position preserves: a held
+        # story never dispatches a stage >= `held_from` - the relaunch below is cut to the never-started dispatches of stages BELOW
+        # `held_from` (the rest are listed in `held`, never relaunched, never prepared) - and a rework of a stage < `held_from` runs
+        # inside the hold (its dispatch is relaunched / waited on above, its stage is prepared by the loop) and the hold answers again
+        # at `held_from`, in the stage loop. A STOPPED story is terminal: no relaunch of any dispatch. The record is the controller's
+        # own state, never the pipeline argument (E-W2): `next` called without a pipeline still holds a story that was parked.
+        hold, held_number = _hold_of(s)
+        if hold["state"] != "none":
+            held_ids = [d for d in unlaunched if _stage_no(d) >= held_number]
+            unlaunched = [d for d in unlaunched if _stage_no(d) < held_number]
+            below_open = [i for i in range(held_number) if s["stages"].get(f"S{i}", {}).get("status") not in ("completed", "skipped")]
+            if hold["state"] == "stopped" or (not unlaunched and not below_open):
+                return _hold_action(s, hold, held_number, held_ids)
         if unlaunched:
             packet = Controller._relaunch_packet(s, unlaunched[-1])
             if packet:
@@ -8134,11 +9060,29 @@ class Controller:
                     "wait_for": safe, **rollover}
         for i in range(10):
             if s["stages"].get(f"S{i}", {}).get("status") not in ("completed", "skipped"):
+                # t-2181 PC-6: the stop INSIDE the stage loop. A held story answers here for the first stage at or after
+                # `held_from` that is not done (the work below it - a rework of S0..held_from-1 - was prepared by this loop
+                # and its end lands here again); a story that is DUE (S0..S5 done, a deliverable side absent, no `await` yet)
+                # is asked to wait before S6 is prepared. `i` is the loop's own number, read BEFORE `awaits_acceptance` moves
+                # it, so "S5 is done" is exactly what reaching `i >= 6` means. No pipeline (E-W2): not due, the hold above stands.
+                if hold["state"] != "none" and i >= held_number:
+                    return _hold_action(s, hold, held_number, [])
+                import contract
+                if (i >= 6 and hold["state"] == "none" and isinstance(pipeline, dict) and contract.parks_after_s5(pipeline)):
+                    return {"action": "await_implementation", "cause": contract.AWAITING_DEFAULT_CAUSE,
+                            "held_from": contract.AWAITING_DEFAULT_HELD_FROM, "sides": contract.story_sides(pipeline),
+                            "revision": s["revision"],
+                            "reason": "S5 is done and a side this story delivers does not exist yet: record the wait (`--operation await`), "
+                                      "no stage from S6 runs until the code arrives"}
                 # X7-6: the author stopped and its stage awaits the CONSUMER's acceptance - the next stage is the consumer's to open
                 # (the one reader `awaits_acceptance`, AR-13); the loop then asks that stage's gate like any other.
                 from acceptance import awaits_acceptance
                 if i < 9 and awaits_acceptance(s, f"S{i}", pipeline if isinstance(pipeline, dict) else None):
                     i += 1
+                    # F6 (POSITIONAL): the move can carry `i` into the held range (a hold from S7 while S6 awaits its analyst), and
+                    # no stage of that range is prepared on a held story: the stop is repeated after the move
+                    if hold["state"] != "none" and i >= held_number:
+                        return _hold_action(s, hold, held_number, [])
                 gate = "B" if i == 9 else "A" if i >= 5 else None
                 if gate and not any(d.get("gate") == gate and d.get("status") == "approved"
                                     and d.get("source_revision") == s.get("source_revision")
@@ -8158,14 +9102,22 @@ ROUTED_OPERATIONS = ("prepare", "next", "checkpoint-packet", "baseline-inputs", 
 APPLY_OPERATIONS = ("initialize", "dispatch", "checkpoint", "accept", "decision", "invalidate",
                     "revise_plan", "reconcile_dispatch", "technical_normalize", "semantic_reopen",
                     "handoff", "orchestrator_telemetry", "coverage_migration", "request_cancel",
-                    "policy", "code_only", "mutation", "reopen_story", "leave_unlaunched", "resume", "settle_order")
+                    "policy", "code_only", "mutation", "reopen_story", "leave_unlaunched", "resume", "settle_order",
+                    # t-2181 PC-6: the story held for code. `await` and `arrive` take `--input` (the driver builds them); the other two
+                    # are the person's word and build their request from flags (`stop_waiting`, `first_look_continue`).
+                    "await", "arrive", "stop_waiting", "first_look_continue")
+HOLD_OPERATIONS = ("await", "arrive", "stop_waiting", "first_look_continue")
+# The operations whose EVENT has another name than the operation: the person's `first_look_continue` is recorded as the fact
+# `first_look_continued` (the one place that maps them; `apply` commits under it, the projection reads it).
+EVENT_KIND = {"first_look_continue": "first_look_continued"}
 OPERATIONS = ROUTED_OPERATIONS + APPLY_OPERATIONS     # every name the CLI accepts
 # The operations whose CLI branch does `Path(a.input)` with no guard: every APPLY operation but the four that build
 # their request from flags (`checkpoint` from --dispatch/--status/--reason; `reopen_story` and `leave_unlaunched` from
 # --dispatch + the person's words; `resume` from --dispatch [--agent-id]), plus the routed `baseline-inputs`. The ONE list
 # `_cli_story_root` reads (S7-1).
 INPUT_FILE_OPERATIONS = tuple(op for op in APPLY_OPERATIONS
-                              if op not in ("checkpoint", "reopen_story", "leave_unlaunched", "resume", "settle_order")) + ("baseline-inputs",)
+                              if op not in ("checkpoint", "reopen_story", "leave_unlaunched", "resume", "settle_order",
+                                            "stop_waiting", "first_look_continue")) + ("baseline-inputs",)
 
 # `gate_A` was the cost experiment's stop; `gate_B` stops a story that is delivered but whose retro the
 # project does not want. Anything else in config.json is read as no stop at all (moved here from
@@ -8839,6 +9791,10 @@ def main():
                     help="gate-decision: record and apply no answer (a dry run); the manual-agent pass of gate A still runs")
     ap.add_argument("--order", help="settle_order: the order of gate B to settle, bugs | mr")
     ap.add_argument("--outcome", help="settle_order: done | cancelled")
+    ap.add_argument("--source-head", dest="source_head", help="first_look_continue: the code heads the first look saw (the text "
+                                                              "`first_look.py show --json` gives as `current_keys`); stored as given")
+    ap.add_argument("--register-hash", dest="register_hash", help="first_look_continue: the 64-hex hash of the register the first look "
+                                                                  "counted (`current_keys`); stored as given")
     ap.add_argument("--ref", help="settle_order: the MR link or id (done), or the delivery step's one-line record "
                                   "(cancelled with --reason-code); at most 2000 characters")
     ap.add_argument("--reason-code", dest="reason_code", help="settle_order --outcome cancelled without a person's words: "
@@ -8850,6 +9806,9 @@ def main():
     ap.add_argument("--cause", choices=REPAIR_CAUSES,
                     help="rework: why this round exists (default test_defect, the only cause "
                          "that spends the repair cap)")
+    ap.add_argument("--parallel-window", dest="parallel_window", action="store_true",
+                    help="rework (the driver's scheduler only, t-1937): this S5 round may start beside a running window of other "
+                         "cases; the controller still checks stage, role, disjoint scopes and the cap")
     ap.add_argument("--build-only", action="store_true",
                     help="gate-decision / rework / checkpoint: print the request without "
                          "recording it")
@@ -8871,7 +9830,8 @@ def main():
     # Only the two operations that record words take them; for the rest `--words` was and stays
     # unread. The same reader serves waiver, archive_task and project_decisions (FR-17, M30).
     words = a.words
-    if a.operation in ("gate-decision", "release", "reopen_story", "leave_unlaunched", "settle_order"):
+    if a.operation in ("gate-decision", "release", "reopen_story", "leave_unlaunched", "settle_order",
+                       "stop_waiting", "first_look_continue"):
         import person_words
         words = person_words.read(a.words, a.words_file, "--words")
     a.risks_text = None
@@ -8924,6 +9884,10 @@ def main():
         result = c.leave_unlaunched(a.dispatch, words)
     elif a.operation == "settle_order":
         result = c.settle_order(a.order, a.outcome, a.ref, words, a.reason_code)
+    elif a.operation == "stop_waiting":
+        result = c.stop_waiting(words)
+    elif a.operation == "first_look_continue":
+        result = c.first_look_continue(words, a.source_head, a.register_hash)
     elif a.operation == "checkpoint" and not a.input:
         # Flags, not a hand-written JSON file: s0.md forbids hand-building service JSON on the
         # normal path, and `--input` stays for the full shape a role's own counters need.
@@ -8946,7 +9910,8 @@ def main():
     elif a.operation == "rework":
         request = c.build_rework_request(a.stage, a.role, (a.cases or "").split(","),
                                          reason, a.purpose, (a.rows or "").split(","),
-                                         a.cause, words_given=a.words_file is not None)
+                                         a.cause, words_given=a.words_file is not None,
+                                         parallel_window=bool(a.parallel_window))
         import launch_card   # late, like the other card-layer reads of this file
         result = ({"dispatched": False, "request": request} if a.build_only
                   else {"dispatched": True, "request": request,

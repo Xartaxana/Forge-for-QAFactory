@@ -2855,3 +2855,68 @@ def test_k5_an_empty_developer_file_is_stated_as_empty_not_as_foreign(tmp_path):
     _wr8(root, "tools/dev.config.yaml", "developer: dev1\n")
     lines, _ = _k5_lines(root)
     assert "JOURNAL: empty (logs/journal/dev1.jsonl)" in lines and "JOURNAL: write to logs/journal/dev1.jsonl" in lines
+
+
+# ---- TD-15.7: the test-quarantine session line (spec td-15 D.5 (1)) ----
+
+_TQ_ROWS = [
+    ("waiting", ["TEST QUARANTINE: 581 files since 2026-11-20 (cohort 1, entered at 0.10.9); releases since: 1 of 2"], "581 files since"),
+    ("not_pulled", ["TEST QUARANTINE: 581 files since 2026-11-20; pulled 2026-11-17 (7 d ago) -- run: python tools/test_quarantine.py pull"], "-- run: python tools/test_quarantine.py pull"),
+    ("ready", ["TEST QUARANTINE: READY TO DELETE cohort 1 -- 581 files since 2026-11-20"], "READY TO DELETE"),
+    ("alert_catch", ["TEST QUARANTINE ALERT: real catch 2026-11-25 -- test_x.py: why", "TEST QUARANTINE: 1 files"], "ALERT: real catch"),
+    ("alert_watch", ["TEST QUARANTINE ALERT: the watch has not run on CI for 9 d", "TEST QUARANTINE: 1 files"], "ALERT: the watch has not run"),
+    ("unknown", ["TEST QUARANTINE: status unknown (no pull yet)"], "status unknown"),
+]
+
+
+def _stub_tq(monkeypatch, fn):
+    import types
+    mod = types.ModuleType("test_quarantine")
+    mod.status_line = fn
+    monkeypatch.setitem(sys.modules, "test_quarantine", mod)
+
+
+@pytest.mark.parametrize("name,stub_lines,token", _TQ_ROWS, ids=[r[0] for r in _TQ_ROWS])
+def test_td157_quarantine_line_token_per_world(monkeypatch, tmp_path, name, stub_lines, token):
+    _stub_tq(monkeypatch, lambda root: list(stub_lines))
+    got = sc.test_quarantine_line(tmp_path)
+    assert got == stub_lines and any(token in l for l in got)
+    root = _seed_repo(tmp_path)
+    ctx = sc.build_context_lines(root, datetime.datetime(2026, 11, 10, 12, 0, 0))
+    i = [k for k, l in enumerate(ctx) if l.startswith("Last calibration:")][0]
+    assert ctx[i + 1 : i + 1 + len(stub_lines)] == stub_lines
+
+
+def test_td157_quarantine_line_empty_stub_adds_nothing(monkeypatch, tmp_path):
+    root = _seed_repo(tmp_path)
+    now = datetime.datetime(2026, 11, 10, 12, 0, 0)
+    _stub_tq(monkeypatch, lambda r: [])
+    assert sc.test_quarantine_line(root) == []
+    assert not any("TEST QUARANTINE" in l for l in sc.build_context_lines(root, now))
+
+
+def test_td157_quarantine_line_exception_is_one_unavailable_line_and_context_intact(monkeypatch, tmp_path):
+    root = _seed_repo(tmp_path)
+    now = datetime.datetime(2026, 11, 10, 12, 0, 0)
+    base = sc.build_context_lines(root, now)
+    def boom(r):
+        raise RuntimeError("x" * 400)
+    _stub_tq(monkeypatch, boom)
+    got = sc.test_quarantine_line(root)
+    assert len(got) == 1 and "unavailable" in got[0] and got[0].isascii() and len(got[0]) < 200
+    ctx = sc.build_context_lines(root, now)
+    assert [l for l in ctx if "TEST QUARANTINE" not in l] == [l for l in base if "TEST QUARANTINE" not in l]
+    assert sum("unavailable" in l and "TEST QUARANTINE" in l for l in ctx) == 1
+
+
+def test_td157_quarantine_line_real_function_no_records_no_line(tmp_path):
+    # a root with the package scripts but no layers file (a bare root with no package reads as "unknown", by the tool's own rule)
+    sys.modules.pop("test_quarantine", None)
+    root = _seed_repo(tmp_path)
+    scripts = root / "ai-packages" / "qa-factory" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "selftest.py").write_text(
+        "class TestLayersError(Exception):\n    pass\n\n"
+        "def test_layers(path):\n    return {'absent': True, 'quarantine': {}, 'cohorts': {}}\n", encoding="utf-8")
+    assert sc.test_quarantine_line(root) == []
+    assert not any("TEST QUARANTINE" in l for l in sc.build_context_lines(root, datetime.datetime(2026, 11, 10, 12, 0, 0)))

@@ -8,10 +8,9 @@ host adaptation 5 and the critic role file's rule 18 point here (B-419).
 ## The two layers (CLAUDE.md rule 3, the two-layer review rule)
 
 - **Mechanical layer** — attached by the BUILDER to its handoff, verbatim, before the critic starts:
-  the DoD run tails (D-0056, 21.10.2026: the changed module's test file plus the DoD keys — no
-  neighbours, no big files, no docker); the mutation LIST — per row the one-line mutant and the narrowest
-  test row that kills it, NOT run (the runs belong to the batch canon; a table without run output is per
-  D-0056, not a gap); the ratchets
+  the DoD run tails (D-0056, 21.10.2026: the files `scenario_walk.py --witness-for <owns>` prints — plus, until
+  `scripts/tests/test-layers.json` holds quarantine rows, the changed module's test file — and the DoD keys — no
+  neighbours, no big files, no docker); no mutation list (retired 10.11.2026, `docs/TESTING.md`); the ratchets
   (`dup_ratchet --check`, `lint_ratchet --check`) are NOT in the builder's layer: their result is the `forge-check` job of the
   branch or MR pipeline (batch level, `plans/builder-rules.md` 7b/7c; D-0033 as refined by the Lead), which the critic reads, never
   re-runs; the old-vs-new counts where the spec asks for them. A layer not attached
@@ -35,9 +34,16 @@ host adaptation 5 and the critic role file's rule 18 point here (B-419).
    comes back as a line the Lead writes into «Остатки» as is: `<what> | узел: <node id>` (a node row the Lead opens in an
    untaken batch, D-0044) or `<what> | перенос: <findings/<file> | пачка N> | обоснование: <why> | подтвердил: —`; a bare queue
    line is refused by `piles.py check` (д) (F6-30).
-5. **Tests**: every edge pinned, every named mutation has a killing test — judged by READING the
-   named test row against the one-line mutant (would the assertion fail?), never by running it
-   (D-0056: the mutation pass is the batch canon's), boundaries at and beyond the limits.
+5. **Tests** (`docs/TESTING.md`, the owner's word 10.11.2026): would the node's test catch the defect the node
+   exists for, through the door the factory uses — judged by READING it; is there a junction test when the node
+   changes a field, a refusal or a handoff form. Findings: a pin on role text, on the source of a script, on a
+   measured constant, a receipt per DoD key / edge / mutation, a negative control inside a test (the table
+   «не пишется» of `docs/TESTING.md`); more test lines than product lines with no reason named; a subprocess per
+   check where one world per file would do. A missing pin is NOT a finding. The layers
+   (`ai-packages/qa-factory/scripts/tests/test-layers.json`, spec `docs/tasks/specs/td-15-scenarios-quarantine.md`): a new
+   test file with no keep row, or a keep row whose layer/why does not hold — finding; an edit to a quarantined file without a
+   `quarantine-edit:` reason that holds — finding; a phase-2 move whose replacement does not catch the detector's class —
+   finding.
 6. **DUPLICATION AND CONSISTENCY**: does the diff implement anything the repository already has a
    reader, writer, helper, data table, refusal text builder, tokenizer or path resolver for? For
    each such place: the existing one with file:line, and whether the diff should have reused it,
@@ -67,6 +73,20 @@ host adaptation 5 and the critic role file's rule 18 point here (B-419).
     section marked craft escapes the process ratchet). Each is a finding with a severity; a `judgment: none` or `adds data check` on a diff
     that does move judgment blocks. The census (`scripts/tests/fixtures/judgment-census.json`) and `role-load.json` `process_ratchet_tokens`
     are shrink-only ratchets of axis 18 — question 9 applies to them.
+
+12. **ONE ROAD** (P31, AR-1, AR-2, AR-15; SIBLING_MAP axis 34; asked on a plan gate too, where there is no diff yet): does the spec or
+    the diff take one action by a different road for a language, project or case: does a shared mechanism go another way for it, or not
+    reach it? An ordinary condition of the task is not one. (a) A non-goal, a table row, an "unchanged" or a "not supported for X" that
+    leaves a language, project or case outside a shared mechanism blocks, unless the difference is a data row with a default read by a
+    capability key, one role step taken alike on every side, or the owner's word quoted with its carrier; read the carrier (a paraphrase
+    by a Lead or a builder is not the word, PROJECT.md «Командная работа» п. 6). (b) A new branch, parser or runner check on a language,
+    runner or project name in the diff: name its data row or its door. Once `tools/language-sites-baseline.json` exists (spec t-2065 N2),
+    read its row and the `tools/language_sites.py --raises --base <merge base>` output attached by the mechanical layer, then walk the forms
+    the tool cannot see (its docstring, "KNOWN MISSES"); until then the search is yours, and the verdict names it. (c) An exclusion that
+    STAYS (the owner's word, or a census row of `docs/tasks/specs/reports/t-2046-language-exceptions-census.md` not yet fixed) is named
+    in the verdict like a ratchet raise, row by row: what, which mechanism, its carrier or its node; an unnamed one is a finding. (d) A
+    residual of this class, yours or an earlier verdict's: a fix in this round or a node with an id and an owner; a line for the
+    coordinator to tell someone is itself a finding. An empty answer is explicit: "none found: <what was grepped>".
 
 ## What comes back
 

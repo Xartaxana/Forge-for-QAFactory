@@ -26,12 +26,13 @@ from harness import (FIXTURES, SCRIPTS, check, check_eq, check_in, check_not_in,
                      temp_dir)
 
 import acceptance  # noqa: E402
+import probe_entries as PE  # noqa: E402
 import assertion_detectors as AD  # noqa: E402
 import contract as C  # noqa: E402
 import probe_by_code as PBC  # noqa: E402
 import proof_level as PL  # noqa: E402
 from test_probe_by_code import (DISPATCH, OBLIGATION_REFS, PROVENANCE, TASK, cleanup_beside, env_for,  # noqa: E402
-                                seed_author_job, write_json)
+                                model_entries, mutated_line, read_check_record, seed_author_job, write_json)
 from test_probe_by_code import tree_state as _tree_state  # noqa: E402
 
 PY = sys.executable
@@ -67,7 +68,10 @@ project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or cwd).resolve()
 test_path = (project / cfg["file"]).resolve()
 raw = test_path.read_bytes()
 lines = raw.decode("utf-8-sig").splitlines()
-hit = cfg["after"] in lines[cfg["line"] - 1]
+hit = cfg.get("hit", cfg["after"]) in lines[cfg["line"] - 1]   # t-1968 N1: a marked statement is not `after` byte for byte
+# t-2064 P4b: a walk runs EVERY check of the body, one inverted at a time; `also` lists the other checks of the fixture ([line, after]): the
+# row fails when any of them holds its inverted statement, so each check of the plan meets the failure the first one always met
+hit = hit or any(n <= len(lines) and a in lines[n - 1] for n, a in cfg.get("also", []))
 status = "failed" if hit else "passed"
 if mode == "pass_anyway":
     status = "passed"
@@ -79,6 +83,13 @@ site_line = cfg["line"] + (3 if mode == "wrong_line" else 0)
 stack = cfg["lib"] + cfg["stack"] if mode == "lib_frames_first" else ([] if mode == "no_frames" else cfg["stack"])
 stack = [s.replace("{path}", test_path.as_posix()).replace("{line}", str(site_line)) for s in stack]
 message = cfg["drift"] if mode == "drifted_message" else cfg["message"]
+# t-2064 N3b: the runner prints the token the way the mutated check would (the marker is joined at run time, so it is in the
+# message and in no echo of the source): read from the bytes this stub was handed. `drifted_message` and `wrong_line` print none -
+# the failure text a library wrote, which only the code critic judges
+import re
+found = re.search(r"qa-probe[\"',\s]+([0-9a-f]{12})", raw.decode("utf-8-sig"))
+if found and mode not in ("drifted_message", "wrong_line"):
+    message = "qa-probe-" + found.group(1) + " " + message
 ids = [cfg["report_id"]]
 if mode == "no_row":
     ids = ["Some.Other.Test"]
@@ -129,7 +140,7 @@ summary = {"task": request["task"], "label": label, "exit_code": 0 if status == 
            "summary_path": summary_path.relative_to(project).as_posix(),
            "report_evidence": {"path": report.relative_to(task_root).as_posix(),
                                "sha256": hashlib.sha256(report.read_bytes()).hexdigest()},
-           "stub_seen_sha256": hashlib.sha256(raw).hexdigest(), "stub_seen_prefix": raw[:3].hex(),
+           "stub_seen_sha256": hashlib.sha256(raw).hexdigest(), "stub_seen_prefix": raw[:3].hex(), "stub_seen_text": raw.decode("utf-8-sig"),
            "stub_seen_crlf": raw.count(b"\r\n"), "stub_hit": hit,
            "stub_selected": request.get("selected_instance_ids"),
            "stub_argv": request["command"].get("argv"), "stub_selector_args": request["command"].get("selector_args")}
@@ -142,11 +153,15 @@ sys.exit(summary["exit_code"])
 
 LANGS = {
     "csharp": dict(
+        marker=False,     # xunit `Assert.Equal` takes no message: no token, so the critic judges (N3b)
         fixture="CalcTests.cs", file="tests/CalcTests.cs", root_test="tests", iid="Adds", test="CalcTests.Adds",
         selector="CalcTests.Adds", selector_args=["--filter", "FullyQualifiedName~CalcTests.Adds"],
         report_id="Acme.Tests.CalcTests.Adds", reporter="trx",
         argv=["dotnet", "test", "--logger", "trx;LogFileName={report_path}"],
         first="            Assert.Equal(4, Calc.Add(2, 2));", after="Assert.NotEqual(4, Calc.Add(2, 2));",
+        # t-2064 P4b: the fixture's body has a SECOND check, one line below (the walk runs it): (lines below the first, its inverted text, takes a
+        # marker). `Assert.True(cond)` takes a message in xunit, so the factory's token rides on it where `Assert.Equal` of the first takes none
+        also=[(1, "Assert.False(note.Length > 0", True)],
         message="Assert.NotEqual() Failure: Values are equal\nExpected: Not 4\nActual:   4",
         drift="Assert.NotEqual() has failed: the values were equal", type="Xunit.Sdk.NotEqualException",
         text_prefix="",
@@ -154,11 +169,13 @@ LANGS = {
         lib=["   at Xunit.Assert.NotEqual[T](T expected, T actual) in /_/src/xunit.assert/Asserts/EqualityAsserts.cs:line 372",
              "   at System.RuntimeMethodHandle.InvokeMethod(Object target, Signature sig)"]),
     "java": dict(
+        marker=True,      # JUnit `assertEquals(.., message)` takes one (M-J5): the stub reads the token from the mutated bytes
         fixture="CalcTest.java", file="src/test/java/com/acme/CalcTest.java", root_test="src/test", iid="adds",
         test="CalcTest.adds", selector="CalcTest#adds", selector_args=["-Dtest=CalcTest#adds"],
         report_id="com.acme.CalcTest::adds()", reporter="junit-xml",
         argv=["mvn", "-q", "test", "-Dsurefire.reportsFile={report_path}"],
         first="        assertEquals(4, Calc.add(2, 2));", after="assertNotEquals(4, Calc.add(2, 2));",
+        hit="assertNotEquals(4, Calc.add(2, 2)",    # the real run carries the factory's message marker after the last argument (N1)
         message="expected: not equal but was: <4>", drift="the values should have been different",
         type="org.opentest4j.AssertionFailedError", text_prefix="org.opentest4j.AssertionFailedError: {message}\n",
         stack=["\tat com.acme.CalcTest.adds(CalcTest.java:{line})",
@@ -166,6 +183,7 @@ LANGS = {
         lib=["\tat org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:55)",
              "\tat org.junit.jupiter.api.AssertNotEquals.failEqual(AssertNotEquals.java:179)"]),
     "typescript": dict(
+        marker=False,     # jest `expect(..).toBe` outside @playwright/test takes none (M-TS2 has a `source` condition)
         fixture="sum.test.ts", file="src/sum.test.ts", root_test="src", iid="adds", test="adds",
         selector="adds", selector_args=["src/sum.test.ts", "-t", "adds"],
         report_id="calc adds::calc adds", reporter="junit-xml",
@@ -191,10 +209,22 @@ def first_line(lang: str, data: bytes = None) -> int:
 def stub_cfg(lang: str, mode: str = "normal", **over) -> dict:
     spec = LANGS[lang]
     cfg = {key: spec[key] for key in ("file", "after", "message", "drift", "type", "text_prefix", "stack", "lib",
-                                      "reporter", "report_id")}
+                                      "reporter", "report_id", "hit") if key in spec}
     cfg.update(mode=mode, line=first_line(lang))
+    cfg["also"] = [[cfg["line"] + offset, text] for offset, text, _marker in spec.get("also", [])]
     cfg.update(over)
     return cfg
+
+
+def check_lines(lang: str) -> list:
+    """The 1-based lines of the fixture body's checks, in the order the plan walks them (t-2064 P4b: every check, not the first only)."""
+    first = first_line(lang)
+    return [first] + [first + offset for offset, _text, _marker in LANGS[lang].get("also", [])]
+
+
+def check_markers(lang: str) -> list:
+    """Per check of `check_lines`: does its form take the factory's message marker (the fixture's, never read back from a record)?"""
+    return [LANGS[lang]["marker"]] + [marker for _offset, _text, marker in LANGS[lang].get("also", [])]
 
 
 def lang_project(lang: str, *, data: bytes = None, argv=None, verified: bool = True, extra_entries=(),
@@ -248,8 +278,27 @@ def lang_project(lang: str, *, data: bytes = None, argv=None, verified: bool = T
     return root
 
 
+def write_entries(root: Path, keys: list) -> None:
+    """The window's model file with one `invert` entry per key, written only when its bytes differ (a refusal test takes its tree
+    snapshot AFTER calling this, and a rewrite of the same bytes would move the mtime the snapshot compares)."""
+    path = root / "qa-factory" / "artifacts" / TASK / "work" / "probe-models" / f"{DISPATCH}.json"
+    wanted = json.dumps({"models": [{"check": key, "invert": PE.DEFAULT_REASON} for key in keys]})
+    if not path.is_file() or path.read_text(encoding="utf-8") != wanted:
+        PE.write_invert_entries(root / "qa-factory" / "artifacts" / TASK, DISPATCH, keys=list(keys))
+
+
 def lrun(root: Path, stub: Path, node: str, instance: str, cfg: dict, *args, **env):
-    """The CLI, as a role runs it: (process, parsed JSON of stdout or {})."""
+    """The CLI, as a role runs it: (process, parsed JSON of stdout or {}). t-2064 P4b: a call with no `--at` and no `--oracle` walks every
+    check and needs a model entry per check, so the window's model file is written first (`model_entries`). `--at <line>` is a plan of the
+    one selected row on the same road and needs the entry of THAT key (`<file of the node>:<line>`, written by hand: `--plan` need not list
+    it, a line of an ambiguous declaration is not on the plan); `--oracle` needs the keys of the helper's checks, which the section that
+    passes it writes (none here)."""
+    if "--oracle" not in args:
+        if "--at" in args:
+            at = str(args[args.index("--at") + 1])
+            write_entries(root, [at if ":" in at else f"{node.split('::')[0]}:{at}"])
+        else:
+            model_entries(root, stub, node, instance)
     proc = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--test", node, "--instance", instance,
                       "--json", *args, cwd=root,
                       env=env_for(root, stub, LANG_STUB=json.dumps(cfg), PROBE_SCRIPTS_DIR=str(SCRIPTS), **env))
@@ -268,6 +317,24 @@ def tree_state(root: Path) -> dict:
     change of anything the author or the story owns, which is what a refusal must leave alone."""
     return {k: v for k, v in _tree_state(root).items()
             if not (k.startswith("qa-factory/state/probe-copies/") and k.endswith(".lock")) and not _tool_refusal_file(root, k)}
+
+
+def tree_state_with_entries(root: Path, stub: Path, node: str, instance: str) -> dict:
+    """`tree_state` taken AFTER the window's model file is written (TR2-14): `lrun` writes that file before the call, which is world and not
+    the probe's work (same bytes, `model_entries`), so a snapshot taken before it would report the file as a change the refusal made."""
+    model_entries(root, stub, node, instance)
+    return tree_state(root)
+
+
+def refusal_record_of(root: Path, instance: str) -> tuple:
+    """(`refused`, `verdict`) of the instance's record on disk, or (None, None): the positive half of "the tree is unchanged" for a refusal of
+    the TOOL, which `tree_state` leaves out (TR2-14)."""
+    path = task_of(root) / "work" / "probes" / f"{instance}.json"
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return (None, None)
+    return (body.get("refused"), body.get("verdict"))
 
 
 def _tool_refusal_file(root: Path, rel: str) -> bool:
@@ -772,8 +839,9 @@ def tail_and_names() -> None:
     check_in("parse: a method name that is not an identifier is refused", "not an identifier",
              refusal_of(lambda: PBC.parse_node("t/T.cs::T.Adds Two")))
     check_in("parse: nothing after `::` is refused", "nothing follows", refusal_of(lambda: PBC.parse_node("t/T.cs::::")))
-    check_eq("parse: a Python node is still a Python node (no language)", PBC.parse_node("tests/test_calc.py::TestX::test_y[p]")
-             .get("language"), None)
+    check_eq("parse: a Python node carries its language, entry and tail since N3b (reader stays `ast`)",
+             (lambda s: (s["language"], s["reader"], s["tail"], bool(s["entry"]["forms"])))(PBC.parse_node("tests/test_calc.py::TestX::test_y[p]")),
+             ("python", "ast", "TestX::test_y", True))
     check_eq("parse: .PY (upper case) is not Python's path and has no entry",
              "no assertion probe" in refusal_of(lambda: PBC.parse_node("tests/test_calc.PY::test_y")), True)
     check_eq("E10 (the interim rule): a file under roots.test and no protected path",
@@ -801,7 +869,8 @@ def verdict_table() -> None:
     msg = "Assert.NotEqual() Failure: Values are equal\nExpected: Not 4"
 
     def row(status, message=msg, text="", kind="failure"):
-        problems = [] if status in ("passed", "not_run") else [{"kind": kind, "message": message, "text": text}]
+        # a skipped row holds no failure or error problem (a row that does is `failed`, never read as not executed, t-2045 E-P)
+        problems = [] if status in ("passed", "not_run", "skipped") else [{"kind": kind, "message": message, "text": text}]
         return {"test_id": "x", "status": status, "problems": problems}
 
     def site(line=11, kind="assertion", **extra):
@@ -811,7 +880,7 @@ def verdict_table() -> None:
     dotnet, wrapper = ["dotnet", "test", "--filter", "x"], ["bash", "run.sh"]
 
     def judge(r, s, d=None, *, among=False, argv=dotnet, e=entry):
-        return PBC.judge_detector(r, s, e, d or detail, among=among, argv=argv)
+        return PBC.judge_probe_row(r, s, e, d or detail, among=among, argv=argv)
 
     cells = [
         ("passed + --at among 2+ candidates", judge(row("passed"), {}, dict(detail, candidates=[8, 20], at=15), among=True), "incomplete"),
@@ -822,12 +891,14 @@ def verdict_table() -> None:
         ("error", judge(row("error", kind="error"), {}), "incomplete"),
         ("failed + site unread", judge(row("failed"), unread), "incomplete"),
         ("failed + no location and no marker", judge(row("failed"), {}), "incomplete"),
-        ("failed in the statement + fires_as matches", judge(row("failed"), site()), "intended_failure"),
-        ("failed on the statement's last line", judge(row("failed"), site(12)), "intended_failure"),
+        # N3b: only the marker proves; the place and the library's wording (`fires_as`) are facts, never a verdict
+        ("failed in the statement + the marker in its text", judge(row("failed", msg, "qa-probe-t1"), site(), dict(detail, message_marker="qa-probe-t1", fires_as=None)), "intended_failure"),
+        ("failed on the statement's last line + the marker", judge(row("failed", msg, "qa-probe-t1"), site(12), dict(detail, message_marker="qa-probe-t1", fires_as=None)), "intended_failure"),
         ("failed in the statement + fires_as does not match", judge(row("failed", "Assert.NotEqual() has failed"), site()), "incomplete"),
-        ("failed one line above the statement", judge(row("failed"), site(10)), "wrong_location"),
-        ("failed one line below the statement", judge(row("failed"), site(13)), "wrong_location"),
-        ("failed in another project file (exception)", judge(row("failed"), site(11, "exception")), "wrong_location"),
+        ("failed one line above the statement", judge(row("failed"), site(10)), "incomplete"),
+        ("failed one line below the statement", judge(row("failed"), site(13)), "incomplete"),
+        ("failed in another project file (exception)", judge(row("failed"), site(11, "exception")), "incomplete"),
+        ("failed in the statement + fires_as matches, no marker", judge(row("failed"), site()), "incomplete"),
         ("skipped", judge(row("skipped"), {}), "not_executed"),
         ("not_run", judge(row("not_run"), {}), "not_executed"),
     ]
@@ -841,17 +912,20 @@ def verdict_table() -> None:
     check_in("F9: the no_failure note names the launcher that builds by default", "builds by default (`dotnet test`)",
              judge(row("passed"), {})["note"])
     check_in("E5: the --at note says a pass does not tell which body ran", "does not say which body ran", cells[0][1]["note"])
-    check_in("E15: the drift note names the pair and says the row is the factory's", "pair X1", cells[10][1]["note"])
-    check_eq("R8: wrong_location names the site and the message", (cells[11][1]["actual_location"], cells[11][1]["actual_reason"]),
-             ("tests/CalcTests.cs:10", "Assert.NotEqual() Failure: Values are equal"))
-    check_eq("R8: wrong_location's mismatch is the location", cells[11][1]["mismatches"], ["location"])
+    # t-1968 N2 (spec "Required behaviour" item 1) replaced the old note: the pair travels in `judgment_facts.fires_as_pair` (pinned in test_probe_marker_judgment.py)
+    check_in("E15: the drift note says the factory cannot read the text and the code critic judges it", "the code critic judges it",
+             cells[10][1]["note"])
+    check_eq("E15: ...and the cause is judgment", cells[10][1].get("cause"), "judgment")
+    check_eq("R8 N3b: a failure at another place is judgment, never wrong_location, whatever the wording says",
+             [(cells[i][1]["verdict"], cells[i][1].get("cause"), cells[i][1]["actual_location"]) for i in (11, 12, 13, 14)],
+             [("incomplete", "judgment", None)] * 4)
     check_eq("R8: observed keeps the message head, the frame and the site",
              (cells[8][1]["observed"]["message_head"], cells[8][1]["observed"]["frame"], cells[8][1]["observed"]["location"]),
              ("Assert.NotEqual() Failure: Values are equal", "  at X", "tests/CalcTests.cs:11"))
     # TS: not compiled - a pass is a no_failure through any launcher, with the residual risk said in `observed`
     ts = AD.assertion_detectors()["typescript"]
     tdetail = dict(detail, language="typescript")
-    got = PBC.judge_detector(row("passed"), {}, ts, tdetail, among=False, argv=["bash", "run.sh"])
+    got = PBC.judge_probe_row(row("passed"), {}, ts, tdetail, among=False, argv=["bash", "run.sh"])
     check_eq("E14: TypeScript is not compiled: a pass through any launcher is a no_failure", got["verdict"], "no_failure")
     check_in("E14: ... with the residual risk said in `observed`", "compiled output", got["observed"].get("residual", ""))
     # the message and the text: message first; the text above the first frame when the message is empty or misses
@@ -864,8 +938,10 @@ def verdict_table() -> None:
                                            ("neither matches", "boom", "Error: boom\n      at x (/a.ts:1:1)", False),
                                            ("a code frame echoing the statement is not the start of the text",
                                             "", "boom\n  > 11 |   expect(received).not.toBe(3);\n      at Object.<anonymous> (/clone/src/sum.test.ts:11:20)", False)):
-        got = PBC.judge_detector(row("failed", message, text), site(), ts, dict(ts_detail, language="typescript"), among=False, argv=[])
-        check_eq(f"R8 (L8): {label}", got["verdict"] == "intended_failure", expected)
+        got = PBC.judge_probe_row(row("failed", message, text), site(), ts, dict(ts_detail, language="typescript"), among=False, argv=[])
+        check_eq(f"R8 (L8) N3b: {label}: the wording alone proves nothing", got["verdict"] == "intended_failure", False)
+        check_eq(f"R8 (L8): {label}: `fires_on` still reads it (the `missed` note's fact)",
+                 PBC.fires_on(row("failed", message, text), ts, ts_detail["fires_as"]), expected)
     check_eq("the text above the first frame: stops at a frame or a skipped line",
              PBC.text_head("a\nb\n      at x (/p/a.ts:1:2)\nc", ts), "a\nb")
     check_eq("the launcher words: basenames, .exe/.cmd/.bat stripped, joined by spaces",
@@ -889,37 +965,84 @@ def one_language(stub: Path, lang: str) -> None:
         original = target.read_bytes()
         proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
         label = f"{lang}"
+        lines, markers = check_lines(lang), check_markers(lang)
+        keys = [f"{spec['file']}:{n}" for n in lines]
+        rows = record.get("checks") or []
+        # F5: the expectation is the FIXTURE's (`marker` in LANGS), never read back from the record: a marker lost on a form that must
+        # carry one is a red here, not a quiet turn onto the judgment branch. t-2064 P4b (old -> new): `mutation_detail.message_marker` of the one
+        # mutation -> `proved_by == "marker"` of each CHECK row of the walk (the aggregate has one row per check, the fixture says per check)
+        check_eq(f"{lang} F5: each check row carries a marker exactly where the fixture's form takes one",
+                 [r.get("proved_by") == "marker" for r in rows], markers)
+        if not all(markers):
+            # t-2064 N3b: a form that takes no message (xunit `Assert.Equal`) carries no token, so no runner text proves the probe:
+            # the code critic judges it (INV: only our own text proves without a role). The rest of the case goes on after that judgment.
+            check_eq(f"{label} N3b: no token in the form, so the failure at the statement is judgment, not proved",
+                     (proc.returncode, record.get("verdict"), [r.get("verdict") for r in rows], [r.get("cause") for r in rows],
+                      [r.get("proved_by") for r in rows]),
+                     (1, "incomplete", ["intended_failure" if m else "incomplete" for m in markers],
+                      [None if m else "judgment" for m in markers], ["marker" if m else None for m in markers]))
+            judged = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--judge", spec["iid"], "--verdict", "fires",
+                                "--quote", spec["message"].splitlines()[0], "--json", cwd=root, env=env_for(root, stub, PROBE_SCRIPTS_DIR=str(SCRIPTS)))
+            try:
+                answer = json.loads(judged.stdout)
+            except ValueError:
+                answer = {}
+            check_eq(f"{label} N3b: the critic's `fires` proves it", (answer.get("verdict"), answer.get("proved_by")),
+                     ("intended_failure", "critic"))
+            # t-2064 fix Q7 (repin): the judgment re-folds the aggregate ON DISK (the product did that already: verdict, receipt, publish); this
+            # case kept reading `record` and `proc` of the walk BEFORE the judgment, so every pin below read the owed state. From here the call
+            # is the judging call (`proc`) and the record is the one the judgment left (the same file `--judge` answered from)
+            proc = judged
+            record = json.loads((task_of(root) / "work" / "probes" / f"{spec['iid']}.json").read_text(encoding="utf-8"))
         check(f"{label}: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
         check_eq(f"{label} K1a: intended_failure", record.get("verdict"), "intended_failure")
-        line = first_line(lang)
+        line = lines[0]
         check_eq(f"{label}: expected_location is the project-relative path and the statement's line",
                  record.get("expected_location"), f"{spec['file']}:{line}")
         check_eq(f"{label}: actual_location equals it", record.get("actual_location"), record.get("expected_location"))
-        check_in(f"{label}: the reason is the marker (statement, `fires as`)", "fires as /", str(record.get("expected_reason")))
+        # t-2064 P4b (old -> new): the reason was the marker (`fires as /`) of the one mutation; the aggregate's reason counts the plan
+        check_eq(f"{label}: the reason says every check of the plan proved", record.get("expected_reason"),
+                 f"{len(lines)} of {len(lines)} checks of the plan proved")
         check_eq(f"{label}: actual_reason equals it", record.get("actual_reason"), record.get("expected_reason"))
         check_eq(f"{label}: failure_kind assertion, mutation_kind assertion, level live",
                  (record.get("failure_kind"), record.get("mutation_kind"), record.get("proof_level")), ("assertion", "assertion", "live"))
         detail = record.get("mutation_detail") or {}
-        check_eq(f"{label}: the detail names the style, the language and the line", (detail.get("style"), detail.get("language"), detail.get("line"), detail.get("end_line")),
-                 ("detector", lang, line, line))
-        check_eq(f"{label}: the statement after the inversion", detail.get("statement_after"), spec["after"])
-        check_eq(f"{label}: at is None, the candidate is the one declaration", (detail.get("at"), len(detail.get("candidates") or [])), (None, 1))
-        check(f"{label}: the detail carries the head, the pair and the fires_as",
-              all(detail.get(k) is not None for k in ("head", "pair", "pair_id", "fires_as", "marker", "form", "matcher_at")), str(detail))
+        # old: style, language, line, end_line of the detector's mutation -> the aggregate's `mutation_detail` is {file, line, end_line, checks}
+        # (the first check's place and the keys of the plan); style and language are not carried (they were the detector's, not a fact of the run)
+        check_eq(f"{label}: the detail names the file, the first check's line and the plan's keys",
+                 (detail.get("file"), detail.get("line"), detail.get("end_line"), detail.get("checks")), (spec["file"], line, line, keys))
+        # old: `statement_inverted` of the record == the fixture's inverted text; new: the bytes the runner saw (stub_seen_text of its first
+        # run's evidence) hold that text at the first check's line (N1: a marked statement is not `after` byte for byte, so the fixture's `hit`)
+        check_in(f"{label}: the statement after the inversion is what the runner saw on the first check's line",
+                 spec.get("hit", spec["after"]), mutated_line(root, record, line))
+        # old: at is None and the one declaration is the one candidate -> the plan is exactly the body's checks, each run once, none left
+        check_eq(f"{label}: the plan is the body's checks, each run once, none left", (len(rows), record.get("plan_runs"), record.get("plan_remaining")),
+                 (len(lines), len(lines), []))
+        # old: the detail carried head, pair, pair_id, fires_as, marker, form, matcher_at -> each check has its own record naming its key, its kind
+        # (`invert`) and the entry it ran
+        own = [read_check_record(root, spec["iid"], i) for i in range(len(lines))]
+        check_eq(f"{label}: every check has its own record: its key, `invert`, its entry's hash, its target",
+                 [(r.get("check_key"), r.get("probe_kind"), bool(r.get("entry_sha")), (r.get("target") or {}).get("line")) for r in own],
+                 [(k, "invert", True, n) for k, n in zip(keys, lines)])
         check_eq(f"{label}: the file is byte-identical afterwards", target.read_bytes(), original)
-        check_eq(f"{label}: the restore is verified, from the copy, and no copy is left",
-                 ((record.get("restore") or {}).get("verified"), (record.get("restore") or {}).get("restored_from"), copies_left(root)),
-                 (True, "copy", []))
+        # old: `restore.restored_from == "copy"` (the aggregate has no such key) -> the restore's sha is the author's, and one restore per run
+        check_eq(f"{label}: the restore is verified, to the author's bytes, once per run, and no copy is left",
+                 ((record.get("restore") or {}).get("verified"), (record.get("restore") or {}).get("sha256"), (record.get("restore") or {}).get("runs"),
+                  copies_left(root)), (True, PBC.sha256(original), len(lines), []))
         # E20: a file that is not Python gets mtime "now" - the author's next build rebuilds it
         check(f"{label} E20: the restored file's mtime is NOW, not the old one", target.stat().st_mtime_ns > old + 10 ** 15)
         evidence = (task_of(root) / record["evidence_ref"]) if record.get("evidence_ref") else None
         summary = json.loads(evidence.read_text(encoding="utf-8")) if evidence and evidence.suffix == ".json" else {}
         check(f"{label}: the runner saw the MUTATED bytes", summary.get("stub_hit") is True and summary.get("stub_seen_sha256") != PBC.sha256(original))
-        request = json.loads((task_of(root) / record["request"]).read_text(encoding="utf-8"))
-        check_eq(f"{label} R7: the request is for the whole case, never a node id", (request.get("purpose"), request.get("selected_instance_ids")),
-                 ("red_probe", [spec["iid"]]))
-        check_eq(f"{label} R7: with the manifest's own selector arguments", request["command"]["selector_args"], {spec["iid"]: spec["selector_args"]})
-        check_eq(f"{label}: the request is built by this tool", (request.get("built_by") or {}).get("tool"), "probe_by_code.py")
+        # old: the one request `record["request"]` (None on the walk) -> one request per run, `work/probe-requests/probe-walk-<iid>-<n>.json`
+        requests = [json.loads((task_of(root) / "work" / "probe-requests" / f"probe-walk-{spec['iid']}-{n}.json").read_text(encoding="utf-8"))
+                    for n in range(1, len(lines) + 1)]
+        check_eq(f"{label} R7: every request is for the whole case, never a node id", [(r.get("purpose"), r.get("selected_instance_ids")) for r in requests],
+                 [("red_probe", [spec["iid"]])] * len(lines))
+        check_eq(f"{label} R7: with the manifest's own selector arguments", [r["command"]["selector_args"] for r in requests],
+                 [{spec["iid"]: spec["selector_args"]}] * len(lines))
+        check_eq(f"{label}: the requests are built by this tool", [(r.get("built_by") or {}).get("tool") for r in requests],
+                 ["probe_by_code.py"] * len(lines))
         # the receipt, the publish and the window
         receipt = record.get("receipt") or {}
         check(f"{label} K1a: the live receipt is written and on disk", bool(receipt.get("path")) and (task_of(root) / receipt["path"]).is_file(), str(record.get("receipt_missing")))
@@ -927,8 +1050,9 @@ def one_language(stub: Path, lang: str) -> None:
         manifest = json.loads((task_of(root) / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
         row = next(t for t in manifest["tests"] if t["instance_id"] == spec["iid"])
         check_eq(f"{label} K1a: the contract takes the receipt unchanged", C.sensitivity_proof_issues(row, task_of(root)), [])
+        on_disk = task_of(root) / str(receipt.get("path") or "no-receipt")
         check_eq(f"{label} K1a: the receipt's bytes are the raw sha of the file the probe measured",
-                 json.loads((task_of(root) / receipt["path"]).read_text(encoding="utf-8")).get("test_content_hash"), PBC.sha256(original))
+                 json.loads(on_disk.read_text(encoding="utf-8")).get("test_content_hash") if on_disk.is_file() else None, PBC.sha256(original))
         check_eq(f"{label} K1a: the window built from the record has no gap", window_gaps(root, record, spec["iid"]), [])
         broken = dict(record["window_probe"], verdict="incomplete")
         item_gaps = window_gaps(root, dict(record, window_probe=broken), spec["iid"])
@@ -951,7 +1075,13 @@ def one_language(stub: Path, lang: str) -> None:
                  "intended_failure")
         # K2/E13: the same test, a pass through the launcher
         proc, got = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, "pass_anyway"))
-        check_eq(f"{label}: a second probe of the same bytes is answered, not run", got.get("verdict"), "already_probed")
+        # PRODUCT QUESTION 1 (t-2064-p4b2t2-report.md): a repeat answers the aggregate, not `already_probed`
+        check_eq(f"{label}: a second probe of the same bytes is answered, not run (PRODUCT QUESTION 1)", got.get("verdict"), "already_probed")
+        # t-2064 TR2-14 (B3): the second call is answered `already_probed` (the repeat on the same bytes and the same model launches nothing), and the
+        # proved verdict stands on disk: the pass of the stub did not unprove it
+        check_eq(f"{label}: the second call keeps the proved verdict (answered `already_probed`), a pass does not unprove it",
+                 (got.get("verdict"), json.loads((task_of(root) / "work" / "probes" / f"{spec['iid']}.json").read_text(encoding="utf-8")).get("verdict")),
+                 ("already_probed", "intended_failure"))
     finally:
         cleanup(root)
         cleanup_beside(root)
@@ -964,12 +1094,15 @@ def one_language(stub: Path, lang: str) -> None:
         check_eq(f"{label} K2: a passed row after a verified mutation is no_failure, exit 0", (proc.returncode, record.get("verdict")), (0, "no_failure"))
         check_eq(f"{label}: the bytes are back, no receipt, nothing published", ((root / spec["file"]).read_bytes() == original,
                                                                                 record.get("receipt"), record.get("publish")), (True, None, None))
+        # t-2064 P4b (old -> new): the notes of the one record -> the note of each CHECK row (the aggregate's `notes` hold the command notes only),
+        # and the residual of `observed` -> `observed` of each check's own record
+        check_rows = [r.get("note", "") for r in record.get("checks") or []]
         if LANGS[lang]["argv"][0] in ("dotnet", "mvn"):
-            check_in(f"{label}: the note names the launcher that builds by default", "the launcher builds by default",
-                     " ".join(record.get("notes") or []))
+            check_eq(f"{label}: every check's note names the launcher that builds by default",
+                     ["the launcher builds by default" in n for n in check_rows], [True] * len(check_markers(lang)))
         else:
             check_in(f"{label}: not compiled - the residual risk is said in `observed`", "compiled output",
-                     (record.get("observed") or {}).get("residual", ""))
+                     (read_check_record(root, spec["iid"]).get("observed") or {}).get("residual", ""))
     finally:
         cleanup(root)
         cleanup_beside(root)
@@ -981,10 +1114,26 @@ def one_language(stub: Path, lang: str) -> None:
         check_eq(f"{label} F9: a pass through a wrapper launcher gives {wanted}", (record.get("verdict"), proc.returncode),
                  (wanted, 0 if wanted == "no_failure" else 1))
         if wanted == "incomplete":
-            check_in(f"{label} F9: and says the launcher may not rebuild", "may never have reached the build", " ".join(record.get("notes") or []))
+            check_in(f"{label} F9: and says the launcher may not rebuild", "may never have reached the build",
+                     " ".join(r.get("note", "") for r in record.get("checks") or []))   # t-2064 P4b: the note is on the check rows
     finally:
         cleanup(root)
         cleanup_beside(root)
+
+
+def one_check_data(lang: str) -> bytes:
+    """The language's fixture with the body's EXTRA checks cut off (t-2064 P4b: the walk runs every check of a body, and the fixture's C# `Adds`
+    has two). A section that pins the reading of ONE failing row takes this data: a plan of one check, so the call's verdict is that row's."""
+    spec = LANGS[lang]
+    data = (FIX / spec["fixture"]).read_bytes()
+    first = first_line(lang, data)
+    cut = {first + offset for offset, _text, _marker in spec.get("also", [])}
+    return b"".join(ln for n, ln in enumerate(data.splitlines(keepends=True), 1) if n not in cut)
+
+
+def said(record: dict) -> str:
+    """Everything the aggregate says in words: its notes and the note of each check row (t-2064 P4b: the old record's `notes` were both)."""
+    return " ".join(list(record.get("notes") or []) + [str(r.get("note") or "") for r in record.get("checks") or []])
 
 
 def r8_through_the_cli(stub: Path) -> None:
@@ -993,33 +1142,54 @@ def r8_through_the_cli(stub: Path) -> None:
         spec = LANGS[lang]
         for mode, verdict, exit_code, needle in (
                 ("lib_frames_first", "intended_failure", 0, ""),
-                ("wrong_line", "wrong_location", 0, ""),
+                ("wrong_line", "incomplete", 1, "the code critic judges it"),     # N3b: a failure elsewhere with no token is judgment
                 ("error_row", "incomplete", 1, "the run's row is an error"),
-                ("no_frames", "incomplete", 1, "was not read"),
-                ("drifted_message", "incomplete", 1, "does not match the failure this inverted form must show"),
+                ("no_frames", "incomplete", 1, "the code critic judges it"),     # N4: a row with text and no readable place is the critic's
+                ("drifted_message", "incomplete", 1, "the factory cannot read its text; the code critic judges it"),
                 ("no_row", "not_executed", 1, "no row of the"),
                 ("two_rows", "not_executed", 1, "ambiguous"),
                 ("skipped_row", "not_executed", 1, "report status")):
             if lang != "csharp" and mode in ("no_row", "two_rows", "skipped_row"):
                 continue
-            root = lang_project(lang)
+            # N3b: only a row holding the token is proved by the code. Java's form takes a marker (the stub prints it), so a row of any
+            # shape and place is proved there; the csharp xunit and the typescript `toBe` forms take none, so the same run is judgment
+            if lang == "java":
+                if mode == "no_frames":
+                    verdict, exit_code, needle = "intended_failure", 0, ""     # the marker outranks the place (step 1 before step 3)
+            elif mode == "lib_frames_first":
+                verdict, exit_code = "incomplete", 1
+            if mode == "drifted_message":
+                needle = "the code critic judges it"
+            # t-2064 P4b: the walk runs EVERY check of a body; the section pins the reading of ONE failing row, so it takes the body with one
+            # check (`one_check_data`: the fixture's second C# assertion cut) and the call's verdict is that row's
+            root = lang_project(lang, data=one_check_data(lang))
             try:
                 original = (root / spec["file"]).read_bytes()
                 proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, mode))
+                # PRODUCT QUESTION 8 (t-2064-p4b2t3-report.md): a report with NO row of the test: the walk's row note says "report status None",
+                # the old "no row of the ... report" is gone, and the verdict stays not_executed. PRODUCT QUESTION 9: a report with TWO rows of the
+                # test is read as ONE failed row (`incomplete`, judgment) where the old road said `not_executed`, "ambiguous". Both pins stay RED
+                question = {"no_row": " (PRODUCT QUESTION 8)", "two_rows": " (PRODUCT QUESTION 9)"}.get(mode, "")
                 label = f"{lang} {mode}"
-                check_eq(f"{label}: {verdict}, exit {exit_code}", (record.get("verdict"), proc.returncode), (verdict, exit_code))
+                red = question if lang == "csharp" else ""    # the question's pins are the verdict and the note, on the csharp rows only
+                check_eq(f"{label}: {verdict}, exit {exit_code}{red if mode == 'two_rows' else ''}", (record.get("verdict"), proc.returncode),
+                         (verdict, exit_code))
                 check_eq(f"{label}: the bytes are back and no copy is left", ((root / spec["file"]).read_bytes() == original, copies_left(root)),
                          (True, []))
                 if needle:
-                    check_in(f"{label}: the note says why", needle, " ".join(record.get("notes") or []))
+                    check_in(f"{label}: the note says why{red if mode in ('no_row', 'two_rows') else ''}", needle, said(record))   # old: the record's notes; new: the notes and the check row's note
                 if verdict != "intended_failure":
                     check_eq(f"{label}: no receipt, nothing published", (record.get("receipt"), record.get("publish")), (None, None))
                 if verdict == "incomplete":
                     check_eq(f"{label}: a verdict on the test is never claimed (no mismatches list)",
                              record.get("mismatches"), None)
                 if mode == "wrong_line":
-                    check_eq(f"{label}: wrong_location names the site", (record.get("actual_location"), record.get("failure_kind")),
-                             (f"{spec['file']}:{first_line(lang) + 3}", "assertion"))
+                    # t-2064 P4b (old -> new): `judgment_facts.location` / `.location_hit` of the one record -> `observed.location` of the check's own
+                    # record, and "the place is not the check's" = that location differs from the check's key (no `location_hit` field is carried)
+                    seen = read_check_record(root, spec["iid"]).get("observed") or {}
+                    check_eq(f"{label}: the place is a fact for the critic, not a verdict", (record.get("cause"), record.get("actual_location"),
+                             seen.get("location"), seen.get("location") == f"{spec['file']}:{first_line(lang)}"),
+                             ("judgment", None, f"{spec['file']}:{first_line(lang) + 3}", False))
                 if mode == "error_row":
                     check_eq(f"{label}: the error row is never wrong_location", record.get("actual_location"), None)
             finally:
@@ -1042,8 +1212,11 @@ def a_standing_record_survives_incomplete(stub: Path) -> None:
         check_eq("E23: the run is incomplete", (record.get("verdict"), proc.returncode), ("incomplete", 1))
         check_eq("E23: the stored verdict is still intended_failure", kept.get("verdict"), "intended_failure")
         check_eq("E23: every other stored key is as it was", {k: v for k, v in kept.items() if k != "last_attempt"}, standing)
-        check_eq("E23: last_attempt names incomplete and the cause", ((kept.get("last_attempt") or {}).get("verdict"),
-                                                                       "does not match" in str((kept.get("last_attempt") or {}).get("why"))),
+        # PRODUCT QUESTION 10 (t-2064-p4b2t3-report.md): the standing record's `last_attempt.why` is the aggregate's FIRST NOTE (the command note
+        # "command, fingerprint file list and runtime probe are those of this story's last typed run"), not the check row's reason: the cause
+        # ("the code critic judges it") is lost from it. The pin stays RED
+        check_eq("E23: last_attempt names incomplete and the cause (PRODUCT QUESTION 10)", ((kept.get("last_attempt") or {}).get("verdict"),
+                                                                       "the code critic judges it" in str((kept.get("last_attempt") or {}).get("why"))),
                  ("incomplete", True))
         proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, "pass_anyway"))
         check_eq("E23: an executed no_failure replaces it as before", (record.get("verdict"),
@@ -1058,15 +1231,22 @@ def bom_and_crlf_through_the_run(stub: Path) -> None:
     statement, and come back byte for byte."""
     lang = "csharp"
     spec = LANGS[lang]
-    for label, data in (("a BOM and CRLF", b"\xef\xbb\xbf" + (FIX / spec["fixture"]).read_bytes().replace(b"\n", b"\r\n")),
-                        ("CRLF alone", (FIX / spec["fixture"]).read_bytes().replace(b"\n", b"\r\n")),
-                        ("a BOM alone", b"\xef\xbb\xbf" + (FIX / spec["fixture"]).read_bytes())):
+    # t-2064 P4b: the body with ONE check (`one_check_data`): the walk runs every check, and this case pins the line the one failing run reached
+    base = one_check_data(lang)
+    for label, data in (("a BOM and CRLF", b"\xef\xbb\xbf" + base.replace(b"\n", b"\r\n")),
+                        ("CRLF alone", base.replace(b"\n", b"\r\n")),
+                        ("a BOM alone", b"\xef\xbb\xbf" + base)):
         root = lang_project(lang, data=data)
         try:
             line = first_line(lang, data)
             proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, line=line))
-            check_eq(f"E21 ({label}): intended_failure at the right line", (record.get("verdict"), record.get("expected_location")),
-                     ("intended_failure", f"{spec['file']}:{line}"))
+            # N3b: the csharp xunit form takes no marker, so the run is judgment, not proved; what is pinned is the line and the bytes
+            # t-2064 P4b (old -> new): `expected_location` of the one failing record (the aggregate of an unproved check carries none) -> the check
+            # row's key and the place its own record says the run failed at: the run reached the right line
+            row_key = ((record.get("checks") or [{}])[0]).get("key")
+            reached = (read_check_record(root, spec["iid"]).get("observed") or {}).get("location")
+            check_eq(f"E21 ({label}): the run reached the right line (judgment: no token in this form)", (record.get("verdict"), row_key, reached),
+                     ("incomplete", f"{spec['file']}:{line}", f"{spec['file']}:{line}"))
             check_eq(f"E21 ({label}): the bytes are identical afterwards", (root / spec["file"]).read_bytes(), data)
             evidence = task_of(root) / record["evidence_ref"]
             summary = json.loads(evidence.read_text(encoding="utf-8")) if evidence.suffix == ".json" else {}
@@ -1100,21 +1280,32 @@ def at_among_two_declarations(stub: Path) -> None:
     try:
         before = tree_state(root)
         proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, line=7, after="Assert.NotEqual(4, Calc.Add(2, 2));"))
-        refused("E3 (two declarations, no --at)", proc, payload, "declared 2 times", "--at <line>", "line 5, line 13")
+        # t-2064 P4b: a name declared twice has no located body, so the plan is EMPTY and the plain call is the empty-plan refusal, whose door is
+        # `--at <file>:<line>`; it no longer counts the declarations nor names their lines (the old "declared 2 times ... line 5, line 13")
+        refused("E3 (two declarations, no --at)", proc, payload, "no check of a form the factory reads was found", "--at <file>:<line>",
+                "Nothing was changed")
         check_eq("E3: the tree is unchanged", tree_state(root), before)
         proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, line=15, after="Assert.NotEqual(6, Calc.Add(3, 3));"), "--at", "15")
-        check_eq("--at 15 picks the second body: intended_failure at line 15", (record.get("verdict"), record.get("expected_location")),
-                 ("intended_failure", f"{spec['file']}:15"))
+        # t-2064 P4b: `--at 15` is a plan of the ONE row `<file>:15` (its entry written by `lrun`); the aggregate names that row: its verdict is
+        # judgment (no token in the xunit form, N3b) and the call's verdict is `incomplete`. The aggregate keeps the selected key, not `--at`
+        # and the candidates [5, 13] (a replay reads the key; the old `mutation_detail.at/candidates` are not in the aggregate).
+        rows = record.get("checks") or [{}]
+        check_eq("--at 15 picks the second body: judgment (no token in the xunit form, N3b) at line 15",
+                 (record.get("verdict"), rows[0].get("key"), rows[0].get("verdict"), rows[0].get("cause")),
+                 ("incomplete", f"{spec['file']}:15", "incomplete", "judgment"))
         detail = record.get("mutation_detail") or {}
-        check_eq("the record keeps --at and the candidates (what a replay needs)", (detail.get("at"), detail.get("candidates")), (15, [5, 13]))
+        check_eq("the record keeps the selected check (what a replay needs)", (detail.get("checks"), len(rows)), ([f"{spec['file']}:15"], 1))
     finally:
         cleanup(root)
         cleanup_beside(root)
     root = lang_project(lang, data=TWO)
     try:
         proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, "pass_anyway", line=15, after="x"), "--at", "15")
-        check_eq("A5: a pass among two candidates is incomplete, never no_failure", (record.get("verdict"), proc.returncode), ("incomplete", 1))
-        check_in("A5: the note says a pass does not tell which body ran", "does not say which body ran", " ".join(record.get("notes") or []))
+        # t-2064 P4b: the first two A5 pins below are the old record's and stay RED, unbent - PRODUCT QUESTION 4 of t-2064-p4b2t2-report.md: on the
+        # walk road a pass of the run when `--at` names one of TWO declarations of the name answers `no_failure` (exit 0, a survivor of the
+        # selected row) with no note that the pass cannot say which body ran; the old road said `incomplete` (exit 1) and why
+        check_eq("A5: a pass among two candidates is incomplete, never no_failure (PRODUCT QUESTION 4)", (record.get("verdict"), proc.returncode), ("incomplete", 1))
+        check_in("A5: the note says a pass does not tell which body ran (PRODUCT QUESTION 4)", "does not say which body ran", said(record))   # TR2-14 (B2): the E5 note is on the check row
         # the one-declaration control: the same pass IS a no_failure
         proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang, "pass_anyway", line=7, after="x"), "--at", "7")
         check_eq("A5: --at among two candidates again (first body): still incomplete", record.get("verdict"), "incomplete")
@@ -1145,36 +1336,45 @@ def refusals_before_the_write(stub: Path) -> None:
         rows = [dict(r, case="TC-100", covers=["TC-100"]) for r in extra(count, selector_args=["x"], report_test_id="")]
         root = lang_project(lang, extra_entries=rows)
         try:
-            before = tree_state(root)
+            before = tree_state_with_entries(root, stub, node_of(lang), spec["iid"])
             proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
             text = refused(f"R6 a ({count} offending rows)", proc, payload, "no selector of their own", "manifest_put.py --task",
                            "--fragment", "selector_args", "report_test_id")
-            listed = text.split("no selector of their own:")[1].split(". A non-pytest")[0]
+            # t-2064 P4b, PRODUCT QUESTION 5 of t-2064-p4b2t2-report.md: the R6 (a) refusal is not what the walk road answers (exit 1, no
+            # refusal text) - every R6 (a) pin stays red and unbent; the split below is guarded so the rest of the section still runs
+            listed = (text.split("no selector of their own:")[1].split(". A non-pytest")[0]
+                      if "no selector of their own:" in text else "")
             check_in(f"R6 a ({count} rows): the count of offenders is told", f"{count} instance(s)", text)
             check_eq(f"R6 a ({count} rows with no report_test_id): at most 5 are listed",
                      len(re.findall(r"T\d+ \(no `", listed)), min(count, 5))
             check_eq(f"R6 a ({count} rows): 'and N more' only beyond the cap of 5, with the right N",
                      re.search(r"and (\d+) more", listed).group(1) if "more" in listed else "", "" if count <= 5 else str(count - 5))
             check_eq(f"R6 a ({count} rows): the tree is unchanged", tree_state(root), before)
+            check_eq(f"R6 a ({count} rows): and the refusal of the tool left its `refused: tool` record", refusal_record_of(root, spec["iid"]),
+                     ("tool", "not_executed"))
         finally:
             cleanup(root)
             cleanup_beside(root)
     rows = [{"case": "TC-100", "covers": ["TC-100"], "file": "tests/Bare.cs"}]
     root = lang_project(lang, extra_entries=rows)
     try:
-        before = tree_state(root)
+        before = tree_state_with_entries(root, stub, node_of(lang), spec["iid"])
         proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
         refused("R6 a (a bare file of the case)", proc, payload, "tests/Bare.cs (names no test)")
         check_eq("R6 a (a bare file): the tree is unchanged", tree_state(root), before)
+        check_eq("R6 a (a bare file): and the refusal of the tool left its `refused: tool` record", refusal_record_of(root, spec["iid"]),
+                 ("tool", "not_executed"))
     finally:
         cleanup(root)
         cleanup_beside(root)
     root = lang_project(lang, verified=False)
     try:
-        before = tree_state(root)
+        before = tree_state_with_entries(root, stub, node_of(lang), spec["iid"])
         proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
         refused("R6 a (selectors.verified is false)", proc, payload, "selector contract is verified", "selectors.verified")
         check_eq("R6 a (not verified): the tree is unchanged", tree_state(root), before)
+        check_eq("R6 a (not verified): and the refusal of the tool left its `refused: tool` record", refusal_record_of(root, spec["iid"]),
+                 ("tool", "not_executed"))
     finally:
         cleanup(root)
         cleanup_beside(root)
@@ -1184,11 +1384,12 @@ def refusals_before_the_write(stub: Path) -> None:
         b"        [Fact]\n        public void Throws()")
     root = lang_project(lang, data=two_tests, files={"tests/Other.cs": two_tests})
     try:
-        before = tree_state(root)
+        before = tree_state_with_entries(root, stub, "tests/Other.cs::CalcTests.Adds", spec["iid"])
         proc, payload = lrun(root, stub, "tests/Other.cs::CalcTests.Adds", spec["iid"], stub_cfg(lang))
         refused("R6 b (another file than the manifest row's)", proc, payload, "the manifest row of 'Adds' names tests/CalcTests.cs")
         check_eq("R6 b: the tree is unchanged", tree_state(root), before)
-        # R6 (c): the report id does not end with the tail
+        # R6 (c): the report id does not end with the tail (its own model file is written first: the entries are those of THIS node)
+        before = tree_state_with_entries(root, stub, "tests/CalcTests.cs::CalcTests.Other", spec["iid"])
         proc, payload = lrun(root, stub, "tests/CalcTests.cs::CalcTests.Other", spec["iid"], stub_cfg(lang))
         text = refused("R6 c (the tail is another test than the report id)", proc, payload, "does not end with 'CalcTests.Other'",
                        "manifest_put.py --fragment")
@@ -1201,7 +1402,7 @@ def refusals_before_the_write(stub: Path) -> None:
     java = (FIX / "CalcTest.java").read_bytes().replace(b"    @Test\n    void adds()", b'    @Test\n    @DisplayName("adds two numbers")\n    void adds()')
     root = lang_project("java", data=java, entry_extra={"report_test_id": "com.acme.CalcTest::adds two numbers"})
     try:
-        before = tree_state(root)
+        before = tree_state_with_entries(root, stub, node_of("java"), "adds")
         proc, payload = lrun(root, stub, node_of("java"), "adds", stub_cfg("java"))
         refused("R6 c (surefire reports a @DisplayName)", proc, payload, "does not end with 'CalcTest.adds'",
                 "and the report may name this test by it", "must be the runner's id for the method")
@@ -1217,7 +1418,7 @@ def refusals_before_the_write(stub: Path) -> None:
     for token in ("--no-build",):
         root = lang_project(lang, argv=["dotnet", "test", token, "--logger", "trx;LogFileName={report_path}"])
         try:
-            before = tree_state(root)
+            before = tree_state_with_entries(root, stub, node_of(lang), spec["iid"])
             proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
             refused(f"R6 d ({token} in the profile's command)", proc, payload, token, "stops the csharp build")
             check_eq(f"R6 d ({token}): the tree is unchanged", tree_state(root), before)
@@ -1245,7 +1446,7 @@ def refusals_before_the_write(stub: Path) -> None:
         proc = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--test", node_of(lang), "--instance",
                           spec["iid"], "--mutation", "expected", "--json", cwd=root, env=env_for(root, stub, LANG_STUB=json.dumps(stub_cfg(lang))))
         payload = json.loads(proc.stdout) if proc.stdout.strip().startswith("{") else {}
-        refused("E22 (--mutation expected)", proc, payload, "`invert` pairs only", "assertion_probes.csharp.assertions[].invert")
+        refused("E22 (--mutation expected)", proc, payload, "--mutation expected was removed", "an `invert` entry for the check in the model file")
         check_eq("E22: the tree is unchanged", tree_state(root), before)
     finally:
         cleanup(root)
@@ -1255,17 +1456,20 @@ def refusals_before_the_write(stub: Path) -> None:
     try:
         before = tree_state(root)
         proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
-        refused("E6 (no recognised assertion)", proc, payload, "no recognised assertion", "--oracle")
+        # t-2064 P4b: a body with no check is an EMPTY plan - the refusal of the plain call, whose door is `--at <file>:<line>` (it no longer
+        # names `--oracle`, nor "no recognised assertion")
+        refused("E6 (no recognised assertion)", proc, payload, "no check of a form the factory reads was found", "--at <file>:<line>")
         check_eq("E6: the tree is unchanged", tree_state(root), before)
     finally:
         cleanup(root)
         cleanup_beside(root)
     root = lang_project(lang)
     try:
+        write_entries(root, [f"{spec['file']}:14"])     # the entry of the selected key, written before the snapshot: the refusal that follows writes nothing
         before = tree_state(root)
         proc, payload = lrun(root, stub, "tests/CalcTests.cs::CalcTests.Adds", spec["iid"], stub_cfg(lang, "pass_anyway"),
                              "--at", "14")
-        refused("E5/E7 (--at on a line that starts no assertion)", proc, payload, "no recognised assertion starts on line 14")
+        refused("E5/E7 (--at on a line that starts no assertion)", proc, payload, "line 14 of tests/CalcTests.cs holds no check of a form the factory reads")
         check_eq("E7: the tree is unchanged", tree_state(root), before)
     finally:
         cleanup(root)
@@ -1289,23 +1493,34 @@ def traps_through_the_cli(stub: Path) -> None:
              ("single-line string that crosses a line break", "opens at line 3")),
             ("typescript", "F1b (vi): an unterminated regex literal", ts_unclosed, None,
              ("regex literal that opens at line 3 and does not close on its line",)),
-            ("csharp", "F1 (ii): #if/#else/#endif", cs_if, None, ("conditional-compilation directive `#if NET6` at line 7",)),
-            ("typescript", "F2: the id of another test with a longer title", ts_two,
+            # PRODUCT QUESTION 11 (t-2064-p4b2t3-report.md): `_refuse_conditional_compilation` is called by `_located` (probe_by_code.py:5066), whose
+            # ToolRefusal the walk catches PER CHECK: the plan lists both branches (lines 8 and 10), both rows are `incomplete`, cause `tooling`, exit 1,
+            # and the walk has written (copy, requests, record) - where plan_detector_mutation (:1962) refused before any write. PRODUCT QUESTION 12:
+            # `run_shape_checks` (:2770, the longer-title refusal) is not on the walk road: the test is walked and its row is `not_executed`. Both red
+            ("csharp", "F1 (ii): #if/#else/#endif (PRODUCT QUESTION 11)", cs_if, None, ("conditional-compilation directive `#if NET6` at line 7",)),
+            ("typescript", "F2: the id of another test with a longer title (PRODUCT QUESTION 12)", ts_two,
              {"report_test_id": "calc does not adds::calc does not adds"},
              ("also ends with the longer title 'does not adds'", "declared at line 5"))):
         spec = LANGS[lang]
         root = lang_project(lang, data=data, entry_extra=extra)
         try:
-            before = tree_state(root)
+            before = tree_state_with_entries(root, stub, node_of(lang), spec["iid"])   # TR2-14: after the window's model file `lrun` writes
             proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
             refused(label, proc, payload, *needles)
             check_eq(f"{label}: the author's file is byte-identical and the tree unchanged",
                      ((root / spec["file"]).read_bytes() == data, tree_state(root) == before), (True, True))
             # the lexer cannot read the file: the TOOL's refusal leaves its one record (`refused: tool`), no other
-            lexer = label.startswith(("F1 (i)", "F1b (vi)"))
+            # (t-2167 F4: the conditional-compilation refusal is a ToolRefusal too, so it leaves its record)
+            lexer = label.startswith(("F1 (i)", "F1b (vi)", "F1 (ii)"))   # the lexer's refusals (a record of the tool); F2 is the id's, and leaves none
             check_eq(f"{label}: no copy was made, no runner launched, and a record only for a refusal of the tool",
                      (copies_left(root), (task_of(root) / "work" / "probes").is_dir(), (task_of(root) / "evidence").is_dir()),
                      ([], lexer, False))
+            if label.startswith(("F1 (i)", "F1b (vi)", "F1 (ii)")):
+                # TR2-14: `tree_state` leaves the `refused: tool` record out of "unchanged"; this is the positive pin that the record exists
+                # and says so (one record, the refusal's own: the instance, `refused: tool`, `not_executed`)
+                found = [json.loads(p.read_text(encoding="utf-8")) for p in sorted((task_of(root) / "work" / "probes").glob("*.json"))]
+                check_eq(f"{label}: the refusal left the one `refused: tool` record",
+                         [(r.get("instance_id"), r.get("refused"), r.get("verdict")) for r in found], [(spec["iid"], "tool", "not_executed")])
         finally:
             cleanup(root)
             cleanup_beside(root)
@@ -1336,15 +1551,21 @@ def oracle_in_a_helper(stub: Path) -> None:
         cfg = stub_cfg(lang, file="tests/Helpers.cs", line=7, after="Assert.NotEqual(s, a + b);", stack=[
             "   at Acme.Tests.Helpers.ExpectSum(Int32 a, Int32 b, Int32 s) in {path}:line {line}"])
         proc, payload = lrun(root, stub, node, spec["iid"], cfg)
-        refused("an oracle with no --oracle: the test body asserts nothing", proc, payload, "no recognised assertion", "--oracle")
+        refused("an oracle with no --oracle: the test body asserts nothing", proc, payload, "no check of a form the factory reads was found",
+                "--at <file>:<line>")
+        # t-2064 P4b: `--oracle <file>::<name>` selects the checks of that function (its row `tests/Helpers.cs:7`), which needs ITS entry
+        # (written here: `lrun` writes none for `--oracle`); the record is the aggregate, its row names the helper's line, `mutation_detail`
+        # names the file; `oracle_function` and `oracle_note` ("named by hand") are not in it any more (PRODUCT QUESTION 3 of the report)
+        write_entries(root, ["tests/Helpers.cs:7"])
         proc, record = lrun(root, stub, node, spec["iid"], cfg, "--oracle", "tests/Helpers.cs::ExpectSum")
-        check_eq("--oracle: intended_failure at the helper's line", (record.get("verdict"), record.get("expected_location")),
-                 ("intended_failure", "tests/Helpers.cs:7"))
+        rows = record.get("checks") or [{}]
+        check_eq("--oracle: judgment (no token in the xunit form, N3b) at the helper's line", (record.get("verdict"), rows[0].get("key"), rows[0].get("cause")),
+                 ("incomplete", "tests/Helpers.cs:7", "judgment"))
         detail = record.get("mutation_detail") or {}
-        check_eq("--oracle: the record names the function and the file it mutated", (detail.get("oracle_function"), detail.get("file"),
-                                                                                    (record.get("mutated_file") or {}).get("path")),
-                 ("ExpectSum", "tests/Helpers.cs", "tests/Helpers.cs"))
-        check_in("--oracle: the note says it was named by hand", "named by hand", detail.get("oracle_note", ""))
+        # RED, unbent - PRODUCT QUESTION 6: `mutation_detail.file` says tests/CalcTests.cs (the test file) while `mutated_file.path` and the row
+        # name the helper the check lives in (the same mismatch is noticed in test_probe_by_code.py's oracle_in_a_helper)
+        check_eq("--oracle: the record names the file it mutated (PRODUCT QUESTION 6)", (detail.get("file"), (record.get("mutated_file") or {}).get("path")),
+                 ("tests/Helpers.cs", "tests/Helpers.cs"))
         check_eq("--oracle: the helper is back byte for byte and the test file was never touched",
                  ((root / "tests" / "Helpers.cs").read_bytes(), (root / spec["file"]).read_bytes()), (helper, test_src))
         check_eq("--oracle: the probe's identity is still the test file's sha", record.get("test_file_sha256"), PBC.sha256(test_src))
@@ -1373,7 +1594,9 @@ def oracle_in_a_helper(stub: Path) -> None:
         check_eq("E10 (protected): the tree is unchanged", tree_state(root), before)
         # the helper of the test's own file needs no root check
         proc, payload = lrun(root, stub, node, spec["iid"], cfg, "--oracle", "Nope")
-        check_in("a helper name with no file is looked for in the test's own file", "no declaration of 'Nope'", payload.get("error", ""))
+        check_in("a helper name with no file is looked for in the test's own file",
+                 "no declaration named `Nope` in tests/CalcTests.cs holds a check of a form the factory reads", payload.get("error", ""))
+        check_in("...and a selection that selects nothing is a refusal, never a pass", "Nothing was changed", payload.get("error", ""))
     finally:
         cleanup(root)
         cleanup_beside(root)
@@ -1411,6 +1634,7 @@ def data_gaps(stub: Path) -> None:
         cases["malformed entry"] = malformed
         needles = {"unreadable": "cannot be read", "not json": "cannot be read", "absent key": "has no `assertion_probes` key",
                    "malformed entry": "assertion_probes.csharp.assertions[0].invert[0].fires_as (X1)"}
+        model_entries(root, stub, node_of(lang), spec["iid"])   # t-2064 P4b: the wrapper's own file (with the shipped table), before the snapshots
         for label, path in cases.items():
             before = tree_state(root)
             proc, payload = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang), ASSERTION_DETECTORS_FILE=str(path))
@@ -1422,7 +1646,7 @@ def data_gaps(stub: Path) -> None:
                  len({texts["unreadable"], texts["absent key"], texts["malformed entry"]}), 3)
         # E2 (temporal): a table that is read again after the data file is repaired - nothing is remembered
         proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
-        check_eq("E2: with the shipped table back, the probe runs", record.get("verdict"), "intended_failure")
+        check_eq("E2: with the shipped table back, the probe runs (judgment: no token in the xunit form, N3b)", record.get("verdict"), "incomplete")
     finally:
         cleanup(root)
         cleanup_beside(root)
@@ -1446,8 +1670,8 @@ def kill_and_recover(stub: Path) -> None:
         check_eq("killed: a copy and its record are on disk", sorted(p.suffix for p in folder.glob("*") if p.suffix != ".lock"),
                  [".meta", ".orig"])
         proc, record = lrun(root, stub, node_of(lang), spec["iid"], stub_cfg(lang))
-        check_eq("recovered: the next probe runs and says intended_failure", (record.get("verdict"), proc.returncode), ("intended_failure", 0))
-        check_in("recovered: the note says what was recovered", "recovered tests/CalcTests.cs", " ".join(record.get("notes") or []))
+        check_eq("recovered: the next probe runs (judgment: no token in the xunit form, N3b)", (record.get("verdict"), proc.returncode), ("incomplete", 1))
+        check_in("recovered: the note says what was recovered", "recovered tests/CalcTests.cs", said(record))   # t-2064 P4b: `said` = the notes and the check rows' notes
         check_eq("recovered: the author's bytes are back and no copy is left", (target.read_bytes() == original, copies_left(root)), (True, []))
         check("E20: the recovered file's mtime is NOW (a file that is not Python)", target.stat().st_mtime_ns > OLD_NS + 10 ** 15)
     finally:
@@ -1529,26 +1753,28 @@ def ep1_36_titles() -> None:
 
 
 def judge_rows(rows: list, contract: dict, *, at=None, candidates=(3,), report_read=True, real=False):
-    """`_judge_detector_rows` over `rows` for a typescript test with `contract`: (record, the `among` values the judge saw). The
+    """`_judge_rows` over `rows` for a typescript test with `contract`: (record, the `among` values the judge saw). The
     judge and the frame reader are replaced by the row's own `v` unless `real` (the verdict table is tested elsewhere)."""
     spec = PBC.parse_node(f"{TS_FILE}::adds ${{n}}")
-    detail = {"language": "typescript", "candidates": list(candidates), "at": at, "line": 3, "end_line": 5}
+    # N3b: `among` reads the plan's target keys (`target_source`: `at` when --at chose; the check lies in the located body)
+    detail = {"language": "typescript", "candidates": list(candidates), "at": at, "line": 3, "end_line": 5,
+              "target_source": "at" if at is not None else None, "target_outside_body": False}
     record = {"task": TASK, "notes": [], "expected_location": f"{TS_FILE}:3", "expected_reason": "marker", "verdict": "not_executed"}
     request = {"instance_contracts": {"adds": contract}, "command": {"argv": ["npx", "playwright", "test"]}}
     seen = []
-    old_judge, old_site = PBC.judge_detector, PBC.reporters.assertion_site
+    old_judge, old_site = PBC.judge_probe_row, PBC.reporters.assertion_site
 
     def stub(row, site, entry, detail_, *, among, argv):
         seen.append(among)
         return {"verdict": row["v"], "actual_location": None, "actual_reason": None, "mismatches": [], "note": row.get("note", ""),
                 "observed": {"status": row["status"]}}
     if not real:
-        PBC.judge_detector = stub
+        PBC.judge_probe_row = stub
         PBC.reporters.assertion_site = lambda *a, **k: {}
     try:
-        PBC._judge_detector_rows(Path("."), record, rows, "junit-xml", spec, detail, request, Path("x"), ["adds"], report_read)
+        PBC._judge_rows(Path("."), record, rows, "junit-xml", spec, detail, request, Path("x"), ["adds"], report_read)
     finally:
-        PBC.judge_detector, PBC.reporters.assertion_site = old_judge, old_site
+        PBC.judge_probe_row, PBC.reporters.assertion_site = old_judge, old_site
     return record, seen
 
 
@@ -1610,9 +1836,13 @@ def ep1_36_rows() -> None:
     record, seen = judge_rows([row("c adds 1", "failed", "intended_failure")], pattern, at=None, candidates=(2, 5))
     check_eq("EP1-36 M-4: ...not when no --at chose", seen, [False])
     # no `file` in the contract: bind_row, as before
+    # N3a's one binding: a contract with no `file` is read by `matching_rows(rows, spec["node"])`, so the row is the one the NODE names
+    # (the tail after the last `::`), not the contract's `report_test_id`; a row with another name is not this test's (not_executed)
     plain = {"report_test_id": "sum.test.ts::c adds 1"}
+    record, _ = judge_rows([row("adds ${n}", "failed", "intended_failure")], plain)
+    check_eq("EP1-36 item 4: a contract without a file is bound by the node's own name, one row", (record["verdict"], "param_rows" in record), ("intended_failure", False))
     record, _ = judge_rows([row("c adds 1", "failed", "intended_failure")], plain)
-    check_eq("EP1-36 item 4: a contract without a file is bound by bind_row, one row", (record["verdict"], "param_rows" in record), ("intended_failure", False))
+    check_eq("EP1-36 item 4: ...and a row named only by the contract's `report_test_id` is not this node's", record["verdict"], "not_executed")
     # the shared aggregator (Python parametrised rows) keeps its behaviour
     probe: dict = {"notes": []}
     first = PBC._worst_of_rows([({"test_id": "t[1]"}, {"verdict": "intended_failure"}), ({"test_id": "t[2]"}, {"verdict": "wrong_location"})],
@@ -1697,34 +1927,44 @@ def tool_refusal_record(stub: Path) -> None:
             proc, payload = lrun(root, stub, node, spec["iid"], stub_cfg("typescript"))
             check_eq(f"§6 {label}: exit 2, one JSON, refused", (proc.returncode, payload.get("status")), (2, "refused"))
             path = task_of(root) / "work" / "probes" / f"{spec['iid']}.json"
-            check_eq(f"§6 {label}: the record exists only when the tool refused and the name is proved", path.is_file(), wrote)
+            # PRODUCT QUESTION 13 (t-2064-p4b2t3-report.md): the walk road's refusals ("no check of a form the factory reads was found", the
+            # empty plan) write NO `refused: tool` record (t-2143 N4, EP1-36 §6; the same fork as question 2 of t-2064-p4b2t-report.md, which the
+            # no_assert pin of test_probe_by_code.py took as "refusal, no record"): every pin of a `wrote` case below that reads the record is
+            # RED for that one reason, and reads `{}` instead of crashing
+            ask = " (PRODUCT QUESTION 13)" if wrote else ""
+            check_eq(f"§6 {label}: the record exists only when the tool refused and the name is proved{ask}", path.is_file(), wrote)
             if wrote:
-                record = json.loads(path.read_text(encoding="utf-8"))
-                check_eq(f"§6 {label}: not_executed, refused tool, the bytes read, the text of the refusal",
-                         (record["verdict"], record["refused"], record["test_file_sha256"], record["notes"], record["instance_id"]),
+                def stored() -> dict:
+                    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+                record = stored()
+                check_eq(f"§6 {label}: not_executed, refused tool, the bytes read, the text of the refusal{ask}",
+                         (record.get("verdict"), record.get("refused"), record.get("test_file_sha256"), record.get("notes"), record.get("instance_id")),
                          ("not_executed", "tool", PBC.sha256(before), [payload["error"]], spec["iid"]))
                 # F-2 (t-596): the record says it is the tool's the way `_tooling_gap` does, so ONE reader (`tooling_gap_key`) answers for it
-                check_eq(f"§6 {label}: the record names the tool and the language (cause, language)",
+                check_eq(f"§6 {label}: the record names the tool and the language (cause, language){ask}",
                          (record.get("cause"), record.get("language")), ("tooling", "typescript"))
-                check_eq(f"§6 {label}: ...and tooling_gap_key reads it for these bytes (and for no other)",
+                check_eq(f"§6 {label}: ...and tooling_gap_key reads it for these bytes (and for no other){ask}",
                          (PL.tooling_gap_key(task_of(root), spec["iid"], PBC.sha256(before)), PL.tooling_gap_key(task_of(root), spec["iid"], "0" * 64)),
                          ("tooling:typescript", ""))
-                check_eq(f"§6 {label}: ...and probe_could_not_run holds too", PL.probe_could_not_run(task_of(root), spec["iid"], PBC.sha256(before)), True)
+                check_eq(f"§6 {label}: ...and probe_could_not_run holds too{ask}", PL.probe_could_not_run(task_of(root), spec["iid"], PBC.sha256(before)), True)
                 entry = next(t for t in json.loads((task_of(root) / "work" / "automation-manifest.json").read_text(encoding="utf-8"))["tests"]
                              if t["instance_id"] == spec["iid"])
                 got = PL.already_probed(entry, {"tests": [entry]}, task_of(root), project=root)
                 check_eq(f"§6 {label}: already_probed does not read it as probed", got.get("probed"), False)
                 proc, payload = lrun(root, stub, node, spec["iid"], stub_cfg("typescript"))
-                check_eq(f"§6 {label}: a repeat on the same bytes replaces it (idempotent)",
-                         json.loads(path.read_text(encoding="utf-8"))["test_file_sha256"], PBC.sha256(before))
+                check_eq(f"§6 {label}: a repeat on the same bytes replaces it (idempotent){ask}",
+                         stored().get("test_file_sha256"), PBC.sha256(before))
                 (root / spec["file"]).write_bytes(before + b"// fixed\n")
-                check("§6 other bytes after a fix: the record is of the old ones", record["test_file_sha256"] != PBC.sha256((root / spec["file"]).read_bytes()))
+                check(f"§6 other bytes after a fix: the record is of the old ones{ask}",
+                      bool(record.get("test_file_sha256")) and record["test_file_sha256"] != PBC.sha256((root / spec["file"]).read_bytes()))
             check_eq(f"§6 {label}: the author's file is untouched", (root / spec["file"]).read_bytes() in (before, before + b"// fixed\n"), True)
         finally:
             cleanup(root)
             cleanup_beside(root)
-    check_eq("§6 F-2: a .py file has no detector entry, so its refusal record names no language (the class word covers it)",
+    check_eq("§6 F-2: a .py file is no entry of the table ...",
              PBC.AD.entry_for_suffix(PBC.AD.assertion_detectors(), ".py"), (None, None))
+    check_eq("§6 N4 (S4): ... so its refusal record takes the language from the AST reader's entry (the class word covers it)",
+             PBC.AD.ast_entry(".py")[0], "python")
     # an intended_failure stands (E23); a write failure is a line on stderr and exit 2 (the answer never changes)
     for label, setup in (("an intended_failure stands", "stand"), ("a record that cannot be written", "block")):
         root = lang_project("typescript", data=no_assert)
@@ -1739,10 +1979,14 @@ def tool_refusal_record(stub: Path) -> None:
             check_eq(f"§6 {label}: exit 2 and one JSON", (proc.returncode, payload.get("status")), (2, "refused"))
             if setup == "stand":
                 stored = json.loads((probes / f"{spec['iid']}.json").read_text(encoding="utf-8"))
-                check_eq(f"§6 {label}: the verdict and its bytes stay, the attempt is added",
-                         (stored["verdict"], stored["test_file_sha256"], stored["last_attempt"]["verdict"]), ("intended_failure", "abc", "not_executed"))
+                # the verdict and its bytes stay (green); the ATTEMPT is added only by the refusal's record: PRODUCT QUESTION 13 (no record on the
+                # walk road's refusal), so `last_attempt` is absent and this pin is red for that one reason
+                check_eq(f"§6 {label}: the verdict and its bytes stay, the attempt is added (PRODUCT QUESTION 13)",
+                         (stored.get("verdict"), stored.get("test_file_sha256"), (stored.get("last_attempt") or {}).get("verdict")),
+                         ("intended_failure", "abc", "not_executed"))
             else:
-                check_in(f"§6 {label}: stderr says it", "was not written", proc.stderr)
+                # PRODUCT QUESTION 13 again: the walk's empty-plan refusal never tries to write a record, so there is no write failure to say
+                check_in(f"§6 {label}: stderr says it (PRODUCT QUESTION 13)", "was not written", proc.stderr)
         finally:
             cleanup(root)
             cleanup_beside(root)
@@ -1808,7 +2052,7 @@ class Rn1_8World:
                                              runtime="typescript", frames=frames, skip_frames=skip, frame_path=frame_path)
 
     def judge(self, row: dict, site: dict = None, argv=BIN_PW) -> dict:
-        return PBC.judge_detector(row, site or self.site_of(row), self.ts, self.detail, among=False, argv=argv)
+        return PBC.judge_probe_row(row, site or self.site_of(row), self.ts, self.detail, among=False, argv=argv)
 
     def with_text(self, text: str) -> list:
         """The TC_010 row alone (a one-row list), its failure text replaced."""
@@ -1824,14 +2068,14 @@ class Rn1_8World:
         return rows
 
     def record_of(self, report_rows: list) -> dict:
-        """The record `_judge_detector_rows` writes for TC_010 over `report_rows`. The contract is the one the code builds for a
+        """The record `_judge_rows` writes for TC_010 over `report_rows`. The contract is the one the code builds for a
         project command (file + `classname_match: file_suffix`), so the judgment does not depend on how an id is spelled."""
         spec = PBC.parse_node(RN1_8_SPEC + "::@regression " + RN1_8_CASE + " repeat add of the same book sums quantities in one line")
         record = {"task": TASK, "notes": [], "expected_location": RN1_8_SPEC + ":109", "expected_reason": "marker",
                   "verdict": "not_executed"}
         own = {"report_test_id": self.red["test_id"], "file": RN1_8_SPEC, "classname_match": "file_suffix"}
         request = {"instance_contracts": {"adds": own}, "command": {"argv": BIN_PW}}
-        PBC._judge_detector_rows(self.root, record, report_rows, "junit-xml", spec, self.detail, request, self.spec_file, ["adds"], True)
+        PBC._judge_rows(self.root, record, report_rows, "junit-xml", spec, self.detail, request, self.spec_file, ["adds"], True)
         return record
 
 
@@ -1847,21 +2091,30 @@ def rn1_8_k1_k2(world: Rn1_8World) -> None:
              (site["location"], site["failure_kind"]), (RN1_8_SPEC + ":109", "assertion"))
     check_eq("K-N4-3b premise: the real record of that probe said incomplete / tooling (the defect RN1-8 fixed)",
              (world.record["verdict"], world.record["cause"]), ("incomplete", "tooling"))
+    # the record is a snapshot of the real run: its `fires_as` is the T2 row as it stood THEN, so the premise pins the
+    # place and the pair, never the row's text (the row grew an alternative in t-1953 and the snapshot did not)
     check_eq("K-N4-3b premise: ...its mutation detail is the probe's own: line 109, candidates [106], pair T2",
-             (world.detail["line"], world.detail["candidates"], world.detail["pair_id"], world.record["mutation_detail"]["fires_as"]),
-             (109, [106], "T2", world.t2["fires_as"]))
-    check_eq("K-N4-3b: the real report, failed at the mutated line with `.not.toBeLessThan`: intended_failure",
-             world.judge(red)["verdict"], "intended_failure")
+             (world.detail["line"], world.detail["candidates"], world.detail["pair_id"], bool(world.record["mutation_detail"]["fires_as"])),
+             (109, [106], "T2", True))
+    got = world.judge(red)
+    check_eq("K-N4-3b N3b: the real report (recorded before the marker existed), failed at the mutated line with `.not.toBeLessThan`: "
+             "judgment - the place and the wording prove nothing", (got["verdict"], got.get("cause"), "proved_by" in got),
+             ("incomplete", "judgment", False))
+    marked = copy.deepcopy(red)
+    marked["problems"][0]["message"] = "qa-probe-rn18 " + marked["problems"][0]["message"]
+    got = PBC.judge_probe_row(marked, world.site_of(marked), world.ts, dict(world.detail, message_marker="qa-probe-rn18"), among=False, argv=BIN_PW)
+    check_eq("K-N4-3b N3b control: the same row holding the token is proved by the marker", (got["verdict"], got.get("proved_by")),
+             ("intended_failure", "marker"))
     control = world.original_red()
     shown = control[0]["problems"][0]["text"].split("> 109")[0]       # the message part, before the code frame (which echoes the mutated line)
     check("K2 control premise: the text really changed", "not.toBeLessThan" not in shown and "expect(received).toBeLessThan(expected)" in shown)
     got = world.judge(control[0])
     check_eq("K2: the same report with `.toBeLessThan` (the original's own red) is NOT intended_failure", got["verdict"], "incomplete")
-    check_eq("K4: ...it is E15, and the answer names the factory's data row, not the tool", got.get("cause"), "data_row")
+    check_eq("K4: ...it is E15, and the answer is the code critic's to judge (`cause: judgment`), not the tool's gap", got.get("cause"), "judgment")
     away = world.site_of(red)
     away["location"] = RN1_8_SPEC + ":30"
-    check_eq("edge: the failing text fires but the failure is NOT at the mutated line: wrong_location, never intended_failure",
-             world.judge(red, away, argv=[])["verdict"], "wrong_location")
+    check_eq("edge: the failing text fires but the failure is NOT at the mutated line: judgment, never intended_failure (N3b)",
+             world.judge(red, away, argv=[])["verdict"], "incomplete")
 
 
 def rn1_8_edges(world: Rn1_8World) -> None:
@@ -1915,18 +2168,21 @@ def rn1_8_k8_author_message(world: Rn1_8World) -> None:
     red = world.original_red()
     red[0]["problems"][0]["message"] = author
     got = world.judge(red[0])
-    check_eq("K8: the original form's red with the two-line author message in `message`: incomplete (data_row), not intended_failure",
-             (got["verdict"], got.get("cause")), ("incomplete", "data_row"))
+    check_eq("K8: the original form's red with the two-line author message in `message`: incomplete (judgment), not intended_failure",
+             (got["verdict"], got.get("cause")), ("incomplete", "judgment"))
 
 
 def rn1_8_k4_k5_k10_records(world: Rn1_8World) -> None:
     rows, control = world.rows, world.original_red()
     record = world.record_of(rows)
-    check_eq("K1 (record): the real report through _judge_detector_rows: intended_failure, no cause", (record["verdict"], "cause" in record),
-             ("intended_failure", False))
+    check_eq("K1 (record) N3b: the real report (no token) through _judge_rows: judgment, not intended_failure", (record["verdict"], record.get("cause")),
+             ("incomplete", "judgment"))
     record = world.record_of(control)
-    check_eq("K4: E15 through _judge_detector_rows: incomplete, cause data_row, the language named",
-             (record["verdict"], record.get("cause"), record.get("language")), ("incomplete", "data_row", "typescript"))
+    check_eq("K4: E15 through _judge_rows: incomplete, cause judgment, the language named",
+             (record["verdict"], record.get("cause"), record.get("language")), ("incomplete", "judgment", "typescript"))
+    check_eq("K4: ...with the facts the critic judges: the whole text and the place, never a verdict",
+             (sorted(k for k in ("failure_text", "location") if record["judgment_facts"].get(k) is not None),
+              "verdict" in record["judgment_facts"]), (["failure_text", "location"], False))
     task = world.root / "task"
     path = PL.probe_record_path(task, "adds")
     path.parent.mkdir(parents=True)
@@ -1939,19 +2195,33 @@ def rn1_8_k4_k5_k10_records(world: Rn1_8World) -> None:
              PL.tooling_gap_key(task, "adds", "a" * 64), "tooling:typescript")
     unread = world.with_text("Error: boom\n\n    no frame in this text")
     record = world.record_of(unread)
-    check_eq("K5: a failed row with no readable frame is still the tool's gap: incomplete + cause tooling",
+    check_eq("K5 (t-2143 N4): a failed row with TEXT and no readable frame is the critic's - the place is a fact he reads himself",
+             (record["verdict"], record.get("cause"), record.get("language")), ("incomplete", "judgment", "typescript"))
+    check_eq("K5: ... its text is the fact, and the place is null", ((record.get("judgment_facts") or {}).get("failure_text"),
+             (record.get("judgment_facts") or {}).get("location")), ("Error: boom\n\n    no frame in this text", None))
+    quiet = world.with_text("")
+    quiet[0]["problems"][0]["message"] = ""
+    record = world.record_of(quiet)
+    check_eq("K5 control: a failed row with NO message and NO text is still the tool's gap: incomplete + cause tooling",
              (record["verdict"], record.get("cause"), record.get("language")), ("incomplete", "tooling", "typescript"))
 
 
 def rn1_8_k10_several_rows(world: Rn1_8World) -> None:
-    """m-3: with several report rows `data_row` is decided over ALL surviving incomplete rows, not the first."""
+    """m-3: with several report rows `judgment` is decided over ALL surviving incomplete rows, not the first."""
     e15, gap = world.original_red()[0], world.with_text("Error: boom\n\n    no frame in this text")[0]
     for label, pair in (("E15 first", [e15, gap]), ("gap first", [gap, e15])):
         record = world.record_of(pair)
-        check_eq(f"K10: two rows ({label}): one E15 and one unread failure -> cause tooling (data_row only if ALL are)",
+        check_eq(f"K10 (N4): two rows ({label}): one E15 and one unread failure WITH text -> both are the critic's: cause judgment, both in rows",
+                 (record["verdict"], record.get("cause"), len((record.get("judgment_facts") or {}).get("rows") or [])),
+                 ("incomplete", "judgment", 2))
+    quiet = world.with_text("")
+    quiet[0]["problems"][0]["message"] = ""
+    for label, pair in (("E15 first", [e15, quiet[0]]), ("gap first", [quiet[0], e15])):
+        record = world.record_of(pair)
+        check_eq(f"K10 control: two rows ({label}): one E15 and one failure with NO text -> cause tooling (judgment only if ALL are)",
                  (record["verdict"], record.get("cause")), ("incomplete", "tooling"))
     record = world.record_of([e15, copy.deepcopy(e15)])
-    check_eq("K10 control: two E15 rows -> cause data_row", (record["verdict"], record.get("cause")), ("incomplete", "data_row"))
+    check_eq("K10 control: two E15 rows -> cause judgment", (record["verdict"], record.get("cause")), ("incomplete", "judgment"))
 
 
 def rn1_8_playwright_report() -> None:

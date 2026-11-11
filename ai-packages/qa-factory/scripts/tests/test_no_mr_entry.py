@@ -196,11 +196,11 @@ def the_question_and_its_options() -> None:
         ask = driver.state["s0_ask"]
         text = ask["text"]
         check_in("the question names the story", KEY, text)
-        for token in ("current code", "change", "ungrounded", "stop"):
+        for token in ("current code", "change", "ungrounded", "not built yet", "stop"):
             check_in(f"the answer `{token}` is offered", f"`{token}`", text)
         check_in("`current code` carries the label", "Recommended", text)
         check_in("... and says what it shows", "never as the expected value", text)
-        check_eq("the doors", sorted(ask["doors"]), ["change", "current code", "stop", "ungrounded"])
+        check_eq("the doors", sorted(ask["doors"]), ["change", "current code", "not built yet", "stop", "ungrounded"])
         check_in("the prices of the question are read (what current code leaves unverified)", "new behaviour, which the code in place cannot show", text)
     finally:
         harness.cleanup(root)
@@ -214,7 +214,7 @@ def the_question_and_its_options() -> None:
         check_not_in("no code repository: no `current code` answer (mutation: always offered)", "`current code`", ask["text"])
         check_not_in("... and it is no door", "current code", " ".join(ask["doors"]))
         check_in("... the text says why", "no code repository", ask["text"])
-        check_eq("... the other three answers stand", sorted(ask["doors"]), ["change", "stop", "ungrounded"])
+        check_eq("... the other answers stand", sorted(ask["doors"]), ["change", "not built yet", "stop", "ungrounded"])
     finally:
         harness.cleanup(root)
     root, task_root, env = local_project()
@@ -379,24 +379,152 @@ def the_skill_path_door() -> None:
 
 
 def the_twins_say_the_same() -> None:
-    """AR-19: the skill's twin of the driver (`phases/s1.md`) and the role's text (`agents/qa-scout.md`) carry the same rule."""
-    s1 = (harness.PLUGIN_ROOT / "skills" / "qa-story" / "phases" / "s1.md").read_text(encoding="utf-8")
-    check_in("s1.md: the question before the dispatch for a local story", "A real ticket is never asked first", s1)
-    check_in("s1.md: the scout's prompt line", "implementation_source: current-code", s1)
-    scout = (harness.PLUGIN_ROOT / "agents" / "qa-scout.md").read_text(encoding="utf-8")
-    check_in("qa-scout.md step 4: not halting when current-code is in the dispatch", "no `implementation_source: current-code` in the dispatch", scout)
-    # spec t-1765 X1 (B-D, register outcome "dropped" - for the critic): "step 6" and "Refusals" of the old procedure are gone; the
-    # rule is held by the pin above and by s1.md (the twin). The charter's halt sentence is the carrier that replaced them.
-    check_in("qa-scout.md When to ask: the halt is for absent data only", "Stop (`halt`) only when the data is absent", scout)
+    """The prices of the no-change question: the answers and stop (the role texts' twin rules live in design/role-rules.json)."""
     prices = json.loads((harness.PLUGIN_ROOT / "references" / "question-prices.json").read_text(encoding="utf-8"))
     rows = prices["questions"].get("s0.no_change") or []
-    check_eq("the prices: three answers and stop", [r["answer"] for r in rows], ["current code", "change", "ungrounded", "stop"])
+    check_eq("the prices: the answers and stop", [r["answer"] for r in rows], ["current code", "change", "ungrounded", "not built yet", "stop"])
+
+
+def sides_of(task_root: Path):
+    return s0_pipeline(task_root).get("sides")
+
+
+def not_built_yet_and_the_sides_at_launch() -> None:
+    """t-2181 PC-2: `not built yet` records the product side absent and deliverable; an all-real launch writes no record; a side the
+    project has not recorded is accepted and asks `sides.deliverable` once; a single-side story is not asked; a reference is kept."""
+    root, task_root, env = local_project(**REPOS)
+    try:
+        s0_run(root, env, KEY)
+        done = s0_answer(root, env, KEY, "not built yet")
+        check_eq("`not built yet`: S0 goes on (exit 0)", done.returncode, 0, done.stdout[-900:] + done.stderr[-500:])
+        entry = (sides_of(task_root) or {}).get("product") or {}
+        check_eq("... the product side is absent, deliverable, the person's word",
+                 (entry.get("reality"), entry.get("deliverable"), entry.get("source")), ("absent", True, "person"))
+        check_eq("... the scout is not left to halt on the missing diff (launch.ungrounded)", (s0_state(task_root).get("launch") or {}).get("ungrounded"), True)
+    finally:
+        harness.cleanup(root)
+    root, task_root, env = local_project(**REPOS)
+    try:
+        s0_run(root, env, KEY)
+        s0_answer(root, env, KEY, "change")
+        s0_run(root, env, KEY, "--side", "ui=substituted", "--reference", "ui=old-stand")
+        launch = s0_state(task_root).get("launch") or {}
+        check_eq("a restart's --side and --reference are kept in launch (s0_keep_late_launch)",
+                 (launch.get("side"), launch.get("reference")), ({"ui": "substituted"}, {"ui": "old-stand"}))
+    finally:
+        harness.cleanup(root)
+    root, task_root, env = s0_project("PROJ-1", config=REPOS)
+    try:
+        out = s0_run(root, env, "PROJ-1", "--side", "ui=real")
+        check_eq("an all-real launch: S0 ends", out.returncode, 0, out.stdout[-600:] + out.stderr[-400:])
+        check_eq("... and writes NO pipeline.sides (S13)", sides_of(task_root), None)
+    finally:
+        harness.cleanup(root)
+    root, task_root, env = s0_project("PROJ-1", config=REPOS)
+    try:
+        out = s0_run(root, env, "PROJ-1", "--side", "backend=substituted")
+        check_eq("an unrecorded side name is accepted and asks (exit 3)", (out.returncode, s0_state(task_root).get("s0_block")), (3, "deliverable:backend"))
+        shown = s0_question(task_root)
+        check_in("... whose it is", "Whose is it?", shown)
+        check_eq("... in the human-questions form", rules_broken(shown), [])
+        check_eq("... nothing written before the answer", (task_root / "pipeline.json").exists(), False)
+        done = s0_answer(root, env, "PROJ-1", "another team's")
+        check_eq("`another team's`: S0 goes on and asks nothing again", (done.returncode, s0_state(task_root).get("s0_block")), (0, None))
+        entry = (sides_of(task_root) or {}).get("backend") or {}
+        check_eq("... the side is recorded: substituted, not ours, the person's word",
+                 (entry.get("reality"), entry.get("deliverable"), entry.get("source")), ("substituted", False, "person"))
+        check_eq("... and the implicit product side is carried beside it (real, deliverable, default)",
+                 {k: (sides_of(task_root) or {}).get("product", {}).get(k) for k in ("reality", "deliverable", "source")},
+                 {"reality": "real", "deliverable": True, "source": "default"})
+    finally:
+        harness.cleanup(root)
+    # F6: the curly apostrophe of a phone or Word keyboard is the door `another team's`
+    root, task_root, env = s0_project("PROJ-1", config=REPOS)
+    try:
+        s0_run(root, env, "PROJ-1", "--side", "backend=substituted")
+        done = s0_answer(root, env, "PROJ-1", "another team" + chr(0x2019) + "s")
+        check_eq("a curly apostrophe is the same door: S0 goes on, nothing is left unread", (done.returncode, s0_state(task_root).get("s0_block")), (0, None))
+        check_eq("... recorded as not ours", ((sides_of(task_root) or {}).get("backend") or {}).get("deliverable"), False)
+    finally:
+        harness.cleanup(root)
+    # B2: a refused sides value refuses BEFORE S0 is recorded: no pipeline.json, S0 replays (the file is never born without its sides)
+    root, task_root, env = s0_project("PROJ-1", config=REPOS)
+    try:
+        s0_run(root, env, "PROJ-1", "--side", "backend=substituted")
+        state = s0_state(task_root)
+        state["launch"]["side"] = {"backend": "mocked"}          # a word the writer's own check refuses (as a hand-edited state would)
+        (task_root / "state" / "driver-state.json").write_text(json.dumps(state), encoding="utf-8")
+        refused = s0_answer(root, env, "PROJ-1", "ours")
+        check("a refused sides value: NO pipeline.json exists (S0 is not recorded, so it replays)",
+              not (task_root / "pipeline.json").exists(), refused.stdout[-400:] + refused.stderr[-400:])
+        called = json.dumps(stub_calls(root))
+        check_in("... the refusal went to the conductor, naming what the writer allows", "substituted", called)
+    finally:
+        harness.cleanup(root)
+    # F1 (+ Lead (b)): `--side product=absent` IS `not built yet` in flag form - the no-change question is not asked
+    root, task_root, env = local_project(**REPOS)
+    try:
+        out = s0_run(root, env, KEY, "--side", "product=absent")
+        check_eq("`--side product=absent` on a local story with no change: no question (exit 0, no block)",
+                 (out.returncode, s0_state(task_root).get("s0_block")), (0, None), out.stdout[-600:] + out.stderr[-400:])
+        entry = (sides_of(task_root) or {}).get("product") or {}
+        check_eq("... the product side is absent, from the launch", (entry.get("reality"), entry.get("source")), ("absent", "launch"))
+    finally:
+        harness.cleanup(root)
+    import story_run
+    words = json.loads((harness.PLUGIN_ROOT / "references" / "side-realities.json").read_text(encoding="utf-8"))["realities"]
+    check_in("F5: the one word code reads as real is a word of the data file", story_run.Driver.SIDE_REAL, words)
+    import contract
+    check_in("F5: the parking word is a word of the data file", contract.PARKING_REALITY, words)
+    root, task_root, env = s0_project("PROJ-1", config=REPOS)
+    try:
+        out = s0_run(root, env, "PROJ-1", "--side", "product=substituted", "--reference", "product=old-stand")
+        check_eq("a single-side story is not asked (exit 0)", out.returncode, 0, out.stdout[-600:] + out.stderr[-400:])
+        entry = (sides_of(task_root) or {}).get("product") or {}
+        check_eq("... recorded with its flag source and its reference", (entry.get("reality"), entry.get("deliverable"), entry.get("source"), entry.get("reference")),
+                 ("substituted", True, "launch", "old-stand"))
+    finally:
+        harness.cleanup(root)
+
+
+def an_unknown_reality_is_refused() -> None:
+    """A `--side` word that is no reality is refused at the command line, naming the words of the data file and the corrected flag."""
+    root, task_root, env = s0_project("PROJ-1", config=REPOS)
+    try:
+        words = json.loads((harness.PLUGIN_ROOT / "references" / "side-realities.json").read_text(encoding="utf-8"))["realities"]
+        out = s0_run(root, env, "PROJ-1", "--side", "backend=mocked")
+        check("unknown reality: refused before anything runs", out.returncode != 0 and not (task_root / "pipeline.json").exists(), out.stderr[-500:])
+        check("... the refusal names every allowed word and the corrected flag",
+              all(w in out.stderr for w in words) and "--side backend=" in out.stderr, out.stderr[-600:])
+    finally:
+        harness.cleanup(root)
+
+
+def the_texts_of_the_twins() -> None:
+    """AR-19: the two no-change questions (`s0.no_change`, `s1.no_diff`) offer `not built yet`; `ungrounded` promises no \"not met\" bug."""
+    root, task_root, env = local_project(**REPOS)
+    try:
+        harness.use_project(root)
+        driver = driver_for(root, env, KEY)
+        references(task_root, [])
+        asks(driver)
+        s0_text = driver.state["s0_ask"]["text"]
+        (task_root / "work").mkdir(parents=True, exist_ok=True)
+        (task_root / "work" / "context-manifest.json").write_text(json.dumps({"implementation": {"source": "none"}}), encoding="utf-8")
+        s1_text = str(driver.halt_text("S1", "qa-scout", ""))
+        for label, text in (("s0.no_change", s0_text), ("s1.no_diff", s1_text)):
+            check_in(f"{label}: offers the not-built-yet answer", "the code for this story is not written yet", text)
+            check_not_in(f"{label}: no promise of a \"not met\" bug", "not met", text)
+            check_in(f"{label}: ungrounded reads as a red judged like any red", "judged like any red", text)
+    finally:
+        harness.cleanup(root)
 
 
 def main():
     the_twins_say_the_same()
-    run_scenarios([the_answers_end_to_end, a_real_ticket_goes_the_old_road],
-                  [the_change_door_keeps_the_restart_flag, the_condition, the_table_is_the_reader, only_a_local_story, the_question_and_its_options, the_skill_path_door])
+    run_scenarios([the_answers_end_to_end, a_real_ticket_goes_the_old_road, not_built_yet_and_the_sides_at_launch, an_unknown_reality_is_refused],
+                  [the_change_door_keeps_the_restart_flag, the_condition, the_table_is_the_reader, only_a_local_story, the_question_and_its_options, the_skill_path_door,
+                   the_texts_of_the_twins])
     harness.finish("no-MR entry (SS1-13)")
 
 

@@ -487,14 +487,16 @@ def k13_plan_critic_gets_no_code_inputs():
         fill(env.root, env.c)
         accept_it(env.c, env.root, "S5-qa-automator-1")
         review(env.c, env.root, "S5-qa-code-critic-1", "blocked", remark_text("PR-1", "blocker", case="TC-1", test="T-1"))
-        put(env.root, "work/judge-code.json", "{}")
+        put(env.root, "work/judge-code-S5-qa-code-critic-1.json", "{}")
+        put(env.root, "work/probe-debt/S5-qa-code-critic-1.json", "{}")
         put(env.root, "work/probe-debt.json", "{}")
         extras = story_step._prompt_inputs(TICKET, "S5", CRITIC, env.root, "S5-qa-code-critic-1")
         check_eq("K13 (F-2): the plan critic is handed no judge output and no debt", extras, [])
         notes = story_step._inputs_notes(TICKET, "S5", CRITIC, "S5-qa-code-critic-1", env.root)
         check("K13 (F-2): ... and no `probe_debt --settle` instruction", not any("probe_debt" in n for n in notes), notes)
+        put(env.root, "work/judge-code-S5-qa-code-critic-9.json", "{}")      # TR3-15: one judge file per critic dispatch, listed once it exists
         check_in("K13 (F-2, control): a window critic (no record) is still handed the judge output",
-                 f"qa-factory/artifacts/{TICKET}/work/judge-code.json", story_step._prompt_inputs(TICKET, "S5", CRITIC, env.root, "S5-qa-code-critic-9"))
+                 f"qa-factory/artifacts/{TICKET}/work/judge-code-S5-qa-code-critic-9.json", story_step._prompt_inputs(TICKET, "S5", CRITIC, env.root, "S5-qa-code-critic-9"))
         check("K13 (F-2, control): ... and still told to settle", any("probe_debt" in n for n in story_step._inputs_notes(
             TICKET, "S5", CRITIC, "S5-qa-code-critic-9", env.root)))
     finally:

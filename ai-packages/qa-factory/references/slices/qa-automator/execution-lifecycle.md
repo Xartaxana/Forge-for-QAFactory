@@ -14,8 +14,8 @@ create or switch one yourself.
 
 ## Author and critic
 
-The run budget: one run per code version of each instance by the author, one probe per new
-or changed instance by the critic; after a critic's remark only instances whose code changed
+The run budget: one run per code version of each instance by the author, one probe call per new
+or changed instance by the critic, every check of the test; after a critic's remark only instances whose code changed
 run again (a helper/config change may widen that within story scope).
 
 S5 exit `open-oracle-asserted`: a Then whose oracle reads `open` is not asserted; bind it `qa_unresolved(... reason="expectation_unconfirmed", question=...)` and assert only the established part (a status range keeps `# oracle_unknown: <ref>`). `invalid` or no register question: back to S4.

@@ -76,6 +76,10 @@
       "absent_means": "required",
       "project_fact": true
     },
+    "manual": {
+      "since": "0.10.9",
+      "absent_means": "default"
+    },
     "manual_capture": {
       "since": "0.10.8",
       "absent_means": "default"
@@ -264,12 +268,40 @@
       "since": "0.8.1",
       "absent_means": "default"
     },
+    "manual.walkers": {
+      "since": "0.10.9",
+      "absent_means": "default"
+    },
+    "manual.accounts_way": {
+      "since": "0.10.9",
+      "absent_means": "default"
+    },
+    "manual.data_way": {
+      "since": "0.10.9",
+      "absent_means": "default"
+    },
+    "manual_capture.type_delay_ms": {
+      "since": "0.10.9",
+      "absent_means": "default"
+    },
+    "manual_capture.settle_ms": {
+      "since": "0.10.9",
+      "absent_means": "default"
+    },
     "dispatch.native_completion_grace_s": {
       "since": "0.9.1",
       "absent_means": "default"
     },
+    "dispatch.parallel_windows": {
+      "since": "0.10.9",
+      "absent_means": "default"
+    },
     "collect": {
       "since": "0.9.1",
+      "absent_means": "default"
+    },
+    "first_look": {
+      "since": "0.10.9",
       "absent_means": "default"
     }
   },
@@ -423,7 +455,8 @@
         "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others - one dispatch each, never merged. mechanical_rounds is how many exactly-worded mechanical fixes (a sleep, a raw locator) go back to the author per window; each is closed by one reviewer dispatch with the same cause, and neither spends the repair cap - only a repair whose cause is test_defect spends the cap of two.",
         "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others - one dispatch each, never merged. mechanical_rounds is how many mechanical fixes the critic worded (a sleep, a raw locator) go back to the author per window; each is closed by the author's own green run on the new bytes, never by another critic, and spends no repair cap - only a repair whose cause is test_defect spends the cap of two.",
         "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others (execution.s5_window_cases overrides the non-UI size when set) - one dispatch each, never merged. mechanical_rounds is how many mechanical fixes the critic worded (a sleep, a raw locator) go back to the author per window; each is closed by the author's own green run on the new bytes, never by another critic, and spends no repair cap - only a repair whose cause is test_defect spends the cap of two.",
-        "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others (execution.s5_window_cases overrides the non-UI size when set) - one dispatch each, never merged; on the plan form (S5 with a reviewed plan), the cases one test covers are one window even over the cap. mechanical_rounds is how many mechanical fixes the critic worded (a sleep, a raw locator) go back to the author per window; each is closed by the author's own green run on the new bytes, never by another critic, and spends no repair cap - only a repair whose cause is test_defect spends the cap of two."
+        "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others (execution.s5_window_cases overrides the non-UI size when set) - one dispatch each, never merged; on the plan form (S5 with a reviewed plan), the cases one test covers are one window even over the cap. mechanical_rounds is how many mechanical fixes the critic worded (a sleep, a raw locator) go back to the author per window; each is closed by the author's own green run on the new bytes, never by another critic, and spends no repair cap - only a repair whose cause is test_defect spends the cap of two.",
+        "controller stage-scope cuts S5 into windows of at most ui_window_cases cases whose plan row is e2e-ui, or api_window_cases others (execution.s5_window_cases overrides the non-UI size when set) - one dispatch each, never merged; on the plan form (S5 with a reviewed plan), the cases one test covers are one window even over the cap. mechanical_rounds is how many mechanical fixes the critic worded (a sleep, a raw locator) go back to the author per window; each is closed by the author's own green run on the new bytes, never by another critic, and spends no repair cap - only a repair whose cause is test_defect spends the cap of two. parallel_windows is how many S5 windows work at once: windows run in parallel; serial if the build compiles the whole test folder (record 1)."
       ]
     },
     "dispatch_note": {
@@ -587,6 +620,25 @@
         "Share of a story's priced cost the orchestrator itself may spend on dispatching, re-assembling requests, repeated acceptances and holding context before the retro and the Factory tab call it a finding about the factory. A fraction, not a percentage."
       ]
     },
+    "manual_note": {
+      "since": "0.10.9",
+      "note_history": [
+        "How many manual walkers (S6 lanes) work at once: walkers is a whole number of 1 or more; 1 runs one walker at a time, which is the road before lanes existed. Two walkers never sign in as the same account and never walk the same case; a story whose lanes would share either runs them in turn."
+      ]
+    },
+    "manual_supply_note": {
+      "since": "0.10.9",
+      "note_history": [
+        "How this project gets more test accounts and which records manual walkers may share or make, recorded by the factory from the person's own words (never typed in by hand). accounts_way.words and data_way.words are the person's words, whole; `not known` means the person was not asked yet. accounts_way.self_sign_up.roles names the lane accounts a user who signed up on the app's own page stands for; accounts_way.more_accounts maps a role to env-file key pairs `env:USER_KEY/SECRET_KEY` (key names only, never a value); accounts_way.limit_by_role maps a role to the most lanes of it at once. data_way.pools maps a kind of record to {existing: [instance ids], create_request, delete_request}; data_way.may is one of `only use what exists`, `may create, never delete`, `may create and delete` (anything else reads `not known`, and walkers only use what exists)."
+      ]
+    },
+    "manual_capture_note": {
+      "since": "0.10.9",
+      "note_history": [
+        "How the manual-agent capture (scripts/manual_capture.py) behaves on this project. type_delay_ms: the pause between two characters of a `fill` step, which keys the text as a person does (a text that would take longer than the step limit at this pace is refused, door `fill --whole`). settle_ms: how long the call waits after a step that acts or types, so the requests it caused arrive while that step is still the current one. surprise.ignore: rules that silence a noisy line of the `surprise:` report, each {kind, match, step?} - kind one of request, status, failed, console, url, field, text, blocked_host; match a case-sensitive glob (* crosses /) over the line's subject (METHOD path, METHOD path -> NNN, a console text, from -> to, a selector, a watch label, a host); step an optional list of step words the rule is limited to. A silenced line is still counted and still written to surprises.jsonl, with the rule's number; only a rule listed here hides one. Other keys of this object (login.ui, login.http, capture_profile, element_wait_s) are the project's own and are recorded by onboarding.",
+        "How the manual-agent capture (scripts/manual_capture.py) behaves on this project. type_delay_ms: the pause between two characters of a `fill` step, which keys the text as a person does (a text that would take longer than the step limit at this pace is refused, door `fill --whole`). settle_ms: how long the call waits after a step that acts or types, so the requests it caused arrive while that step is still the current one. Other keys of this object (login.ui, login.http, capture_profile, element_wait_s) are the project's own and are recorded by onboarding."
+      ]
+    },
     "environment.note": {
       "since": "0.1.0",
       "note_history": [
@@ -632,6 +684,9 @@
     },
     "adapters.test_management.adapter": {
       "reason": "the factory reads adapters.test_management.name and .status; the `adapter` field is read by nothing"
+    },
+    "manual_capture.surprise": {
+      "reason": "no script of this factory reads it any more: the recorder shows every surprise line to the analyst, and no project rule hides one"
     }
   },
   "renamed": {},

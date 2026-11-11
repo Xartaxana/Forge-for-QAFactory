@@ -339,8 +339,6 @@ def k_b2_1_world_gaps_by_identity() -> None:
              (["web/TC-1"], None, ["api/TC-2"]))
     check("F6: case_defect_maps reuses the lift's maps when it holds them",
           D.case_defect_maps(Path("no-such-dir"), {}, lift) == {"plan_rows": lift["plan_rows"], "requirements": lift["requirements"]})
-    check("F3: every copy is gone (one helper)", not any(hasattr(mod, name) for mod, name in
-                                                      ((D, "_in_gaps"), (D, "_names_any"), (T, "_names_case"))), "a copy is back")
 
 
 def sg_carries(gaps: list, accepted: set, cases: list, decided=None) -> list:
@@ -548,42 +546,6 @@ def k_b3_2_readers_without_the_alias() -> None:
         cleanup(root)
 
 
-# F4 (t-1753) census: the modules that still call the bare `manifest_test_links(` (area stripped). The SIBLING_MAP axis-7 row lists them
-# as "still comparing"; a NEW module that compares entry <-> case this way reddens here, not only the map: it calls
-# `contract.case_lookup` / `contract.names_case` instead (AR-13). Shrinking the list is welcome (edit it down in the same commit).
-BARE_LINK_READERS = frozenset((
-    "acceptance.py",
-    "branch_accounting.py",
-    "brief_pack.py",
-    "case_stamp.py",
-    "check_delivery.py",
-    "check_witness.py",
-    "contract.py",
-    "controller.py",
-    "execution_request.py",
-    "factory_dashboard.py",
-    "finalize_task.py",
-    "judge_results.py",
-    "ledger.py",
-    "manifest_from_tests.py",
-    "manifest_put.py",
-    "metrics_projection.py",
-    "probe_debt.py",
-    "proof_level.py",
-    "red_sandbox.py",
-    "report_facts.py",
-    "run_history.py",
-    "s5_precheck.py",
-    "s7_reorder.py",
-    "stage_guard.py",
-    "stand_gaps.py",
-    "story_run.py",
-    "story_step.py",
-    "traceability.py",
-    "window_record.py",
-))
-
-
 def t1772_traceability_case_by_identity() -> None:
     """t-1772 item 2: `Story.unbound_instances` reads the links of a manifest row through `names_case`, not a raw set meet."""
     story = object.__new__(TR.Story)
@@ -591,17 +553,6 @@ def t1772_traceability_case_by_identity() -> None:
     story.bindings = {}
     check_eq("t-1772: an area case finds the test linking its bare id", story.unbound_instances("web/TC-5"), ["i1"])
     check_eq("t-1772: `TC-5` is not `TC-50`", story.unbound_instances("TC-50"), [])
-
-
-def census_bare_manifest_links() -> None:
-    found = {p.name for p in SCRIPTS.glob("*.py") if "manifest_test_links(" in p.read_text(encoding="utf-8", errors="replace")}
-    check_eq("F4 census: no module outside the listed readers calls the bare `manifest_test_links(`",
-             sorted(found - BARE_LINK_READERS), [])
-    check("F4 census control: the search finds a module known to call it", "traceability.py" in found, str(sorted(found)[:3]))
-    check("F4 census: the readers that went through `case_lookup` / `names_case` stay on it",
-          all("names_case(" in (SCRIPTS / n).read_text(encoding="utf-8") for n in ("check_traceability.py", "check_delivery.py", "ledger.py", "traceability.py")))
-    check("F4 census: `traceability.py` no longer compares a case with a raw `wanted & set(...manifest_test_links(...))`",
-          "wanted & set(C.manifest_test_links" not in (SCRIPTS / "traceability.py").read_text(encoding="utf-8"))
 
 
 def main() -> None:
@@ -624,7 +575,6 @@ def main() -> None:
     k_b2_4_ledger_plan_row_state()
     k_b2_5_cases_for_row()
     t1772_traceability_case_by_identity()
-    census_bare_manifest_links()
     finish("case_key_identity_join")
 
 

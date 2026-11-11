@@ -174,11 +174,6 @@ def test_k14_legacy_and_the_one_predicate() -> None:
     check_eq("K-1.1: a non-list is returned as it is", PC.stamp_revision("x", "new"), "x")
 
 
-def test_k15_the_form() -> None:
-    text = (SCRIPTS.parent / "handoffs" / "s3-strategist-to-designer.yaml").read_text(encoding="utf-8")
-    check_not_in("K-1.5: the S3 form template holds no coverage_contract_revision", "coverage_contract_revision", text)
-
-
 # --- item 2: the question branches are checked in the exit ---------------------------------------------------------------------
 
 def test_k2_the_exit_refuses_branches() -> None:
@@ -409,26 +404,15 @@ def test_b6_a_candidate_defect_rests_on_a_declared_question() -> None:
     check_eq("B-6: register_fence takes the virtual questions", sig, ("task_root", "rows", "extra_questions"))
 
 
-def test_k6_the_role_text() -> None:
-    agent = (SCRIPTS.parent / "agents" / "qa-test-strategist.md").read_text(encoding="utf-8")
-    check_in("K-6.1: the strategist is told the exit names every finding at once", "names every finding at once", agent)
-    check_not_in("K-6.1: ...and is no longer told to write the mark", "coverage_contract_revision", agent)
-    check_in("K-3.4/FR-38: ...and the door for a new question reaches it BEFORE the work, with the reading shape", "reading`/`from`/`if_chosen", agent)
-    phase = (SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s3.md").read_text(encoding="utf-8")
-    check_in("K-6.2: the conductor's text says the exit gate is the check", "the strategist's exit gate is the check; nothing is run for it", phase)
-
-
 def main() -> None:
     test_k1_the_mark()
     test_k14_legacy_and_the_one_predicate()
-    test_k15_the_form()
     test_k2_the_exit_refuses_branches()
     test_k23_every_kind()
     test_k3_the_door()
     test_k34_the_entry_is_checked()
     test_k35_failures_are_problems_not_passes()
     test_b6_a_candidate_defect_rests_on_a_declared_question()
-    test_k6_the_role_text()
     finish("test_s3_strategist_rounds")
 
 

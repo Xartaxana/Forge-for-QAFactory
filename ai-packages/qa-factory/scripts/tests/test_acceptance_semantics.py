@@ -842,3 +842,4 @@ if __name__ == "__main__":
     main()
     test_stage_acceptance_record()
     print("test_acceptance_semantics: stage acceptance record ok")
+    print("=== test_acceptance_semantics: 2/2 ok ===")

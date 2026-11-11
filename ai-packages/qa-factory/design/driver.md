@@ -14,7 +14,7 @@ and hands what it cannot resolve to a **conductor** — a fresh `claude -p` with
 python <plugin>/scripts/story_run.py --task <T> [--until gate_A|gate_B|end] [--model sonnet]
        [--host claude|codex] [--plugin-dir <plugin root>] [--project <project root>]
        [--mr <url|id> | --branch <name> | --commit <sha>] [--ungrounded] [--ticket-file <path>]
-       [--env <stand>] [--branch-suffix <s>] [--max-boundaries 80] [--dry-run]
+       [--side <name>=<reality>] [--reference <side>=<stand>] [--env <stand>] [--branch-suffix <s>] [--max-boundaries 80] [--dry-run]
 python <plugin>/scripts/story_run.py --task <T> --answer <file with the person's words>
 ```
 
@@ -96,8 +96,9 @@ low - the label says estimate.
 A fresh story (no `pipeline.json`) starts with S0 by code: `ticket_adapter.py get`,
 `environment_selection.py`, `readiness.py --write --probe-vcs` and `--require`, `env_probe.py`,
 the first `pipeline.json`, `stage_done.py --stage S0 --status done`, `controller.py
---operation initialize`. `--env`, `--mr/--branch/--commit`, `--ungrounded` and `--ticket-file`
-are the `qa-story` arguments; S0 and the S1 dispatch are the only readers.
+--operation initialize`. `--env`, `--mr/--branch/--commit`, `--ungrounded`, `--side`, `--reference` and `--ticket-file`
+are the `qa-story` arguments; S0 and the S1 dispatch are the only readers (`--side` and `--reference` are recorded into `pipeline.sides`
+when the first `pipeline.json` is written).
 
 A resumed story (a `pipeline.json` exists) looks at its ticket once before the loop (B-364, D-0027): after the answer a
 run carries is recorded, before the next step, never in the process that ran S0, and again before gate B is asked - the
@@ -380,7 +381,8 @@ kind plus the driver's own zero.
 `asked` (the open question), `in_flight` (B-268: dispatch id -> `{dispatch_id, pid, started_at, session_id?}`, written the moment a
 ROLE's `claude -p` process has a pid and removed when the call returns by any road, so an entry left on disk is a driver that
 died with its role; the conductor's and the delivery call's own processes write none; the key is absent when nobody is
-in flight; the child's environment carries `QA_FACTORY_DRIVER_RUN=<dispatch id>`),
+in flight; the child's environment carries `QA_FACTORY_DRIVER_RUN=<dispatch id>`, which its hooks and tools inherit; the one reader of that word
+and of the gate's `QA_FACTORY_DETECTOR_DISPATCH` is `scripts/dispatch_identity.py`, AR-13),
 `retro_asked` / `retro_feedback`, `delivery`, and `interrupted`: key (a
 dispatch id, or `S8:delivery`) -> `{kind, rule, session_id, num_turns, worked, call, stage, role, dispatch,
 reset, at}`, the call an infrastructure failure cut off (`kind` is the failure, `call` the driver's kind of

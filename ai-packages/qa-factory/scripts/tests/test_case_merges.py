@@ -6,7 +6,7 @@ the adversarial inputs and the five owed pairs of the 12586 fixture; K1 an owed 
 K3 / K3b which pairs a row answers, the truncation AT and BEYOND `refusal_units_shown`; K4 a merged case needs the concern (and the
 no-`verdict`-column branch, B-2 of the review); K5 older rounds; K6 the level line; K7 a project case-id form; K8 `plan_case_budget` and
 the `Over the plan case budget:` line; K8b the brief line; K9 the exit (`detector_main`) and the person's word; K-CAL the 12586 round;
-K-DOC the charter and the card (key presence, each with a negative control).
+(K-DOC, the charter and card phrases, moved to design/role-rules.json.)
 
 K-CAL pins that the code CARRIES and HOLDS the three calibration merges when the critic writes them; it does not find them - the three
 share no requirement, and what makes them one form is judgment (FR-12); their finding is the live run (FR-33).
@@ -658,38 +658,9 @@ def kfix_verdict() -> None:
         cleanup(root)
 
 
-# --- K-DOC -------------------------------------------------------------------------------------------------
-
-CHARTER_KEYS = ("2b. **Duplicates and level**", "## Merge candidates", "parametrise into one test:", "lower level: impossible", "P16", "P19",
-                "a `<level>` with verdict `approve_with_concerns`")          # t-756 B-1: the level rule the code refuses on, told to the critic
-CHARTER_MAX_BYTES = 15472          # X2 B4: the six-section charter of the stage critic S2-S4 (was 9470 for the S4-only card); X5-1 +571 of craft (P16/P17); the ratchet is role-load.json
-CARD_KEYS = ("## Merge candidates", "merge|keep", "P16 or P19", "parametrise into one test:", "lower level:", "Over the plan case budget:")
-CHARTER_ABSENT = ("both shapes shipped", "matches your receipt against the end", "recomputes the verdict from your roll-call")
-
-
-def missing(keys, text: str) -> list:
-    return [k for k in keys if k not in text]
-
-
-def kdoc() -> None:
-    charter = (PLUGIN_ROOT / "agents" / "qa-case-critic.md").read_text(encoding="utf-8")
-    card = json.loads((PLUGIN_ROOT / "references" / "ahead-cards.json").read_text(encoding="utf-8"))["cards"]["qa-case-critic"]["text"]
-    check_eq("K-DOC: the charter carries every key", missing(CHARTER_KEYS, charter), [])
-    check_eq("K-DOC: the card carries every key", missing(CARD_KEYS, card), [])
-    check_eq("K-DOC: the charter no longer carries the three cut sentences", [k for k in CHARTER_ABSENT if k in charter], [])
-    check(f"K-DOC: the charter is within {CHARTER_MAX_BYTES} bytes (it is {len(charter.encode())})", len(charter.encode()) <= CHARTER_MAX_BYTES)
-    check("K-DOC (negative control): a charter 31 bytes over the cap is reported over", len((charter + "x" * 31).encode()) > CHARTER_MAX_BYTES)
-    for key in CHARTER_KEYS:
-        check(f"K-DOC (negative control): the charter without `{key}` is reported missing", key in missing(CHARTER_KEYS, charter.replace(key, "")))
-    for key in CARD_KEYS:
-        check(f"K-DOC (negative control): the card without `{key}` is reported missing", key in missing(CARD_KEYS, card.replace(key, "")))
-    for key in CHARTER_ABSENT:
-        check(f"K-DOC (negative control): the charter with `{key}` put back is reported present", key in [k for k in CHARTER_ABSENT if k in charter + key])
-
-
 def main() -> None:
     for step in (k0_records, k1_owed_pair, k2_form, k3_pairs, k3b_truncation, k4_concern, k5_older_rounds, k6_level, k7_project_form,
-                 k8_budget, k8b_brief_line, k9_exit, kcal_calibration, kfix_verdict, kdoc):
+                 k8_budget, k8b_brief_line, k9_exit, kcal_calibration, kfix_verdict):
         step()
     finish("test_case_merges")
 

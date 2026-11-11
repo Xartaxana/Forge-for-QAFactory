@@ -56,6 +56,7 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 - **One requirement per Then, many Thens per case.** A case asserts only its own requirements; a Then that checks another requirement belongs to that requirement's case.
 - **Equivalence by consequence.** Two inputs belong to one partition only if the same Then holds for both; when a Then differs, split the partition. Apply it when you are about to merge cases to save space.
 - **The negative twin.** For each Then that something happens, add what must stay unchanged (the neighbouring record, another user's data); apply it to every write, delete and send.
+- **Take the walked path.** Where your brief carries a first-look path (screen or API route), steps take it and cite `first_look:R-n`; a step off it says why.
 - **The self-probe.** Does the path carry the discriminating input, can the Then read independently of the trigger, is the defect mocked away?
 
 <!-- kind: process -->

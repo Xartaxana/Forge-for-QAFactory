@@ -13,6 +13,7 @@ commands are the minority of Bash/PowerShell calls - the rest pay no further cos
 The order of checks is preserved: app boundary (P-00) first, then secrets, then the
 quiet-runs check. All three are fail-closed: an unparsed event blocks the call.
 """
+import fnmatch
 import json
 import os
 import re
@@ -1020,7 +1021,10 @@ def _owner_of_path(raw: str, cfg: dict | None = None) -> tuple:
     for key, role in owned.items():
         if _is_path_key(key):
             directory, base = key.rsplit("/", 1)
-            if name == base and "/" + directory + "/" in "/" + path:
+            # A base with `*` (`critic-findings-*.md`, one file per dispatch) is matched by fnmatch; a base without it keeps the
+            # exact match, so the old `critic-findings.md` row still claims exactly that name (first match wins, as before).
+            same = fnmatch.fnmatchcase(name, base) if "*" in base else name == base
+            if same and "/" + directory + "/" in "/" + path:
                 return role, False
     for key, role in owned.items():
         if _is_path_key(key):
@@ -1145,7 +1149,8 @@ def dispatched_role(event: dict) -> str:
 
     A PreToolUse event does not name the agent that caused it — `agent_type` arrives on
     SubagentStop and nowhere else — so a guard that needs to know WHO is writing reads the open
-    dispatch instead. One dispatch of one role is running at a time in a story; none open, or no
+    dispatch instead. With no name in the environment the first running dispatch answers (one at a time before parallel
+    windows); a session that carries its dispatch's name (`dispatch_identity.named`) gets that dispatch's role. None open, or no
     controller, means the caller decides what to assume."""
     raw = str(((event or {}).get("tool_input") or {}).get("file_path") or "").replace("\\", "/")
     story = _STORY_RE.search(raw)
@@ -1159,6 +1164,12 @@ def dispatched_role(event: dict) -> str:
     except Exception:
         return ""
     dispatches = controller.get("dispatches") if isinstance(controller.get("dispatches"), dict) else {}
+    import dispatch_identity
+    if dispatch_identity.named():
+        # A session that carries its dispatch's name is that dispatch (TR3-14, AR-13); two windows running do not make
+        # it the first one. The name read, no running dispatch fits it: no role (the caller decides what to assume).
+        mine = dispatch_identity.own(dispatches)
+        return role_name(str(mine.get("role") or "")) if mine else ""
     for dispatch in dispatches.values():
         if isinstance(dispatch, dict) and dispatch.get("status") == "running":
             return role_name(str(dispatch.get("role") or ""))
@@ -1338,7 +1349,7 @@ def manifest_write_check(event: dict, cfg: dict) -> None:
           "to runs[]/self_fixes[]). To change one field of one entry, use Edit.")
 
 
-def _dispatch_open_for_owner(controller: dict, owner: str) -> bool:
+def _dispatch_open_for_owner(controller: dict, owner: str, named: str = "") -> bool:
     """True when `state/controller.json` shows the owning role doing the writing itself.
 
     Two independent readings, either is enough: (1) some dispatch record carries that role
@@ -1349,8 +1360,17 @@ def _dispatch_open_for_owner(controller: dict, owner: str) -> bool:
     legacy `rework` sub-state (the `stage_transition` path) and its active dispatch is the
     owning role — kept for the one other way a rework gets recorded."""
     dispatches = controller.get("dispatches") if isinstance(controller.get("dispatches"), dict) else {}
-    if any(isinstance(d, dict) and role_name(str(d.get("role") or "")) == owner
-           and d.get("status") == "running" for d in dispatches.values()):
+    held = None
+    if named:
+        # A session that carries its dispatch's name (`named`) opens the owner's guard only as that dispatch: a sibling of
+        # the owner running beside it must not (TR3-14 invariant). A name this story does not hold: today's "any".
+        import dispatch_identity
+        held = dispatch_identity.held(dispatches, named)
+    if held:
+        if len(held) == 1 and held[0].get("status") == "running" and role_name(str(held[0].get("role") or "")) == owner:
+            return True
+    elif any(isinstance(d, dict) and role_name(str(d.get("role") or "")) == owner
+             and d.get("status") == "running" for d in dispatches.values()):
         return True
     stages = controller.get("stages") if isinstance(controller.get("stages"), dict) else {}
     for stage in stages.values():
@@ -1369,13 +1389,15 @@ def _any_story_open_for_owner(event: dict, owner: str) -> bool:
     one: the retro analyst's ledgers must not be repaired while only the scout is running."""
     try:
         import json
+        import dispatch_identity
         from hooklib import artifact_root
+        name = dispatch_identity.named()
         for controller_path in artifact_root(event).glob("*/state/controller.json"):
             try:
                 data = json.loads(controller_path.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            if _dispatch_open_for_owner(data, owner):
+            if _dispatch_open_for_owner(data, owner, name):
                 return True
     except Exception:
         return False
@@ -1446,8 +1468,9 @@ def owner_check(event: dict, cfg: dict) -> None:
     except Exception:
         controller = None
     if controller is not None:
-        if _dispatch_open_for_owner(controller, owner):
-            return  # a dispatch of the owning role is open, rework included
+        import dispatch_identity
+        if _dispatch_open_for_owner(controller, owner, dispatch_identity.named()):
+            return  # a dispatch of the owning role is open (the named session's own, if it has a name), rework included
     else:
         try:
             pipeline = json.loads((artifacts_dir(ticket, event) / "pipeline.json")
@@ -1475,6 +1498,134 @@ def owner_check(event: dict, cfg: dict) -> None:
           "stage is reworked without being lowered — a fresh dispatch of the same stage "
           "records it as rework, and a changed plan is recorded with `controller.py "
           "--operation revise_plan`.")
+
+
+def _window_dispatch_of_session(controller: dict, name: str) -> dict | None:
+    """The record of the S5 window dispatch of `qa-automator` that THIS session works for, or None.
+
+    The name must be a record of THIS story (a name the story does not hold falls to `dispatch_identity.own`'s count rule,
+    which here would attribute the session to a stranger: refused as None). A plan dispatch has no window: which dispatch is a
+    plan is `controller.s5_part_of`'s word, the one reader (AR-13)."""
+    import dispatch_identity as DI
+    dispatches = controller.get("dispatches") if isinstance(controller, dict) else None
+    record = DI.own(dispatches, role="qa-automator", stage="S5", name=name)
+    if not record or record.get("id") != name:
+        return None
+    from controller import s5_part_of        # below every cheap return: only an S5 automator window pays the import (AR-12)
+    return None if s5_part_of(record) == "plan" else record
+
+
+def _window_note(event: dict, text: str) -> None:
+    """A state the window-file check could not read, said through `hooklib.notice` (the one carrier with a reader, AR-15) to the
+    person as a journal signal: a fence on a write is outside FR-59's scope, and its declared direction is a pass, said not silent."""
+    import hooklib
+    hooklib.notice(event, f"window_file_check: {text}; this write was not checked against the claims of other windows",
+                   reader="person")
+
+
+def _sessions_of(event: dict, name: str) -> list:
+    """`(task root, controller, record)` for every story of this project whose controller holds the S5 window dispatch `name`
+    with a scope. A controller that cannot be read is retried three times at 20 ms (a rename in flight; a transient sharing error
+    on Windows), then passed with one notice naming the story: an unknown is said, and refusing outright would dead-end the door
+    (FR-57). A fence on a write is outside FR-59's scope (no gate judging a run, test, stand or proof); its pass is declared."""
+    import time
+    from hooklib import artifact_root
+    out = []
+    try:
+        paths = sorted(artifact_root(event).glob("*/state/controller.json"))
+    except Exception as exc:
+        _window_note(event, f"the story folders could not be listed ({type(exc).__name__})")
+        return out
+    for path in paths:
+        controller = None
+        for attempt in range(3):
+            try:
+                controller = json.loads(path.read_text(encoding="utf-8"))
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(0.02)
+        if controller is None:
+            _window_note(event, f"the controller of story {path.parent.parent.name} could not be read")
+            continue
+        record = _window_dispatch_of_session(controller, name)
+        if record and any(str(c) for c in (record.get("scope") or [])):
+            out.append((path.parent.parent, controller, record))
+    return out
+
+
+def window_file_check(event: dict, cfg: dict) -> None:
+    """First-write ownership of a test file by an S5 window (spec t-1937 F3 b, TR3-16; AR-9, AR-14, AR-25).
+
+    Two windows of one story that run side by side must not write one test file. The first window to Write or Edit a test file
+    claims it (`window_files.claim`); a later write by another window is refused with the door a role can always use: a
+    new file in the same directory. P17 stays the role's (where a test lives); the refusal does not judge the test.
+
+    In order, each a return: no dispatch name in the environment (`dispatch_identity.named()`); `dispatch.parallel_windows` is 1
+    (one window at a time: nothing is claimed, the old road literally); not an S5 window dispatch of `qa-automator` (any story of
+    this project that holds the name); the path is not inside the project; the path is not a test body
+    (`test_files.is_test_for("test_body", ...)` not literally True: a support file, a fixture or an unknown passes, F10).
+    Then claim: a claim holds until `window_files.release` (no liveness reading, no takeover); the holder is this window's own
+    when it shares a case with it (a repair round, a grown round), else the write is refused. An empty claim file (a crash between
+    create and write) is an unknown owner and refuses with the same door and a note. A controller that cannot be read is retried,
+    then passed with a notice to the person (`_sessions_of`). A second refusal in a row names the story's state, not the guard.
+    A Bash write is not seen here (the named known gap; the launch gate is the net).
+
+    ERROR DIRECTION: it may refuse needlessly (a new file is always possible); it never lets two windows write one file
+    through Write, Edit or NotebookEdit when it can read the story. Class `safety` (a guard on a write); the owner it serves is
+    the intent that two windows do not tear one file, not a judgment of the test."""
+    if (event or {}).get("tool_name") not in ("Write", "Edit", "NotebookEdit"):
+        return
+    import dispatch_identity as DI
+    name = DI.named()
+    if not name:
+        return
+    tool_input = (event or {}).get("tool_input") or {}
+    raw = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")    # NotebookEdit names it `notebook_path`
+    if not raw:
+        return
+    import config_contract
+    if config_contract.parallel_windows(cfg)[0] == 1:
+        return                                       # one window at a time: no second window to meet, the old road literally
+    sessions = _sessions_of(event, name)
+    if not sessions:
+        return
+    import window_files as WF
+    project = project_root(event)
+    rel = WF.project_rel(project, raw)
+    if rel is None:
+        return
+    import test_files
+    if test_files.is_test_for("test_body", rel, cfg, root=project) is not True:
+        return
+    for task_root, _controller, record in sessions:
+        mine = WF.window_id("S5", record.get("scope"))
+        owner = WF.claim(task_root, rel, mine, name)
+        if owner != mine:
+            count = _escalation_count("PT-window-file", event, rel)     # the count only: this refusal is the story's state, not a guard fault
+            block(_window_refusal(WF, task_root, rel, owner, count))
+
+
+def _window_refusal(WF, task_root, rel: str, owner: str, count: int) -> str:
+    """The text of a refused write: whose file it is, the door, the conductor's way out; from the second refusal in a row the
+    state of the story (windows meeting on files) and the move, never a claim that the guard is at fault (FR-1, FR-46, FR-57)."""
+    directory = rel.rsplit("/", 1)[0] if "/" in rel else "."
+    text = (f"PRE-TOOL GUARD: this test file belongs to window {WF.cases_of(owner) if owner else 'another window'} until that "
+            f"window closes. Put your test in a new file in the same directory: {directory}. Where a test lives stays your "
+            "choice (P17); a test in a new file is judged the same.")
+    free = (f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/window_files.py" --task "{Path(task_root).as_posix()}" '
+            "--release ")
+    if owner:
+        text += f" If the file must change hands, the conductor frees the claim with: {free}\"{owner}\""
+    else:
+        text += (" (The claim on this file cannot be read, so its owner is unknown; once it is 30 seconds old the conductor "
+                 f"clears it with: {free}\"S5|\")")
+    if count >= ESCALATES_AFTER:
+        text += (f"\n\nThis is refusal {count} in a row on files another window holds: the windows of this story meet on the "
+                 "same test files, which retrying does not change and which is not a fault of the guard. Nothing is stopped. Put "
+                 "every test of yours that needs a claimed file into a new file in its directory, and say in your hand-back which "
+                 "files you could not write and which window holds them, so the conductor can regroup the plan.")
+    return text
 
 
 WRITES_MSG = ('PRE-TOOL GUARD: writing to a tracker or a test-management system from a shell is blocked. '
@@ -1563,6 +1714,12 @@ HUMAN_WORD_MSG = ("PRE-TOOL GUARD: a person's word is recorded by the orchestrat
                   "(`show` and `validate` are open to you). "
                   "`environment_record.py record` and `revoke` store what the person accepted as a property of the environment, "
                   "or took back; a role running them would be excusing its own gap (`show` is open to you). "
+                  "`project_knowledge.py account`, `role` and `revoke` store what the person said about the product's roles and "
+                  "the stand's accounts, or take it back; a role running them would turn its own inference into a project fact "
+                  "(`show` is open to you). "
+                  "`project_knowledge.py side` stores what the person said about the product's sides (which are real on a stand, "
+                  "whose they are, which stand runs the old version); a role running it would declare its own substitute real or "
+                  "its own gap someone else's (`show` is open to you). "
                   "`report_adapt.py kind` changes how a test command's report is read in the project's configuration; that is the "
                   "driver's or the conductor's move, and a role that cannot read a report hands the kept report over in its digest "
                   "(`understood` and `show` are open to you). "
@@ -1602,6 +1759,9 @@ def human_word_check(event: dict, cfg: dict) -> None:
                or re.search(r"stand_identity\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|confirm|forget|unconfirm)(?![\w-])", low)
                # What the person accepted ONCE as a property of the environment, and taking it back (B-414): the same door shape
                or re.search(r"environment_record\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|revoke)(?![\w-])", low)
+               # What the person said about the product's roles and the stand's accounts, and taking it back (PK0-8): the same door shape;
+               # `show` stays open
+               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side)(?![\w-])", low)
                # B-416 M10: `report_adapt.py kind` writes the config's report kind and `forget` takes the helper's row back (it would
                # reset the one-turn bound); `config_write_check` reacts only to a `config.json` path word, and this script names none,
                # so the role door is closed here for both. `understood` and `show` stay open.
@@ -2072,8 +2232,12 @@ def config_write_check(event: dict, cfg: dict) -> None:
 
 
 STAND_RECORD_MSG = (
-    "PRE-TOOL GUARD: a role does not write the stand registry, a story's stand confirmations, the environment record or the "
-    "report adaptations (refused: {what}). "
+    "PRE-TOOL GUARD: a role does not write the stand registry, a story's stand confirmations, the environment record, the "
+    "report adaptations or the project's answer registry (refused: {what}). "
+    "`qa-factory/records/project-knowledge.json` is that registry: what a person said about the product's roles and the stand's "
+    "accounts, written by the driver or the conductor with `project_knowledge.py` (`project_knowledge.py show` is open to you); "
+    "if it lacks something you found, say so in your digest and the conductor records it - the stand halt below does not apply "
+    "to this file. "
     "`qa-factory/records/stand-identity.json`, `qa-factory/artifacts/<story>/state/stand-confirmations.jsonl`, "
     "`qa-factory/records/environment-properties.json` and `qa-factory/records/report-adaptations.json` hold "
     "what a PERSON said about which build a stand runs and about what is a property of this environment (the last is "
@@ -2088,13 +2252,13 @@ STAND_RECORD_MSG = (
 
 # The files under `qa-factory/records/` that hold a person's word about the environment: only the driver and the conductor write
 # them (`stand_identity.py`, `environment_record.py`), never a role.
-STAND_RECORD_FILES = ("stand-identity.json", "environment-properties.json", "report-adaptations.json")
+STAND_RECORD_FILES = ("stand-identity.json", "environment-properties.json", "report-adaptations.json", "project-knowledge.json")
 
 
 def _stand_record_matcher(event: dict):
     """A function `word -> bool`: does this path word name THIS project's stand registry
     (`qa-factory/records/stand-identity.json`), its environment record (`qa-factory/records/environment-properties.json`,
-    B-414) or the stand confirmations of one of its stories
+    B-414), its project-knowledge registry (`qa-factory/records/project-knowledge.json`, PK0-8) or the stand confirmations of one of its stories
     (`<artifact root>/<story>/state/stand-confirmations.jsonl`)? Resolved, so either slash style and a relative or
     absolute spelling meet; a word holding a variable, a glob or a home shortcut it cannot expand is not decided
     (False = pass)."""
@@ -2912,6 +3076,7 @@ def _guard(event: dict) -> None:
         plan_write_check(operation, cfg)
         handoff_write_check(operation, cfg)
         owner_check(operation, cfg)
+        window_file_check(operation, cfg)
         stage_check(operation, cfg)
         # After every older check, so none of their refusals moves: this one refuses only a call
         # they all passed, and never turns one of theirs into a pass.

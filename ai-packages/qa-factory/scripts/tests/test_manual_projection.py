@@ -93,6 +93,111 @@ class ManualProjection(unittest.TestCase):
             self.assertEqual(json.loads((task / "evidence/index.json").read_text())["rows"], [])
             self.assertFalse(any(r["path"].endswith(".png") for r in D.build(task)["files"]))
 
+    def test_the_blocks_stamp_and_about_survive_refresh_into_the_report(self):
+        """t-2181 PC-5a: a manual block written on a story with a non-real side carries its stamp through `F.refresh` to the report's
+        `manual_checks` and `current_manual_checks` rows (the ledger's one reader), the runner's `about` with it; a story with
+        no `pipeline.sides` leaves the rows with neither key."""
+        for sides in (True, False):
+            with tempfile.TemporaryDirectory() as td:
+                task = Path(td)
+                fixtures.ROOT = task
+                before, after = task / "work/evidence/before.png", task / "work/evidence/after.png"
+                before.parent.mkdir(parents=True)
+                before.write_bytes(b"before"); after.write_bytes(b"after")
+                ob = obligation("O-1", "manual-agent")
+                ob["evidence_policy"] = "ui"
+                atomic_json(task / "work/test-plan.json", [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [ob]}])
+                atomic_json(task / "state/story-case-links.json", {"links": [{"case_id": "TC-1", "version": "cv_1"}]})
+                store = EventStore(task)
+                store.commit("initialize", {"source_revision": fixtures.SNAPSHOT_SHA, "scope": ["TC-1"]}, "init")
+                fixtures.seed_provenance(task)
+                store.commit("dispatch", {"id": "d1", "stage": "S6", "role": "qa-runner", "scope": ["TC-1"]}, "d1")
+                row = fixtures.record(before, after)
+                row["completion_condition"] = "done"
+                row["obligation_hashes"] = {"O-1": content_hash(ob)}
+                row["approved_policy_hash"] = content_hash({"evidence_policy": "ui", "completion_condition": ob["completion_condition"],
+                                                            "obligation_hashes": row["obligation_hashes"]})
+                row["gate_a_decision_ref"] = "decision:gate-a"
+                if sides:
+                    atomic_json(task / "pipeline.json", {"sides": {"ui": {"reality": "real"}, "api": {"reality": "substituted"}}})
+                    row["about"] = ["api"]
+                M.write_block(task, [row])
+                F.refresh(task)
+                report = json.loads((task / "work/run-report.json").read_text())
+                for kind in ("manual_checks", "current_manual_checks"):
+                    (got,) = report[kind]
+                    self.assertEqual(got.get("sides_met"), {"ui": "real", "api": "substituted"} if sides else None, kind)
+                    self.assertEqual(got.get("about"), ["api"] if sides else None, kind)
+
+    def _unprepared_task(self, td, with_result=False):
+        """A task whose one manual-agent obligation was walked UNPREPARED (F5, t-1936 N5): its request.json holds the code-written
+        `unprepared` marker and the runner's record carries it, observations and no result."""
+        import manual_capture as MC
+        task = Path(td)
+        fixtures.ROOT = task
+        ob = obligation("O-U", "manual-agent")
+        ob["evidence_policy"] = "ui"
+        atomic_json(task / "work/test-plan.json", [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [ob]}])
+        atomic_json(task / "state/story-case-links.json", {"links": [{"case_id": "TC-1", "version": "cv_1"}]})
+        store = EventStore(task)
+        store.commit("initialize", {"source_revision": fixtures.SNAPSHOT_SHA, "scope": ["TC-1"]}, "init")
+        store.commit("dispatch", {"id": "d1", "stage": "S6", "role": "qa-runner", "scope": ["TC-1"]}, "d1")
+        atomic_json(MC.case_root(task, "TC-1") / "request.json",
+                    {"unprepared": {"reason": "the plan gives TC-1's check an evidence rule that is not one word", "door": "d",
+                                    "obligation_ids": ["O-U"]}, "case": "TC-1"})
+        record = {"schema_version": 2, "case": "TC-1", "obligation_ids": ["O-U"],
+                  "unprepared": {"reason": "the plan gives TC-1's check an evidence rule that is not one word"},
+                  "observations": [{"step": 1, "expected": "x", "seen": "y", "evidence": "e", "quote": "q"}],
+                  "finding": "work/evidence/manual/TC-1/finding.md", "dispatch_id": "d1",
+                  "attempt_started_at": "2026-09-17T10:00:00Z", "attempt_ended_at": "2026-09-17T10:01:00Z",
+                  "source_revision": fixtures.SNAPSHOT_SHA}
+        M.write_block(task, [record])
+        F.refresh(task)
+        return task, json.loads((task / "work/run-report.json").read_text())
+
+    def test_finalize_carries_unprepared_without_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            task, report = self._unprepared_task(td)
+            rows = report["current_manual_checks"]
+            self.assertEqual(len(rows), 1)
+            self.assertIn("unprepared", rows[0])
+            self.assertNotIn("result", rows[0])                  # FR-59: never a pass, never a fail, never a made-up inconclusive
+            self.assertFalse(rows[0]["evidence_validated"])
+            self.assertEqual([r["case"] for r in M.unprepared_rows(report)], ["TC-1"])
+
+    def test_coverage_unprepared_not_run_with_gap(self):
+        with tempfile.TemporaryDirectory() as td:
+            task, report = self._unprepared_task(td)
+            item = coverage_projection(task, report, {})["obligations"][0]
+            self.assertEqual((item["execution_state"], item["verified"]), ("not_run", False))
+            self.assertEqual(item["unprepared"], "the plan gives TC-1's check an evidence rule that is not one word")
+            self.assertTrue(item["gap"].startswith("not checked by hand: unprepared - "))
+
+    def test_manifest_ignores_unprepared_record(self):
+        # F5(e) 4: delivery_manifest ships no proof for a walk: the ledger exports nothing, the manifest's index check stays quiet
+        with tempfile.TemporaryDirectory() as td:
+            task, report = self._unprepared_task(td)
+            ledger = L.build(task)
+            L.write(task, ledger)
+            self.assertEqual(ledger["manual_evidence"]["rows"], [])
+            self.assertEqual([w["case"] for w in ledger["unprepared_walks"]], ["TC-1"])        # test_ledger_lists_unprepared_walks
+            built = D.build(task)                                                               # raises on a stale or odd index
+            self.assertFalse(any(r["path"].startswith(("evidence/", "work/evidence/")) for r in built["files"]))
+
+    def test_unprepared_row_is_the_analysts_call(self):
+        import contract as C
+        import s7_pretriage as P
+        with tempfile.TemporaryDirectory() as td:
+            task, report = self._unprepared_task(td)
+            targets = C.triage_targets(report)
+            self.assertIn("TC-1", targets["manual"])             # a target of S7 under its own case
+            self.assertIn("TC-1#obs1", targets["observations"])  # and its observations are listed beside it
+            why = P._why_not(report["current_manual_checks"], {"TC-1"}, (set(), False))
+            self.assertIn("an unprepared walk", why)
+            self.assertIn("analyst's call", why)
+            _, rows = P.failing_manual_rows(report)
+            self.assertEqual(list(rows), [("manual", "TC-1")])
+
     def test_manifest_windows_keep_other_obligation_bindings(self):
         first = {"obligation_bindings": [{"obligation_id": "O-1", "obligation_hash": "one"}]}
         result, _ = manifest_put.merge(first, {"obligation_bindings": [{"obligation_id": "O-2", "obligation_hash": "two"}]})

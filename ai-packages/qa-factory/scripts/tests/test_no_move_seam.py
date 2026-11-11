@@ -866,8 +866,10 @@ def n17_site_fallback() -> None:
             if special == "cap":
                 driver.conductor_calls[driver.boundary] = story_run.CONDUCTOR_CALLS_PER_BOUNDARY
             _, person = raised(driver, site_state(driver, **extra), ["person_does", "stop_here"])
+            # t-1936 F2: refused options with a conductor question put that question (verbatim) between the lead and the site's question
+            found = "What the conductor found:\nWhat? `retry`?\n\n" if label == "a verdict that breaks the options rule" else ""
             check_eq(f"N17 {label}: the SITE's question with the lead above it, never the generic three",
-                     (person.text, list(person.offered)), ("LEAD: nothing has moved yet.\n\nthe site's own question", []))
+                     (person.text, list(person.offered)), (f"LEAD: nothing has moved yet.\n\n{found}the site's own question", []))
             check_eq(f"N17 {label}: exactly one defect_found", len(driver.defects), 1)
             check_eq(f"N17 {label}: exit 3 (EXIT_PERSON): a conductor `stop` is the only road to 4", person.code, story_run.EXIT_PERSON)
         finally:
@@ -1703,9 +1705,12 @@ def c26_args_are_validated_and_carried() -> None:
         check(f"C26: {label} -> ArgsRefused", c26_validate([c26_option(**args), other]).startswith("args: "), c26_validate([c26_option(**args), other]))
     check("C26: no args at all -> ArgsRefused", c26_validate([seam_option("rework", "rework_stage"), other]).startswith("args: "))
     check("C26: a fact that was not read -> ArgsRefused (FR-59)", c26_validate([c26_option(**C26_ARGS), other], dict(C26_FACTS, scope=None)).startswith("args: "))
-    check_eq("C26: args on another move is malformed, not ArgsRefused", NM.validate_options(
+    # t-1936 F2 (Fork 3-B): `args` on a move whose column is null is DROPPED, the option kept (it was malformed, a refused answer, before)
+    kept = NM.validate_options(
         c26_verdict([c26_option(**C26_ARGS), dict(other, args={"stage": "S5"})]), ["rework_stage", "person_does"], NM.data(), lambda s: s.strip().lower(), {},
-        facts=C26_FACTS)[0], None)
+        facts=C26_FACTS)[0]
+    check("C26 (F2): args on another move is dropped, not ArgsRefused and not malformed: the option stays, without `args`",
+          kept is not None and "args" not in kept[1] and kept[1].get("args_dropped") is True and kept[0]["args"] == C26_ARGS, str(kept))
     # the lone option (L-5, L-6 (b)): only at a chosen call for `rework`
     check_eq("C26: one rework option with good args is legal at a chosen call", c26_validate([c26_option(**C26_ARGS)], chosen=True, move="rework_stage"), "ok")
     check_eq("C26: ...not outside a chosen call", c26_validate([c26_option(**C26_ARGS)]), None)
@@ -2038,7 +2043,182 @@ def rd1_19_gate_b_assert_stricter_road_is_open() -> None:
     check("RD1-19 negative control: a case outside the scope is refused by the same call", refused is None and "outside the approved scope" in why, why)
 
 
+# --- t-1936 F2 (N3): which move takes `args` and which is never an option are DATA columns of `moves`: ONE block at the end of the file ----------
+# These are plain `test_*` functions with asserts: pytest collects them, and `f2_run` below runs them in the file's own script mode too.
+import copy  # noqa: E402
+
+F2_OPEN = ["person_does", "stop_here", "release_and_restart", "go_on_as_is", "rework_stage", "resume_with_words", "story_fact", "revoke_exclusion"]
+F2_DASH = {"resume_with_words": "run on the person's own words, never an option: a token answer carries no words",
+           "revoke_exclusion": "run on the person's own words, never an option: a token answer carries no words",
+           "story_fact": "the conductor's own move: it runs it with a value a script or the person named; never a person's choice"}
+
+
+def f2_spec(**rows) -> dict:
+    """A copy of the real `conductor-actions.json` with the named rows' keys changed (`{move id: {key: value}}`; a value `...` drops the key)."""
+    spec = copy.deepcopy(NM.data())
+    for row in spec["moves"]:
+        for key, value in rows.get(row["id"], {}).items():
+            if value is ...:
+                row.pop(key, None)
+            else:
+                row[key] = value
+    return spec
+
+
+def f2_check(options, spec=None, open_ids=None, **extra):
+    verdict_ = dict(verdict(()), options=options, question="What should happen next?", **extra)
+    return NM.validate_options(verdict_, F2_OPEN if open_ids is None else open_ids, NM.data() if spec is None else spec,
+                               story_run.Driver.s0_normalize, {}, facts=C26_FACTS)
+
+
+def test_args_column_reads_data() -> None:
+    rework = dict(seam_option("rework", "rework_stage"), args=dict(C26_ARGS))
+    goon = dict(seam_option("go on", "go_on_as_is"), args=dict(C26_ARGS))
+    # today's data: the column of rework_stage is "rework" (checked), the column of go_on_as_is is null (dropped)
+    options, rule = f2_check([rework, goon])
+    assert rule == "" and options is not None, rule
+    assert options[0]["args"] == C26_ARGS and "args" not in options[1] and options[1].get("args_dropped") is True, options
+    # the COLUMN decides, not the literal move id: swap them and the answers swap
+    swapped = f2_spec(rework_stage={"args": None}, go_on_as_is={"args": "rework"})
+    options, rule = f2_check([rework, goon], spec=swapped)
+    assert rule == "" and "args" not in options[0] and options[0].get("args_dropped") is True, options
+    assert options[1]["args"] == C26_ARGS and "args_dropped" not in options[1], options
+    # an "args" column still checks the closed list (the invariant of E2.1): a bad stage is the same ArgsRefused
+    bad = dict(goon, args=dict(C26_ARGS, stage="S9"))
+    try:
+        f2_check([rework, bad], spec=swapped)
+    except NM.ArgsRefused as refused:
+        assert "stage" in refused.rule, refused.rule
+    else:
+        raise AssertionError("a bad `args` on a move whose column is `rework` was not refused")
+
+
+def test_args_on_null_column_dropped_and_journaled() -> None:
+    options, rule = f2_check([dict(seam_option("retry", "person_does"), args={"dispatch": "S2-x-1"}), seam_option("stop", "stop_here")])
+    assert rule == "" and "args" not in options[0] and options[0]["args_dropped"] is True and "args_dropped" not in options[1], (rule, options)
+    # E2.3: dropping `args` never relaxes another rule: the same option with a token that is not its move's own is still refused
+    options, rule = f2_check([dict(seam_option("go on", "person_does"), args={"x": 1}), seam_option("stop", "stop_here")])
+    assert options is None and "is not the token of the move" in rule, rule
+    # the driver: the option reaches the person without `args`, and conductor.jsonl says which tokens lost it
+    root, task_root, driver = rig(answers=[dict(verdict(), options=[dict(seam_option("retry", "person_does"), args={"dispatch": "S2-x-1"}),
+                                                                    seam_option("stop", "stop_here")])])
+    try:
+        driver.boundary = "S2:S2-qa-case-critic-1"
+        _, person = raised(driver, {"why": "refusal", "text": "t", "stage": "S2"})
+        assert list(person.offered) == ["retry", "stop"] and person.source == "conductor", (person.offered, person.source)
+        assert all("args" not in option for option in person.options), person.options
+        lines = jsonl(driver.state_dir / "conductor.jsonl")
+        assert [row.get("args_dropped") for row in lines if row.get("action") == "args_dropped"] == [["retry"]], lines
+        assert not [row for row in lines if row.get("action") == "unusable"] and not driver.defects, (lines, driver.defects)
+    finally:
+        harness.cleanup(root)
+
+
+def test_missing_column_compat_rework_only() -> None:
+    bare = f2_spec(**{move["id"]: {"args": ..., "offerable": ..., "not_offered": ...} for move in NM.data()["moves"]})
+    for row in bare["moves"]:
+        assert "args" not in row and "offerable" not in row, row
+    # before the columns exist (E2.1): only rework_stage takes args; a token-`—` move is not offerable, every other one is
+    got = {row["id"]: NM.move_columns(row)[:2] for row in bare["moves"]}
+    assert got["rework_stage"] == ("rework", True), got
+    assert {move: cols for move, cols in got.items() if cols[0] is not None} == {"rework_stage": ("rework", True)}, got
+    assert sorted(move for move, cols in got.items() if not cols[1]) == sorted(F2_DASH), got
+    rework = dict(seam_option("rework", "rework_stage"), args=dict(C26_ARGS))
+    goon = dict(seam_option("go on", "go_on_as_is"), args={"stage": "S2"})
+    options, rule = f2_check([rework, goon], spec=bare)
+    assert rule == "" and options[0]["args"] == C26_ARGS and options[1].get("args_dropped") is True, (rule, options)
+    try:
+        f2_check([dict(rework, args=dict(C26_ARGS, cause="invented")), goon], spec=bare)
+    except NM.ArgsRefused as refused:
+        assert "cause" in refused.rule, refused.rule
+    else:
+        raise AssertionError("the closed list was not checked in the world without the columns")
+    options, rule = f2_check([seam_option("resume", "resume_with_words"), seam_option("stop", "stop_here")], spec=bare)
+    assert options is None and "never an option" in rule, rule
+
+
+def test_bad_column_value_unreadable() -> None:
+    for move, change in (("stop_here", {"args": "everything"}), ("person_does", {"offerable": "yes"}), ("stop_here", {"args": ["rework"]})):
+        spec = f2_spec(**{move: change})
+        token = "stop" if move == "stop_here" else "retry"
+        try:
+            f2_check([seam_option(token, move), seam_option("go on", "go_on_as_is")], spec=spec)
+        except NM.DataUnreadable as unreadable:
+            assert move in str(unreadable) and next(iter(change)) in str(unreadable), str(unreadable)
+        else:
+            raise AssertionError(f"a bad column value {change} on {move} passed silently")
+    # the prompt's moves section must never fail on the same data: it reads the safe side
+    assert "## Moves open here" in NM.moves_section(f2_spec(stop_here={"offerable": "yes"}), ["stop_here"], {})
+    # the driver turns it into an unusable answer with the conductor's question shown - never an exception out of the seam
+    root, task_root, driver = rig(answers=[verdict((("retry", "person_does"), ("stop", "stop_here")), question="Do you want to stop here?")])
+    real, bad_spec = NM.data, f2_spec(person_does={"offerable": "yes"})
+    NM.data = lambda: bad_spec
+    try:
+        driver.boundary = "S2:x"
+        _, person = raised(driver, {"why": "refusal", "text": "t"})
+        assert person is not None and "What the conductor found:\nDo you want to stop here?" in person.text, person.text
+        assert len(driver.defects) == 1 and "person_does" in " ".join(driver.defects[0]), driver.defects
+    finally:
+        NM.data = real
+        harness.cleanup(root)
+
+
+def test_dash_moves_not_offerable() -> None:
+    rows = {row["id"]: row for row in NM.data()["moves"]}
+    for move, why in F2_DASH.items():
+        assert NM.move_columns(rows[move]) == (None, False, why), (move, NM.move_columns(rows[move]))
+        assert rows[move]["token"] == "—", move                  # no new token (fork 4 reversed)
+    for move in set(rows) - set(F2_DASH):
+        assert NM.move_columns(rows[move])[1] is True, move
+        assert str(rows[move]["token"]) != "—", move
+    for move in F2_DASH:
+        options, rule = f2_check([seam_option("resume", move), seam_option("stop", "stop_here")])
+        assert options is None and f"which is never an option: {F2_DASH[move]}" in rule, rule
+    # the invariant that stays: an option whose move is not in the table is still refused
+    options, rule = f2_check([seam_option("fly", "teleport"), seam_option("stop", "stop_here")], open_ids=F2_OPEN + ["teleport"])
+    assert options is None and "not open here" in rule, rule
+
+
+def test_not_offered_refusal_quotes_row_reason() -> None:
+    spec = f2_spec(story_fact={"not_offered": "THE ROW'S OWN REASON"})
+    options, rule = f2_check([seam_option("fact", "story_fact"), seam_option("stop", "stop_here")], spec=spec)
+    assert options is None and rule == "the option `fact` names the move `story_fact`, which is never an option: THE ROW'S OWN REASON", rule
+    gone = f2_spec(story_fact={"not_offered": ...})
+    options, rule = f2_check([seam_option("fact", "story_fact"), seam_option("stop", "stop_here")], spec=gone)
+    assert options is None and NM.NOT_OFFERED_DEFAULT in rule, rule
+
+
+def test_moves_section_says_args_and_never_an_option() -> None:
+    section = NM.moves_section(NM.data(), list(F2_OPEN) + ["approve_gate", "stand_prepare"], C26_FACTS)
+    assert '- `rework_stage` — token `rework`; its option carries "args" from these values only:' in section, section
+    assert '- `go_on_as_is` — token `go on`; option carries no "args"' in section, section
+    assert '- `release_and_restart` — token `restart`; option carries no "args"' in section, section
+    assert '- `stand_prepare` — token `prepare the stand`; option carries no "args"' in section, section
+    assert "- `resume_with_words` — run on the person's own words, never an option" in section, section
+    assert "- `revoke_exclusion` — run on the person's own words, never an option" in section, section
+    assert "- `story_fact` — yours to run, never an option" in section, section
+    assert "resume_with_words` — token" not in section and "story_fact` — token" not in section, section
+    # a table where go_on_as_is takes args prints the rework list for it: the section reads the column
+    swapped = NM.moves_section(f2_spec(go_on_as_is={"args": "rework"}, rework_stage={"args": None}), ["go_on_as_is", "rework_stage"], C26_FACTS)
+    assert 'option carries "args" from these values only' in swapped and "`rework_stage` — token `rework`; option carries no" in swapped, swapped
+
+
+F2_TESTS = (test_args_column_reads_data, test_args_on_null_column_dropped_and_journaled, test_missing_column_compat_rework_only,
+            test_bad_column_value_unreadable, test_dash_moves_not_offerable, test_not_offered_refusal_quotes_row_reason,
+            test_moves_section_says_args_and_never_an_option)
+
+
+def f2_run() -> None:
+    for scenario in F2_TESTS:
+        try:
+            scenario()
+            check(f"F2 {scenario.__name__}", True)
+        except AssertionError as exc:
+            check(f"F2 {scenario.__name__}", False, str(exc)[:600])
+
+
 if __name__ == "__main__":
+    f2_run()                                                         # t-1936 F2: one block at the end, so the merge with another node is clean
     rd1_19_gate_b_assert_stricter_road_is_open()                     # RD1-19: one block at the end, so the merge with another node is clean
     g27_the_fallback_question_at_a_gate()                          # t-884 (C2-7): one block at the end, so the merge with another node is clean
     g27_the_floor_at_a_gate()

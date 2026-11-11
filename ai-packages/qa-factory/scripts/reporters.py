@@ -385,6 +385,30 @@ def _grammar(patterns, label: str) -> tuple:
     return compiled, ""
 
 
+def frame_matches(text: str, wanted: list, skipped: list):
+    """THE one frame walk (t-2064 N3b F4): `(line, match)` for each line of `text`, in order, that a compiled `wanted` regex reads as a
+    stack frame and no `skipped` regex drops. A group that did not take part in the match is no frame, not a path of None. The site
+    reader takes the first; the critic's `frames` fact lists them all."""
+    for line in (text or "").splitlines():
+        if any(rx.search(line) for rx in skipped):
+            continue
+        for rx in wanted:
+            match = rx.search(line)
+            if match and (match.group("path") or "").strip() and match.group("line") is not None:
+                yield line, match
+                break
+
+
+def frame_lines(text: str, frames, skip_frames) -> list:
+    """The frame lines of `text` (stripped) under a grammar given as patterns, by `frame_matches`; `[]` when a pattern does not compile
+    or lacks the groups `path` and `line` (a gap is the site reader's to say, not a list)."""
+    wanted, why = _grammar(frames, "frames")
+    skipped, skip_why = _grammar(skip_frames, "skip_frames")
+    if why or skip_why or not all({"path", "line"} <= set(rx.groupindex) for rx in wanted):
+        return []
+    return [line.strip() for line, _match in frame_matches(text, wanted, skipped)]
+
+
 def _expected_path(test_file, clone_root) -> str:
     """The test file as the frames are compared with it: forward slashes, clone-relative when it
     is inside the clone, no leading `./`."""
@@ -421,18 +445,7 @@ def _frame_site(row, reporter, clone_root, test_file, runtime, frames, skip_fram
         return refuse("every frames regex needs the named groups `path` and `line`")
     # The row's failure or error problem; a skip's text is not a failure site.
     chosen = next((p for p in row.get("problems") or [] if p.get("kind") in ("failure", "error")), None)
-    found = None
-    for line in ((chosen or {}).get("text") or "").splitlines():
-        if any(rx.search(line) for rx in skipped):
-            continue
-        for rx in wanted:
-            match = rx.search(line)
-            # A group that did not take part in the match is no frame, not a path of None.
-            if match and (match.group("path") or "").strip() and match.group("line") is not None:
-                found = (line, match)
-                break
-        if found:
-            break
+    found = next(frame_matches((chosen or {}).get("text") or "", wanted, skipped), None)
     if not found:
         return refuse("no frame of its stack matched the declared frame grammar")
     line, match = found

@@ -39,7 +39,7 @@ def part_record_return(root: Path, base: dict) -> None:
     seen: list = []
 
     class Stub:
-        def __init__(self, task_root):
+        def __init__(self, task_root, wait_seconds=0.0):
             seen.append(("root", Path(task_root).name))
 
         def record_return(self, dispatch_id, digest, agent=""):
@@ -71,7 +71,7 @@ def part_record_return(root: Path, base: dict) -> None:
 
         # A build whose controller has no record_return behaves exactly as before.
         class Old:
-            def __init__(self, task_root):
+            def __init__(self, task_root, wait_seconds=0.0):
                 pass
 
         real.Controller = Old
@@ -84,7 +84,7 @@ def part_record_return(root: Path, base: dict) -> None:
 
         # And a controller that raises never keeps the role from stopping.
         class Angry:
-            def __init__(self, task_root):
+            def __init__(self, task_root, wait_seconds=0.0):
                 raise RuntimeError("state is unreadable")
 
         real.Controller = Angry

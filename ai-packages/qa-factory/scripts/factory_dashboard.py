@@ -1270,16 +1270,18 @@ def bug_sources_note(sources, shown=None) -> str:
     return f"<p class='nd'>{text}</p>"
 
 
-def _bug_step(data, story_root) -> str:
+def _bug_step(data, story_root, draft=False) -> str:
     """The step of one bug on the board, through THE one reader (`bug_records.confirmation_of`, HF8-16, AR-13). The board
     reads a record without its path, so `task` here is an id, not a root: the caller passes the story's ROOT as
     `story_root`. No root: a `reproduced_by_factory` that nothing can check reads `unconfirmed` (the error goes down, I5),
-    and every other word is the contract's as it was."""
+    and every other word is the contract's as it was. `draft=True` (the caller holds a DRAFT): a draft with no word is `unconfirmed`."""
     import bug_records as BR
     if story_root is None:
+        if draft and not str((data or {}).get("confirmation") or "").strip():
+            return "unconfirmed"
         word = C.bug_confirmation(data)
         return "unconfirmed" if word == BR.REPRODUCED else word
-    return BR.confirmation_of(story_root, data)[0]
+    return BR.confirmation_of(story_root, data, draft=draft)[0]
 
 
 def story_bug_rows(bugs, drafts, story_cases, task=None, story_root=None) -> list:
@@ -1290,6 +1292,7 @@ def story_bug_rows(bugs, drafts, story_cases, task=None, story_root=None) -> lis
     to no other. A record with no task is joined through its cases, as before.
 
     `story_root` (HF8-16): the story's folder, for the check of a `reproduced_by_factory` word (`_bug_step`)."""
+    import bug_records as BR   # the one reader of a draft's cases (t-2187, AR-13)
     out, filed = [], set()
     for b in bugs or []:
         cases = C.case_ids(b.get("found_by")) or C.case_ids(b.get("case"))
@@ -1306,12 +1309,12 @@ def story_bug_rows(bugs, drafts, story_cases, task=None, story_root=None) -> lis
                     "requirement": str(b.get("violates") or "").replace("requirement:", ""),
                     "where": str(b.get("where") or b.get("area") or "—")})
     for d in drafts or []:
-        cases = C.case_ids(d.get("case")) or C.case_ids(d.get("cases"))
+        cases = C.case_ids(" ".join(BR.draft_cases(d)))   # `case`, `cases` and every manifestation's case (5.18)
         if (story_cases and not (set(cases) & story_cases)) or set(cases) <= filed:
             continue
         out.append({"id": str(d.get("draft_id") or d.get("id") or "draft"),
                     "title": str(d.get("title") or ""), "severity": "draft — not filed",
-                    "cases": ", ".join(cases) or "—", "confirmation": _bug_step(d, story_root),
+                    "cases": ", ".join(cases) or "—", "confirmation": _bug_step(d, story_root, draft=True),
                     "requirement": "", "where": "work/bug-drafts"})
     return out
 
@@ -1330,6 +1333,27 @@ def ready_chip(ledger) -> tuple:
         return word, {"yes": "ok", "after_checks": "skip", "no": "warn"}[word]
     said = ledger.get("delivery_verdict") if ledger.get("delivery_verdict") is not None else ledger.get("delivery_ready")
     return f"unknown ({said})", "warn"
+
+
+def awaiting_label(pipeline, now=None) -> str:
+    """The label of a story held for code on its card (t-2181 PC-5, t-2277 PC-5): the words of the hold's `cause` (the table
+    `awaiting_words` of `references/delivery-verdict-kinds.json`, read through `check_delivery.awaiting_words` - one place for the
+    words, AR-13) and its age in whole days since `awaiting.since`, e.g. `waiting for a fix, 3 days`. `""` for a story that is not
+    held. The age is printed only when `since` parses as an ISO date (a day count nobody can read is not invented, FR-41). `now`
+    is a `datetime` (tests); default the clock."""
+    import check_delivery as CD
+    import contract as C
+    from datetime import datetime
+    hold = C.awaiting(pipeline if isinstance(pipeline, dict) else {})
+    if hold["state"] == "none":
+        return ""
+    label = CD.awaiting_words(hold)["label"]
+    try:
+        since = datetime.fromisoformat(str(hold.get("since") or "")[:19])
+        days = max(0, ((now or datetime.now()) - since).days)
+        return f"{label}, {days} day" + ("" if days == 1 else "s")
+    except ValueError:
+        return label
 
 
 def _left_count(ledger) -> int:
@@ -1618,6 +1642,7 @@ def tab_automation(_board, taskruns, cases, ob_counts=None, archived_hidden=0, o
                        + (f" ({cats})" if cats else "") + "</span>" if n_fail else "")
                     + f" &middot; delivery_ready: <span class='{ready_cls}'>{esc(ready_txt)}</span>"
                     + (f" &middot; {_left_count(ledger)} left with you" if ready_txt == "after_checks" else "")
+                    + (f" &middot; <span class='warn'>{esc(held)}</span>" if (held := awaiting_label(t.get("pipeline"))) else "")
                     + f" &middot; MR: {esc(mr_txt)} &middot; bugs: {bug_confirmation_split(bug_rows)}"
                     + " <span class='chip'>hover a row for the autotest id</span>")
 

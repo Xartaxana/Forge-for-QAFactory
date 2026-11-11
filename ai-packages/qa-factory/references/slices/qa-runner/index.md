@@ -6,3 +6,4 @@ names. A rule you did not read is still a rule the exit gate checks.
 
 - `references/slices/qa-runner/artifact-contract-run.md` (3,296 B) — `run-report.json`, The two halves of S6
 - `references/slices/qa-runner/vocabularies.md` (519 B) — `execution_status`
+- `references/slices/qa-runner/handoff-keys.md` (5,292 B) — Outputs, Witness, Handoff form

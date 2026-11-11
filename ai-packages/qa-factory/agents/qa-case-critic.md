@@ -31,6 +31,8 @@ The acceptor (the driver) reads each item against its witness; what the author t
 - **S3: the plan.** A requirement with no row and no reason for "not tested"; a level higher than the risk needs (P16, P19); a row with no defect hypothesis; a branch of the diff no row walks.
 - **S4: the cases.** A case that cannot fail, an oracle copied from the code, a Then with no independent channel, a duplicate of another case. The rubric of eight dimensions follows; hold it for S4 and borrow the dimensions that fit S2 and S3.
 - **An empty list is a claim.** "No findings" and "no questions" are the places a hurried author hides a skipped look; ask what was tried before you believe the silence.
+- **Steps off the walked path.** A case whose steps diverge from the path the first look walked (`first_look:R-n`), with no reason written, is a finding.
+- **Roles and accounts the project knows** are the project's rule: a case needing the opposite is your finding, not a requirement on the author.
 - **A new word.** A `new: <word> -- <why>` in `defect_class`, `then_oracles` or a verdict can carry a forbidden thing under a fresh name (`new: implementation` as the source of an expectation is the code again).
 
 The eight dimensions (S4), each `pass`/`concern`/`fail`:
@@ -116,9 +118,9 @@ and a line `Unreviewed for Gate A: TC-…, TC-…` names them all. A mandatory p
 replacement text in `case-lifecycle.md`'s block form (`critic_rollcall.py` refuses `--apply-fixes` naming it). A concern you cannot write
 as an exact replacement is not a fix — score it. Replacement text belongs in the `approve_with_fixes` block or nowhere: elsewhere it rewrites someone else's case.
 
-- The `## Outputs` of the old card (the stage-joints table still tells the role by that anchor): `qa-factory/artifacts/<TICKET>/work/test-cases/<area>/critic-findings.md` (per round, S4); your form `work/handoffs/<dispatch>.yaml` at every stage, with the stage verdict in `header.verdict`.
+- The `## Outputs` of the old card: `qa-factory/artifacts/<TICKET>/work/test-cases/<area>/critic-findings.md` (per round, S4); your form `work/handoffs/<dispatch>.yaml` at every stage, with the stage verdict in `header.verdict`.
 - Findings carry obligation IDs, source hash, dispatch IDs, input hash and exact case versions (the Gate A review receipt); a sensitivity record states `proof_kind: design_analysis`, the defect site and the expected failure (`observed_failure_ref` only for an executed probe).
-- The `## Witness` rule of the old card (the stage-joints table still tells the role by that anchor): the cases you review are the pinned snapshots listed in `state/story-case-links.json` (written by `case_versions.py` at S4); for every `reject`/`concern`: a case id, a line/section, and what is violated. "Checked, nothing found" needs the same evidence as a finding does. A referenced file that will not open is never guessed: mark the dimensions `unverified`, `confidence: low`, never approve what you could not read.
+- The `## Witness` rule of the old card: the cases you review are the pinned snapshots listed in `state/story-case-links.json` (written by `case_versions.py` at S4); for every `reject`/`concern`: a case id, a line/section, and what is violated. "Checked, nothing found" needs the same evidence as a finding does. A referenced file that will not open is never guessed: mark the dimensions `unverified`, `confidence: low`, never approve what you could not read.
 - Round cap reached (the second review of the same case still fails): a finished review, not a halt; return `done` with the verdict the roll-call earns.
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per case reviewed, then `work/test-cases/critic-findings.md`.
@@ -128,6 +130,6 @@ as an exact replacement is not a fix — score it. Replacement text belongs in t
 <!-- kind: process -->
 ## When to ask
 
-- A question about the story's intent that no file settles goes in the `questions[]` of your form (`question`, `read`, `recommendation`, `options`, `severity`, `owner_role`, `why_person`); the driver raises it into the register and the conductor settles it. You do not stop for it.
+- A question about the story's intent that no file settles goes in the `questions[]` of your form; the driver raises it into the register and the conductor settles it. You do not stop for it.
 - A return is not a question: say what is wrong in `stage_acceptance` and `findings`.
 - Stop (`halt`) only when the artifact you are to judge is missing.

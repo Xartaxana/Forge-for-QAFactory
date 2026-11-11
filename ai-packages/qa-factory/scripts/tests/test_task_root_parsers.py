@@ -32,11 +32,14 @@ B_SCRIPTS = ("artifact_packet artifact_producer artifact_supersede branch_accoun
              "delivery_summary exploratory_findings grounding_section handoff_check investigation investigation_probe judge_cases judge_code judge_diff judge_plan judge_requirements "
              "judge_results judge_run manual_capture manual_evidence migrate_artifacts plan_row red_sandbox "
              "regression_scope render_case_appendix report_facts runtime_paths runtime_probe s5_precheck s7_reorder stage_status story_progress "
-             "story_version ticket_adapter tms_publication traceability").split() + ["bug_records", "product_gaps"]   # t-1782 (leftover of t-1781)
-A_REST = "handoff_init stand_gaps sizing".split()           # converted by A-rest, not by this half
-UNCONVERTED = ["person_owned"]
+             "story_version ticket_adapter tms_publication traceability").split() + ["bug_records", "product_gaps"] + ["walk_session", "walk_timing", "place_answers", "driver_timing", "bug_neighbours"]   # bug_neighbours: t-2187 N6; t-1782 (leftover of t-1781); the walker (t-1957): exact flags + story_of / story_cli
+A_REST = "handoff_init stand_gaps gate_preflight sizing".split()         # converted by A-rest, not by this half
+UNCONVERTED = ["person_owned", "app_card", "interim_packet", "reference_snapshot", "first_look"]
+# interim_packet (t-2181 PC-7), reference_snapshot (PC-9a) and first_look (t-2277 FL-2) arrived on plain argparse, no exact_options / story gate; named so the census
+# sees them, the conversion is queued (a finding of the t-2470 CI triage, row 16).
 # person_owned: RN1-9 A (t-744): a read-only `--share --task-root` on plain argparse; NOT yet exact_options/story_of
 # (a phantom root is not refused). Named so the census sees it; the conversion is queued (t-774 report).
+# app_card: the walker N1 card builder (`build --task-root`) is plain argparse as well, no exact_options / story gate yet; named so the census sees it (queued).
 # bug_records (open-bugs) and product_gaps (record/revoke) arrived on plain argparse the same way and were converted by t-1782
 # (they sit in B_SCRIPTS now: exact flags, the story resolved by story_cli, exit 2).
 KEPT = {"controller": "allow_abbrev=False"}                # CX1-10: a literal in its own parser, `--task` is exclusive there
@@ -81,8 +84,75 @@ def census(source: str, name: str) -> list:
     return problems
 
 
-def declares_task_root(source: str) -> bool:
-    return 'add_argument("--task-root"' in source or "add_argument('--task-root'" in source
+def read_script(module: str) -> str:
+    return (SCRIPTS / f"{module}.py").read_text(encoding="utf-8")
+
+
+def _declares_or_fixes_flags(text: str) -> bool:
+    """The SHAPE of a delegate that matters to the census: its text declares `--task-root`, calls `exact_options(`, or calls a
+    story-gate helper (`story_cli(`, `story_of(`, `story_root_at(`)."""
+    return ('add_argument("--task-root"' in text or "add_argument('--task-root'" in text or "exact_options(" in text
+            or any(f"{helper}(" in text for helper in HELPERS))
+
+
+_FLAG_FUNCTIONS = {}      # module text -> {function name: its source} for the module-level functions that pass _declares_or_fixes_flags
+
+
+def _flag_functions(text: str) -> dict:
+    """The module-level functions of `text` whose own text declares `--task-root` or calls `exact_options(` (parsed once per text)."""
+    if text not in _FLAG_FUNCTIONS:
+        found = {}
+        rows = text.splitlines()      # sliced by line numbers: get_source_segment re-splits the whole module on every call
+        for n in ast.parse(text).body:
+            if isinstance(n, ast.FunctionDef):
+                start = min([n.lineno] + [d.lineno for d in n.decorator_list]) - 1
+                segment = "\n".join(rows[start:n.end_lineno])
+                if segment and _declares_or_fixes_flags(segment):
+                    found[n.name] = segment
+        _FLAG_FUNCTIONS[text] = found
+    return _FLAG_FUNCTIONS[text]
+
+
+def effective_source(source: str, read=read_script) -> str:
+    """G8 -> X9: a script may hand its flags or its whole command line to a shared function (AR-15): the three judge scripts call
+    `judge_requirements.cli_main` (`from judge_requirements import cli_main`), `report_facts` calls `traceability.add_story_options`
+    (`import traceability as T`). The census must see the flags and the story gate THROUGH the delegate (one reader of the question,
+    AR-13), so the text of each delegate that the script CALLS is appended to the script's own text.
+
+    The class of a delegate (read by SHAPE, not by a name list): a called MODULE-LEVEL function of a module of the scripts folder
+    (`from m import f; f(...)` or `import m; m.f(...)`) whose own text holds `add_argument("--task-root"`, `exact_options(` or a call of a story-gate
+    helper (`story_cli(`, `story_of(`, `story_root_at(`: the gate is read through the delegate too). Every
+    such delegate is followed, so a script that calls two of them gets both. NOT followed, and the census then goes red for the
+    missing calls: a method (`obj.f(...)`, a function nested in a class), a function of a module outside the scripts folder (stdlib,
+    `read` finds nothing), a name imported and never called, a called function without the flag or `exact_options(` in its text.
+    ONE level only: a delegate that itself delegates to a third function is not followed through (name its home in the script, or
+    make the delegate declare the flags). `read(module)` returns the text of a module of the scripts folder (a parameter, so a
+    control can feed a doctored delegate)."""
+    tree = ast.parse(source)
+    modules = {a.asname or a.name: a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}      # alias -> module
+    names = {a.asname or a.name: (n.module, a.name) for n in ast.walk(tree)
+             if isinstance(n, ast.ImportFrom) and n.module and n.module != "hooklib" for a in n.names}                  # bare name -> (module, name)
+    wanted = set()
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        if isinstance(call.func, ast.Name) and call.func.id in names:
+            wanted.add(names[call.func.id])
+        elif isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name) and call.func.value.id in modules \
+                and modules[call.func.value.id] != "hooklib":      # hooklib holds the REQUIRED helpers, it is never a delegate
+            wanted.add((modules[call.func.value.id], call.func.attr))
+    out = source
+    for module, func in sorted(wanted):
+        try:
+            segment = _flag_functions(read(module)).get(func)
+            if segment:
+                out += "\n\n" + segment
+        except (OSError, SyntaxError, ValueError):
+            pass
+    return out
+
+
+def declares_task_root(source: str, read=read_script) -> bool:
+    full = effective_source(source, read)
+    return 'add_argument("--task-root"' in full or "add_argument('--task-root'" in full
 
 
 def census_battery() -> None:
@@ -91,11 +161,66 @@ def census_battery() -> None:
     check_eq("the census sees every script that declares --task-root, and the lists name exactly them (a new one is red)",
              declared, expected)
     for name in B_SCRIPTS:
-        found = census((SCRIPTS / f"{name}.py").read_text(encoding="utf-8"), name)
+        found = census(effective_source(read_script(name)), name)
         check(f"census {name}: exact flags, the story resolved, one refusal channel", not found, "; ".join(found))
     for name in A_REST:      # converted by A-rest: red until that half is merged
-        found = census((SCRIPTS / f"{name}.py").read_text(encoding="utf-8"), name)
+        found = census(effective_source(read_script(name)), name)
         check(f"census {name} [converted by A-rest]", not found, "; ".join(found))
+    # the delegation (G8): judge_cases / judge_plan declare nothing themselves and are seen through `judge_requirements.cli_main`
+    for name in ("judge_cases", "judge_plan", "report_facts"):      # report_facts: the options come from traceability.add_story_options
+        own = read_script(name)
+        seen = effective_source(own)
+        check(f"delegation: {name} has no flags of its own and the census follows its delegate (cli_main / add_story_options)",
+              not declares_task_root(own, read=lambda m: "") and declares_task_root(own)
+              and ("def cli_main" in seen or "def add_story_options" in seen))
+    # negative controls of the delegation: the census can fail through a delegate, and a new script that declares the flag is in no list
+    deleg = read_script("judge_cases")
+    doctored = read_script("judge_requirements").replace("hooklib.story_cli(", "print(")
+    check("control: a delegate whose cli_main lost the story gate -> the delegating script is red",
+          bool(census(effective_source(deleg, read=lambda m: doctored), "x")))
+    doctored = read_script("judge_requirements").replace("hooklib.exact_options(parser)", "parser")
+    check("control: a delegate whose cli_main lost exact_options -> red",
+          bool(census(effective_source(deleg, read=lambda m: doctored), "x")))
+    check("control: a cli_main imported but never called delegates nothing -> red", bool(census(
+        effective_source(deleg.replace("return cli_main(", "return (lambda *a: 0)("), read=read_script), "x")))
+    new_script = 'import argparse\np = argparse.ArgumentParser()\np.add_argument("--task-root")\n'
+    check("control: a new script that declares --task-root is seen, and it is in no list",
+          declares_task_root(new_script) and "brand_new_script" not in B_SCRIPTS + A_REST + UNCONVERTED + list(KEPT))
+    check_eq("control: with it among the scripts the equality of the census is red",
+             sorted(declared + ["brand_new_script"]) == expected, False)
+    new_delegating = "from judge_requirements import cli_main\n\ndef main():\n    return cli_main('x.py', None, None, '')\n"
+    check("control: a new script that only delegates to cli_main is seen as declaring --task-root too", declares_task_root(new_delegating))
+    # X9 M-1: the delegate is found by SHAPE, not by name - a third-named helper that declares the flag is censused, and red when it loses the gate
+    helper = ('import hooklib\n\ndef run_cli(argv):\n    parser = make()\n    parser.add_argument("--task-root")\n'
+              '    hooklib.exact_options(parser)\n    args = parser.parse_args(argv)\n    hooklib.story_cli(args)\n')
+    third = "from shared_cli import run_cli\n\ndef main():\n    return run_cli(None)\n"
+    check("control (M-1): a script delegating to a THIRD-named helper that declares the flag is seen as declaring --task-root",
+          declares_task_root(third, read=lambda m: helper) and not declares_task_root(third, read=lambda m: ""))
+    check("control (M-1): ... and it is censused clean while the helper keeps the gate",
+          census(effective_source(third, read=lambda m: helper), "x") == [])
+    check("control (M-1): ... and RED when the helper loses the story gate",
+          bool(census(effective_source(third, read=lambda m: helper.replace("hooklib.story_cli(", "print(")), "x")))
+    check("control (M-1): ... and RED when the helper loses exact_options",
+          bool(census(effective_source(third, read=lambda m: helper.replace("hooklib.exact_options(parser)", "parser")), "x")))
+    two = "from shared_cli import run_cli\nfrom other_cli import add_options\n\ndef main():\n    run_cli(None)\n    add_options(None)\n"
+    both = {"shared_cli": helper, "other_cli": "def add_options(p):\n    p.add_argument('--task-root')\n    exact_options(p)\n"}
+    seen_two = effective_source(two, read=lambda m: both[m])
+    check("control (M-1): a script that calls two delegates gets both", "def run_cli" in seen_two and "def add_options" in seen_two)
+    method = "import shared_cli\n\ndef main(obj):\n    return obj.run_cli(None)\n"
+    check("control (M-1): a method (obj.f) is not followed", "def run_cli" not in effective_source(method, read=lambda m: helper))
+    nested = ("class Cli:\n    def run_cli(self):\n        parser.add_argument('--task-root')\n")
+    check("control (M-1): a method defined in a class of the delegate module is not followed",
+          effective_source(third, read=lambda m: nested) == third)
+    check("control (M-1): a function of a module outside the scripts folder (nothing to read) delegates nothing",
+          effective_source("import json\n\njson.dumps(1)\n", read=read_script) == "import json\n\njson.dumps(1)\n")
+    deeper = {"shared_cli": "def run_cli(argv):\n    return inner(argv)\n", "inner_mod": helper}
+    check("control (M-1): one level only - a delegate with no flag text that itself delegates is not followed through",
+          not declares_task_root(third, read=lambda m: deeper.get(m, "")))
+    gate_only = "def resolve(args):\n    return story_cli('x.py', key=args.task, root=args.task_root)\n"
+    gated = "from shared_gate import resolve\n\ndef main(a):\n    return resolve(a)\n"
+    check("control (M-1b): a delegate whose text has only `story_cli(` (no flag, no exact_options) is followed for the gate census",
+          "def resolve" in effective_source(gated, read=lambda m: gate_only)
+          and "def resolve" not in effective_source(gated, read=lambda m: "def resolve(a):\n    return 1\n"))
     for name, literal in KEPT.items():
         check(f"KEPT {name}: its own literal {literal} is still there (a stale row is red)",
               literal in (SCRIPTS / f"{name}.py").read_text(encoding="utf-8"))
@@ -175,14 +300,19 @@ def table(aux: Path) -> dict:
         "product_gaps": lambda f, r: ["revoke", f, r, "--requirement", "R-1", "--words-file", aux / "words.txt"],
         "tms_publication": lambda f, r: ["record", aux / "receipts.json", f, r],
         "traceability": lambda f, r: [f, r, "--check"],
+        "place_answers": lambda f, r: ["list", f, r],      # S7 places (t-1995): exact_options + story_of, a read-only listing
+        "walk_timing": lambda f, r: [f, r],
+        "driver_timing": lambda f, r: [f, r],
+        "walk_session": lambda f, r: ["status", f, r, "--walk", "W"],      # the walker (t-1957): a read of a record, no server is started
         # converted by A-rest (red on a tree without that half)
         "handoff_init": lambda f, r: ["--task", "TP3-1", "--stage", "S5", "--role", "qa-automator", f, r],
         "stand_gaps": lambda f, r: [f, r, "--json"],
+        "gate_preflight": lambda f, r: [f, r, "--text"],      # X9: found by the shape reader; its flags and gate come from stand_gaps
         "sizing": lambda f, r: [f, r],
     }
 
 
-NOT_REAL = {"manual_capture", "investigation_probe"}      # a real root would start a capture or a probe; the other rows pin the gate
+NOT_REAL = {"manual_capture", "investigation_probe", "walk_session"}      # a real root would start a capture or a probe; the other rows pin the gate
 
 
 def parsers_battery() -> None:
@@ -267,9 +397,12 @@ def edges_battery() -> None:
             check(f"P14: {script} --help exits 0 and names --task-root or its commands",
                   helped.returncode == 0 and ("--task-root" in helped.stdout or "record" in helped.stdout))
         # E-4: a judge with the feature off answers a phantom with the refusal, not with "off"
-        gone = run_script("judge_cases.py", "--task-root", artifacts / PHANTOM, "--json", cwd=project, env=env)
-        check("E-4: a judge that is off still refuses a phantom root (no {status: off})",
-              gone.returncode == 2 and '"off"' not in gone.stdout, gone.stdout[:100])
+        # (G8/X9: the refusal channel is the shared `cli_main`, so it is exercised through judge_cases AND judge_plan, not assumed from one)
+        for script in ("judge_cases.py", "judge_plan.py"):
+            gone = run_script(script, "--task-root", artifacts / PHANTOM, "--json", cwd=project, env=env)
+            check(f"E-4: {script}, a judge that is off, still refuses a phantom root (no {{status: off}})",
+                  gone.returncode == 2 and '"off"' not in gone.stdout and "names no story" in gone.stdout + gone.stderr,
+                  gone.stdout[:100] + gone.stderr[:100])
         # E-6: report_facts and traceability said 1 for a phantom; it is a refusal of the call now, 2
         for script in ("report_facts.py", "traceability.py"):
             for flags in (["--task", PHANTOM], ["--task-root", artifacts / PHANTOM]):

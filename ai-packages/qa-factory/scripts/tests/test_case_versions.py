@@ -214,7 +214,42 @@ def pin_state_counts() -> None:
         cleanup(project)
 
 
+def test_store_lock_busy_names_the_holder() -> None:
+    """TR4-2 part B: the store lock is the package's one file lock. Busy = the old head + the holder clause (no holder is
+    recorded in a tracked tree: the lock file stays one byte); broken = RuntimeError with the LockBroken sentence, never
+    the busy head."""
+    with tempfile.TemporaryDirectory(prefix="qa-case-lock-") as td:
+        store = Path(td) / "case-store"
+        with V.store_lock(store):
+            try:
+                with V.store_lock(store):
+                    raise AssertionError("a second writer got the store lock")
+            except RuntimeError as exc:
+                text = str(exc)
+        assert text.startswith("case version store has an active writer; "), text
+        assert "no holder recorded - released when that process ends: wait and repeat" in text, text
+        assert (store / ".case-versions.lock").read_bytes() == b"0", "a tracked-tree lock file carries only byte 0"
+        with V.store_lock(store):                           # released: it can be taken again
+            pass
+        links = Path(td) / "task"
+        with V.task_link_lock(links):
+            try:
+                with V.task_link_lock(links):
+                    raise AssertionError("a second writer got the link lock")
+            except RuntimeError as exc:
+                assert str(exc).startswith("story case links have an active writer; no holder recorded"), str(exc)
+        broken = Path(td) / "folder-store"
+        (broken / ".case-versions.lock").mkdir(parents=True)  # a folder where the lock file should be
+        try:
+            with V.store_lock(broken):
+                raise AssertionError("a folder at the lock path was taken as a lock")
+        except RuntimeError as exc:
+            text = str(exc)
+        assert "cannot be locked" in text and "active writer" not in text, text
+
+
 def main() -> int:
+    test_store_lock_busy_names_the_holder()
     versions()
     empty_verify()
     pinned_stories()

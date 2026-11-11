@@ -203,9 +203,9 @@ def field_vocabularies() -> list:
         ("scout test origins", sorted(context_bundle.TEST_ORIGINS), scout),
         ("scout not_found place", ("coverage_status: not_found",), scout),
         ("scout not_found place (charter)", ("coverage_status: not_found",), ("file", "agents/qa-scout.md")),
-        ("fingerprint spec keys", execution_fingerprint.SPEC_REQUIRED, ("file", "agents/qa-runner.md")),
-        ("fingerprint spec keys (lifecycle)", execution_fingerprint.SPEC_REQUIRED,
-         ("file", "references/execution-lifecycle.md")),
+        # X7-3 / X8-4: the runner charter no longer lists the fingerprint spec keys (the Commands card and the lifecycle reference tell them);
+        # the TOLD row points at the one carrier that does (the old runner row and this lifecycle row were the same vocabulary twice).
+        ("fingerprint spec keys", execution_fingerprint.SPEC_REQUIRED, ("file", "references/execution-lifecycle.md")),
         ("triage row identity", artifact_producer.TRIAGE_ROW_IDS, ("card", "qa-failure-analyst")),
         ("estimate facts keys", estimate_record.FACTS_KEYS, ("card", "qa-retro-analyst")),
     ]
@@ -283,19 +283,37 @@ TOLD = {
     "understanding.md": ("file", "references/templates/understanding.md"),
     "test-plan.md": ("file", "references/risk-policy.md"),
     "work/test-plan.json": ("file", "references/risk-policy.md"),
-    "work/s5-plan.json": ("file", "agents/qa-automator.md"),     # the charter (rule 3) sends the author to the skeleton and the brief
+    "work/s5-plan.json": ("file", "agents/qa-automator.md"),     # the charter sends the author to the skeleton and the brief
     "work/grounding.yaml": ("open", "sweep row 11: the skeleton is built by code; the fields are not pinned"),
-    "work/probe-models/": ("flags", "qa-code-critic.md step 3 sends the critic to the `--alternatives` rows, whose line prints `--model work/probe-models/<any name>.json`; a refusal (_model_refusal) prints the whole model form"),
+    "work/probe-models/": ("flags", "qa-code-critic.md sends the critic to the `--alternatives` rows, whose line prints `--alternative <token> [--model work/probe-models/<any name>.json]` and the model file's entry skeleton; a refusal (_models_refusal) prints the whole model form"),
     "work/test-cases/critic-findings.md": ("vocab", "critic verdicts"),
     "work/test-code/critic-findings.md": ("vocab", "expectation change verdicts"),
+    "work/test-code/critic-findings-*.md": ("vocab", "expectation change verdicts"),
+    "work/s5-notes/S5-qa-code-critic-*.md": ("flags", "free notes for the next window; no record fields"),
+    "work/s5-notes/S5-qa-automator-*.md": ("flags", "free notes for the next window; no record fields"),
+    "work/s5-notes/": ("flags", "the folder of those notes, one file per dispatch; no record fields"),
     "work/test-cases/": ("vocab", "case frontmatter"),
     "work/triage.json": ("vocab", "triage row identity"),
+    "work/evidence/manual/<case>/tried.md": ("file", "references/explore-charter.md"),     # X7-3: the runner writes it; the form of its rows is there
     "work/bug-drafts/": ("open", "sweep row 27: no validator on write for a draft's shape was found"),
     "project:bugs/": ("vocab", "bug sections"),
     "test-report.md": ("vocab", "report sections"),
     "retro.md": ("vocab", "estimate facts keys"),
     "project:obligations.md": ("open", "sweep row 32: project_decisions.py add_finding; the card and --help carry the fields"),
-    "project:factory-backlog.md": ("open", "sweep row 32: project_decisions.py add_finding; the card and --help carry the fields"),
+    "project:factory-backlog.md": ("open", "sweep row 32: project_decisions.py add_finding; the card and --help carry the fields"),    "place_answers.py write": ("file", "references/place-answers.json"),     # the answer's keys and closed lists; the command's `input` spells the form
+    "first_look.py put": ("file", "references/role-commands.json"),     # `input` spells the row keys and the closed words; the refusal lists every problem with its door
+    "reference_snapshot.py put": ("file", "references/role-commands.json"),     # `input` spells the items-file form (id, area, user_path, observed, evidence/old_test, locators_portable, gaps); the refusal lists every problem
+    "first_look.py show": ("flags", "a task root and --json; read-only, no role-written record"),
+    "walk_session.py open": ("flags", "a walk id, a place and an actor; reopens the dispatch's own session, no role-written record"),
+    "walk_session.py item": ("flags", "a case id and an actor; no role-written record"),
+    "walk_session.py step": ("file", "references/manual-capture-steps.json"),
+    "walk_session.py look": ("flags", "a case id, an actor and a selector; no role-written record"),
+    "walk_session.py final": ("flags", "a case id and an actor; no role-written record"),
+    "walk_session.py verdict": ("file", "references/role-commands.json"),     # `input` spells the verdict's keys; the rules are asked while the session lives
+    "walk_session.py claim": ("file", "references/walk-charter.md"),     # the charter tells the walker to claim a shared record: --kind, --instance, --all
+    "walk_session.py done": ("flags", "a walk id; no role-written record"),
+    "walk_session.py status": ("flags", "a walk id; read-only, no role-written record"),
+    "work/place-answers/": ("file", "references/place-answers.json"),
 }
 ENTRY_KINDS = ("vocab", "skeleton", "file", "flags", "open")
 
@@ -332,17 +350,35 @@ GUARDED = {
     "work/test-plan.json": ("battery", "B10"),
     "work/s5-plan.json": ("none", "s5_plan.check_report is an accumulator: every gap of the plan at once, one line each (SC1-14)"),
     "work/grounding.yaml": ("none", "sweep row 11 OK: the check lists every finding, form 1"),
-    "work/probe-models/": ("none", "TQ1-25: load_model refuses one field at a time but every refusal prints the whole three-key form (_model_refusal); one small object, not a compound input"),
+    "work/probe-models/": ("none", "TQ1-25, t-2064 P3/P5: load_models refuses one field at a time but every refusal prints the whole models form (_models_shape_refusal, _models_refusal); a list of small entries, not a compound input"),
     "work/test-cases/critic-findings.md": ("none", "sweep row 14 OK: findings_errors is an accumulator"),
     "work/test-code/critic-findings.md": ("battery", "B14"),
+    "work/test-code/critic-findings-*.md": ("battery", "B14"),
+    "work/s5-notes/S5-qa-code-critic-*.md": ("none", "free text for the next window; there is nothing to validate"),
+    "work/s5-notes/S5-qa-automator-*.md": ("none", "free text for the next window; there is nothing to validate"),
+    "work/s5-notes/": ("none", "the folder of those free-text notes; there is nothing to validate"),
     "work/test-cases/": ("none", "sweep row 13 OK: check_case is an accumulator"),
     "work/triage.json": ("battery", "B12"),
+    "work/evidence/manual/<case>/tried.md": ("open", "X7-8: no validator on write was found (the recorder's `build` reads it for citations only); the runner is its writer since X7-3"),
     "work/bug-drafts/": ("open", "sweep row 27: no validator on write for a draft's shape was found"),
     "project:bugs/": ("battery", "B11"),
     "test-report.md": ("none", "sweep row 28 OK: check_test_report is an accumulator"),
     "retro.md": ("battery", "B6"),
     "project:obligations.md": ("none", "sweep row 32 OK: add_finding names its three required fields in one sentence"),
-    "project:factory-backlog.md": ("none", "sweep row 32 OK: add_finding names its three required fields in one sentence"),
+    "project:factory-backlog.md": ("none", "sweep row 32 OK: add_finding names its three required fields in one sentence"),    "place_answers.py write": ("none", "answer_problems returns every problem of the answer at once, each with its door (_p), raised through _refuse before anything is written"),
+    "first_look.py put": ("none", "first_look.put_problems is an accumulator: every problem of the record at once, each with its door (J-C3); nothing is written while the list is not empty"),
+    "reference_snapshot.py put": ("none", "reference_snapshot.put collects every problem of the items file (`problems`) and refuses once with the whole list and each door; nothing is written while it is not empty (PC-9)"),
+    "first_look.py show": ("none", "a task root and --json; read-only, no role-written record"),
+    "walk_session.py open": ("none", "a walk id, a place and an actor; reopens the dispatch's own session, no role-written record"),
+    "walk_session.py item": ("none", "a case id and an actor; no role-written record"),
+    "walk_session.py step": ("none", "the same MC.parse_steps as manual_capture: every bad line listed, each with `line N`; a longer batch is refused whole"),
+    "walk_session.py look": ("none", "a case id, an actor and a selector; no role-written record"),
+    "walk_session.py final": ("none", "a case id and an actor; no role-written record"),
+    "walk_session.py verdict": ("none", "verdict_problems and ME.walk_rule_errors return lists: every problem of the verdict at once, while the session lives (t-2016 F2)"),
+    "walk_session.py claim": ("open", "thinking-roles TR4-16"),
+    "walk_session.py done": ("none", "a walk id; no role-written record"),
+    "walk_session.py status": ("none", "a walk id; read-only, no role-written record"),
+    "work/place-answers/": ("none", "answer_problems is an accumulator (see place_answers.py write); the scratch file is the same record"),
 }
 GUARD_KINDS = ("battery", "none", "open")
 

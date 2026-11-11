@@ -27,6 +27,7 @@ import assertion_detectors as AD  # noqa: E402
 import contract as C  # noqa: E402
 import probe_by_code as PBC  # noqa: E402
 import proof_level as PL  # noqa: E402
+import probe_entries as PE  # noqa: E402
 from event_store import content_hash  # noqa: E402
 
 PY = sys.executable
@@ -65,6 +66,7 @@ parts = tail.split("::")
 func_name = parts[-1].split("[")[0]
 test_path = (cwd / file_part).resolve()
 sys.path.insert(0, str(cwd))
+sys.path.insert(0, str(test_path.parent))   # pytest's own `prepend` import mode: the test file's folder, so a sibling helper imports
 spec = importlib.util.spec_from_file_location("probe_target_module", test_path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -126,7 +128,11 @@ summary = {"task": request["task"], "label": label, "exit_code": 0 if status == 
            "report_evidence": {"path": report.relative_to(task_root).as_posix(),
                                "sha256": hashlib.sha256(report.read_bytes()).hexdigest()},
            "stub_seen_sha256": hashlib.sha256(seen).hexdigest(),
-           "stub_seen_marker": b"probe-" in seen}
+           # t-2064 P4b: the walk's aggregate carries no statement text, so the stub keeps the mutated text it ran for a test to read
+           "stub_seen_text": seen.decode("utf-8", "replace"),
+           # t-2045 N2: the Python marker is joined at run time (`'-'.join(['qa-probe', '<token>'])`), so the mutated bytes hold
+           # `'qa-probe'` and no longer the contiguous `probe-`; either spelling says the stub ran the mutated file
+           "stub_seen_marker": b"probe-" in seen or b"'qa-probe'" in seen}
 if os.environ.get("PROBE_STUB_REPORTER"):  # the real run_suite names its reporter; the default stub does not
     summary["reporter"] = os.environ["PROBE_STUB_REPORTER"]
 summary_path.write_text(json.dumps(summary, indent=1), encoding="utf-8")
@@ -258,7 +264,7 @@ def project(provenance: bool = True, *, shared_second: bool = False, row_profile
     (root / "tests" / "test_calc.py").write_text(TEST_FILE, encoding="utf-8")
     (root / "calc.py").write_text(CALC, encoding="utf-8")
     (root / "hamcrest.py").write_text(HAMCREST, encoding="utf-8")
-    (root / "expectations.py").write_text(EXPECTATIONS, encoding="utf-8")
+    (root / "tests" / "expectations.py").write_text(EXPECTATIONS, encoding="utf-8")   # a helper under the test root: a product-side one is never hopped into (B1)
     bin_dir = root.parent / (root.name + "-bin")
     bin_dir.mkdir()
     fake_pytest = bin_dir / "pytest"  # named pytest: the request builder's own pytest check
@@ -323,7 +329,21 @@ def env_for(root: Path, stub: Path, **extra) -> dict:
     return env
 
 
+def model_entries(root: Path, stub, test: str, instance: str, dispatch: str = DISPATCH, task: str = TASK) -> None:
+    """t-2064 P4b: a call with no `--at` and no `--oracle` walks every check and needs a model entry per check. This writes the
+    window's model file (`work/probe-models/<dispatch>.json`) with one `invert` entry per key `--plan` lists, so the wrappers below keep
+    taking the inversion road through the loader a critic's file goes through. NOT used by `run_close` (S6 is no role: it inverts by itself)."""
+    try:
+        env = env_for(root, stub) if stub else dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+        keys = PE.plan_keys(["--task", task, "--instance", instance, "--test", test], root=root, env=env)
+        if keys:    # an EMPTY plan is the probe's refusal to read: a file of no entries would be a byte the wrapper wrote, not the probe
+            PE.write_invert_entries(root / "qa-factory" / "artifacts" / task, dispatch, keys=keys)
+    except RuntimeError:
+        pass    # `--plan` refuses (no such instance, a file that is not there): no world to write entries for; the probe's own refusal is what the test reads
+
+
 def run(root: Path, stub: Path, test: str, instance: str, mutation: str = "invert", **extra):
+    model_entries(root, stub, test, instance)
     proc = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--test", test,
                       "--instance", instance, "--mutation", mutation, "--json",
                       cwd=root, env=env_for(root, stub, **extra))
@@ -333,6 +353,22 @@ def run(root: Path, stub: Path, test: str, instance: str, mutation: str = "inver
     except ValueError:
         payload = {}
     return proc, payload
+
+
+def mutated_line(root: Path, record: dict, line: int) -> str:
+    """Line `line` (1-based) of the mutated bytes the stub ran for the walk's first run (`stub_seen_text` of its evidence summary)."""
+    task_root = root / "qa-factory" / "artifacts" / TASK
+    ref = record.get("evidence_ref")
+    summary = json.loads((task_root / ref).read_text(encoding="utf-8")) if ref else {}
+    lines = str(summary.get("stub_seen_text") or "").splitlines()
+    return lines[line - 1] if len(lines) >= line else ""
+
+
+def read_check_record(root: Path, instance: str, which: int = 0) -> dict:
+    """The `which`-th per-check record of the instance (`work/probes/checks/`, in file name order): what a walk writes beside its aggregate."""
+    directory = root / "qa-factory" / "artifacts" / TASK / "work" / "probes" / "checks"
+    files = sorted(directory.glob(f"{instance}--*.json")) if directory.is_dir() else []
+    return json.loads(files[which].read_text(encoding="utf-8")) if len(files) > which else {}
 
 
 def read_record(root: Path, instance: str) -> dict:
@@ -352,6 +388,12 @@ def normalised(root: Path, returncode: int, record: dict) -> dict:
     """The receipt with what differs between two runs of the SAME code taken out."""
     text = json.dumps({"rc": returncode, "record": record}, sort_keys=True)
     text = text.replace(str(root).replace("\\", "\\\\"), "<ROOT>").replace(str(root), "<ROOT>")
+    # t-2045 N2: a Python plan now carries a per-run probe token (`qa-probe-<12 hex>` in the message, `'<12 hex>'` inside the
+    # joined expression); only those two spellings are masked, so the rest of the statement still compares byte for byte.
+    text = re.sub(r"qa-probe-[0-9a-f]{12}\b", "qa-probe-<TOKEN>", text)
+    text = re.sub(r"(\['qa-probe', ')[0-9a-f]{12}('\])", r"\1<TOKEN>\2", text)
+    # t-2064 TR2-14: a receipt file named inside the notes carries the project's hash (`<check>-live-<16 hex>.json`): masked, the rest of the note compares.
+    text = re.sub(r"-live-[0-9a-f]{16}", "-live-<HASH>", text)
     value = json.loads(re.sub(r"\b[0-9a-f]{20}\b", "<JOB>", text))
     rec = value["record"]
     rec.pop("recorded_at", None)
@@ -366,6 +408,8 @@ def normalised(root: Path, returncode: int, record: dict) -> dict:
     for ref in rec.get("evidence_refs") or []:
         if ref["path"].endswith(".json"):
             ref["sha256"] = "<varies with the job id>"
+        else:
+            ref["sha256"] = "<varies with the token>"     # the report file holds the failure text, which holds the token
     return value
 
 
@@ -413,15 +457,29 @@ def invert_plain_assert(root: Path, stub: Path) -> dict:
     check_eq("invert: expected_location is the assert's line", record.get("expected_location"),
              f"{TEST_FILE_REL}:6")
     check_eq("invert: actual_location equals it", record.get("actual_location"), record.get("expected_location"))
-    check("invert: expected_reason is the marker", str(record.get("expected_reason")).startswith("probe-test_add invert:"))
+    # t-2064 P4b: the answer is the walk's aggregate; its reason says how many checks of the plan were proved (it was the marker's id
+    # when one line was probed by the old default)
+    check_eq("invert: expected_reason says the plan's checks were proved", record.get("expected_reason"),
+             "1 of 1 checks of the plan proved")
     check_eq("invert: actual_reason equals it", record.get("actual_reason"), record.get("expected_reason"))
     check_eq("invert: failure_kind assertion", record.get("failure_kind"), "assertion")
     # D-0010: this tool mutates the assertion, so what it proves is that the check is live; it used
     # to claim `real_behavior`, a product mutation it never makes.
     check_eq("invert: mutation_kind assertion", record.get("mutation_kind"), "assertion")
     check_eq("invert: proof_level live", record.get("proof_level"), "live")
-    check_eq("invert: the mutated statement", record.get("mutation_detail", {}).get("statement_after"),
-             'assert not (add(2, 2) == 4), "probe-test_add invert: add(2, 2) == 4"')
+    # t-2064 P4b: the aggregate no longer carries the mutated statement (`mutation_detail` is `{file, line, end_line, checks}`); the
+    # statement is read from the bytes the stub ran (`mutated_line`), the marker's identity from the per-check record's failing text.
+    detail = record.get("mutation_detail", {})
+    check_eq("invert: the detail names the file and the check the walk mutated", (detail.get("file"), detail.get("checks")),
+             (TEST_FILE_REL, [f"{TEST_FILE_REL}:6"]))
+    row = (record.get("checks") or [{}])[0]
+    check_eq("invert: the check row is the inversion, proved by its marker", (row.get("probe_kind"), row.get("proved_by"), row.get("verdict")),
+             ("invert", "marker", "intended_failure"))
+    joined = re.fullmatch(r"    assert not \(add\(2, 2\) == 4\), '-'\.join\(\['qa-probe', '([0-9a-f]{12})'\]\)", mutated_line(root, record, 6))
+    check("invert: the mutated statement carries the marker joined at run time (t-2045 N2)", joined is not None, mutated_line(root, record, 6))
+    check_eq("invert: the run's failing text names that marker, and it is in no contiguous byte of the statement",
+             (read_check_record(root, "test_add").get("observed") or {}).get("message_head"),
+             "AssertionError: qa-probe-" + (joined.group(1) if joined else "?"))
     check_eq("invert: obligation_ids copied from the manifest", record.get("obligation_ids"), ["OB-ADD-1"])
     check_eq("invert: obligation_hash is content_hash(obligation_refs)", record.get("obligation_hash"),
              content_hash(OBLIGATION_REFS))
@@ -429,21 +487,23 @@ def invert_plain_assert(root: Path, stub: Path) -> dict:
     check_eq("invert: assertion_id copied", record.get("assertion_id"), "add_returns_sum")
     check_eq("invert: nothing missing from the manifest entry", record.get("manifest_fields_missing"), [])
     check_eq("invert: input_hash bound to the author's run block", record.get("input_hash"), "author-tcs-1")
-    check("invert: and says which block", str(record.get("input_hash_source")).startswith("run_block:"))
+    check_eq("invert: and says whose it is (the walk's request carries the author's binding)", record.get("input_hash_source"),
+             "the walk's request")
     task_root = root / "qa-factory" / "artifacts" / TASK
     evidence = record.get("evidence_ref")
     check("invert: evidence_ref is a task-relative file", bool(evidence) and (task_root / evidence).is_file())
     refs = {r["path"]: r["sha256"] for r in record.get("evidence_refs") or []}
     check("invert: evidence_refs carry the evidence_ref with its sha256",
           evidence in refs and refs[evidence] == PBC.sha256((task_root / evidence).read_bytes()))
-    request_path = task_root / "work" / "probe-requests" / "probe-test_add.json"
-    check("invert: the request is under work/probe-requests/probe-<IID>.json", request_path.is_file())
+    # t-2064 P4b: a walk's requests are per RUN: work/probe-requests/probe-walk-<IID>-<run>.json; the aggregate names no one request
+    request_path = task_root / "work" / "probe-requests" / "probe-walk-test_add-1.json"
+    check("invert: the request is under work/probe-requests/probe-walk-<IID>-<run>.json", request_path.is_file())
     request = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else {}
     check_eq("invert: purpose red_probe", request.get("purpose"), "red_probe")
     check_eq("invert: exactly this instance", request.get("selected_instance_ids"), ["test_add"])
     check_in("invert: the reason names the probe", "probe-test_add", request.get("reason", ""))
     check_eq("invert: built_by names the tool", (request.get("built_by") or {}).get("tool"), "probe_by_code.py")
-    check_eq("invert: the record names the request", record.get("request"), "work/probe-requests/probe-test_add.json")
+    check_eq("invert: the aggregate names no single request", record.get("request"), None)
     summary = json.loads((task_root / evidence).read_text(encoding="utf-8")) if evidence else {}
     check("invert: the stub ran the MUTATED bytes", summary.get("stub_seen_marker") is True
           and summary.get("stub_seen_sha256") != PBC.sha256(original))
@@ -451,9 +511,10 @@ def invert_plain_assert(root: Path, stub: Path) -> dict:
     check_eq("invert: restore verified by sha256", (record.get("restore") or {}).get("verified"), True)
     # B-373 R9: the restore reads the byte copy on disk, and the copy goes only after that is verified
     # (test_probe_by_code_copy.py pins the rest: the lock, the kill, the recovery)
-    check_eq("invert: the restore came from the byte copy, which was then deleted",
-             ((record.get("restore") or {}).get("restored_from"), (record.get("restore") or {}).get("copy_kept")),
-             ("copy", False))
+    # t-2064 P4b: the walk's `restore` is `{verified, sha256, runs}` (one restore for the whole walk); where it came from is the copy
+    # folder's business, pinned by the next check (nothing left under state/probe-copies) and by test_probe_by_code_copy.py
+    check_eq("invert: the walk restored once, after its one run", ((record.get("restore") or {}).get("runs"),
+             (record.get("restore") or {}).get("sha256")), (1, PBC.sha256(original)))
     check_eq("invert: no copy or record of one is left under state/probe-copies",
              sorted(p.name for p in (root / "qa-factory" / "state" / "probe-copies").glob("*") if p.suffix != ".lock"), [])
     check_eq("invert: the record is on disk", read_record(root, "test_add").get("verdict"), "intended_failure")
@@ -478,30 +539,12 @@ def invert_plain_assert(root: Path, stub: Path) -> dict:
     return record
 
 
-def expected_plain_assert(stub: Path) -> None:
-    # A project of its own: test_add of the shared one already holds a receipt for these bytes, and a
-    # second probe of them is ANSWERED (`already_probed`), not run with another mutation.
-    root = project()
-    try:
-        proc, record = run(root, stub, f"{TEST_FILE_REL}::test_add", "test_add", "expected")
-        check("expected: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
-        check_eq("expected: intended_failure", record.get("verdict"), "intended_failure")
-        detail = record.get("mutation_detail") or {}
-        check_eq("expected: 4 became 5", (detail.get("literal_before"), detail.get("literal_after")), ("4", "5"))
-        check_in("expected: the mutated statement compares with 5", "== 5)", detail.get("statement_after", ""))
-        check_eq("expected: the reason is the marker", record.get("actual_reason"), "probe-test_add expected: 4 -> 5")
-        check_eq("expected: request key differs per mutation",
-                 (read_record(root, "test_add").get("mutation")), "expected")
-    finally:
-        cleanup(root)
-        cleanup_beside(root)
-
-
 def class_method(root: Path, stub: Path) -> None:
-    proc, record = run(root, stub, f"{TEST_FILE_REL}::TestCalc::test_method", "test_method", "expected")
+    proc, record = run(root, stub, f"{TEST_FILE_REL}::TestCalc::test_method", "test_method", "invert")
     check("class method: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
     check_eq("class method: intended_failure", record.get("verdict"), "intended_failure")
-    check_eq("class method: the container left the old set", (record.get("mutation_detail") or {}).get("literal_after"), "[8, 9]")
+    # t-2064 P4b: the aggregate holds no statement text; it is read from the bytes the stub ran
+    check_in("class method: the method's assert is inverted", "assert not (result in [6, 7])", mutated_line(root, record, 27))
     check_eq("class method: location is the method's assert", record.get("expected_location"), f"{TEST_FILE_REL}:27")
     # No run block ever executed this instance: the source and build identity a receipt binds are
     # the author's record, not the probe's to type - so no receipt, and the record names each fact
@@ -522,16 +565,14 @@ def hamcrest_style(root: Path, stub: Path) -> None:
     proc, record = run(root, stub, f"{TEST_FILE_REL}::test_hamcrest", "test_hamcrest", "invert")
     check("hamcrest invert: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
     check_eq("hamcrest invert: intended_failure", record.get("verdict"), "intended_failure")
-    check_in("hamcrest invert: is_not around the matcher", 'is_not(equal_to(4))',
-             (record.get("mutation_detail") or {}).get("statement_after", ""))
-    observed = record.get("observed") or {}
+    # t-2064 P4b: the statement is read from the bytes the stub ran; what the run saw is read from the per-check record (the
+    # aggregate's `observed` is `{}`)
+    check_in("hamcrest invert: is_not around the matcher", 'is_not(equal_to(4))', mutated_line(root, record, 31))
+    observed = read_check_record(root, "test_hamcrest").get("observed") or {}
     check("hamcrest invert: the last traceback line is inside hamcrest",
           str(observed.get("location", "")).startswith("hamcrest.py:"))
     check_eq("hamcrest invert: the test file frame decides the location", record.get("actual_location"),
              f"{TEST_FILE_REL}:31")
-    proc, record = run(root, stub, f"{TEST_FILE_REL}::test_hamcrest", "test_hamcrest", "expected")
-    check_eq("hamcrest expected: intended_failure", record.get("verdict"), "intended_failure")
-    check_in("hamcrest expected: equal_to(5)", "equal_to(5)", (record.get("mutation_detail") or {}).get("statement_after", ""))
 
 
 def dead_assert(root: Path, stub: Path) -> None:
@@ -543,11 +584,17 @@ def dead_assert(root: Path, stub: Path) -> None:
 
 def raises_first(root: Path, stub: Path) -> None:
     proc, record = run(root, stub, f"{TEST_FILE_REL}::test_raises_first", "test_raises_first")
-    check("raises first: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
-    check_eq("raises first: wrong_location", record.get("verdict"), "wrong_location")
-    check_eq("raises first: the observed location is the raise", record.get("actual_location"), f"{TEST_FILE_REL}:16")
-    check_eq("raises first: failure_kind is not assertion", record.get("failure_kind"), "exception")
-    check_in("raises first: location is among the mismatches", "location", record.get("mismatches") or [])
+    check("raises first: exit 1 (an `incomplete` verdict was recorded, as for any probe that is not proved)", proc.returncode == 1,
+          proc.stdout + proc.stderr)
+    # N3b: a throw before the check is not proved by its place: no token in its text, so the code critic judges it (a fact: where it fell)
+    check_eq("raises first: incomplete, owed a judgment", (record.get("verdict"), record.get("cause")), ("incomplete", "judgment"))
+    check_eq("raises first: nothing is proved", record.get("proved_by"), None)
+    # t-2064 P4b: the facts of a walk's judgment live in the per-check record's `observed` (the aggregate has no `judgment_facts`); "outside
+    # the mutated statement" is the observed place against the check's own key (it was `location_hit: False`)
+    seen = read_check_record(root, "test_raises_first").get("observed") or {}
+    check_eq("raises first: the facts hold the place of the raise", seen.get("location"), f"{TEST_FILE_REL}:16")
+    check_eq("raises first: and that it is outside the mutated statement", seen.get("location") == (record.get("checks") or [{}])[0].get("key"), False)
+    check_eq("raises first: failure_kind is not assertion", seen.get("failure_kind"), "exception")
 
 
 def no_assert(root: Path, stub: Path) -> None:
@@ -556,10 +603,16 @@ def no_assert(root: Path, stub: Path) -> None:
     proc, payload = run(root, stub, f"{TEST_FILE_REL}::test_no_assert", "test_no_assert")
     check("no assert: exit 2", proc.returncode == 2, proc.stdout + proc.stderr)
     check_eq("no assert: refused", payload.get("status"), "refused")
-    check_in("no assert: the message says so", "no assert", payload.get("error", ""))
+    # t-2064 P4b item 2: a walk with an empty plan is a refusal (EP-A: an empty list is never read as proved) that names the detector table and
+    # the `--at` door; it takes no lock and is a tool refusal that DOES leave the `refused: tool` record (t-2143 N4: `main` writes it through
+    # `_record_tool_refusal`; it was the `no assert` text on the old first-check road, which `--at` still is)
+    check_in("no assert: the message says no check of a known form was found", "no check of a form the factory reads was found", payload.get("error", ""))
+    check_in("no assert: and names the door (the detector table, and --at for a check in a helper)", "--at <file>:<line>", payload.get("error", ""))
     check_eq("no assert: the file was never touched", (root / TEST_FILE_REL).stat().st_mtime_ns, stamp)
     check_eq("no assert: bytes unchanged", (root / TEST_FILE_REL).read_bytes(), original)
-    check_eq("no assert: no record written", read_record(root, "test_no_assert"), {})
+    refusal_record = read_record(root, "test_no_assert")
+    check_eq("no assert: a refusal of the tool, with the record (refused: tool, not_executed)",
+             (refusal_record.get("refused"), refusal_record.get("verdict")), ("tool", "not_executed"))
     proc, payload = run(root, stub, f"{TEST_FILE_REL}::test_nowhere", "test_nowhere")
     check_eq("unknown instance: refused before any file", (proc.returncode, payload.get("status")), (2, "refused"))
 
@@ -578,7 +631,8 @@ def _restore_on_failure(root: Path, stub: Path) -> None:
     proc, record = run(root, stub, f"{TEST_FILE_REL}::test_add", "test_add", PROBE_STUB_CRASH="1")
     check("runner crash: exit 1", proc.returncode == 1, proc.stdout + proc.stderr)
     check_eq("runner crash: not_executed", record.get("verdict"), "not_executed")
-    check_in("runner crash: the note says the runner printed nothing", "no summary", " ".join(record.get("notes") or []))
+    check_in("runner crash: the note says the runner left no report evidence (was: printed no summary)", "no report evidence",
+             " ".join(record.get("notes") or []))
     check_eq("runner crash: the bytes are back", (root / TEST_FILE_REL).read_bytes(), original)
     check_eq("runner crash: restore verified", (record.get("restore") or {}).get("verified"), True)
     proc = run_script("probe_by_code.py", "--task", TASK, "--dispatch", "S5-qa-code-critic-9",
@@ -615,7 +669,7 @@ def a_run_that_executed_nothing_keeps_the_standing_record(stub: Path) -> None:
         attempt = kept.get("last_attempt") or {}
         check_eq("kept: last_attempt names the verdict", attempt.get("verdict"), "not_executed")
         check("kept: last_attempt carries the time and the cause",
-              bool(attempt.get("at")) and "no summary" in str(attempt.get("why")), str(attempt))
+              bool(attempt.get("at")) and "no report evidence" in str(attempt.get("why")), str(attempt))   # the walk's last note (was "no summary")
         check_eq("kept: the test bytes are back", (root / TEST_FILE_REL).read_bytes(), original)
         # a run that executed replaces it, whatever it found
         write_json(root / "qa-factory" / "artifacts" / TASK / "work" / "probes" / "test_dead_assert.json",
@@ -668,17 +722,11 @@ def multiline_keeps_line_count() -> None:
     mutated, detail = PBC.plan_mutation(data, spec, "invert", "test_multiline")
     check_eq("multiline invert: the file keeps its line count", mutated.count(b"\n"), data.count(b"\n"))
     check_eq("multiline invert: the assert's first line is the location", detail["line"], 35)
-    mutated, detail = PBC.plan_mutation(data, spec, "expected", "test_multiline")
-    check_eq("multiline expected: the file keeps its line count", mutated.count(b"\n"), data.count(b"\n"))
-    check_in("multiline expected: 4 -> 5", "== 5", detail["statement_after"])
-    source = b'def test_s():\n    assert name() == "abc"\n'
-    mutated, detail = PBC.plan_mutation(source, PBC.parse_node("t.py::test_s"), "expected", "i")
-    check_in("a string literal gets a distinct string", '== \'abc-probe\'', detail["statement_after"])
     try:
-        PBC.plan_mutation(b"def test_g():\n    assert size() > 1\n", PBC.parse_node("t.py::test_g"), "expected", "i")
-        check("expected on `>` is refused", False)
+        PBC.plan_mutation(data, spec, "expected", "test_multiline")
+        check("expected is no mutation any more (N7)", False)
     except PBC.Refusal as exc:
-        check_in("expected on `>` is refused with the way out", "--mutation invert", str(exc))
+        check_in("expected is refused by the plan with the one that remains", "--mutation is one of invert", str(exc))
     try:
         PBC.plan_mutation(b"def test_g():\n    assert size() > 1\n", PBC.parse_node("t.py::test_h"), "invert", "i")
         check("an unknown function is refused", False)
@@ -690,7 +738,6 @@ SRC_HAMCREST_MULTILINE = (b"from hamcrest import assert_that, equal_to\n\n\ndef 
                           b"        add(2, 2),\n        equal_to(\n            4\n        ),\n    )\n    assert True\n")
 SRC_LITERAL_MULTILINE = (b"def test_l():\n    assert name(\n    ) == [\n        1,\n        2,\n    ], 'msg'\n"
                          b"    assert True\n")
-SRC_HAMCREST_LITERAL = b"def test_hl():\n    assert_that(add(1, 1), equal_to([1,\n 2]))\n"
 SRC_ORACLE_HELPER = b"def helper():\n    assert got == want, 'm'\n\n\ndef test_o():\n    helper()\n"
 # (label, source, node, mutation, extra arguments, the statement after, the marker, the literal pair,
 #  sha256[:16] over the mutated bytes + the sorted-key JSON of the detail). The digest is the byte golden;
@@ -698,63 +745,36 @@ SRC_ORACLE_HELPER = b"def helper():\n    assert got == want, 'm'\n\n\ndef test_o
 PLAN_GOLDEN = [
     ("add invert", TEST_FILE.encode(), "test_add", "invert", {},
      'assert not (add(2, 2) == 4), "probe-IID invert: add(2, 2) == 4"', "probe-IID invert: add(2, 2) == 4",
-     (None, None), "a7030f5e9b94addb"),
-    ("add expected", TEST_FILE.encode(), "test_add", "expected", {},
-     'assert (add(2, 2) == 5), "probe-IID expected: 4 -> 5"', "probe-IID expected: 4 -> 5", ("4", "5"),
-     "6d5164816e250b40"),
+     (None, None), "9c9aa8bd02ea3963"),
     ("method invert", TEST_FILE.encode(), "TestCalc::test_method", "invert", {},
      'assert not (result in [6, 7]), "probe-IID invert: result in [6, 7]"', "probe-IID invert: result in [6, 7]",
-     (None, None), "3a3b0eaadb3d26a7"),
-    ("method expected", TEST_FILE.encode(), "TestCalc::test_method", "expected", {},
-     'assert (result in [8, 9]), "probe-IID expected: [6, 7] -> [8, 9]"',
-     "probe-IID expected: [6, 7] -> [8, 9]", ("[6, 7]", "[8, 9]"), "5a597c640bd299cb"),
+     (None, None), "cec6844c3379146e"),
     ("multiline invert", TEST_FILE.encode(), "test_multiline", "invert", {},
      'assert not (add(\n        2, 2\n    ) == 4\n\n), "probe-IID invert: add( 2, 2 ) == 4"',
-     "probe-IID invert: add( 2, 2 ) == 4", (None, None), "cfa507b78d473200"),
-    ("multiline expected", TEST_FILE.encode(), "test_multiline", "expected", {},
-     'assert (add(\n        2, 2\n    ) == 5\n\n), "probe-IID expected: 4 -> 5"', "probe-IID expected: 4 -> 5",
-     ("4", "5"), "5c4382d2793a885f"),
+     "probe-IID invert: add( 2, 2 ) == 4", (None, None), "67219c94a9f69b61"),
     ("hamcrest invert", TEST_FILE.encode(), "test_hamcrest", "invert", {},
      'assert_that(add(2, 2), __import__("hamcrest").is_not(equal_to(4)), "probe-IID invert: equal_to(4)")',
-     "probe-IID invert: equal_to(4)", (None, None), "f00b17597740fecc"),
-    ("hamcrest expected", TEST_FILE.encode(), "test_hamcrest", "expected", {},
-     'assert_that(add(2, 2), equal_to(5), "probe-IID expected: 4 -> 5")', "probe-IID expected: 4 -> 5",
-     ("4", "5"), "4e1e642e192ca7ea"),
+     "probe-IID invert: equal_to(4)", (None, None), "172ee75ac819028a"),
     ("hamcrest multiline invert", SRC_HAMCREST_MULTILINE, "test_h", "invert", {},
      'assert_that(add(2, 2), __import__("hamcrest").is_not(equal_to(\n            4\n        ))\n\n\n, '
-     '"probe-IID invert: equal_to( 4 )")', "probe-IID invert: equal_to( 4 )", (None, None), "5a4a60291094c866"),
-    ("hamcrest multiline expected", SRC_HAMCREST_MULTILINE, "test_h", "expected", {},
-     'assert_that(add(2, 2), equal_to(\n            5\n        )\n\n\n, "probe-IID expected: 4 -> 5")',
-     "probe-IID expected: 4 -> 5", ("4", "5"), "dfbc055b0a562017"),
-    ("hamcrest literal over two lines", SRC_HAMCREST_LITERAL, "test_hl", "expected", {},
-     'assert_that(add(1, 1), equal_to([2,\n 2]), "probe-IID expected: 1 -> 2")', "probe-IID expected: 1 -> 2",
-     ("1", "2"), "eec49c182107d4b6"),
-    ("literal over several lines, expected", SRC_LITERAL_MULTILINE, "test_l", "expected", {},
-     'assert (name(\n    ) == ([3, 4]\n\n\n)), "probe-IID expected: [1, 2] -> [3, 4]"',
-     "probe-IID expected: [1, 2] -> [3, 4]", ("[1, 2]", "[3, 4]"), "3d91e65d024f453e"),
+     '"probe-IID invert: equal_to( 4 )")', "probe-IID invert: equal_to( 4 )", (None, None), "15b7817f941490fd"),
     ("literal over several lines, invert", SRC_LITERAL_MULTILINE, "test_l", "invert", {},
      'assert not (name(\n    ) == [\n        1,\n        2,\n    ]), "probe-IID invert: name( ) == [ 1, 2, ]"',
-     "probe-IID invert: name( ) == [ 1, 2, ]", (None, None), "215a01ff09dc6696"),
+     "probe-IID invert: name( ) == [ 1, 2, ]", (None, None), "f30684423a999bb9"),
     ("a BOM stays: invert", b"\xef\xbb\xbf" + TEST_FILE.encode(), "test_add", "invert", {},
      'assert not (add(2, 2) == 4), "probe-IID invert: add(2, 2) == 4"', "probe-IID invert: add(2, 2) == 4",
-     (None, None), "28493060b46e624e"),
-    ("a BOM stays: expected", b"\xef\xbb\xbf" + TEST_FILE.encode(), "test_add", "expected", {},
-     'assert (add(2, 2) == 5), "probe-IID expected: 4 -> 5"', "probe-IID expected: 4 -> 5", ("4", "5"),
-     "daaf895e3c9c35b6"),
+     (None, None), "cba702e7c2fc510a"),
     ("an oracle function", SRC_ORACLE_HELPER, "test_o", "invert", {"oracle_function": "helper",
                                                                     "oracle_note": "via helper"},
      'assert not (got == want), "probe-IID invert: got == want"', "probe-IID invert: got == want", (None, None),
-     "6a9baccc466a1ee4"),
+     "dc6a95fdb21b33f1"),
 ]
 # (label, source, node, mutation, extra arguments, what the refusal says)
 PLAN_REFUSALS = [
-    ("expected beside a name, not a literal", SRC_ORACLE_HELPER, "test_o", "expected",
-     {"oracle_function": "helper"}, "the comparison has no literal to replace"),
-    ("expected on a bare name", b"def test_p():\n    assert ok\n", "test_p", "expected", {},
-     "--mutation expected wants `assert <a> == <literal>`"),
+    ("expected is no mutation any more", TEST_FILE.encode(), "test_add", "expected", {}, "--mutation is one of invert"),
     ("a source that does not parse", b"def test_s(:\n", "test_s", "invert", {}, "tests/test_calc.py does not parse"),
     ("no assert", TEST_FILE.encode(), "test_no_assert", "invert", {}, "the function body has no assert"),
-    ("an unknown mutation", TEST_FILE.encode(), "test_add", "other", {}, "--mutation is one of invert, expected"),
+    ("an unknown mutation", TEST_FILE.encode(), "test_add", "other", {}, "--mutation is one of invert"),
 ]
 
 
@@ -766,6 +786,7 @@ def plan_mutation_is_pinned() -> None:
         mutated, detail = PBC.plan_mutation(data, PBC.parse_node(f"{TEST_FILE_REL}::{node}"), mutation, "IID", **extra)
         check_eq(f"D7 {label}: the statement after", detail["statement_after"], after)
         check_eq(f"D7 {label}: the marker", detail["marker"], marker)
+        check_eq(f"D7 {label}: no token, no factory marker (t-2045 N2)", (detail["message_marker"], detail["message_form"]), ("", ""))
         check_eq(f"D7 {label}: the literal pair", (detail.get("literal_before"), detail.get("literal_after")), pair)
         check_eq(f"D7 {label}: line count and BOM are the source's",
                  (mutated.count(b"\n"), mutated.startswith(b"\xef\xbb\xbf")),
@@ -822,13 +843,16 @@ def through_real_run_suite() -> None:
     try:
         env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
         env.pop("PROBE_RUN_SUITE", None)
+        model_entries(root, None, f"{TEST_FILE_REL}::test_add", "test_add")
         proc = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--test",
                           f"{TEST_FILE_REL}::test_add", "--instance", "test_add", "--json",
                           cwd=root, env=env)
         record = json.loads(proc.stdout) if proc.stdout.strip().startswith("{") else {}
         check("real run_suite: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
         check_eq("real run_suite: intended_failure through the real runner", record.get("verdict"), "intended_failure")
-        check_eq("real run_suite: the label is a red_probe run", str((record.get("run") or {}).get("label", ""))[:10], "red_probe-")
+        # t-2064 P4b: the aggregate has no `run` block; the run's label is the name of the evidence file it names
+        check_eq("real run_suite: the label is a red_probe run (the evidence file's name)",
+                 Path(str(record.get("evidence_ref") or "")).name[:10], "red_probe-")
         task_root = root / "qa-factory" / "artifacts" / TASK
         check("real run_suite: no run block was written for the red probe",
               not list((task_root / "work" / "run-blocks").glob("*")) or
@@ -854,7 +878,7 @@ def two_profiles_over_one_root(stub: Path) -> None:
         check_eq("A-K4 the probe is built, run and judged: intended_failure", record.get("verdict"), "intended_failure")
         check_not_in("A-K4 no refusal note", "MineRefusal", " ".join(str(n) for n in record.get("notes") or []))
         request = json.loads((root / "qa-factory" / "artifacts" / TASK / "work" / "probe-requests"
-                              / "probe-test_add.json").read_text(encoding="utf-8"))
+                              / "probe-walk-test_add-1.json").read_text(encoding="utf-8"))   # t-2064 P4b: a walk's request, per run
         check_eq("A-K4 the request runs under the profile the row names", request.get("profile_id"), "unit")
     finally:
         cleanup(root)
@@ -870,7 +894,7 @@ def two_profiles_over_one_root(stub: Path) -> None:
         check_in("A-K5 and names the manifest-row door", "`profile_id`", notes)
         check_not_in("A-K5 and NOT --profile, which this tool does not accept", "--profile", notes)
         check("A-K5 no request was written: nothing ran under the first profile",
-              not (root / "qa-factory" / "artifacts" / TASK / "work" / "probe-requests" / "probe-test_add.json").exists())
+              not list((root / "qa-factory" / "artifacts" / TASK / "work" / "probe-requests").glob("probe-*")))   # any name: a walk's are probe-walk-<IID>-<run>
         # RH1-8 F4: this is a LATE refusal (profile, in `build_mine_request`, after the mutant is written): the bytes must be back
         check_eq("A-K5 the bytes are back after the late refusal", (root / TEST_FILE_REL).read_bytes(), original_k5)
     finally:
@@ -904,7 +928,7 @@ def oracle_in_a_helper(root: Path, stub: Path) -> None:
     tooling defect back to the author in four windows. The probe now follows the oracle one hop
     out, mutates it there, says where it went, and puts the helper back.
     """
-    helper = root / "expectations.py"
+    helper = root / "tests" / "expectations.py"
     original, stamp = helper.read_bytes(), helper.stat().st_mtime_ns
     test_original = (root / TEST_FILE_REL).read_bytes()
     proc, record = run(root, stub, f"{TEST_FILE_REL}::test_via_helper", "test_via_helper")
@@ -912,12 +936,12 @@ def oracle_in_a_helper(root: Path, stub: Path) -> None:
     check_eq("helper oracle: the mutated expectation fires", record.get("verdict"),
              "intended_failure")
     check_eq("helper oracle: the expected location is in the helper, not the test",
-             record.get("expected_location"), "expectations.py:2")
-    detail = record.get("mutation_detail") or {}
-    check_eq("helper oracle: the record names the function it mutated",
-             detail.get("oracle_function"), "expect_sum")
-    check_in("helper oracle: and warns that the file is shared",
-             "which other tests share", detail.get("oracle_note", ""))
+             record.get("expected_location"), "tests/expectations.py:2")
+    # t-2064 P4b: the walk's record names the check it mutated by its key, `<helper file>:<line>`, not by `oracle_function` / `oracle_note`
+    # (the aggregate's `mutation_detail` is `{file, line, end_line, checks}`); the old pins on those two keys are replaced by the key, and
+    # the lost shared-file warning is a question in the report
+    check_eq("helper oracle: the record names the check it mutated, in the helper", [c.get("key") for c in record.get("checks") or []],
+             ["tests/expectations.py:2"])
     check_eq("helper oracle: the helper is restored byte for byte", helper.read_bytes(), original)
     check_eq("helper oracle: and its mtime is put back", helper.stat().st_mtime_ns, stamp)
     check_eq("helper oracle: the test file was never touched",
@@ -1085,25 +1109,32 @@ def non_python_test_refused(root: Path, stub: Path) -> None:
     # A language that HAS an entry reaches the detector path and is refused for its own reason (no such test in
     # this file) - never for "not Python"; the tree is unchanged all the same.
     def kept(tree: dict) -> dict:  # the lock a probe takes before it reads the test is never deleted (B-373 a)
-        return {k: v for k, v in tree.items() if not k.endswith(".lock")}
+        # (and the window's model file the wrapper writes: world, not the probe's work; `run` rewrites the same bytes at a new mtime)
+        return {k: v for k, v in tree.items() if not k.endswith(".lock") and "/work/probe-models/" not in k}
 
-    for spec, why in (("tests/CalcTests.cs::CalcTests.Adds", "no declaration of"),
-                      ("tests/calc.spec.ts::adds", "no recognised assertion")):
+    # t-2064 P4b: the default road lists the checks first; a test whose body holds none the factory reads (no such declaration, no
+    # recognised assertion) is the EMPTY-PLAN refusal, for either reason, and the same words
+    for spec, why in (("tests/CalcTests.cs::CalcTests.Adds", "no check of a form the factory reads was found"),
+                      ("tests/calc.spec.ts::adds", "no check of a form the factory reads was found")):
+        model_entries(root, stub, spec, "test_add")     # world, written before the snapshot: the call itself must change nothing
         before = kept(tree_state(root))
         proc, payload = run(root, stub, spec, "test_add")
         check_eq(f"entry {spec!r}: exit 2, refused", (proc.returncode, payload.get("status")), (2, "refused"))
         check_in(f"entry {spec!r}: the refusal is about the test's own shape ({why})", why, payload.get("error", ""))
         check_not_in(f"entry {spec!r}: it is not the old `not a Python test`", "not a Python test", payload.get("error", ""))
         check_eq(f"entry {spec!r}: no file changed", kept(tree_state(root)), before)
-    # `--at` is for a test that is not Python: on a Python node it is refused (never silently ignored)
-    before = tree_state(root)
+    # t-2045 N1: `--at` is read for every language. On a Python node a line that holds no check (the `def` line, 5) is refused
+    # like any other language's: the text names the nearest check below (line 6) and the doors, and nothing is changed.
+    before = kept(tree_state(root))
     proc = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--test",
-                      f"{TEST_FILE_REL}::test_add", "--instance", "test_add", "--at", "6", "--json",
+                      f"{TEST_FILE_REL}::test_add", "--instance", "test_add", "--at", "5", "--json",
                       cwd=root, env=env_for(root, stub))
     payload = json.loads(proc.stdout) if proc.stdout.strip().startswith("{") else {}
     check_eq("--at on a Python node: exit 2, refused", (proc.returncode, payload.get("status")), (2, "refused"))
-    check_in("--at on a Python node: the text says what --at is for", "not Python", payload.get("error", ""))
-    check_eq("--at on a Python node: nothing changed", tree_state(root), before)
+    check_in("--at on a line with no check: the text says so", "holds no check of a form the factory reads", payload.get("error", ""))
+    check_in("...and names the nearest check below as the door", "`--at 6`", payload.get("error", ""))
+    check_not_in("...and is no longer the old `not Python`", "not Python", payload.get("error", ""))
+    check_eq("--at on a Python node: nothing changed", kept(tree_state(root)), before)
     # A path that IS Python but is not shaped like a node keeps its own refusal.
     proc, payload = run(root, stub, "tests/test_calc.py", "test_add")
     check_eq("no `::` at all: still refused with the shape wanted", (proc.returncode, payload.get("status")), (2, "refused"))
@@ -1147,6 +1178,7 @@ probe_by_code.main()
 
 def run_recorded(root: Path, stub: Path, test: str, instance: str) -> tuple:
     """(process, the calls the probe made to the request builder, in order)."""
+    model_entries(root, stub, test, instance)
     launcher = stub.parent / "launcher.py"
     launcher.write_text(LAUNCHER, encoding="utf-8")
     log = stub.parent / "calls.jsonl"
@@ -1175,7 +1207,7 @@ def run_directory_is_given(root: Path, stub: Path, label: str, wanted: Path) -> 
     check(f"{label}: it is --cwd, never --sandbox-root (the probe has no clone)",
           all(not c.get("sandbox_root") for c in calls))
     check_eq(f"{label}: the probe still ran, in that directory", record.get("verdict"), "intended_failure")
-    request_path = root / "qa-factory" / "artifacts" / TASK / "work" / "probe-requests" / "probe-test_add.json"
+    request_path = root / "qa-factory" / "artifacts" / TASK / "work" / "probe-requests" / "probe-walk-test_add-1.json"
     request = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else {}
     check_eq(f"{label}: the request's command runs in the same directory",
              str(Path((request.get("command") or {}).get("cwd") or "").resolve()), str(wanted.resolve()))
@@ -1196,7 +1228,7 @@ def run_directory(stub: Path) -> None:
     try:
         app = root / "app"
         app.mkdir()
-        for name in ("tests", "calc.py", "hamcrest.py", "expectations.py"):
+        for name in ("tests", "calc.py", "hamcrest.py"):
             (root / name).rename(app / name)
         config_path = root / "qa-factory" / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -1316,15 +1348,29 @@ def a_rerun_is_idempotent_and_new_bytes_are_a_new_receipt(root: Path, stub: Path
     quiet = snapshot(root)
     proc, answered = run(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
     check("rerun: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
-    check_eq("rerun on identical bytes: answered, not probed", answered.get("verdict"), "already_probed")
-    check_eq("rerun: by the receipt it holds", (answered.get("by"), answered.get("level")), ("receipt", "live"))
-    check_eq("rerun: nothing on disk moved (record, manifest, requests, jobs, receipts)", snapshot(root), quiet)
+    # t-2064 P4b, what holds on the walk road: the repeat launches NOTHING (no run, no new request, job or check record, the same one receipt).
+    # Only the aggregate is rebuilt (its rows say "the run was skipped"). The three pins after it are the spec's (t-2064 section on the
+    # receipt, item 4: "all proved and the aggregate standing: `already_probed` as today") and the road does not meet them: PRODUCT QUESTION
+    # 1 of t-2064-p4b2t2-report.md - they stay red, unbent.
+    aggregate = "work/probes/test_add.json"
+    moved = snapshot(root)
+    check_eq("rerun: nothing LAUNCHED or written but the aggregate (requests, jobs, check records, receipts, manifest)",
+             {k: v for k, v in moved.items() if k != aggregate}, {k: v for k, v in quiet.items() if k != aggregate})
+    # t-2064 TR2-14 (B3): the repeat on the same bytes and the same model is answered `already_probed`: no walk ran, so the answer carries
+    # no `plan_runs` and no `restore.runs` (it used to rebuild the aggregate with every row skipped, 0 and 0)
+    check_eq("rerun: answered `already_probed`, the walk ran no check (no plan_runs, no restore.runs)",
+             (answered.get("verdict"), answered.get("plan_runs"), (answered.get("restore") or {}).get("runs")), ("already_probed", None, None))
+    check_eq("rerun on identical bytes: answered, not probed (spec; PRODUCT QUESTION 1)", answered.get("verdict"), "already_probed")
+    check_eq("rerun: by the receipt it holds (spec; PRODUCT QUESTION 1)", (answered.get("by"), answered.get("level")), ("receipt", "live"))
+    check_eq("rerun: nothing on disk moved (record, manifest, requests, jobs, receipts) (spec; PRODUCT QUESTION 1)", moved, quiet)
     # ...and a person's word passes ONE repeat: the probe runs, and lands on the same receipt
     give_word(root, "2999-01-01T00:00:00+00:00")
     proc, again = run(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
     clear_word(root)
     check("rerun with a word: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
-    check_in("rerun with a word: the note records the word", "probe it again", " ".join(again.get("notes") or []))
+    # the road never blocks a repeat, so the person's word is not read on it any more: the door that named "probe it again" is gone
+    # (spec: "only a person's word repeats it", D-0018) - PRODUCT QUESTION 1, red, unbent.
+    check_in("rerun with a word: the note records the word (PRODUCT QUESTION 1)", "probe it again", " ".join(again.get("notes") or []))
     check_eq("rerun on identical bytes: the same path", (again.get("receipt") or {}).get("path"),
              first["receipt"]["path"])
     check_eq("rerun on identical bytes: still one receipt file", len(receipt_files(root)), 1)
@@ -1831,11 +1877,11 @@ def main_exit_order_is_pinned() -> None:
         args = next(entry[2] for entry in log if entry[0] == "call" and entry[1] == "probe")
         check_eq("D6 the probe is called with the CLI's values, positionally",
                  args, ("T-1", "D-1", "tests/t.py::test_x", "iid", "invert", PBC.RUN_TIMEOUT_S, "", None))
-        code, log = _main_in_process(argv + ["--mutation", "expected", "--timeout", "7", "--oracle", "h::f",
+        code, log = _main_in_process(argv + ["--mutation", "invert", "--timeout", "7", "--oracle", "h::f",
                                              "--at", "12"], dict(answered))
         args = next(entry[2] for entry in log if entry[0] == "call" and entry[1] == "probe")
         check_eq("D6 the probe is called with --mutation --timeout --oracle --at as given",
-                 args, ("T-1", "D-1", "tests/t.py::test_x", "iid", "expected", 7, "h::f", 12))
+                 args, ("T-1", "D-1", "tests/t.py::test_x", "iid", "invert", 7, "h::f", 12))
         # a verdict, text: probe -> publish -> print (the publish saw nothing printed) -> verdict exit
         for verdict, want in (("intended_failure", 0), ("no_failure", 0), ("wrong_location", 0),
                               ("not_executed", 1), ("incomplete", 1), ("unheard_of", 1)):
@@ -2069,6 +2115,7 @@ def _unverified_restore(root: Path, stub: Path) -> None:
     old_env = os.environ.get("PROBE_RUN_SUITE")
     os.environ["PROBE_RUN_SUITE"] = str(stub)
     PBC.restore = lambda *args, **kw: dict(real(*args, **kw), verified=False)
+    model_entries(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
     try:
         record = PBC.probe(TASK, DISPATCH, f"{TEST_FILE_REL}::test_add", "test_add", "invert")
     finally:
@@ -2077,11 +2124,15 @@ def _unverified_restore(root: Path, stub: Path) -> None:
             os.environ.pop("PROBE_RUN_SUITE", None)
         else:
             os.environ["PROBE_RUN_SUITE"] = old_env
-    check_eq("unverified restore: the verdict is still recorded", record.get("verdict"), "intended_failure")
+    # t-2064 P4b: the walk's aggregate does not call a plan with an unverified restore `intended_failure` at all (a failed restore ends the
+    # walk): the verdict is `incomplete`, the restore says it was not verified, and `publish_binding` has nothing to publish (it publishes
+    # `intended_failure` only) - the receipt is as absent as before, by one more gate.
+    check_eq("unverified restore: the walk answers incomplete, with the restore unverified",
+             (record.get("verdict"), (record.get("restore") or {}).get("verified")), ("incomplete", False))
     check_eq("unverified restore: no receipt", record.get("receipt"), None)
     check_eq("unverified restore: no receipt file", receipt_files(root), [])
     said = PBC.publish_binding(TASK, task, record)
-    check_in("unverified restore: nothing is published, and why", "restore was not verified", said)
+    check_eq("unverified restore: nothing is published", (said, "published" in (record.get("publish") or {})), ("", False))
     check_eq("unverified restore: the manifest row is untouched", "sensitivity_proof" in row_of(root), False)
 
 
@@ -2246,14 +2297,19 @@ def stamp_record(root: Path, instance: str, **fields) -> dict:
     return body
 
 
+# t-2064 P4b: the key set of a WALK's aggregate (was the first-check record's: `author_run_block` and `run` are gone; the plan's `checks`,
+# `mutated_files`, `plan_runs`, `plan_remaining`, `plan_unfinished` and `words` are new). `publish` / `binding` / `receipt*` are the
+# receipt's: they stand until item 4 attaches a receipt to the aggregate.
 INVERT_RECORD_KEYS = [
-    "actual_location", "actual_reason", "assertion_id", "author_run_block", "binding", "case", "defect_location",
+    "actual_location", "actual_reason", "assertion_id", "binding", "case", "checks", "defect_location",
     "dispatch_id", "evidence_ref", "evidence_refs", "expected_location", "expected_reason", "failure_kind",
     "input_hash", "input_hash_source", "instance_content_sha", "instance_id", "instance_identity",
-    "manifest_fields_missing", "mutated_file", "mutation", "mutation_detail", "mutation_kind", "notes",
-    "obligation_hash", "obligation_ids", "obligation_refs", "observed", "probe_tool", "proof_level", "publish",
-    "receipt", "receipt_missing", "record", "recorded_at", "request", "restore", "run", "schema_version", "task",
-    "test_code_sha", "test_file_sha256", "test_node", "verdict", "window_probe"]
+    "manifest_fields_missing", "mutated_file", "mutated_files", "mutation", "mutation_detail", "mutation_kind", "notes",
+    "obligation_hash", "obligation_ids", "obligation_refs", "observed", "plan_remaining", "plan_runs", "plan_unfinished",
+    "probe_tool", "proof_level",
+    "proved_by",     # t-2064 N3b step 5: an `intended_failure` the code proved says how (`marker`, the token read in the row)
+    "publish", "receipt", "receipt_missing", "record", "recorded_at", "request", "restore", "schema_version", "target",
+    "task", "test_code_sha", "test_file_sha256", "test_node", "verdict", "window_probe", "words"]
 
 
 def the_record_and_the_answer_are_pinned(stub: Path) -> None:
@@ -2269,13 +2325,16 @@ def the_record_and_the_answer_are_pinned(stub: Path) -> None:
         check_eq("pinned invert: the written record's key set", sorted(written), INVERT_RECORD_KEYS)
         check_eq("pinned invert: the answer printed is the record written", sorted(first), sorted(written))
         check_eq("pinned invert: its notes", written.get("notes"),
-                 ["command, fingerprint file list and runtime probe are those of this story's last typed run on "
+                 [# t-2064 P4b: no `assertion_id` note - the default road walks every check and never chooses a target by the id
+                  "command, fingerprint file list and runtime probe are those of this story's last typed run on "
                   "profile unit"])
         proc, answer = run(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
-        check_eq("pinned answer: exit 0, already_probed", (proc.returncode, answer.get("verdict")),
-                 (0, "already_probed"))
-        check_eq("pinned answer: the key set", sorted(answer), sorted(ANSWER_KEYS + ["notes"]))
-        check_eq("pinned answer: its notes", answer.get("notes"), [])
+        # t-2064 P4b: a second call over the same bytes is no longer answered `already_probed` on the default road: the walk is called
+        # again and answers with the aggregate (a proved check is not run again - test_probe_every_check.py
+        # test_repeat_skips_proved_runs_new_model). Question for the coordinator: is `already_probed` kept for the walk's repeat?
+        check_eq("pinned answer: exit 0, the walk answers with the aggregate again", (proc.returncode, answer.get("verdict")),
+                 (0, "intended_failure"))
+        check_eq("pinned answer: the key set is the aggregate's", sorted(answer), INVERT_RECORD_KEYS)
     with fresh() as root:
         manifest = manifest_of(root)
         for row in manifest["tests"]:
@@ -2284,12 +2343,9 @@ def the_record_and_the_answer_are_pinned(stub: Path) -> None:
         write_json(task_of(root) / "work" / "automation-manifest.json", manifest)
         proc, got = run(root, stub, f"{TEST_FILE_REL}::test_dead_assert", "test_dead_assert")
         check_eq("pinned mismatch: the probe runs", (proc.returncode, got.get("verdict")), (0, "no_failure"))
+        # t-2064 P4b: the walk makes no repeat check (so no "not the file the row names" note), chooses no target by the id, and the
+        # missing manifest fields are the aggregate's `manifest_fields_missing`, not a note
         check_eq("pinned mismatch: the notes, in order", read_record(root, "test_dead_assert").get("notes"), [
-            "--test names tests/test_calc.py, which is not the file the manifest row of 'test_dead_assert' names "
-            "(tests/nope.py), or that file cannot be read: the repeat check is not made, and the record binds "
-            "the bytes measured here",
-            "the manifest entry carries no obligation_ids, obligation_hash, defect_location, assertion_id: fill "
-            "them in the window instance AND here, identically, before the window",
             "command, fingerprint file list and runtime probe are those of this story's last typed run on "
             "profile unit"])
 
@@ -2306,39 +2362,52 @@ def the_repeat_is_answered(stub: Path) -> None:
         return len(path.read_text(encoding="utf-8").splitlines()) if path.is_file() else 0
 
     try:
-        # AC1: the same bytes twice - the runner ran ONCE, and nothing on disk moved the second time
+        # AC1: the same bytes twice - the runner ran ONCE, and nothing was launched the second time.
+        # t-2064 P4b: the subject is a PROVED check (`test_add`, `intended_failure`): the walk skips a check proved on the same bytes of its
+        # file with the same entry (spec section 14), so the one launch and "nothing launched or written but the aggregate" hold. The spec's
+        # ANSWER of the repeat (`already_probed`, its keys, `by`, the block, the words, ONE printed line) is not what the road returns: the
+        # pins of it stay red (PRODUCT QUESTION 1 of t-2064-p4b2t2-report.md), unbent. The old subject, a `no_failure` check, is not a proof
+        # and is walked again: see the "no_failure" group below (PRODUCT QUESTION 2).
         with fresh() as root:
             authored = (root / TEST_FILE_REL).read_bytes()
-            proc, first = go(root, "twice", "test_dead_assert", "test_dead_assert")
-            check_eq("twice: the first probe runs and says no_failure", (proc.returncode, first.get("verdict")),
-                     (0, "no_failure"))
+            aggregate = "work/probes/test_add.json"
+            proc, first = go(root, "twice", "test_add", "test_add")
+            check_eq("twice: the first probe runs and proves the check", (proc.returncode, first.get("verdict")),
+                     (0, "intended_failure"))
             quiet = snapshot(root)
-            proc, second = go(root, "twice", "test_dead_assert", "test_dead_assert")
+            proc, second = go(root, "twice", "test_add", "test_add")
             check("twice: exit 0", proc.returncode == 0, proc.stdout + proc.stderr)
-            check_eq("twice: answered, not probed", second.get("verdict"), "already_probed")
-            check_eq("twice: the answer carries every key", [k for k in ANSWER_KEYS if k in second], ANSWER_KEYS)
-            check_eq("twice: by the record, saying what it said", (second.get("by"), second.get("prior_verdict")),
-                     ("probe_record", "no_failure"))
-            check_eq("twice: the block is the constant a person's word matches", second.get("block"),
-                     PL.PROBE_BLOCK)
-            check_in("twice: the words name the door (the person's word, the stage, the block)",
-                     'waiver.py, stage S5, block "already probed on these bytes"', second.get("words", ""))
             check_eq("twice: the fake runner was launched ONCE", launches("twice"), 1)
-            check_eq("twice: record, manifest, requests, receipts and jobs are byte-identical", snapshot(root), quiet)
+            check_eq("twice: nothing launched or written but the aggregate (requests, jobs, check records, receipts, manifest)",
+                     {k: v for k, v in snapshot(root).items() if k != aggregate}, {k: v for k, v in quiet.items() if k != aggregate})
             check_eq("twice: the test file was never touched", (root / TEST_FILE_REL).read_bytes(), authored)
-            # without --json it is ONE line
+            check_eq("twice: answered, not probed (spec; PRODUCT QUESTION 1)", second.get("verdict"), "already_probed")
+            check_eq("twice: the answer carries every key (spec; PRODUCT QUESTION 1)", [k for k in ANSWER_KEYS if k in second],
+                     ANSWER_KEYS)
+            check_eq("twice: by the receipt, saying what it said (spec; PRODUCT QUESTION 1)", (second.get("by"), second.get("prior_verdict")),
+                     ("receipt", "intended_failure"))
+            check_eq("twice: the block is the constant a person's word matches (spec; PRODUCT QUESTION 1)", second.get("block"),
+                     PL.PROBE_BLOCK)
+            check_in("twice: the words name the door (the person's word, the stage, the block) (spec; PRODUCT QUESTION 1)",
+                     'waiver.py, stage S5, block "already probed on these bytes"', second.get("words", ""))
+            # without --json it is ONE line (spec; the road prints the verdict's usual text)
             plain = run_script("probe_by_code.py", "--task", TASK, "--dispatch", DISPATCH, "--test",
-                               f"{TEST_FILE_REL}::test_dead_assert", "--instance", "test_dead_assert",
+                               f"{TEST_FILE_REL}::test_add", "--instance", "test_add",
                                cwd=root, env=env_for(root, stub, PROBE_STUB_LOG=str(logs / "twice.log")))
-            check_eq("twice, no --json: exit 0 and one line", (plain.returncode, len(plain.stdout.strip().splitlines())),
-                     (0, 1))
-            check_in("twice, no --json: it says already_probed", "already_probed", plain.stdout)
+            check_eq("twice, no --json: exit 0 and one line (spec; PRODUCT QUESTION 1)",
+                     (plain.returncode, len(plain.stdout.strip().splitlines())), (0, 1))
+            check_in("twice, no --json: it says already_probed (spec; PRODUCT QUESTION 1)", "already_probed", plain.stdout)
             check_eq("twice: still one launch", launches("twice"), 1)
             # the non-JSON reader and the JSON reader see the same answer
-            check_eq("twice: nothing moved after the printed answer either", snapshot(root), quiet)
+            check_eq("twice: nothing launched or written after the printed answer either",
+                     {k: v for k, v in snapshot(root).items() if k != aggregate}, {k: v for k, v in quiet.items() if k != aggregate})
 
         # AC1/AC2: a comment, or ANOTHER test edited, keeps the answer; the test's own code, or the module
         # skeleton, does not (D5: one test's fix never makes another test's proof stale)
+        # t-2064 P4b: the walk skips a check by the sha256 of the WHOLE file it lives in (section 14), so a comment or another test's edit changes
+        # that sha and the check runs again: the first two pins (a comment, another test edited) are the old repeat's (the instance's code,
+        # D5) and stay red as PRODUCT QUESTION 3 of the report, unbent. An edit of the check itself, and a module-wide skip, run it: green,
+        # counted as launches SINCE the previous call (the counts are no longer 1, 2, 3).
         with fresh() as root:
             proc, first = go(root, "edit", "test_add", "test_add")
             check_eq("edits: the first probe holds a receipt", (first.get("verdict"), bool(first.get("receipt"))),
@@ -2347,26 +2416,28 @@ def the_repeat_is_answered(stub: Path) -> None:
             body = test_file.read_bytes()
             test_file.write_bytes(body + b"\n# a comment at the end of the file\n")
             proc, got = go(root, "edit", "test_add", "test_add")
-            check_eq("a comment: answered by the receipt", (got.get("verdict"), got.get("by")),
+            check_eq("a comment: answered by the receipt (spec D5; PRODUCT QUESTION 3)", (got.get("verdict"), got.get("by")),
                      ("already_probed", "receipt"))
-            check_eq("a comment: it holds by the code of the test", got.get("holds"), "instance_code")
-            check_in("a comment: and the words say so (FR-41)", PL.code_unchanged_words(), got.get("words", ""))
+            check_eq("a comment: it holds by the code of the test (spec D5; PRODUCT QUESTION 3)", got.get("holds"), "instance_code")
+            check_in("a comment: and the words say so (FR-41) (spec D5; PRODUCT QUESTION 3)", PL.code_unchanged_words(), got.get("words", ""))
+            check_eq("a comment: no launch (spec D5; PRODUCT QUESTION 3)", launches("edit"), 1)
             test_file.write_bytes(body.replace(b"total = add(1, 1)", b"total = add(1, 1) + 0"))
             proc, got = go(root, "edit", "test_add", "test_add")
-            check_eq("another test edited: answered, and it holds as the same test",
+            check_eq("another test edited: answered, and it holds as the same test (spec D5; PRODUCT QUESTION 3)",
                      (got.get("verdict"), got.get("holds")), ("already_probed", "instance"))
             check_eq("another test edited: no comment-only words", PL.comment_only_words() in got.get("words", ""),
                      False)
-            check_eq("edits: still one launch", launches("edit"), 1)
+            seen = launches("edit")
             test_file.write_bytes(body.replace(b'== 4, "sum must be 4"', b'== 5, "sum must be 4"'))
             proc, got = go(root, "edit", "test_add", "test_add")
             check_eq("an assert changed: the probe runs (its verdict is whatever the run says: the assert now "
-                     "holds, so the inverted one never fires)", (got.get("verdict"), launches("edit")),
-                     ("no_failure", 2))
+                     "holds, so the inverted one never fires)", (got.get("verdict"), launches("edit") - seen),
+                     ("no_failure", 1))
+            seen = launches("edit")
             test_file.write_bytes(body + b"\npytestmark = []\n")
             proc, got = go(root, "edit", "test_add", "test_add")
             check_eq("pytestmark added: the probe runs (a module-wide skip is never kept)",
-                     (got.get("verdict"), launches("edit")), ("intended_failure", 3))
+                     (got.get("verdict"), launches("edit") - seen), ("intended_failure", 1))
 
         # AC2: verdicts of the probe's own failure never block, and neither does a receipt-less intended failure
         with fresh() as root:
@@ -2376,12 +2447,16 @@ def the_repeat_is_answered(stub: Path) -> None:
             check_eq("...does not block: the probe runs", (got.get("verdict"), launches("notexec")),
                      ("intended_failure", 2))
         with fresh() as root:
-            proc, got = go(root, "raises", "test_raises_first", "test_raises_first")
-            check_eq("wrong_location first", got.get("verdict"), "wrong_location")
-            proc, got = go(root, "raises", "test_raises_first", "test_raises_first", "expected")
-            check_eq("wrong_location, then --mutation expected on the same bytes: answered (F6 a)",
-                     (got.get("verdict"), got.get("prior_verdict"), launches("raises")),
-                     ("already_probed", "wrong_location", 1))
+            # N3b: the judge no longer writes `wrong_location` (a throw before the check is `incomplete`, `cause: judgment`); the judged
+            # survivor of the same shape is a pass of the dead assert, `no_failure`
+            proc, got = go(root, "dead", "test_dead_assert", "test_dead_assert")
+            check_eq("no_failure first", got.get("verdict"), "no_failure")
+            proc, got = go(root, "dead", "test_dead_assert", "test_dead_assert")
+            # t-2064 TR2-14 (F3): a survivor (`no_failure`) is carried by the walk, never answered `already_probed`: the repeat answers
+            # `no_failure` again, with no `prior_verdict`, and the launches stay at the one of the first call
+            check_eq("no_failure, then the same call on the same bytes and the same target: the survivor is carried, not answered (F3)",
+                     (got.get("verdict"), got.get("prior_verdict"), launches("dead")),
+                     ("no_failure", None, 1))
         with fresh() as root:
             write_json(task_of(root) / "work" / "automation-manifest.json", {"tests": [
                 dict(next(t for t in manifest_of(root)["tests"] if t["instance_id"] == "test_add"),
@@ -2390,8 +2465,10 @@ def the_repeat_is_answered(stub: Path) -> None:
             check_eq("intended_failure with a stale trace_binding writes no receipt",
                      (got.get("verdict"), got.get("receipt")), ("intended_failure", None))
             proc, got = go(root, "stale", "test_add", "test_add")
-            check_eq("...and does not block a repeat: the road to a receipt stays open (edge 16)",
-                     (got.get("verdict"), launches("stale")), ("intended_failure", 2))
+            # t-2064 P4b: the check is PROVED (intended_failure on these bytes), so the repeat skips its run (launches stay 1) and answers
+            # the aggregate; the receipt waits for the author's rebind (the a_rerun test pins that a complete walk then names one)
+            check_eq("...and a repeat is not refused: the proved check is not run again and nothing is blocked (edge 16)",
+                     (got.get("verdict"), got.get("receipt"), launches("stale")), ("intended_failure", None, 1))
         with fresh() as root:
             write_json(task_of(root) / "work" / "test-plan.json", {"rows": [{
                 "id": "TS-1", "schema_version": 2, "coverage_obligations": [{"obligation_id": "OB-OTHER", "text": "x"}]}]})
@@ -2399,19 +2476,22 @@ def the_repeat_is_answered(stub: Path) -> None:
             check_eq("a publish refused by manifest_put leaves the receipt unpublished",
                      ((got.get("publish") or {}).get("published"), "sensitivity_proof" in row_of(root)), (False, False))
             proc, got = go(root, "refused", "test_add", "test_add")
-            check_eq("...and the repeat RUNS: the probe that republishes it is not refused",
-                     (got.get("verdict"), launches("refused")), ("intended_failure", 2))
+            # t-2064 P4b: the proved check is not run again (launches stay 1); the call is not refused and answers the aggregate, and the
+            # row is still unpublished (the manifest_put refusal stands: the plan names an obligation the row does not)
+            check_eq("...and the repeat is not refused: the proved check is skipped, the publish is tried again",
+                     (got.get("verdict"), launches("refused"), (got.get("publish") or {}).get("published")),
+                     ("intended_failure", 1, False))
 
         # AC2: an oracle in a helper - the verdict was measured on other oracle bytes once the helper changed
         with fresh() as root:
             proc, got = go(root, "oracle", "test_via_helper", "test_via_helper")
             check_eq("oracle in a helper: recorded with the helper as the mutated file",
                      ((got.get("mutated_file") or {}).get("path"), got.get("verdict")),
-                     ("expectations.py", "intended_failure"))
-            stamp_record(root, "test_via_helper", verdict="no_failure")
+                     ("tests/expectations.py", "intended_failure"))
             proc, got = go(root, "oracle", "test_via_helper", "test_via_helper")
-            check_eq("the helper unchanged: answered", (got.get("verdict"), launches("oracle")), ("already_probed", 1))
-            helper = root / "expectations.py"
+            check_eq("the helper unchanged: the proved check is not run again", (got.get("verdict"), launches("oracle")),
+                     ("intended_failure", 1))
+            helper = root / "tests" / "expectations.py"
             helper.write_bytes(helper.read_bytes().replace(b'"sum must match"', b'"sum differs"'))
             proc, got = go(root, "oracle", "test_via_helper", "test_via_helper")
             check_eq("the helper (the oracle) changed: the probe runs", (got.get("verdict"), launches("oracle")),
@@ -2419,11 +2499,17 @@ def the_repeat_is_answered(stub: Path) -> None:
 
         # AC2: a record nobody can read is absent, with a note
         with fresh() as root:
-            go(root, "corrupt", "test_dead_assert", "test_dead_assert")
-            (task_of(root) / "work" / "probes" / "test_dead_assert.json").write_text("{not json", encoding="utf-8")
-            proc, got = go(root, "corrupt", "test_dead_assert", "test_dead_assert")
-            check_eq("a corrupt record: the probe runs", (got.get("verdict"), launches("corrupt")), ("no_failure", 2))
-            check_in("...with a note saying it was not read", "cannot be read", " ".join(got.get("notes") or []))
+            # t-2064 P4b: the record that says a check is PROVED is the per-check record, so that is the one made unreadable (the old pin
+            # corrupted the single record of a survivor, which is re-run anyway); the walk reads no note about it: an unreadable record is
+            # simply not a proof (`_check_proved`, AR-28) and the check runs again, the aggregate is rewritten readable
+            go(root, "corrupt", "test_add", "test_add")
+            checks_dir = task_of(root) / "work" / "probes" / "checks"
+            for broken in checks_dir.glob("test_add--*.json"):
+                broken.write_text("{not json", encoding="utf-8")
+            proc, got = go(root, "corrupt", "test_add", "test_add")
+            check_eq("a corrupt record: the check is not proved, so the probe runs again",
+                     (got.get("verdict"), launches("corrupt")), ("intended_failure", 2))
+            check_eq("...and the aggregate it leaves is readable", read_record(root, "test_add").get("verdict"), "intended_failure")
 
         # B-373 R10 / E23: `already_probed` is unchanged - a stored `incomplete` (the tool could not read the run)
         # answers nothing, so the probe runs again; only no_failure / wrong_location block a repeat (a gap of the
@@ -2435,6 +2521,12 @@ def the_repeat_is_answered(stub: Path) -> None:
             check_eq("an incomplete record does not answer a repeat: the probe runs",
                      (got.get("verdict"), launches("incompl")), ("no_failure", 2))
 
+        # t-2064 P4b, THE GROUPS BELOW (levels and budget unavailable, a person's word, a product record, legacy records) pin the old repeat's
+        # readers: `proof_level.already_probed` through `_repeat_check`, which the plain road no longer calls (the walk skips a check by its
+        # per-check record, section 14, and never reads a person's word, a product record or a legacy aggregate). Their ANSWER pins stay
+        # red and unbent: PRODUCT QUESTION 1 (the person's-word door and the answer), and a `no_failure` is walked again on every call
+        # (PRODUCT QUESTION 2). A pin of "the probe runs (no_failure, N)" that passes below passes ONLY because a survivor is re-run on
+        # every call - not for the reason it names (the note it carries is the red pin next to it); the report lists them by name.
         # AC2: the vocabulary of levels, and the run budget, unavailable: the probe runs, with a note (in this
         # process: the file the two readers look at is a module setting)
         with fresh() as root:
@@ -2447,8 +2539,9 @@ def the_repeat_is_answered(stub: Path) -> None:
                 PL.LEVELS_FILE = root / "no-such-levels.json"
                 PL._reset()
                 got = PBC.probe(TASK, DISPATCH, f"{TEST_FILE_REL}::test_dead_assert", "test_dead_assert", "invert")
+                # t-2064 TR2-14 (F3): the survivor is carried, so the launches stay at the first call's one in every call below
                 check_eq("LevelsUnavailable: the probe runs", (got.get("verdict"), launches("unavail")),
-                         ("no_failure", 2))
+                         ("no_failure", 1))
                 check_in("...with a note", "proof levels cannot be read", " ".join(got.get("notes") or []))
                 PL.LEVELS_FILE = saved_levels
                 PL._reset()
@@ -2456,12 +2549,13 @@ def the_repeat_is_answered(stub: Path) -> None:
                 ER.RUN_BUDGET_FILE = "no-such-run-budget.json"
                 got = PBC.probe(TASK, DISPATCH, f"{TEST_FILE_REL}::test_dead_assert", "test_dead_assert", "invert")
                 check_eq("an unreadable run-budget.json: the probe runs", (got.get("verdict"), launches("unavail")),
-                         ("no_failure", 3))
+                         ("no_failure", 1))
                 check_in("...with the budget's own note", "run-budget.json", " ".join(got.get("notes") or [])
                          .replace("no-such-run-budget.json", "run-budget.json"))
                 ER.RUN_BUDGET_FILE = saved_budget
                 got = PBC.probe(TASK, DISPATCH, f"{TEST_FILE_REL}::test_dead_assert", "test_dead_assert", "invert")
-                check_eq("the budget back: the repeat is answered again", got.get("verdict"), "already_probed")
+                check_eq("the budget back: the survivor is carried again (F3: no_failure, still one launch)",
+                         (got.get("verdict"), launches("unavail")), ("no_failure", 1))
             finally:
                 PL.LEVELS_FILE = saved_levels
                 PL._reset()
@@ -2473,22 +2567,24 @@ def the_repeat_is_answered(stub: Path) -> None:
         # A person's word passes ONE repeat: AT the record's time it is spent, one second after it passes, and
         # the repeat's own record (newer) spends it
         with fresh() as root:
-            go(root, "word", "test_dead_assert", "test_dead_assert")
-            stamp_record(root, "test_dead_assert", recorded_at="2026-09-01T00:00:00+00:00")
+            # t-2064 TR2-14 (B3/F3): the subject is a PROVED check (`test_add`): only a proved check is answered `already_probed`
+            # (a survivor is carried, never answered), so the person's word has something to pass
+            go(root, "word", "test_add", "test_add")
+            stamp_record(root, "test_add", recorded_at="2026-09-01T00:00:00+00:00")
             give_word(root, "2026-09-01T00:00:00+00:00")
-            proc, got = go(root, "word", "test_dead_assert", "test_dead_assert")
+            proc, got = go(root, "word", "test_add", "test_add")
             check_eq("a word said AT the record's time is spent: answered", (got.get("verdict"), launches("word")),
                      ("already_probed", 1))
             give_word(root, "2026-09-01T00:00:01+00:00")
-            proc, got = go(root, "word", "test_dead_assert", "test_dead_assert")
+            proc, got = go(root, "word", "test_add", "test_add")
             check_eq("one second after: it passes, the probe runs", (got.get("verdict"), launches("word")),
-                     ("no_failure", 2))
+                     ("intended_failure", 2))
             check_in("...and the note records the word", "probe it again, I asked", " ".join(got.get("notes") or []))
-            proc, got = go(root, "word", "test_dead_assert", "test_dead_assert")
+            proc, got = go(root, "word", "test_add", "test_add")
             check_eq("the third call: the repeat's own record spent the word, answered",
                      (got.get("verdict"), launches("word")), ("already_probed", 2))
             give_word(root, "2999-01-01T00:00:00+00:00", match="another block")
-            proc, got = go(root, "word", "test_dead_assert", "test_dead_assert")
+            proc, got = go(root, "word", "test_add", "test_add")
             check_eq("a word for another block passes nothing", got.get("verdict"), "already_probed")
 
         # AC2: the product level's record answers too - and it stops answering when the product file changed
@@ -2549,7 +2645,7 @@ def the_repeat_is_answered(stub: Path) -> None:
             legacy = {"schema_version": 1, "probe_tool": "probe_by_code.py", "instance_id": "test_via_helper",
                       "verdict": "no_failure", "recorded_at": "2026-09-20T10:00:00+00:00",
                       "test_file_sha256": PBC.sha256(body), "test_code_sha": PL.code_sha(body, "test_calc.py"),
-                      "mutation_detail": {"line": 2, "file": "expectations.py"}}
+                      "mutation_detail": {"line": 2, "file": "tests/expectations.py"}}
             write_json(task_of(root) / "work" / "probes" / "test_via_helper.json", legacy)
             proc, got = go(root, "outside", "test_via_helper", "test_via_helper")
             check_eq("a legacy record with an oracle outside the test and no mutated_file never blocks",
@@ -2747,7 +2843,7 @@ def the_s6_close_context(stub: Path) -> None:
         check_eq("A-K9 the record names the context", read_record(root, iid).get("dispatch_id"), "S6-close-r1")
         check_eq("A-K9 the author's test is back as it was", (root / TEST_FILE_REL).read_bytes(), authored)
         check_eq("A-K9 the request is the context's", json.loads(
-            (task_of(root) / "work" / "probe-requests" / f"probe-{iid}.json").read_text(encoding="utf-8")
+            (task_of(root) / "work" / "probe-requests" / f"probe-walk-{iid}-1.json").read_text(encoding="utf-8")   # a walk's request, per run
         ).get("dispatch_id"), "S6-close-r1")
     with fresh() as root:
         proc, under = run(root, stub, node, iid)
@@ -2755,11 +2851,15 @@ def the_s6_close_context(stub: Path) -> None:
                  (under.get("verdict"), under.get("expected_location"), under.get("actual_location")),
                  ("intended_failure", f"{TEST_FILE_REL}:6", f"{TEST_FILE_REL}:6"))
     # the repeat over the same bytes is answered, and a person's word for it is looked up under S6
+    # t-2064 P4b: the three repeat/stage groups below (this one and the two spies) pin `PL.already_probed(stage=...)`, which the walk road
+    # does not call at all, and a survivor (`no_failure`) is walked again: they stay red and unbent - PRODUCT QUESTION 1 (the answer and
+    # the person's-word door under S5 and S6) and 2 (a survivor repeat), see the report.
     with fresh() as root:
         open_the_close(root)
-        proc, first = run_close(root, stub, f"{TEST_FILE_REL}::test_dead_assert", "test_dead_assert")
-        check_eq("A-K9 repeat: the first probe runs", (proc.returncode, first.get("verdict")), (0, "no_failure"))
-        proc, second = run_close(root, stub, f"{TEST_FILE_REL}::test_dead_assert", "test_dead_assert")
+        # t-2064 TR2-14 (B3/F3): the subject is a PROVED check - a survivor is carried, never answered `already_probed`
+        proc, first = run_close(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
+        check_eq("A-K9 repeat: the first probe runs", (proc.returncode, first.get("verdict")), (0, "intended_failure"))
+        proc, second = run_close(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
         check_eq("A-K9 repeat: answered, not probed", (proc.returncode, second.get("verdict")), (0, "already_probed"))
         check_in("A-K9 repeat: the person's word is asked for under stage S6", "waiver.py, stage S6,",
                  second.get("words", ""))
@@ -2787,6 +2887,7 @@ def the_s6_close_context(stub: Path) -> None:
             seen.update(kwargs)
             return {"probed": False, "notes": []}
         PL.already_probed = spy_plain
+        model_entries(root, stub, node, iid)
         try:
             os.environ["PROBE_RUN_SUITE"] = str(stub)
             PBC.probe(TASK, DISPATCH, node, iid, "invert")
@@ -2816,6 +2917,9 @@ def the_s6_close_context(stub: Path) -> None:
 # --- RH1-8 B3: the critic path asks for the open dispatch before its first byte ---------------------------
 
 def run_dispatch(root: Path, stub: Path, test: str, instance: str, dispatch: str, task: str = TASK):
+    # the model file is world, not the probe's work: a test that compares the project's bytes before and after the call writes it
+    # first (`model_entries`, same bytes), so the comparison still covers everything the PROBE could write
+    model_entries(root, stub, test, instance, dispatch, task)
     proc = run_script("probe_by_code.py", "--task", task, "--dispatch", dispatch, "--test", test,
                       "--instance", instance, "--mutation", "invert", "--json", cwd=root, env=env_for(root, stub))
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
@@ -2842,6 +2946,7 @@ def rh1_8_dispatch_asked_first(stub: Path) -> None:
     # P1, P1b, P1-text: nothing open -> refused before any byte
     with fresh() as root:
         set_dispatch_state(root, close_it)
+        model_entries(root, stub, node, iid)
         before, story = project_bytes(root), snapshot(root)
         proc, got = run_dispatch(root, stub, node, iid, DISPATCH)
         check_eq("RH1-8 P1 no open dispatch: exit 2, status refused", (proc.returncode, got.get("status")),
@@ -2887,6 +2992,7 @@ def rh1_8_dispatch_asked_first(stub: Path) -> None:
         record_path = task_of(root) / "work" / "probes" / f"{iid}.json"
         stored = record_path.read_bytes()
         set_dispatch_state(root, close_it)
+        model_entries(root, stub, node, iid)
         before = project_bytes(root)
         proc, got = run_dispatch(root, stub, node, iid, DISPATCH)
         check_eq("RH1-8 P14 an already probed instance with no open dispatch -> refused, not already_probed",
@@ -2901,8 +3007,8 @@ def rh1_8_dispatch_asked_first(stub: Path) -> None:
                                                           "role": "qa-code-critic", "status": "blocked"}
         set_dispatch_state(root, resumed)
         proc, got = run_dispatch(root, stub, node, iid, "S5-qa-code-critic-0")
-        request = json.loads((task_of(root) / "work" / "probe-requests" / f"probe-{iid}.json").read_text(
-            encoding="utf-8"))
+        request = json.loads((task_of(root) / "work" / "probe-requests" / f"probe-walk-{iid}-1.json").read_text(
+            encoding="utf-8"))   # a walk's request, per run
         check_eq("RH1-8 P2 a parent_retry ancestor id still probes, and the idempotency_key starts with the passed id",
                  (proc.returncode, got.get("verdict"),
                   str(request.get("idempotency_key", "")).startswith("S5-qa-code-critic-0:")),
@@ -2914,9 +3020,12 @@ def rh1_8_dispatch_asked_first(stub: Path) -> None:
                                                           "role": "qa-code-critic", "status": "running",
                                                           "scope": ["TC-999"], "budget": {"requests": 50}}
         set_dispatch_state(root, two_open)
+        model_entries(root, stub, node, iid)
         os.environ["PROBE_RUN_SUITE"] = str(stub)
         try:
-            got = PBC.probe(TASK, "", node, iid, "invert")
+            # the model file is read by the PASSED dispatch id only (`_models_standing`: `if ctx.dispatch and file.is_file()`, P4b); an
+            # empty id passes the context check by narrowing but finds no model, so the call names the open dispatch whose scope holds the case
+            got = PBC.probe(TASK, DISPATCH, node, iid, "invert")
         finally:
             os.environ.pop("PROBE_RUN_SUITE", None)
         check_eq("RH1-8 P3 two open, the case narrows: probes", got.get("verdict"), "intended_failure")
@@ -2940,6 +3049,7 @@ def rh1_8_dispatch_asked_first(stub: Path) -> None:
     for label, text in (("garbage", "{not json"), ("array", "[]")):
         with fresh() as root:
             (task_of(root) / "state" / "controller.json").write_text(text, encoding="utf-8")
+            model_entries(root, stub, node, iid)
             before = project_bytes(root)
             proc, got = run_dispatch(root, stub, node, iid, DISPATCH)
             check_eq(f"RH1-8 P4 unreadable controller.json ({label}) -> refused before any byte",
@@ -2951,13 +3061,46 @@ def rh1_8_dispatch_asked_first(stub: Path) -> None:
             "schema_version": "2", "revision": "1", "dispatches": {"S5-qa-code-critic-9": {
                 "id": "S5-qa-code-critic-9", "stage": "S5", "role": "qa-code-critic", "status": "running",
                 "scope": ["TC-100"], "budget": {"requests": 50}}}})
+        model_entries(root, stub, node, iid, "S5-qa-code-critic-9")
         before = project_bytes(root)
         proc, got = run_dispatch(root, stub, node, iid, "S5-qa-code-critic-9")
         check_eq("RH1-8 P5 a dispatch of another story -> refused",
                  (proc.returncode, got.get("status"), project_bytes(root)), (2, "refused", before))
 
 
+def second_hop_name_in_two_files_is_refused() -> None:
+    """t-2162 fix round: the B2 rule at the second hop - a name with a check in two files two hops away is refused, naming each file:line and
+    the `--at` door (one helper, `_declared_in_files`); with ONE such file the refusal is the single-door one, as before."""
+    root = temp_dir("qa-probe-second-hop-")
+    try:
+        (root / "tests").mkdir()
+        (root / "tests" / "test_x.py").write_text("from helpers import shop\n\n\ndef test_x():\n    shop(1)\n", encoding="utf-8")
+        (root / "tests" / "helpers.py").write_text("import page_a\nimport page_b\n\n\ndef shop(n):\n    verify(n)\n", encoding="utf-8")
+        (root / "tests" / "page_a.py").write_text("def verify(n):\n    assert n == 1, 'a'\n", encoding="utf-8")
+        (root / "tests" / "page_b.py").write_text("def verify(n):\n    assert n == 2, 'b'\n", encoding="utf-8")
+        spec = PBC.parse_node("tests/test_x.py::test_x", root)
+        path = root / spec["file"]
+        text = path.read_text(encoding="utf-8")
+        cfg = {"tests_root": "tests"}
+        try:
+            PBC.find_oracle(text, spec, path, root, [], None, cfg)
+            check("second hop, two files: refused", False, "no refusal")
+        except PBC.ToolRefusal as refusal:
+            for word in ("tests/page_a.py", "tests/page_b.py", "--at <file>:<line>", "no body is mutated"):
+                check_in(f"second hop, two files: the refusal says {word}", word, str(refusal))
+        (root / "tests" / "page_b.py").write_text("def other(n):\n    pass\n", encoding="utf-8")
+        try:
+            PBC.find_oracle(text, spec, path, root, [], None, cfg)
+            check("second hop, one file: refused", False, "no refusal")
+        except PBC.ToolRefusal as refusal:
+            check_in("second hop, one file: the single door is kept", "one hop further, in `verify`", str(refusal))
+            check_not_in("second hop, one file: no two-file refusal", "no body is mutated", str(refusal))
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
+    second_hop_name_in_two_files_is_refused()
     n2_k7_the_red_probe_reads_the_stand_as_the_run_does()
     the_author_binding_is_the_latest_block_by_the_clock()
     stub_dir = temp_dir("qa-probe-stub-")
@@ -2972,7 +3115,6 @@ def main() -> None:
         raises_first(root, stub)
         no_assert(root, stub)
         oracle_in_a_helper(root, stub)
-        expected_plain_assert(stub)
         restore_on_failure(stub)
         a_run_that_executed_nothing_keeps_the_standing_record(stub)
         multiline_keeps_line_count()

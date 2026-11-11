@@ -682,6 +682,10 @@ class Story:
             self.index = {}
         manifest_path = C.artifact(task_root, "automation-manifest.json")
         self.manifest = C.load_json(manifest_path) if manifest_path.exists() else {}
+        # A story with a side that is not `real` owes each test row a `sides` declaration (t-2181 PC-3, §2.3); the reader is
+        # `contract.story_sides`, and a reality it cannot read is not real either. All sides real (the default): no row changes.
+        self.non_real_side = any(side["reality"] != "real" for side in
+                                 C.story_sides(C.load_json(Path(task_root) / "pipeline.json")).values())
         self._cases: dict = {}
 
     def bare(self, case: str) -> str:
@@ -776,6 +780,16 @@ class Story:
             if iid in C.instance_id_aliases(entry, self.cfg):
                 return str(entry.get("status") or "")
         return ""
+
+    def scaffold_sides(self, entry: dict, iid: str) -> None:
+        """`sides: {}` on a new row of a story with a non-real side: the empty declaration the automator then fills. A row the
+        manifest already holds with a `sides` key is sent without one - a patch carrying `{}` would wipe the declared sides."""
+        if not self.non_real_side:
+            return
+        for stored in C.manifest_tests(self.manifest):
+            if iid in C.instance_id_aliases(stored, self.cfg) and "sides" in stored:
+                return
+        entry["sides"] = {}
 
     def stored_novelty(self, iid: str) -> dict:
         """The `novelty` block the manifest already holds for this instance, `{}` when there is none."""
@@ -1365,6 +1379,7 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
                 entry["generated"] = True
             entry["trace_binding"] = {"selector": selector, "assertion_refs": [], "test_content_sha": tf.content_sha}
             entry["status"] = story.run_status(iid) or story.existing_status(iid) or PENDING
+            story.scaffold_sides(entry, iid)
             entry["shape"] = "consolidate" if len(covers) > 1 else ("parameterize" if decl["generated"] else "new")
             entry["consolidates"] = list(covers)
             tests.append(entry)
@@ -1472,6 +1487,7 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
                                               and b.get("assertion_ref")),
                     "test_content_sha": tf.content_sha}
                 entry["status"] = story.run_status(iid) or story.existing_status(iid) or PENDING
+                story.scaffold_sides(entry, iid)
                 rows_of_function.append(entry)
             for kwargs in held_here:
                 attempt(unresolved_row, kwargs, kwargs["_where"], held=[e["instance_id"] for e in rows_of_function])

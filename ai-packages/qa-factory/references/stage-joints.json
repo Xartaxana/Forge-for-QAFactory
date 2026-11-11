@@ -40,7 +40,7 @@
           "field": "automation-manifest.json of the role's stage",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Outputs"
             }
           ],
@@ -132,9 +132,8 @@
             "qa-requirements-tester",
             "qa-test-strategist",
             "qa-case-designer",
-            "qa-doc-scribe",
-            "qa-bug-reporter",
-            "qa-retro-analyst"
+            "qa-runner",
+            "qa-failure-analyst"
           ],
           "field": "the witness artifact of the role (stages.json witness)",
           "told": [
@@ -148,15 +147,15 @@
         },
         {
           "roles": [
-            "qa-case-critic",
             "qa-automator",
-            "qa-runner",
-            "qa-failure-analyst"
+            "qa-doc-scribe",
+            "qa-bug-reporter",
+            "qa-retro-analyst"
           ],
           "field": "the witness artifact of the role (stages.json witness)",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Witness"
             }
           ],
@@ -298,8 +297,8 @@
             "qa-requirements-tester",
             "qa-test-strategist",
             "qa-case-designer",
-            "qa-doc-scribe",
-            "qa-retro-analyst"
+            "qa-runner",
+            "qa-failure-analyst"
           ],
           "field": "the required outputs of the role's stage (stages.json)",
           "told": [
@@ -314,13 +313,13 @@
         {
           "roles": [
             "qa-automator",
-            "qa-runner",
-            "qa-failure-analyst"
+            "qa-doc-scribe",
+            "qa-retro-analyst"
           ],
           "field": "the required outputs of the role's stage (stages.json)",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Outputs"
             }
           ],
@@ -535,7 +534,7 @@
           "field": "the work the detector re-runs over",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Outputs"
             }
           ],
@@ -558,7 +557,7 @@
           "field": "the work the detector re-runs over",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Outputs"
             }
           ],

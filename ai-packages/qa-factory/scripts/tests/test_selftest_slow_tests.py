@@ -8,6 +8,7 @@ measured, 1 = more changes than the limit).
 
 The command-line cases run a COPY of selftest.py in a temp package, so the data file and the tests folder they see
 are temp ones. Nothing here waits on the clock (FR-31)."""
+import ast
 import contextlib
 import io
 import json
@@ -393,9 +394,118 @@ def cli_cases(root: Path) -> None:
           p.returncode == 2 and json.loads(target.read_text(encoding="utf-8"))["files"] == LISTED, p.stderr)
 
 
+def layers_text(**over) -> str:
+    row = {"cohort": "c1", "entered": "2026-11-20", "release_at_entry": "0.10.9"}
+    body = {"keep": {"test_k.py": {"layer": "table", "why": "w"}}, "quarantine": {"test_q.py": row},
+            "cohorts": {"c1": {}}, "pin_holds": {}, **over}
+    return json.dumps(body)
+
+
+def layers_cases(root: Path) -> None:
+    """TD-15.1: the test-layers reader, the gate-named walk, and the quarantine skip of the slow-test diff."""
+    pkg = root / "layerpkg"
+    tests = tests_dir_with(pkg, ["test_k.py", "test_q.py"])
+    layers = tests / "test-layers.json"
+    got = S.test_layers(layers)
+    check("layers: no file = absent, nothing filtered (the world before TD-15.2)", got["absent"] is True
+          and not got["keep"] and not got["quarantine"] and got["enforce_listing"] is False)
+    layers.write_text(layers_text(), encoding="utf-8")
+    got = S.test_layers(layers)
+    check_eq("layers: a good file comes back whole", (list(got["keep"]), list(got["quarantine"]), got["absent"]),
+             (["test_k.py"], ["test_q.py"], False))
+    keep_row = {"layer": "table", "why": "w"}
+    row = {"cohort": "c1", "entered": "2026-11-20", "release_at_entry": "0.10.9"}
+    bad = {"not JSON": "{ x", "a file in two sections": layers_text(quarantine={"test_k.py": row}),
+           "a layer word not in layers": layers_text(keep={"test_k.py": {**keep_row, "layer": "bogus"}}),
+           "an empty why": layers_text(keep={"test_k.py": {**keep_row, "why": " "}}),
+           "a detector without named_by": layers_text(keep={"test_k.py": {"layer": "detector", "why": "w",
+                                                                             "replaced_by": None}}),
+           "a quarantine row with an unknown cohort": layers_text(quarantine={"test_q.py": {**row, "cohort": "no"}}),
+           "pin_holds on a missing file": layers_text(pin_holds={"test_gone.py": "x"}),
+           "a key that is not a bare name": layers_text(keep={"sub/test_k.py": keep_row}),
+           "fixture_owners with an owner that is not a test file": layers_text(fixture_owners={"f.json": "owner.txt"})}
+    for label, text in bad.items():
+        layers.write_text(text, encoding="utf-8")
+        try:
+            S.test_layers(layers)
+            message = None
+        except S.TestLayersError as exc:
+            message = str(exc)
+        check(f"layers ({label}): refused, one sentence naming the file", message is not None
+              and "test-layers.json" in message and "\n" not in message, repr(message))
+
+    layers.write_text(layers_text(quarantine={"test_q.py": {**row, "seconds": "12s"}}), encoding="utf-8")
+    try:
+        S.test_layers(layers)
+        message = None
+    except S.TestLayersError as exc:
+        message = str(exc)
+    check("layers (a quarantine row with a non-numeric seconds): refused, one sentence naming the row",
+          message is not None and "test_q.py" in message and "seconds" in message and "\n" not in message, repr(message))
+
+    mini = root / "gatepkg"
+    mtests = tests_dir_with(mini, ["test_c1.py", "test_hooks_wiring.py", "test_g.py", "test_j.py", "test_i.py", "test_a.py",
+                                   "test_f.py", "test_x.py", "test_driver_layers.py", "test_unnamed.py", "test_se.py",
+                                   "test_rr.py", "test_rr2.py", "test_n_gr.py", "test_n_dl.py", "test_n_rr.py", "test_n_se.py"])
+    gate_reg = {"rows": [{"test": "scripts/tests/test_g.py", "exempt_reason": "see test_n_gr.py"}, {"exempt_reason": "test_n_gr.py"}]}
+    joints = {"joints": [{"joint": {"test": "scripts/tests/test_j.py"}}, {"joint": None}], "friction": "test_n_gr.py"}
+    registry = ('"""the registry; test_n_rr.py is only mentioned here"""\nREGISTRY: list[dict] = [\n'
+                '    {"id": "A", "test": "scripts/tests/test_rr.py (case), " "scripts/tests/test_rr2.py"},\n]\n'
+                'OTHER = [{"id": "B", "note": "test_n_rr.py"}]\n')
+    for rel, text in (("references/gate-registry.json", json.dumps(gate_reg)), ("references/stage-joints.json", json.dumps(joints)),
+                      ("scripts/install_smoke.py", "'tests/test_i.py'"), ("design/architecture.md", "test_a.py test_files.py"),
+                      ("design/factory-rules.md", "test_f.py"), ("scripts/refusal_registry.py", registry),
+                      ("design/state-exits.md", "| exit | `test_se.py` | prose test_n_se.py, `scripts/tests/test_n_se.py` |"),
+                      ("scripts/tests/fixtures/driver-layers.json", '{"source_readers": [{"file": "test_n_dl.py"}]}')):
+        (mini / rel).parent.mkdir(parents=True, exist_ok=True)
+        (mini / rel).write_text(text, encoding="utf-8")
+    # the fixture owners are DATA of test-layers.json (TD-15.2); the second row's fixture is not on disk: not named
+    (mtests / "test-layers.json").write_text(json.dumps({"fixture_owners": {
+        "driver-layers.json": "test_driver_layers.py", "env-facts-baseline.json": "test_unnamed.py"}}), encoding="utf-8")
+    with patch.object(S, "PLUGIN_ROOT", mini), patch.object(S, "TESTS_DIR", mtests), \
+            patch.object(S, "CONTRACT_TESTS", ("test_c1.py",)):
+        names = S.gate_named_files(("see test_x.py", ))
+    check_eq("gate_named_files: structured carriers by FIELD (a name in an exempt_reason, a friction text, a driver-layers "
+             "row or a registry docstring is out), prose carriers by regex, state-exits by backticks, the REGISTRY test field, "
+             "the extra text, the hooks walk and the fixture owner; a name with no file and an unnamed file are out", sorted(names),
+             sorted(["test_c1.py", "test_hooks_wiring.py", "test_g.py", "test_j.py", "test_i.py", "test_a.py", "test_f.py",
+                     "test_x.py", "test_driver_layers.py", "test_se.py", "test_rr.py", "test_rr2.py"]))
+    real = PLUGIN_ROOT / "scripts" / "tests" / "test-layers.json"
+    outside = set() if not real.is_file() else S.gate_named_files() - set(S.test_layers(real)["keep"])
+    check("gate_named_files on the REAL test-layers.json: the package carriers are all in keep" + (
+          "" if real.is_file() else " (skipped: the file is not there yet)"), not outside, repr(sorted(outside)))
+    if real.is_file():  # B2: covers names the helpers a keep file imports and the fixture its owner row names
+        live, tests = S.test_layers(real), PLUGIN_ROOT / "scripts" / "tests"
+        short = []
+        for name, krow in ((n, r) for n, r in live["keep"].items() if (tests / n).is_file()):
+            imported = {m.split(".")[0] for node in ast.walk(ast.parse((tests / name).read_text(encoding="utf-8"))) if
+                        isinstance(node, (ast.Import, ast.ImportFrom)) for m in
+                        ([a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""])}
+            short += [f"{name}: tests/{m}.py" for m in sorted(imported) if m != name[:-3] and (tests / f"{m}.py").is_file()
+                      and f"tests/{m}.py" not in krow.get("covers", [])]
+        short += [f"{o}: {fx}" for fx, o in live["fixture_owners"].items()
+                  if f"scripts/tests/fixtures/{fx}" not in live["keep"].get(o, {}).get("covers", [])]
+        check("test-layers.json on the REAL file: every keep row covers the helpers it imports and its owned fixture",
+              not short, repr(short[:5]))
+
+    qpkg = root / "quarpkg"
+    qtests = tests_dir_with(qpkg, ["test_q_new.py", "test_q_listed.py", "test_plain.py"])
+    qrow = {"cohort": "c1", "entered": "2026-11-20", "release_at_entry": "0.10.9"}
+    (qtests / "test-layers.json").write_text(layers_text(keep={}, quarantine={"test_q_new.py": qrow,
+                                                                            "test_q_listed.py": qrow}), encoding="utf-8")
+    data = {"thresholds": {"slow_over_s": 10, "fast_under_s": 5}, "max_drift": 5, "files": {"test_q_listed.py": 20.0}}
+    measured = {"test_q_new.py": 12.0, "test_q_listed.py": 4.9, "test_plain.py": 12.0}
+    diff = S.slow_tests_diff(data, measured, qtests)
+    check_eq("diff: a quarantined file is neither added, removed, missing nor counted",
+             (diff["added"], diff["removed"], diff["missing"], diff["changes"]), ([("test_plain.py", 12.0)], [], [], 1))
+    check_eq("update: a quarantined file is not listed", S.slow_tests_updated(data, measured, "d", "s", qtests)["files"],
+             {"test_plain.py": 12.0})
+
+
 def main() -> None:
     root = temp_dir("slow-tests-")
     try:
+        layers_cases(root)
         loader_cases(root)
         fast_skip_cases(root)
         parser_cases()

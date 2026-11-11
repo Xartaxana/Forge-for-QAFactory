@@ -813,7 +813,7 @@ def m4_a_dispatch_released_by_another_road_is_swept_at_the_top_of_handoff():
         rig.answer("go on")
         check_eq("m4: `go on` wrote a row for D", [p["block"] for p in d.state["exit_limit"][D]["passes"]], lines)
         result = {"is_error": False, "result": "digest", "session_id": "sess-2", "exit_code": 0, "stderr": ""}
-        d.exit_errors = lambda role, digest: rig.calls.append(("exit_errors",)) or []
+        d.exit_errors = lambda role, digest, dispatch=None: rig.calls.append(("exit_errors",)) or []
         state_file = rig.task_root / "state" / "driver-state.json"
         d.controller_state = lambda: {"dispatches": {D: {"status": "running"}, d2: {"status": "running"}}}
         before = state_file.read_bytes()

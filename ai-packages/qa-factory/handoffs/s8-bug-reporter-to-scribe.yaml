@@ -54,7 +54,7 @@ scope:
 filed:
   - draft: <the immutable draft ref, as the person chose it>
     bug: <the bug id, BUG-n>
-    action: <created|updated_existing>
+    action: <created|updated_existing>   # a word the list lacks: `new: <word> -- <why>` (nothing reads this word; the stage critic judges it)
     cases: <the case ids the bug is about, comma separated, or a dash when it names none>
     no_case_reason: <why the bug names no case, or a dash when it names one>
     requirements: <the requirement ids the bug violates, comma separated, or a dash when it names none>
@@ -83,6 +83,16 @@ expected_of_the_receiver:
      form: it tells the scribe what to expect, it is not the source of the numbers"
   - "a bug named here with `no_case_reason` is reported as a bug that names no case, not as a bug that is not filed"
   - "whether the tracker has a bug is never said from this file: the code states it"
+
+# The searches you made before filing: for duplicates in the tracker, and to reproduce the bug (spec t-1765 X7-7). The scribe reads
+# it against your Good outcome. Empty only with `tried_note` saying why nothing was searched. Distinct from `blocked.tried` below,
+# which is what failed while filling this form.
+tried:
+  - requirement: <the bug draft id>
+    technique: <the duplicate search or the reproduction attempt, as you ran it>
+    observation: <what you found, in one line>
+    evidence: <the path (and anchor) where it shows>
+tried_note: <why the table is empty, or a dash when it has rows>
 
 unresolved:
   - id: <draft ref or instance id>

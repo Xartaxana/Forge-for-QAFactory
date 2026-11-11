@@ -79,6 +79,9 @@ Contract `s3-strategist-to-designer` (fill `work/handoffs/<dispatch>.yaml`; `han
 - `unresolved[].id` (required) - P-n or R-n
 - `unresolved[].reason` (required) - one of vocabulary.unresolved_reasons
 - `unresolved[].detail` (required) - what exactly is missing, and what would settle it
+- `product_roles[].role` (optional) - optional: the role's name
+- `product_roles[].sign_in` (optional) - optional: account or none
+- `product_roles[].where` (optional) - optional: the requirement id
 - `blocked.field` (only when blocked) - the field of this file the role cannot fill
 - `blocked.problem` (only when blocked) - what the role tried and what refused it, verbatim
 - `blocked.tried[]` (only when blocked) - command or step, and its answer

@@ -679,12 +679,7 @@ def dg_6_the_words_reach_the_conductor() -> None:
     driver = bare_driver()
     for words in ("leave this ticket out: TP1-2", "no - TP1-2 holds a requirement", "remove TP1-2 from the plan"):
         check_eq(f"DG-6: `{words[:36]}` is not the approval word -> nothing is recorded by code", driver.gate_approval("gate_A", words), False)
-    row = next((l for l in (SCRIPTS.parent / "references" / "conductor.md").read_text(encoding="utf-8").splitlines()
-                if l.startswith("| A source review answer (S1)")), "")
-    check("DG-6: the conductor has the row", bool(row))
-    for word in ("leaving a kept ticket out", "`rework` S2", "assess", "--assessment-ref", "review --record"):
-        check_in(f"DG-6: the row names `{word}`", word, row)
-    check_not_in("DG-6 negative control: a word the row does not hold is reported", "a-word-that-is-nowhere", row)
+    # (the conductor row that names leaving a kept ticket out is a row of design/role-rules.json)
 
 
 def put_attachments_column(register: str, cells: dict) -> str:

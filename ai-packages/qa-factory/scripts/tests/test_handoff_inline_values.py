@@ -185,8 +185,11 @@ def test_check_reads_the_template() -> None:
             text = (handoff.CONTRACTS / "s5-critic-to-automator.yaml").read_text(encoding="utf-8")
             raw = _form_path(raw_art, S5)
             raw.parent.mkdir(parents=True)
-            raw.write_text(handoff_init.fill_head(text, task="QA-9", dispatch=S5, role="qa-code-critic", stage="S5", scope=""),
-                           encoding="utf-8")
+            # the control differs from the real form ONLY in the inline lists: the real init also empties the optional
+            # `findings` list of this contract (EMPTIED, F1 (b)), so the control is emptied the same way
+            raw.write_text(handoff_init.empty_optional_lists(
+                handoff_init.fill_head(text, task="QA-9", dispatch=S5, role="qa-code-critic", stage="S5", scope=""),
+                "s5-critic-to-automator"), encoding="utf-8")
         check_not_in("K-B5 the control form has no list inline", " - concerns|", raw.read_text(encoding="utf-8"))
         check_in("K-B5 the form under test has", " - concerns|", inline.read_text(encoding="utf-8"))
         out = []

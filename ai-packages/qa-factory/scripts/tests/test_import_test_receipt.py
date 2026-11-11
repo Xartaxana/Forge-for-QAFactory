@@ -71,6 +71,61 @@ def rejects(req, receipt) -> bool:
         return True
 
 
+def stamp_survives_a_side_flip(req, receipt) -> None:
+    """t-2181 PC-5a F1: the import is stamped with the story's sides at import time; a side that becomes real afterwards must not
+    void the imported green (the stamp is an import-time fact, not a function of the receipt)."""
+    import run_suite
+    import finalize_task
+    story = ROOT / "story"; story.mkdir()
+    pipeline = story / "pipeline.json"
+    pipeline.write_text(json.dumps({"stages": {}, "sides": {"ui": {"reality": "real"}, "backend": {"reality": "substituted"}}}))
+    keep = run_suite.artifacts_dir
+    run_suite.artifacts_dir = lambda task: story
+    try:
+        again = copy.deepcopy(receipt); again["producer"]["run_id"] = "43"; again["receipt_sha256"] = receipt_digest(again)
+        done = import_receipt(req, again, ROOT, ROOT / "out")
+        block = json.loads(Path(done["run_block"]).read_text())
+        check_eq("an import on a story with a substituted side is stamped", block.get("sides_met"), {"ui": "real", "backend": "substituted"})
+        pipeline.write_text(json.dumps({"stages": {}, "sides": {"ui": {"reality": "real"}, "backend": {"reality": "real"}}}))
+        check_eq("a side that became real after the import does not fail the import re-check", validate_import_block(ROOT, block), [])
+        check("the re-check still rejects a changed result row", "import block execution payload does not match its receipt"
+              in validate_import_block(ROOT, dict(block, results=[dict(block["results"][0], status="failed")])))
+        work = ROOT / "work" / "run-blocks"; work.mkdir(parents=True)
+        (work / "imp.json").write_text(json.dumps(block))
+        report, _ = finalize_task.reduce(ROOT)
+        rows = report["results"]
+        # (an imported block has no reporter file of its own, so reduce may still say invalid_reporter_evidence: that is not this check)
+        check("reduce does not void the imported row after the flip and carries the import-time stamp",
+              bool(rows) and all(r.get("current_reason") != "invalid_external_evidence"
+                                 and r.get("sides_met") == {"ui": "real", "backend": "substituted"} for r in rows))
+    finally:
+        run_suite.artifacts_dir = keep
+
+
+def a_sample_import_stays_a_sample(req, receipt) -> None:
+    """t-2277 W1, critic B1: a receipt whose binding names a reference stand imports as a SAMPLE - its block lands in `reference-runs`,
+    never in `run-blocks` (the folder every evidence reader reads); the import re-check ignores the mark (the record may change after
+    the import); a repeat of the import is `reused` from the samples folder."""
+    import run_suite
+    from unittest import mock
+    mark = {"stand": "old", "side": "product", "story_code": False, "words": "a sample"}
+    sample = copy.deepcopy(receipt); sample["producer"]["run_id"] = "77"; sample["receipt_sha256"] = receipt_digest(sample)
+    with mock.patch.object(run_suite, "reference_mark_of", lambda request: dict(mark)):
+        done = import_receipt(req, sample, ROOT, ROOT / "sample-out")
+        again = import_receipt(req, sample, ROOT, ROOT / "sample-out")
+    path = Path(done["run_block"])
+    block = json.loads(path.read_text())
+    check_eq("B1: the imported block of a reference stand carries the mark", block.get("reference_run"), mark)
+    check_eq("B1: ... and lands in reference-runs", path.parent.name, "reference-runs")
+    check("B1: ... never in run-blocks", not (ROOT / "sample-out" / "run-blocks").exists())
+    check_eq("B1: a repeat of the import is reused from the samples folder", (again["status"], again["run_block"]), ("reused", done["run_block"]))
+    check_eq("B1: the import re-check ignores the mark (today's record names no reference now)", validate_import_block(ROOT, block), [])
+    plain = copy.deepcopy(receipt); plain["producer"]["run_id"] = "78"; plain["receipt_sha256"] = receipt_digest(plain)
+    done = import_receipt(req, plain, ROOT, ROOT / "sample-out")
+    check_eq("B1 control: a receipt of the story's own stand goes to run-blocks, unmarked",
+             (Path(done["run_block"]).parent.name, "reference_run" in json.loads(Path(done["run_block"]).read_text())), ("run-blocks", False))
+
+
 def main():
     shutil.rmtree(ROOT, ignore_errors=True); ROOT.mkdir(); (ROOT / "test.py").write_text("# test\n")
     (ROOT / "report.xml").write_text("<testsuite/>")
@@ -124,6 +179,8 @@ def main():
         third = import_receipt(req, receipt, ROOT, ROOT / "out")
         check_eq("durable exact import reuses after source retention ends", third["status"], "reused")
         (ROOT / "report.xml").write_text("<testsuite/>")
+        a_sample_import_stays_a_sample(req, receipt)
+        stamp_survives_a_side_flip(req, receipt)      # before any check tampers with the shared durable copy
         tampered = copy.deepcopy(receipt); tampered["results"][0]["status"] = "failed"
         check("tampered signed receipt is rejected", rejects(req, tampered))
         wrong_scope = copy.deepcopy(receipt); wrong_scope["binding"]["selected_instance_ids"] = ["other"]

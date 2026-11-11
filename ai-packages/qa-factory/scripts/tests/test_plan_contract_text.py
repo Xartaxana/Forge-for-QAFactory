@@ -102,6 +102,14 @@ def main() -> None:
     check("and the requirements tester's would not",
           HEADING not in CS.render("artifact-contract-plan.md", "qa-requirements-tester", text))
 
+    # --- TR2-8 (B-9): the strategist is told the row key BEFORE the work, in its slice, and the example carries it ------
+    check("the strategist's slice carries the row key and its value", "carries `schema_version: 2`" in flat(rendered))
+    on_disk = (PLUGIN / "references" / "slices" / "qa-test-strategist" / "artifact-contract-plan.md").read_text(encoding="utf-8")
+    check("the committed slice carries it too (the generator was run)", "carries `schema_version: 2`" in flat(on_disk))
+    check("control: a copy of the source without the phrase does not carry it",
+          "carries `schema_version: 2`" not in flat(CS.render("artifact-contract-plan.md", "qa-test-strategist",
+                                                              text.replace("schema_version: 2", "schema_version"))))
+
     # --- the example in the section satisfies the real validators ----------------------------------
     blocks = re.findall(r"```json\n(.*?)\n```", section, re.S)
     check_eq("the section carries one JSON example", len(blocks), 1)
@@ -109,6 +117,7 @@ def main() -> None:
         example = json.loads(blocks[0])
         check("the example is at most 25 lines", len(blocks[0].splitlines()) <= 25,
               str(len(blocks[0].splitlines())))
+        check_eq("TR2-8: the example row carries `schema_version: 2` (the number)", example.get("schema_version"), 2)
         check_eq("the example's delta passes planning_contract", PC._validate_coverage_delta(example), [])
         for ob in example["coverage_obligations"]:
             check_eq(f"the example's obligation {ob['obligation_id']} passes observation_contract",

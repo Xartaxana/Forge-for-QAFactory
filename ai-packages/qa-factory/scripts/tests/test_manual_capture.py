@@ -2591,11 +2591,11 @@ def ep1_30_post_action_needs_a_hit():
         code, out, err, _ = ui_run(t, steps=f"goto {UI}\nfail_request **/api/x 500\ncapture post_action completion\n")
         check_eq("EP1-30 hits=0: the whole command exits 1 (a failed step)", code, 1)
         check_eq("EP1-30 hits=0: and the summary row is refused", json.loads(out)["steps"][-1]["outcome"], "refused")
-        # (2) fail X, restore X, capture: a restored failure that caught nothing still holds the session (no detour)
+        # (2) fail X, restore X, capture: a LIFTED rule is out of what the capture checks (TR1-2); its empty result was told at the lifting
         rows, failed, attempt, summary = _session(t, S.FakeBrowser(),
                                                   "fail_request **/api/x 500\nrestore_request **/api/x\ncapture post_action completion")
-        check_eq("EP1-30 fail, restore, capture: refused (restoring is not a way round)", rows[-1]["outcome"], "refused")
-        check_eq("EP1-30 fail, restore, capture: no screen", _post_shots(attempt), [])
+        check_eq("TR1-2 fail, restore, capture: the capture passes (a lifted rule holds nothing)", (rows[-1]["outcome"], failed), ("ok", None))
+        check_eq("TR1-2 fail, restore, capture: and the screen is taken", len(_post_shots(attempt)), 1)
         # (3) two failures, one of them with a hit: the refusal names the one with none, only that one
         browser = S.FakeBrowser()
         rows, failed, attempt, _ = _session(t, browser, "fail_request **/a 500\nfail_request **/b 500\ncapture pre_action before")
@@ -2738,7 +2738,343 @@ def ep1_30_host_of_the_pattern():
         S.cleanup(t)
 
 
+class _TypePage:
+    """TR1-1: a stub of Playwright's page with one field `#qty`. `drops`: the page takes the focus away after the first character
+    typed into the field (the keys that follow go to the body); `gone`: the field is detached from the page."""
+
+    def __init__(self, drops, gone=False):
+        self.value, self.focused, self.drops, self.gone, self.typed, self.focus_calls = "", False, drops, gone, 0, 0
+        self.pending_drop = False       # the first character's reading is the last one that shows the focus
+        self.keyboard = self
+
+    def locator(self, selector):
+        return _TypeLoc(self)
+
+    def wait_for_timeout(self, ms):
+        return None
+
+    def type(self, char):
+        if self.focused:
+            self.value += char
+            self.typed += 1
+            if self.drops and self.typed == 1:
+                self.pending_drop = True
+
+    def press(self, key):
+        self.pressed = getattr(self, "pressed", []) + [(key, self.focused)]       # the key lands only where the focus is
+
+    def insert_text(self, text):
+        if self.focused:
+            self.value += text
+
+
+class _TypeLoc:
+    def __init__(self, page):
+        self.page, self.first = page, self
+
+    def focus(self, timeout=None):
+        self.page.focus_calls += 1
+        self.page.focused = True
+
+    def input_value(self, timeout=None):
+        return self.page.value
+
+    def evaluate(self, script, arg=None, timeout=None):
+        if script == MC.CONNECTED_JS:
+            return not self.page.gone
+        if script == MC.ACTIVE_JS:
+            return "body"
+        seen = self.page.focused
+        if self.page.pending_drop:
+            self.page.pending_drop, self.page.focused = False, False
+        return seen
+
+
+class _TypeBrowser(S.FakeBrowser):
+    """The FakeBrowser whose `type_chars` is the REAL backend's, over a `_TypePage`; the surprise detector is on (it reads no events)."""
+
+    def __init__(self, page):
+        super().__init__()
+        real = MC.PlaywrightBackend.__new__(MC.PlaywrightBackend)
+        real._page, real._Error, real._Timeout, real._element_ms, real._limit_ms = page, Exception, TimeoutError, 30000, 180000
+        self.real, self.page = real, page
+
+    def event_mark(self):
+        return 0
+
+    def events_since(self, mark):
+        return []
+
+    def dead_listeners(self):
+        return []
+
+    def type_chars(self, selector, text, delay_ms, settle_ms=0, continued=False):
+        self._call("type", selector, text, continued)
+        try:
+            return self.real.type_chars(selector, text, delay_ms, settle_ms, continued=continued)
+        finally:
+            self.focus_lost_before = self.real.focus_lost_before
+
+    def press_key(self, selector, key, continued=False):
+        self._call("press", selector, key)
+        try:
+            return self.real.press_key(selector, key, continued=continued)
+        finally:
+            self.focus_lost_before = self.real.focus_lost_before
+
+    def paste_text(self, selector, text, continued=False):
+        self._call("paste", selector, text)
+        try:
+            return self.real.paste_text(selector, text, continued=continued)
+        finally:
+            self.focus_lost_before = self.real.focus_lost_before
+
+    def click(self, selector):
+        self._call("click", selector)
+        self.page.focused = True               # a person's click puts the focus into the field
+        return 0.1
+
+
+def tr1_1_type_goes_on_without_a_new_focus():
+    """TR1-1: a `type` that follows a `type` on the same field with no step between does not set the focus again."""
+    def walk(page, lines):
+        t = S.make_task()
+        try:
+            browser = _TypeBrowser(page)
+            attempt = MC.Attempt(t.task, UI_CASE, "a1", t.cfg)
+            steps = MC.parse_steps(f"goto {UI}\n" + "\n".join(lines) + "\n", MC.spec())[1:]
+            steps = [dict(s, n=i) for i, s in enumerate(steps, 1)]
+            rows, failed = MC._run_steps(browser, attempt, steps, 100, t.cfg, {}, 30, MC.SessionAccount())
+            return rows, failed, page
+        finally:
+            S.cleanup(t)
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "type #qty 2"])
+    check_eq("TR1-1 two calls on a page that drops focus: the field holds only '1'", page.value, "1")
+    check_eq("TR1-1 ... the first call is ok, the second is not", [r["outcome"] for r in rows], ["ok", "failed"])
+    check_eq("TR1-1 ... the focus was set once (the first call), never again", page.focus_calls, 1)
+    check_in("TR1-1 ... the step says what had the focus", "focus lost before the call: keys went to body", rows[1]["detail"])
+    check("TR1-1 ... and a `surprise:` line names it", any("surprise:" in s and "focus lost before the call" in s for s in rows[1].get("surprise", [])),
+          str(rows[1].get("surprise")))
+    check_eq("TR1-1 ... and the walk stops there", failed["step"], "type #qty 2")
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 12"])
+    check_eq("TR1-1 one call `type 12` on that page: the field holds '1'", page.value, "1")
+    check_in("TR1-1 ... the record says 'focus lost after character 1' as before", "focus lost after character 1", rows[0]["detail"])
+    check_eq("TR1-1 ... and that call stays ok (a told loss, not judged)", rows[0]["outcome"], "ok")
+    rows, failed, page = walk(_TypePage(drops=False), ["type #qty 1", "type #qty 2"])
+    check_eq("TR1-1 two calls on a page that holds focus: '12', both ok, the focus set once", (page.value, [r["outcome"] for r in rows], page.focus_calls),
+             ("12", ["ok", "ok"], 1))
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "click #qty", "type #qty 2"])
+    check_eq("TR1-1 `type` after a `click` on the same field has the focus again: '12', all ok", (page.value, [r["outcome"] for r in rows]),
+             ("12", ["ok", "ok", "ok"]))
+    check_eq("TR1-1 ... the second `type` was a first one (it set the focus: two in all)", page.focus_calls, 2)
+    # B1: a passive step (data: `keeps_run`) is not an action - a person who types '1', looks and types '2' does not click again
+    for passive in ("read #qty", "wait 100"):
+        rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", passive, "type #qty 2"])
+        check_eq(f"TR1-1 `{passive}` between on a page that drops focus: field '1', the second `type` not ok, one focus",
+                 (page.value, [r["outcome"] for r in rows], page.focus_calls), ("1", ["ok", "ok", "failed"], 1))
+        check("TR1-1 ... and a `surprise:` line names it", any("surprise:" in s and "focus lost before the call" in s for s in rows[2].get("surprise", [])),
+              str(rows[2].get("surprise")))
+        rows, failed, page = walk(_TypePage(drops=False), ["type #qty 1", passive, "type #qty 2"])
+        check_eq(f"TR1-1 `{passive}` between on a page that holds focus: '12', all ok, one focus",
+                 (page.value, [r["outcome"] for r in rows], page.focus_calls), ("12", ["ok", "ok", "ok"], 1))
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "read #qty", "click #qty", "type #qty 2"])
+    check_eq("TR1-1 an action (`click`) after the passive step resets the run: '12', all ok", (page.value, [r["outcome"] for r in rows]),
+             ("12", ["ok", "ok", "ok", "ok"]))
+    check("TR1-1 the `keeps_run` list is data on the `type` row", "read" in MC.spec()["steps"]["type"]["keeps_run"]
+          and "click" not in MC.spec()["steps"]["type"]["keeps_run"], str(MC.spec()["steps"]["type"].get("keeps_run")))
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "type #qty 2"])
+    check_in("TR1-1 F9 the refusal names the door: a `click` on the field", "a `click` on the field is a person's new click", rows[1]["detail"])
+    rows, failed, page = walk(_TypePage(drops=False), ["type #qty 1", "type #other 2"])
+    check_eq("TR1-1 a `type` on a DIFFERENT field is a first `type`", page.focus_calls, 2)
+    page = _TypePage(drops=False)
+    t = S.make_task()
+    try:
+        browser = _TypeBrowser(page)
+        attempt = MC.Attempt(t.task, UI_CASE, "a1", t.cfg)
+        MC._run_step(browser, attempt, {"word": "type", "args": ["#qty", "1"], "line": "type #qty 1"}, 100, t.cfg, {})
+        page.gone = True
+        entry = MC._run_step(browser, attempt, {"word": "type", "args": ["#qty", "2"], "line": "type #qty 2"}, 100, t.cfg, {})["entry"]
+        check_eq("TR1-1 a field gone before the second call: not ok, nothing typed", (entry["outcome"], page.value), ("failed", "1"))
+        check_in("TR1-1 ... with that fact", "gone or detached before the call", entry["detail"])
+        check_eq("TR1-1 ... and no log of the call (only the first call's)", len(list(attempt.dir.glob("*-type-*.txt"))), 1)
+    finally:
+        S.cleanup(t)
+
+
+def tr1_2_press_paste_go_on_after_a_type():
+    """TR1-2 (sibling of TR1-1, the Lead's decision): `press` / `paste` right after a `type` on the same field set no new focus, under the
+    same rule and the same fact; a step between, or another field, makes them a first call."""
+    def walk(page, lines):
+        t = S.make_task()
+        try:
+            browser = _TypeBrowser(page)
+            attempt = MC.Attempt(t.task, UI_CASE, "a1", t.cfg)
+            steps = MC.parse_steps(f"goto {UI}\n" + "\n".join(lines) + "\n", MC.spec())[1:]
+            steps = [dict(s, n=i) for i, s in enumerate(steps, 1)]
+            rows, failed = MC._run_steps(browser, attempt, steps, 100, t.cfg, {}, 30, MC.SessionAccount())
+            return rows, failed, page
+        finally:
+            S.cleanup(t)
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "press #qty Enter"])
+    check_eq("TR1-2 `press Enter` after a `type` on a page that dropped the focus: not ok, no new focus",
+             ([r["outcome"] for r in rows], page.focus_calls), (["ok", "failed"], 1))
+    check_in("TR1-2 ... the fact is the TR1-1 fact", "focus lost before the call: keys went to body", rows[1]["detail"])
+    check("TR1-2 ... and a `surprise:` line names it", any("surprise:" in s and "focus lost before the call" in s for s in rows[1].get("surprise", [])),
+          str(rows[1].get("surprise")))
+    check_eq("TR1-2 ... the key landed where the focus was, not in the field", getattr(page, "pressed", []), [("Enter", False)])
+    rows, failed, page = walk(_TypePage(drops=False), ["type #qty 1", "press #qty Enter"])
+    check_eq("TR1-2 `press Enter` after a `type` on a page that holds the focus: ok, the focus set once (no new click)",
+             ([r["outcome"] for r in rows], page.focus_calls), (["ok", "ok"], 1))
+    rows, failed, page = walk(_TypePage(drops=False), ["type #qty 1", "paste #qty 2"])
+    check_eq("TR1-2 `paste` after a `type`: ok, '12', the focus set once", (page.value, [r["outcome"] for r in rows], page.focus_calls),
+             ("12", ["ok", "ok"], 1))
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "paste #qty 2"])
+    check_eq("TR1-2 `paste` after a `type` that dropped the focus: not ok, nothing pasted", ([r["outcome"] for r in rows], page.value),
+             (["ok", "failed"], "1"))
+    rows, failed, page = walk(_TypePage(drops=False), ["type #qty 1", "press #other Enter"])
+    check_eq("TR1-2 a `press` on a DIFFERENT field is a first call: it sets its own focus (two in all)", page.focus_calls, 2)
+    rows, failed, page = walk(_TypePage(drops=False), ["type #qty 1", "paste #other 2"])
+    check_eq("TR1-2 a `paste` on a DIFFERENT field is a first call: it sets its own focus (two in all)", page.focus_calls, 2)
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "read #qty", "press #qty Enter"])
+    check_eq("TR1-2 a `read` between the `type` and the `press` is not an action: the press goes on, no new focus, not ok",
+             ([r["outcome"] for r in rows], page.focus_calls), (["ok", "ok", "failed"], 1))
+    rows, failed, page = walk(_TypePage(drops=True), ["type #qty 1", "click #qty", "press #qty Enter"])
+    check_eq("TR1-2 a `click` between the `type` and the `press` makes the press a first call",
+             ([r["outcome"] for r in rows], page.focus_calls), (["ok", "ok", "ok"], 2))
+    rows, failed, page = walk(_TypePage(drops=False), ["press #qty Enter", "press #qty Enter"])
+    check_eq("TR1-2 a `press` after a `press` (no `type`) is a first call each time", page.focus_calls, 2)
+
+
+def tr1_2_failure_rule_forgotten():
+    """TR1-2: a lifted rule is out of the closing capture and reports its empty result at once; a pattern with a single leading `*` gets a hint."""
+    t = S.make_task()
+    try:
+        # (1) a rule that matched nothing, lifted: the restore answer carries the surprise line, the log says `requests failed: 0`, the capture passes
+        rows, failed, attempt, summary = _session(t, S.FakeBrowser(), "fail_request **/api/x 500\nrestore_request **/api/x\ncapture post_action completion")
+        check_eq("TR1-2 rule with no match, restore, capture post_action: all ok", (failed, [r["outcome"] for r in rows][1:]), (None, ["ok", "ok", "ok"]))
+        check_in("TR1-2 the `restore_request` answer says the rule matched nothing", "surprise: fail_request **/api/x matched no request", rows[2]["detail"])
+        check_in("TR1-2 the result of the lifted rule is written: `requests failed: 0`", "requests failed: 0", _failure_log(attempt))
+        # (2) an ACTIVE rule with no match still refuses the capture, as before
+        rows, failed, attempt, _ = _session(t, S.FakeBrowser(), "fail_request **/api/x 500\ncapture post_action completion")
+        check_eq("TR1-2 an active rule with no match: the capture is refused", (rows[-1]["outcome"], _post_shots(attempt)), ("refused", []))
+        # (2b) one lifted rule and one active with no match: only the active one is named
+        rows, failed, attempt, _ = _session(t, S.FakeBrowser(), "fail_request **/a 500\nfail_request **/b 500\nrestore_request **/a\ncapture post_action completion")
+        check_in("TR1-2 lifted and active: the refusal names the active one", "no request matched **/b in this session", failed["detail"])
+        check_not_in("TR1-2 lifted and active: and not the lifted one", "**/a in this session", failed["detail"])
+        # (3) the first look/read after the lifting repeats the line, once
+        rows, failed, attempt, _ = _session(t, S.FakeBrowser(), "fail_request **/api/x 500\nrestore_request **/api/x\nread #x\nread #x")
+        check_in("TR1-2 the first `read` after the lifting says the rule matched nothing", "surprise: fail_request **/api/x matched no request", rows[3]["detail"])
+        check_not_in("TR1-2 the second `read` does not repeat it", "matched no request", rows[4]["detail"])
+        # a rule that DID match: no such line anywhere
+        browser = S.FakeBrowser()
+        browser.on_call[("click", "#go")] = [("**/api/x", "GET", API)]
+        rows, failed, attempt, _ = _session(t, browser, "fail_request **/api/x 500\nclick #go\nrestore_request **/api/x\nread #x")
+        check_not_in("TR1-2 a rule that matched: no 'matched no request' line", "matched no request", " ".join(r["detail"] for r in rows))
+        # (4) the pattern hint: a single leading `*` and no `**`, no scheme
+        rows, failed, attempt, _ = _session(t, S.FakeBrowser(), "fail_request */api/cart 500")
+        check_eq("TR1-2 `*/api/cart`: the step is ok (a hint, never a refusal)", (failed, rows[-1]["outcome"]), (None, "ok"))
+        check_in("TR1-2 `*/api/cart`: the hint says `*` does not cross `/`", "does not cross `/`", rows[-1]["detail"])
+        check_in("TR1-2 `*/api/cart`: and names the way to write it", "**/api/x", rows[-1]["detail"])
+        check_in("F6 `*/api/cart`: the hint is a typed `told` line of the step row", "does not cross `/`", " ".join(rows[-1].get("told") or []))
+        check_not_in("F6 `**/api/cart`: no `told` on the row", "does not cross", " ".join(
+            _session(t, S.FakeBrowser(), "fail_request **/api/cart 500")[0][-1].get("told") or []))
+        rows, failed, attempt, _ = _session(t, S.FakeBrowser(), "fail_request **/api/x 500\nrestore_request **/api/x\nread #x\nread #x")
+        check_in("F6 `restore_request`: the line is `told` on the restore row", "matched no request", " ".join(rows[2].get("told") or []))
+        check_in("F6 ... and on the first `read` after it", "matched no request", " ".join(rows[3].get("told") or []))
+        check_eq("F6 ... and not on the second `read`", rows[4].get("told"), None)
+        rows, failed, attempt, _ = _session(t, S.FakeBrowser(), "fail_request **/api/cart 500")
+        check_not_in("TR1-2 `**/api/cart`: no hint", "hint:", rows[-1]["detail"])
+        rows, failed, attempt, _ = _session(t, S.FakeBrowser(), 'fail_request "http://localhost:5173/api/*" 500')
+        check_not_in("TR1-2 a pattern with a scheme: no hint", "hint:", rows[-1]["detail"])
+    finally:
+        S.cleanup(t)
+
+
+class _CookieBrowser(S.FakeBrowser):
+    """TR1-3: a scripted browser whose context holds `held` cookies; `end_session` is the backend's contract: (count, seconds)."""
+
+    def __init__(self, held=0, **kw):
+        super().__init__(**kw)
+        self.held = held
+
+    def end_session(self):
+        self._call("end-session")
+        count, self.held = self.held, 0
+        return count, 0.1
+
+
+class _CookieContext:
+    """The browser context the REAL `end_session` talks to: a cookie list, `cookies()` and `clear_cookies()`."""
+
+    def __init__(self, names):
+        self.jar = [{"name": n, "value": "secret-" + n, "domain": "localhost", "path": "/"} for n in names]
+
+    def cookies(self):
+        return list(self.jar)
+
+    def clear_cookies(self):
+        self.jar = []
+
+    def request_cookie_header(self):
+        return "; ".join(f"{c['name']}={c['value']}" for c in self.jar)
+
+
+def tr1_3_end_session():
+    """TR1-3: `end-session` deletes the cookies of the actor's browser context, says how many, and is a said no-op when there are none."""
+    data = MC.spec()
+    check_eq("TR1-3 data: the step is a row of the browser list, no argument, and not a step of a device",
+             (data["steps"]["end-session"]["arity"], "end-session" in data["app_steps"]), ([0, 0], False))
+    # the REAL backend method on a stub context: signed in -> the next request carries no cookie; the page is not touched
+    backend = MC.PlaywrightBackend.__new__(MC.PlaywrightBackend)
+    backend._Timeout = backend._Error = RuntimeError
+    backend._context = _CookieContext(["testproject1_access_token", "refresh"])
+    check_in("TR1-3 signed in: a request of the page carries the session cookie", "testproject1_access_token=", backend._context.request_cookie_header())
+    count, seconds = backend.end_session()
+    check_eq("TR1-3 after sign-in, `end-session` deletes both cookies and counts them", (count, seconds >= 0), (2, True))
+    check_eq("TR1-3 the next request of the page goes without a cookie", backend._context.request_cookie_header(), "")
+    check_eq("TR1-3 twice in a row: the second deletes nothing and counts 0", backend.end_session()[0], 0)
+    backend._context = _CookieContext([])
+    check_eq("TR1-3 a guest (an empty context): 0, no error", backend.end_session()[0], 0)
+    t = S.make_task()
+    try:
+        rows, failed, attempt, _ = _session(t, _CookieBrowser(held=3), "end-session")
+        check_eq("TR1-3 step: ok, the answer names the count", (failed, rows[-1]["outcome"], "3 cookies deleted" in rows[-1]["detail"]), (None, "ok", True))
+        check_not_in("TR1-3 step answer holds no cookie value", "secret", rows[-1]["detail"])
+        browser = _CookieBrowser(held=1)
+        rows, failed, attempt, _ = _session(t, browser, "end-session\nend-session")
+        check_eq("TR1-3 twice in a row: the first deletes, the second says 0 cookies and is not a failure",
+                 (failed, [r["outcome"] for r in rows][1:], "1 cookie deleted" in rows[1]["detail"], rows[2]["detail"].startswith("0 cookies")),
+                 (None, ["ok", "ok"], True, True))
+        rows, failed, attempt, _ = _session(t, _CookieBrowser(held=0), "end-session")
+        check_eq("TR1-3 an actor with no cookies (a guest, not signed in): ok, and the answer SAYS 0 cookies",
+                 (failed, rows[-1]["outcome"], rows[-1]["detail"].startswith("0 cookies")), (None, "ok", True))
+        check_in("TR1-3 the recorded step is evidence like every step (the step row)", "end-session", rows[-1]["step"])
+    finally:
+        S.cleanup(t)
+    # refusals: an argument, a device list; each says what is wrong, what was expected and a door
+    for label, text in (("an argument", "end-session now"), ("two arguments", "end-session a b")):
+        try:
+            MC.parse_steps(f"goto {UI}\n{text}\n", data)
+            check(f"TR1-3 {label}: refused", False)
+        except ValueError as exc:
+            check_in(f"TR1-3 {label}: says what is wrong and expected", "`end-session` takes no argument", str(exc))
+            check_in(f"TR1-3 {label}: and the door", "write `end-session` alone on its line", str(exc))
+    try:
+        MC.parse_steps("end-session\n", data, words=MC.APP_WORDS)
+        check("TR1-3 on a device: refused", False)
+    except ValueError as exc:
+        check_in("TR1-3 on a device: refused, naming the browser surface", "`end-session` is a step of the browser surface", str(exc))
+        check_in("TR1-3 on a device: and the steps a device has", "launch", str(exc))
+    # the requirement reaches the walker before the work (AR-10)
+    commands = (Path(__file__).resolve().parent.parent.parent / "references" / "role-commands.json").read_text(encoding="utf-8")
+    check_eq("TR1-3 role-commands.json names the step on the walker's card and on the `ui` card", commands.count("end-session"), 2)
+
+
 def main():
+    tr1_3_end_session()
+    tr1_1_type_goes_on_without_a_new_focus()
+    tr1_2_press_paste_go_on_after_a_type()
+    tr1_2_failure_rule_forgotten()
     ep1_32_read_modes()
     ep1_30_parse_and_data()
     ep1_30_post_action_needs_a_hit()

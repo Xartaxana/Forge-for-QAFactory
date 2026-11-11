@@ -353,9 +353,9 @@ def _stamp_signal(path: Path, lock_path: Path, current: dict, reason: str) -> No
     """The judged signal belongs to the run that raised it: the record was written before the
     judge answered, so the row is found again by its own timestamp and label and marked."""
     try:
-        from event_store import atomic_json
-        from execution_scheduler import _file_lock
-        with _file_lock(lock_path):
+        import event_store
+        from event_store import atomic_json, hold_file_lock
+        with hold_file_lock(lock_path, event_store.SHORT_RMW_LOCK_WAIT_S, purpose="stand health signal", record_holder=True):
             state = _read(path)
             for row in reversed(state["runs"]):
                 if row.get("at") == current.get("at") and row.get("label") == current.get("label"):
@@ -375,9 +375,9 @@ def observe(project_root, task: str, summary: dict) -> dict | None:
         limits = settings(project_root)
         current = _record(task, summary)
         path, lock_path = _paths(project_root)
-        from event_store import atomic_json
-        from execution_scheduler import _file_lock
-        with _file_lock(lock_path):
+        import event_store
+        from event_store import atomic_json, hold_file_lock
+        with hold_file_lock(lock_path, event_store.SHORT_RMW_LOCK_WAIT_S, purpose="stand health record", record_holder=True):
             state = _read(path)
             earlier = list(state["runs"])
             found = _same_failure(current, earlier, limits) or _slow_run(current, earlier, limits)
@@ -843,10 +843,10 @@ def status(project_root) -> dict:
 def reset(project_root, reason: str = "") -> dict:
     """Forget the record — the person restarted or repaired the stand, and yesterday's
     failures must not be counted against today's runs."""
-    from event_store import atomic_json
-    from execution_scheduler import _file_lock
+    import event_store
+    from event_store import atomic_json, hold_file_lock
     path, lock_path = _paths(project_root)
-    with _file_lock(lock_path):
+    with hold_file_lock(lock_path, event_store.SHORT_RMW_LOCK_WAIT_S, purpose="stand health reset", record_holder=True):
         dropped = len(_read(path)["runs"])
         atomic_json(path, {"schema_version": 1, "runs": [], "reset": {
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "reason": reason,

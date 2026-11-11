@@ -15,7 +15,6 @@ A `pass` on dimension 8 is a design analysis, never an executed probe.
 
   judge_cases.py --task-root qa-factory/artifacts/<T> [--json]
 """
-import argparse
 import json
 import re
 import sys
@@ -25,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grammar as G  # noqa: E402
 import judge  # noqa: E402
 import hooklib  # noqa: E402
+from judge_requirements import cli_main  # noqa: E402
 
 DIMENSIONS = {"then_observable": ("case_then_observable", 3),
               "negative_reachable": ("case_negative_reachable", 5),
@@ -161,14 +161,7 @@ def render(report: dict) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--task-root", required=True)
-    parser.add_argument("--json", action="store_true")
-    args = hooklib.exact_options(parser).parse_args()
-    # the story first, even when the judge is off (E-4): a phantom root is refused before `run` can answer "off"
-    report = run(hooklib.story_cli("judge_cases.py", root=args.task_root, key_flag=None).resolve())
-    print(json.dumps(report, indent=2, ensure_ascii=False) if args.json else render(report))
-    return 0 if report["status"] in ("ok", "off") else 3
+    return cli_main("judge_cases.py", run, render, __doc__)
 
 
 if __name__ == "__main__":

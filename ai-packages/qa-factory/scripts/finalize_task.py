@@ -434,6 +434,9 @@ def reduce(task: Path) -> tuple[dict, dict]:
             continue
         seen.add(key)
         sources.append({"id": key, "source": source})
+        # PC-5a (B2): the block's proof stamp rides on every row reduced from it - a projection of the block, not a second record
+        # (AR-14, AR-21). A block with none adds nothing; `sides_unknown` is carried as it stands, never turned into a reality.
+        stamp = {k: block[k] for k in ("sides_met", "sides_unknown") if k in block}
         import_errors = []
         if block.get("import_provenance"):
             from import_test_receipt import validate_import_block
@@ -491,6 +494,8 @@ def reduce(task: Path) -> tuple[dict, dict]:
                     else:
                         retained = dict(retained, status="not_run", current_reason="invalid_reporter_evidence",
                                         evidence_errors=evidence_errors)
+                if stamp:
+                    retained = dict(retained, **stamp)
                 results.append(retained)
                 result_sources[id(retained)] = source
         for row in block.get("manual_checks") or []:
@@ -504,6 +509,8 @@ def reduce(task: Path) -> tuple[dict, dict]:
                 else:
                     retained = dict(row, stale=True, current_reason="invalidated_dispatch") if stale_row(block, row) else row
                     affected = set()
+                if stamp:
+                    retained = dict(retained, **stamp)
                 manual.append(retained)
                 manual_sources[id(retained)] = source
                 manual_invalidated[id(retained)] = affected
@@ -533,7 +540,7 @@ def reduce(task: Path) -> tuple[dict, dict]:
     ambiguous_order = kept_without_start or live_tie
     manual_groups = {}
     for row in manual:
-        if row.get("schema_version") == 2:
+        if row.get("schema_version") == 2 or row.get("unprepared") is not None:      # F5: an unprepared walk is always per-obligation
             for oid in row.get("obligation_ids") or [row.get("obligation_id")]:
                 key = str(row.get("case")) + "::" + str(oid)
                 manual_groups.setdefault(key, []).append(row)
@@ -543,17 +550,24 @@ def reduce(task: Path) -> tuple[dict, dict]:
     current_manual = {}
     for key, rows in manual_groups.items():
         latest = rows[-1]
-        obligation_id = key.split("::", 1)[1] if latest.get("schema_version") == 2 else None
+        is_v2 = latest.get("schema_version") == 2 or latest.get("unprepared") is not None
+        obligation_id = key.split("::", 1)[1] if is_v2 else None
         obligation_stale = bool(obligation_id and obligation_id in manual_invalidated.get(id(latest), set()))
+        walk = latest.get("unprepared") is not None        # F5(e) 1: an unprepared walk never gains a `result` word (FR-59)
         if latest.get("stale") or obligation_stale or order_ambiguous(rows, manual_sources):
-            latest = dict(latest, result="inconclusive", current_reason="invalidated_evidence" if latest.get("stale") else "ambiguous_attempt_order")
+            latest = dict(latest, current_reason="invalidated_evidence" if latest.get("stale") else "ambiguous_attempt_order")
+            if not walk:
+                latest["result"] = "inconclusive"
             if obligation_stale:
                 latest["current_reason"] = "invalidated_evidence"
-        if latest.get("schema_version") == 2:
+        if is_v2:
             latest = dict(latest, current_obligation_ids=[obligation_id])
-            from coverage_contract import validate_manual_current
+            from coverage_contract import unprepared_only, validate_manual_current
             issues = validate_manual_current(task, latest)
-            if issues:
+            if walk and unprepared_only(issues):
+                # carried under its own name: not validated as evidence, no result, the marker kept for the four readers
+                latest = dict(latest, evidence_validated=False, unprepared=latest["unprepared"])
+            elif issues:
                 latest = dict(latest, result="inconclusive", evidence_validated=False, evidence_errors=issues)
             else:
                 latest = dict(latest, evidence_validated=True)

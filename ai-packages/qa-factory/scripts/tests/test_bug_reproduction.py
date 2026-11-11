@@ -351,6 +351,79 @@ def r4_the_count_on_every_surface() -> None:
         cleanup(root)
 
 
+LINE = "setQuantity(Math.max(1, parseInt(e.target.value) || 1))"
+WAYS = [{"action": "type -1 one key at a time", "start_state": "field selected", "seen": "11", "requirement": "R-6", "case": "TC-002",
+         "evidence": "evidence/rerun.log", "red_test_none": "manual check only"},
+        {"action": "type 1.5", "start_state": "field erased first", "seen": "1", "requirement": "R-7", "case": "TC-003",
+         "evidence": "evidence/rerun.log", "red_test_none": "manual check only"}]
+CODE_BASIS = {"id": "b1", "kind": "code_line", "path": "src/Book.tsx", "line": 2, "quote": LINE}
+
+
+def merged(root: Path, mechanism: dict, *, ways=WAYS, reproduction=None) -> Path:
+    """The `build` story whose draft carries `cases`, `manifestations` and a `mechanism`; the code file the basis names is in the project."""
+    (root / "src").mkdir(exist_ok=True)
+    (root / "src" / "Book.tsx").write_text("const a = 1;\n  " + LINE + "\n", encoding="utf-8")
+    return build(root, [FRESH] if reproduction is None else reproduction,
+                 extra={"cases": ["TC-002", "TC-004"], "manifestations": ways, "mechanism": mechanism})
+
+
+def r11_a_merged_draft_is_one_bug() -> None:
+    """t-2187 N3a (rows 5.5, 5.6, 5.9): a draft with `case`, `cases` and manifestations reads as ONE bug carrying every case and
+    requirement; the factory's own reproduction step stays the primary's (5.4); the report prints every way it shows, how the cause was
+    confirmed, and what nobody verified as "not verified" (FR-41), with no file name and no field name; a bug with one way adds no line."""
+    root = temp_dir("qa-repro-r11-")
+    try:
+        sure = {"statement": "the field turns an invalid value into 1.", "status": "confirmed", "basis": [CODE_BASIS],
+                "claims": [{"says": "an invalid value becomes 1", "confirmed_by": ["b1"]},
+                           {"says": "pasting -1 behaves like typing it", "confirmed_by": []}], "why": ""}
+        task = merged(root, sure)
+        qa = root / "qa-factory"
+        rec = T.story_bug_records(qa, task)["records"][0]
+        check_eq("R11 every case of the draft, in the reader's order (`case`, `cases`, then the manifestations')", rec["cases"],
+                 ["TC-002", "TC-004", "TC-003"])
+        check_eq("R11 the requirements are the union", sorted(set(rec["requirements"])), ["R-5", "R-6", "R-7"])
+        check_eq("R11 the record carries one line per way it shows", rec["manifestations"],
+                 ["type -1 one key at a time; start: field selected; seen: 11", "type 1.5; start: field erased first; seen: 1"])
+        check_eq("R11 ... and the cause with its facts (`cause_view`: the effective status, how it stands)",
+                 (rec["mechanism"]["status"], rec["mechanism"]["by_code"], rec["mechanism"]["runs"], rec["mechanism"]["by_person"],
+                  rec["mechanism"]["unverified"]),
+                 ("confirmed", True, 0, False, ["pasting -1 behaves like typing it"]))
+        single = T.story_bug_records(qa, build(root, [FRESH]))["records"][0]
+        check_eq("R11 control: the same story without the keys - one case, no ways, no cause, no link",
+                 (single["cases"], single["manifestations"], single["mechanism"], single["possibly_same_cause"]), (["TC-002"], [], {}, []))
+        check_eq("R11 the factory's reproduction step is the primary's, whatever the merge adds (5.4)", rec["confirmation"], single["confirmation"])
+        task = merged(root, sure)
+        out = RF._r_bugs({"bugs": RF._bugs(qa, task, {}), "unknown": {}})
+        for needle in ("   One cause (by the line of the application code that does it): the field turns an invalid value into 1.",
+                       "   Shows as:", "   - type -1 one key at a time; start: field selected; seen: 11",
+                       "   - type 1.5; start: field erased first; seen: 1", "   Not verified: pasting -1 behaves like typing it."):
+            check_in(f"R11 the report says: {needle.strip()[:50]}", needle + "\n", out)
+        check_not_in("R11 ... and names no field", "manifestation", out.lower())
+        check_not_in("R11 ... nor `mechanism`, `triage_ref`, `confirmed_by` or a json key", "mechanism", out.lower())
+        check_eq("R11 the counts count bugs, not ways", RF._bugs(qa, task, {})["unconfirmed"] + RF._bugs(qa, task, {})["reproduced"], 1)
+        # the basis cannot be re-read: the cause is no longer said to be confirmed (error goes DOWN)
+        broken = dict(sure, basis=[dict(CODE_BASIS, quote="something the file does not say")])
+        out = RF._r_bugs({"bugs": RF._bugs(qa, merged(root, broken), {}), "unknown": {}})
+        check_in("R11 a basis that does not stand: said as not established, the packet's words (M3)", "   Cause not established: the evidence behind it could not be re-read.", out)
+        check_not_in("R11 ... never `confirmed`", "confirmed by", out)
+        # unverified and unknown
+        out = RF._r_bugs({"bugs": RF._bugs(qa, merged(root, {"statement": "maybe the field", "status": "unverified", "why": "only one start state was run",
+                                                           "basis": [], "claims": []}), {}), "unknown": {}})
+        check_in("R11 an unverified cause is a possibility, with what is missing", "Possibly one cause (not verified: only one start state was run): maybe the field.", out)
+        out = RF._r_bugs({"bugs": RF._bugs(qa, merged(root, {"status": "unknown", "why": "no access to the application code"}), {}), "unknown": {}})
+        check_in("R11 an unknown cause is never printed as one", "Cause not established: no access to the application code.", out)
+        # ONE way: nothing new is printed, whatever the mechanism says
+        one = merged(root, sure, ways=WAYS[:1])
+        text_one = RF._r_bugs({"bugs": RF._bugs(qa, one, {}), "unknown": {}})
+        plain = RF._r_bugs({"bugs": RF._bugs(qa, build(root, [FRESH]), {}), "unknown": {}})
+        check_not_in("R11 one way: no cause line, no list of ways", "One cause", text_one)
+        check_not_in("R11 ... and none of the new words", "Shows as", text_one)
+        check_eq("R11 ... the row line is the plain bug's, but for the case and requirement cells",
+                 text_one.splitlines()[2].split(" — ", 1)[1], plain.splitlines()[2].split(" — ", 1)[1])
+    finally:
+        cleanup(root)
+
+
 def r5_severity() -> None:
     root = temp_dir("qa-repro-r5-")
     try:
@@ -473,6 +546,52 @@ def r9_the_finding() -> None:
         cleanup(root)
 
 
+def r12_a_draft_with_no_word_is_unconfirmed() -> None:
+    """TR1-11: a DRAFT with no `confirmation` word (absent or empty) is `unconfirmed` for every reader of a draft's step - the gate B
+    packet, the bug records, the bug texts, the delivery rows and the board (FR-59, AR-28); a FILED bug with no word stays
+    `confirmed_by_person` (a bug filed before 0.7.16); a draft WITH a word is read as before."""
+    root = temp_dir("qa-repro-r12-")
+    try:
+        task = build(root, "absent")
+        path = task / "work" / "bug-drafts" / "move.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data.pop("confirmation")
+        path.write_text(json.dumps(data), encoding="utf-8")
+        ref = "work/bug-drafts/move.json"
+        # the reader itself: the keyword is the caller's word, never a guess from content; the default keeps the legacy reading
+        check_eq("R12 default: a record with no word is confirmed_by_person", BR.confirmation_of(task, data)[0], "confirmed_by_person")
+        check_eq("R12 draft=True: no word is unconfirmed", BR.confirmation_of(task, data, draft=True), ("unconfirmed", [], []))
+        check_eq("R12 draft=True: an empty word is unconfirmed too", BR.confirmation_of(task, dict(data, confirmation=""), draft=True)[0], "unconfirmed")
+        check_eq("R12 draft=True: a word that is there is as before", BR.confirmation_of(task, dict(data, confirmation="confirmed_by_person"), draft=True)[0],
+                 "confirmed_by_person")
+        # gate B: the row, and the line the person reads
+        check_eq("R12 gate B row", GB.bug_rows(task, {})[0]["confirmation"], "unconfirmed")
+        check_in("R12 gate B keeps its `nobody has reproduced it` line", OLD_TAIL, GB.render_gate_b("QA-1", root=task))
+        # the bug records (traceability, report, dashboard read them) and the bug text
+        records = BR.story_bugs(task)["records"]
+        check_eq("R12 story_bugs draft record", [r["confirmation"] for r in records if not r["filed"]], ["unconfirmed"])
+        written = BR.write_draft_texts(task)
+        check_in("R12 write_draft_texts says nobody has reproduced it", "nobody has reproduced it", (task / written[0]["text"]).read_text(encoding="utf-8"))
+        # the delivery draft rows
+        built = DS.build(task, ledger={"rows": []})
+        check_eq("R12 delivery draft row", [b["confirmation"] for b in built["bugs"] if b["ref"] == ref], ["unconfirmed"])
+        # the board: a draft with and without the story root; a filed bug with no word keeps the legacy word
+        check_eq("R12 board draft with root", FD.story_bug_rows([], [data], {"TC-002"}, "QA-1", task)[0]["confirmation"], "unconfirmed")
+        check_eq("R12 board draft with no root", FD.story_bug_rows([], [data], {"TC-002"}, "QA-1")[0]["confirmation"], "unconfirmed")
+        check_eq("R12 board draft with a word", FD.story_bug_rows([], [dict(data, confirmation="confirmed_by_person")], {"TC-002"}, "QA-1", task)[0]["confirmation"],
+                 "confirmed_by_person")
+        filed = {"id": "BUG-1", "title": "t", "found_by": "TC-002"}
+        check_eq("R12 board filed bug with no word stays confirmed", FD.story_bug_rows([filed], [], {"TC-002"}, "QA-1", task)[0]["confirmation"], "confirmed_by_person")
+        check_eq("R12 delivery filed bug with no word stays confirmed", DS._bug_confirmation(task, {"bug_file": "bugs/BUG-1.md"}, "bugs/BUG-1.md")[0],
+                 "confirmed_by_person")
+        # a draft WITH a word is unchanged at the packet
+        data["confirmation"] = "confirmed_by_person"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        check_eq("R12 gate B row of a draft with a word", GB.bug_rows(task, {})[0]["confirmation"], "confirmed_by_person")
+    finally:
+        cleanup(root)
+
+
 if __name__ == "__main__":
     r1_the_step()
     r2_inconvenient_inputs()
@@ -483,4 +602,6 @@ if __name__ == "__main__":
     r7_unknown_word_and_registry()
     r8_the_vocabulary_file()
     r9_the_finding()
+    r11_a_merged_draft_is_one_bug()
+    r12_a_draft_with_no_word_is_unconfirmed()
     finish("bug reproduced by the factory (HF8-16)")

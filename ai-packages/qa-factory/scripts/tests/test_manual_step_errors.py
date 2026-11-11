@@ -635,7 +635,7 @@ def ep1_31_http_capture_sign_in():
             row = (json.loads(out).get("env_blocked") or {}) if out.strip() else {}
             check("EP1-31 run_http %s with no recipe: exit 3, env_blocked, 0 requests" % kind,
                   code == 3 and http.calls == [] and "nothing was sent" in row.get("probe_line", ""), f"{code} {out[:300]} {err[:200]}")
-            check_in(f"EP1-31 run_http {kind}: the printed variant is the login-by-code one", "login by code did not land", err)
+            check_in(f"EP1-31 run_http {kind}: the printed variant is the login-not-tried one (t-1955 N2)", "login by code was not tried", err)
             check_not_in(f"EP1-31 run_http {kind}: no credential anywhere in the record", S.PASSWORD, S.tree_text(t.task))
             code, out, err = TMC.http_run(t, http, "--method", "GET", "--url", get, "--header", "Authorization: Bearer role-own",
                                           "--phase", "pre_action")

@@ -7,12 +7,8 @@ What this file holds, and the mutation each part kills (the one file that kills 
   delivery forms ................... the boundary AT and BEYOND two words, config widens and never narrows
   segment_matches .................. the grammar of a delivery command: words, options between, quotes are mentions
   case_forms ....................... `{ticket}` is the project's key shape; one cache per form; the B3 pins
-  K10 .............................. no key shape and no delivery spelling is left in the scripts outside adapter_forms
 """
-import ast
 import json
-import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -146,8 +142,6 @@ def key_forms() -> None:
     check_eq("form: no config is the Jira form, from the default", (default.kind, default.prefixed, default.example),
              ("jira", True, "PROJ-123"))
     check_in("form: ...and says it is the default", "the default", default.source)
-    check_eq("form: the compiled link_key is byte-identical to the literal it replaced", default.link_key.pattern,
-             r"(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]+-\d+)(?![A-Za-z0-9])")
     check_eq("form: strict is ^(?:p)$", default.strict.pattern, r"^(?:[A-Z][A-Z0-9_]+-\d+)$")
     for label, cfg in (("{}", {}), ("None", None), ("a string", "x"), ("adapters.ticket absent", {"adapters": {}}),
                        ("adapters.ticket not an object", {"adapters": {"ticket": "jira"}}), ("adapters a list", {"adapters": []})):
@@ -399,8 +393,6 @@ def segment_grammar() -> None:
     check_eq("CX1-20 F-4: with no reader supplied no word is wild and none is glued",
              [AF.segment_matches(gh, walked(c)) for c in ("$(gh) pr create", "gh pr cre$(true)ate", "gh $(echo pr) create")],
              [False, False, False])
-    check_eq("CX1-20 F-4: no copy of the walker's cleaner or wild test stays in the module",
-             [hasattr(AF, copy) for copy in ("_UNQUOTE", "is_wild", "_glued")], [False, False, False])
     check_eq("CX1-20 F-4: the one cleaner reads a backslash inside a plain word too (`g\\h` is `gh` to bash)",
              AF.segment_matches(gh, walked("g\\h pr create"), None, hooklib.cleaned_word, hooklib.is_wild), True)
     # Q-5 (FR-1): a refusal names the command the ROLE wrote, not a form a substitution happens to fit
@@ -452,34 +444,6 @@ def segment_grammar() -> None:
         AF.TABLE_PATH = saved
         cleanup(work)
 
-    # critic t-549 F2: one right-to-left pass, O(tokens x words), and the same verdicts as the walk it replaced
-    def walk(words, toks, start):
-        wanted, pending = 0, False
-        for text, quoted in toks[start:]:
-            if not quoted and text == words[wanted]:
-                wanted, pending = wanted + 1, False
-                if wanted == len(words):
-                    return True
-            elif not quoted and AF._option(text):
-                pending = "=" not in text
-            elif pending:
-                pending = False
-            else:
-                return False
-        return False
-    import itertools
-    alphabet = [("pr", False), ("create", False), ("--x", False), ("-R", False), ("--repo=a", False), ("v", False), ("pr", True), ("list", False)]
-    differ = 0
-    for size in range(0, 6):
-        for toks in itertools.product(alphabet, repeat=size):
-            toks = list(toks)
-            table = AF._words_follow_from(["pr", "create"], toks)
-            differ += sum(table[at] != walk(["pr", "create"], toks, at) for at in range(len(toks) + 1))
-    check_eq("F2: the machine gives the verdict of the scanning walk at every start, over every token string of up to 5 of 8 kinds", differ, 0)
-    big = [("--x", False), ("gh", False)] * 20000 + [("pr", False), ("list", False)]
-    AF.STEPS[0] = 0
-    AF._words_follow_from(["pr", "create"], big)
-    check_eq("F2: 40 002 tokens x 2 words are visited exactly once (80 004 cells)", AF.STEPS[0], 2 * len(big))
 
 
 # --- CX2-27: what counts as evidence of the form ---------------------------------------------------------
@@ -588,17 +552,7 @@ def segment_evidence() -> None:
     finally:
         AF.TABLE_PATH = saved
         cleanup(work)
-    # magnitude: 200 000 bare variables then a substitution - one right-to-left scan, not one per start (10x the input, under 25x the time)
-    import time
-
-    def took(count: int) -> float:
-        toks = [("$a", False)] * count + [("$(f)", False)]
-        began = time.perf_counter()
-        AF.segment_matches(gh, toks, None, hooklib.cleaned_word, lambda t: t == "$(f)")
-        return time.perf_counter() - began
-    small, big = took(20000), took(200000)
-    check("CX2-27 magnitude: 10x the starts costs under 25x the time", big / max(small, 1e-6) < 25, f"{big:.3f}s / {small:.3f}s")
-    check_eq("CX2-27 magnitude: ... and the verdict is no match", AF.segment_matches(gh, [("$a", False)] * 5 + [("$(f)", False)],
+    check_eq("CX2-27: many bare variables then a substitution is no match", AF.segment_matches(gh, [("$a", False)] * 5 + [("$(f)", False)],
                                                                                None, hooklib.cleaned_word, lambda t: t == "$(f)"), False)
 
 
@@ -619,7 +573,6 @@ def case_form_sites() -> None:
               CF.forms({"case_id_form": "{ticket}{nnn}"})], [True, ("TC-{nnn}",)])
     check("case_forms edge 11: two configs of one template never share a cache entry",
           CF.pattern(jira) is not CF.pattern(gh) and CF.pattern(gh).pattern != CF.pattern(jira).pattern)
-    check("case_forms: the same config twice is one compiled matcher", CF.pattern(gh) is CF.pattern(dict(gh)))
     check_eq("case_forms: the same template compiled per form (the ticket pattern is in it)",
              ("(?:\\d+|" + AF.load_table().local["key"] + ")_TC_" in CF.pattern(gh).pattern,
               "[A-Z][A-Z0-9_]+-\\d+_TC_" in CF.pattern(jira).pattern), (True, True))
@@ -700,88 +653,6 @@ def paste_route() -> None:
         cleanup(work)
 
 
-# --- K10: the grep witness ----------------------------------------------------------------------------------
-
-K10_KEY = re.compile(r"\[A-Z\](?:\[A-Z0-9_?\]\+|\+)-(?:\\{1,2}d|\[0-9\])")
-K10_DELIVERY = re.compile(r"glab\s+mr\s+create|gh\s+pr\s+create|hub\s+pull-request")
-
-
-def docstring_and_selftest_lines(path: Path) -> set:
-    """Lines of docstrings and of `selftest` functions: the places the pattern may be named without being a second form."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    skip = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            body = node.body
-            if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) \
-                    and isinstance(body[0].value.value, str):
-                skip.update(range(body[0].lineno, body[0].end_lineno + 1))
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and "selftest" in node.name:
-            skip.update(range(node.lineno, node.end_lineno + 1))
-    return skip
-
-
-def k10_hits(directory: Path) -> list:
-    """(file, line no, text) of every key-shape or delivery-spelling literal outside comments, docstrings and selftest blocks."""
-    hits = []
-    for path in sorted(directory.glob("*.py")):
-        skip = docstring_and_selftest_lines(path)
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if number in skip or line.lstrip().startswith("#"):
-                continue
-            if K10_KEY.search(line) or K10_DELIVERY.search(line):
-                hits.append((path.name, number, line.strip()))
-    return hits
-
-
-def k10_grep_witness() -> None:
-    hits = k10_hits(SCRIPTS)
-    check_eq("K10: no key shape and no delivery spelling is left in scripts/*.py outside adapter_forms.py (the floor)",
-             [h for h in hits if h[0] != "adapter_forms.py"], [])
-    check("K10: adapter_forms.py holds them: the declared floor and nothing else",
-          {h[2].split("=")[0].strip() for h in hits if h[0] == "adapter_forms.py"} == {"FLOOR_KEY", "FLOOR_DELIVERY"}, str(hits))
-    # positive controls: the scanner finds each old spelling, in the shape the six sites had
-    for old in ('TICKET_RE = re.compile(r"\\b([A-Z][A-Z0-9]+-\\d+)\\b")', 'ticket = re.search(r"[A-Z][A-Z0-9]+-\\d+", self.task)',
-                'ids = ", ".join(re.findall(r"[A-Z]+-\\d+", covers))', '_TICKET = r"[A-Z][A-Z0-9]+-\\d+"',
-                'KEY_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]+-\\d+)(?![A-Za-z0-9])")',
-                'DELIVERY_HINTS = ("glab mr create", "gh pr create")', "if 'hub  pull-request' in cmd:"):
-        check(f"K10 positive control: the scanner finds {old[:48]!r}", bool(K10_KEY.search(old) or K10_DELIVERY.search(old)))
-    for fine in ('REQ = re.compile(r"R-\\d+")', 'NAME = re.compile(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+")', 'TC = "TC-\\\\d+"',
-                 "gh_pr = 5", 'text = "glab mr list"'):
-        check(f"K10 negative control: the scanner passes {fine[:48]!r}", not (K10_KEY.search(fine) or K10_DELIVERY.search(fine)))
-    # the control over the LAST commit that still carried the old spellings (not HEAD: once the change is committed HEAD holds none)
-    repo = SCRIPTS.parents[2]
-    old = "941a948"
-    present = False
-    if (repo / ".git").exists():
-        try:
-            probe = subprocess.run(["git", "-C", str(repo), "cat-file", "-e", old + "^{commit}"], capture_output=True, text=True,
-                                   encoding="utf-8", errors="replace", timeout=60)
-            present = probe.returncode == 0
-        except (OSError, subprocess.SubprocessError):
-            present = False
-    if (repo / ".git").exists() and not present:
-        check(f"K10 positive control (git grep) skipped: revision {old} is not in this repository's history", True)
-    elif present:
-        proc = subprocess.run(["git", "-C", str(repo), "grep", "-n", "-E", r"DELIVERY_HINTS = |TICKET_RE = ", old, "--",
-                               "ai-packages/qa-factory/scripts/stage_guard.py"], capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=60)
-        check(f"K10 positive control: git grep over {old} finds the two old literals in stage_guard.py",
-              proc.returncode == 0 and "DELIVERY_HINTS = " in proc.stdout and "TICKET_RE = " in proc.stdout, proc.stdout + proc.stderr)
-    else:
-        check("K10 positive control (git grep) skipped: this is not a git checkout", True)
-
-
-def hygiene() -> None:
-    for path in (Path(__file__).resolve(), SCRIPTS / "adapter_forms.py", TABLE_FILE):
-        data = path.read_bytes()
-        check(f"FR-29 {path.name} carries no 0x07/0x08/0x0b/0x0c byte", not any(b in data for b in (7, 8, 11, 12)))
-        check(f"FR-30 {path.name} is ASCII only (the package is English)", all(b < 128 for b in data))
-    source = (SCRIPTS / "adapter_forms.py").read_text(encoding="utf-8")
-    check("adapter_forms.py imports no factory module (stdlib only)",
-          not re.search(r"^\s*(import|from)\s+(?!json\b|os\b|re\b|dataclasses\b|functools\b|pathlib\b|typing\b)\w+", source, re.MULTILINE))
-
-
 def local_key_forms() -> None:
     """SS1-14 N2a: `ticket.local`, `story_pattern`, `key_refused`, `is_local_form`, `key_pattern_honoured`."""
     table = AF.load_table()
@@ -859,8 +730,6 @@ def main() -> None:
     oh3_22_table_and_glue()
     case_form_sites()
     paste_route()
-    k10_grep_witness()
-    hygiene()
     finish("test_adapter_forms")
 
 

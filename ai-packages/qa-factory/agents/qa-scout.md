@@ -63,16 +63,16 @@ S1's acceptor is the driver: it reads each item against its witness, and the `tr
 <!-- kind: process -->
 ## Tools
 
-You may call any of these (arguments: your brief's Commands card); none is required and there is no order.
+You may call any of these (arguments: the Commands card); none required, no order.
 
-- `ticket_adapter.py` - You read the tracker by the route your dispatch names: a first look at a mentioned ticket, your verdict on it, its full read, one attachment's receipt, a page or search, and `record-source` for a text you read elsewhere. It is the one writer of `work/source-inventory.json`.
+- `ticket_adapter.py` - You read the tracker by the route your dispatch names: a first look at a mentioned ticket, your verdict on it, its full read, one attachment's receipt, a page or search, and `record-source` for a text you read elsewhere. The one writer of `work/source-inventory.json`.
 - `diff_pass.py` - the changed files and hunks of a saved diff in one call; a diff is read by files and hunks, never whole.
 - `vcs_evidence.py` - a merge request into a file: it holds it whole and stdout is a summary.
 - `env_probe.py` - whether a named stand answers, and how it signs in. `context_bundle.py` - builds and validates `work/context-bundle.json`.
-- The walk of references: take a first look at every key, link or file name in a kept source, read whole only what you judged relevant, keep a visited set so the walk ends.
+- The walk of references: take a first look at every key, link or file name, read whole only what you judged relevant, keep a visited set.
 - A tool that did not read a source does not end it: try the tracker search, the recorded route and the browser before you write it unavailable.
 
-The keys of your manifest and your handoff form, `tried` among them, are on your key page; the validator checks them when you write.
+The keys of your manifest and your handoff form, `tried` among them, are on your key page.
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per source of the context manifest's inventory, then `work/context-manifest.json`.
 <!-- /gen -->
@@ -80,9 +80,11 @@ The keys of your manifest and your handoff form, `tried` among them, are on your
 <!-- kind: process -->
 ## When to ask
 
-- An open fact (a conflict nothing settles, a source you cannot judge, a stand you cannot reach) goes into `unresolved_facts` of the manifest with what you read and what would settle it; a source is a record in the inventory, never only a name inside a note. Continue on the recommended reading, mark what rests on it `until answered`, end your digest `concerns`; the driver settles what it can from disk and takes the rest to the person.
-- Access a person could give is a question; a gap the factory's own probe established is a recorded gap, not a question.
-- A conflict nothing settles goes to `unresolved_facts` with both quotes.
+- An open fact (a source you cannot judge, a stand you cannot reach) goes into `unresolved_facts` of the manifest with what you read and what would settle it; a source is an inventory record, never only a name inside a note. Continue on the recommended reading, mark what rests on it `until answered`, end the digest `concerns`; the driver settles what it can and takes the rest to the person.
+- Access a person could give is a question; a gap the factory's probe established is recorded.
 - Ask nothing a person's words or a register row already decide: a question that does is refused unless it sets `asks_beyond_words: <what the words leave open>`.
-- Stop (`halt`) only when the data is absent: no diff anywhere in the cascade, no `--mr`, `--branch`, `--commit` or `--ungrounded`, and no `implementation_source: current-code` in the dispatch or the message that continues you. Write `implementation.source: none` in work/context-manifest.json and return the halt digest; the orchestrator records the pipeline value after the person's answer.
-- The person's review of the source inventory is the driver's stop, not your question: when every source is decided, hand back as your brief says.
+- Stop (`halt`) only when the data is absent: no diff in the cascade, no `--mr`, `--branch`, `--commit` or `--ungrounded`, and no `implementation_source: current-code` in the dispatch or continuation. Write `implementation.source: none` in work/context-manifest.json and return the halt digest; the orchestrator records the pipeline value after the person's answer.
+- A side the person said is not built yet (`sides` holds `reality: absent`) is no halt: ground it on the requirements and what the project has (`existing_test_candidates`), name unknowns as gaps.
+- A conflict nothing settles goes to `unresolved_facts` with both quotes.
+- With `current-code` write no `work/impl-diff.txt`, no stub there; exit refuses it.
+- The inventory review is the driver's stop: hand back when decided.

@@ -263,13 +263,11 @@ REPORT_BLOCKS_DOOR = "report_facts.py --task <T> --write"
 # to, what a person would have to observe, and how they would do it (or what is needed for it).
 REPORT_LEFT_WITH_YOU_REQUIRED = ("To check:",)
 REPORT_LEFT_WITH_YOU_ONE_OF = ("Needed:", "How:")
-# Spellings the report may not carry: the factory's internal paths and content addresses, the
-# machine fragment, and the phrase that sent the person to a source file before the verdict.
+# Spellings the report may not carry: the factory's internal paths and content addresses and the machine fragment.
 REPORT_FORBIDDEN = {
     "work/": "a path under work/ — those files are machine inputs, name the document instead",
     "cv_": "a content-addressed case version — a person cannot open a hash",
     "ti_": "a selector-hash instance id — name the test function instead",
-    "look here first": "\"look here first\" — the verdict comes first, not a source file",
     "<!-- factory-summary": "the generated verification fragment — it lives in work/ now",
 }
 # A decision id with no words beside it. `S5-160` told the person nothing; they asked for the

@@ -1,0 +1,1 @@
+- Test harness: the role-text rule pins of five more test files (tracker route, tracker write and status, waiver release, walk charter, and one pin of onboarding notes) became 14 rows of `design/role-rules.json`, read by `scripts/role_rules.py` (wave 6 of 6); no behaviour check changed.

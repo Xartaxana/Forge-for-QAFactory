@@ -905,7 +905,7 @@ def record_refusals(match: str) -> list:
     by `test_path_grants.pattern_errors` before anything is written. Existing records of either kind
     stay as they are on disk.
 
-    A block that still holds the form's placeholder (`probe gap: <instance or case>`, `RP-<profile>`) names nothing: it
+    A block that still holds the form's placeholder (`probe gap: <case key>`, `RP-<profile>`) names nothing: it
     is refused with what is expected (the value in its place) and a door (GW1-1 P4). `*`, `stand gap:` and `protected
     test path:` keep their own branches above it. An old record with a placeholder stays on disk, passes nothing
     (`split_overridden`) and can still be revoked."""

@@ -2025,10 +2025,10 @@ def hf2_7_cause_is_a_driver_word() -> None:
     """The cause `question_answer` is the driver's word: in the controller's list BEFORE `ticket_changed` (the pin of K26), not the reviewers'."""
     import question_register as QR
     from controller import REPAIR_CAUSES, REVIEWER_CAUSES
-    check_eq("controller: the list ends with ticket_changed and holds question_answer just before it",
-             (REPAIR_CAUSES[-2:], "question_answer" in REVIEWER_CAUSES), (("question_answer", "ticket_changed"), False))
+    check_eq("controller: the list ends with ticket_changed and holds source_arrived just before it",
+             (REPAIR_CAUSES[-2:], "question_answer" in REVIEWER_CAUSES), (("source_arrived", "ticket_changed"), False))
     api = (Path(__file__).resolve().parent.parent.parent / "references" / "controller-api.md").read_text(encoding="utf-8")
-    check_in("controller-api.md names the cause in the list", "reviewer_error|question_answer|ticket_changed", api)
+    check_in("controller-api.md names the cause in the list", "reviewer_error|question_answer|source_arrived|ticket_changed", api)
     check_eq("the S4 stop is in the vocabulary, in words", ("S4 stop" in QR.vocabulary()["where"], QR.where_words("S4 stop")),
              (True, "while the test cases were written"))
 

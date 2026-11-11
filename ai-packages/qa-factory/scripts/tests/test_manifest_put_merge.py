@@ -908,7 +908,29 @@ def ep1_39_critic_approval() -> None:
         check_in("run: and `run` prints the moved row", "moved out of tests[]: test_ten[a] (case TC-010 is now wholly unresolved", out)
 
 
+def pc3_provisional_beside_the_other_lists() -> None:
+    """t-2181 PC-3: `provisional[]` is merged by `id` beside the other lists and folds like them. A fragment that also carries
+    `tests[]`, `unresolved[]` and `then_bindings` leaves them as the merge always left them; the journal replays to the same
+    manifest; a retraction naming a row nobody sent is NOT raised on replay (it is named in `unprojected_events`)."""
+    prov = {"id": "P-1", "kind": "side_substitute", "what": "a mock of the payments side", "status": "open"}
+    together = {"tests": [t9("test_pay[a]", provisional=["P-1"])], "provisional": [prov],
+                "unresolved": [{"case": "TC-004", "reason": "pending_implementation", "instance_ids": ["test_pay[b]"]}]}
+    merged, _ = MP.merge({}, together)
+    check_eq("the lists of one fragment each land in their own key",
+             (sorted(merged), [t["instance_id"] for t in merged["tests"]], merged["provisional"][0]["id"]),
+             (["provisional", "tests", "unresolved"], ["test_pay[a]"], "P-1"))
+    folded = MP.fold(journal(together, {"provisional": [{"id": "P-1", "status": "kept_by_decision"}]},
+                             {"retracted_provisional": ["P-1"]}))
+    check_eq("the journal replays to one row, retracted, with its first fields",
+             [(r["id"], r["kind"], r["status"]) for r in folded["provisional"]], [("P-1", "side_substitute", "retracted")])
+    check_eq("and the replay reports nothing unprojected", "unprojected_events" in folded, False)
+    bad = MP.fold(journal({"retracted_provisional": ["P-5"]}, together))
+    check_eq("a retraction of an id nobody sent is never raised on replay (the door refuses it before the commit) and retracts nothing",
+             ("unprojected_events" in bad, [(r["id"], r["status"]) for r in bad["provisional"]]), (False, [("P-1", "open")]))
+
+
 def main() -> None:
+    pc3_provisional_beside_the_other_lists()
     ep1_39_then_row_keeps_tests()
     ep1_39_critic_approval()
     ep1_38_obligation_hash()

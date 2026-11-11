@@ -15,8 +15,7 @@ import harness  # noqa: E402
 from story_run_common import (  # noqa: E402
     check, check_in, check_not_in, d2_answer, d2_pipeline, d2_seed, driver_for, eq, run_scenarios, s0_state,
 )
-from test_controller_state import record_stage_acceptance  # noqa: E402
-from test_story_run_s6 import manual_rig, t292_config  # noqa: E402
+from test_story_run_s6 import AWAITS, manual_rig, t292_config  # noqa: E402
 
 TASK = "QA-9"
 UI = "QA-9_TC_001"            # a screen case: the stand's sign-in account is missing for it
@@ -49,8 +48,9 @@ def loop(driver, world, actions, seen):
             driver.run_manual_block(list(action["cases"]))
             for dispatch_id in sorted(set(world.dispatches) - before):
                 world.accept(dispatch_id)
-                # X7-6: S6 closes over its consumer's accept record for the author's last accepted dispatch (the analyst writes it)
-                record_stage_acceptance(driver.task_root, "S6", dispatch_id)
+                # X7-6c: S6 closes only over the consumer's (failure analyst's) record for the author's last dispatch; the analyst has judged it
+                import test_controller_state as BASE
+                BASE.record_stage_acceptance(driver.task_root, "S6", dispatch_id)
     driver.dispatch_action = act
 
 
@@ -104,10 +104,7 @@ def k_d1_the_question_waits_and_the_other_case_goes_on() -> None:
            (request["refused"]["by"], "waits for your answer to question 1" in request["refused"]["reason"]), ("left_unchecked", True))
         row = [json.loads(l) for l in (task_root / "state" / "driver-questions.jsonl").read_text(encoding="utf-8").splitlines()][-1]
         eq("K-D1 the question has its driver-questions.jsonl row, as a live one", (row["kind"], row["source"]), ("stand_login", "code"))
-        # X7-6: with a consumer the runner never marks S6 complete (story_run `s6_awaits`, the final window's `OpenWork`); the held case
-        # stays outside the cover and the close goes by the consumer's record - so the finish is the open-work word, never `True`
-        eq("K-D1 the last block was NOT marked complete (a held case is outside the cover; the runner awaits the consumer's acceptance)",
-           [getattr(e["complete"], "unresolved", e["complete"]) for e in launched], ["stage_awaits_acceptance"])
+        eq("K-D1 the last block did not close S6 on the runner's word: it awaits the consumer (X7-6c; a held case is outside the cover)", [e["complete"] for e in launched], [AWAITS])
     finally:
         harness.cleanup(root)
 

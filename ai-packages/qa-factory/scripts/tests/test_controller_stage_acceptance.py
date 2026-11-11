@@ -106,8 +106,8 @@ def quiet(call, *args, **kwargs):
 def run() -> None:
     old = hooklib._PROJECT_ROOT_CACHE
     # --- the world BEFORE B4: the shipped table gives no stage an acceptor -> nothing new is refused (E-X2-T5), and nothing is switched on
-    check_eq("the shipped stages.json gives S2, S3 and S4 the critic as acceptor, S6 its consumer (X7-6), and no other stage one",
-             [bool(A.stage_def_of(s).get("acceptance_by")) for s in ("S2", "S3", "S4", "S5", "S6", "S7", "S8")], [True] * 3 + [False, True, False, False])
+    check_eq("the shipped stages.json gives S2, S3 and S4 the critic as acceptor, S6 and S7 their consumers (X7-6, X7-6b), and no other stage one",
+             [bool(A.stage_def_of(s).get("acceptance_by")) for s in ("S2", "S3", "S4", "S5", "S6", "S7", "S8")], [True] * 3 + [False, True, True, False])
     root, task, c = story()
     hooklib._PROJECT_ROOT_CACHE = root
     try:
@@ -225,6 +225,9 @@ def run() -> None:
             code, said = quiet(stage_done.record_acceptance, "QA-1", "S2", "work/handoffs/dC.yaml")
             check_eq("a form that names no reviewed dispatch: refused (exit 2)", code, 2)
             check_in("... the refusal names the field `inputs_read` as the door", "inputs_read", said)
+            check_in("test_refusal_names_author_path_no_sha256: ... and the concrete expected row, the author's last accepted dispatch",
+                     "path: work/handoffs/dB.yaml", said)
+            check("test_refusal_names_author_path_no_sha256: ... and no sha256 (the check never reads it)", "sha256" not in said, said)
             (handoffs / "dC.yaml").write_text(FORM.format(reviewed="dC", word="approve", failure="null"), encoding="utf-8")
             code, said = quiet(stage_done.record_acceptance, "QA-1", "S2", "work/handoffs/dC.yaml")
             check_eq("a form that names only a dispatch that is not the author's: refused (exit 2)", code, 2)
@@ -232,6 +235,23 @@ def run() -> None:
             (handoffs / "dC.yaml").write_text(FORM.format(reviewed="dB", word="approve", failure="null"), encoding="utf-8")
             code, said = quiet(stage_done.record_acceptance, "QA-1", "S2", "work/handoffs/dC.yaml")
             check_eq("the `ok` that reviewed the newer dB is recorded for dB, and closes the stage", (code, refused(c, critic)), (0, ""))
+    finally:
+        cleanup(root)
+
+    # --- t-1936 F1 (c): no accepted dispatch of the author yet -> the refusal says so, and names no path to list
+    root, task, c = story()
+    hooklib._PROJECT_ROOT_CACHE = root
+    try:
+        with Patched():
+            dispatch(c, task, "dC", CRITIC)
+            handoffs = task / "work" / "handoffs"
+            handoffs.mkdir(parents=True, exist_ok=True)
+            (handoffs / "dC.yaml").write_text(FORM.format(reviewed="dX", word="approve", failure="null"), encoding="utf-8")
+            code, said = quiet(stage_done.record_acceptance, "QA-1", "S2", "work/handoffs/dC.yaml")
+            check_eq("test_refusal_when_no_author_yet: exit 2", code, 2)
+            check_in("test_refusal_when_no_author_yet: ... says no accepted dispatch of the author exists at S2 yet",
+                     f"no accepted dispatch of {AUTHOR} exists at S2 yet, so no review can be recorded", said)
+            check("test_refusal_when_no_author_yet: ... and names no row to list", "work/handoffs/.yaml" not in said and "sha256" not in said, said)
     finally:
         cleanup(root)
 

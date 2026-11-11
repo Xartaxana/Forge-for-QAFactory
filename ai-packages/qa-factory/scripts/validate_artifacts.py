@@ -90,6 +90,7 @@ BUG_CONFIRMATION_CUTOFF = "2026-09-24"
 # The filed-bug header (cases / requirements, HF8-21) has its own cutoff for the same reason: a bug written by 0.10.6 and before
 # carries `source_draft` and no `cases` (run 12586's BUG-1.md), and nobody re-litigates a filed bug. The day after the release.
 BUG_FILING_HEADER_CUTOFF = "2026-10-31"
+# The red test with the bug (P28, X7-5): its cutoff day is `contract.BUG_RED_TEST_CUTOFF`, read only by `contract.red_test_owed`.
 BUG_STATUS = {"Open", "Fixed", "Verified", "Reopened", "Rejected", "Intended", "Blocked", "Closed"}
 BUG_SEVERITY = {"blocker", "critical", "major", "minor", "Blocker", "Critical", "Major", "Minor"}
 # Required keys per JSON artifact of the v0 stage model. The SOURCE OF TRUTH for this table
@@ -147,7 +148,7 @@ NEXT_STEPS = {
     "requirements-readiness.json": "next: understanding.md, then S3 qa-test-strategist; verdict: blocked -> S3 is off-limits without answers or an explicit risk acceptance recorded at gate A",
     "understanding.md": "next: S3 qa-test-strategist — one plan row per register requirement; every R of the register must already appear under \"What we verify\" or \"What we do not verify\"",
     "test-plan.md": "next: GATE A (mandatory) — this table IS what the human reads, so every row needs its `what we verify` line; a disposition the human changes carries overridden: true and re-dispatches the strategist once",
-    "automation-manifest.json": "next: check_witness.py acceptance (run_witness); then qa-code-critic — require independent_run and red_probe; stage_guard rule 3 blocks S6-S8 while an unresolved entry lacks a deferred_by_decision: reason",
+    "automation-manifest.json": "next: check_witness.py acceptance (run_witness - or, when every test is pending its absent side, the `kind: collect` row in runs[]); then qa-code-critic — require independent_run and red_probe; stage_guard rule 3 blocks S6-S8 while an unresolved entry lacks a deferred_by_decision: reason",
     "run-report.json": "next: check_witness.py acceptance; env_preflight: blocked -> S6 halts on the environment (owner:factory) and execution_status must read env_blocked; otherwise S7 qa-failure-analyst triages every failure",
     "triage.json": "next: the ENV_ISSUE dismissal formula (our_signal/env_fix/unverified) and FLAKY proof (3 executions counted across every role via runs[], + mechanism + fix_result); then S8 — ledger.py, then check_delivery.py",
     "ledger.json": "next: check_delivery.py fills delivery_ready and reasons; then test-report.md, whose Check coverage section is work/ledger.md verbatim and whose delivery_ready line must equal this file",
@@ -293,6 +294,19 @@ def _register_facts(task) -> tuple:
     return known, C.read_text(register), _question_rows(_story_root(register))
 
 
+def _snapshot_facts(task, register_text) -> tuple:
+    """(snapshot item ids, parity R ids) for C7; each None when absent (no task/register, no snapshot, or a half-installed build keeps the
+    refusal direction). The snapshot is read from the story root of the register path, so an archived story finds its own."""
+    if not task:
+        return None, None
+    try:
+        import reference_snapshot
+        items = reference_snapshot.item_ids(_story_root(register_path_for(str(task))))
+    except Exception:
+        items = None
+    return items, (None if register_text is None else C.parity_ids(register_text))
+
+
 def check_then_oracles(path: Path, fm: dict, text: str, errors: list) -> None:
     """`then_oracles` and the case `basis` of a case written on or after ORACLE_CUTOFF.
 
@@ -309,21 +323,23 @@ def check_then_oracles(path: Path, fm: dict, text: str, errors: list) -> None:
     impl_only = None
     if register_text is not None:
         impl_only = C.unconfirmed_requirements(register_text, questions)
+    snapshot_items, parity = _snapshot_facts(fm.get("task"), register_text)
     errors.extend(C.then_oracle_errors(
         path.name, fm.get("then_oracles") if "then_oracles" in fm else None,
         fm.get("question_thens") if "question_thens" in fm else None,
         thens, impl_only=impl_only, known_r=known, questions=questions,
-        raw_raise_questions=fm.get("raise_questions") if "raise_questions" in fm else None))
+        raw_raise_questions=fm.get("raise_questions") if "raise_questions" in fm else None,
+        snapshot_items=snapshot_items, parity=parity, basis=fm.get("basis", "")))
     # TQ1-25: the optional `alternatives` key (the readings B a Then must fail under). Inside the dated block: a case
     # written before ORACLE_CUTOFF carries no such key (it is new) and is not checked. Shape and refs only (FR-12).
     errors.extend(C.alternatives_errors(path.name, fm.get("alternatives") if "alternatives" in fm else None, thens,
                                         known_r=known, questions=questions))
     # C12: the basis a case inherits from its plan row may not name an implementation-only R either.
     basis = str(fm.get("basis", "")).strip()
-    named = re.fullmatch(r"requirement:(R-\d+)", basis)
-    if named and impl_only and named.group(1) in impl_only:
+    named = C.requirement_id(basis)
+    if named and impl_only and named in impl_only:
         errors.append(
-            f"{path.name}: FORM — basis '{basis}' names {named.group(1)}, which is implementation-only (derived "
+            f"{path.name}: FORM — basis '{basis}' names {named}, which is implementation-only (derived "
             "from the diff alone): a requirement read from the code is not an oracle. Name what the expectation "
             "rests on instead (`consistency:<where before and now differ>` or `external:<ref>`); each Then "
             "says where its value comes from in `then_oracles`")
@@ -425,9 +441,23 @@ def check_bug_filing_header(path: Path, fm: dict, errors: list) -> None:
                       "bug against them)")
 
 
-def check_bug_form(path: Path, fm: dict, text: str, errors: list) -> None:
-    """WP4: the oracle per the grammar (a finding without an oracle is an observation, not a bug),
-    severity is derived from impact by the scale, the impact and initial-state sections are mandatory."""
+def check_bug_form(path: Path, fm: dict, text: str, errors: list, draft=None) -> None:
+    """t-2187 N4 (one bug, many manifestations; AR-21, AR-27): `draft` is the RESOLVED source draft of the bug (a dict; `{}` is
+    a draft that could not be read), handed in by `artifact_producer.validate`, the only caller that has the story folder. With
+    `draft=None` the manifestation check below is NOT run and says nothing: the caller that cannot resolve a draft says so in
+    its own not-checked line, never a pass (FR-59). With a draft of 2+ manifestations (one confirmed cause, several ways it
+    shows) the bug file must list every case the draft speaks for in `cases`, carry `## Cause` and `## Manifestations`, and the
+    `## Manifestations` text must hold each manifestation's case and its red test command (or the reason there is none): a
+    PRESENCE check of data the draft already holds; whether the text is true or the cause is the cause stays the reporter's and
+    the person's. A draft with fewer than 2 manifestations (an old draft, an ordinary bug) adds no check: the file is valid
+    exactly as before.
+
+    WP4 / X7-5: the oracle is a ROUTE word per the grammar (a finding without an oracle is an observation, not a bug; `code:`
+    is refused - the code is never the oracle, P20), the impact is a class of the scale, the impact and initial-state sections
+    are mandatory, the red test (or why there is none) is with the bug (P28). The severity is the reporter's call: the scale
+    `impact -> severity` of config.json is a suggestion in the role's charter, and a severity that differs from it is NOT
+    refused here (F-X7-8 (a)); the value itself stays a closed word (`BUG_SEVERITY`, checked in `check_bug`: the dashboard
+    and the metrics read it)."""
     cfg = G.load_overrides(CFG_PATH)
     scale = G.impact_scale(cfg)
     for field in BUG_FORM_REQUIRED:
@@ -435,23 +465,24 @@ def check_bug_form(path: Path, fm: dict, text: str, errors: list) -> None:
             errors.append(f"{path.name}: FORM — '{field}' is missing (an impact class from the scale {sorted(scale)})")
     violates = str(fm.get("violates", ""))
     if violates and not G.ORACLE_RE.match(violates):
-        errors.append(
-            f"{path.name}: FORM — violates '{violates}' is not per the oracle grammar "
-            "(requirement:R-n | invariant: | consistency: | history: | impact: | external:). "
-            "No oracle from the list -> this is an observation, not a bug"
-        )
-    impact = str(fm.get("impact", ""))
-    if impact:
-        if impact not in scale:
-            errors.append(f"{path.name}: FORM — impact '{impact}' outside the scale {sorted(scale)}")
+        if re.match(r"\s*code\s*:", violates, re.IGNORECASE):
+            errors.append(
+                f"{path.name}: FORM — violates '{violates}': the code is never the oracle (P20) - a test or a bug whose "
+                "expectation is read from the implementation can only pass. Name what the product must do instead, one of "
+                "requirement:R-n | invariant: | consistency: | history: | impact: | external:"
+            )
         else:
-            expected = scale[impact]["severity"]
-            actual = str(fm.get("severity", "")).lower()
-            if actual and actual != expected:
-                errors.append(
-                    f"{path.name}: FORM — severity '{actual}' does not match the one derived from impact '{impact}' "
-                    f"-> '{expected}' (severity is derived, not assigned; the scale — config.json impact_scale)"
-                )
+            errors.append(
+                f"{path.name}: FORM — violates '{violates}' is not one of the oracle kinds "
+                "(requirement:R-n | invariant: | consistency: | history: | impact: | external:). "
+                "No oracle from the list -> this is an observation, not a bug"
+            )
+    impact = str(fm.get("impact", ""))
+    if impact and impact not in scale:
+        errors.append(f"{path.name}: FORM — impact '{impact}' outside the scale {sorted(scale)}")
+    if str(fm.get("source_draft", "")).strip() and C.red_test_owed(fm):
+        for problem in C.red_test_problems(fm, flat=True):
+            errors.append(f"{path.name}: FORM — {problem}")
     confirmation = str(fm.get("confirmation", "")).strip()
     if confirmation and confirmation not in C.BUG_CONFIRMATIONS:
         errors.append(
@@ -470,6 +501,59 @@ def check_bug_form(path: Path, fm: dict, text: str, errors: list) -> None:
     for heading in BUG_FORM_SECTIONS:
         if not G.section_present(lines, heading):
             errors.append(f"{path.name}: FORM — no \"{heading}\" section (without it the defect record is irreproducible/unassessable)")
+    if draft is None:
+        return
+    import bug_records as BR   # late: the ONE reader of a draft's cases and manifestations (AR-13); the module imports contract/hooklib only
+    if not draft:
+        errors.append(f"{path.name}: FORM — the source draft '{str(fm.get('source_draft', '')).strip()}' cannot be read, so its manifestations "
+                      "cannot be checked; `source_draft` must name the draft file as it stands under work/bug-drafts/ "
+                      "(`work/bug-drafts/<file>.json`)")
+        return
+    if len(BR.manifestation_summary(draft)) < 2:
+        return
+    stem = Path(str(fm.get("source_draft", ""))).stem or "<draft>"
+    door = f"work/bug-text/{stem}.md holds the cause and one line per manifestation to copy from"
+
+    def ids(cells) -> list:
+        out: list = []
+        for cell in cells:
+            for one in C.case_ids(cell) or [str(cell).strip()]:
+                if one and one not in out:
+                    out.append(one)
+        return out
+
+    named = ids(G.parse_inline_list(fm.get("cases")) or G.parse_inline_list(fm.get("case")))
+    owed = [one for one in ids(BR.draft_cases(draft)) if one not in named]
+    if owed:
+        errors.append(f"{path.name}: FORM — 'cases' lacks {owed}: the source draft is one bug with several manifestations and the bug "
+                      f"lists every case they name (expected: {ids(BR.draft_cases(draft))}); add them to `cases`")
+    for heading in ("## Cause", "## Manifestations"):
+        if not G.section_present(lines, heading):
+            errors.append(f"{path.name}: FORM — no \"{heading}\" section: the source draft has several manifestations of one cause, "
+                          f"so the bug file states the cause and lists each manifestation ({door})")
+    start = next((i for i, line in enumerate(lines) if line.strip().startswith("## Manifestations")), None)
+    if start is None:
+        return
+    body = []
+    for line in lines[start + 1:]:
+        if line.strip().startswith("## "):
+            break
+        body.append(line)
+    squashed = " ".join(" ".join(body).split())
+    for entry in BR.manifestation_entries(draft):
+        case = str(entry.get("case") or "").strip()
+        if case and case not in squashed:
+            errors.append(f"{path.name}: FORM — the \"## Manifestations\" section does not name the case {case}: one line per "
+                          f"manifestation, each with its case ({door})")
+        red = entry.get("red_test")
+        wanted = str(red.get("command") or "").strip() if isinstance(red, dict) else str(red or "").strip()
+        label = "its red test command"
+        if not wanted:
+            wanted, label = str(entry.get("red_test_none") or "").strip(), "the reason it has no red test"
+        wanted = " ".join(wanted.split())
+        if wanted and wanted not in squashed:
+            errors.append(f"{path.name}: FORM — the \"## Manifestations\" line of {case or 'a manifestation'} lacks {label} "
+                          f"('{wanted[:80]}'): each manifestation keeps its own red test, or says why there is none ({door})")
 
 
 def check_register(path: Path, errors: list) -> None:
@@ -593,6 +677,16 @@ def check_delta_column(path: Path, text: str, errors: list) -> None:
                 "the row in the coverage count - only the base slice code reads (G1-8) takes an unchanged row out of it")
 
 
+def _snapshot_items(story_root):
+    """The ids of the story's reference snapshot for a claim's `before_ref: reference:<item>` (PC-9c B1), read through
+    `reference_snapshot.item_ids`; None when there is none, it cannot be read, or the build is half-installed (the claim form is then refused)."""
+    try:
+        import reference_snapshot
+        return reference_snapshot.item_ids(story_root)
+    except Exception:
+        return None
+
+
 def check_behaviour_claims(path: Path, text: str, errors: list) -> None:
     """`## Behaviour claims` for every implementation-only R (computed by code from the register,
     never declared: F10/FR-16). The readiness file may be written after the register, so its
@@ -610,6 +704,7 @@ def check_behaviour_claims(path: Path, text: str, errors: list) -> None:
         claims[row["r"]] = row
     questions = _question_rows(_story_root(path))
     link_index = C.claim_link_index(questions)
+    snapshot_items = _snapshot_items(_story_root(path))
     for rid in C.claim_required_requirements(text):
         row = claims.get(rid)
         if row is None:
@@ -619,7 +714,7 @@ def check_behaviour_claims(path: Path, text: str, errors: list) -> None:
                 f"Add a row under \"{C.CLAIM_HEADING}\" ({' | '.join(['R'] + [c for c in C.CLAIM_COLUMNS[1:] if c != 'origin'])}): what the behaviour was "
                 "before the change, what it is now, and the question that asks the person which one is expected")
             continue
-        for problem in C.claim_row_errors(row, questions, link_index):
+        for problem in C.claim_row_errors(row, questions, link_index, snapshot_items=snapshot_items):
             errors.append(f"{path.name}: {rid}: behaviour claim — {problem}")
 
 
@@ -1054,6 +1149,7 @@ def check_test_report(path: Path, errors: list, notes: list | None = None) -> No
     check_report_sections(path, errors)
     check_report_traceability(path, errors)
     check_report_left_with_you(path, errors)
+    check_report_test_marks(path, errors)
     check_report_forbidden(path, errors)
     check_report_gate_b(path, errors)
     check_report_blocks(path, errors, notes)
@@ -1185,6 +1281,27 @@ def check_report_left_with_you(path: Path, errors: list) -> None:
     # t-305 N8: the two code-owned blocks inside the section (what gate B's answers added, the plan's regression list) are
     # lines code renders from typed data and the S3 plan, not the scribe's items: the R-n / case / `To check:` rule is the
     # scribe's, and a scribe item without them is still refused below.
+    items = _left_with_you_items(text)
+    cfg = C.case_config(path)  # the report's own project decides what a case id looks like
+    for index, item in enumerate(items, start=1):
+        flat = " ".join(item.split())
+        label = flat[:60]
+        if not C.REQ_ID_RE.search(flat) or not C.case_ids(flat, cfg=cfg):
+            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) names no "
+                          "R-n and a case id - a person cannot look up an item that belongs to nothing")
+        if not all(word in flat for word in G.REPORT_LEFT_WITH_YOU_REQUIRED):
+            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) has no "
+                          "\"To check:\" - say what would be observed, in words")
+        if not any(word in flat for word in G.REPORT_LEFT_WITH_YOU_ONE_OF):
+            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) has neither "
+                          "\"Needed:\" nor \"How:\" - an item with no way to do it is a wish")
+
+
+def _left_with_you_items(text: str) -> list:
+    """The items of `## Left with you` the scribe wrote (a numbered or bulleted line and its continuation lines), the code-owned blocks
+    inside the section taken out first."""
+    # t-305 N8: the code-owned blocks inside the section (what gate B's answers added, the plan's regression list) are
+    # lines code renders from typed data and the S3 plan, not the scribe's items: the R-n / case / `To check:` rule is the scribe's.
     found = G.blocks_found(text)
     cut = []
     for name in ("left-branches", "left-gate-b", "regression"):     # `left-branches`: step 3's lines name a branch, a part of the ticket or a picture, no case
@@ -1205,19 +1322,51 @@ def check_report_left_with_you(path: Path, errors: list) -> None:
             current += " " + line.strip()
     if current:
         items.append(current)
-    cfg = C.case_config(path)  # the report's own project decides what a case id looks like
-    for index, item in enumerate(items, start=1):
+    return items
+
+
+def _test_names(row: dict) -> set:
+    """The spellings by which a report names the test of a ledger row: its ref (the instance id), the part after the last `::`, and each
+    without a `[variant]` tail."""
+    ref = str(row.get("ref") or "").strip()
+    tail = ref.rsplit("::", 1)[-1]
+    names = {ref, tail}
+    names |= {re.sub(r"\[.*\]$", "", name) for name in list(names)}
+    return {name for name in names if name}
+
+
+def check_report_test_marks(path: Path, errors: list) -> None:
+    """t-2277 W3 (owner 11.11.2026: "it must always be visible whether a result came from mocks or from real code"): the report held against
+    the ledger's `real_or_mock` of each test. Two data joins, no wording judged (AR-29): (1) every test line under `## Proven` carries one of
+    the marks `ledger.real_or_mock` writes (`ledger.REAL_OR_MOCK_MARKS`; a Proven line names a requirement and a case, not a test, so the join
+    there is by presence); (2) every `## Left with you` item that names a test in backticks (`function[variant]`, the template's form) is
+    joined to that test's ledger row by name and carries the row's words. A line without its mark is a report DEFECT named here with the test
+    (FR-4: said, not silent); the door is the scribe's own edit of that line (FR-2: a regenerate cannot add a mark to a scribe's item). A ledger
+    written before the field existed (no test row carries it) and a ledger that cannot be read are not checked (the legacy rule of the report's
+    other generation checks)."""
+    try:
+        ledger_rows = json.loads(_sibling(path, "ledger.json").read_text(encoding="utf-8")).get("rows") or []
+    except Exception:
+        return
+    tests = [r for r in ledger_rows if isinstance(r, dict) and r.get("kind") == "test" and not r.get("dead")]
+    if not any("real_or_mock" in r for r in tests):
+        return
+    import ledger as L
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for line in _report_section_body(text, "## Proven"):
+        if line.startswith("- ") and not any(mark in line for mark in L.REAL_OR_MOCK_MARKS):
+            errors.append(f"{path.name}: a test line under \"Proven\" says neither `{L.REAL_CODE}` nor `{L.MOCK_LEAD}` ({line[:60].strip()}) - "
+                          f"whether a result came from real code or from a mock must always be visible; "
+                          f"`report_facts.py --task {path.parent.name} --write` renders the mark on that line")
+    for index, item in enumerate(_left_with_you_items(text), start=1):
         flat = " ".join(item.split())
-        label = flat[:60]
-        if not C.REQ_ID_RE.search(flat) or not C.case_ids(flat, cfg=cfg):
-            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) names no "
-                          "R-n and a case id - a person cannot look up an item that belongs to nothing")
-        if not all(word in flat for word in G.REPORT_LEFT_WITH_YOU_REQUIRED):
-            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) has no "
-                          "\"To check:\" - say what would be observed, in words")
-        if not any(word in flat for word in G.REPORT_LEFT_WITH_YOU_ONE_OF):
-            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) has neither "
-                          "\"Needed:\" nor \"How:\" - an item with no way to do it is a wish")
+        for token in dict.fromkeys(re.findall(r"`([^`]+)`", flat)):
+            for row in tests:
+                words = " ".join(str(row.get("real_or_mock") or "").split())
+                if words and token in _test_names(row) and words not in flat:
+                    errors.append(f"{path.name}: \"Left with you\" item {index} names test `{token}` without its mark - the ledger says "
+                                  f"`{words}`; copy `real_or_mock` of `{token}` from work/ledger.json into that item, word for word "
+                                  "(your own edit of the line: a regenerate does not add it)")
 
 
 def without_quoted_words(text: str) -> str:
@@ -1232,15 +1381,36 @@ def without_quoted_words(text: str) -> str:
         return text
 
 
+# The SHAPES of the factory's own identifiers and markers (FR-6; X7-5): a content address `cv_<hex>`, a selector hash
+# `ti_<hex>`, a path under `work/`, the generated fragment marker. A shape is data about an id, not a judgment of wording:
+# `partial` or `utility_x` is not one. The phrase «look here first» is NOT here - whether a report leads with the verdict
+# is the scribe's craft (charter: the task's terms first), judged by the tier above (AR-29). The whys are `G.REPORT_FORBIDDEN`'s.
+REPORT_ID_SHAPES = (
+    (re.compile(r"(?<![\w-])work/"), "work/"),
+    (re.compile(r"(?<![\w-])cv_[0-9a-f]{4,}", re.IGNORECASE), "cv_"),
+    (re.compile(r"(?<![\w-])ti_[0-9a-f]{4,}", re.IGNORECASE), "ti_"),
+    (re.compile(r"<!-- factory-summary"), "<!-- factory-summary"),
+)
+
+
+def report_id_shape_hit(text: str) -> str:
+    """The `G.REPORT_FORBIDDEN` key of the first factory identifier SHAPE found in `text`, "" when there is none. The one reader of
+    `REPORT_ID_SHAPES` (AR-13): the validator below and `report_facts` (which keeps the report from refusing its own text) both ask it."""
+    for shape, key in REPORT_ID_SHAPES:
+        if shape.search(str(text or "")):
+            return key
+    return ""
+
+
 def check_report_forbidden(path: Path, errors: list) -> None:
-    """Spellings of ours that mean nothing to a person reading their own report."""
+    """Identifiers and markers of ours that mean nothing to a person reading their own report: a shape, never a phrase."""
     text = path.read_text(encoding="utf-8", errors="replace")
     appendix_at = text.find("## Appendix")
     body = text[:appendix_at] if appendix_at >= 0 else text
     body = without_quoted_words(body)
-    for needle, why in G.REPORT_FORBIDDEN.items():
-        if needle.lower() in body.lower():
-            errors.append(f"{path.name}: the report carries {why}")
+    for shape, key in REPORT_ID_SHAPES:
+        if shape.search(body):
+            errors.append(f"{path.name}: the report carries {G.REPORT_FORBIDDEN[key]}")
     for match in G.REPORT_BARE_DECISION_RE.finditer(body):
         errors.append(f"{path.name}: `{match.group(0)}` stands with no decision text beside it "
                       "- quote the words the person said, the id alone says nothing")
@@ -1248,6 +1418,14 @@ def check_report_forbidden(path: Path, errors: list) -> None:
 
 
 REPORT_HUMAN_HEADING = "## Factory defects"
+
+
+def report_wording_rows() -> set:
+    """The ids of the rows of `references/human-text.json` that judge a PHRASE about a tool run, not a factory id: a row with
+    `report_refuses: false` is not refused in the report (X7-5, AR-29; AR-1: which row is data, not a tuple in code)."""
+    import human_text
+    return {str(row.get("id")) for row in human_text.rules().get("forbidden") or []
+            if isinstance(row, dict) and row.get("report_refuses") is False}
 
 
 def check_report_human_text(path: Path, errors: list) -> None:
@@ -1266,7 +1444,10 @@ def check_report_human_text(path: Path, errors: list) -> None:
     except OSError:
         return  # an unreadable report is the other checks' finding, not this one's
     import human_text  # a missing rules file gives no rows: nothing to enforce, never a crash
+    wording = report_wording_rows()
     for item in human_text.section_problems(text, REPORT_HUMAN_HEADING):
+        if item.get("rule") in wording:
+            continue   # a phrase about a tool run: the scribe's wording, not a factory id (X7-5, AR-29)
         errors.append(f"{path.name}, Factory defects: `{str(item['found']).strip('`')[:80]}` — {item['why']}. "
                       "Say what went wrong in words; the id or state stays in the ledger")
 
@@ -1539,6 +1720,12 @@ def check_phase_json(path: Path, errors: list, notes: list | None = None) -> Non
         check_nfr_report(path, data, errors)
         return
     if required:
+        if path.name == "automation-manifest.json" and isinstance(data, dict):
+            # a manifest with no run to witness (every test handed, or every test pending its absent side) owes no `run_witness` -
+            # `acceptance.run_witness_excused`, the ONE reader the other two witness readers ask as well (t-2181 PC-4, B3)
+            import acceptance
+            if acceptance.run_witness_excused(data):
+                required = [k for k in required if k != "run_witness"]
         for key in required:
             if key not in data:
                 errors.append(f"{path.name}: required key '{key}' is missing")
@@ -1709,9 +1896,9 @@ def check_plan_v0(path: Path, errors: list) -> None:
         if oracle and not any(oracle.startswith(p) for p in C.ORACLE_PREFIXES):
             errors.append(f"{path.name}: {ts}: oracle '{oracle}' is not from "
                           f"{list(C.ORACLE_PREFIXES)} — name what makes the expected value expected")
-        named = re.fullmatch(r"requirement:(R-\d+)", oracle)
-        if named and named.group(1) in impl_only:
-            errors.append(f"{path.name}: {ts}: oracle '{oracle}' names {named.group(1)}, which is implementation-only "
+        named = C.requirement_id(oracle)
+        if named and named in impl_only:
+            errors.append(f"{path.name}: {ts}: oracle '{oracle}' names {named}, which is implementation-only "
                           "(derived from the diff alone): a requirement read from the code is not an oracle. Leave "
                           "`oracle` empty for this row, or name `external:<ref>`; its Thens carry their own oracle "
                           "(`unknown` until the person answers the claim's question)")
@@ -1879,13 +2066,14 @@ def _s6_runner_half(path: Path) -> tuple:
     except Exception:
         return "", []
     raw = state.get("dispatches") if isinstance(state, dict) else None
-    rows = list(raw.values()) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
-    live = [d for d in rows if isinstance(d, dict) and d.get("status") == "running"
-            and str(d.get("stage") or "") == "S6" and str(d.get("role") or "") == "qa-runner"]
-    if len(live) != 1:
+    # AR-13: the one reader. A session that works for a named dispatch gets ITS record even beside another running lane
+    # (parallel S6 lanes, TR3-9 C2); no name is the count rule (one running runner), two running and no name is None.
+    import dispatch_identity
+    live = dispatch_identity.own(raw, role="qa-runner", stage="S6", name=dispatch_identity.named())
+    if live is None:
         return "", []
-    block = live[0].get("manual_case_ids")
-    return (str(live[0].get("execution_kind") or ""),
+    block = live.get("manual_case_ids")
+    return (str(live.get("execution_kind") or ""),
             [str(c) for c in block if str(c).strip()] if isinstance(block, list) else [])
 
 
@@ -1955,7 +2143,8 @@ def check_run_report_coverage(path: Path, data: dict, errors: list, notes: list 
             errors.append(
                 f"{path.name}: {cid} is {why} but appears in no lane of this report — not in "
                 "results[], manual_checks[], skipped[], impossible[], env_blocked[] or "
-                "manual_skipped[]. A case left out reads as untested; say where it went.")
+                "manual_skipped[]. A case left out reads as untested; say where it went. An unprepared case is closed by "
+                "`manual_evidence.py unprepared` (walked or not).")
     if waiting:
         rows = sorted(waiting, key=lambda ts: [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", ts)])
         (ORACLE_NOTES if notes is None else notes).append(

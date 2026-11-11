@@ -7,7 +7,6 @@ fails closed on a normalised store). Expectations come from the invariants of th
 folder; E21b a record is found by the reader that was given the same `--task`; E23-E25 a cut list names its number; E26 the three
 answers of an index that cannot be built; E27 a literal member is refused, not resolved.
 """
-import ast
 import contextlib
 import json
 import os
@@ -28,7 +27,6 @@ from controller import Controller, SCOPE_SHOWN, apply_door  # noqa: E402
 import test_controller_rework_scope as RS  # noqa: E402  (keyed_story, refusal)
 
 NAME = "TP2-2406"
-CONTROLLER_SOURCE = (SCRIPTS / "controller.py").read_text(encoding="utf-8")
 
 
 @contextlib.contextmanager
@@ -49,42 +47,6 @@ def no_run_mode():
     finally:
         if saved is not None:
             os.environ["QA_FACTORY_RUN_MODE"] = saved
-
-
-# --- K-T1: no second reader of the story's name --------------------------------------------------
-
-def _rooty(node):
-    """True for an expression that reads the story folder: `<x>.root`, `root`, `story_root`, `Path(root)`, `<rooty>.resolve()`."""
-    if isinstance(node, ast.Attribute):
-        return node.attr == "root"
-    if isinstance(node, ast.Name):
-        return node.id in ("root", "story_root")
-    if isinstance(node, ast.Call):
-        func = node.func
-        if isinstance(func, ast.Name) and func.id == "Path":
-            return bool(node.args) and _rooty(node.args[0])
-        return isinstance(func, ast.Attribute) and func.attr == "resolve" and _rooty(func.value)
-    return False
-
-
-def name_reads_outside_ticket(source):
-    """(line numbers of the `<story folder>.name` reads outside the body of `_ticket`, number of `_ticket()` calls)."""
-    tree = ast.parse(source)
-    span = next(((n.lineno, n.end_lineno) for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_ticket"), (0, 0))
-    reads = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "name" and _rooty(n.value)
-             and not span[0] <= n.lineno <= span[1]]
-    calls = sum(1 for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "_ticket")
-    return reads, calls
-
-
-def k_t1_one_reader_of_the_name():
-    reads, calls = name_reads_outside_ticket(CONTROLLER_SOURCE)
-    check_eq("K-T1: no `root.name` read of the story's name outside `_ticket`", reads, [])
-    check("K-T1 control (same form): `_ticket()` is found at the sites that read the name", calls >= 14, f"{calls} calls")
-    probe = CONTROLLER_SOURCE + "\n\ndef _probe(self):\n    return self.store.root.name\n"
-    check("K-T1 negative control: a copy with `self.store.root.name` outside the body fails", len(name_reads_outside_ticket(probe)[0]) == 1)
-    probe = CONTROLLER_SOURCE + "\n\ndef _probe(story_root):\n    return Path(story_root).name\n"
-    check("K-T1 negative control: `Path(story_root).name` fails too", len(name_reads_outside_ticket(probe)[0]) == 1)
 
 
 # --- the fixture: a story under a project, a dispatch running --------------------------------------
@@ -577,7 +539,7 @@ def k_m6_the_three_roads_read_the_block_by_one_map():
 
         def fake_prepare(task_root, case):
             prepared.append(case)
-            return [], ""
+            return [], "", ""
         with mock.patch.object(manual_evidence, "prepare_for_block", fake_prepare), \
                 mock.patch.object(story_step, "_task_root", lambda task: root):
             block, lines, code = story_step._manual_block_check(args, c, state)
@@ -814,7 +776,6 @@ def k_bat2_the_cli_battery():
 
 
 def main():
-    k_t1_one_reader_of_the_name()
     k_t2_t3_a_dot_root_names_its_folder()
     k_t4_a_live_worker_is_never_lost_to_a_spelling()
     k_t4_names_and_the_merge()

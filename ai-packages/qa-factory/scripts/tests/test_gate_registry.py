@@ -934,8 +934,7 @@ D13_TRIPLES = [
     ("manual_evidence.py", "person_sentences", "provenance_acceptance"),
     ("manual_evidence.py", "validate_baseline_record", "provenance_acceptance"),
     ("planning_contract.py", "_unmet_preconditions", "case_preconditions"),
-    ("probe_by_code.py", "_judge_detector_rows", "probe_verdict"),
-    ("probe_by_code.py", "verdict_of", "probe_verdict"),
+    ("probe_by_code.py", "_judge_rows", "probe_verdict"),
     ("profile_contract.py", "<module>", "provenance_acceptance"),
     ("profile_contract.py", "acceptable_provenance", "provenance_acceptance"),
     ("profile_contract.py", "image_identity", "provenance_acceptance"),
@@ -960,7 +959,7 @@ D13_TRIPLES = [
     ("story_step.py", "_finish_gate", "finish_exit_gate"),
 ]
 # The total is pinned beside the set: two comparisons of one triple are one entry above, and the count is what notices one of them go.
-# 134 -> 135 (t-598, F-7 of t-596): EP1-36's `record.get("verdict") == "incomplete"` stands in `_judge_detector_rows` (a site of the
+# 134 -> 135 (t-598, F-7 of t-596): EP1-36's `record.get("verdict") == "incomplete"` stands in `_judge_rows` (a site of the
 # `probe_verdict` row, already in the set above); it was a helper `_tooling_gap_if_incomplete` only so that this comparison was not
 # counted here. The raise is the decision, taken in the diff that makes it; the set of triples is unchanged.
 # 135 -> 139 (TQ1-1, t-684, AR-20): the four comparisons of `check_open_oracle_asserted` (`state == 'settled'` twice, `'invalid'`, `'open'`),
@@ -969,7 +968,12 @@ D13_TRIPLES = [
 # `env_block_evidence` adds none. The raise is the decision, taken in the diff that makes it.
 # 140 -> 141 (D3-B1, t-1710): `run_suite.selection_line` (the console count line over report_scope.selection_count) is registered
 # under `equivalence_metric` (G17) as a `measure` site; an inventory step of registered sites, not a quality ratchet.
-D13_ITEM_COUNT = 141
+# 141 -> 142 (t-1968 N1/N4/N2): `probe_by_code._judge_rows` gained `record.get('verdict') == 'intended_failure'`, attributed to
+# the existing row `probe_verdict` (same triple as before, so D13_TRIPLES is unchanged); an inventory step, not a quality ratchet.
+# 142 -> 137 (t-2064 N3b, t-2132): `probe_by_code.verdict_of` (Python's own row judge) is removed, and its site with it;
+# the count fell by what the scan attributed to it (measured with `GR.analyse` before and after: 142, 137). A removal of a registered
+# site, not a quality ratchet; D13_TRIPLES lost the `verdict_of` triple.
+D13_ITEM_COUNT = 137
 
 
 def part_site_attribution() -> None:

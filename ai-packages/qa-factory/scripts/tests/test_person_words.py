@@ -657,9 +657,6 @@ def the_texts_the_orchestrator_reads_use_the_file_form():
         text = (PLUGIN_ROOT / name).read_text(encoding="utf-8")
         found = problems_of(text, keys)
         check(f"{name}: the file form, no inline words on these commands", not found, "; ".join(found))
-    rule = " ".join((PLUGIN_ROOT / "references" / "conductor.md").read_text(encoding="utf-8").split())
-    check("conductor.md carries the rule: as they were given, a file, --words-file",
-          "as they were given" in rule and FLAG in rule, rule[:200])
     check("negative control: the key check fails on a text with the inline form",
           bool(problems_of('run controller.py gate-decision --gate A|B --words "<their words, verbatim>"',
                            DOCS["references/conductor.md"])))

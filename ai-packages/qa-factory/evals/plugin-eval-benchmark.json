@@ -77,7 +77,7 @@
       "prompt": "In the fixture repo materialized with --feature qa-1, edit evals/fixtures/tickets/QA-1.md to delete its `merge_request: feature/qa-1` frontmatter line before running the story (so the ticket carries no MR reference). Re-onboard or reuse the existing qa-factory/config.json, then from <dir> on branch main, run: qa this ticket QA-1 (no --mr, no --branch, no --commit).",
       "success_criteria": [
         "qa-scout returns a halt digest for 'no diff', and qa-story does not search git log, other branches, or the filesystem itself for the change (phases/s1.md: 'Do not search for the change yourself ... a diff you guessed at becomes a false oracle').",
-        "The human is shown exactly the three-option message: give an MR/branch/commit, name a stand and repository for current-code grounding, or pass --ungrounded (phases/s1.md digest-halt block, close to its verbatim wording).",
+        "The human is shown exactly the four-option message: give an MR/branch/commit, name a stand and repository for current-code grounding, pass --ungrounded (requirements only, on the code the stand runs now), or say the code is not built yet (phases/s1.md digest-halt block, close to its verbatim wording).",
         "The human's answer is recorded verbatim in the journal (log_append.py --event escalated) before qa-scout is re-dispatched with the chosen mode (phases/s1.md: 'Record the answer verbatim in the journal before doing anything with it').",
         "qa-scout is re-dispatched exactly once with the chosen grounding mode; a second 'no diff' halt on the same ticket is reported to the human rather than retried a third time (phases/s1.md)."
       ]

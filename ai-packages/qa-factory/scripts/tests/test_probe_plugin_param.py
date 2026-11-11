@@ -27,7 +27,13 @@ NODE = "testproject1_test_harness/tests/ui/integrations/test_edit_integration.py
 FUNC = "test_edit_integration_change_project_confirmation_modal"
 FILE = "testproject1_test_harness/tests/ui/integrations/test_edit_integration.py"
 MARKER = f"probe-{FUNC} invert: not_none()"
-DETAIL = {"marker": MARKER, "line": 220, "end_line": 220, "file": FILE}
+# N3b: the road's keys. The token the failure text must hold is `message_marker` (here the recorded message's own text, which the
+# fixture's `AssertionError:` line carries), the plan's keys the judge reads (`language`, `candidates`, `target_source`, ...) are written
+DETAIL = {"marker": MARKER, "message_marker": MARKER, "line": 220, "end_line": 220, "file": FILE, "language": "python", "candidates": [],
+          "target_source": None, "target_outside_body": None, "fires_as": None, "pair": None, "pair_id": None}
+REQUEST = {"command": {"argv": ["python", "-m", "pytest", "tests"]}, "instance_contracts": {}}     # a pytest launch, no file-bound contract
+KEYS = ["edit_integration"]
+TASK = "PLUGIN-PARAM-1"     # a walk's record always carries its task (e24925d8c: `_judge_rows` hands it to `_bind_report_rows`)
 
 PASSED = '<testcase classname="tests.ui.integrations.test_edit_integration" name="{name}" time="1.0"/>'
 
@@ -47,10 +53,10 @@ def failed_case(name: str) -> str:
 
 
 def judge(root: Path, report_path: Path, node: str) -> dict:
-    record = {"notes": [], "test_node": node}
+    record = {"task": TASK, "notes": [], "test_node": node, "expected_location": f"{FILE}:220", "expected_reason": MARKER}
     summary = {"report_evidence": {"path": report_path.name}, "reporter": "junit-xml", "label": "x", "exit_code": 1}
-    spec = {"node": node, "file": FILE}
-    PBC._judge_run(root, root, record, summary, spec, DETAIL, {}, root / "none", [])
+    spec = PBC.parse_node(node)          # N3b: a Python spec carries `reader`, `language` and `entry`
+    PBC._judge_run(root, root, record, summary, spec, DETAIL, REQUEST, root / "none", KEYS)
     return record
 
 
@@ -65,10 +71,11 @@ def main() -> None:
                  [r["test_id"] for r in found], [f"tests.ui.integrations.test_edit_integration::{FUNC}[chromium]"])
 
         # K2 end to end through _judge_run: killed, and the record names the matched id.
-        record = {"notes": [], "test_node": NODE}
+        record = {"task": TASK, "notes": [], "test_node": NODE, "expected_location": f"{FILE}:220", "expected_reason": MARKER}
         summary = {"report_evidence": {"path": FIX.name}, "reporter": "junit-xml", "label": "x", "exit_code": 1}
-        PBC._judge_run(FIX.parent, FIX.parent, record, summary, {"node": NODE, "file": FILE}, DETAIL, {}, root / "n", [])
+        PBC._judge_run(FIX.parent, FIX.parent, record, summary, PBC.parse_node(NODE), DETAIL, REQUEST, root / "n", KEYS)
         check_eq("K2 the verdict is judged on the [chromium] row", record.get("verdict"), "intended_failure")
+        check_eq("K2 and proved by the marker, the only proof the code writes", record.get("proved_by"), "marker")
         check_eq("K2 the record names the matched report id", record.get("matched_report_id"),
                  f"tests.ui.integrations.test_edit_integration::{FUNC}[chromium]")
 
@@ -88,11 +95,17 @@ def main() -> None:
 
         # K8 B1: a judged survivor (wrong_location) next to an unrun row must be the headline and replace a stored kill.
         skipped = '<testcase classname="tests.ui.integrations.test_edit_integration" name="{n}"><skipped message="s"/></testcase>'
-        wl = failed_case(f"{FUNC}[chromium]").replace(MARKER, "some other message")
-        mixed = report(root, wl + skipped.format(n=f"{FUNC}[firefox]"), "mixed.junit.xml")
+        # N3b: the judged survivor is a PASS (`no_failure`); a failure without the token is judgment (`incomplete`), no longer `wrong_location`
+        mixed = report(root, PASSED.format(name=f"{FUNC}[chromium]") + skipped.format(n=f"{FUNC}[firefox]"), "mixed.junit.xml")
         record = judge(root, mixed, NODE)
         check_eq("K8 B1 rows {judged survivor, skipped}: headline is the judged verdict, not not_executed",
-                 [r["verdict"] for r in record.get("param_rows", [])].count("not_executed") == 1 and record.get("verdict") == "wrong_location", True)
+                 [r["verdict"] for r in record.get("param_rows", [])].count("not_executed") == 1 and record.get("verdict") == "no_failure", True)
+        survivor = record
+        other = report(root, failed_case(f"{FUNC}[chromium]").replace(MARKER, "some other message"), "other.junit.xml")
+        record = judge(root, other, NODE)
+        check_eq("K8 N3b a failure without the token is judgment, never proved", (record.get("verdict"), record.get("cause"), "proved_by" in record),
+                 ("incomplete", "judgment", False))
+        record = survivor
         stored = root / "stored.json"
         stored.write_text('{"verdict": "intended_failure"}', encoding="utf-8")
         check_eq("K8 B1 a judged survivor replaces a stored intended_failure (not kept)", PBC.keep_standing_record(stored, record), False)

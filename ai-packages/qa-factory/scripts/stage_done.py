@@ -85,14 +85,50 @@ SETTABLE = {
     "parent_feature": (),
 }
 NULL_WORDS = ("null", "none", "")
+# The attributes of one entry of `pipeline.sides.<name>` (the record's shape, `contract.story_sides` reads them).
+SIDE_ATTRS = ("reality", "deliverable", "settles_by", "reference", "source", "at")
 
 
 def coerce_value(key: str, raw: str):
     """One `--set key=value`, validated, or a ValueError naming what is allowed."""
+    head, _, tail = key.partition(".")
+    if head in ("sides", "sides_unknown") and key != "sides":
+        # C17 (t-2181): the story's record of its sides. The SIDE NAME is open (AR-2); the attribute list is the record's
+        # shape; the reality words are the data file's (AR-1) - a word it does not hold is refused, an unreadable file
+        # refuses too (an unknown is never a pass, AR-28). `sides_unknown=` alone clears the mark (FR-40).
+        text = str(raw).strip()
+        if head == "sides_unknown":
+            if tail == "" and text.lower() in NULL_WORDS:
+                return None
+            if tail in ("at", "why") and text:
+                return text
+            raise ValueError("`sides_unknown` is cleared with `--set sides_unknown=` and written as "
+                             "`--set sides_unknown.at=<time>` and `--set sides_unknown.why=<words>`")
+        name, _, attr = tail.partition(".")
+        if not name or attr not in SIDE_ATTRS:
+            raise ValueError(f"`{key}`: a side is set as `sides.<name>.<attribute>=<value>`, the attribute one of: "
+                             + " | ".join(SIDE_ATTRS))
+        if attr == "reality":
+            from contract import side_realities   # the one reader of the data file (AR-13)
+            words = side_realities().get("realities")
+            if not isinstance(words, list) or not words:
+                raise ValueError(f"`{key}`: the words a reality may take cannot be read from references/side-realities.json - "
+                                 "repair that file (a change to the factory); nothing is recorded meanwhile")
+            if text not in words:
+                raise ValueError(f"`{key}` is one of: " + " | ".join(map(str, words)) + f" - not `{text}`. A side's reality "
+                                 "is one of these words; a new word is a change to references/side-realities.json")
+            return text
+        if attr == "deliverable":
+            if text.lower() not in ("true", "false"):
+                raise ValueError(f"`{key}` is true or false - the two words, nothing else")
+            return text.lower() == "true"
+        if text.lower() in NULL_WORDS:
+            return "" if attr == "settles_by" else None
+        return text
     if key not in SETTABLE:
         raise ValueError(
             f"`{key}` is not a field this script writes. It writes exactly: "
-            + ", ".join(sorted(SETTABLE)) + ", and `--warn \"<text>\"` for warnings[]. "
+            + ", ".join(sorted(SETTABLE)) + ", `sides.<name>.<attribute>`, `sides_unknown`, and `--warn \"<text>\"` for warnings[]. "
             "Everything else in pipeline.json is written by the script that owns it "
             "(stages here, gates and dispatches by controller.py, overrides and remarks by "
             "waiver.py). A person's word does not widen this list: a key outside the artifact "
@@ -131,7 +167,13 @@ def apply_facts(pipeline: dict, sets: dict, warns: list, task_root=None) -> list
             from sizing import record_size
             written.extend(record_size(pipeline, value, task_root))
             continue
-        pipeline[key] = value
+        *path, leaf = key.split(".")      # a dotted key (`sides.<name>.<attr>`) is a nested field, never a flat one
+        node = pipeline
+        for part in path:
+            if not isinstance(node.get(part), dict):
+                node[part] = {}
+            node = node[part]
+        node[leaf] = value
         written.append(f"{key} = {json.dumps(value)}")
     warnings = pipeline.get("warnings") if isinstance(pipeline.get("warnings"), list) else []
     for text in warns:
@@ -147,6 +189,25 @@ def apply_facts(pipeline: dict, sets: dict, warns: list, task_root=None) -> list
     if warns or "warnings" not in pipeline:
         pipeline["warnings"] = warnings  # absent is not a legitimate value; empty is
     return written
+
+
+def current_code_diff_refusal(sets: dict, task: str, task_root) -> str:
+    """TR2-7 (B-8, FR-1, FR-2, FR-46, FR-38, AR-9, AR-13): `--set implementation_source=current-code` is refused at the S1 EXIT while a
+    `work/impl-diff*.txt` with a non-blank line is on disk - the scout's file, so the scout hears it on its own exit instead of the
+    conductor hearing it from the S3 entry (`grounding_table.source_state`, which stays the second net). `""` when the call does not set
+    `current-code`, or no diff holds a line. Data only (presence and a non-blank line), never whether the diff is good (AR-29): the ONE
+    reader of "a diff is recorded" is `runtime_probe.diff_recorded` (an absent file and a blank one are the same fact, nothing recorded).
+    The fault is the story's recorded state, not a malformed call (FR-46); nothing is written."""
+    if sets.get("implementation_source") != "current-code":
+        return ""
+    from runtime_probe import diff_recorded
+    if not diff_recorded(Path(task_root)):
+        return ""
+    return ("stage_done: implementation_source `current-code` is refused: work/impl-diff*.txt holds content, and a story grounded in the "
+            "current code writes no diff file. Expected: no diff file with `current-code`, or the source `diff` when the diff is real. "
+            "Do: delete the file (`rm work/impl-diff.txt`), then repeat this command; or record the source the file proves: "
+            f"`python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/stage_done.py\" --task {task} --set implementation_source=diff`. "
+            "Nothing was written.")
 
 
 def parse_sets(items: list) -> dict:
@@ -857,11 +918,22 @@ def set_facts(task: str, sets: dict, warns: list) -> int:
         print(f"stage_done: no pipeline.json at {path} — S0 writes it before anything is "
               "recorded in it; this script never creates a story", file=sys.stderr)
         return EXIT_NO_PIPELINE
+    refusal = current_code_diff_refusal(sets, task, path.parent)
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return EXIT_BAD_ARGS
     written = apply_facts(pipeline, sets, warns, path.parent)
     from event_store import atomic_json
     atomic_json(path, pipeline)
     print("pipeline.json: " + ("; ".join(written) if written else "nothing to write"))
     return 0
+
+
+def reviewed_row_rule(author: str, author_role: str) -> str:
+    """TR4-1 (F1, FR-38, AR-22): the ONE wording of the rule `reviewed_author_dispatch` applies - the brief line, both refusals and the
+    handoff templates say it with this text (a template, which cannot call it, is pinned to it by a test)."""
+    return (f"the LAST `inputs_read` row naming a {author_role} dispatch must be `path: work/handoffs/{author}.yaml` "
+            f"(other {author_role} forms go above it; a review binds only that dispatch)")
 
 
 def reviewed_author_dispatch(form, state, stage_def) -> str:
@@ -921,6 +993,7 @@ def record_acceptance(task: str, stage: str, form: str, acceptor: str = "", verd
         print("stage_done: --verdict and --quote go with --acceptor driver only; the stage critic's word comes from its form",
               file=sys.stderr)
         return EXIT_BAD_ARGS
+    reviewed = ""
     if acceptor == acceptance.DRIVER_ACCEPTOR:
         if verdict != "accept" or not quote.strip():
             print("stage_done: --acceptor driver records an accept with the gap in words: --verdict accept --quote \"<the gap>\" "
@@ -953,13 +1026,22 @@ def record_acceptance(task: str, stage: str, form: str, acceptor: str = "", verd
         # author's CURRENT last dispatch (an `ok` given before a rework would otherwise close newer work nobody read). Unknown -> refusal.
         reviewed = reviewed_author_dispatch(data, state, stage_def)
         if not reviewed:
-            print(f"stage_done: the stage critic's form {rel} does not say which dispatch of {author_role} it reviewed: list the author's "
-                  f"form `work/handoffs/<its dispatch>.yaml` in `inputs_read` (path and sha256), then record it again", file=sys.stderr)
+            if author:
+                print(f"stage_done: the stage critic's form {rel} does not say which dispatch of {author_role} it reviewed: "
+                      f"{reviewed_row_rule(author, author_role)}; your brief names the id on its `Reviewed dispatch:` line; "
+                      f"then record it again", file=sys.stderr)
+            else:
+                print(f"stage_done: the stage critic's form {rel} does not say which dispatch of {author_role} it reviewed: no "
+                      f"accepted dispatch of {author_role} exists at {stage} yet, so no review can be recorded; the conductor dispatches "
+                      f"{author_role} first, then a new stage critic; meanwhile say in `unresolved` that there is nothing to review and "
+                      f"name no path", file=sys.stderr)
             return EXIT_BAD_ARGS
         record, problems = acceptance.stage_acceptance_from_form(
             data, stage=stage, role=author_role, acceptor=critic, reviewed_dispatch=reviewed, witness_form=rel, at=at)
     if record is not None:
         problems = acceptance.stage_acceptance_errors(record, stage_def=stage_def, author_dispatch=author)
+    if problems and reviewed and author and reviewed != author:
+        problems.append(f"the last row of the form that names a dispatch of {author_role} is '{reviewed}'; {reviewed_row_rule(author, author_role)}")
     if problems:
         print("stage_done: the stage acceptance was not recorded: " + "; ".join(problems), file=sys.stderr)
         return EXIT_BAD_ARGS
@@ -1020,6 +1102,10 @@ def run(task: str, stage: str, status: str, role: str, digest: str, no_journal: 
         return EXIT_NO_PIPELINE
     # Before the stage checks: a warning or a size this call carries belongs to the state the
     # gate rehearsal below reads, and a refused stage must not swallow the fact it was given.
+    refusal = current_code_diff_refusal(sets or {}, task, path.parent)
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return EXIT_BAD_ARGS
     facts_written = apply_facts(pipeline, sets or {}, warns or [], path.parent)
     if facts_written:
         from event_store import atomic_json as _atomic_json
@@ -1262,7 +1348,8 @@ def run(task: str, stage: str, status: str, role: str, digest: str, no_journal: 
         # all written straight to the file by their own owners, all silently restored to what
         # they were when this stage closed. On disk is newer than any snapshot, so on disk wins.
         current = read_pipeline(path)
-        for key in (*SETTABLE, "warnings", "stage_overrides", "gate_waivers", "remarks", "acceptance"):
+        for key in (*SETTABLE, "sides", "sides_unknown", "warnings", "stage_overrides", "gate_waivers", "remarks",
+                    "acceptance"):
             if key in current:
                 projected[key] = current[key]
         atomic_json(path, projected)
@@ -1440,7 +1527,9 @@ def main(argv=None) -> int:
     ap.add_argument("--no-journal", action="store_true")
     ap.add_argument("--set", action="append", default=[], dest="sets", metavar="key=value",
                     help="one story fact of pipeline.json, repeatable: "
-                         + ", ".join(sorted(SETTABLE)) + ". Nothing else.")
+                         + ", ".join(sorted(SETTABLE)) + "; and the sides record: sides.<name>.<attribute> "
+                         "(" + " | ".join(SIDE_ATTRS) + ") and sides_unknown (sides_unknown= clears it, "
+                         "sides_unknown.at / sides_unknown.why write it). Nothing else.")
     ap.add_argument("--warn", action="append", default=[], dest="warns", metavar="TEXT",
                     help="append one line to pipeline.json warnings[], repeatable; a line "
                          "already there is not repeated")

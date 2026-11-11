@@ -281,12 +281,19 @@ class RepricedAtReadTests(Case):
         self.assertEqual(card_of(self.page, TASK)[0], "$3.00")
 
     def test_2b_the_other_sections_of_the_cost_tab_show_catalogue_prices_too(self):
+        # t-2141: this check failed once on CI (UTC, 05:36, a sibling branch with the same dashboard code green in the same
+        # minute) and never locally, and the artifact kept no assertion text. It is clock-independent by construction (the fixture's
+        # days are YESTERDAY, `By day` groups by the request's own date) and was green under 13 shifted clocks; each assertion now
+        # carries the section it judged, so a red names the figure instead of "failures=1" (same checks, none weakened).
         cost = B.panel(self.page, "cost")
         by_model = html.unescape(B.section(self.page, "By model"))
-        self.assertIn("<td>" + MODEL + "</td>", by_model)
-        self.assertIn("<td class='money'>$3.00</td>", by_model)
-        self.assertIn("<td class='money'>$3.00</td>", B.section(self.page, "By day"))
-        self.assertNotIn("4.50", html.unescape(cost))
+        by_day = B.section(self.page, "By day")
+        plain_cost = html.unescape(cost)
+        self.assertIn("<td>" + MODEL + "</td>", by_model, by_model)
+        self.assertIn("<td class='money'>$3.00</td>", by_model, by_model)
+        self.assertIn("<td class='money'>$3.00</td>", by_day, by_day)
+        spot = plain_cost.find("4.50")
+        self.assertNotIn("4.50", plain_cost, plain_cost[max(0, spot - 200):spot + 80])
 
     def test_2c_the_page_names_the_catalogue_revision_once_and_says_old_figures_were_pinned_and_are_repriced(self):
         cost = html.unescape(B.panel(self.page, "cost"))

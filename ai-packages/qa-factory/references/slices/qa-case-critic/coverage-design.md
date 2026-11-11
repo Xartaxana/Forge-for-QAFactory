@@ -88,10 +88,9 @@ that no duplicate exists and must remain visible at Gate A.
 
 ## Manual evidence policy
 
-Choose `evidence_policy: ui | api | cli | no_write | static` during S3/S4 and bind it to
-each manual obligation. State the
-required evidence kinds, phases, actual-step capture, observation boundary, completion
-condition, and what each item must prove.
+Choose `evidence_policy: ui | api | cli | no_write | static` (one word, as text) during S3/S4
+and bind it to each manual obligation. Evidence kinds, phases, actual-step capture, observation
+boundary and what each item must prove go in `completion_condition`.
 
 - UI/native visual change: before and after images plus actual steps; motion may use a
   trace/video with a checked final state.

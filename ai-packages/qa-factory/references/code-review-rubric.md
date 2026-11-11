@@ -3,8 +3,8 @@
 ## Required proofs
 
 1. **The rubric** (below) — nine dimensions.
-2. **The author's matching green receipt** (charter step 2: no duplicate green).
-3. **A probe of every new or changed test** (charter step 3): the assertion must fail for the
+2. **The author's matching green receipt** (no duplicate green).
+3. **A probe of every new or changed test**: the assertion must fail for the
    intended reason; a survivor or a wrong failure reason is a rubric fail.
 
 A fix that makes a test pass without addressing the finding is not a fix.
@@ -63,7 +63,7 @@ Written well: 1–6, 8–9. ALL written: 7 (planned window: only the roll-call).
 5. **Reuse and layering** — uses the framework's existing fixtures/helpers; every anti-pattern of
    `test-code-patterns.md` is a finding. Likewise the same fixture created twice in one window is a finding.
 6. **Hygiene** — no secrets, no commented-out checks outside the dimension-8 sanctioned path; an independent Then placed after a failing assert, with no `blocked_by_check` row, is
-   `cause: test_defect`: move it before the red one or record it blocked.
+   `cause: mechanical` (the framework's non-stopping form, else before the red one, or recorded blocked); so is a soft check whose next read is junk behind a failure.
 7. **Completeness against the automate set** — roll-call: every `automate` case of this run
    is covered by an instance that NAMES it, in the code and in `automation-manifest.json`
    (`covers`/`case_version_links`, `then_bindings`), not on the manifest's word. Count and split as in
@@ -76,7 +76,7 @@ Written well: 1–6, 8–9. ALL written: 7 (planned window: only the roll-call).
    a commented-out Then with its reason, its `then_bindings` row with reason `handed_to_person` or `blocked_by_check`, and its Left with you line) → fail.
 9. **`self_fixes` honesty** — every automator self-fix (selectors, imports, data prep) carries a
    defect explanation and evidence the product behaves per spec; a fix that changed an expected
-   value is an `expectation_changes[]` row, judged by you (step 1c): `legitimate_correction` (the
+   value is an `expectation_changes[]` row, judged by you: `legitimate_correction` (the
    case leaves the value open or the author invented it, and the change matches case and
    product), `fitted_to_code` (`test_defect`), `could_not_judge` (the conductor records the window as unresolved with the reason).
 
@@ -102,9 +102,7 @@ Written well: 1–6, 8–9. ALL written: 7 (planned window: only the roll-call).
   `R-n` behind that Then, not beside the code. (1) The assert asks more than the Then (equality of a
   whole object where the Then says the given values are kept; an order, a format or a count the Then
   never names): `cause: test_defect`, narrow the assert to the Then. (2) The assert is the Then, and the
-  Then asks more than the `R-n`: after gate A the approved case is the oracle, no finding of
-  the window, no round. One note with no `cause`, only in `critic-findings.md`, never in the form's
-  `findings[]` (there, a finding without a `cause` is a blocking `test_defect`). S7 runs its control experiment on such a red anyway (rule 2d); the note is for the reader of the review.
+  Then asks more than the `R-n`: after gate A the approved case is the oracle, no finding, no round. One note with no `cause`, only in your findings file, never in the form's `findings[]` (there, a finding without a `cause` is a blocking `test_defect`). S7 runs its control experiment on such a red anyway; the note is for the reader of the review.
 
 ## STLC's smells — blocking
 

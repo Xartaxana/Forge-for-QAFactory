@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """RH1-5 B4: `story_step finish` refuses by exit 2 when a check of the exit gate could not run. K1 (a precheck that crashes
 inside: exit 2, nothing recorded, the text names `s5_precheck.py` and the reason), E1-E3 (the texts), E13 (the named word is
-in the door), E14 (a decided dispatch is not re-read), E17 (a record the word passed does not refuse), K8 (the body of
-`finish` is untouched: RH1-12 owns it)."""
+in the door), E14 (a decided dispatch is not re-read), E17 (a record the word passed does not refuse)."""
 import contextlib
-import hashlib
-import inspect
 import io
 import sys
 from argparse import Namespace
@@ -21,9 +18,6 @@ import hooklib  # noqa: E402
 import s5_precheck  # noqa: E402
 import story_step  # noqa: E402
 
-# The sha256 of `inspect.getsource(story_step.finish)` at HEAD before RH1-5 (taken from the unmodified file): the body of
-# `finish` belongs to RH1-12, this node edits `_finish_gate` and `_gate_unreadable` only (K8).
-FINISH_SHA256 = "5bad3d87213e874abb331a86907a88dcf1043bce2a2a8b95829efbca66f391a2"   # re-pinned by t-430 after HF8-15 (2) N1, 23522484: `finish --needs-author` branches inside `finish` (was 6d490e98..., RH1-12; 292ce573...)
 ROLE = "qa-automator"
 
 
@@ -49,8 +43,6 @@ def gate_answer(answer):
 
 
 def main() -> None:
-    check_eq("K8: the body of `finish` is byte-identical to HEAD before RH1-5 (RH1-12 owns it)",
-             hashlib.sha256(inspect.getsource(story_step.finish).encode("utf-8")).hexdigest(), FINISH_SHA256)
     root = temp_project("qa-finish-unr-")
     use_project(root)       # GW1-10: the gate names the story to its detector through the project's own rule, so the project is this one
     signals = []

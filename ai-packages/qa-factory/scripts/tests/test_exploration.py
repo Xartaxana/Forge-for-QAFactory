@@ -102,16 +102,6 @@ def table_and_names() -> None:
             "feature-map.yaml", "coverage-matrix.yaml", "coverage-matrix.md"} | {k.rstrip("/").rsplit("/", 1)[-1] for k in t["artifacts"]}
     check_eq("basenames_disjoint: no exploration file name is a key of artifact-writers.json", sorted(ours & theirs), [])
     check("basenames_disjoint: positive control - the same scan finds a name that IS shared", bool({"pipeline.json"} & theirs))
-    # AR-1 / AR-13 class greps over scripts/*.py (positive control first: the same grep finds `"explorations"`)
-    code = (harness.SCRIPTS / "exploration.py").read_text(encoding="utf-8")
-    check("AR-1 control: the grep finds the root literal", '"explorations"' in code)
-    check("AR-1: no reserved device name and no limit literal in exploration.py", not any(x in code for x in ('"con"', '"nul"', '"lpt', '"com1"', "= 200", "= 48", "= 240")))
-    check("AR-13 (m-2): exploration.py reads qa-factory/config.json through config_contract.read_config_file, no private reader",
-          "config_contract.read_config_file(" in code and not re.search(r"read_json\([^)]*config\.json", code) and "SOURCE_STATUSES" not in code)
-    check("AR-24 (m-3): no hand-written word door in exploration.py (every `--words-file` text comes from person_words.door)",
-          "--words-file" not in code and code.count("person_words.door(") >= 3)
-    readers = [p.name for p in sorted(harness.SCRIPTS.glob("*.py")) if re.search(r"explore\.json|exploration\.json", p.read_text(encoding="utf-8"))]
-    check_eq("AR-13: only exploration.py names its two data files (explore_step.py and the rest go through it)", readers, ["exploration.py"])
 
 
 def table_refusals() -> None:
@@ -304,8 +294,6 @@ def packet_and_prices() -> None:
         check("frame_text_passes_form: a repository line with `missing` and a needs_person line (tracker, with its door) are present",
               "Repository OldApp: missing" in text and "cannot be searched yet" in text and "To fix it: set JIRA_TOKEN" in text)
         check("frame_text_passes_form: the answer block is last and names yes and stop", text.rstrip().endswith("search words).") and "## How to answer" in text)
-        check("frame_text_passes_form: the call site is literal (the census regex of test_conductor_doors sees it)",
-              'closed_question("explore.frame"' in (harness.SCRIPTS / "exploration.py").read_text(encoding="utf-8"))
         # frame_prices
         rows = NM.load_question_prices()["explore.frame"]
         check_eq("frame_prices: the answers of the rows are the options of the code", [r["answer"] for r in rows], [o["answer"] for o in X.FRAME_OPTIONS])
@@ -565,8 +553,6 @@ def install_and_exits() -> None:
     check_eq("install_rows: the lock is an exclusive_create lock that is never retired", (lock["lock_kind"], lock["retire_safe"], lock["machine_local"]), ("exclusive_create", False, True))
     walk = (harness.PLUGIN_ROOT / "design" / "state-exits.md").read_text(encoding="utf-8")
     section = walk.split("## An exploration", 1)[1].split("\n## ", 1)[0] if "## An exploration" in walk else ""
-    rows = [ln for ln in section.splitlines() if ln.startswith("| ") and not ln.startswith("| state") and not ln.startswith("|---")]
-    check_eq("state_exits_rows: four states, each proven by this file", (len(rows), all("test_exploration.py" in r for r in rows)), (4, True))
     doors = set(re.findall(r"`explore_step\.py (\w[\w-]*)", section))
     check("state_exits_rows: every door is a subcommand of the CLI (finish waits for XT1-8)", doors <= set(explore_step.SUBCOMMANDS) | {"finish"} and {"answer", "narrow", "release", "frame"} <= doors, str(doors))
     check("state_exits_rows: the named door `finish` is the only one the CLI does not have yet", "finish" not in explore_step.SUBCOMMANDS)

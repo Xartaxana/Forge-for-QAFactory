@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 import hooklib
+import stand_identity as SI
 from event_store import atomic_json, content_hash
 
 
@@ -14,7 +15,7 @@ def work_path(root, raw):
     if not path.is_relative_to(root / 'work') or path.suffix != '.json':
         raise ValueError('artifact must be a task-local work JSON document')
     if path.name in {'source-inventory.json'} or any(p in path.parts for p in
-            ('run-blocks', 'manual-blocks', 'baseline-receipts')):
+            SI.PROTECTED_RECEIPT_FOLDERS):
         raise ValueError('use the dedicated evidence producer for this artifact')
     return path
 

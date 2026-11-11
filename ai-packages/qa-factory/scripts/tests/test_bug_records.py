@@ -18,6 +18,7 @@ from harness import (  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 import bug_records as BR  # noqa: E402
+import contract as C  # noqa: E402
 import traceability as T  # noqa: E402
 
 
@@ -368,7 +369,7 @@ FOLDER_NAMES = {"draft_dir", "DRAFT_DIR"}
 # The files that read the drafts THROUGH `draft_paths` today. An allow-list on purpose: a new reader is added here
 # in the same diff (one line), and a reader missing from it is red, so the census cannot go stale quietly.
 READERS = {"bug_records.py", "delivery_summary.py", "factory_dashboard.py", "gate_brief.py", "gate_preflight.py",
-           "handoff_check.py", "judge_results.py"}
+           "handoff_check.py", "judge_results.py", "place_answers.py", "bug_neighbours.py"}   # place_answers: the S7 places' `bug` answer names a draft file (t-1995)
 # The places that name the folder without reading it, one permanent reason each: (file, scope) -> why. Docstrings
 # count (they are string constants): a new line, or a line that no longer exists, is red.
 KEPT = {
@@ -376,6 +377,9 @@ KEPT = {
     ("factory_dashboard.py", "story_bug_rows"): "a `where` label of a row, not a read",
     ("handoff_check.py", "_claim_bug_has_a_draft"): "the refusal text names the folder (FR-1) and the docstring says where the reader is",
     ("judge_results.py", "<module>"): "the module docstring names the folder in prose",
+    ("place_answers.py", "_bug_list"): "the refusal text names the folder (FR-1); the listing is `BR.draft_listing`",
+    ("validate_artifacts.py", "check_bug_form"): "the refusal text names the folder (FR-1); the draft itself is resolved by the caller through `BR._draft_of` (t-2187 N4)",
+    ("story_run.py", "Driver.s7_place_lines"): "prose to the role (a message naming the folder), not a read",
     ("story_run.py", "Driver.role_lines"): "prose to the role (a message), not a read",
     ("story_run.py", "Driver.s0"): "the writer's side: the folder is created here",
     ("story_step.py", "_post_work"): "mtime of the folder against the judge's file (a staleness probe, not a listing)",
@@ -636,7 +640,42 @@ def cr_draft(**over) -> dict:
     return {"title": "The cart total uses the current price", "impact": "money", "violates": "requirement:R-24", "evidence": "code-reading",
             "oracle": {"question": "Q7", "quote": "the price shown when added is kept"},
             "fact": {"id": CR_FACT, "path": CR_PATH, "line": 103, "note": "calculateCartTotal from DB price"},
-            "check_state": "not_executed", "manual_steps": ["add a book at 6, change its price to 8, open the cart"], "confirmation": "unconfirmed", **over}
+            "check_state": "not_executed", "manual_steps": ["add a book at 6, change its price to 8, open the cart"], "confirmation": "unconfirmed",
+            "red_test_none": "no run spoke: the defect is read from the code", **over}
+
+
+def the_red_test_travels_with_the_bug() -> None:
+    """X7-5 (P28): a draft carries `red_test {path, command}` or `red_test_none: <why>`, never neither."""
+    both = "`red_test` or `red_test_none`"
+    base = {"title": "t", "impact": "money", "violates": "requirement:R-1"}
+    problems = C.red_test_problems(base)
+    check("X7-5 (4) a draft with neither is refused, naming both fields", len(problems) == 1 and both in problems[0], str(problems))
+    check_eq("X7-5 (4) `red_test_none: manual check only` passes", C.red_test_problems({**base, "red_test_none": "manual check only"}), [])
+    check_eq("X7-5 (4) a `red_test` with path and command passes",
+             C.red_test_problems({**base, "red_test": {"path": "tests/a.py::t", "command": "pytest tests/a.py::t"}}), [])
+    check("X7-5 (4) a `red_test` with no command is refused, naming the field",
+          any("`command`" in p for p in C.red_test_problems({**base, "red_test": {"path": "tests/a.py::t"}})), "")
+    check("X7-5 (4) both set is a conflict, refused",
+          len(C.red_test_problems({**base, "red_test_none": "x y", "red_test": {"path": "p", "command": "c"}})) == 1, "")
+    check("X7-5 (4) a dash and a blank reason are no reason",
+          all(C.red_test_problems({**base, "red_test_none": v}) for v in ("", "-", "  ", None)), "")
+    check("m-5 a draft's `red_test` as plain text or a list is refused (a draft holds a mapping)",
+          all(C.red_test_problems({**base, "red_test": v}) for v in ("yes", ["x"])), "")
+    check_eq("X7-5 the empty draft and a non-dict are refused, never a crash", [bool(C.red_test_problems(x)) for x in ({}, None, "x")],
+             [True, True, True])
+    root = temp_project("qa-factory-redtest-")
+    try:
+        task = cr_task(root)
+        bare = {k: v for k, v in cr_draft().items() if k != "red_test_none"}
+        check_in("X7-5 a code-reading draft without either field is refused (R_RED_TEST)", BR.R_RED_TEST,
+                 [code for code, _d in BR.code_reading_problems(task, bare, [("d.json", bare)])])
+        # t-1884 M-3: the same cutoff as the bug file and the gate B rehearsal (`contract.red_test_owed`): 11-03 is not asked, 11-04 is
+        for day, asked in (("2026-11-03", False), ("2026-11-04", True)):
+            dated = {**bare, "created": day}
+            check_eq(f"M-3 a code-reading draft created {day} is {'refused' if asked else 'not refused'} for its red test",
+                     BR.R_RED_TEST in [code for code, _d in BR.code_reading_problems(task, dated, [("d.json", dated)])], asked)
+    finally:
+        cleanup(root)
 
 
 def cr_codes(task, draft, others=()) -> list:
@@ -786,6 +825,20 @@ def the_draft_place_and_mark() -> None:
                 continue
             check_in(f"K-C5d: {why} renders the `your call` line", "your call", text)
             check_not_in(f"K-C5d: {why} never renders `Extends`", "Extends the open bug", text)
+        # t-1884 M-2: the person at gate B is the reader of the scribe's form (its `tried` table): the packet links the last accepted one
+        form_root = temp_dir("qa-factory-pm3-")
+        try:
+            t = packet_story(form_root, {})
+            check_not_in("M-2: with no accepted scribe dispatch the packet links no form", "the scribe's form", GB.render_gate_b("QA-1", root=t))
+            (t / "state").mkdir(exist_ok=True)
+            (t / "state" / "controller.json").write_text(json.dumps({"dispatches": {
+                "S8-qa-doc-scribe-1": {"id": "S8-qa-doc-scribe-1", "stage": "S8", "role": "qa-doc-scribe", "status": "rejected"},
+                "S8-qa-doc-scribe-2": {"id": "S8-qa-doc-scribe-2", "stage": "S8", "role": "qa-doc-scribe", "status": "accepted"}}}), encoding="utf-8")
+            text = GB.render_gate_b("QA-1", root=t)
+            check_in("M-2: the packet links the scribe's accepted form", "work/handoffs/S8-qa-doc-scribe-2.yaml", text)
+            check_not_in("M-2: ... and not the rejected one", "S8-qa-doc-scribe-1.yaml", text)
+        finally:
+            cleanup(form_root)
         saved = BR.BUG_STATUS_WORDS_FILE
         BR.BUG_STATUS_WORDS_FILE = "no-such-bug-status-words.json"
         try:
@@ -852,7 +905,9 @@ def the_draft_place_and_mark() -> None:
     for field in ("defect_location", "requirements", "extends_open_bug", "distinct_defect"):
         check_in(f"K-C6d: the contract section names `{field}`", f"`{field}`", contract_text)
     check_in("K-C6d: the charter names the instrument", "bug_records.py open-bugs", charter)
-    check_in("K-C6d: the charter names the way out of the same-place rule", "distinct_defect", charter)
+    # t-2187 I5: the charter no longer names `distinct_defect` (cut by decision); the role is handed the key page slice before the work (FR-38)
+    slice_text = (package / "references" / "slices" / "qa-failure-analyst" / "artifact-contract-run.md").read_text(encoding="utf-8")
+    check_in("K-C6d: the key page slice the analyst is handed names the way out of the same-place rule", "distinct_defect", slice_text)
     check_in("K-C6d: the claim adds the same-place problems", "BR.same_location_problems(paired)",
              (SCRIPTS / "handoff_check.py").read_text(encoding="utf-8"))
 
@@ -913,9 +968,151 @@ def the_code_reading_draft() -> None:
     analyst = (SCRIPTS.parent / "agents" / "qa-failure-analyst.md").read_text(encoding="utf-8")
     names = lambda text: all(w in text for w in ("code-reading", "SETTLED", "code_says", "No oracle, no draft"))   # noqa: E731
     check("C6 the analyst charter names evidence code-reading, settled, code_says and `no oracle`", names(analyst))
-    check("C6 (C-R1) rule 7c names the code-place form `{path, line, quote}` beside `facts[]`", "code place you read (`{path, line, quote}`)" in analyst)
+    check("C6 (C-R1) the analyst charter names the code-place form `{path, line, quote}` beside `facts[]`", "code place you read (`{path, line, quote}`)" in analyst)
     check("C6 (C-R1) negative control: the same key on a copy without it fails", "code place you read (`{path, line, quote}`)" not in analyst.replace("code place you read", ""))
     check("C6 negative control: the same assertion on a copy without `No oracle, no draft` fails", not names(analyst.replace("No oracle, no draft", "")))
+
+
+def one_bug_many_manifestations_n2() -> None:
+    """t-2187 N2: the pairing through manifestations (5.1), the same-place door (5.16), the bug text (5.17), the merge that cannot be
+    re-read (`merged_unconfirmed`, F-2 (a)), A2 (the statement) and the first-manifestation row by instance. Mutations (named, not run):
+    `keys` without the manifestations -> M1; `_blocker_cover` reads `draft.get("cases")` -> M3; a manifestation covers a blocked row -> M2;
+    `bug_text` always adds the sections -> M6 (golden); `merged_unconfirmed` counts one manifestation -> M5."""
+    rows = [{"instance_id": f"t_{n}", "attempt_id": "a1", "case": f"TC-{n}", "verdict": "APP_BUG"} for n in (1, 2, 3)]
+    rows.append({"instance_id": "t_9", "attempt_id": "a1", "case": "TC-9", "verdict": "NO_DEFECT"})
+    row = lambda n, att="a1": {"instance_id": f"t_{n}", "attempt_id": att}   # noqa: E731
+
+    def man(n, **over):
+        return {**{"action": f"type {n}", "start_state": "erased", "seen": "11", "requirement": "R-1", "case": f"TC-{n}",
+                   "triage_row": row(n), "evidence": f"work/evidence/manual/TC-{n}/a1/1.txt", "red_test_none": "manual"}, **over}
+
+    def dr(*mans, **over):
+        return {**{"title": "t", "triage_ref": row(1), "case": "TC-1", "manifestations": list(mans)}, **over}
+    # M1: three APP_BUG rows, one draft naming all three as manifestations
+    got = BR.pair_drafts([("m.json", dr(man(1), man(2), man(3)))], rows)
+    check_eq("N2 5.1: three rows, one merged draft: no row is owed a draft", (got["app_bug_without_draft"], got["manifestation_no_row"], got["manifestation_not_app_bug"]), ([], [], []))
+    check_eq("N2 5.1: without the manifestations two rows are owed (control)", BR.pair_drafts([("m.json", {"triage_ref": row(1)})], rows)["app_bug_without_draft"], ["t_2@a1", "t_3@a1"])
+    got = BR.pair_drafts([("m.json", dr(man(1), man(9), man(2, triage_row={"instance_id": "zzz", "attempt_id": "a1"})))], rows)
+    check_eq("N2 5.1: a NO_DEFECT row -> manifestation_not_app_bug; an unknown row -> manifestation_no_row; neither covers",
+             (got["manifestation_not_app_bug"], got["manifestation_no_row"], got["app_bug_without_draft"]),
+             ([("m.json", "t_9@a1", ["NO_DEFECT"])], [("m.json", "zzz@a1")], ["t_2@a1", "t_3@a1"]))
+    got = BR.pair_drafts([("m.json", dr(man(1), man(2, triage_row="t_2"), man(2, triage_row="t_2@a1"), man(3, triage_row=None, probe={"case": "x"})))], rows)
+    check_eq("N2 5.1: a bare instance covers every attempt; one row listed twice is one coverage and no error; a probe covers nothing",
+             (got["app_bug_without_draft"], got["manifestation_no_row"]), (["t_3@a1"], []))
+    got = BR.pair_drafts([("m.json", dr(man(1), "x", 4, {"triage_row": None}))], rows)
+    check_eq("N2 5.1: an entry that is not an object, or names no row, covers nothing and breaks nothing",
+             (got["app_bug_without_draft"], got["manifestation_no_row"]), (["t_2@a1", "t_3@a1"], []))
+    check_eq("N2 5.1: `manifestations` that is not a list is read as none",
+             BR.pair_drafts([("m.json", dr(man(1), manifestations="x"))], rows)["app_bug_without_draft"], ["t_2@a1", "t_3@a1"])
+    got = BR.pair_drafts([("a.json", dr(man(2))), ("b.json", dr(man(2), triage_ref=row(3), case="TC-3"))], rows)
+    check_eq("N2 5.1 (F-3): one row in two drafts' manifestations is no error", (got["app_bug_without_draft"], got["manifestation_no_row"]), ([], []))
+    check_eq("N2 5.1: a code-reading draft's manifestations cover nothing (it rests on no row)",
+             BR.pair_drafts([("c.json", {"evidence": "code-reading", "manifestations": [man(2)]})], rows)["app_bug_without_draft"], ["t_1@a1", "t_2@a1", "t_3@a1"])
+    # M2: a manifestation never covers a row with `blocking_check`
+    blocked = [rows[0], dict(rows[2], blocking_check="TC-1")]
+    got = BR.pair_drafts([("m.json", dr(man(1), man(3, case="TC-77")))], blocked)
+    check_eq("N2 5.1: a manifestation naming a blocked row (its case not listed) is NOT coverage: the blocker rule speaks (the draft misses the case)",
+             got["blocker_draft_misses_case"], [("TC-3", "TC-1")])
+    got_no_blocker_draft = BR.pair_drafts([("m.json", {"title": "t", "triage_ref": row(2), "manifestations": [man(3, case="TC-77")]})], blocked)
+    check_eq("N2 5.1: ... and where the blocker has no draft the manifestation does not cover the blocked row either",
+             got_no_blocker_draft["app_bug_without_draft"], ["t_1@a1", "t_3@a1"])
+    got = BR.pair_drafts([("m.json", dr(man(1), cases=["TC-1", "TC-3"]))], blocked)
+    check_eq("N2 5.1: ... the blocker's `cases` covers it", (got["app_bug_without_draft"], got["blocker_draft_misses_case"]), ([], []))
+    # M3: _blocker_cover reads the union (a case only in `manifestations[].case`)
+    got = BR.pair_drafts([("m.json", dr(man(1), man(3, triage_row=None, probe={"case": "p"})))], blocked)
+    check_eq("N2 5.1: the blocked row's case sits only in `manifestations[].case` of the blocker's draft -> covered",
+             (got["app_bug_without_draft"], got["blocker_draft_misses_case"]), ([], []))
+    got = BR.pair_drafts([("m.json", dr(man(1)))], blocked)
+    check_eq("N2 5.1: ... and without it the draft misses the case", got["blocker_draft_misses_case"], [("TC-3", "TC-1")])
+    # purity: pair_drafts reads no file
+    import builtins
+    plain = BR.pair_drafts([("m.json", dr(man(1), man(2)))], rows)
+    real_open, real_read = builtins.open, Path.read_text
+
+    def no_read(*a, **k):
+        raise AssertionError("pair_drafts read a file")
+    builtins.open, Path.read_text = no_read, no_read
+    try:
+        pure = BR.pair_drafts([("m.json", dr(man(1), man(2)))], rows)
+    finally:
+        builtins.open, Path.read_text = real_open, real_read
+    check_eq("N2 5.1: pair_drafts is pure: the same dict with open and Path.read_text patched to raise", pure, plain)
+    # 5.16: the same-place door
+    place = lambda n, **o: {"triage_ref": row(n), "defect_location": "src/x.ts:1", "case": f"TC-{n}", **o}   # noqa: E731
+    line = BR.same_location_problems(BR.pair_drafts([("a.json", place(1)), ("b.json", place(2))], rows))[0]
+    check("N2 5.16: the refusal names the manifestations door and the distinct_defect door", "`manifestations` hold every row" in line and "distinct_defect: <why>" in line, line)
+    got = BR.pair_drafts([("a.json", place(1, manifestations=[man(1), man(2), man(3)]))], rows)
+    check_eq("N2 5.16: merged into one draft with every row as a manifestation: no same_location, no row owed", (got["same_location"], got["app_bug_without_draft"]), ([], []))
+    said = 'the person said these are different bugs at gate B: "split them"'
+    got = BR.pair_drafts([("a.json", place(1, distinct_defect=said)), ("b.json", place(2, distinct_defect=said)), ("c.json", place(3, distinct_defect=said))], rows)
+    check_eq("N2 5.16: the split with the person's words: no same_location, one draft per row", (got["same_location"], got["app_bug_without_draft"]), ([], []))
+    # 5.17: the bug text
+    single = {"title": "Qty", "impact": "degraded", "manual_steps": ["open", "type -1"], "expected": "rejected", "actual": "11"}
+    sure = BR.reproduction_words({"confirmation": "unconfirmed", "reproduced_how": [], "reproduction_problems": []})
+    golden = ("# Qty\n\nImpact: degraded - priority P2\n\n## Steps to see it\n1. open\n2. type -1\n\n## Expected\nrejected\n\n"
+              "## What was seen\n11\n\n## How sure the factory is\n" + sure + "\n")
+    check_eq("N2 5.17: a draft with no manifestations: today's bytes", BR.bug_text(single, "P2", "unconfirmed", [], []), golden)
+    check_eq("N2 5.17: ... with ONE manifestation (and a mechanism): today's bytes",
+             BR.bug_text({**single, "manifestations": [man(1)], "mechanism": {"status": "confirmed", "statement": "s"}}, "P2", "unconfirmed", [], []), golden)
+    cause = {"statement": "the field turns an invalid value into 1", "status": "confirmed", "why": "",
+             "basis": [{"id": "b1", "kind": "code_line", "path": "p", "line": 1, "quote": "q"},
+                       {"id": "b2", "kind": "run", "start_state": "erased"}, {"id": "b3", "kind": "run", "start_state": "selected"}],
+             "claims": [{"says": "paste behaves the same", "confirmed_by": []}, {"says": "typing is the cause", "confirmed_by": ["b1"]}]}
+    seven = [man(1, action=f"way {n}", requirement="R-8" if n else None, red_test={"path": "t.py", "command": f"pytest t.py::t{n}"} if n % 2 else None,
+                 red_test_none=None if n % 2 else "manual check only") for n in range(7)]
+    text = BR.bug_text({**single, "mechanism": cause, "manifestations": seven}, "P2", "unconfirmed", [], [])
+    check_eq("N2 5.17: the merged text starts with today's bytes", text.startswith(golden.rstrip("\n")), True)
+    section = text.split("## Manifestations\n", 1)[1].splitlines()
+    check_eq("N2 5.17: seven manifestations -> seven lines, all of them (no cap), then the closing sentence",
+             [ln.split(".", 1)[0] for ln in section[:-1] if ln], [str(n) for n in range(1, 8)])
+    check_eq("N8 I4 (spec 8.4): the section closes with the re-check sentence, once",
+             (section[-1], text.count("After the fix, re-check every manifestation; one that still fails is a separate bug.")),
+             ("After the fix, re-check every manifestation; one that still fails is a separate bug.", 1))
+    check_not_in("N8 I4: a single-manifestation text has no re-check sentence (the golden above is byte-equal)", "re-check every manifestation", golden)
+    check("N2 5.17: a line holds action, start state, seen, requirement and the red test or the reason there is none",
+          all(w in section[0] for w in ("way 0", "start: erased", "seen: 11", "no requirement named", "no test: manual check only"))
+          and all(w in section[1] for w in ("way 1", "as requirement R-8 says", "red test: pytest t.py::t1")), section[:2])
+    check("N2 5.17: ## Cause: the statement, how confirmed in words (code line and two starting states), the unverified claim only",
+          all(w in text for w in ("## Cause\nthe field turns an invalid value into 1\nConfirmed by the line of the application code that does it and by trying it from two starting states.",
+                                  "Not verified: paste behaves the same")) and "Not verified: typing is the cause" not in text, text)
+    check_not_in("N2 5.17: no field name or JSON in the text", "manifestations", text)
+    unknown = BR.bug_text({**single, "mechanism": {"status": "unknown", "why": "only one start state was run"}, "manifestations": seven[:2]}, "", "", [], [])
+    check_in("N2 5.17: an unknown cause is never printed as one", "Cause not established: only one start state was run.", unknown)
+    check_in("N2 5.17: an unverified one says what is missing", "What is missing: no code", BR.bug_text(
+        {**single, "mechanism": {"status": "unverified", "statement": "maybe", "why": "no code"}, "manifestations": seven[:2]}, "", "", [], []))
+    check_in("N2 5.17: no mechanism at all with two manifestations says so", "Cause not established:", BR.bug_text({**single, "manifestations": seven[:2]}, "", "", [], []))
+    # merged_unconfirmed (F-2 (a)) and A2 / the first-manifestation row
+    root = temp_project("qa-factory-n2-")
+    try:
+        (root / "src").mkdir(exist_ok=True)
+        (root / "src" / "P.tsx").write_text("a\nconst q = f(1);\n", encoding="utf-8")
+        task = root / "qa-factory" / "artifacts" / "T-1"
+        task.mkdir(parents=True)
+        good = {"statement": "s", "status": "confirmed", "basis": [{"id": "b1", "kind": "code_line", "path": "src/P.tsx", "line": 2, "quote": "const q = f(1);"}]}
+        bad = {**good, "basis": [{"id": "b1", "kind": "code_line", "path": "src/P.tsx", "line": 2, "quote": "nope"}]}
+        two = lambda mech=None, **o: dr(man(1), man(2), **({"mechanism": mech} if mech is not None else {}), **o)   # noqa: E731
+        check_eq("N2 F-2: a merge whose basis stands, and a draft with one manifestation, are not listed",
+                 BR.merged_unconfirmed(task, [("ok.json", two(good)), ("one.json", dr(man(1), mechanism=bad)), ("old.json", {"title": "t"}), ("junk", None)]), [])
+        got = BR.merged_unconfirmed(task, [("bad.json", two(bad)), ("none.json", two()), ("unk.json", two({"status": "unknown", "why": "w"})),
+                                           ("typo.json", two({**good, "status": "Confirmed"})), ("shape.json", two("x")),
+                                           ("person.json", two({**good, "basis": [{"id": "p1", "kind": "person", "quote": "one bug"}]}))])
+        check_eq("N2 F-2: a broken basis, no mechanism, status unknown, a typo, a shape, a person word nobody recorded: each listed once",
+                 [name for name, _why in got], ["bad.json", "none.json", "unk.json", "typo.json", "shape.json", "person.json"])
+        check("N2 F-2: the first problem is named", BR.R_MECH_CODE_LINE in got[0][1] and "no `mechanism`" in got[1][1] and "not confirmed" in got[2][1], got)
+        check_eq("N2 F-2: `manifestations` of 2+ junk items counts (an unreadable merge is not a pass)", [n for n, _ in BR.merged_unconfirmed(task, [("j.json", {"manifestations": ["x", 3]})])], ["j.json"])
+        check_eq("N2 A2: confirmed with no statement, and unverified with a blank one, are refused; unknown needs none",
+                 [[c for c, _d in BR.mechanism_problems(task, dr(man(1), mechanism=m))] for m in
+                  ({**good, "statement": ""}, {k: v for k, v in good.items() if k != "statement"}, {"status": "unverified", "statement": "  ", "why": "w"},
+                   {"status": "unknown", "why": "w"}, {**good, "statement": 5})],
+                 [[BR.R_MECH_STATEMENT], [BR.R_MECH_STATEMENT], [BR.R_MECH_STATEMENT], [], [BR.R_MECH_SHAPE]])
+        first = lambda ref, row_: [c for c, _d in BR.manifestation_problems(task, dr(man(1, triage_row=row_), triage_ref=ref), rows)]   # noqa: E731
+        check_eq("N2 first row: a bare instance on either side and the full key of it are ONE row; another instance or attempt is not",
+                 [first("t_1", row(1)), first(row(1), "t_1"), first("t_1", "t_1"), first(row(1), row(1)), first(row(2), "t_1"), first("t_1@a2", row(1))],
+                 [[], [], [], [], [BR.R_MAN_PRIMARY], [BR.R_MAN_PRIMARY]])
+        check_eq("N2 first row: a first entry that is a probe is still not the draft's own row",
+                 [c for c, _d in BR.manifestation_problems(task, dr(man(1, triage_row=None, probe={"case": "c"}), triage_ref=row(1)), rows)][-1], BR.R_MAN_PRIMARY)
+    finally:
+        cleanup(root)
 
 
 def main() -> None:
@@ -1292,8 +1489,10 @@ def main() -> None:
     every_reader_of_the_drafts_folder_reads_through_one_reader()
     the_census_fails_on_an_offender_it_is_not_evergreen()
     the_code_reading_draft()
+    the_red_test_travels_with_the_bug()
     the_open_source_bugs()
     the_draft_place_and_mark()
+    one_bug_many_manifestations_n2()
     finish("bug_records")
 
 

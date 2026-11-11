@@ -117,6 +117,7 @@ def main() -> None:
     red_run_outranks_manifest_status()
     tolerant_join_of_run_results()
     mixed_then_trace()
+    proof_strength_then_is_not_pass()
     unrun_instance_in_a_then()
     legacy_join_of_run_rows()
     triage_joins_through_the_run_row()
@@ -551,6 +552,48 @@ T1_TC004 = ("not checked yet: in the same test, TC-004 (The check TC-004 of the 
             "check this again once that is fixed")
 T2_TC004_THEN2 = ("not proven: the test stopped at TC-004 (The check TC-004 of the moved integration), Then 2, "
                   "before reaching this check; check this again once that is fixed")
+
+
+def proof_strength_then_is_not_pass() -> None:
+    """t-2181 PC-5 / t-2277 J-C7 (AR-13, AR-15, FR-10): the Then table reads the ledger's proof-strength rule through
+    `ledger.proof_readings`: a green that met only a substituted side is `wait` with the state's own words, never `pass`; the same
+    story stamped all real (and the unstamped one) stays `pass`. KILLS: the table reading raw green rows only."""
+    import copy
+    import traceability as TR
+    from harness import temp_dir
+    import test_mixed_then_outcomes as M
+
+    top = temp_dir("qa-trace-proof-")
+
+    def stamped(met: dict, declared: dict) -> dict:
+        story = copy.deepcopy(M.with_status(M.shape_b(), M.MS, "passed"))
+        story["manifest"]["tests"][0].update(status="green")
+        for entry in story["manifest"]["tests"]:
+            entry["sides"] = dict(declared)
+        for row in story["report"]["current_results"]:
+            row["sides_met"] = dict(met)
+        return story
+
+    try:
+        plain = copy.deepcopy(M.with_status(M.shape_b(), M.MS, "passed"))
+        plain["manifest"]["tests"][0].update(status="green")
+        check_eq("control: the unstamped story's Then is `pass`",
+                 mixed_story_of(top, plain, "plain")[0].then_outcome("TC-005", 1, "R-5").get("result"), "pass")
+        real = mixed_story_of(top, stamped({"backend": "real"}, {"backend": "real"}), "real")[0]
+        check_eq("control: stamped real on both sides is `pass`", real.then_outcome("TC-005", 1, "R-5").get("result"), "pass")
+        sub, _ = mixed_story_of(top, stamped({"backend": "substituted"}, {"backend": "substituted"}), "sub")
+        got = sub.then_outcome("TC-005", 1, "R-5")
+        check_eq("a green on a substituted side is `wait`, not `pass`", got.get("result"), "wait")
+        check_in("... in the words of the state the summary prints", "stand-in", got.get("basis", ""))
+        check_eq("... the same reading the ledger gives", sub.proof_reading("TC-005", 1)[0], "not_verified:on_substitute")
+        check_eq("... and a Then of another case that is not stamped that way is read on its own",
+                 sub.proof_reading("TC-005", 99), None)
+        sub.manifest = {}                                  # an unreadable story reads nothing and never raises
+        sub.__dict__.pop("_proof_readings", None)
+        check_eq("an empty manifest reads no proof strength", sub.proof_reading("TC-005", 1), None)
+        check_eq("the outcome keeps the table's worst-wins shape", TR._merge_outcomes([{"result": "pass"}, {"result": "wait"}])["result"], "wait")
+    finally:
+        cleanup(top)
 
 
 def mixed_then_trace() -> None:

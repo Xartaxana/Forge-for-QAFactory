@@ -7,7 +7,7 @@
   K3-4  the ceiling stays: a `--scope` of 5 is accepted, of 6 refused (E2)
   K3-5  a story in flight: an accepted block of 3 is not offered again, the rest goes one by one (E5)
   K3-6  `story_progress._block_position` counts windows by the window size
-  K3-7  `qa-runner.md` item Sequencing no longer promises a concurrent run (control inside)
+  K3-7  `qa-runner.md` no longer promises a concurrent run (control inside)
   K3-8  a rework of 6 cases keeps its ceiling-sized blocks and its door (E11)
 
 Each check names the ONE mutation that kills it. Fixtures are those of `test_story_step_manual_block.py`.
@@ -27,8 +27,9 @@ import test_story_step_manual_block as MB  # noqa: E402  (real_story, start, acc
 
 def the_split_by_the_window():
     """K3-1 (E3, E4). KILLS: the default of `manual_blocks` turned into 1 (K-S3 and this); the window constant not 1."""
-    check_eq("K3-1: the window is one case, the ceiling is still five", (MANUAL_WINDOW_CASES, MANUAL_BLOCK_CASES), (1, 5))
-    check_eq("K3-1: three cases are three windows", manual_blocks(["a", "b", "c"], MANUAL_WINDOW_CASES), [["a"], ["b"], ["c"]])
+    check_eq("K3-1: the window is three cases (t-1957 N5s), the ceiling is still five", (MANUAL_WINDOW_CASES, MANUAL_BLOCK_CASES), (3, 5))
+    check_eq("K3-1: three cases are one window", manual_blocks(["a", "b", "c"], MANUAL_WINDOW_CASES), [["a", "b", "c"]])
+    check_eq("K3-1: four cases are 3 + 1", manual_blocks(["a", "b", "c", "d"], MANUAL_WINDOW_CASES), [["a", "b", "c"], ["d"]])
     check_eq("K3-1: one case is one window", manual_blocks(["a"], MANUAL_WINDOW_CASES), [["a"]])
     check_eq("K3-1: nothing is nothing", manual_blocks([], MANUAL_WINDOW_CASES), [])
     check_eq("K3-1: the default cut is the old one (5 is one block)", manual_blocks(list("abcde")), [list("abcde")])
@@ -48,8 +49,8 @@ def the_door_offers_one_case():
         c = MB.real_story(root, MB.MIXED_7)
         for label, scope in (("no --scope", None), ("an empty one", "")):
             code, text, _ = MB.start(root, c, scope)
-            check_eq(f"K3-2: {label}: refused, the door is the first case alone", (code, MB.door_scope(text)), (2, "TC-2"))
-        check_in("K3-2: the tail counts the rest and says the size", "then 5 more block(s) of at most 1 case(s) for: TC-3, TC-4, TC-5, TC-6, TC-7", text)
+            check_eq(f"K3-2: {label}: refused, the door is the first lane of three", (code, MB.door_scope(text)), (2, "TC-2,TC-3,TC-4"))
+        check_in("K3-2: the tail counts the rest and says the size", "then 1 more block(s) of at most 3 case(s) for: TC-5, TC-6, TC-7", text)
         check_not_in("K3-2: no literal 5 in the tail", "of at most 5", text)
         # E6: a case `prepare` refuses is not silently dropped; the door is the next window of the cleaned rest
         refuse_2 = lambda case: ([], "no executable obligation") if case == "TC-2" else ([f"OB-{case}"], "")  # noqa: E731
@@ -67,22 +68,24 @@ def the_driver_and_the_door_are_twins():
     cases = [f"TC-{n}" for n in range(2, 8)]
     calls, done = [], set()
     driver = story_run.Driver.__new__(story_run.Driver)
+    driver.task_root = Path(temp_dir("qa-win-nofiles-"))     # no request files there: no case names an account (one lane)
     driver.manual_done = lambda: set(done)
     driver.manual_order = lambda given: list(given)
-    driver.manual_prepare = lambda case: (calls.append(case) or ([f"OB-{case}"], ""))
+    driver.manual_prepare = lambda case: (calls.append(case) or ([f"OB-{case}"], "", ""))
     plan = driver.manual_plan(cases)
-    check_eq("K3-3: the driver cuts the cases into windows of one", plan["blocks"], [[c] for c in cases])
+    check_eq("K3-3: the driver cuts the cases (no account named: one lane) into windows of three", plan["blocks"],
+             [cases[:3], cases[3:]])
     root = temp_dir("qa-win-twin-")
     try:
         c = MB.real_story(root, MB.MIXED_7)
         _, text, _ = MB.start(root, c, None)
-        offered = [MB.door_scope(text)] + [x.strip() for x in text.split("for: ", 1)[1].split(";", 1)[0].split(",")]
-        check_eq("K3-3: the door offers the same cases in the same order", offered, [b[0] for b in plan["blocks"]])
+        offered = MB.door_scope(text).split(",") + [x.strip() for x in text.split("for: ", 1)[1].split(";", 1)[0].split(",")]
+        check_eq("K3-3: the door offers the same cases in the same order", offered, [x for b in plan["blocks"] for x in b])
     finally:
         cleanup(root)
-    # E8: every entry prepares ALL the cases left; with a window of one that is n + (n - 1) + ... + 1
+    # E8: every entry prepares ALL the cases left; with a window of three that is n + (n - 3) + ... + 3
     many = [f"TC-{n}" for n in range(1, 16)]
-    for size, expected in ((MANUAL_WINDOW_CASES, 120), (MANUAL_BLOCK_CASES, 30)):
+    for size, expected in ((MANUAL_WINDOW_CASES, 45), (MANUAL_BLOCK_CASES, 30)):
         calls.clear()
         done.clear()
         driver.MANUAL_BLOCK_MAX = size
@@ -117,8 +120,9 @@ def a_story_in_flight():
         MB.start(root, c, "TC-2,TC-3,TC-4")
         MB.accept(c, root, "S6-qa-runner-1", "manual", ["TC-2", "TC-3", "TC-4"])
         code, text, _ = MB.start(root, c, None)
-        check_eq("K3-5: an accepted block of three is not offered again; the rest goes by windows", (code, MB.door_scope(text)), (2, "TC-5"))
-        check_in("K3-5: ...and the tail counts the other two", "then 2 more block(s) of at most 1 case(s) for: TC-6, TC-7", text)
+        check_eq("K3-5: an accepted block of three is not offered again; the rest is the next lane", (code, MB.door_scope(text)),
+                 (2, "TC-5,TC-6,TC-7"))
+        check_not_in("K3-5: ...and nothing is left to count", "more block(s)", text)
     finally:
         cleanup(root)
 
@@ -133,18 +137,16 @@ def progress_counts_windows():
     SP._scope_of = lambda *_a, **_k: {"derived": True, "scope": ids}
     try:
         got = SP._block_position(None, {}, [first], first, "QA-9")
-        check_eq("K3-6: 5 cases left, a window of one: 1 in flight + 5", got["blocks_total"], 6)
+        check_eq("K3-6: 5 cases left, a window of three: 1 in flight + 2", got["blocks_total"], 3)
     finally:
         SP._scope_of = saved
 
 
 def the_runner_sequencing_line():
-    """K3-7. KILLS: the `run.parallel` promise back in item 7 of `qa-runner.md`."""
+    """K3-7. KILLS: the `run.parallel` promise back in `qa-runner.md`."""
     text = (harness.PLUGIN_ROOT / "agents" / "qa-runner.md").read_text(encoding="utf-8")
-    start = text.index("7. **Sequencing.**")
-    item = text[start:text.index("\n8.", start)]
-    check_in("K3-7: one dispatch runs at a time", "One dispatch runs at a time.", item)
-    check_not_in("K3-7: no concurrent run is promised", "run.parallel", item)
+    # X7-3: the runner is a charter with no numbered items (R-drop of the item number); the promise is looked for in the whole text
+    check_not_in("K3-7: no concurrent run is promised", "run.parallel", text)
     old = "7. **Sequencing.** Blocks run in turn; two run concurrently only when\n   `config.run.parallel` is `true`."
     check("K3-7 negative control: the old text carries the promise", "run.parallel" in old)
 

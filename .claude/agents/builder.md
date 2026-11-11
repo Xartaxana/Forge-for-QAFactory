@@ -46,7 +46,10 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    "given" basket (dispatch-context-manifest rule) is free — but list
    in the report what you actually needed beyond it: that's telemetry
    on spec quality, not a violation. Its scope in this repository:
-   `plans/builder-rules.md` 7b (D-0056).
+   `plans/builder-rules.md` 7b (D-0056) — the files
+   `scenario_walk.py --witness-for <owns>` prints; a quarantined test
+   file is never run or edited, and no new test file is written
+   without a keep row (7d).
 5. Fix the class, not the instance (fix-the-class-not-the-instance
    rule): if the spec fixes a defect in one place and you SEE the
    same thing nearby (another file, an adjacent function, a paired

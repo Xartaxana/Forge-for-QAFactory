@@ -16,7 +16,15 @@ ignored}`. Seven signals, each an EPISODE that happened after the mark (K4 is th
   K2  driver-state.json `in_flight` names a process that is gone (or was taken over)  window: `started_at`
   K3  driver-runs.jsonl `launched` row with no outcome row of the same dispatch after it, the dispatch is not live, and the
       row is STRICTLY older than the quiet hours (a conductor call has a `launched` row but never an `in_flight` entry, so a
-      call running right now looks the same; a younger row is named in `ignored` as "may be running now")
+      call running right now looks the same; a younger row is named in `ignored` as "may be running now").
+      NOT a signal: a row the person's stop record cuts off (TR4-11): a LATER row `kind == "stopped_by_person"`, `who == "person"`,
+      whose `cut` list holds `<dispatch_id or call>@<started_at>` of the row (`Driver.journal_run` keeps the calls its process launched
+      and saw no end row for - so `cut` holds every such call, including one that ended abnormally earlier in the same process
+      with no outcome row and a drained call that has a `launched` row but no process; `Driver.person_stop_record` writes them) and whose `since` (the stopping process's start) is not after the
+      row's start; it is named in `ignored` ("stopped by the person at <at>"). A dead driver stays a stall: a row with no such record
+      after it, one of an earlier process (not in `cut`), one launched after the record, a record with no `cut`, `who` other than
+      "person", or a `since`/`at` that is not a time (also a reason: `unreadable`). Known gap, queued: this file reads
+      driver-runs.jsonl itself while `driver_journal` calls itself its one reader (AR-13).
                                                                                      window: `started_at` (else `ts`)
   K4  the LAST outcome row of a dispatch is an error (`is_error`, `exit_code` != 0, `infra`); a later ok row of the
       same dispatch clears it                                                        window: `ts`
@@ -211,6 +219,27 @@ def _is_error(row):
         isinstance(code, int) and not isinstance(code, bool) and code != 0)
 
 
+def _person_stop(later, call_id, began, reasons):
+    """The first row of `later` (the rows AFTER a `launched` row) that is the person's stop record cutting THIS call, else None.
+
+    Honoured only when ALL hold (clearing a K3 is the unsafe side - a missing transcript): `kind == "stopped_by_person"`, `who ==
+    "person"`, `call_id` (`<dispatch_id or call>@<started_at>`, the form `Driver.journal_run` keeps) is in its `cut` list (a record with
+    no `cut` - an older writer - clears nothing), `since` and `at` are times, and `since` (when the stopping process began) is not after
+    the call's own start. A `since` or `at` that is there and is not a time is a reason (the story is `unreadable`) and the row is
+    judged as if no record stood; one that is absent is not honoured, silently."""
+    for row in later:
+        cut = row.get("cut")
+        if row.get("kind") != "stopped_by_person" or row.get("who") != "person" or not isinstance(cut, list) or call_id not in cut:
+            continue
+        since, at = _epoch(row.get("since")), _epoch(row.get("at"))
+        for name, value, parsed in (("since", row.get("since"), since), ("at", row.get("at"), at)):
+            if parsed is None and value is not None and not (isinstance(value, str) and not value.strip()):
+                reasons.append(f"driver-runs.jsonl stopped_by_person: its {name} is not a time ({_show(value)})")
+        if since is not None and at is not None and began is not None and since <= began:
+            return row
+    return None
+
+
 def _k3_k4(facts, floor, now_s, quiet_s, ignored, reasons, live):
     rows = _dicts(facts.get("driver_runs"))
     out, last = [], {}
@@ -224,10 +253,14 @@ def _k3_k4(facts, floor, now_s, quiet_s, ignored, reasons, live):
         if any(_is_outcome(later) and _outcome_key(later) == key for later in rows[i + 1:]):
             continue
         where = f"driver-runs.jsonl launched {key}"
-        at = _after(row.get("started_at") if row.get("started_at") is not None else row.get("ts"), floor, ignored, reasons, where)
+        began = row.get("started_at") if row.get("started_at") is not None else row.get("ts")
+        at = _after(began, floor, ignored, reasons, where)
         if at is None:
             continue
-        if now_s - at > quiet_s:
+        stop = _person_stop(rows[i + 1:], f"{key}@{began}", _epoch(began), reasons)
+        if stop is not None:
+            ignored.append({"where": where, "why": f"stopped by the person at {stop.get('at')}"})
+        elif now_s - at > quiet_s:
             out.append(_sig("K3", where, at))
         else:       # t-1022 M-2: no `in_flight` entry exists for a conductor call, and a role's appears seconds after the row
             ignored.append({"where": where, "why": "launched less than the quiet window ago with no end row yet: may be running now"})

@@ -181,6 +181,7 @@ def main():
     for test in tests:
         test()
     print("PASS test_dashboard_cost_gap_rows (%d tests)" % len(tests))
+    print("=== test_dashboard_cost_gap_rows: %d/%d ok ===" % (len(tests), len(tests)))
 
 
 if __name__ == "__main__":

@@ -151,3 +151,12 @@ Your job is to find what's wrong and prove it.
    owner's word 06.10.2026 «поддерживать порядок»): the rule text is
    docs/tasks/critic-diff-brief.md items 6-7. An empty answer is
    explicit: "none found: <what was grepped>".
+19. One action, one road, on a plan gate and on a diff gate alike, with its own
+   verdict line: the question is docs/tasks/critic-diff-brief.md item 12
+   (PROJECT.md P31). An exclusion of a language, project or case from a shared
+   mechanism with no data row, no role step taken alike and no quoted word of
+   the owner blocks; a branch that only serves the task's own condition, with
+   the shared mechanism still reached, is not one. A residual of this class
+   leaves your verdict as a fix of this round or as a proposed node with its
+   owner, never as a line for somebody to pass on; the coordinator of the
+   proper tier opens the node (rule 6).

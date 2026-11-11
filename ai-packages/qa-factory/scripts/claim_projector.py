@@ -177,7 +177,8 @@ def _judge(doc, i: int, claim, env) -> tuple:
     found.extend((issue, "the `ask` map the form gives") for issue in issues)
     row = {"r": text["r"], "before": before, "before_ref": before_ref, "now": text["now"], "now_ref": text["now_ref"],
            "differs": text["differs"], "question": "Q?"}
-    found.extend((frag, "the claim form") for frag in C.claim_row_errors(row, {"Q?": question} if question else None))
+    found.extend((frag, "the claim form") for frag in C.claim_row_errors(row, {"Q?": question} if question else None,
+                                                                         snapshot_items=_snapshot_items(env.root)))
     if before_ref.startswith("base:") and before.lower() not in (C.CLAIM_UNKNOWN, C.CLAIM_ABSENT):
         why = env.base_problem(before_ref)
         if why:
@@ -516,8 +517,9 @@ def _empty_result() -> SimpleNamespace:
     return SimpleNamespace(projected=[], unchanged=[], problems=[], notes=[], wrote=False)
 
 
-def _plan(prepared: list, readiness: tuple, register: tuple, claims: list) -> SimpleNamespace:
-    """PURE: what the move would write. `problems` non-empty means nothing is to be written."""
+def _plan(prepared: list, readiness: tuple, register: tuple, claims: list, snapshot_items=None) -> SimpleNamespace:
+    """PURE: what the move would write. `problems` non-empty means nothing is to be written. `snapshot_items`: the story's reference
+    snapshot item ids for the read-back of a `reference:<item>` claim (None: none)."""
     plan = SimpleNamespace(problems=[], projected=[], unchanged=[], notes=[], text=None, data=None)
     _, data, rows = readiness
     _, text = register
@@ -573,7 +575,7 @@ def _plan(prepared: list, readiness: tuple, register: tuple, claims: list) -> Si
     if not header.has_impact:
         plan.notes.append("impact not written: the register has no impact column")
     plan.data = data
-    plan.problems.extend(_post_build(plan.text, data["open_questions"], items))
+    plan.problems.extend(_post_build(plan.text, data["open_questions"], items, snapshot_items))
     return plan
 
 
@@ -593,7 +595,17 @@ def _changed(c, qid, diff) -> ClaimProblem:
                         f"behaviour as a new claim with a new free `r`. {NO_WRITE}. {PERSON}")
 
 
-def _post_build(text: str, questions: list, items: list) -> list:
+def _snapshot_items(root):
+    """The ids of the story's reference snapshot (`reference_snapshot.item_ids`, the reader of record); None when there is none, it cannot
+    be read or the build is half-installed: a `reference:<item>` claim is then refused, never passed."""
+    try:
+        import reference_snapshot
+        return reference_snapshot.item_ids(root)
+    except Exception:   # noqa: BLE001
+        return None
+
+
+def _post_build(text: str, questions: list, items: list, snapshot_items=None) -> list:
     """I3 asserted, not hoped: every projected R reads back as an implementation-only claim with its own question, whole, and in `ids:`."""
     by_id = {q["id"]: q for q in questions if isinstance(q, dict) and isinstance(q.get("id"), str)}
     only, asked, claim_rows = set(C.implementation_only(text)), C.claim_questions(text), {r["r"]: r for r in C.behaviour_claims(text)}
@@ -606,7 +618,7 @@ def _post_build(text: str, questions: list, items: list) -> list:
         if c.r not in ids:
             errors.append("it is not in the front matter `ids:`")
         if row is not None:
-            errors += C.claim_row_errors(row, by_id, link_index)
+            errors += C.claim_row_errors(row, by_id, link_index, snapshot_items=snapshot_items)
             errors += [f"its {key} reads back as '{row.get(key)}'" for key in ("before", "before_ref", "now", "now_ref", "differs")
                        if _empty(row.get(key, "")) != _empty(C.strip_cell(getattr(c, key)))]
             errors += [] if row.get("origin") == ORIGIN else [f"its origin reads back as '{row.get('origin')}'"]
@@ -658,7 +670,7 @@ def _project_locked(root, claims: list, prepared: list, result) -> None:
     except _Carrier as exc:
         result.problems.append(_d(str(exc)))
         return
-    plan = _plan(prepared, readiness, register, claims)
+    plan = _plan(prepared, readiness, register, claims, _snapshot_items(root))
     result.notes, result.unchanged = plan.notes, plan.unchanged
     if plan.problems:
         result.problems = plan.problems
@@ -831,6 +843,7 @@ def s3_claim_errors(task_root) -> list:
     questions = _questions_view(root)
     only, asked, seen = set(C.implementation_only(text)), C.claim_questions(text), {}
     link_index = C.claim_link_index(questions)
+    snapshot_items = _snapshot_items(root)
     for row in C.behaviour_claims(text):
         if row.get("origin") != ORIGIN:
             continue
@@ -838,7 +851,7 @@ def s3_claim_errors(task_root) -> list:
         tail = "the register was rewritten after the projection (conductor)"
         if seen[r] == 2:
             out.append(ClaimProblem("R-d", "conductor", r, f"{r}: appears twice under \"{C.CLAIM_HEADING}\" - fix: one claim per requirement; {tail}"))
-        out.extend(ClaimProblem("R-d", "conductor", r, f"{r}: behaviour claim - {frag} - fix: {tail}") for frag in C.claim_row_errors(row, questions, link_index))
+        out.extend(ClaimProblem("R-d", "conductor", r, f"{r}: behaviour claim - {frag} - fix: {tail}") for frag in C.claim_row_errors(row, questions, link_index, snapshot_items=snapshot_items))
         if questions is None:   # nothing to confirm the question against is not a pass (FR-59)
             out.append(ClaimProblem("R-d", "conductor", r, f"{r}: question {row['question']} cannot be confirmed: requirements-readiness.json is "
                                     "absent/unreadable - fix: S2 writes that file; restore it (conductor)"))

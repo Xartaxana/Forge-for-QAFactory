@@ -165,15 +165,25 @@ def t5_keyboard():
                         .replace("<the sign-in submit>", "button.submit"))
                 check_eq(f"T5 session_transition {kind['id']}: `{line}` is a step the capture parses", T.problem_with(MC.spec(), line), "")
         word = kinds["multi_digit"][0].replace("<selector>", "input")
-        browser = S.FakeBrowser()
+        # X8-4: the multi_digit row is `fill <selector> 12`; a human `fill` (clear, then the characters one at a time) keys it, so the
+        # fake carries the human path (clear_field + field_traits + type_chars) - the same characters, the same log, now under `fill-`.
+        class Human(S.FakeBrowser):
+            def field_traits(self, selector):
+                return {"type": None, "tag": "input"}, 0.01
+
+            def clear_field(self, selector):
+                return {"n": "cleared", "value": "", "focus": True}, 0.01, 0.01
+
+        browser = Human()
         browser.typed = {"input": [{"n": 1, "value": "1", "focus": True}, {"n": 2, "value": "1", "focus": False},
                                    {"n": "settled", "value": "1", "focus": False}]}
         entry, attempt = T._input_step(t, browser, word)
-        check_eq("T5 multi_digit is keyed one character at a time (a `type`, not a `fill`)", browser.calls[0][0], "type")
+        check_eq("T5 multi_digit is keyed one character at a time (a `fill` that types, not a whole-value set)", browser.calls[0][0], "type")
         check_in("T5 the redraw after the first character is told", "focus lost after character 1", entry["detail"])
-        log = next(p for p in attempt.dir.glob("*type-input*")).read_text(encoding="utf-8").splitlines()
-        check_eq("T5 the per-character log", log, ["1\t1\tfocus=yes", "2\t1\tfocus=no", "settled\t1\tfocus=no"])
-        entry, _ = T._input_step(t, S.FakeBrowser(), word)
+        log = next(p for p in attempt.dir.glob("*fill-input*")).read_text(encoding="utf-8").splitlines()
+        check_eq("T5 the per-character log (the clearing first)", log,
+                 ["cleared\t\tfocus=yes", "1\t1\tfocus=yes", "2\t1\tfocus=no", "settled\t1\tfocus=no"])
+        entry, _ = T._input_step(t, Human(), word)
         check_not_in("T5 control: a page that keeps the focus says nothing of it", "focus lost", entry["detail"])
     finally:
         S.cleanup(t)
@@ -330,10 +340,14 @@ def t8_carrier_window():
     check_in("T8 ... and ONE pointer line to its cells", "Exploration cells: qa-factory/artifacts/TP1-12586/work/briefs/S6-qa-runner-2-cells.md", first)
     check_not_in("T8 ... and no cell inline", "Axis oracles:", first)
     second = story_brief(tried="OTHER-CASE")
-    check_not_in("T8 a tried.md in ANOTHER case's folder: no exploration lines", "Exploration", second)
+    # X7-3: the charter's Good-outcome item "Exploration cells are rows" is now the brief's DoD in EVERY S6 brief, so the bare word is no
+    # longer a carrier mark; the carrier lines are the two with their colon.
+    check_not_in("T8 a tried.md in ANOTHER case's folder: no exploration lines", "Exploration charter:", second)
+    check_not_in("T8 ... and no cells pointer", "Exploration cells:", second)
     auto = {**B.DISPATCH, "execution_kind": "automation", "request_binding": {"purpose": "manual", "execution_kind": "automation"}}
     plain = story_brief(dispatch=auto)
-    check_not_in("T8 an automated S6 brief: no exploration lines", "Exploration", plain)
+    check_not_in("T8 an automated S6 brief: no exploration lines", "Exploration charter:", plain)
+    check_not_in("T8 ... and no cells pointer", "Exploration cells:", plain)
     with patch.object(brief_pack, "exploration_lines", return_value=[]):
         without = story_brief(dispatch=auto)
     check_eq("T8 ... and it is byte for byte the brief without X3", plain, without)

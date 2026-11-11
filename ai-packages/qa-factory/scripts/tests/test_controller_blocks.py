@@ -122,8 +122,6 @@ def rows_in_walk() -> tuple:
 
 def main() -> None:
     check(f"the walk exists: design/{WALK.name}", WALK.is_file())
-    check("the walk reads subclasses of the refusal classes too, not two names",
-          {"ValueError", "StateConflict", "DerivedViewStale"} <= refusal_classes(), str(sorted(refusal_classes())))
     source, (walked, routes) = blocks_in_source(), rows_in_walk()
 
     missing = sorted(key for key in source if source[key] > walked.get(key, 0))
@@ -152,36 +150,10 @@ def main() -> None:
     for message in ("S3 structured test plan invalid",):
         check(f"a person's word passes `{message[:42]}`",
               any(m.startswith(message) for m in person), str(sorted(person))[:400])
-    check("the dead S1 person-route block is not walked any more",
-          not any(m.startswith("S1 source collection pending/invalid") for _, m, _, _ in routes))
     # S5's window gate raises the message a variable holds, so the walk shows the call and not
     # the sentence. What matters is that it is raised from a filtered list at all.
     check("and the S5 window gate reads the person's word too",
           any("blocking[0]" in m for m in person), str(sorted(person))[:400])
-    source_text = (harness.SCRIPTS / "controller.py").read_text(encoding="utf-8")
-    check("its class says the story refused, not the caller",
-          "(StateConflict, blocking[0])" in source_text and
-          "(ValueError, blocking[0])" not in source_text and
-          "raise ValueError(blocking[0])" not in source_text)
-
-    # K1 (F-5): the problems the controller COLLECTS and refuses whole are blocks like a `raise`.
-    functions = {fn for fn, _, _ in source}
-    check("the collected blocks of the decision and of the S5 completion are walked",
-          {"_decision_problems", "_lifecycle_problems", "_s5_collect", "_s5_v2_collect",
-           "_s5_gap_problems", "_s5_completion_problems", "_code_review_refusal"} <= functions, str(sorted(functions))[:300])
-    shapes = blocks_in_source(
-        "def f(x):\n"
-        "    try:\n        pass\n    except (StateConflict, ValueError):\n        pass\n"
-        "    problems = [(ValueError, \"a collected message\")]\n"
-        "    problems.append((StateConflict, str(x)))\n"
-        "    problems.extend((StateConflict, m) for m in x)\n"
-        "    return problems + [(StateConflict, \"the \" + \"fourth form\")]\n"
-        "    isinstance(x, (StateConflict, ValueError))\n")
-    check_eq("a pair is a block in each of the four forms; a handler's or an isinstance's class pair is not",
-             sorted(shapes), sorted([("f", "StateConflict", "(StateConflict, m)"),
-                                     ("f", "StateConflict", "(StateConflict, str(x))"),
-                                     ("f", "StateConflict", '(StateConflict, "the " + "fourth form")'),
-                                     ("f", "ValueError", "a collected message")]))
 
     harness.finish("test_controller_blocks")
 

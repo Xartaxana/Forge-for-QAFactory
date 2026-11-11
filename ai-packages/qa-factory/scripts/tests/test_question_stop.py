@@ -565,11 +565,14 @@ try:
     check_in("F1 the no-diff lead is still the scout's question", "No implementation was found for QA-9.", nodiff)
     check_in("F1 the no-diff halt keeps `What it reported:` and the row's own reason",
              "What it reported:\n- R-7 — the capability the scout needs is unavailable", nodiff)
-    check_not_in("F1 a first no-diff halt does not say `again`", "again", nodiff)
+    # the lead (above the priced answers) is what says `again`; the `not built yet` answer's own words (PC-2) end on "start the same story again"
+    check_not_in("F1 a first no-diff halt does not say `again` in its lead", "again", str(nodiff).split("## What each answer")[0])
     check_in("F1 the no-diff lead still ends on the decision, above the prices",
              "Testing without grounding is a decision, so pick one:\n\n## What each answer costs and does", nodiff)
     check_eq("F1 the no-diff options keep their priced tokens exactly (only `stop` carries a token)", tuple(nodiff.priced), ("stop",))
-    check_in("F1 the three answers are still offered", "tests for behaviour that is not implemented", nodiff)
+    check("F1 the answers are still offered (change, lives, ungrounded, not built yet), in the PC-2 words",
+          all(w in str(nodiff) for w in ("give me the change", "name where it already lives", "go on with the requirements only",
+                                         "the code for this story is not written yet")), str(nodiff))
     again_text = driver.halt_text("S1", "qa-scout", scout_digest, again=True)
     check_in("F1 a second no-diff halt says the scout stopped on it again", "The scout stopped on it again.", again_text)
     check_in("F1 ...and keeps the rows", "- R-7 — the capability the scout needs is unavailable", again_text)

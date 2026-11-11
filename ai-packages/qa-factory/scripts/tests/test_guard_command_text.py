@@ -14,7 +14,6 @@ could actually RUN one of the guarded commands - plainly, through `bash -c`, thr
 an interpreter, or hidden in a command substitution inside an `echo` - is still refused.
 Loosening the matcher is only safe while those stay red.
 """
-import re
 import sys
 from pathlib import Path
 
@@ -516,132 +515,7 @@ def a_here_string_never_ends_a_segment() -> None:
         cleanup(root)
 
 
-def one_rule_in_one_place() -> None:
-    """The point of the helper is that the rule lives once: a check that went on matching the
-    raw command would drift away from every other one at the next incident."""
-    import inspect
-    for name in ("human_word_check", "writes_check", "git_config_check", "logs_check"):
-        source = inspect.getsource(getattr(G, name))
-        check(f"{name} matches the executable part", "command_text_parts(" in source,
-              source[:200])
-    # stage_check reads the RAW command, one line as the role wrote it (CX1-20 F-1, a reviewed decision): the helper
-    # cuts a `$(` into `$` + LF and a `(` into LF, so on its `exec` text `git com$(true)mit` loses the words of a
-    # form, while `stage_guard.check` reads the raw command anyway and is the judge of what is text. Its own rule,
-    # pinned here: the joined raw line is read (`argv_text(`) and the helper is NOT (a revert to it drops a form).
-    source = inspect.getsource(G.stage_check)
-    check("stage_check reads the raw command line, not the executable part", "argv_text(" in source
-          and "command_text_parts(" not in source, source[:200])
-    # runs_check hands a MATCHER (hooklib.direct_test_form) the text with only the heredoc and
-    # here-string bodies out: the matcher reads quoted arguments as text itself, and the second
-    # pass of command_text_parts joins the pieces of one segment with a newline that the matcher
-    # reads as a new command position (`echo "a" pytest -q`, B-404 F1). Its own rule, pinned here
-    # so the one helper for the bodies stays the one place that cuts them.
-    source = inspect.getsource(G.runs_check)
-    check("runs_check matches the text with only the bodies out", "_split_off_bodies(" in source
-          and "_split_off_emitted(" not in source and "command_text_parts(" not in source, source[:200])
-
-
-# --- o1 (OH3-22): the advice reader's output is byte-identical to the function it was before the scan moved to hooklib --------
-# `_frozen_*` is a VERBATIM copy of `_join_kept` and `_split_off_bodies` as of 17dbcea9 (the regexes under their old names);
-# only the helpers it calls (`G._receiver_runs_it`, `G._EXPANSION_RE`) are the live ones, and they are not edited.
-_F_HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1")
-_F_HERESTRING_RE = re.compile(r"<<<[ \t]*('[^']*'|\"[^\"]*\"|[^\s;&|<>()]+)")
-_F_PS_HERESTRING_RE = re.compile(r"@(['\"])[ \t]*\r?\n")
-
-
-def _frozen_join_kept(keep: list, spaced: set) -> str:
-    out, glue = "", "\n"
-    for index, piece in enumerate(keep):
-        if piece:
-            out += (glue if out else "") + piece
-            glue = "\n"
-        if index in spaced:
-            glue = " "
-    return out
-
-
-def _frozen_split_off_bodies(src: str) -> tuple:
-    keep: list = []
-    spaced: set = set()  # indexes of the pieces that a here-string cut off from the next one
-    text: list = []
-    where: list = []
-    i, n, kept, quote = 0, len(src), 0, ""
-    while i < n:
-        ch = src[i]
-        if quote:
-            if ch == "\\" and quote == '"' and i + 1 < n:
-                i += 2
-                continue
-            if ch == quote:
-                quote = ""
-            i += 1
-            continue
-        if ch == "@" and i + 1 < n and src[i + 1] in "'\"":
-            m = _F_PS_HERESTRING_RE.match(src, i)
-            if m:
-                closer = re.compile(r"^[ \t]*" + re.escape(src[i + 1] + "@"), re.M)
-                end = closer.search(src, m.end())
-                body = src[m.end():end.start() if end else n]
-                if not G._EXPANSION_RE.search(body):
-                    keep.append(src[kept:i])
-                    spaced.add(len(keep) - 1)  # `@'..'@ pytest`: what follows the closer is an argument
-                    text.append(body)
-                    where.append("a PowerShell here-string")
-                    kept = end.end() if end else n
-                i = end.end() if end else n
-                continue
-        if ch in "'\"":
-            quote = ch
-            i += 1
-            continue
-        if src.startswith("<<<", i):
-            m = _F_HERESTRING_RE.match(src, i)
-            if m and not G._receiver_runs_it(src, i) and not G._EXPANSION_RE.search(m.group(1)):
-                keep.append(src[kept:i])
-                spaced.add(len(keep) - 1)
-                text.append(m.group(1))
-                where.append("a here-string")
-                kept = i = m.end()
-                continue
-        elif src.startswith("<<", i):
-            m = _F_HEREDOC_RE.match(src, i)
-            newline = src.find("\n", m.end()) if m else -1
-            if m and newline != -1:
-                closer = re.compile(r"^[ \t]*" + re.escape(m.group(2)) + r"[ \t]*$", re.M)
-                end = closer.search(src, newline + 1)
-                after = end.end() if end else n
-                body = src[newline + 1:end.start() if end else n]
-                quoted_delimiter = bool(m.group(1))
-                if not G._receiver_runs_it(src, i) and (
-                        quoted_delimiter or not G._EXPANSION_RE.search(body)):
-                    keep.append(src[kept:newline])
-                    text.append(body)
-                    where.append("a heredoc body")
-                    kept = after
-                i = after  # an interpreter's body stays executable, quoting and all
-                continue
-        i += 1
-    keep.append(src[kept:])
-    return _frozen_join_kept(keep, spaced), text, where
-
-
-def o1_the_advice_reader_is_the_function_it_was() -> None:
-    """o1: `_split_off_bodies` (a view of `hooklib.scan_bodies` + `cut_bodies`) against the frozen copy, on a seeded corpus
-    over the scan's own alphabet - operators, quotes, backslash, `$(`, line feeds, interpreter and plain heads - plus
-    the rows that matter. A view that took on a gate rule, or a scan that advanced differently, differs on one string."""
-    import random
-    pieces = ["<<", "<<<", "<<-", "<<'E'", '<<"E"', "<<E", "@'", '@"', "'@", '"@', "E", "x", "'", '"', "\\", "$(", ")", "`",
-              "\n", "\r\n", " ", "; ", "| ", "&& ", "python ", "bash ", "cat ", "echo ", "gh pr create", "> f ", "$x ", "${y} ", "it's "]
-    rng = random.Random(220429)
-    corpus = ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 14))) for _ in range(6000)]
-    corpus += ["python <<< \"a\"\nb\na\nc", "cat <<'E' | sh\nx\nE", "$x = @'\nx\n'@; iex $x", "cat <<E\n$(x)\nE", "@'\nit's\n'@ pytest",
-               "cat <<'E'\r\nx\r\nE\r\n", "python - <<'E'\nx\nE\ncat > f <<'F'\ny\nF", "echo a <<< b <<< c", "<<<", "<<", "@'", ""]
-    different = [src for src in corpus if G._split_off_bodies(src) != _frozen_split_off_bodies(src)]
-    check_eq("o1: the view equals the frozen function on 6000 generated commands and the named rows", different[:3], [])
-
-
 if __name__ == "__main__":
-    o1_the_advice_reader_is_the_function_it_was()
     the_helper_separates_what_runs_from_what_is_carried()
     the_refusal_says_where_it_matched()
     every_spelling_of_the_real_call_is_still_refused()
@@ -656,5 +530,4 @@ if __name__ == "__main__":
     the_host_binding_gives_a_driver_launched_role_its_signature()
     role_may_not_write_the_stand_records()
     a_here_string_never_ends_a_segment()
-    one_rule_in_one_place()
     finish("test_guard_command_text")

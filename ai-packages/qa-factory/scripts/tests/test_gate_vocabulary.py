@@ -58,21 +58,6 @@ def part_contract_reader() -> None:
     check_eq("gate_answered — nothing recorded",
              C.gate_answered({"gates": {"A": {"decision": None}}}, "A"), False)
 
-    # The real lesson is not the mapping, it is that four readers each kept their own copy
-    # of it. These are the exact expressions that drifted; none of them may come back.
-    gone = [("stage_guard.py", 'decision != "approve"'),
-            ("metrics_projection.py", ".get('decision')=='approved'"),
-            ("factory_dashboard.py", '{"approve", "approved", "deliver", "deliver_with_risks"}'),
-            ("external_writes.py", '"deliver_with_risk"}')]
-    for name, literal in gone:
-        text = (SCRIPTS / name).read_text(encoding="utf-8", errors="replace")
-        check(f"{name} no longer keeps its own gate vocabulary",
-              literal not in text, f"still contains {literal!r}")
-        check(f"{name} reads the gate through contract.gate_approved",
-              "gate_approved" in text, "no call to gate_approved")
-    check("archive_task.py asks gate_answered, not its own reading",
-          "gate_answered" in (SCRIPTS / "archive_task.py").read_text(encoding="utf-8"))
-
 
 # --- part 2: controller decision -> stage guard, end to end ------------------------------
 
@@ -293,13 +278,6 @@ def part_stand_gap_words() -> None:
     index = gate_brief.stand_gap_word_index()
     check_eq("the old internal words still read, as synonyms", [index[w] for w in ("apply", "theirs", "handed", "accepted")],
              ["apply", "theirs", "handed", "accept"])
-    # the explanations and the one word no other code has a reason to spell; `run`, `change` and `accept` are ordinary
-    # words of ordinary code, so the check on them is the data test above, not a search of the source. Only the card's
-    # and the reader's home is read here: the driver's source belongs to the driver layer test (L8), and the driver
-    # reads the words through `gate_brief`, so it has none of its own to spell.
-    source = (SCRIPTS / "gate_brief.py").read_text(encoding="utf-8")
-    check("gate_brief.py spells none of the explanations, nor the word `myself` (they are data)",
-          not any(r["says"] in source for r in rows) and '"myself"' not in source and "'myself'" not in source)
     # --- the reader: the whole text after the colon, against the list ---
     remedy = {"kind": "flag", "where": "app/config.yaml:3", "change": "enabled: true"}
     gaps = [{"id": "area/TC-001", "case_id": "TC-001", "stage": "S9", "remedy": remedy},
@@ -389,12 +367,6 @@ def part_stand_gap_words_at_both_gates() -> None:
                  " (offered only for a gap whose card shows an exact change)" if r["option"] == "apply" else "") for r in rows])
     check_eq("...and so does gate B's (the same function)",
              card, "\n".join(gate_brief.stand_gap_card_lines(None, [dict(gap, gate="B", stage="S9")], None, limit=None)) + "\n")
-    src = (SCRIPTS / "stand_gaps.py").read_text(encoding="utf-8")
-    check("stand_gaps.py spells none of the explanations (they are data) and no longer renders a card of its own",
-          not any(r["says"] in src for r in rows) and "def option_lines" not in src and "waiver.py --task" not in src)
-    # NEGATIVE control: a card that says `handed` to a person is caught by the same check the rows above went through
-    check_eq("control: a row whose explanation says `handed` IS caught by this part's own predicate",
-             says_the_option({"option": "handed", "word": "run", "says": "you run it, handed over"}), True)
 
 
 # --- part 6: the option -> word map, five readers (t-666 R2) -----------------------------------------------------

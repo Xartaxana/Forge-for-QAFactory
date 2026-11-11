@@ -7,6 +7,7 @@ for the section absent, present with a table, present with no table, last in the
 next heading (the shapes of the original's four branches).
 
 Runnable on its own: `python -B scripts/tests/test_project_decisions_tables.py`."""
+import os
 import sys
 from pathlib import Path
 
@@ -88,7 +89,37 @@ def test_a_section_is_found_by_its_own_heading_only() -> None:
     check("G4 the findings' rows survive a decisions rewrite", "| FB-1 |" in only_dd and "| DD-1 |" not in only_dd)
 
 
+def test_a_leftover_old_lock_folder_does_not_block() -> None:
+    """TR4-2 part D: the lock is an OS lock on the FILE `state/project-decisions.lock`; the older generation's
+    `.project-decisions.lock` FOLDER (a killed writer's leftover) is never touched and never blocks it. A held file lock
+    still refuses with the busy head and the holder clause, never as a pass."""
+    import tempfile
+    import event_store as ES
+    root = Path(tempfile.mkdtemp(prefix="pdlock-"))
+    old_folder = root / "qa-factory" / "state" / ".project-decisions.lock"
+    old_folder.mkdir(parents=True)
+    done = []
+    with PD.lock(root, timeout=0.2):
+        done.append("entered")
+    check_eq("G5 a leftover old lock folder does not block the lock, and the folder is left in place",
+             (done, old_folder.is_dir(), (root / "qa-factory" / "state" / "project-decisions.lock").is_file()), (["entered"], True, True))
+    holder = ES.take_file_lock(root / "qa-factory" / "state" / "project-decisions.lock", 0.0, record_holder=True)   # another handle holds the OS lock
+    try:
+        text = None
+        try:
+            with PD.lock(root, timeout=0.2):
+                pass
+        except TimeoutError as exc:
+            text = str(exc)
+        check("G5 a held lock refuses with the busy head and the holder clause",
+              text is not None and text.startswith("project decisions lock is busy")
+              and f"held by process {os.getpid()} since" in text and "if that process is gone the lock frees itself" in text, str(text))
+    finally:
+        holder.release()
+
+
 if __name__ == "__main__":
+    test_a_leftover_old_lock_folder_does_not_block()
     test_the_deferred_decisions_are_the_default()
     test_the_findings_are_the_same_function_with_their_own_heading_and_header()
     test_no_rows_renders_the_header_alone_and_keeps_the_rest()

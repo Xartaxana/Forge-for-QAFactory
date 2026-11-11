@@ -7,7 +7,9 @@ Both rules come out of one run. TP1-15045 reached the doorstep of gate A and sto
 `issubset` check let an empty S5/S6 scope through from the start. The real journal of
 that run is replayed here, so the fix is measured against the state the person actually saw.
 """
+import contextlib
 import hashlib
+import io
 import json
 import shutil
 import sys
@@ -241,21 +243,20 @@ def owner_check_no_longer_teaches_the_deadlock():
         hooklib._PROJECT_ROOT_CACHE = root
         try:
             blocked = ""
+            err = io.StringIO()
             try:
-                G.owner_check(event, {})
+                with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                    G.owner_check(event, {})
             except SystemExit:
                 blocked = "raised"
             except Exception as exc:  # block() may raise its own carrier
                 blocked = str(exc)
         finally:
             hooklib._PROJECT_ROOT_CACHE = old
+        text = err.getvalue() or blocked
         check("the guard still refuses a repair from outside the owning role", bool(blocked), message[:80])
-        import inspect
-        source = inspect.getsource(G.owner_check)
-        check_in("and still sends the work back with SendMessage", "SendMessage", source)
-        check_not_in("but no longer tells the orchestrator to reopen the stage",
-                     "--status running.", source)
-        check_in("naming the run that this advice deadlocked", "TP1-15045", source)
+        check_in("the refusal names SendMessage as the way on (TP1-15045)", "SendMessage", text)
+        check_not_in("the refusal does not teach `--status running.` (the TP1-15045 deadlock)", "--status running.", text)
     finally:
         cleanup(root)
 
@@ -829,7 +830,6 @@ def initialize_and_no_pin_stories_keep_their_old_world():
 
 def one_operation_count_for_ten_thousand_keys():
     """E8, as a count (FR-31): the index is walked ONCE and `matching` (a scan per member) never."""
-    import time
     from contract import CaseIndex, scope_member_resolution
 
     class Counting(CaseIndex):
@@ -851,13 +851,10 @@ def one_operation_count_for_ten_thousand_keys():
             index[key] = {"case_id": f"TC-{number:03d}", "area": f"area-{area}", "version": "cv"}
             members.append(key)
     members += [f"area-0/TC-{n:03d}" for n in range(1, 11)]    # duplicates: each key once in the answer
-    started = time.perf_counter()
     answers = scope_member_resolution(members, index)
     keys, refused = {key for _, found, _ in answers for key in found}, [(m, why) for m, _, why in answers if why]
-    elapsed = time.perf_counter() - started
     check_eq("E8: the index is read once and never scanned per member", (Counting.passes, Counting.scans), (1, 0))
     check_eq("E8: every key once, nothing refused", (len(keys), refused), (len(index), []))
-    print(f"E8: {len(members)} members x {len(index)} index keys resolved in {elapsed:.3f}s (reported, not asserted)")
 
 
 def plan_rows_are_not_marked_dropped_for_a_respelling():

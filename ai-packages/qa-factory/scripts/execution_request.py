@@ -171,6 +171,12 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
         if not (taken or said_local or (checked["valid"] and checked["result"] == "not_applicable" and local_source)):
             errors.append("runtime provenance must be valid matched, person_confirmed (the person's word, bound to "
                           "this story) or not_applicable: " + refusal_text(provenance, task=data.get("task")))
+    if isinstance(provenance, dict):
+        # C8 (PC-9b, t-2277 W1): only the record's own contradiction (the story's stand named as its reference too) is refused here; a run on a
+        # reference stand is a sample and goes (its block carries the mark). Read from the probe's own record (`environment_id`).
+        reference = reference_target_problem(project_root, data.get("task"), provenance.get("environment_id"))
+        if reference:
+            errors.append(reference)
     runtime_probe = data.get("runtime_probe")
     if runtime_required:
         if not isinstance(runtime_probe, dict):
@@ -951,16 +957,29 @@ def s6_close_from_state(task_root, state, cases) -> dict:
             "the close of S6 is read from state/controller.json of this story, which cannot be read; nothing was "
             f"changed. Rebuild it: `controller.py --task {task} --operation recover`")
     import controller as _controller
-    conflicts = _controller.code_close_conflicts(state, "S6")
+    # TR4-7 (AR-13, FR-59): the liveness of the running rows is read by the controller's one reader (`_close_verdicts`), so a dispatch
+    # whose session is over does not hold the context, exactly as it does not hold the code close that follows; a reader that cannot be
+    # built or fails leaves every row a holder (no verdicts: the old reading, the refusal side).
+    try:
+        verdicts = _controller.Controller(task_root)._close_verdicts(state, "S6")
+    except Exception:
+        verdicts = None
+    conflicts = _controller.code_close_conflicts(state, "S6", verdicts)
     # The DETAILS of a refusal come from the predicate's own facts (AR-13), never from a second scan of the state.
-    facts = _controller.code_close_facts(state, "S6")
+    facts = _controller.code_close_facts(state, "S6", verdicts)
     stages = state.get("stages") if isinstance(state.get("stages"), dict) else {}
     s6 = stages.get("S6") if isinstance(stages.get("S6"), dict) else {}
     if facts["running"]:
         ids = facts["running"]
+        # every holder gets its own door, in the state's order: none is picked by position (A-K2: every id and `--dispatch`)
+        under = (f"a probe runs under it, `--dispatch {ids[0]}`" if len(ids) == 1
+                 else "a probe runs under the one that works on the case, "
+                 + " or ".join(f"`--dispatch {ident}`" for ident in ids))
         raise MineRefusal(
-            f"a dispatch is open in this story ({', '.join(ids)}): a probe runs under it, `--dispatch {ids[0]}`; "
-            "the S6 close context is only the code close of S6, when nothing is open. Nothing was changed.")
+            f"a dispatch is open in this story ({', '.join(ids)}): {under}; "
+            "the S6 close context is only the code close of S6, when nothing is open"
+            + (_controller._code_close_holders_words(state, ids, verdicts, checkpoint=True) if verdicts is not None else "")
+            + ". Nothing was changed.")
     if facts["behind"]:
         behind, status = facts["behind"]
         raise MineRefusal(
@@ -2480,6 +2499,31 @@ def registered_probe(cfg: dict, profile: str) -> dict | None:
             "timeout_s": spec.get("timeout_s") or 30}
 
 
+def reference_target_problem(project_root, task, environment) -> str:
+    """C8 (t-2181 PC-9b, rewritten t-2277 W1, owner 11.11.2026): "" unless the story's own record contradicts itself. A run aimed at a
+    reference stand of the story is NO LONGER refused: it goes, and its run block carries the mark `stand_identity.reference_run_mark`
+    (a sample, never the story's evidence). What stays refused is the DATA CONTRADICTION: the story's own stand (`pipeline.environment`)
+    is also named as the reference of a side, so the factory cannot tell which version a run there shows; the door is the record, never
+    the same stand (FR-1, FR-2). Data only: the stands come from `stand_identity.reference_stands`, never from a word list. An empty
+    `environment`, an unreadable record or a story that names no reference reads "" (see `reference_stands`: no refusal on a record
+    nobody could read)."""
+    name = str(environment or "").strip()
+    if not name or not str(task or "").strip():
+        return ""
+    import stand_identity as SI
+    side, own = SI.reference_side(project_root, str(task), name)      # the one reader (F3): the probe's skip reads the same answer
+    if not side:
+        return ""
+    if own == name:
+        # the record contradicts itself: the story's own stand is also named as the reference of `side`. The same stand is no door (FR-2);
+        # the door is the record, which a person or `stage_done.py` corrects (FR-57)
+        return (f"the story's record names the stand `{name}` both as its own stand (`pipeline.json` `environment`) and as the reference "
+                f"(the OLD version) of the `{side}` side, so the factory cannot tell which version a run there would show. Door: correct the record - "
+                f"`stage_done.py --task {task} --set sides.{side}.reference=<the stand that runs the old version>` (or clear it), or "
+                "tell the conductor which stand runs the new version")
+    return ""      # a reference stand that is not the story's own: the run goes and is recorded as a sample (`reference_run_mark`)
+
+
 def stand_probe_spec(cfg: dict, profile: str, environment: str = "", story: str = "") -> tuple:
     """`(spec, why)`: the probe that identifies this profile's stand - the project's `execution.runtime_probes` entry when it
     has one (`registered_probe`, which wins: P4), else the default IN MEMORY, never written to the config (FR-45): the
@@ -2498,7 +2542,9 @@ def stand_probe_spec(cfg: dict, profile: str, environment: str = "", story: str 
     where, refusal = rp.pick_checkout(cfg, profile, "")
     if refusal:
         return None, refusal       # the `Refusal` itself (a str): a person's line reads its `.plain` half, the role the whole
-    stand, refusal = rp.pick_environment(cfg, environment, profile)     # EP1-41c: a device row is not a stand of a web profile
+    # EP1-41c: a device row is not a stand of a web profile; PC-9b: a reference stand is not picked when nobody named a stand
+    import stand_identity as SI
+    stand, refusal = rp.pick_environment(cfg, environment, profile, () if environment else SI.reference_of_running_story(story))
     if refusal:
         return None, refusal
     if not str(where or "").strip():
@@ -2802,6 +2848,12 @@ def _observe_stand(cfg: dict, profile: str, policy, purpose: str, probe, probe_e
         if evidence_only:
             raise
         raise MineRefusal(_stand_refusal(policy, exc)) from exc
+    if task_root and not evidence_only:
+        # C8 (PC-9b, t-2277 W1): the contradiction is refused HERE, before the collect and before a request file is written; a `--mine` aimed at a
+        # reference stand goes on (a sample)
+        reference = reference_target_problem(project_root, Path(task_root).name, (observed or {}).get("environment_id"))
+        if reference:
+            raise MineRefusal(reference)
     return {"runtime_required": True, "runtime_probe": spec, "runtime_provenance": observed}
 
 

@@ -224,7 +224,7 @@ class FakeBrowser:
         self._call("fill", selector, text)
         return self._t("fill", selector)
 
-    def type_chars(self, selector, text, delay_ms, settle_ms=0):
+    def type_chars(self, selector, text, delay_ms, settle_ms=0, continued=False):
         """(rows, seconds, focus_s): the field keeps every character and its focus unless `typed[selector]` scripts the rows;
         the time of the whole step is `elapsed["type"]`, of the focus alone `elapsed["focus"]` (EP1-29)."""
         self._call("type", selector, text, delay_ms, settle_ms)
@@ -236,14 +236,14 @@ class FakeBrowser:
             rows.append({"n": "settled", "value": text, "focus": True})
         return rows, self._t("type", selector), self._t("focus", selector)
 
-    def press_key(self, selector, key):
+    def press_key(self, selector, key, continued=False):
         self._call("press", selector, key)
         if selector in self.missing:
             raise MC.StepFailed(f"no element matches {selector}")
         row = getattr(self, "pressed", {}).get((selector, key)) or {"n": key, "value": "", "focus": True, "focused_before": True}
         return row, self._t("press", selector), self._t("focus", selector)
 
-    def paste_text(self, selector, text):
+    def paste_text(self, selector, text, continued=False):
         self._call("paste", selector, text)
         if selector in self.missing:
             raise MC.StepFailed(f"no element matches {selector}")

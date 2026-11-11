@@ -11,7 +11,7 @@ its inputs remain current.
 | S2 | requirements register and stable `understanding.md` | blocked contradictions halt planning |
 | S3 | stable `test-plan.md` | no human gate yet |
 | S4 | reused/updated/new text cases plus independent case review | **Gate A after S4, before S5**; approved TMS actions may then publish |
-| S5 | bounded automation windows and independent code review | author one run per code version; critic one probe per test, by code; no post-restore green |
+| S5 | automation windows, independent review | author one run per version; critic one probe call per instance, each check, by code; no post-restore green |
 | S6 | fresh remaining automated instances and `manual-agent` work | no impact regression; reuse requires source/runtime/environment freshness |
 | S7 | evidence-based triage | test validity and product outcome remain separate |
 | S8 | ledger and stable `test-report.md` | **Gate B after S8** controls delivery actions |

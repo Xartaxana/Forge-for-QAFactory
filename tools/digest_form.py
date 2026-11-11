@@ -415,7 +415,7 @@ def _plain(value):
 
 
 def _plain_path(value):
-    """_plain, then no `./` in front, no trailing slash, one slash for a run of them (`C:\\AI\\x\\` and `c:/ai/x` are the same)."""
+    """_plain, then no `./` in front, no trailing slash, one slash for a run of them (`C:\\Work\\x\\` and `c:/work/x` are the same)."""
     text = re.sub(r"/{2,}", "/", _plain(value))
     return (text[2:] if text.startswith("./") else text).rstrip("/")
 

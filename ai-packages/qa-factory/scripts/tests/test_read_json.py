@@ -391,6 +391,11 @@ KEPT = {
                              "ref(name) inside the try (t-666 row 1.19)",
     "story_version._read_pipeline": NO_IMPORTS.format(where="story_version.py:28-33; t-666 S3, row 1.7"),
     "handoff.load_json": NO_IMPORTS.format(where="handoff.py:23-26; t-666 S3, row 1.20"),
+    "probe_by_code._read_check_record": "stays: the path build proof_level.record_read_path(...) sits inside the try, and a hostile record "
+                                        "(nesting too deep: RecursionError; a path that is no path: TypeError) or one that is not an object "
+                                        "reads as nothing - the probe's own error direction, one file (t-2064 P4b)",
+    "probe_by_code._stored_rows": "stays: the path build record_path(ctx...) sits inside the try, and a nesting too deep (RecursionError) "
+                                  "reads as no stored rows; the parsed document goes on to _rows_of_record, which owns its shape (t-2064 P4b)",
     # --- queued behind another node ---
     # --- queued: found by the census at t-677, not in the finding's list (t-666 F-3, t-670 M1) ---
     "acceptance._manifest_under": QUEUED,

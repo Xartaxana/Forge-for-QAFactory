@@ -3010,7 +3010,7 @@ def c29_unreachable_mr() -> None:
             calls.append(list(errors))
             raise Stop()
         driver.close_vcs_gaps = stub
-        driver.exit_errors = lambda role, digest: []
+        driver.exit_errors = lambda role, digest, dispatch=None: []
         driver.form_errors = lambda dispatch: []
         driver.revoke_passes_of_dead = lambda: None
         try:

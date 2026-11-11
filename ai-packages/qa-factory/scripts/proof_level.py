@@ -984,17 +984,62 @@ NAME_LIMIT = 100  # a file name of a probe's own record; the receipt stem has it
 _UNSAFE_FILENAME = re.compile(r'[\\/:*?"<>|\s]+')
 
 
-def probe_record_path(task_root, instance_id: str, kind: str = "") -> Path:
+def _file_hash(file) -> str:
+    """The first 8 hex of the sha256 of a test file's path, `\\` read as `/` (one name for both spellings); "" for no file."""
+    text = str(file or "").replace("\\", "/").strip()
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8] if text else ""
+
+
+def probe_record_path(task_root, instance_id: str, kind: str = "", target_line=None, ordinal: int = 1, file=None) -> Path:
     """`work/probes/<stem>.json` (`probe_by_code.py`) or, for kind "product", `work/probes/product/<stem>.json`
-    (`red_sandbox.py --probe`) or, for kind "alternative", `work/probes/alternative/<stem>.json` (`probe_by_code.py --mutation
-    alternative`, stem `<IID>--<CASE>--<ALT>`; the readers of `work/probes/*.json` glob non-recursively and do not see it, by
+    (`red_sandbox.py --probe`) or, for kind "alternative", `work/probes/alternative/<stem>.json` (`probe_by_code.py --alternative
+    <case>:ALT-n`, stem `<IID>--<CASE>--<ALT>`; the readers of `work/probes/*.json` glob non-recursively and do not see it, by
     design). An id is an identity, not a file name: a long one is cut and told apart
-    by the hash of the WHOLE id, so one id's record never answers for another's."""
+    by the hash of the WHOLE id, so one id's record never answers for another's.
+
+    `target_line` (an int, the default kind only; t-2045 N1b, t-2064 P4a): the PER-CHECK form
+    `work/probes/checks/<stem>--L<line>.json`, where a probe of another line is kept so that it never overwrites a proved record of
+    the obligation's check (the beside record) and where the per-check records of one probe live. The readers of `work/probes/*.json`
+    (`probe_debt._scan`, `handoff_check`) glob non-recursively and do not see the sub-directory, the convention of `alternative/`.
+    `ordinal` (2 or more; a second check on the same line, EP-O) adds `-<ordinal>` after the line: `<stem>--L<line>-2.json`. The
+    suffix is added after the cut, so it survives a long id; anything but an int `target_line` (a bool included) is today's path,
+    byte for byte, whatever `ordinal` says.
+    `file` (the per-check form only; the repo-relative path of the file the check lives in): adds `-<hash8>` after the line and
+    ordinal, so two files' checks on the same line have two record files. None or "" is today's name, byte for byte (an old record
+    stays where it was; `record_read_path` reads it only for the file it names)."""
     name = _UNSAFE_FILENAME.sub("-", str(instance_id)).strip("-.") or "instance"
     if len(name) > NAME_LIMIT:
         name = name[:NAME_LIMIT] + "-" + hashlib.sha256(str(instance_id).encode("utf-8")).hexdigest()[:8]
     base = Path(task_root) / "work" / "probes"
+    if not kind and _int_line(target_line) is not None:
+        more = f"-{ordinal}" if _int_line(ordinal) is not None and ordinal >= 2 else ""
+        mark = f"-{_file_hash(file)}" if _file_hash(file) else ""
+        return base / "checks" / f"{name}--L{target_line}{more}{mark}.json"
     return (base / kind if kind in ("product", "alternative") else base) / f"{name}.json"
+
+
+def record_read_path(task_root, instance_id: str, target_line, ordinal: int = 1, file=None) -> Path:
+    """The path a by-line reader reads for the check at `file`:`target_line` (the `ordinal`-th on it). With no `file` it is
+    `probe_record_path`'s old name. With one: the hashed record when it exists; else the OLD un-hashed record when it exists AND
+    the record inside names this same file (`target.file`, `mutation_detail.file` or `mutated_file.path`, `same_path`); else the
+    hashed path (absent). INVARIANT: a check never reads a record written for another file's check; an old record that names no
+    file, or another, is treated as absent."""
+    hashed = probe_record_path(task_root, instance_id, target_line=target_line, ordinal=ordinal, file=file)
+    if not _file_hash(file) or hashed.is_file():
+        return hashed
+    old = probe_record_path(task_root, instance_id, target_line=target_line, ordinal=ordinal)
+    if old == hashed or not old.is_file():
+        return hashed
+    try:
+        stored = json.loads(old.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, RecursionError):
+        return old          # unreadable proves nothing; the reader's own note ("cannot be read") still says so
+    if not isinstance(stored, dict):
+        return old          # the same: the reader notes "not a JSON object" and treats it as absent
+    parts = [stored.get(k) if isinstance(stored.get(k), dict) else {} for k in ("target", "mutation_detail")]
+    moved = stored.get("mutated_file") if isinstance(stored.get("mutated_file"), dict) else {}
+    named = parts[0].get("file") or parts[1].get("file") or moved.get("path")
+    return old if same_path(named, file) else hashed
 
 
 TOOLING_GAP_PREFIX = C.PROBE_GAP_TOOLING_PREFIX   # the value of a person's `probe gap: tooling:<language>` word (a class of instances, EP1-36); one constant, `contract` owns it
@@ -1034,8 +1079,10 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
     `state` is one of `not_run` (no record, an unreadable one, one of other bytes - `input_hash` or `test_file_sha256` empty or
     different - or one with no verdict), `not_executed`, `incomplete` (the verdict as it stands), `judged` (`intended_failure`,
     `no_failure`, `wrong_location`: a probe that caught something is not one that could not run). `cause` is the record's own
-    `cause` word for `not_executed` and `incomplete` ("" otherwise): `tooling` (the tool could not read the test), `data_row`
-    (the factory's detector row lacks the failure's wording, RN1-9). `record` is the record's
+    `cause` word for `not_executed` and `incomplete` ("" otherwise): `tooling` (the tool could not read the test), `judgment`
+    (the run failed at the mutated line on a text the tool cannot read; the code critic judges it, t-1968). `judgment` is the
+    verdict word of that critic's `judgment` block (`fires` / `other_failure` / `cannot_judge`) or "" when none is written.
+    `record` is the record's
     path under `task_root` (posix) or None when there is no file; `why` is the one line a person reads for the state ("" when
     judged); `refused` is the record's `refused` word ("tool" for a refusal of the tool, "" otherwise). Error direction: toward
     `not_run`, never toward 'probed'. Never raises."""
@@ -1055,6 +1102,10 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
         state, why = "not_run", "no probe of these bytes was run"
     elif not (current and bound and current == bound):
         state, why = "not_run", "the probe record is of other bytes"
+    elif verdict == "incomplete" and record.get("plan_unfinished") is True:
+        # t-2064 P4b item 7, EP-J: a walk left unfinished (its time ran out): the same call again continues it. It is neither a tool that
+        # could not run nor a judgment owed; an old record has no such key and reads as before
+        state, why = "plan_unfinished", notes[-1] if notes else "the plan is not finished: the same call again continues it"
     elif verdict in ("not_executed", "incomplete"):
         state, why = verdict, notes[-1] if notes else "the probe did not run"
     elif verdict in PROBE_JUDGED_VERDICTS:
@@ -1062,8 +1113,17 @@ def probe_record_state(task_root, identity: str, input_hash: str) -> dict:
     else:
         state, why = "not_run", "the probe record has no verdict"
     cause = str(record.get("cause") or "") if record and isinstance(record.get("cause"), str) else ""
+    judgment, owed = "", None
+    if record and state == "incomplete" and cause == "judgment":
+        if isinstance(record.get("judgment"), dict):
+            word = record["judgment"].get("verdict")
+            judgment = word if isinstance(word, str) else ""
+        # a walk's aggregate (`probe_by_code._judgment_fold`, its one producer) lists the checks that owe `--judge`; an old aggregate and
+        # the single-record form carry no such list: None = "not said", read as before
+        if isinstance(record.get("judgment_owed"), list):
+            owed = [str(k) for k in record["judgment_owed"]]
     return {"state": state, "record": rel, "why": why, "refused": refused if state == "not_executed" else "",
-            "cause": cause if state in ("not_executed", "incomplete") else ""}
+            "cause": cause if state in ("not_executed", "incomplete") else "", "judgment": judgment, "judgment_owed": owed}
 
 
 def probe_could_not_run(task_root, identity: str, input_hash: str) -> bool:
@@ -1071,33 +1131,89 @@ def probe_could_not_run(task_root, identity: str, input_hash: str) -> bool:
     `refused: tool` or with `cause: tooling` (an unbound report row; the record that says it is the tool's, as
     `tooling_gap_key` reads it). `not_executed` with neither (the stand was down, a report status, an empty report) is its own
     door, and a probe nobody ran (`not_run`) or one that judged is not 'could not run'. The ONE predicate (AR-13) the class word
-    asks, in the window and in the acceptance. NOT true for `incomplete` with `cause: data_row` (`probe_factory_data_gap`: the factory's
-    own gap, E15 - a person's class word does not cover it). Error direction: False - the instance then needs the word of its own. Never raises."""
+    asks, in the window and in the acceptance. NEVER true for `incomplete` with `cause: judgment` (`probe_owes_judgment`: the run
+    was read and failed at the mutated line; the code critic judges it, judged or not - a person's class word does not cover it,
+    t-1968). Error direction: False - the instance then needs the word of its own. Never raises."""
     try:
         got = probe_record_state(task_root, identity, input_hash)
         if got["state"] == "incomplete":
-            return got["cause"] != "data_row"     # `data_row` is the factory's own gap (`probe_factory_data_gap`), read from the same record
+            return got["cause"] != "judgment"     # `judgment` is the critic's, read from the same record
         return got["state"] == "not_executed" and (got["refused"] == "tool" or got["cause"] == "tooling")
     except Exception:
         return False
 
 
-FACTORY_DATA_GAP_KEY = "factory:data_row"   # the `named_by` of a probe gap the FACTORY names (RN1-9 B2, E15): never a person's word
-FACTORY_DATA_GAP_WORDS = ("not probed: the failure wording is not in the factory's detector row - a defect of the "
-                          "factory's data, not of the test")
-
-
-def probe_factory_data_gap(task_root, identity: str, input_hash: str) -> bool:
-    """True ONLY when the probe's record of THESE bytes (`probe_record_state`, the ONE reader) is `incomplete` with `cause:
-    data_row`: the probe failed at the mutated line but the factory's detector row does not know the failure's wording (E15) - a
-    gap that is the factory's own data, named by the factory, not by a person. `incomplete` with another cause or none (the tool
-    could not read the test: a person's word), `not_executed` (any cause), a record of other bytes, none, one that judged all
-    give False. Error direction: False - today's roads then apply (the person's word, `review_unverified`). Never raises."""
+def probe_owes_judgment(task_root, identity: str, input_hash: str) -> str:
+    """`"unjudged"` when the probe's record of THESE bytes (`probe_record_state`, the ONE reader) is `incomplete` with `cause:
+    judgment` and no `judgment` block (the code critic owes its `--judge`); `"cannot_judge"` with that judgment written; `""`
+    otherwise (another cause, a judged verdict, a record of other bytes, none). `fires` / `other_failure` turn the record into
+    `intended_failure` / `wrong_location`, so they never reach here. Error direction: "" - the roads of a tooling gap then apply.
+    Never raises."""
     try:
         got = probe_record_state(task_root, identity, input_hash)
-        return got["state"] == "incomplete" and got["cause"] == "data_row"
+        if got["state"] != "incomplete" or got["cause"] != "judgment":
+            return ""
+        if got["judgment"] == "cannot_judge":
+            return "cannot_judge"
+        # still the critic's (delivery, acceptance and the reach read "owed, unnamed by any word"); WHICH door he takes - `--judge`, or the
+        # plain call when no check owes a judgment - is `probe_plain_call_owed`'s answer, read by the window's notes and refusal doors
+        return "unjudged"
+    except Exception:
+        return ""
+
+
+def probe_plain_call_owed(task_root, identity: str, input_hash: str) -> bool:
+    """True when the probe's record of THESE bytes is a walk's aggregate `incomplete` with `cause: judgment` that lists no check owing the
+    critic's `--judge` and holds no `cannot_judge`: what is left is a plain call of the probe (rows `--at` did not select, a check with no
+    model entry yet; `--judge` would refuse). `probe_owes_judgment` still answers "unjudged" for it (the record is the critic's and no
+    person's word names it); THIS says which door: the window's probe note and `probe_word_door` ask it before they name `--judge`. The
+    ONE reader (AR-13) of that. An aggregate with no `judgment_owed` list (written before this fix, or the single-record form) is False:
+    read as before. Error direction: False. Never raises."""
+    try:
+        got = probe_record_state(task_root, identity, input_hash)
+        return got["state"] == "incomplete" and got["cause"] == "judgment" and got["judgment"] != "cannot_judge" and got["judgment_owed"] == []
     except Exception:
         return False
+
+
+def cannot_judge_facts(task_root, identity: str, current: str):
+    """The facts of a test whose probe the code critic could not judge, or None. The ONE reader (AR-13) of them: the window
+    (`window_record.probe_gap_block`), the acceptance (`acceptance.probe_gap_named`) and the seam (`window_record.probe_judgment_cases`).
+
+    None unless `probe_owes_judgment` says `cannot_judge` for THESE bytes. Otherwise `{at, why, file, line, statement_inverted,
+    statement_after, failure_text}` read from the record's `judgment` and `judgment_facts` (each `""`/None when the record lacks it;
+    nothing is invented). Never raises."""
+    try:
+        if probe_owes_judgment(task_root, identity, current) != "cannot_judge":
+            return None
+        record = _read_record(probe_record_path(task_root, identity), []) or {}
+        said = record.get("judgment") if isinstance(record.get("judgment"), dict) else {}
+        facts = record.get("judgment_facts") if isinstance(record.get("judgment_facts"), dict) else {}
+        return {"at": str(said.get("at") or ""), "why": " ".join(str(said.get("why") or "").split()),
+                "file": facts.get("file"), "line": facts.get("line"), "statement_inverted": facts.get("statement_inverted"),
+                "statement_after": facts.get("statement_after"), "failure_text": str(facts.get("failure_text") or "")}
+    except Exception:  # noqa: BLE001 - a reader that offers a door must never stop the window
+        return None
+
+
+def not_proved_word(facts, keys, proved: dict):
+    """`(key, {"words", "at"})` of the person's `probe not proved: <case key>` word that names a `cannot_judge` test, or None.
+
+    `facts` is `cannot_judge_facts`; `keys` the case keys of the instance (never its id, never a `probe gap:` word); `proved` is
+    `contract.probe_not_proved_words`. A word answers the facts it was shown (E5.2): it is read only when its `at` is not older
+    than the judgment's `at`; an unreadable stamp on either side reads nothing. Error direction: None (the person is asked
+    again). Never raises."""
+    try:
+        if not facts:
+            return None
+        judged = C._answer_moment(facts.get("at"))
+        for key in keys:
+            said = proved.get(key)
+            if said and judged != float("-inf") and C._answer_moment(said.get("at")) >= judged:
+                return key, said
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def _read_record(path: Path, notes: list):
@@ -1185,8 +1301,108 @@ def _repeat_words(prior: str, when: str, where: str, stage: str) -> str:
             f"(waiver.py, stage {stage}, block \"{PROBE_BLOCK}\").")
 
 
+def _int_line(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+# t-2045 N7 / t-2096 F2: a probe record stored with a kind the tool no longer runs still reads, and BOTH readers of a stored
+# `mutation` (`_replay` here, `probe_debt._replay_plan`) replay it as the one inversion that remains - one map, one function.
+REMOVED_MUTATION = "expected"
+LEGACY_MUTATIONS = {REMOVED_MUTATION: "invert"}
+
+
+def replay_mutation(stored):
+    """The `--mutation` a stored record's `mutation` is replayed with: a legacy kind maps to its successor, anything else
+    (including a non-string) is returned unchanged for the caller to judge."""
+    return LEGACY_MUTATIONS.get(stored, stored) if isinstance(stored, str) else stored
+
+
+def _same_target(source, target) -> bool:
+    """Does the probe `source` (a probe record or a receipt) speak for the check `target` (`{file, line | None, source}`, the
+    caller's `_target_of`) names? t-2045 N1b, B10: a repeat is answered by bytes AND target, or a `no_failure` on a toast that
+    vanished closes the door on the retarget its own note prints.
+
+    Requested line None has two targets. `first` (the first check): the same when the source carries no `target`, or a `target` with
+    no `source`, or with `first`. `oracle` (`--oracle` without `--at`): the same only when the source's `target.source` is `oracle`,
+    the file it mutated is the requested one and its `mutation_detail.oracle_function` is the requested `oracle_function`; another
+    function or file, or a `first` record, is different. Requested line n: the same only when the source carries a `target`, the file
+    it mutated (`mutation_detail.file`, else `mutated_file.path`) is the requested one and `line <= n <= end_line`. Anything else is
+    different. ERROR DIRECTION: toward running (the module's own rule) wherever the answer can be told: an unknown file, an
+    unreadable line and a record from before `target` read as different, never as the same; a wrong "different" costs one run, a
+    wrong "same" refuses a probe the person asked for. The one exception is the `first` target, where a record from before `target`
+    is the same on purpose (today's repeat answer, byte for byte). `target` None is not a question about a target (any other
+    caller): the same, today's behaviour byte for byte."""
+    if not isinstance(target, dict):
+        return True
+    fact = source.get("target") if isinstance(source, dict) and isinstance(source.get("target"), dict) else None
+    wanted = _int_line(target.get("line"))
+    detail = source.get("mutation_detail") if isinstance(source, dict) and isinstance(source.get("mutation_detail"), dict) else {}
+    moved = source.get("mutated_file") if isinstance(source, dict) and isinstance(source.get("mutated_file"), dict) else {}
+    if wanted is None:
+        if target.get("source") == "oracle":
+            return (fact is not None and fact.get("source") == "oracle"
+                    and bool(target.get("oracle_function")) and detail.get("oracle_function") == target.get("oracle_function")
+                    and same_path(detail.get("file") or moved.get("path"), target.get("file")))
+        return fact is None or not fact.get("source") or fact.get("source") == "first"
+    if fact is None:
+        return False
+    line = _int_line(fact.get("line"))
+    end = _int_line(fact.get("end_line")) or line
+    if line is None or end is None or not line <= wanted <= end:
+        return False
+    return same_path(detail.get("file") or moved.get("path"), target.get("file"))
+
+
+def _earlier_line_note(source, target) -> str:
+    """The note a different target leaves: which line the earlier probe had, so the person sees why this one runs."""
+    fact = source.get("target") if isinstance(source, dict) and isinstance(source.get("target"), dict) else {}
+    had = f"line {fact['line']}" if _int_line(fact.get("line")) is not None else "no recorded line"
+    asked = f"line {target.get('line')}" if _int_line(target.get("line")) is not None else "the first check"
+    return (f"an earlier probe of these bytes had {had}; this one asks for {asked} of {target.get('file') or 'the test'}, "
+            "so it runs (a repeat is answered by the bytes and the target)")
+
+
+def _product_receipt_repeat(entry, ids, now, task_root, project, check_key, notes):
+    """The `already_probed` hit of a repeated PRODUCT probe (t-2064 fix round H), or None - the probe runs.
+
+    A product receipt is `one_check` and published nowhere (it gives the test no level), so it is found in `work/sensitivity-receipts/`
+    (newest first; an unreadable file is skipped) and accepted only through `product_receipt_holds` (the one reader: bytes, identity,
+    scope). With `check_key` it must name that key in `checks[]`; without one, the bytes guard stands alone. Either way the product
+    record of the same instance must say `intended_failure` on the same test bytes (`same_test`) and the product bytes it broke
+    (`_mutated_files_hold`) - the comparison item 3 makes for `survived`. A `whole_unlisted` or no-`scope` receipt, other bytes, another
+    check, a missing or unreadable record: None. Reads; writes nothing."""
+    from pathlib import Path as _P
+    folder = _P(task_root) / "work" / "sensitivity-receipts"
+    for one in ids:
+        record = _read_record(probe_record_path(task_root, one, "product"), notes)
+        if not (record is not None and record.get("verdict") == "intended_failure"
+                and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+            continue
+        try:
+            stem = C.instance_file_stem(one)
+            files = sorted((p for p in folder.glob(stem + "-*.json") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+        except OSError:
+            continue
+        for path in files:
+            try:
+                ref = {"path": path.relative_to(task_root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                got = product_receipt_holds(entry, ref, task_root, project)
+            except (OSError, ValueError):
+                continue
+            receipt = got.get("receipt") or {}
+            if not got["holds"] or receipt.get("scope") != ONE_CHECK or str(receipt.get("instance_id")) != str(one):
+                continue
+            if check_key and check_key not in got["keys"]:
+                continue
+            return {"by": "product_receipt", "level": None, "receipt_ref": ref,
+                    "record": probe_record_path(task_root, one, "product").relative_to(task_root).as_posix(),
+                    "prior_verdict": "intended_failure", "recorded_at": str(record.get("recorded_at") or ""),
+                    "holds": same_test(now, proof_identity(record))}
+    return None
+
+
 def already_probed(entry, manifest, task_root, *, now=None, project=None, stage: str = "",
-                   dispatch: str = "") -> dict:
+                   dispatch: str = "", target=None, entry_sha: str = "", kind: str = "", check_key: str = "") -> dict:
     """`{"probed": False, "notes": [...]}` - the probe runs - or `{"probed": True, "by": "receipt" |
     "probe_record" | "product_record", "instance_id", "level", "receipt_ref", "record", "prior_verdict",
     "recorded_at", "holds", "words", "block", "notes"}` - it is answered, and nothing is to be written.
@@ -1199,6 +1415,15 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
       2. PROBE RECORD (`probe_by_code.py`): the newest verdict is `no_failure` or `wrong_location` on
          the same bytes. `intended_failure` blocks only through 1; `not_executed` never blocks.
       3. PRODUCT RECORD (`red_sandbox.py --probe`): the newest verdict is `survived` on the same bytes.
+      4. PRODUCT RECEIPT (only `kind="product"`, t-2064 fix round H; any other `kind` is "" and never reaches it): a `one_check` receipt
+         `product_receipt_holds` accepts, naming `check_key` (none given: the bytes guard alone), over the same test bytes and the same
+         product bytes the product record says were broken. `_product_receipt_repeat` is its one reader.
+    `target` (t-2045 N1b; `{file, line | None, source}`, the caller's `_target_of`): items 1 and 2 answer only a probe of the
+    SAME target (`_same_target`; item 2 also reads the record kept beside the standing one for that line); a probe of another
+    line runs, with a note naming the line the earlier one had. `target=None` is today's behaviour, byte for byte.
+    `entry_sha` (t-2064 P4a; the sha of the model entry the probe would run, default "" = not asked): the per-check record of the
+    requested line (`work/probes/checks/`) answers only a record that carries the same `entry_sha`; another sha, or none recorded,
+    runs the probe. A record that is missing or cannot be read is "not probed" as ever, never a pass (AR-28).
     A person's recorded word (`execution_request.person_word`, the block `PROBE_BLOCK`) passes the
     repeat if it was said after the record it repeats. It may err only toward "not probed": the run
     budget file unreadable, the vocabulary of levels unavailable and a record that cannot be read are all
@@ -1243,21 +1468,37 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
             carried = "mutated_files" in receipt or "mutated_file" in receipt
             checked = _mutated_files_hold(receipt, entry, project) if carried else (
                 own is not None and _mutated_files_hold(own, entry, project))
-            if checked:
+            if checked and not _same_target(receipt, target):
+                notes.append(_earlier_line_note(receipt, target))
+            elif checked:
                 holds = same_test(now, proof_identity(receipt))
                 hit = {"by": "receipt", "level": got["level"], "receipt_ref": ref,
                        "record": str(receipt.get("probe_record") or ""),
                        "prior_verdict": "intended_failure",
                        "recorded_at": str((own or behind or {}).get("recorded_at") or ""), "holds": holds}
     if hit is None:
+        line = _int_line(target.get("line")) if isinstance(target, dict) else None
         for one in ids:
-            record = _read_record(probe_record_path(task_root, one), notes)
-            if (record is not None and record.get("verdict") in ("no_failure", "wrong_location")
-                    and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
-                hit = {"by": "probe_record", "level": None, "receipt_ref": {},
-                       "record": probe_record_path(task_root, one).relative_to(task_root).as_posix(),
-                       "prior_verdict": str(record["verdict"]), "recorded_at": str(record.get("recorded_at") or ""),
-                       "holds": same_test(now, proof_identity(record))}
+            # the standing record, then the one kept BESIDE it for the requested line (`_finish_record`, N1b)
+            for path in (probe_record_path(task_root, one),
+                         *((record_read_path(task_root, one, line, file=target.get("file")),) if line is not None else ())):
+                record = _read_record(path, notes)
+                if (record is not None and path.parent.name == "checks" and entry_sha
+                        and record.get("entry_sha") != entry_sha):
+                    # the per-check record of this line speaks for another model entry (or for none recorded): the probe runs
+                    notes.append(f"the check record {path.name} was made for another model entry; this probe runs")
+                    continue
+                if (record is not None and record.get("verdict") in ("no_failure", "wrong_location")
+                        and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+                    if not _same_target(record, target):
+                        notes.append(_earlier_line_note(record, target))
+                        continue
+                    hit = {"by": "probe_record", "level": None, "receipt_ref": {},
+                           "record": path.relative_to(task_root).as_posix(),
+                           "prior_verdict": str(record["verdict"]), "recorded_at": str(record.get("recorded_at") or ""),
+                           "holds": same_test(now, proof_identity(record))}
+                    break
+            if hit is not None:
                 break
     if hit is None:
         for one in ids:
@@ -1269,6 +1510,8 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
                        "prior_verdict": "survived", "recorded_at": str(record.get("recorded_at") or ""),
                        "holds": same_test(now, proof_identity(record))}
                 break
+    if hit is None and kind == "product":
+        hit = _product_receipt_repeat(entry, ids, now, task_root, project, check_key, notes)
     if hit is None:
         return {"probed": False, "notes": notes}
     stage_name = _stage_of(task_root, dispatch, stage)
@@ -1328,7 +1571,13 @@ def without_retracted(ids, manifest) -> list:
     return [str(i) for i in ids or [] if str(i) not in gone]
 
 
-def _evaluate(variant: dict, task_root, instance_id: str, now=None) -> tuple:
+ONE_CHECK = "one_check"          # `scope` of a receipt that proves the one check its `checks` name (a product receipt, EP-W)
+WHOLE_UNLISTED = "whole_unlisted"  # `scope` of a receipt of a test whose language has no reader: no list of checks can exist
+WHY_ONE_CHECK = ("a product receipt proves the one check it names; the critic names it with a `product` entry, and the other "
+                 "checks of this test stay owed")
+
+
+def _evaluate(variant: dict, task_root, instance_id: str, now=None, scope_ok: bool = False) -> tuple:
     """(level id or None, issues, receipt, bytes unknown, over comments, how) of ONE candidate: a row
     whose `sensitivity_proof` names the receipt. Valid = no `contract.sensitivity_proof_issues`, a
     level the vocabulary knows, and the test as it is NOW: `same_test` of the row's current identity
@@ -1338,7 +1587,8 @@ def _evaluate(variant: dict, task_root, instance_id: str, now=None) -> tuple:
     test file cannot be found the comparison cannot be made: not valid either, and the level is unknown
     rather than "not probed" (FR-41). A receipt that binds no bytes at all has nothing to compare (the
     old mutable record: it is not valid for other reasons). `now` is `instance_identity()`'s answer,
-    taken once by the caller."""
+    taken once by the caller. `scope_ok` (fix round D, B1) lifts ONLY the last line below - the one-check scope - and is passed by
+    `product_receipt_holds` alone: every byte/identity guard above it stands for that caller too."""
     receipt, load_errors = C.sensitivity_proof_receipt(variant, task_root)
     issues = list(C.sensitivity_proof_issues(variant, task_root))
     level = level_of(receipt) if receipt else None
@@ -1367,7 +1617,27 @@ def _evaluate(variant: dict, task_root, instance_id: str, now=None) -> tuple:
     elif issues and not load_errors and level == LIVE and receipt.get("immutable") is not True:
         issues = [f"its live-check record predates receipts; rerun {LIVE_TOOL} --instance "
                   f"{instance_id}"]
+    if not scope_ok and not issues and isinstance(receipt, dict) and receipt.get("scope") == ONE_CHECK:
+        # t-2064 P6 (EP-W, AR-28): a product receipt proves the ONE check its `checks` name, whatever its wording. Position: LAST, after
+        # every validity check above, so a receipt of other bytes keeps its own, more useful issue; what stays unreachable is a level
+        # for a receipt that names one check of several (`reached`, `already_probed` and `check_delivery` read this return). A receipt
+        # with no `scope` is an old one and reads as before (EP-I); `whole_unlisted` keeps its level.
+        return None, [WHY_ONE_CHECK], receipt, False, False, how
     return (level if not issues else None), issues, receipt, False, over_comments and not issues, how
+
+
+def receipt_off_target(source) -> str:
+    """The why, when a receipt (or a window `probe` block, or a probe record) carries a `target` that says the probe
+    broke a line other than the obligation's check (`target.is_assertion_id is False`), else "". THE reader
+    (AR-13): the window gap `semantic_sensitivity`, `reached` and the probe's own `keep_standing_record` ask this
+    one function. A missing `target` (a receipt that records none reads as unknown, AR-23), a `null` and anything not a dict read
+    as "" - an unknown is never off-target (FR-41); the residual that an unknown target still proves is named, not
+    widened. Evidence of execution is not evidence of coverage (FR-18): decided by the recorded fact, not by a role."""
+    target = source.get("target") if isinstance(source, dict) else None
+    if not isinstance(target, dict) or target.get("is_assertion_id") is not False:
+        return ""
+    return (f"the probe broke line {target.get('line')}, not the obligation's check at "
+            f"{target.get('assertion_id')}")
 
 
 def valid_level(entry: dict, ref, task_root) -> str | None:
@@ -1379,6 +1649,44 @@ def valid_level(entry: dict, ref, task_root) -> str | None:
                                                              "sha256": ref.get("sha256")}})
     return _evaluate(variant, task_root, C.test_instance_id(entry),
                      instance_identity(entry, task_root))[0]
+
+
+def product_receipt_holds(entry: dict, ref, task_root, project=None) -> dict:
+    """`{"holds": bool, "why": str, "receipt": dict | None, "keys": [str]}` - whether the product receipt `ref` ({path, sha256}) is valid
+    FOR THIS TEST AS IT STANDS and may be named by a `product` entry for ONE of its checks (t-2064 fix round D, B1; EP-W). The ONE reader
+    (AR-13) of that join: `probe_by_code._product_entry_holds` asks it, and it is not `valid_level`, whose answer is None for a
+    `one_check` receipt by design (the test as a whole has no level from one check).
+
+    The guards are the receipt's own, unchanged (`_evaluate`: the contract's issues, the bytes or the same test); this lifts only the
+    one-check scope line. `holds` needs the product level and a scope that is ABSENT (an old receipt, EP-I: it names no key, so the
+    caller joins it by its location alone) or `one_check`; a `whole_unlisted` receipt (a test whose checks the factory cannot list) never
+    stands for one check, and an unknown scope word does not either. `keys` are the `checks[].key` the receipt names (`[]` for an old
+    one). `why` is the TRUE reason when it does not hold (what the guard that failed said). Reads; writes nothing. Error direction: not
+    holding; never raises. `project` is the project root the test file is read under (`None`: the host's)."""
+    nope ={"holds": False, "why": "", "receipt": None, "keys": []}
+    try:
+        if not isinstance(entry, dict) or not isinstance(ref, dict) or not ref.get("path"):
+            return dict(nope, why="no receipt is named")
+        variant = dict(entry, sensitivity_proof={"receipt_ref": {"path": ref["path"], "sha256": ref.get("sha256")}})
+        level, issues, receipt, _unknown, _over, _how = _evaluate(variant, task_root, C.test_instance_id(entry),
+                                                                  instance_identity(entry, task_root, project), scope_ok=True)
+        if not isinstance(receipt, dict):
+            return dict(nope, why="the receipt cannot be read")
+        scope = receipt.get("scope")
+        keys = [str(c.get("key")) for c in receipt.get("checks") or [] if isinstance(c, dict) and c.get("key")] \
+            if isinstance(receipt.get("checks"), list) else []
+        base = dict(nope, receipt=receipt, keys=keys)
+        if level != PRODUCT:
+            say = issues[0] if issues else f"its level is {level!r}, not the product's ({PRODUCT})"
+            return dict(base, why=f"it does not speak for the test as it stands: {say}")
+        if scope == WHOLE_UNLISTED:
+            return dict(base, why="it is the receipt of a test whose checks the factory cannot list: it proves that test as a whole, "
+                                  "never one check named by an entry")
+        if scope is not None and scope != ONE_CHECK:
+            return dict(base, why=f"its scope {scope!r} is not one the factory reads for a product entry")
+        return dict(base, holds=True)
+    except Exception:       # noqa: BLE001 - a receipt that cannot be measured does not hold
+        return dict(nope, why="the receipt could not be measured against the test as it stands")
 
 
 # How much a proof stands on, for the tie of two receipts of the same level: the very bytes, then
@@ -1420,11 +1728,22 @@ def reached(entry, manifest, task_root, *, now=None) -> dict:
         unknown = unknown or bytes_unknown
         if level is None:
             issues.extend(i for i in found if i not in issues)
+        elif receipt_off_target(receipt):
+            # a receipt of a probe of another line stays on disk and proves nothing about this obligation
+            why = (f"{receipt_off_target(receipt)}: probe the Then's line with {LIVE_TOOL} --instance "
+                   f"{instance_id} --at <line> (a test that is not Python), or return the item unverified")
+            if why not in issues:
+                issues.append(why)
         else:
             valid.append((level, ref, receipt, over_comments, how))
     if not valid:
         # A receipt whose test cannot be found may well prove the test: the level is unknown, and
         # it is said so - "not probed" would report the absence of evidence as a fact (FR-41).
+        if not issues and task_root is not None and probe_owes_judgment(task_root, instance_id, str(now.get("input_hash") or "")):
+            # t-1968 N2 (E2.11): a probe that failed at its line on a text the tool cannot read and was never judged to fire is
+            # NOT proved; the reason says why, in the factory's words (FR-41: said as not proved, never as a fact of proof)
+            issues = ["no sensitivity receipt: its probe owes the code critic's judgment (`cause: judgment`), and none "
+                      "proved that the broken check fired"]
         return {"level": None, "words": unknown_words() if unknown else words(None), "ref": {},
                 "issues": issues or ["no sensitivity receipt"]}
     # Equal rank: a receipt for these very bytes, then one for this same test, before one that holds
@@ -1596,7 +1915,9 @@ def _replay(entry: dict, task_root, receipt: dict | None = None) -> dict | None:
     (`work/probes/<iid>.json`): `{"test", "instance", "mutation", "oracle"}`; `oracle` is `<mutated file>::<function>`
     when the probe mutated an oracle outside the test, else "". None when the record is not there, names no
     `test_node` or `mutation`, or was made with `--at` (a line anchor does not survive the edit that made the
-    probe stale: it is the person's, or the critic's, to place again). With no record under any spelling of the
+    probe stale: it is the person's, or the critic's, to place again). The record of a walk of the plan (t-2064 P4b/P4c: the aggregate,
+    `mutation: "invert"`, `mutation_detail` with no `at`) is read as it stands: it replays, and the replay is a call with no line anchor
+    that joins the aggregate's stored entries itself (`probe_by_code._entries_for`); nothing is added to the key set. With no record under any spelling of the
     row, the record of `receipt` (a stale receipt of another spelling) is read by the receipt's own names, and the
     replay's `test` is the row's own node `<file>::<function>[<param>]`, not the old spelling."""
     record, other = None, False
@@ -1609,7 +1930,7 @@ def _replay(entry: dict, task_root, receipt: dict | None = None) -> dict | None:
     if record is None:
         return None
     detail = record.get("mutation_detail") if isinstance(record.get("mutation_detail"), dict) else {}
-    test, mutation = str(record.get("test_node") or ""), str(record.get("mutation") or "")
+    test, mutation = str(record.get("test_node") or ""), str(replay_mutation(record.get("mutation")) or "")
     if other:
         from execution_request import _split_node      # the record's class chain stays: `file::Class::function[param]`
         file, mine = test_file_of(entry), C.test_instance_id(entry).split(C.INSTANCE_SEP)[-1]

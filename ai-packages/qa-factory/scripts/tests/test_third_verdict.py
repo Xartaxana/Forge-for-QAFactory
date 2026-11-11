@@ -132,6 +132,10 @@ LEDGER_ROWS = [
     # HF2-18: the analyst's control experiment found the assert stricter than the requirement; the person decides
     ("L21", "failed:ASSERT_STRICTER", {}, "assert_stricter", "after_checks"),
     ("L21", "waived:failed:ASSERT_STRICTER", {"words": True}, "assert_stricter", "after_checks"),
+    # t-2181 PC-5 (§2.3): a green that met a side which was not real / was not known; the prefix's `decided_elsewhere` stays for the rest
+    ("L22", "not_verified:on_substitute", {}, "on_substitute", "after_checks"),
+    ("L22", "not_verified:sides_unknown", {}, "sides_unknown", "after_checks"),
+    ("L22", "not_verified:placeholder_open", {}, "placeholder_open", "after_checks"),     # t-2277 J-C7
 ]
 TRACE_ROWS = [
     ("T1", "unresolved:handed_to_person", {}, "handed", "after_checks"),
@@ -154,7 +158,8 @@ PRODUCER_KINDS = [("R1", "factory_record", "no"), ("R2", "run_not_deliverable", 
                   ("R9", "branch_lost", "after_checks"), ("R9", "branch_excluded", "after_checks"),
                   ("R9", "branch_unproven", "after_checks"), ("R9", "branches_not_recorded", "after_checks"),
                   ("R9", "source_unreconciled", "after_checks"), ("R9", "attachment_question_open", "after_checks"),
-                  ("R9", "branch_excluded_by_word", "none"), ("R9", "branches_unreadable", "no")]
+                  ("R9", "branch_excluded_by_word", "none"), ("R9", "branches_unreadable", "no"),
+                  ("R10", "awaiting_implementation", "no"), ("R11", "on_substitute", "after_checks"), ("R11", "sides_unknown", "after_checks")]
 
 
 def k_n8_1_every_row_of_the_table() -> None:
@@ -1045,7 +1050,43 @@ def k_tq1_18_a_refused_base_holds_delivery() -> None:
         [rec["kind"] for rec in CD.ledger_records(control)])[0]), ([], "yes"))
 
 
+def k_pc5_s_b_after_checks_one_item_per_case() -> None:
+    """t-2181 PC-5 (S-b, S15): a green run met only a substituted side -> `after_checks`, ONE counting item per case under kind
+    `on_substitute`, listing its tests and the re-pass `how`; a stamp with `sides_unknown` -> kind `sides_unknown` (owner factory).
+    Controls: the same story unstamped is not read; a red on the substitute is `no` (a bug is never softened)."""
+    def stamp(task: Path, **fields) -> None:
+        edit(task, "work/run-report.json", lambda r: r["results"][0].update(fields))
+
+    def on(doc: dict, kind: str) -> dict:
+        return {i["ref"]: i for i in doc["left_items"] if kind in (i.get("kinds") or [])}
+
+    task = story()
+    stamp(task, sides_met={"ui": "real", "backend": "substituted"})
+    edit(task, "pipeline.json", lambda p: p.update(sides={"ui": {"reality": "real"}, "backend": {"reality": "substituted"}}))
+    doc = run(task)
+    items = on(doc, "on_substitute")
+    check_eq("PC-5 S-b the green case is ONE item under `on_substitute`", sorted(items), ["TC-001"])
+    item = items.get("TC-001") or {}
+    check("PC-5 S-b the item counts and the verdict is the third word", item.get("counts") is True and doc["delivery_verdict"] == "after_checks",
+          f"{doc['delivery_verdict']} {item}")
+    check_in("PC-5 S-b the re-pass `how` names the side that is not real", "backend", item.get("how", ""))
+    check_in("PC-5 S-b ... and starts as a how-line", "How: run", item.get("how", ""))
+    check("PC-5 S-b the item lists the case's test (never an instance id the person cannot read)", bool(item.get("tests")), str(item))
+    check_eq("PC-5 S-b the ledger row of the case reads `not_verified:on_substitute`",
+             [r["state"] for r in doc.get("rows", []) if r.get("ref") == "TS-1"], ["not_verified:on_substitute"])
+    unstamped = run(story())
+    check_eq("control: the unstamped story has no such item", on(unstamped, "on_substitute"), {})
+    stamp(task, sides_unknown="the registry could not be read")
+    check_eq("PC-5 S12 the stamp's `sides_unknown` is kind `sides_unknown`, owner factory",
+             (sorted(on(run(task), "sides_unknown")), DV.owner_of_kind("sides_unknown")), (["TC-001"], "factory"))
+    red_task = story()
+    red(red_task)
+    stamp(red_task, sides_met={"backend": "substituted"})
+    check_eq("control: a red on the substitute is `no`", run(red_task)["delivery_verdict"], "no")
+
+
 def main() -> None:
+    k_pc5_s_b_after_checks_one_item_per_case()
     k_tq1_18_a_refused_base_holds_delivery()
     k_n8_1_every_row_of_the_table()
     k_n8_2_text_is_never_read()

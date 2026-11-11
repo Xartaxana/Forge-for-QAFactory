@@ -231,6 +231,27 @@ class ExecutionTests(unittest.TestCase):
             observed = store.observe("env-1", lambda pid, birth: (pid, birth) == (11, "coordinator"))
             self.assertEqual(observed["action"], "observe")
 
+    def test_claim_honours_the_event_store_wait_constant(self):
+        """TR4-2 C F2: the claim reads `event_store.SHORT_RMW_LOCK_WAIT_S` at call time, so one patch of that attribute
+        shortens it (a claim lock held by another process refuses with the helper's sentence after 0.2 s, not 10 s)."""
+        import time
+        import event_store
+        with tempfile.TemporaryDirectory() as td:
+            store = EnvironmentJobs(Path(td)); req = request(Path(td))
+            holder = event_store.take_file_lock(store.directory / "claims.lock", 0, purpose="test holder",
+                                                record_holder=True)
+            saved = event_store.SHORT_RMW_LOCK_WAIT_S
+            event_store.SHORT_RMW_LOCK_WAIT_S = 0.2
+            started = time.monotonic()
+            try:
+                with self.assertRaises(event_store.LockBusy) as raised:
+                    store.claim(req, plan_environment(req))
+            finally:
+                event_store.SHORT_RMW_LOCK_WAIT_S = saved
+                holder.release()
+            self.assertLess(time.monotonic() - started, 5)
+            self.assertIn("claims.lock", str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

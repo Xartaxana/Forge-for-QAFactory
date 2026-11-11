@@ -24,6 +24,7 @@ import grounding_table as GT  # noqa: E402
 import planning_contract as PC  # noqa: E402
 import source_exclusions as SE  # noqa: E402
 import test_novelty as TN  # noqa: E402
+import vcs_evidence as VE  # noqa: E402
 
 REAL = Path(__file__).resolve().parents[4] / "experiments" / "TP1-13877"
 SHA0 = "0" * 40
@@ -280,6 +281,32 @@ check_eq("F-1: the locator is the shared source_exclusions._receipt_files narrow
          BS.receipt_files(story.task, 9), [p for p in SE._receipt_files(story.task / "work") if (story.task / "work" / "sources") in p.parents and p.name == "mr-9.json"])
 check_eq("F-1: both receipts of the iid are found (two depths); mr-9.txt and mr-19.json are not receipts of 9",
          [p.relative_to(story.task / "work").as_posix() for p in BS.receipt_files(story.task, 9)], ["sources/SRC-1/deep/mr-9.json", "sources/SRC-2/mr-9.json"])
+# t-2277 batch 2b F: the manifest's `mr` is what the story was given - a bare number, `!n` or a URL (the real shapes) - and the
+# receipt is found by its number in every form; a value that is no MR number reads as none (the base stays unknown, never guessed).
+# t-2548 F3 (AR-13): `vcs_evidence.mr_iid` is the ONE reader (the first look's `Driver._first_look_live_head` calls it too); this table is the
+# union of the base slice's shapes and the first look's (`?x=1`, `/diffs`, http, no `-/`), and N4: leading zeros are stripped (`mr-7.json`)
+for given, want in (("4214", "4214"), ("!42", "42"), (" 9 ", "9"), (9, "9"), ("https://git.example.com/g/p/-/merge_requests/9", "9"),
+                    ("https://git.example.com/g/p/-/merge_requests/9/", "9"), ("", ""), (None, ""), ("!", ""), ("-5", ""), ("4214x", ""), ("!!4", ""),
+                    ("http://git.example.com/g/p/-/merge_requests/9", "9"), ("https://git.example.com/g/p/-/issues/9", ""), (True, ""), ([9], ""),
+                    ("https://git.example.com/g/p/-/merge_requests/9/diffs", "9"), ("https://git.example.com/g/p/merge_requests/9", "9"),
+                    ("https://git.example/g/product/-/merge_requests/7?x=1", "7"), ("https://git.example.com/g/p/-/merge_requests/9#note_1", "9"),
+                    ("https://git.example.com/g/p/-/merge_requests/9x", ""), ("https://git.example.com/g/p/-/merge_requests/", ""),
+                    ("007", "7"), ("!007", "7"), (7, "7"), ("https://git.example.com/g/p/-/merge_requests/007", "7"), ("0", ""), ("000", ""), ("٣", ""),
+                    ("not a number", ""), ("   ", "")):
+    check_eq(f"F: mr_iid({given!r}) -> {want!r}", VE.mr_iid(given), want)
+check_eq("F: a very long number is read whole, never raises (no int conversion)", VE.mr_iid("9" * 5000), "9" * 5000)
+check("F3: base_slice has no reader of its own (one reader of the manifest's mr)", not hasattr(BS, "mr_iid"))
+shutil.rmtree(story.task / "work" / "sources", ignore_errors=True)
+story.receipt(9, c2, c0)
+for given in ("9", "!9", 9, "https://git.example.com/g/p/-/merge_requests/9"):
+    story.entries["impl-diff.txt"]["mr"] = given
+    (story.task / "work" / "context-manifest.json").write_bytes(json.dumps({"implementations": list(story.entries.values())}).encode())
+    got = story.by_file()["src/a.py"]
+    check_eq(f"F: the manifest's mr {given!r} finds the receipt of MR 9 -> base read", (got["state"], got["base_rev"]), ("read", c0))
+story.entries["impl-diff.txt"]["mr"] = "not a number"
+(story.task / "work" / "context-manifest.json").write_bytes(json.dumps({"implementations": list(story.entries.values())}).encode())
+got = story.by_file()["src/a.py"]
+check_eq("F: an mr that is no number finds no receipt -> unknown, no base", (got["state"], got["base_rev"]), ("unknown", ""))
 story.done()
 shutil.rmtree(co, ignore_errors=True)
 

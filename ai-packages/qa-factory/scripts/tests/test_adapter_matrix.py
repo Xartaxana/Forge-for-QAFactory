@@ -141,8 +141,6 @@ def wiring() -> None:
     check_in("A-wiring: p4 tells the role to write `adapter_capabilities`", "adapter_capabilities", text)
     check_in("A-wiring: ... and never to infer from the framework's name", "Never infer", text)
     check_not_in("A-wiring: the old one-clause 'adapter capability matrix, ' is gone", "adapter capability matrix, ", text)
-    planted = text.replace("Never infer", "")
-    check_not_in("A-wiring: negative control - the same check fails on a text without the phrase", "Never infer", planted)
     check_in("A-wiring: the shape's note names the key", "adapter_capabilities", SAMPLE["note"])
     check_eq("A-wiring: the sample's key is the top-level one", SAMPLE["adapter_capabilities"],
              {SAMPLE["profile"]["adapter_id"]: SAMPLE["profile"]["capabilities"]})

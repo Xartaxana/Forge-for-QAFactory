@@ -7,7 +7,13 @@ pull a whole job log into its context (B-466, t-575; GitHub backend GM1-4, t-188
   python tools/ci_read.py artifact <run_id> <name>/<path> [--grep REGEX] [--tail N]   (no --grep: every line)
 (--tail N, default 200, keeps the LAST N lines AFTER the grep filter; the last output line is
 "(N of M lines)": N shown, M matched.)
-  python tools/ci_read.py start [--ref main]                   dispatches canon.yml with the input ref
+  python tools/ci_read.py start [--ref main] [--workflow canon.yml] [--var KEY=VALUE ...]
+      dispatches the workflow (default canon.yml) with the input ref plus one input per --var (the GitLab reader's
+      pipeline variables, same form); e.g. the test-redundancy measurement:
+      start --workflow nightly.yml --ref <branch> --var TEST_REDUNDANCY=1 --var REDUNDANCY_SCOPE=keep
+      the quarantine watch: start --workflow quarantine-watch.yml --ref <branch>
+      A pair without "=", an empty KEY, a KEY twice or --var ref=... is refused (exit 2) before any request; a KEY
+      the workflow does not declare is GitHub's 422, printed as a refusal of the inputs (exit 1).
 
 WHICH repository: the `origin` remote of this tree. The URL is parsed (scp form `user@host:o/r`, else a URL; host
 lower-case, userinfo dropped; the path is exactly `owner/repo`, with `.git` and a trailing `/` removed): host
@@ -58,6 +64,7 @@ WORKFLOW = "canon.yml"
 MAX_PER_PAGE = 100
 MAX_ARTIFACT_BYTES = 200 * 1024 * 1024
 REPO_DOOR = "QA_CI_REPO"
+WORKFLOW_RE = re.compile(r"^[\w.-]+\.ya?ml$", re.ASCII)   # it goes into a URL path segment
 REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$", re.ASCII)      # ASCII \w: GitHub names are ASCII, and it goes into a URL
 _SCP_RE = re.compile(r"^[^@/]+@([^:/]+):(.+)$")
 build_parser = common.build_parser
@@ -204,15 +211,24 @@ def make_commands(repo: str) -> dict:
         _emit_tail(_text(body), args.grep, args.tail)
 
     def cmd_start(args, token):
+        workflow = args.workflow or WORKFLOW
+        extra = common.parse_vars(args.var)          # already checked by _check (form, duplicates, no ref)
+        inputs = {"ref": args.ref}
+        inputs.update(extra)
         try:
-            _open("%s/actions/workflows/%s/dispatches" % (base, WORKFLOW), token, method="POST",
-                  body={"ref": "main", "inputs": {"ref": args.ref}})
+            _open("%s/actions/workflows/%s/dispatches" % (base, workflow), token, method="POST",
+                  body={"ref": "main", "inputs": inputs})
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 raise Failure("%s is not on the default branch, or the token cannot see this repository"
-                              % WORKFLOW) from None
+                              % workflow) from None
+            if exc.code == 422 and extra:
+                raise Failure("HTTP 422: %s refused the inputs; every --var KEY must be an input of its "
+                              "workflow_dispatch" % workflow) from None
             raise
-        emit_own("dispatched %s for %s; find the run: ci_read.py pipelines" % (WORKFLOW, sanitize(args.ref)))
+        shown = "".join(" %s=%s" % (k, v) for k, v in extra.items())
+        emit_own("dispatched %s for %s%s; find the run: ci_read.py pipelines" % (workflow, sanitize(args.ref),
+                                                                              sanitize(shown)))
 
     return {"pipelines": cmd_pipelines, "jobs": cmd_jobs, "log": cmd_log, "artifact": cmd_artifact,
             "start": cmd_start}
@@ -229,6 +245,12 @@ def _check(args) -> None:
         name, _, member = args.path.partition("/")
         if not name or not member:
             raise Refusal("artifact needs <name>/<path inside the zip>, e.g. ci-out/report.txt")
+    if args.cmd == "start":
+        if args.workflow is not None and not WORKFLOW_RE.fullmatch(args.workflow):
+            raise Refusal("--workflow expects a file name of .github/workflows, e.g. quarantine-watch.yml "
+                          "(letters, digits, '_', '.', '-', ending .yml or .yaml)")
+        if "ref" in common.parse_vars(args.var):
+            raise Refusal("start: the input ref is given by --ref, not by --var ref=...")
 
 
 def github_backend(repo: str, root) -> common.Backend:

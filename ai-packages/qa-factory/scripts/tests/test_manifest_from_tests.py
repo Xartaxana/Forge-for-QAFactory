@@ -1607,7 +1607,7 @@ def hf_k1_k4(root, task) -> None:
              row.get("field_absent"), {"then": 2, "field": "price", "read_from": "GET /api/cart", "shape_ref": "src/api/cart.ts:14"})
     merged, _s = manifest_put.merge({"tests": []}, out["fragment"])
     stored_row = [r for r in merged.get("unresolved") or [] if r.get("case") == "TC-002"]
-    check_eq("B-M1 round trip: the stored row still carries the block (step 0 of the automator rule)",
+    check_eq("B-M1 round trip: the stored row still carries the block (the automator's `field_absent` rule)",
              stored_row[0].get("field_absent") if stored_row else None, row["field_absent"])
     check_in("B-M1: another reason is refused", "`field_absent` belongs to the case's reason=\"contradicts_requirement\"",
              _hf_refusal(root, task, _marker(f'reason="impossible", field_absent={block}, detail="d"')))
@@ -1885,8 +1885,9 @@ def hf_k8() -> None:
     check_eq("K8 negative control: a carrier with a field the charter never names fails the census, by name",
              charter_missing(dict(WR.REQUIRED_ROW_FIELDS, zzz_not_a_field=WR.REQUIRED_ROW_FIELDS["profile_id"])), ["zzz_not_a_field"])
     sentence = [para for para in text.split("\n") if "manifest_from_tests.py` prints" in para]
-    check("K8: ONE sentence names the writer's form and the four fields and `profile_id`, in one item of the procedure",
-          len(sentence) == 1 and all(f"`{f}`" in text.split("11. **Manifest completeness.**")[1].split("12. **")[0]
+    tools = text.split("## Tools")[1].split("## When to ask")[0]            # X7-1: one bullet of the Tools section, no numbered item
+    check("K8: ONE sentence names the writer's form and the four fields and `profile_id`, in one bullet of Tools",
+          len(sentence) == 1 and all(f"`{f}`" in tools
                                      for f in ("assertion_id", "defect_location", "change_disposition", "change_basis_ref", "profile_id")))
     check("K8: the cut bytes did not take a duty with them: the window's own test (4 words quoted before the cut) still stands in the slice",
           "the control that shows the stand, not the product, blocked it" in " ".join(

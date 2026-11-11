@@ -439,6 +439,12 @@ def s9_rebuilds_a_stale_block_and_goes_on():
         check_eq("the marker is the one report_facts.check prints for a really stale block", len(stale), 1)
         named = stage_done.STALE_NAME_RE.search(stale[0]) if stale else None
         check_eq("and the block name is read from it", named.group(1) if named else "", "open-questions")
+        # t-2113: the loop below runs S9 on a pipeline with no stages, and the `regression` block reads the stages now, so the fresh
+        # render to compare with is the one made on THAT pipeline (before, the two renders were the same bytes)
+        (task / "pipeline.json").write_text(json.dumps(pipeline_at(task) | {"stages": {}}), encoding="utf-8")
+        real_write(task)
+        fresh = report.read_bytes()
+        edit_report(task, "Open questions — 2", "Open questions — 9")
         RF.write = counting_write
         for status in ("done", "skipped"):
             if status == "skipped":

@@ -524,12 +524,12 @@ def test_t256_o4_the_s4_exit_raises_the_designers_question_and_re_pins() -> None
 
 
 # ## t-227c -- the readers of the per-Then oracle and the S5-side texts (appended by t-227c) ------------------
-# DOC-WITNESS KEYS of this section, quoted VERBATIM from spec t-227 section 1 "Role text" and "Required behaviour"
-# and written down BEFORE the section first ran:
-#   Role text   "qa-automator.md 8/12 and Refusals: then_bindings `question`/`observed`; \"never a literal for an
+# DOC-WITNESS KEYS of this section, from spec t-227 section 1 "Role text" and "Required behaviour" and written down BEFORE the
+# section first ran (X7-8: the numbered steps of the old charters are gone, so the rows below name the rule by its text):
+#   Role text   "the automator's charter: then_bindings `question`/`observed`; \"never a literal for an
 #               unknown Then\"."                                  -> the automator's charter: `question`, `observed`,
 #                                                                    "never a literal for an unknown Then"
-#   Role text   "qa-code-critic.md: ONE pointer; the rule in code-review-rubric.md"
+#   Role text   "the code critic's charter: ONE pointer; the rule in code-review-rubric.md"
 #                                                                  -> the charter names `invented_expectation` and the
 #                                                                    rubric; the rubric holds the rule
 #   Role text   "artifact-contract-automation.md (then_bindings)"  -> `question?`, `observed?`, `expectation_unconfirmed`
@@ -1089,7 +1089,205 @@ def missing_g212(read) -> list:
     return [(rel, key) for rel, key in G212_KEYS if " ".join(key.split()) not in read(rel)]
 
 
+def test_pc9a_reference_precedent_needs_a_parity_requirement_and_an_item() -> None:
+    """C7 (t-2181 PC-9a): `precedent` + `reference:<item>` passes only with the item in the snapshot AND a basis `requirement:R-n` whose
+    register row says `parity: yes`; the `base:` form is as before; no snapshot (the world before) refuses the reference form with a door."""
+    register = ("## Register\n\n| id | Requirement | source | derived_from | x | ac_ref | observable | delta | parity |\n|---|---|---|---|---|---|---|---|---|\n"
+                "| R-1 | cart as before | ticket | - | - | - | - | changed | yes |\n| R-2 | totals | ticket | - | - | - | - | changed | no |\n"
+                "| R-3 | other | ticket | - | - | - | - | changed |  |\n")
+    parity = C.parity_ids(register)
+    check_eq("the parity column is read by its header: only the exact word `yes`", parity, {"R-1"})
+    check_eq("a register with no such column has no parity requirement", C.parity_ids(register.replace(" | parity |", " |", 1)), set())
+
+    def errors(ref, snapshot, basis, parity_ids=parity):
+        raw = json.dumps([{"then": 1, "source": "precedent", "ref": ref}])
+        return C.then_oracle_errors("TC.md", raw, None, [1], known_r={"R-1", "R-2", "R-3"}, snapshot_items=snapshot, parity=parity_ids, basis=basis)
+
+    items = {"cart-total", "cart-badge"}
+    ok = errors("reference:cart-total", items, "requirement:R-1")
+    check_eq("an item of the snapshot under a parity requirement is accepted", ok, [])
+    for label, got, want in (
+            ("an item the snapshot lacks", errors("reference:nope", items, "requirement:R-1"), "not an item"),
+            ("a requirement that is not parity", errors("reference:cart-total", items, "requirement:R-2"), "parity: yes"),
+            ("a row with an empty parity cell", errors("reference:cart-total", items, "requirement:R-3"), "parity: yes"),
+            ("a basis that names no requirement", errors("reference:cart-total", items, "history:old"), "requirement:R-n"),
+            ("no snapshot at all", errors("reference:cart-total", None, "requirement:R-1"), "no reference snapshot"),
+            ("a register that could not be read", errors("reference:cart-total", items, "requirement:R-1", None), "no `parity` column"),
+            ("a ref of no known form", errors("reference:", items, "requirement:R-1"), "reference:<item>")):
+        check(f"{label} is refused with a door ({want})", len(got) == 1 and want in got[0], str(got))
+    check_eq("the `base:` form is as before, whatever the snapshot says",
+             errors("base:b9c0c4e:src/a/b.py:989", None, "history:old"), [])
+    check("and `reference:` is no oracle for the other words", any("needs a register requirement" in e for e in C.then_oracle_errors(
+        "TC.md", json.dumps([{"then": 1, "source": "requirement", "ref": "reference:cart-total"}]), None, [1], known_r={"R-1"})))
+
+
+def test_pc9a_the_case_gate_wires_the_snapshot_and_parity() -> None:
+    """F2: `validate_artifacts.check_then_oracles` (the production caller) reads the story's own snapshot, the register's parity column and
+    the case basis; an archived story finds its snapshot beside its register; a missing snapshot is refused truthfully."""
+    import shutil
+    import validate_artifacts as VA
+    register = ("## Register\n\n| id | Requirement | source | derived_from | x | ac_ref | observable | delta | parity |\n|---|---|---|---|---|---|---|---|---|\n"
+                "| R-1 | cart as before | ticket | - | - | - | - | changed | yes |\n| R-2 | totals | ticket | - | - | - | - | changed | no |\n")
+    snapshot = "reference_env: sample\nwalked_at: 2026-11-11T00:00:00Z\nitems:\n  - id: cart-total\n    old_test: a.spec.ts:1\ngaps: []\n"
+    text = "---\nid: TC-1\ntask: X-1\ntitle: t\nupdated: 2026-11-11\ncreated: 2026-11-11\n---\n## Then\n1. The total is as before.\n"
+
+    def case(ref, basis="requirement:R-1"):
+        return {"task": "X-1", "basis": basis, "then_oracles": json.dumps([{"then": 1, "source": "precedent", "ref": ref}])}
+
+    def run(fm):
+        errors: list = []
+        VA.check_then_oracles(task / "TC-1.md", fm, text, errors)
+        return errors
+
+    project = temp_project("qa-pc9a-")
+    try:
+        use_project(project)
+        task = project / "qa-factory" / "artifacts" / "X-1"
+        (task / "work").mkdir(parents=True)
+        (task / "work" / "requirements-register.md").write_text(register, encoding="utf-8")
+        got = run(case("reference:cart-total"))
+        check("PC-9a F2: with no snapshot file the reference form is refused with the true cause", len(got) == 1 and "no reference snapshot" in got[0], str(got))
+        check_eq("PC-9a F2: a `base:` precedent is unchanged with no snapshot", run(case("base:b9c0c4e:src/a/b.py:989", "history:old")), [])
+        (task / "work" / "reference-snapshot.yaml").write_text(snapshot, encoding="utf-8")
+        check_eq("PC-9a F2: a snapshot item under a parity requirement passes through the case gate", run(case("reference:cart-total")), [])
+        got = run(case("reference:cart-total", "requirement:R-2"))
+        check("PC-9a F2: a basis whose register row is not parity is refused", len(got) == 1 and "parity: yes" in got[0], str(got))
+        got = run(case("reference:nope"))
+        check("PC-9a F2: an item the snapshot lacks is refused", len(got) == 1 and "not an item" in got[0], str(got))
+        archive = project / "qa-factory" / "artifacts" / "_archive"
+        archive.mkdir()
+        shutil.move(str(task), str(archive / "X-1"))
+        task = archive / "X-1"
+        check_eq("PC-9a F2: an archived story finds its own snapshot and register", run(case("reference:cart-total")), [])
+    finally:
+        cleanup(project)
+
+
+def test_pc9c_claims_take_the_reference_before_ref_with_its_item_check() -> None:
+    """PC-9c B1 (critic t-2549): `before_ref: reference:<item>` is a legal claim form with ONE check, the item is in the story's reference
+    snapshot (`snapshot_items`). Accepted with an existing item; refused naming the item, what was expected and the door for a missing one
+    (and for an empty snapshot); with no snapshot given (a story with no reference stand) refused exactly as before PC-9a/9c, the four forms named."""
+    row = {"r": "R-1", "before": "the Pay button", "before_ref": "base:b9c0c4e:src/a.py:9", "now": "x", "now_ref": "diff:+a.py:1",
+           "differs": "no", "question": "Q1"}
+    check_eq("a `base:` before_ref is still a legal claim", [e for e in C.claim_row_errors(row) if "before_ref" in e], [])
+    check_eq("a `base:` before_ref stays legal with a snapshot given", [e for e in C.claim_row_errors(row, snapshot_items={"cart-total"}) if "before_ref" in e], [])
+    check_eq("an existing snapshot item is accepted", C.claim_row_errors(dict(row, before_ref="reference:cart-total"), snapshot_items={"cart-total"}), [])
+    for ref, items in (("reference:nope", {"cart-total"}), ("reference:nope", set())):
+        got = [e for e in C.claim_row_errors(dict(row, before_ref=ref), snapshot_items=items) if "before_ref" in e]
+        check(f"a missing item {ref!r} (snapshot of {len(items)}) is refused naming the item, the snapshot and the door",
+              len(got) == 1 and "reference:nope" in got[0] and "reference-snapshot.yaml" in got[0] and "cite one of them" in got[0], str(got))
+    for ref in ("reference:cart-total", "reference:"):
+        got = [e for e in C.claim_row_errors(dict(row, before_ref=ref)) if "before_ref" in e]
+        check(f"with no snapshot a claim `before_ref` {ref!r} is refused with the four forms named", len(got) == 1 and "`base:<rev>:<path>:<line>`" in got[0], str(got))
+    got = [e for e in C.claim_row_errors(dict(row, before_ref="reference:"), snapshot_items={"cart-total"}) if "before_ref" in e]
+    check("an empty `reference:` is refused even with a snapshot", len(got) == 1 and "`base:<rev>:<path>:<line>`" in got[0], str(got))
+    check_eq("an `absent` claim with a reference ref is not read as a reference claim",
+             [e for e in C.claim_row_errors(dict(row, before="absent", before_ref="reference:cart-total"), snapshot_items={"cart-total"}) if "before_ref" in e],
+             ["`before_ref` of an `absent` claim is `absent`, not 'reference:cart-total'"])
+    check_eq("requirement_id reads only `requirement:R-n`", (C.requirement_id(" requirement:R-12 "), C.requirement_id("requirement:R-"),
+                                                             C.requirement_id("history:old"), C.requirement_id(None)), ("R-12", None, None, None))
+    got = C.then_oracle_errors("TC.md", json.dumps([{"then": 1, "source": "precedent", "ref": "reference:x"}]), None, [1],
+                               snapshot_items={"x"}, parity=None, basis="requirement:R-1")
+    check("a register with no parity column is named so, not blamed on a row", len(got) == 1 and "no `parity` column" in got[0], str(got))
+
+
+def test_pc9b_a_snapshot_the_runner_wrote_is_read_by_the_case_gate() -> None:
+    """PC-9b (critic t-2429 F2, end to end): the snapshot is written by the RUNNER's command (`reference_snapshot.put`, the file its
+    card names), and the production caller (`validate_artifacts.check_then_oracles`) accepts a `reference:` precedent on that item under a
+    parity requirement and refuses an item the snapshot does not hold; with no snapshot written the refusal says so, truthfully."""
+    import reference_snapshot as RS
+    import validate_artifacts as VA
+    register = ("## Register\n\n| id | Requirement | source | derived_from | x | ac_ref | observable | delta | parity |\n|---|---|---|---|---|---|---|---|---|\n"
+                "| R-1 | cart as before | ticket | - | - | - | - | changed | yes |\n")
+    text = "---\nid: TC-1\ntask: X-1\ntitle: t\nupdated: 2026-11-11\ncreated: 2026-11-11\n---\n## Then\n1. The total is as before.\n"
+
+    def run(ref):
+        fm = {"task": "X-1", "basis": "requirement:R-1", "then_oracles": json.dumps([{"then": 1, "source": "precedent", "ref": ref}])}
+        errors: list = []
+        VA.check_then_oracles(task / "TC-1.md", fm, text, errors)
+        return errors
+    project = temp_project("qa-pc9b-")
+    try:
+        use_project(project)
+        task = project / "qa-factory" / "artifacts" / "X-1"
+        (task / "work").mkdir(parents=True)
+        (task / "work" / "requirements-register.md").write_text(register, encoding="utf-8")
+        got = run("reference:cart-total")
+        check("PC-9b: no snapshot written yet - refused with the true cause", len(got) == 1 and "no reference snapshot" in got[0], str(got))
+        items = project / "items.json"
+        items.write_text(json.dumps({"items": [{"id": "cart-total", "area": "cart", "user_path": "open", "observed": "total 10",
+                                                "old_test": "a.spec.ts:1", "locators_portable": "unknown"}], "gaps": []}), encoding="utf-8")
+        RS.put(task, "old", items)
+        check_eq("PC-9b: the item the runner's put wrote is accepted by the production caller", run("reference:cart-total"), [])
+        got = run("reference:other")
+        check("PC-9b: an item the snapshot does not hold is refused", len(got) == 1 and "not an item" in got[0], str(got))
+    finally:
+        cleanup(project)
+
+
+def test_pc9c_the_s2_check_and_the_s3_projector_pass_a_reference_claim() -> None:
+    """PC-9c B1 at the production call sites (t-2551): a claim citing an item of the story's snapshot passes the S2 register check
+    (`validate_artifacts.check_behaviour_claims`), the S3 projector's judge (`_judge`, :180), its read-back (`_post_build`, :609) and its
+    S3 check (`s3_claim_errors`, :841); a missing item is refused at each, and so is the form when the story has no snapshot."""
+    import claim_projector as CP
+    import reference_snapshot as RS
+    import validate_artifacts as VA
+    project = temp_project("qa-pc9c-claims-")
+    try:
+        use_project(project)
+        task = project / "qa-factory" / "artifacts" / "T-1"
+        (task / "work").mkdir(parents=True)
+        for name in ("requirements-register.md", "requirements-readiness.json"):
+            (task / "work" / name).write_bytes((FIXTURES / name).read_bytes())
+        claim_ref = "reference:cart-total"
+        grounding = "\n".join([
+            "schema_version: 1", "implementation_source: diff", "rows:", "  - id: G-4", "    label: behaviour_change", '    reason: "x"', "claims:",
+            '  - r: "R-28"', '    row: "G-4"', '    requirement: "PUT answers 403 when both checks fail."', "    impact: degraded",
+            '    before: "the cart showed 10.00"', f'    before_ref: "{claim_ref}"', '    now: "403"', '    now_ref: "diff:b/src/w.py:541"', '    differs: "yes"',
+            "    question: raise", "    ask:", '      question: "Which status code must PUT return when both checks fail?"',
+            '      source_says: [{quote: "returns the same results as before", where: "register R-19"}]', "      severity: major", "      owner_role: po_ba", ""])
+        (task / "work" / "grounding.yaml").write_bytes(grounding.encode("utf-8"))
+
+        def snapshot(*ids):
+            items = project / "items.json"
+            items.write_text(json.dumps({"items": [{"id": i, "area": "cart", "user_path": "open", "observed": "total 10", "old_test": "a.spec.ts:1",
+                                                    "locators_portable": "unknown"} for i in ids], "gaps": ["none"] if not ids else []}), encoding="utf-8")
+            RS.put(task, "old", items, replace=True)
+
+        def s2_errors():
+            errors: list = []
+            reg = task / "work" / "requirements-register.md"
+            VA.check_behaviour_claims(reg, reg.read_text(encoding="utf-8"), errors)
+            return [e for e in errors if "R-28:" in e]      # the fixture's older rows R-16..R-19 owe claims of their own; this is R-28's
+
+        res = CP.project(task)     # no snapshot: the form is refused, nothing written, the four forms named
+        check("PC-9c B1 projector, no snapshot: refused with the four forms", res.wrote is False and any("`base:<rev>:<path>:<line>`" in str(p) for p in res.problems), str(res.problems))
+        snapshot("other-item")
+        res = CP.project(task)
+        check("PC-9c B1 projector (_judge): an item the snapshot lacks is refused, naming it", res.wrote is False and any("cart-total" in str(p) and "not an item" in str(p) for p in res.problems), str(res.problems))
+        snapshot("cart-total")
+        res = CP.project(task)
+        check_eq("PC-9c B1 projector (_judge, _post_build): an item the snapshot holds is projected", (res.projected, [str(p) for p in res.problems], res.wrote), (["R-28"], [], True))
+        check_eq("PC-9c B1 S2 check (check_behaviour_claims): the projected claim with an existing item passes", s2_errors(), [])
+        check_eq("PC-9c B1 S3 check (s3_claim_errors): no finding with the item present", [str(p) for p in CP.s3_claim_errors(task)], [])
+        snapshot("other-item")
+        got = s2_errors()
+        check("PC-9c B1 S2 check: the item gone from the snapshot is refused, naming it", len(got) == 1 and "cart-total" in got[0] and "not an item" in got[0], str(got))
+        found = [str(p) for p in CP.s3_claim_errors(task)]
+        check("PC-9c B1 S3 check (s3_claim_errors): the item gone is a finding naming it", any("cart-total" in f and "not an item" in f for f in found), str(found))
+        (task / "work" / "reference-snapshot.yaml").unlink()
+        got = s2_errors()
+        check("PC-9c B1 S2 check: no snapshot at all is refused with the four forms (never a pass)", len(got) == 1 and "`base:<rev>:<path>:<line>`" in got[0], str(got))
+    finally:
+        cleanup(project)
+
+
 if __name__ == "__main__":
+    test_pc9c_the_s2_check_and_the_s3_projector_pass_a_reference_claim()
+    test_pc9b_a_snapshot_the_runner_wrote_is_read_by_the_case_gate()
+    test_pc9a_reference_precedent_needs_a_parity_requirement_and_an_item()
+    test_pc9a_the_case_gate_wires_the_snapshot_and_parity()
+    test_pc9c_claims_take_the_reference_before_ref_with_its_item_check()
     test_g2_12_code_and_a_foreign_test_are_no_source()
     test_g2_12_the_grammar_and_the_gates()
     test_t271_f1_an_unreadable_date_is_never_a_silent_off()

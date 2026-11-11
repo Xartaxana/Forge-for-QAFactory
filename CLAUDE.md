@@ -60,6 +60,16 @@ Host adaptations inside the policy block below (listed per the onboarding merge 
 11. Rule 4, the witness scope of a node, solo or parallel (F6-33, 21.10.2026; written as «host adaptation 10» in spec t-1206 E7c and renumbered
    at the `local/p1-closeout` merge of 04.11.2026, where D-0060's adaptation 10 came first): reconciled with D-0056 — a node's run covers the
    test FILE that judges each owned path, never its big neighbours; the full sets are the batch canon (`plans/builder-rules.md` 7b).
+12. Rule 11, which tests a DoD asks for (the owner's word 10.11.2026; rule text `docs/TESTING.md`): behaviour through the script's door and the
+   stage junction, one parameterised test per behaviour; the mini-battery and the AT/BEYOND tests only where input comes from OUTSIDE; a
+   DOC-DISPATCH witness is attached in the report, never committed as a test; a role's rule is guarded by one register row, not a pin file; no pin on script source or a measured constant.
+   Tests outside the three layers are QUARANTINED (`ai-packages/qa-factory/scripts/tests/test-layers.json`, spec
+   `docs/tasks/specs/td-15-scenarios-quarantine.md`): not run in the canon, not repaired, not edited; the witness of a change is what
+   `scenario_walk.py --witness-for <owns>` prints — in this repository this overrides host adaptation 11 and rule 4's «test FILE that judges
+   each owned path», and rule 11's «AT and BEYOND» and «SCOPE CEILING» (the policy block is re-synced whole, never hand-edited): a boundary from
+   OUTSIDE input is a scenario variant row; an internal boundary gets no test. Until the phase-1 move lands (no `quarantine` rows yet) the old
+   scope of adaptation 11 is added to what the command prints. When the SessionStart line says `TEST QUARANTINE ALERT` or `READY TO DELETE`,
+   the Lead tells the owner the same turn. Detector: calibration check 33 and `tools/test_quarantine.py check` in `forge-check`.
 
 <!-- BEGIN supervised-delegation policy (do not hand-edit below this
      line; re-sync by replacing the whole block) -->

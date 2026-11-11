@@ -18,10 +18,15 @@
       "stages": ["S5"]
     },
     {
-      "block": "probe gap: <instance, case or tooling:language>",
+      "block": "probe gap: <case key or tooling:language>",
       "reader": "contract:probe_gap_words",
       "stages": ["S5"],
       "class": "probe_gap_accepted"
+    },
+    {
+      "block": "probe not proved: <case key>",
+      "reader": "contract:probe_not_proved_words",
+      "stages": ["S5"]
     },
     {
       "block": "story budget",

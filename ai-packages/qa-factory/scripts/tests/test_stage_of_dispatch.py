@@ -308,15 +308,17 @@ def test_guard_keeps_what_it_refused(tmp):
 
 def main() -> int:
     failed = 0
+    total = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
+            total += 1
             try:
                 fn()
                 print("PASS " + name)
             except Exception as exc:       # noqa: BLE001 - a runner reports every failure
                 failed += 1
                 print(f"FAIL {name}: {type(exc).__name__}: {exc}")
-    print(f"=== test_stage_of_dispatch: {'ok' if not failed else str(failed) + ' failed'} ===")
+    print(f"=== test_stage_of_dispatch: {total - failed}/{total} ok ===")
     return 1 if failed else 0
 
 

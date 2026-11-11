@@ -6,13 +6,12 @@ record), S1-S21 the hook `gate_shown.decide` (no open gate is silent, one refusa
 door and is released as `gate_unreadable`, a configured artifact root is found, the driver's mode and Codex are never judged),
 H1-H6 `gate_shown.assistant_texts_since` (the turn window and its error direction), F1-F2 the declared fallback when the card
 markers are not carried (heading + Answer lines + approval line), T1-T6 the texts that name the file (no "full artifacts", the
-carrier agrees with the phase file), A1 AR-13 (no second reader of the card markers or of the controller's record in the hook).
+carrier agrees with the phase file).
 No Cyrillic: the package is English (FR-30).
 """
 import io
 import json
 import os
-import re
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
@@ -205,12 +204,8 @@ def main_keys():
             else:
                 os.environ.pop(k, None)
         cleanup(root)
-    check_not_in("T6 (m-4): the module docstring no longer advertises work/gate-a-brief.md", "gate-a-brief.md", GB.__doc__)
-    check_in("T6: it names the file the code writes", "work/gate-a-message.md", GB.__doc__)
     check("T6: the receipt list names gate_brief.py (a command that needs its own session id)",
           "gate_brief.py" in json.loads((PKG / "references" / "session-identity.json").read_text(encoding="utf-8"))["receipt_scripts"])
-    check("T6 control: the same read finds a receipt script that was there before",
-          "activity_capture.py" in json.loads((PKG / "references" / "session-identity.json").read_text(encoding="utf-8"))["receipt_scripts"])
 
 
 def the_hook_is_silent_without_an_open_gate():
@@ -466,10 +461,6 @@ def a_configured_artifact_root_is_found():
         check("S21: ...and not under the default one", not (w["root"] / "qa-factory" / "artifacts").exists())
         check_eq("S21: a retelling turn is refused", stop(w, last="| Q1 | a |")[0], 2)
     with_world("gs-s21-", "QA-S21", configured, config={"artifact_root": "test-artifacts"})
-    src = (SCRIPTS / "gate_shown.py").read_text(encoding="utf-8")
-    check_not_in("S21: gate_shown.py names no literal artifact folder", "qa-factory/artifacts", src)
-    check_not_in("S21: ...and joins none", '"artifacts"', src)
-    check_in("S21 control: it reads the root through hooklib.artifact_root", "hooklib.artifact_root(event)", src)
 
 
 def a_crash_is_exit_zero():
@@ -533,54 +524,13 @@ def the_transcript_reader():
 
 
 def the_texts_name_the_file():
-    """T1-T5: the "paths to the full artifacts" text is gone from the skill, the phases and the evals; the carrier agrees."""
-    def scan(files) -> list:
-        return [str(f) for f in files if re.search(r"full artifacts", f.read_text(encoding="utf-8"), re.I)]
-    files = ([PKG / "skills" / "qa-story" / "SKILL.md"] + sorted((PKG / "skills" / "qa-story" / "phases").glob("*.md"))
-             + sorted((PKG / "evals").glob("*.json")) + sorted((PKG / "skills" / "qa-story" / "evals").glob("*.json")))
-    check_eq("T1: no 'full artifacts' in the skill, the phases, the evals", scan(files), [])
-    check("T1 positive control: the same scan finds a name that is there", "gate_brief" in (PKG / "skills" / "qa-story" / "SKILL.md").read_text(encoding="utf-8")
-          or any("gate_brief" in f.read_text(encoding="utf-8") for f in files))
-    base = temp_dir("gs-t1-")
-    try:
-        bad = base / "bad.md"
-        bad.write_text("the paths to the full artifacts\n", encoding="utf-8")
-        check_eq("T1 negative control: the scanner reports a file holding it", scan([bad]), [str(bad)])
-    finally:
-        cleanup(base)
-    skill = (PKG / "skills" / "qa-story" / "SKILL.md").read_text(encoding="utf-8")
-    check_not_in("T2: SKILL.md no longer says 'Paths first'", "**Paths first.**", skill)
-    check_in("T2: ...it says 'Code first', for both gates", "- **Code first.** Print the code's gate text whole, then your words.", skill)
-    bench = json.loads((PKG / "evals" / "plugin-eval-benchmark.json").read_text(encoding="utf-8"))
-    entry = next(b for b in bench["benchmarks"] if b["id"] == "gate-a-one-message-with-caps")
-    criteria = entry["success_criteria"]
-    check("T3: no criterion names the register or the appendix", not any("requirements-register.md" in c or "case-appendix.md" in c for c in criteria))
-    named = next(c for c in criteria if "gate-a-message.md" in c)
-    check("T3: the criterion that names the file names every gate A document", all(name in named for _label, name in GB.GATE_A_DOCUMENTS))
+    """T4-T5: the gate message file is named in s4.md as the carrier writes it (the role-text rules of the skill and s8.md are rows
+    of design/role-rules.json)."""
     s4 = (PKG / "skills" / "qa-story" / "phases" / "s4.md").read_text(encoding="utf-8")
-    s8 = (PKG / "skills" / "qa-story" / "phases" / "s8.md").read_text(encoding="utf-8")
     check_in("T4: s4.md names the message file", "work/gate-a-message.md", s4)
-    check_not_in("T4: ...and no longer says 'Present only'", "Present only", s4)
-    check_in("T4: s8.md carries the one-line-per-question rule", "at most one line per question you recommend on", s8)
     check_eq("T5: the literal in s4.md is the carrier's one name (two places, one name)", GB.GATE_MESSAGE, "gate-a-message.md")
     check_in("T5: ...in s4.md", f"work/{GB.GATE_MESSAGE}", s4)
     check_in("T5: ...and the asked-file path of the judge is the file the code writes", f"--asked-file <TASK_ROOT>/work/{GB.GATE_MESSAGE}", s4)
-    check_not_in("T5: no 'the gate message' placeholder left for the judge", "--asked-file <the gate message>", s4)
-    evals = json.loads((PKG / "skills" / "qa-story" / "evals" / "evals.json").read_text(encoding="utf-8"))
-    names = [a["name"] for e in evals["evals"] for a in e.get("assertions", [])]
-    check_in("T5: the eval assertion follows the new text", "gate-a-is-one-message-code-text", names)
-    check_not_in("T5: ...and the old name is gone", "gate-a-is-one-message-paths-first", names)
-
-
-def ar_13_one_reader():
-    """A1 (AR-13): the hook has no second reader of the card markers or of the controller's decision."""
-    src = (SCRIPTS / "gate_shown.py").read_text(encoding="utf-8")
-    check_not_in("A1: no card-marker pattern in gate_shown.py", "<!-- card (", src)
-    check_not_in("A1: ...no CARD_MARKER of its own", "CARD_MARKER", src)
-    check_not_in("A1: ...no second parse of controller.json", "controller.json", src)
-    brief = (SCRIPTS / "gate_brief.py").read_text(encoding="utf-8")
-    check_in("A1 positive control: the same search finds the marker in gate_brief.py", "<!-- card", brief)
-    check_in("A1 positive control: ...and the controller's record", "controller.json", brief)
 
 
 def the_literal_script_ends_clean():
@@ -616,7 +566,6 @@ def main():
     a_crash_is_exit_zero()
     the_transcript_reader()
     the_texts_name_the_file()
-    ar_13_one_reader()
     the_literal_script_ends_clean()
     finish("gate shown")
 

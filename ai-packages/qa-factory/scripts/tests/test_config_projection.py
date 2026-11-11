@@ -17,7 +17,6 @@ of receiver variables per launch-path file. It does not see indirect reads: help
 another name, derived variables, files the launch writes, environment variables.
 """
 import copy
-import hashlib
 import json
 import re
 import sys
@@ -26,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness import check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir  # noqa: E402
+from harness import check, check_eq, cleanup, finish, temp_dir  # noqa: E402
 
 import config_contract  # noqa: E402
 import execution_fingerprint as F  # noqa: E402
@@ -45,12 +44,6 @@ LINE = {1: "qa-factory/config.json is not a JSON object, so no projection can be
         6: "project_config must be one of the config_files",
         7: "the fingerprint rule set references/config-projection.json is not readable, or not of the documented shape"}
 POLICY_REVISION = "config-projection-1"
-# content_hash of the rule file's content without `policy_revision` (K-F1): a rules edit without a rename fails here.
-# GW1-16 re-pinned it for the one edit of a REASON (`environment.integrations`: "gate only" -> "gate, and names in the S4 brief"): the
-# key stays in `minus`, so no projection and no `config_sha` moves, and `policy_revision` is not renamed (a reason is not a rule).
-# EP1-41c re-pinned it for five decision_only rows of a device stand (`environments.surface/driver/device/app/device_probe`): the
-# fingerprint keeps only an entry's name and address keys, so no projection and no `config_sha` moves and `policy_revision` is not renamed.
-RULES_BODY_SHA = "73f0e312c4a4624c11c5fe3dd3c12882f4e7cc793fddd73f538a56c925b3466c"
 R9 = ("classify `%s` in references/config-projection.json: projected (and rename policy_revision) or decision_only "
       "with its reason, and update the dependency trace (spec §A)")
 
@@ -172,11 +165,6 @@ def guard(texts, rules):
             for key, line in config_reads(name, text) if not classified(key, rules)]
 
 
-def enclosing_def(text, line):
-    lines = text.split("\n")[:line]
-    return next((m.group(1) for m in (re.match(r"\s*def (\w+)", x) for x in reversed(lines)) if m), "")
-
-
 def disjoint(rules):
     """The R2 keyspace rule: a decision-only `<top>.<child>` under a projected `<top>` is in its `minus` (or, for
     entry_by_name, not `name` nor an address key); a decision-only `<top>` is not projected."""
@@ -262,13 +250,6 @@ def main() -> None:
             return p.fp(data, **kw)["fingerprint_components"]["config_sha"]
 
         # --- the fixtures are the receipts' bytes ----------------------------------------------------------------
-        # The names ff4fc62e / 4dfdc97c label the receipts' original bytes; the O7 map rewrote the fixtures (neutral names), so
-        # the expected prefixes are the measured sha256 of the rewritten files (1be851c5 / 4dfdc97c before the rewrite).
-        check_eq("fixture ff4fc62e is the committed bytes the S6 receipt hashed (1be851c5 before the O7 rewrite)",
-                 hashlib.sha256((FIX / "config-ff4fc62e.json").read_bytes()).hexdigest()[:8], "4026e2e9")
-        check_eq("fixture 4dfdc97c is the bytes the S5 receipts hashed (before the O7 rewrite)",
-                 hashlib.sha256((FIX / "config-4dfdc97c.json").read_bytes()).hexdigest()[:8], "256c012c")
-
         # --- K-W1 the witness ------------------------------------------------------------------------------------
         check_eq("K-W1 4dfdc97c -> 1be851c5 is exactly one edit", edits(c4, ff), ["environments[0].frontend_url"])
         check_eq("K-W1 29b05362 -> ff4fc62e is exactly three edits", edits(c29, ff),
@@ -541,16 +522,11 @@ def main() -> None:
         # --- K-F1 the rule file --------------------------------------------------------------------------------------
         check_eq("K-F1 the rules are read through hooklib.read_json(hooklib.ref(...))", rules,
                  hooklib.read_json(hooklib.ref("config-projection.json"), default=None, kind=dict))
-        check_in("K-F1 and the loader says so in its code",
-                 'hooklib.read_json(hooklib.ref("config-projection.json")', (SCRIPTS / "execution_fingerprint.py").read_text(encoding="utf-8"))
         check_eq("K-F1 the policy_revision is pinned", rules["policy_revision"], POLICY_REVISION)
         payload = F.config_projection(ff, "api", "local-docker", rules)[1]
         check_eq("K-F1 absolute pin of P on ff4fc62e: its four keys and the rule set's policy_revision (t-150 F-2)",
                  (sorted(payload), payload["policy_revision"]),
                  (["environment_id", "policy_revision", "profile_id", "projection"], "config-projection-1"))
-        body = {k: v for k, v in rules.items() if k != "policy_revision"}
-        check_eq("K-F1 the rules without policy_revision are pinned: an edit of them renames policy_revision",
-                 F.content_hash(body), RULES_BODY_SHA)
         check_eq("K-F1 / K-G1 projection and decision_only are disjoint under the R2 keyspace rule", disjoint(rules), [])
 
         # --- K-S1 shape / K-X1 the other components ---------------------------------------------------------------
@@ -608,39 +584,12 @@ def main() -> None:
               and posix["fingerprint_components"]["config_sha"] != whole["fingerprint_components"]["config_sha"])
 
         # --- K-P1 / K-M2 -----------------------------------------------------------------------------------------------
-        for name in ("proof_level.py", "probe_debt.py"):
-            check_not_in("K-P1 %s does not read policy_revision" % name, "policy_revision",
-                         (SCRIPTS / name).read_text(encoding="utf-8"))
-        meaning = policy["shared_meaning"]
-        check_eq("K-M2 the shared_meaning key set is unchanged", sorted(meaning),
-                 sorted(["source_sha", "config_sha", "dependency_sha", "runtime_sha", "policy_revision"]))
-        check_eq("K-M2 config_sha's words", meaning["config_sha"],
-                 "the execution-relevant configuration of this profile (qa-factory/config.json: its profile row, run, "
-                 "execution, the environment pointers, the stand's address) or a listed config file differs; after a "
-                 "factory release that changed the fingerprint rules, the first run under the new rules is reported here once")
-        check_eq("K-M2 policy_revision's words", meaning["policy_revision"],
-                 "the factory's fingerprint rule set differs (a result recorded under an earlier release is run once more)")
-
         # --- K-G1 the regression guard -----------------------------------------------------------------------------
         texts = {name: (SCRIPTS / name).read_text(encoding="utf-8") for name in RECEIVERS}
         check_eq("K-G1 every config key the launch path reads is classified in the rule file", guard(texts, rules), [])
         for name in ("test_files.py", "reporters.py"):
             check_eq("K-G1 %s carries no config receiver (its delegate is read instead)" % name,
                      config_reads(name, texts[name]), [])
-        hits = {(name, key): line for name, text in texts.items() for key, line in config_reads(name, text)}
-        run_line = next((line for (name, key), line in hits.items() if (name, key) == ("run_suite.py", "run")), 0)
-        reads = [line for name, text in texts.items() if name == "run_suite.py"
-                 for key, line in config_reads(name, text) if key == "run"]
-        check("K-G1 positive control: `run` from reporter_choice, the (cfg or {}).get form",
-              run_line and any(enclosing_def(texts["run_suite.py"], line) == "reporter_choice" for line in reads), reads)
-        check("K-G1 positive control: tests_root from test_locations.py:398",
-              ("test_locations.py", "tests_root") in hits, sorted(hits))
-        check("K-G1 positive control: environment.base_url_key from env_probe.py:622",
-              ("env_probe.py", "environment.base_url_key") in hits, sorted(hits))
-        planted = dict(texts, **{"run_suite.py": texts["run_suite.py"] + '\nvalue = cfg.get("brand_new")\n'})
-        failures = guard(planted, rules)
-        check("K-G1 a new cfg.get(\"brand_new\") in a listed file fails with the R9 message",
-              len(failures) == 1 and failures[0].startswith(R9 % "brand_new"), failures)
     finally:
         cleanup(root)
     finish("test_config_projection")

@@ -15,7 +15,7 @@ from_role: qa-case-critic
 to_role: qa-case-designer            # on `approved` the same file closes S4 instead
 
 inputs:
-  - path: work/handoffs/<the designer's dispatch>.yaml
+  - path: work/handoffs/<the author's dispatch>.yaml
     what: the designer's handoff for this window
     required: true
   - path: <cases_root>/<area>/<case>.md
@@ -25,14 +25,17 @@ inputs:
     what: the rows and obligations the roll-call is taken against
     required: true
 
-# One line per entry of the designer's `inputs`, with the version read (a review of a case since
-# re-pinned is not a review of this window).
+# The author row only; add a row per further input you read, with the version read (a re-pinned case is not this window).
 inputs_read:
-  - path: <path exactly as the designer listed it>
+  - path: work/handoffs/<the author's dispatch>.yaml
     version: <the pinned cv_ id, or the file's sha256>
 
 required_when:
   concerns: [stage_acceptance, questions]
+
+rows_owed_when:
+  concerns: [findings]
+  review: [findings]
 
 header:
   role: qa-case-critic

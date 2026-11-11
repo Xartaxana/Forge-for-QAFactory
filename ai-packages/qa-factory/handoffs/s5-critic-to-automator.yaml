@@ -37,7 +37,7 @@ header:
 # The review's own conclusion about the window.
 review:
   outcome: <one of vocabulary.critic_verdicts>
-  findings_file: work/test-code/critic-findings.md     # required; the window is not receipted without it
+  findings_file: work/test-code/critic-findings-<dispatch>.md     # required; the window is not receipted without it
   receipt_ref: <work/windows/<this dispatch>.json, written by window_record.py>
   rounds_used: <how many repair rounds this window has already had>
 
@@ -48,24 +48,22 @@ scope:
     state: <one of vocabulary.row_states>
     reason: <= 80 characters>
 
-# Every probe this review ran, by code. A probe that did not conclude is a `tooling` finding,
-# never a verdict about the test.
+# Every probe this review ran, by code. One that failed at its line on a text code cannot read
+# is yours to judge (`--judge`); one that did not run is a `tooling` finding.
 probes:
   # The stand the probes ran on: the record the author handed over, re-read.
   runtime_provenance: <path of the runtime_provenance record this review probed against>
   records:
   - instance: <instance id>
-    verdict: <one of vocabulary.probe_verdicts - intended_failure|no_failure|wrong_location|not_executed|incomplete>   # incomplete: the tool could not read the run well enough to judge the test, a tooling finding, never a verdict on the test
+    verdict: <one of vocabulary.probe_verdicts - intended_failure|no_failure|wrong_location|not_executed|incomplete>   # incomplete: the tool could not read the run (`cause: tooling`) or it owes your judgment (`cause: judgment`)
     record: work/probes/<instance>.json
     note: "<only when the verdict is not intended_failure: whose defect it is; for incomplete, what the tool could not read>"
 
+rows_owed_when:
+  concerns: [findings]
+  review: [findings]
+
 # What the author must change, when the outcome sends the window back.
-#
-# A refusal that does not say what the reviewer expects is not a refusal, it is a riddle: the
-# author then guesses, and every guess is a round. So every finding carries, beside the
-# problem, the EXPECTED state in the reviewer's own words and, where one exists, the command
-# that shows whether it is satisfied. `fix` is the action; `expected` is the condition the
-# author can check against; `check` is how to check it without asking the reviewer again.
 findings:
   - id: <F-n>
     file: <repo-relative path>
@@ -77,9 +75,8 @@ findings:
     cause: <one of vocabulary.repair_causes>
     blocking: <true|false>
 
-# A finding whose `cause` is `tooling` or `environment` is NOT the author's to fix and is not a
-# round. It belongs in `unverified` below, with
-# `would_settle_it`, and in the factory backlog: handing it back blames the work for a defect of the tool.
+# A `tooling` or `environment` finding is not the author's and not a round: it goes to
+# `unverified` below, with `would_settle_it`, and to the factory backlog.
 tooling_findings:
   - id: <F-n>
     tool: <the factory script that refused or misjudged>
@@ -93,6 +90,11 @@ unverified:
     why: "<one sentence: what stopped the proof>"
     expected: <what the review wanted to see, so the author knows whether it can supply it>
     would_settle_it: <what evidence or tool would>
+
+# One row per place the brief named and the critic did not look at, with the reason; an empty list means all were seen.
+not_looked:
+  - where: <path or area>
+    why: "<one sentence>"
 
 blocked:
   field: <the field of this file the role cannot fill>

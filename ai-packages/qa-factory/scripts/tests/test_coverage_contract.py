@@ -29,6 +29,43 @@ class Tests(unittest.TestCase):
  def test_validation_semantics(self):
   row={'id':'TS-1','schema_version':2,'coverage_obligations':[obligation()]}; self.assertFalse(C.validate_obligations([row],True)); self.assertTrue(C.validate_obligations([dict(row,coverage_obligations=[obligation(),obligation()])],True))
   bad=obligation(); bad['oracle_status']='unresolved'; self.assertTrue(C.validate_obligations([dict(row,coverage_obligations=[bad])],True)); bad=obligation(); bad['coverage_links']=[]; self.assertTrue(C.validate_obligations([dict(row,coverage_obligations=[bad])],True))
+ def test_version_refusal_names_the_key_and_its_value(self):
+  # TR2-8 (B-9, FR-1): a row that is not on schema version 2 is refused naming the KEY and the value; a look-alike key is named as not the key
+  ob=[obligation()]; tail='the row key is exactly `schema_version`, written as the number 2'
+  absent=C.validate_obligations([{'id':'TS-1','coverage_obligations':ob}],True)
+  self.assertTrue(absent and absent[0].startswith('TS-1: coverage schema version 2 required') and tail in absent[0],'key absent: refused, key named: '+repr(absent))
+  self.assertFalse(C.validate_obligations([{'id':'TS-1','coverage_obligations':ob}]),'key absent, v2 not required: the legacy row passes as it always did')
+  text=C.validate_obligations([{'id':'TS-1','schema_version':'2','coverage_obligations':ob}],True)
+  self.assertTrue(text and tail in text[0],'the value as the string "2": refused, number named: '+repr(text))
+  wrong=C.validate_obligations([{'id':'TS-1','schema_version':3,'coverage_obligations':ob}],True)
+  self.assertTrue(wrong and tail in wrong[0],'a wrong number: refused, key named: '+repr(wrong))
+  alike=C.validate_obligations([{'id':'TS-2','coverage_schema_version':2,'coverage_obligations':ob}],True)
+  self.assertTrue(alike and 'schema_version' in alike[0] and '`coverage_schema_version`, which is not the key' in alike[0],'a look-alike key: named as not the key: '+repr(alike))
+  self.assertFalse(C.validate_obligations([{'id':'TS-1','schema_version':2,'coverage_obligations':ob}],True),'control: the right key and value pass')
+ def _policy_errors(self, decision, policy, absent=False):
+  ob=obligation(decision=decision)
+  if absent: ob.pop('evidence_policy',None)
+  else: ob['evidence_policy']=policy
+  return C.validate_obligations([{'id':'TS-1','schema_version':2,'coverage_obligations':[ob]}],True)
+ def test_manual_agent_policy_must_be_word(self):
+  # F5(a): ONE word of the five, stripped, not case-folded; the arm B record, a list, a number, blank, absent and an unknown word are refused
+  for good in ('ui','api','cli','no_write','static',' ui '): self.assertEqual(self._policy_errors('manual-agent',good),[],good)
+  for bad in ({'executed_by':'agent','evidence':'screenshots'},['ui'],3,None,'','  ','UI','video'):
+   errors=self._policy_errors('manual-agent',bad); self.assertEqual(len(errors),1,bad); self.assertTrue(errors[0].startswith('O-1: '),errors)
+   self.assertIn('api|cli|no_write|static|ui',errors[0]); self.assertIn('completion_condition',errors[0])
+  self.assertEqual(len(self._policy_errors('manual-agent',None,absent=True)),1)
+  self.assertEqual(self._policy_errors('reuse',{'any':'thing'}),[])        # only a manual-agent obligation has the rule
+ def test_manual_human_policy_must_be_string(self):
+  # C5: any non-empty text; no membership
+  self.assertEqual(self._policy_errors('manual-human','a person looks at it'),[])
+  for bad in ({'k':'v'},['ui'],5): self.assertEqual(len(self._policy_errors('manual-human',bad)),1,bad)
+  for bad in ('  ',''): self.assertIn('evidence_policy required before Gate A',self._policy_errors('manual-human',bad)[0])
+ def test_policy_shape_error_constant_in_message(self):
+  # F5(c) item 1 reads the fixed part: one producer, every shape error of a manual-agent obligation carries it, no other error does
+  errors=self._policy_errors('manual-agent',{'a':1}); self.assertTrue(all(C.POLICY_SHAPE_ERROR in e for e in errors))
+  bad=obligation(); bad['oracle_status']='maybe'
+  other=C.validate_obligations([{'id':'TS-1','schema_version':2,'coverage_obligations':[bad]}],True)
+  self.assertTrue(other); self.assertFalse(any(C.POLICY_SHAPE_ERROR in e for e in other))
  def test_every_message_names_the_field_and_what_it_expects(self):
   # F-cmp2-14 (FR-1): a role without Bash reads these through a hook; each message carries the field
   # name and the expected value in one sentence, after the `{oid}: ` prefix.

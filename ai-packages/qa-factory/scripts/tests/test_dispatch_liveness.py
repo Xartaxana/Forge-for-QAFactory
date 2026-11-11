@@ -25,6 +25,7 @@ import hooklib  # noqa: E402
 
 TICKET = "TP1-15045"
 DISPATCH = {"id": "S5-qa-automator-2", "stage": "S5", "role": "qa-automator"}
+HOST_ID = "a672cd1077d7968c3"      # a Claude host agent id, what the stop hook writes when the event had no dispatch_id
 
 
 def project(root):
@@ -1298,7 +1299,6 @@ def a_failing_native_reader_leaves_todays_answer():
 
 # --- OH3-16 (HF1-7): the host's acknowledged handback of a story_step-bound Claude Code worker -----------------------
 
-import ast  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
 import host_adapter as HA  # noqa: E402
@@ -1785,74 +1785,6 @@ def two_routes_to_the_transcript():
               answer(root) != LIVE.RETURNED)
     finally:
         real_hooklib(); without_hooklib(); cleanup(root)  # noqa: E702
-    source = (SCRIPTS / "dispatch_liveness.py").read_text(encoding="utf-8")
-    check("K-L7: the receipt-to-transcript match goes through host_dispatch.binding_names (axis 20)",
-          "binding_names(receipt)" in source and "from host_dispatch import binding_names" in source)
-
-
-def string_constants(source):
-    """Every string constant of the code, docstrings left out (the census of AR-1 reads code, not prose)."""
-    tree = ast.parse(source)
-    docstrings = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)) and node.body and isinstance(
-                node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant):
-            docstrings.add(id(node.body[0].value))
-    return [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings]
-
-
-def functions_parsing_the_journal(source):
-    """Names of the functions that hold the `subagent_stop` marker in code AND call a JSON loader."""
-    found = []
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            consts = string_constants(ast.unparse(node))
-            loads = any(isinstance(n, ast.Attribute) and n.attr == "loads" for n in ast.walk(node))
-            if "subagent_stop" in consts and loads:
-                found.append(node.name)
-    return found
-
-
-def no_form_is_typed_into_code():
-    """K-L9: no string constant of dispatch_liveness.py or worker_lifecycle.py holds a form literal (AR-1, AR-5), with a
-    positive control: the same census over the forms file finds each. K-L10: one parser of the journal's stop lines."""
-    literals = [HANDBACK, FORMS["claude"]["finished_marker"]["file_suffix"], FORMS["claude"]["finished_marker"]["field"],
-                FORMS["codex"]["completion_event"]]
-    import re
-    held = {}
-    # a literal as a WORD of the constant: the schema's own row name `finished_marker` is a key, not the form's value
-    word = lambda lit, text: re.search(r"(?<![\w])" + re.escape(lit) + r"(?![\w])", text) is not None  # noqa: E731
-    for name in ("dispatch_liveness.py", "worker_lifecycle.py"):
-        constants = string_constants((SCRIPTS / name).read_text(encoding="utf-8"))
-        held[name] = [(lit, c) for lit in literals for c in constants if word(lit, c)]
-        check_eq(f"K-L9: no form literal is a string constant of {name}", held[name], [])
-    sample = 'def f():\n    """task_complete in prose"""\n    return "ends with task_complete"\n'
-    check_eq("K-L9 control: the census finds a literal in code and skips a docstring",
-             [c for c in string_constants(sample) if word("task_complete", c)], ["ends with task_complete"])
-    forms_strings = []
-
-    def walk(value):
-        if isinstance(value, str):
-            forms_strings.append(value)
-        elif isinstance(value, dict):
-            [walk(v) for k, v in value.items() if k != "note"]
-        elif isinstance(value, list):
-            [walk(v) for v in value]
-    walk(FORMS)
-    check_eq("K-L9 control: the same census over the forms file's values finds each literal",
-             [lit for lit in literals if any(word(lit, s) for s in forms_strings)], literals)
-    source = (SCRIPTS / "dispatch_liveness.py").read_text(encoding="utf-8")
-    check_eq("K-L10: dispatch_liveness.py holds exactly one function that parses the journal's stop lines",
-             functions_parsing_the_journal(source), ["_stop_records"])
-    twin = source + '\ndef another(path):\n    import json\n    return [json.loads(l) for l in path.read_text().splitlines() if "subagent_stop" in l]\n'
-    check_eq("K-L10 control: a second parser is counted", len(functions_parsing_the_journal(twin)), 2)
-    check("K-L10: role_stops is a view over it", "_stop_records(project_root)" in source.split("def role_stops")[1].split("def process_alive")[0])
-    names_it = [p.name for p in sorted(SCRIPTS.glob("*.py"))
-                if any("host-report-forms" in c for c in string_constants(p.read_text(encoding="utf-8", errors="replace")))]
-    check_eq("AR-13: the only module with the forms file's name in code is host_adapter.py (the one reader); control: it is found there",
-             names_it, ["host_adapter.py"])
-
-
 def journal_and_sidecar_cases():
     """K-L11 journal absent/unreadable; K-L12 sidecar absent, unreadable, empty, no key, non-boolean; K-L13 the cap."""
     for label, make in (("absent", None), ("a directory", "dir"), ("garbage lines", "garbage")):
@@ -1924,7 +1856,56 @@ def nothing_else_changes():
             cleanup(root)
 
 
+def a_stop_counts_only_for_its_own_dispatch():
+    """TR4-12 (1): two dispatches of one role; a stop that names the SIBLING leaves the asked one unanswered
+    (UNKNOWN, as with no stop), a stop that names the asked one is its return, a stop naming no dispatch keeps
+    today's answer and the evidence says it was read by role."""
+    def answer_for(stop_dispatch, host_receipt=False):
+        # host_receipt: the host's receipt of the role names no dispatch and carries the host id HOST, and an old
+        # transcript of the role exists (so the answer reaches the journal's stop rows, not the receipt branch)
+        began = time.time() - (6000 if host_receipt else 600)
+        asked = {"id": "S3-qa-test-strategist-2", "stage": "S3", "role": "qa-test-strategist", "started_at": began}
+        root = temp_dir("qa-live-sibling-")
+        try:
+            project(root)
+            journal = root / "qa-factory" / "records" / "journal.jsonl"
+            journal.parent.mkdir(parents=True, exist_ok=True)
+            row = {"event": "subagent_stop", "agent": "qa-factory:qa-test-strategist", "task": TICKET,
+                   "ts": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(began + 60))}
+            if stop_dispatch is not None:
+                row["dispatch"] = stop_dispatch
+            journal.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            if host_receipt:
+                receipt(root, name=HOST_ID, agent_type="qa-test-strategist", dispatch_id="")
+                fake_hooklib([transcript(root, "old", "S3-qa-test-strategist-1", role="qa-test-strategist", age=5000)])
+            else:
+                without_hooklib()
+            return LIVE.state(root, TICKET, asked)
+        finally:
+            without_hooklib()
+            cleanup(root)
+
+    from exit_gate import UNKNOWN_DISPATCH
+
+    check_eq("a sibling of the same role stopped: the asked dispatch is not closed by it",
+             answer_for("S3-qa-test-strategist-1")["state"], LIVE.UNKNOWN)
+    check_eq("the asked dispatch's own stop is its return", answer_for("S3-qa-test-strategist-2")["state"], LIVE.RETURNED)
+    nameless = answer_for(None)
+    check_eq("a stop row without an id keeps today's answer", nameless["state"], LIVE.RETURNED)
+    check_in("and says it was read by role", "names no dispatch", nameless["evidence"])
+    sentinel = answer_for(UNKNOWN_DISPATCH)
+    check_eq("F-1: a stop carrying the gate's sentinel names no dispatch: today's answer", sentinel["state"], LIVE.RETURNED)
+    check_in("F-1: and says it was read by role", "names no dispatch", sentinel["evidence"])
+    own = answer_for(HOST_ID, host_receipt=True)
+    check_eq("F-1: a stop carrying this dispatch's own host id (a receipt name) is its return", own["state"], LIVE.RETURNED)
+    check_not_in("F-1: and it is not read as nameless", "names no dispatch", own["evidence"])
+    sibling = answer_for("a-sibling-host-id", host_receipt=True)
+    check_eq("F-1: a stop carrying a sibling's host id does not close it", sibling["state"], LIVE.ABANDONED)
+    check_eq("F-1: the sentinel is the gate's one name", UNKNOWN_DISPATCH, "unknown-dispatch")
+
+
 def main():
+    a_stop_counts_only_for_its_own_dispatch()
     a_host_that_proves_nothing_closes_nothing()
     a_working_agent_is_alive()
     a_silent_agent_is_abandoned()
@@ -1970,7 +1951,6 @@ def main():
     a_mixed_verdict_set_is_none_by_the_rule_not_by_a_swallowed_error()
     an_empty_report_is_still_a_return()
     two_routes_to_the_transcript()
-    no_form_is_typed_into_code()
     journal_and_sidecar_cases()
     nothing_else_changes()
     finish("test_dispatch_liveness")

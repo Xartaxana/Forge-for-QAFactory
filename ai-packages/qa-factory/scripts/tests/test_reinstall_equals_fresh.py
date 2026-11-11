@@ -616,10 +616,11 @@ def k_lock(tmp: Path) -> None:
     put(root, EXIT_LOCK, "")
     put(root, CONTROL_LOCK, "0")            # the positive control: the one stale OS lock of a regenerated row that no hook rewrites
     (root / FOLDER_LOCK).mkdir()
-    for rel in (EXIT_LOCK, FOLDER_LOCK):        # three days old: older than the day after which an existence lock is listed
+    for rel in (EXIT_LOCK, FOLDER_LOCK):        # three days old: older than the day after which an old-generation folder lock is listed
         stamp = time.time() - 3 * 86400
         os.utime(root / rel, (stamp, stamp))
-    listed_before = {rel: (sha(root / rel) if (root / rel).is_file() else None) for rel in (ARTIFACT_LOCK, CARRIED_LOCK, EXIT_LOCK, FOLDER_LOCK)}
+    listed_before = {rel: (sha(root / rel) if (root / rel).is_file() else None) for rel in (ARTIFACT_LOCK, CARRIED_LOCK, FOLDER_LOCK)}
+    kept_before = {**listed_before, EXIT_LOCK: sha(root / EXIT_LOCK)}      # the exit gate's OS lock is hook-written: kept, never listed
     saved = stubbed_scripts()
     try:
         made = OA.plan(root, migrate(root), date=DATE)
@@ -628,22 +629,22 @@ def k_lock(tmp: Path) -> None:
                  "- here the one control lock, not the event store's or the journal writer's (listed under regenerate)",
                  (sorted(r for r, l in by.items() if l["action"] == "remove"), sorted(r["rel_path"] for r in made["regenerate"] if r["action"] == "remove")),
                  (sorted(STALE_LOCKS), sorted(STALE_LOCKS)))
-        check_eq("K-lock (t-298 / t-363 B6): the stale locks of the three hook-written rows (dashboard writer, journal writer, event store) are state 'stale' "
-                 "and action 'none': not removed, not listed, not counted",
-                 [(by[p]["state"], by[p]["action"], p in OA.render(made)) for p in [DASH_LOCK] + HOOK_LOCKS], [("stale", "none", False)] * 3)
-        check_eq("K-lock: the locks under carried rows (artifacts/, cost/.writers/), an old existence lock (exit_gate) and an old folder lock "
+        check_eq("K-lock (t-298 / t-363 B6 / TR4-2 D): the stale locks of the four hook-written rows (dashboard writer, journal writer, event store, "
+                 "exit gate state) are state 'stale' and action 'none': not removed, not listed, not counted",
+                 [(by[p]["state"], by[p]["action"], p in OA.render(made)) for p in [DASH_LOCK, EXIT_LOCK] + HOOK_LOCKS], [("stale", "none", False)] * 4)
+        check_eq("K-lock: the locks under carried rows (artifacts/, cost/.writers/) and an old-generation folder lock "
                  "(project_decisions) are LISTED by name - none removable, none only counted",
                  sorted(r for r, l in by.items() if l["action"] == "listed"), sorted(listed_before))
         text = OA.render(made)
-        check_eq("K-lock: ...and the text the person reads names every one of them", [rel in text for rel in listed_before], [True] * 4)
-        check_eq("K-lock: the four listed locks are not blocking (nobody holds them), and the plan is not blocked", made["blocked"], None)
+        check_eq("K-lock: ...and the text the person reads names every one of them", [rel in text for rel in listed_before], [True] * 3)
+        check_eq("K-lock: the three listed locks are not blocking (nobody holds them), and the plan is not blocked", made["blocked"], None)
         done = approve_and_apply(root, made, "onboarding:lock", fold=True)
         regen = next(s for s in done["steps"] if s["step"] == "regenerate")["detail"]["locks"]
         check_eq("K-lock: apply removed exactly the stale OS lock of a regenerated row that no running session's hooks rewrite (the control lock); "
                  "the event store's and the journal writer's are not even in its record",
                  (sorted(k for k, v in regen.items() if v == "removed"), [p in regen for p in HOOK_LOCKS]), (sorted(STALE_LOCKS), [False, False]))
         check_eq("K-lock: ...and never touched the other four (still there, bytes unchanged)",
-                 {rel: (sha(root / rel) if (root / rel).is_file() else None) for rel in listed_before if (root / rel).exists()}, listed_before)
+                 {rel: (sha(root / rel) if (root / rel).is_file() else None) for rel in kept_before if (root / rel).exists()}, kept_before)
         check_eq("K-lock: the folder the removed control lock sat in is gone; the dashboard writer's and the journal writer's folders stay with their "
                  "(hook-written) locks, the lock files themselves present and byte-unchanged; the folder lock is still a folder",
                  ([os.path.exists(root / "qa-factory/state" / d) for d in (".dashboard-writer", ".journal-writer", "other-writer")],

@@ -81,10 +81,16 @@ def tests_dir_with(root: Path, names) -> None:
         (tests / name).write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
 
 
-def cli(args, root: Path, name: str, tests=NAMES[:4], weights=None, artifact: str | None = None):
+def cli(args, root: Path, name: str, tests=NAMES[:4], weights=None, artifact: str | None = None, layers=None,
+        bodies=None):
     pkg = root / name
     scripts = pkg / "scripts"
     tests_dir_with(pkg, tests)
+    for fname, source in (bodies or {}).items():
+        (scripts / "tests" / fname).write_text(source, encoding="utf-8")
+    if layers is not None:
+        (scripts / "tests" / "test-layers.json").write_text(layers if isinstance(layers, str) else json.dumps(layers),
+                                                            encoding="utf-8")
     for module in ("selftest.py", "content_size.py", "console_io.py"):
         shutil.copy2(PLUGIN_ROOT / "scripts" / module, scripts / module)
     body = {"measured_on": "2026-01-01", "source": "hand", "thresholds": {"slow_over_s": 10, "fast_under_s": 5},
@@ -92,7 +98,7 @@ def cli(args, root: Path, name: str, tests=NAMES[:4], weights=None, artifact: st
     (scripts / "slow_tests.json").write_text(json.dumps(body), encoding="utf-8")
     if artifact is not None:
         (pkg / "selftest.txt").write_text(artifact, encoding="utf-8")
-    argv = [a.replace("@ART", str(pkg / "selftest.txt")) for a in args]
+    argv = [a.replace("@ART", str(pkg / "selftest.txt")).replace("@OUT", str(pkg / "out" / "sub" / "w.json")) for a in args]
     return subprocess.run([sys.executable, "-B", str(scripts / "selftest.py"), *argv], capture_output=True, text=True,
                           encoding="utf-8", errors="replace", cwd=str(pkg), timeout=120)
 
@@ -190,7 +196,9 @@ def execution_path_cases() -> None:
     with patch.object(S, "shard_files", spy), patch.object(S, "_run_test_file", lambda f: seen.append(f.name) or True), \
             contextlib.redirect_stdout(io.StringIO()):
         ok = S.cmd_tests(workers=1, shard=(2, 3))
-        expected = [[p.name for p in part] for part in real(S._sorted_paths(S.TESTS_DIR.glob("test_*.py")), S.slow_tests()["files"], 3,
+        # the same selection cmd_tests makes: the quarantine rows of test-layers.json are in no shard
+        canon = S._quarantine_branch(S.test_layers()["quarantine"], False)[0]
+        expected = [[p.name for p in part] for part in real(canon, S.slow_tests()["files"], 3,
                                                            S.slow_tests()["thresholds"]["fast_under_s"] / 2)]
     check("F7: cmd_tests calls shard_files (the spy saw it, asked for 3 shards)", calls == [3] and ok, str(calls))
     check_eq("F7: the files it ran are shard 2 of shard_files' own split", seen, expected[1])
@@ -246,9 +254,104 @@ def join_cases(root: Path) -> None:
     check_eq("S7: an incomplete join is never written by --update (exit 2)", p.returncode, 2)
 
 
+QROW = {"cohort": "c1", "entered": "2026-11-20", "release_at_entry": "0.10.9"}
+
+
+def layers_doc(keep, quarantine, enforce=True) -> dict:
+    return {"enforce_listing": enforce, "cohorts": {"c1": {}}, "pin_holds": {}, "quarantine": {n: dict(QROW) for n in quarantine},
+            "keep": {n: ({"layer": "detector", "why": "w", "named_by": ["x"], "replaced_by": None} if n == "test_det.py"
+                         else {"layer": "table", "why": "w"}) for n in keep}}
+
+
+def ran_names(*outs) -> list:
+    return sorted(ln.split()[2].replace("\\", "/").split("/")[-1] for out in outs for ln in out.splitlines()
+                  if ln.startswith(("PASS tests: scripts", "FAIL tests: scripts")))
+
+
+def layers_cli_cases(root: Path) -> None:
+    """TD-15.1 items 3 and 5: quarantine filtered before the shards and --fast; --quarantined; the watch record."""
+    four = ["test_keep.py", "test_det.py", "test_quar.py", "test_unl.py"]
+    doc = layers_doc(["test_keep.py", "test_det.py"], ["test_quar.py"])
+    one = cli(["--tests", "--jobs", "1", "--shard", "1/2"], root, "lay1", tests=four, layers=doc)
+    two = cli(["--tests", "--jobs", "1", "--shard", "2/2"], root, "lay1", tests=four, layers=doc)
+    check_eq("layers: the shards of 4 files (keep, detector, quarantine, unlisted) hold keep + detector + unlisted, not the quarantine",
+             ran_names(one.stdout, two.stdout), ["test_det.py", "test_keep.py", "test_unl.py"])
+    check("layers: `unlisted:` names the file once, with the door; the quarantine count is printed; exit 1",
+          (one.stdout + two.stdout).count("FAIL tests: unlisted: test_unl.py -- add a keep row") == 1
+          and "tests: quarantine: 1 file(s) not run (scripts/tests/test-layers.json)" in one.stdout
+          and one.stdout.splitlines()[0].startswith("selftest shard 1/2: ") and 1 in (one.returncode, two.returncode),
+          f"{one.stdout!r} {two.stdout!r}")
+    p = cli(["--tests", "--jobs", "1", "--quarantined"], root, "lay1", tests=four, layers=doc)
+    check("layers: --quarantined runs only the quarantine row, exit 0, the count line",
+          ran_names(p.stdout) == ["test_quar.py"] and p.returncode == 0 and "tests: quarantine: 1 files" in p.stdout, p.stdout)
+    for label, doc2, want in (("empty keep", layers_doc([], ["test_quar.py"]), "tests: keep list empty"),
+                              ("a keep row without a file", layers_doc(four[:2] + ["test_ghost.py"], []),
+                               "tests: keep row names no file: test_ghost.py")):
+        p = cli(["--tests", "--jobs", "1"], root, "lay2", tests=four[:2], layers=doc2)
+        check(f"layers: enforce_listing, {label}: one FAIL line, the files still run, exit 1",
+              p.stdout.count("FAIL " + want) == 1 and "unlisted:" not in p.stdout and p.returncode == 1
+              and len(ran_names(p.stdout)) == 2, p.stdout)
+    pinned = layers_doc(["test_keep.py"], [])
+    pinned["pin_holds"] = {"test_pin.py": "role pin"}
+    p = cli(["--tests", "--jobs", "1"], root, "lay5", tests=["test_keep.py", "test_pin.py"], layers=pinned)
+    check("layers: a pin-held file with enforce_listing runs and prints no `unlisted:` line, exit 0",
+          ran_names(p.stdout) == ["test_keep.py", "test_pin.py"] and "unlisted:" not in p.stdout and p.returncode == 0, p.stdout)
+    pinned["pin_holds"] = {}
+    p = cli(["--tests", "--jobs", "1"], root, "lay6", tests=["test_keep.py", "test_pin.py"], layers=pinned)
+    check("layers: the same file with the pin row removed is `unlisted:`, still runs, exit 1",
+          ran_names(p.stdout) == ["test_keep.py", "test_pin.py"] and p.stdout.count("FAIL tests: unlisted: test_pin.py -- add a keep row") == 1
+          and p.returncode == 1, p.stdout)
+    cli(["--ping"], root, "lay3", tests=four, layers=doc)
+    pkg3 = root / "lay3"
+    with patch.object(S, "PLUGIN_ROOT", pkg3), patch.object(S, "TESTS_DIR", pkg3 / "scripts" / "tests"), \
+            patch.object(S, "SLOW_TESTS_FILE", pkg3 / "scripts" / "slow_tests.json"), patch.object(S, "RESULTS", []), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        S.cmd_tests(1, True)
+    check("layers: --fast does not run the quarantine", "test_quar.py" not in out.getvalue()
+          and "test_keep.py" in out.getvalue(), out.getvalue())
+
+    reds = {"test_red.py": "print('FAIL first check')\nprint('FAIL second check')\nraise SystemExit(1)\n",
+            "test_crash.py": "raise RuntimeError('boom')\n", "test_ok.py": "pass\n"}
+    p = cli(["--quarantined", "--jobs", "1", "--watch-out", "@OUT"], root, "lay4", tests=["test_ok.py"], bodies=reds,
+            layers=layers_doc([], ["test_red.py", "test_crash.py", "test_ok.py", "test_gone.py"]))
+    record = json.loads((root / "lay4" / "out" / "sub" / "w.json").read_text(encoding="utf-8"))
+    files = record["files"]
+    check("watch: the folder is created, exit 0 with red files, expected = the shard's names, a record per name",
+          p.returncode == 0 and record["expected"] == ["test_crash.py", "test_gone.py", "test_ok.py", "test_red.py"]
+          and record["shard"] == "1/1" and {"sha", "package_version"} <= set(record), f"{p.returncode} {record!r}")
+    check("watch: red carries both FAIL names, the crash carries the exception line, the absent file is `missing`",
+          files["test_red.py"]["status"] == "red" and [f[:12] for f in files["test_red.py"]["fails"]] == ["first check", "second check"]
+          and files["test_crash.py"]["crash"] == "RuntimeError: boom" and files["test_gone.py"]["status"] == "missing"
+          and files["test_ok.py"]["status"] == "green", repr(files))
+
+    p = cli(["--quarantined", "--watch-out", "@OUT"], root, "lay5", layers=layers_doc(four, []))
+    record = json.loads((root / "lay5" / "out" / "sub" / "w.json").read_text(encoding="utf-8"))
+    check("zero quarantine rows: the line `tests: quarantine: 0 files`, an empty record, exit 0",
+          p.returncode == 0 and "tests: quarantine: 0 files" in p.stdout and record["expected"] == [] and record["files"] == {},
+          f"{p.stdout!r} {record!r}")
+    # TD-15.2: exit 0 covers the quarantine run only; another check flag in the same call keeps its own verdict
+    clean = cli(["--quarantined", "--lang"], root, "lay8", tests=["test_ok.py"], bodies=reds, layers=layers_doc([], ["test_red.py"]))
+    (root / "lay8" / "notes.md").write_text(chr(0x416) + "\n", encoding="utf-8")
+    dirty = cli(["--quarantined", "--lang"], root, "lay8", tests=["test_ok.py"], bodies=reds, layers=layers_doc([], ["test_red.py"]))
+    check("layers: --quarantined --lang: a red quarantine file alone = exit 0 (control), a failing --lang beside it = exit 1",
+          clean.returncode == 0 and dirty.returncode == 1 and "FAIL lang:" in dirty.stdout,
+          f"{clean.returncode} {dirty.returncode} {dirty.stdout[-300:]!r}")
+    for label, args, words in (("--quarantined with --fast", ["--quarantined", "--fast"], ("--quarantined", "--fast")),
+                               ("--quarantined with --slow-tests", ["--quarantined", "--slow-tests"], ("--quarantined", "--slow-tests")),
+                               ("--watch-out alone", ["--tests", "--watch-out", "@OUT"], ("--watch-out", "--quarantined"))):
+        p = cli(args, root, "lay6", layers=doc)
+        check(f"layers: {label} is refused naming the pair (exit 2, nothing run)",
+              p.returncode == 2 and all(w in p.stderr for w in words) and "PASS" not in p.stdout, p.stderr[-200:])
+    p = cli(["--tests"], root, "lay7", layers="{ broken")
+    check("layers: a broken file = exit 2, one stderr sentence naming test-layers.json, nothing run",
+          p.returncode == 2 and "test-layers.json" in p.stderr and len(p.stderr.strip().splitlines()) == 1
+          and "PASS" not in p.stdout, p.stderr)
+
+
 def main() -> None:
     root = temp_dir("shard-")
     try:
+        layers_cli_cases(root)
         partition_cases()
         parse_cases()
         cli_cases(root)

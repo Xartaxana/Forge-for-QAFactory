@@ -154,6 +154,12 @@ unresolved:
     reason: <one of vocabulary.unresolved_reasons>
     detail: <what exactly is missing, and what would settle it>
 
+# Optional: every role the plan checks, also one your brief's roster lacks; never one from the code.
+product_roles:
+  - role: <optional: the role's name>
+    sign_in: <optional: account or none>
+    where: <optional: the requirement id>
+
 blocked:
   field: <the field of this file the role cannot fill>
   problem: <what the role tried and what refused it, verbatim>

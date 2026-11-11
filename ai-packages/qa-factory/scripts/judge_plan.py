@@ -10,15 +10,13 @@ disposition stays its own decision from the four inputs of `automation-candidacy
   judge_plan.py --task-root qa-factory/artifacts/<T> [--json]
 writes work/judge-plan.json.
 """
-import argparse
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hooklib  # noqa: E402
 import judge  # noqa: E402
-from judge_requirements import read_register, story_and_comments  # noqa: E402
+from judge_requirements import cli_main, read_register, story_and_comments  # noqa: E402
 
 DAMAGE = ("low", "moderate", "severe")
 
@@ -72,14 +70,7 @@ def render(report: dict) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--task-root", required=True)
-    parser.add_argument("--json", action="store_true")
-    args = hooklib.exact_options(parser).parse_args()
-    # the story first, even when the judge is off (E-4): a phantom root is refused before `run` can answer "off"
-    report = run(hooklib.story_cli("judge_plan.py", root=args.task_root, key_flag=None).resolve())
-    print(json.dumps(report, indent=2, ensure_ascii=False) if args.json else render(report))
-    return 0 if report["status"] in ("ok", "off") else 3
+    return cli_main("judge_plan.py", run, render, __doc__)
 
 
 if __name__ == "__main__":

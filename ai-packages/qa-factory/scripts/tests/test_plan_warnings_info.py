@@ -58,6 +58,8 @@ def main() -> None:
     check("an `if_answered` that is not an object is passed over", not P.plan_warnings([row(
           "TS-9", disposition="manual", level="manual", if_answered=["Q2"])]))
     check("an `api` automate row is not this rule's business", not P.plan_warnings([row("TS-3", level="api")]))
+    check("a severe-impact e2e row does not warn (case_gates::part_pyramid_warning)",
+          not P.plan_warnings([row("TS-2", impact="severe", verification_depth="critical")]))
     check("`impact: None` is read as it is (the condition's text is unchanged)",
           "impact=None" in P.plan_warnings([row("TS-4", impact=None)])[0])
     check("no rows, no warnings", P.plan_warnings([]) == [] and P.plan_warnings(None) == [])

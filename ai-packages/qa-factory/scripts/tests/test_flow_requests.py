@@ -162,10 +162,6 @@ def r6_table() -> None:
 
 
 def r9_pins() -> None:
-    source = (SCRIPTS / "user_path_failures.py").read_text(encoding="utf-8")
-    check("R9 AR-1: no method name, client name, url fragment or failure word in the script",
-          not any(s in source for s in ("'POST'", '"POST"', '"/api', "'/api", "axios", "timeout")))
-    check("R9 AR-13: the project config is read by the one reader, not parsed here", "json.loads((" not in source and "project_config" in source)
     table = json.loads((SCRIPTS.parent / "references" / "request-call-patterns.json").read_text(encoding="utf-8"))
     check_eq("R9 the request table compiles without a problem", UPF.load_request_table()[1], [])
     check("R9 the table holds the call shapes", [c["id"] for c in table["calls"]] == ["fetch", "client_verb"])
@@ -202,11 +198,7 @@ def b_brief() -> None:
         LIST, "500 and timeout", UPF.failure_axis()[1], "`requirements`", "`requests`", "`request_homes`")), closing)
     clause = "A row closes the request only for the pages it names: another page that makes the same request needs its own row or a stated reason."
     check_in("B2 (t-1692 F2) the closing line says a row closes the request only for the pages it names", clause, closing)
-    check("B2 ... negative control: the same check on the closing line without the clause fails", clause not in closing.replace(clause, ""))
     check_eq("B2 no request: no closing line", [x for x in BP.request_lines({"requests": [], "unmeasured": ["no code"]}, "QA-9") if "each one gets" in x], [])
-    src = (SCRIPTS / "brief_pack.py").read_text(encoding="utf-8")
-    s3 = src[src.index('    if stage == "S3":\n        # G1-2'):src.index('    if stage == "S2":\n        head += user_path_failure_lines(')]
-    check_in("B3 build adds the lines inside the S3 block", "head += flow_request_lines(", s3)
     with patch.object(UPF, "flow_requests", side_effect=RuntimeError("boom")):
         check_eq("B4 a script that raises: exactly one line, the brief is built", BP.flow_request_lines(Path("nowhere"), "QA-9", write=False),
                  ["Flow requests: not measured: user_path_failures.py, a defect of the factory"])

@@ -345,6 +345,337 @@ def _reasons_of_case(rows: list, case: str, cfg) -> list:
     return sorted(found, key=_reason_branch_rank)
 
 
+# --- proof strength: the sides a proof met (t-2181 §2.3, PC-5; C9; B1, B2, S12) ------------------------------------------
+# The two ledger states of the §2.3 branch of `plan_row_state` (kinds `sides_unknown` and `on_substitute` of
+# `references/delivery-verdict-kinds.json`). Neither is ever `passed_green`, neither blocks delivery by itself (`after_checks`).
+SIDES_UNKNOWN_STATE = "not_verified:sides_unknown"
+ON_SUBSTITUTE_STATE = "not_verified:on_substitute"
+# t-2277 J-C7 (PC-5 fix round, L1): a Then whose green rests on a placeholder locator the first look marked and nobody settled with a run.
+# Like the two above it is `after_checks` and never `passed_green`; the kind owner is the PRODUCT (J-C5 `blocked_by: product`, FR-19, FR-46).
+# Every `not_verified:*` state needs its OWN exact row in `references/delivery-verdict-kinds.json` `ledger_states`: the prefix row
+# `not_verified` reads kind `decided_elsewhere` (verdict `none`), so a state without its row counts as no debt at all
+# (`test_sides_ledger.every_not_verified_state_of_the_proof_branches_has_its_own_kind` reads these constants).
+PLACEHOLDER_OPEN_STATE = "not_verified:placeholder_open"
+_REAL = "real"      # the one reality word the ledger acts on; every other word (and a missing key) reads "not real"
+_UNREADABLE_STAMP = "the record of the sides it met could not be read"
+
+
+def _met_real(test_sides, stamp: dict, side: str) -> bool:
+    """Did this proof meet `side` for real? True only when `real` stands in BOTH the test's declaration (`tests[].sides`) AND the
+    proof's stamp (`sides_met`): a missing key, a non-object declaration or stamp, a word other than `real` is NOT real (B1,
+    AR-28). `stamp` is the row (or block) carrying `sides_met`. ERROR DIRECTION: over-caution only (`on_substitute` for a Then
+    really proven, costing a re-pass line); never `real` for a side nobody recorded as real."""
+    met = stamp.get("sides_met") if isinstance(stamp, dict) else None
+    return (isinstance(test_sides, dict) and test_sides.get(side) == _REAL
+            and isinstance(met, dict) and met.get(side) == _REAL)
+
+
+def _resolved_about(about, test_sides, stamp: dict) -> list:
+    """The sides a Then speaks about, resolved (B1): `about` when it names at least one side (a bare string is one side), else the
+    keys of the test's own `sides` UNION every side the stamp recorded with a reality other than `real`. By construction an
+    empty result occurs only when the stamp holds no non-real side, so an empty claim never proves on a substitute. `about: []`,
+    an absent `about` and an `about` of another type all fall to the union (never to "nothing to check")."""
+    named = [about] if isinstance(about, str) else about if isinstance(about, list) else []
+    named = [str(side).strip() for side in named if str(side).strip()]
+    if named:
+        return list(dict.fromkeys(named))
+    declared = list(test_sides) if isinstance(test_sides, dict) else []
+    met = stamp.get("sides_met") if isinstance(stamp, dict) else None
+    recorded = [side for side, reality in met.items() if reality != _REAL] if isinstance(met, dict) else []
+    return list(dict.fromkeys(str(side) for side in [*declared, *recorded]))
+
+
+def _sides_applicable(row: dict, test: dict | None) -> bool:
+    """Does the §2.3 branch read this proof at all (E-T1)? Only a result row that carries a stamp, or whose test declares a
+    value other than `real` in `tests[].sides`; every other row is read exactly as before the branch existed."""
+    declared = test.get("sides") if isinstance(test, dict) else None
+    return (isinstance(row, dict) and ("sides_met" in row or "sides_unknown" in row)) or (
+        isinstance(declared, dict) and any(reality != _REAL for reality in declared.values()))
+
+
+def _green(row) -> bool:
+    return isinstance(row, dict) and C.result_status(row) in ("passed", "pass")
+
+
+def _proof(row: dict, entry, about) -> tuple:
+    """`(proven, unknown, sides that were not real, why unknown)` of ONE green row of one test. A row whose `sides_met` is present
+    and is not an object is UNKNOWN, like `sides_unknown` (B2, AR-28/FR-59): a record that cannot be read is never a pass, even when
+    the test declares nothing (an empty claim proves only when the stamp holds no non-real side, and a stamp that is no object
+    holds nothing readable)."""
+    if not _sides_applicable(row, entry):
+        return True, False, [], ""
+    if "sides_unknown" in row:
+        return False, True, [], ""
+    if "sides_met" in row and not isinstance(row.get("sides_met"), dict):
+        return False, True, [], _UNREADABLE_STAMP
+    declared = entry.get("sides") if isinstance(entry, dict) else None
+    bad = [s for s in _resolved_about(about, declared, row) if not _met_real(declared, row, s)]
+    return not bad, False, bad, ""
+
+
+REAL_CODE = "real code"
+REAL_OR_MOCK_UNKNOWN = "real or mock: not established"
+KEPT_BY_DECISION_WORDS = "kept by the person's decision"
+SUBSTITUTED_WORDS = "the side was substituted"
+DATE_NOT_RECORDED = "(date not recorded)"
+MOCK_LEAD = "on a mock:"
+REAL_OR_MOCK_MARKS = (REAL_CODE, MOCK_LEAD, REAL_OR_MOCK_UNKNOWN)   # the words a test line of the report may carry: the ONE list (F4), imported by the report check
+_WHAT_MAX = 60
+
+
+def real_or_mock(entry, run_row, prov: dict) -> str:
+    """The words that say whether ONE test's result was obtained on real code or on a mock (t-2277 W3, owner 11.11.2026: "always visible,
+    on a mock or on real code"; a green stays green, only the words change). ONE producer (AR-15): the report's per-test lines and the
+    scribe's `Left with you` items read the ledger test row's `real_or_mock`, which is this. Data only (AR-29): the test's own `sides`
+    declaration, the run row's proof stamp (`sides_met`, `sides_unknown`: `_proof`, the one reading of them) and the manifest's
+    `provisional[]` rows (`prov` = `contract.manifest_provisional`):
+      - a `kept_by_decision` row among the test's `provisional` ids -> `on a mock: <side> — kept by the person's decision <date>`; the
+        date is the row's `decided_at` when it carries one, else `(date not recorded)`, never a guessed one (FR-41);
+      - a side the test declares, or the stamp records, that is not `real` (`_proof`'s `bad`), and no kept row covers it -> `on a mock: <side> —
+        the side was substituted`; several sides list each;
+      - an unreadable stamp, `sides_unknown`, a `provisional` field of the test that could not be read, or a P-n the test names that no
+        readable row answers (a dangling id, a manifest-level skip) -> `real or mock: not established` (AR-28: an unknown is never `real code`);
+      - none of them -> `real code`. A story with no `pipeline.sides` record has no stamp and no declared side, so every test reads
+        `real code`: there that is the default of an unrecorded story, the same rule as `_proof`'s legacy branch, not a recorded fact (N2).
+    "" when the test has no run row (no result, nothing to mark). Never raises over data."""
+    if run_row is None:
+        return ""
+    iid = C.test_instance_id(entry) if isinstance(entry, dict) else ""
+    _, unknown, bad, _why = _proof(run_row, entry, None)
+    skipped = [s for s in prov.get("skipped") or [] if iid and str(s).startswith(f"tests[] {iid}:")]
+    rows = {C.provisional_id(r): r for r in prov.get("rows") or []}
+    named = (prov.get("by_test") or {}).get(iid, [])
+    skipped += [p for p in named if p not in rows]
+    kept = [rows[p] for p in named if p in rows and str(rows[p].get("status") or "") == "kept_by_decision"]
+    parts, covered = [], set()
+    for row in kept:
+        side = str(row.get("settles_on") or "").strip()
+        what = " ".join(str(row.get("what") or "").split())
+        what = (what[:_WHAT_MAX].rstrip() + "...") if len(what) > _WHAT_MAX else what
+        label = side or what or "a call"
+        when = " ".join(str(row.get("decided_at") or "").split()) or DATE_NOT_RECORDED
+        parts.append(f"{MOCK_LEAD} {label}" + (f" ({what})" if what and side else "") + f" — {KEPT_BY_DECISION_WORDS} {when}")
+        covered.add(side)
+    parts += [f"{MOCK_LEAD} {side} — {SUBSTITUTED_WORDS}" for side in bad if side not in covered]
+    if unknown or skipped:
+        parts.append(REAL_OR_MOCK_UNKNOWN)
+    return "; ".join(parts) if parts else REAL_CODE
+
+
+def _case_rows(index: dict, case: str, cfg) -> list:
+    """The green current rows of `case` that the run recorded, joined to a manifest test or not (a legacy row names its case only)."""
+    seen, out = set(), []
+    for row in index["rows"].values():
+        if id(row) not in seen and _green(row) and (C.case_matches(str(row.get("case") or ""), case, cfg=cfg)
+                                                    or C.names_case(C.manifest_test_links(row, cfg), case, cfg)):
+            seen.add(id(row))
+            out.append(row)
+    return out
+
+
+def _proof_index(manifest: dict, report: dict, cfg) -> tuple:
+    """`(tests, entry_of, index, entry_of_row, run_row_for)` - the ONE join of a run row to its manifest test is `case_stamp.run_row_for` (AR-13,
+    HF2-6): exact id first, then the dashboard's tolerant rule, then the legacy single row of a case. `entry_of(iid)` is the test a
+    binding names (the instance id or one of its aliases); `entry_of_row(row)` is the reverse of the join, None for a row no test joins."""
+    import case_stamp as CS   # lazy: the stamp's own imports must not load with the ledger
+    from traceability import is_dead_test   # lazy: traceability imports this module
+    tests = [t for t in C.manifest_tests(manifest) if isinstance(t, dict)]
+    index = CS.run_rows_index(C.current_instance_results(report), [t for t in tests if not is_dead_test(t)], cfg)
+    owner: dict = {}
+    for entry in tests:
+        row = CS.run_row_for(entry, index)
+        if row is not None:
+            owner.setdefault(id(row), entry)
+
+    def entry_of(iid: str):
+        return next((t for t in tests if iid and iid in {C.test_instance_id(t), *C.instance_id_aliases(t, cfg)}), None)
+
+    return tests, entry_of, index, lambda row: owner.get(id(row)), CS.run_row_for
+
+
+def _sides_units(manifest: dict, report: dict, cases: list, cfg) -> list:
+    """The units of the §2.3 branch, `[{label, case, then, found}]` with `found` = `[_proof(...)]`. One UNIT per covered Then of a case
+    (a Then proven by SEVERAL tests is proven when ANY one test proves it on its own: the evidence of two tests is never merged,
+    FR-18), one per walked manual case, and - for a case with no covered Then binding at all - one per case (`then` None).
+    A covered Then reads the green rows its bound instances JOIN (`case_stamp.run_row_for`); when none of them has a green joined row
+    the unit is NEVER dropped (B1): it reads the case's own green rows, one by one, with the binding's `about` (a legacy row that
+    joins nothing, a row of a test no binding names). A walk that has a `sides_met` which is no object is unknown (B2)."""
+    covered = [b for b in manifest.get("then_bindings") or [] if isinstance(b, dict) and str(b.get("status") or "") == "covered"]
+    _, entry_of, index, entry_of_row, run_row_for = _proof_index(manifest, report, cfg)
+    units = []
+    for case in cases:
+        mine = [b for b in covered if C.case_matches(str(b.get("case") or ""), case, cfg=cfg) and C.then_number(b.get("then"))]
+        case_rows = _case_rows(index, case, cfg)
+        for number in sorted({C.then_number(b.get("then")) for b in mine}):
+            group = [b for b in mine if C.then_number(b.get("then")) == number]
+            found = []
+            for b in group:
+                entry = entry_of(str(b.get("instance_id") or "").strip())
+                row = run_row_for(entry, index) if entry is not None else None
+                if _green(row):
+                    found.append(_proof(row, entry, b.get("about")))
+            if not found:       # no bound instance has a green joined row: the case's green rows are the Then's proofs (B1)
+                found = [_proof(row, entry_of_row(row), b.get("about")) for b in group for row in case_rows]
+            if found:
+                units.append({"label": f"{case} Then {number}", "case": case, "then": number, "found": found})
+        if not mine:        # no covered Then to read: the case's own green tests, each with an empty claim (resolved by the union)
+            found = [_proof(row, entry_of_row(row), None) for row in case_rows]
+            if found:
+                units.append({"label": case, "case": case, "then": None, "found": found})
+        for walk in report.get("current_manual_checks") if isinstance(report.get("current_manual_checks"), list) else report.get("manual_checks") or []:
+            if not (isinstance(walk, dict) and C.case_matches(str(walk.get("case") or ""), case, cfg=cfg)
+                    and C.result_status({"status": walk.get("result")}) in ("passed", "pass")):
+                continue
+            if not _sides_applicable(walk, None):
+                continue
+            # manual-agent rule (B2): the walk's `about`, else every side its stamp records; proven when each is `real` in the stamp
+            # (no test declaration exists for a walk). A walk that records `sides_unknown`, or whose stamp is no object, is unknown.
+            if "sides_met" in walk and not isinstance(walk.get("sides_met"), dict):
+                units.append({"label": f"{case} (walked)", "case": case, "then": None, "found": [(False, True, [], _UNREADABLE_STAMP)]})
+                continue
+            met = walk.get("sides_met") if isinstance(walk.get("sides_met"), dict) else {}
+            bad = [s for s in _resolved_about(walk.get("about"), None, walk) if met.get(s) != _REAL]
+            units.append({"label": f"{case} (walked)", "case": case, "then": None,
+                          "found": [(not bad and "sides_unknown" not in walk, "sides_unknown" in walk, bad, "")]})
+    return units
+
+
+def _unit_state(unit: dict):
+    """The state of ONE unit no proof proves: `sides_unknown` when any green proof of it is unknown, else `on_substitute`; None when
+    some proof proves it."""
+    found = unit["found"]
+    if any(proven for proven, _, _, _ in found):
+        return None
+    return SIDES_UNKNOWN_STATE if any(unknown for _, unknown, _, _ in found) else ON_SUBSTITUTE_STATE
+
+
+def _unit_words(unit: dict) -> str:
+    """`<label>: <sides that were not real>` (or the reason the record was unreadable), the detail of one unit."""
+    sides = list(dict.fromkeys(s for _, _, bad, _ in unit["found"] for s in bad))
+    why = next((why for _, unknown, _, why in unit["found"] if unknown and why), "")
+    return unit["label"] + (": " + ", ".join(sides) if sides else f": {why}" if why else "")
+
+
+def _sides_reading(manifest: dict, report: dict, cases: list, cfg) -> tuple:
+    """`(state, detail)` of the §2.3 branch for the cases of one plan row whose runs are ALL green by now, or None when the branch
+    reads nothing (every proof is proven, or none of them is stamped or declares a non-real side). A unit (`_sides_units`) that no
+    proof proves reads `sides_unknown` when any green proof of it is unknown, else `on_substitute`; the row reads the weakest unit
+    (E-O1), `sides_unknown` before `on_substitute`. Only green proofs are read: a red is not here (`failed:*` answered above)."""
+    unproven = [(unit, _unit_state(unit)) for unit in _sides_units(manifest, report, cases, cfg)]
+    for state in (SIDES_UNKNOWN_STATE, ON_SUBSTITUTE_STATE):
+        group = [unit for unit, got in unproven if got == state]
+        if group:
+            return (state, "; ".join(_unit_words(unit) for unit in group))
+    return None
+
+
+def open_placeholder_rows(manifest: dict) -> dict:
+    """PUBLIC (the S5 exit reads it too, AR-13: one predicate of "open", t-2277 J-C9). `{P-n: row}` of the OPEN J-C5 rows of the
+    manifest (`contract.first_look_row`, the one predicate): a `placeholder_locator` with
+    `assumed_from: first_look:R-n` that is NOT `retracted` and NOT settled (`contract.PROVISIONAL_SETTLED`) with a run block named in
+    `evidence.run`. A missing or unreadable status and `settled_*` without `evidence.run` read OPEN (FL-7 adversarial inputs, AR-28: what
+    cannot be shown settled is not settled). `kept_by_decision` is NOT open on any side, a real one included (owner word W3, 11.11.2026:
+    what the person decided to keep stays kept; the report marks it `on a mock: ... kept by the person's decision`)."""
+    out = {}
+    for row in C.manifest_provisional(manifest)["rows"]:
+        if not C.first_look_row(row):
+            continue
+        status = str(row.get("status") or "")
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        if status in ("retracted", "kept_by_decision") or (status in C.PROVISIONAL_SETTLED and str(evidence.get("run") or "").strip()):
+            continue
+        out[C.provisional_id(row)] = row
+    return out
+
+
+def _placeholder_units(manifest: dict, report: dict, cases: list, cfg) -> list:
+    """`[{label, case, then, ids}]` - the units whose green is not a proof because it rests on an open J-C5 row (J-C7); `ids` are the
+    P-n named. Two triggers: (1) a Then of `cases` named in an open row's `dependents` (`[{case, then}]`), whatever test covers it and
+    whether or not any ran; (2) a Then outside every open row's `dependents` (or a case with no covered Then at all) that no CLEAN
+    green proves - a clean proof is a green row joined to a test whose `provisional` (`contract.manifest_provisional` `by_test`) names
+    no open row - while at least one green proof of it comes from a test that names one. Each proof is read alone: the evidence of
+    two tests is never merged (FR-18). A unit with no green proof at all is not this branch's (it stays what the runs say)."""
+    opened = open_placeholder_rows(manifest)
+    if not opened:
+        return []
+    by_test = C.manifest_provisional(manifest)["by_test"]
+    covered = [b for b in manifest.get("then_bindings") or [] if isinstance(b, dict) and str(b.get("status") or "") == "covered"]
+    _, entry_of, index, entry_of_row, run_row_for = _proof_index(manifest, report, cfg)
+
+    def named(entry) -> list:
+        return [pid for pid in by_test.get(C.test_instance_id(entry), []) if pid in opened] if isinstance(entry, dict) else []
+
+    units = []
+    for case in cases:
+        in_dependents = set()
+        for pid, row in opened.items():
+            for dep in row.get("dependents") if isinstance(row.get("dependents"), list) else []:
+                if isinstance(dep, dict) and C.case_matches(str(dep.get("case") or ""), case, cfg=cfg) and C.then_number(dep.get("then")):
+                    in_dependents.add((C.then_number(dep.get("then")), pid))
+        for number in sorted({n for n, _ in in_dependents}):
+            units.append({"label": f"{case} Then {number}", "case": case, "then": number,
+                          "ids": sorted({pid for n, pid in in_dependents if n == number})})
+        mine = [b for b in covered if C.case_matches(str(b.get("case") or ""), case, cfg=cfg) and C.then_number(b.get("then"))]
+        done = {n for n, _ in in_dependents}
+        for number in sorted({C.then_number(b.get("then")) for b in mine} - done):
+            clean, marked = False, []
+            for b in [b for b in mine if C.then_number(b.get("then")) == number]:
+                entry = entry_of(str(b.get("instance_id") or "").strip())
+                row = run_row_for(entry, index) if entry is not None else None
+                if _green(row):
+                    clean, marked = (True, marked) if not named(entry) else (clean, marked + named(entry))
+            if marked and not clean:
+                units.append({"label": f"{case} Then {number}", "case": case, "then": number, "ids": sorted(set(marked))})
+        if not mine:
+            clean, marked = False, []
+            for row in _case_rows(index, case, cfg):
+                entry = entry_of_row(row)
+                if named(entry):
+                    marked += named(entry)
+                else:
+                    clean = True
+            if marked and not clean:
+                units.append({"label": case, "case": case, "then": None, "ids": sorted(set(marked))})
+    return units
+
+
+def _placeholder_reading(manifest: dict, report: dict, cases: list, cfg):
+    """`(PLACEHOLDER_OPEN_STATE, detail)` when any unit of `cases` rests on an open J-C5 row (`_placeholder_units`), else None. The
+    detail names the Then and the row: `TC-1 Then 2: P-3`."""
+    units = _placeholder_units(manifest, report, cases, cfg)
+    if not units:
+        return None
+    return (PLACEHOLDER_OPEN_STATE, "; ".join(f"{u['label']}: {', '.join(u['ids'])}" for u in units))
+
+
+def missed_sides(manifest: dict, report: dict, case: str, cfg=None) -> list:
+    """The sides the unproven `on_substitute` units of `case` missed (`_sides_units`, typed: the item's how-line names them, never a
+    reader of a row's detail text). `[]` when `case` has no such unit."""
+    cfg = C.case_config() if cfg is None else cfg
+    sides = []
+    for unit in _sides_units(manifest, report, [case], cfg):
+        if _unit_state(unit) == ON_SUBSTITUTE_STATE:
+            sides += [s for _, _, bad, _ in unit["found"] for s in bad]
+    return list(dict.fromkeys(sides))
+
+
+def proof_readings(manifest: dict, report: dict, cases: list, cfg=None) -> dict:
+    """`{(case, then): (state, detail)}` for every Then of `cases` whose green is NOT a proof: `placeholder_open` first, else `sides_unknown`,
+    else `on_substitute` (the same order and units `plan_row_state` reads, minus the words above them). THE public reader of the
+    proof-strength rule, for the second reader of "this Then is proven" - the trace table (AR-13, AR-15, FR-10): a Then the ledger
+    says needs a re-run is never printed `pass`. Whole-case and walked units (no Then) are not keyed here. Never raises over data."""
+    cfg = C.case_config() if cfg is None else cfg
+    out: dict = {}
+    for unit in _placeholder_units(manifest, report, cases, cfg):
+        if unit["then"] is not None:
+            out[(unit["case"], unit["then"])] = (PLACEHOLDER_OPEN_STATE, f"{unit['label']}: {', '.join(unit['ids'])}")
+    for unit in _sides_units(manifest, report, cases, cfg):
+        got = _unit_state(unit)
+        if got and unit["then"] is not None:
+            out.setdefault((unit["case"], unit["then"]), (got, _unit_words(unit)))
+    return out
+
+
 def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_by_row: dict,
                    open_oracles: dict | None = None) -> tuple:
     """(state, detail) for one plan row. The order of these branches is the contract:
@@ -404,6 +735,11 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
                 # of the same instance. A decided deferral, `impossible` and
                 # `pending_implementation` are statements nothing in a run can answer.
                 if not C.superseding_terminal_result(report, manifest, cases=[case]):
+                    # t-2277 J-C7 / J-C9 (b): an env block is never read in place of `placeholder_open` (a Then behind an open
+                    # first-look row is owed its run). A red would have superseded the block above, so `failed:*` is not hidden.
+                    held = _placeholder_reading(manifest, report, [case], cfg_u)
+                    if held:
+                        return held
                     return (f"env_blocked:{_env_owner(report)}", case)
                 continue
             if r == "impossible":
@@ -417,12 +753,24 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
                 # outside E(C)) reads what the run says - `failed:<verdict>` below - not `not_executed`. A row whose case
                 # did not fail stays `not_executed:contradicts_requirement` (a claimed red nobody executed is no failure).
                 continue
+            if r == C.HANDED_TO_PERSON:
+                # t-2277 J-C7 / J-C9 (c): a hand-off is never read in place of `placeholder_open` (a red already `continue`d above)
+                held = _placeholder_reading(manifest, report, [case], cfg_u)
+                if held:
+                    return held
             return (f"not_executed:{r or 'unresolved'}", case)
 
-    if disposition == "skip":
-        return (f"skipped:{reason or 'no reason given'}", "")
-    if disposition == "unverifiable":
-        return (f"skipped:unverifiable — {reason or 'no reason given'}", "")
+    if disposition in ("skip", "unverifiable"):
+        # t-2277 J-C7 (FL-7 fix, F3): a skip decision is never read in place of `placeholder_open` when a Then of its cases stands behind
+        # an open J-C5 row; a red of those cases still wins (falls through to `failed:*` below, as every other word above it does)
+        held = _placeholder_reading(manifest, report, cases, cfg_u)
+        red = held and any(C.case_lookup(C.run_results(report), c, cfg_u, exact_wins=False) in ("failed", "fail") for c in cases)
+        if held and not red:
+            return held
+        if not held:
+            if disposition == "skip":
+                return (f"skipped:{reason or 'no reason given'}", "")
+            return (f"skipped:unverifiable — {reason or 'no reason given'}", "")
 
     impossible = C.run_impossible(report)
     for case in cases:
@@ -456,6 +804,9 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
         if whole_unconfirmed:
             return (NOT_VERIFIED_UNCONFIRMED, "; ".join(_whole_case_unconfirmed(manifest, cases)))
         if manual_handed:
+            held = _placeholder_reading(manifest, report, manual_handed, cfg_u)      # J-C7: a hand-off never reads in its place
+            if held:
+                return held
             return (HANDED_STATE, "; ".join(f"{c}: {C.case_lookup(handed_over, c, cfg_u, rollup=False)}" for c in manual_handed))
         if shadow:      # no run of its own is left, but its Thens stand behind a red: that is not "no result recorded"
             return (BLOCKED_STATE, "; ".join(_behind_words(manifest, report, red, shadow, blocked, [c for c in cases if c in shadow], cfg_red)))
@@ -469,6 +820,16 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
     if failed:
         verdict = _verdict_for_cases(failed, manifest, triage, report)
         return (f"failed:{verdict}", ", ".join(failed))
+    # t-2277 J-C7 (PC-5 fix round, L1): `not_verified:placeholder_open` - a Then of these cases that an OPEN first-look placeholder row
+    # (J-C5) stands behind is not proven by any green. POSITION INVARIANT: right AFTER `failed:*` (a red stays red) and BEFORE flaky,
+    # partial, error, the unknown run word, unconfirmed, skipped, the manual hand-off, green-open, deferred, behind-a-red and the Then
+    # hand-off words: no skip, hand-off or flaky word is ever read in place of `placeholder_open`. The branches above `failed:*` that
+    # a placeholder could hide behind (an unresolved `handed_to_person` / `blocked_by_env` row, the manual hand-off of a case with no
+    # run) and a `disposition: skip` / `unverifiable` row ask `_placeholder_reading` themselves before they return (FL-7). The S5
+    # exit closes the same doors by J-C9 (b)-(d) (`s5_precheck._sides_placeholders`).
+    placeholder = _placeholder_reading(manifest, report, [c for c, _ in outcomes], cfg_u)
+    if placeholder:
+        return placeholder
     flaky = _unfixed_flaky(cases, manifest, triage, report)
     if flaky:
         return ("not_verified_flaky", ", ".join(flaky))
@@ -540,6 +901,17 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
             f"{r['case']} Then {r['then']}" + (f" ({r['part']})" if r["part"] else "")
             + f": left with {'another environment' if r['owner'] == 'other_environment' else 'the person'}"
             + (f" - {r['detail']}" if r["detail"] else "") + "; its other Thens passed" for r in left))
+    # t-2181 §2.3 (PC-5, C9): the proof-strength branch - `sides_unknown` first, then `on_substitute`. POSITION INVARIANT: the LAST
+    # check before `passed_green`. The resulting order of the whole function: ... `failed:*` -> `placeholder_open` -> flaky -> partial
+    # -> error -> unknown run word -> unconfirmed -> skipped -> manual hand-off -> green-open -> deferred -> behind-a-red -> Then
+    # hand-off -> `sides_unknown` -> `on_substitute` -> `passed_green`. What that keeps unreachable: a green on a substituted or unknown
+    # side reading `passed_green`; what it keeps refused: a red stays red, and nothing above is restated as `on_substitute` (a red on
+    # a substitute stays `failed:*`, a deferral stays `deferred_by_decision`, which is `no`; a Then behind an open placeholder reads
+    # `placeholder_open`, not `on_substitute`). A row with no stamp and no non-real declaration is not read at all (E-T1), so an
+    # all-real story reads exactly as before.
+    sides = _sides_reading(manifest, report, [c for c, _ in outcomes], cfg_u)
+    if sides:
+        return sides
     return ("passed_green", ", ".join(c for c, _ in outcomes))
 
 
@@ -917,8 +1289,9 @@ def apply_waiver(entry: dict, row: dict, waivers: dict) -> dict:
 REVIEW_DEBTS = "review-debts.json"
 DEBT_STAGES = ("S5", "S7")
 # `cap` the test_defect cap is spent, `unknown` the controller's count cannot be read, `mech_cap` the mechanical cap is spent,
-# `nobody` the blocking findings are nobody's round, `sent_back` the verdict sent the window back naming no blocking finding.
-DEBT_REASONS = ("cap", "unknown", "mech_cap", "nobody", "sent_back")
+# `nobody` the blocking findings are nobody's round, `sent_back` the verdict sent the window back naming no blocking finding,
+# `untyped` the verdict sent it back with no finding the test writer can act on (a debt file without the word still loads).
+DEBT_REASONS = ("cap", "unknown", "mech_cap", "nobody", "sent_back", "untyped")
 NOT_RECORDED = "the critic's remarks were not recorded"
 
 
@@ -1059,6 +1432,8 @@ def limit_words(reason: str, counted, cap) -> str:
         return "no repair round could be run: what the critic named is not the test writer's to fix"
     if reason == "sent_back":
         return "the critic sent the tests back without naming a blocking finding"
+    if reason == "untyped":
+        return "the critic sent the tests back without writing a finding the test writer can act on"
     return "the repair limit is recorded without a reason"
 
 
@@ -1117,8 +1492,9 @@ def remarks_carrier(artifacts: Path, case: str) -> str:
     pattern = re.compile(r"(?<![\w-])" + re.escape(case) + r"(?![\w-])")
     try:
         root = Path(artifacts)
-        for path in sorted((root / "work" / "test-code").glob("critic-findings*.md")):
-            if path.is_file() and pattern.search(path.read_text(encoding="utf-8", errors="replace")):
+        import findings_path
+        for path in findings_path.all_files(root):
+            if pattern.search(path.read_text(encoding="utf-8", errors="replace")):
                 return path.relative_to(root).as_posix()
     except OSError:
         return ""
@@ -1215,6 +1591,11 @@ def build(artifacts: Path) -> dict:
         entry = {"ref": row["ts"], "kind": "plan_row", "state": state, "detail": detail}
         rows.append(apply_waiver(entry, row, waivers))
     from traceability import is_dead_test
+    try:        # t-2277 W3: the one join of a run row to its test (`_proof_index`) and the provisional rows, read once for the whole loop
+        _, _, run_index, _, run_row_for = _proof_index(manifest, report, C.case_config(artifacts))
+        provisional = C.manifest_provisional(manifest)
+    except Exception:
+        run_index = run_row_for = provisional = None
     for entry in C.manifest_tests(manifest):
         state, detail = test_state(entry, report, triage, artifacts, manifest)
         level, level_words = proof_shown(entry, manifest, artifacts)
@@ -1224,6 +1605,12 @@ def build(artifacts: Path) -> dict:
                # Why no live check is demanded of this test (`unchanged|handed|unmeasured`, `""` when
                # one is): a fact about the demand, kept apart from the level the receipts reached.
                "proof_reason": PL.not_required_why(entry, manifest)}
+        # t-2277 W3: real code or a mock, per test, from existing data (the stamp of its run row, its `sides`, the kept rows). A reading that
+        # raised is NOT established, never `real code` (AR-28).
+        try:
+            row["real_or_mock"] = real_or_mock(entry, run_row_for(entry, run_index), provisional)
+        except Exception:
+            row["real_or_mock"] = REAL_OR_MOCK_UNKNOWN
         # A delinked aggregate stays in the ledger (its state is still a fact about the run)
         # and stays out of the rendered table: on TP1-15045 six of them reached the
         # person as six separate `review_rejected` lines about tests nobody had written.
@@ -1245,6 +1632,7 @@ def build(artifacts: Path) -> dict:
     from coverage_contract import coverage_projection
     coverage = coverage_projection(artifacts, report, manifest)
     from manual_evidence import export_records
+    import manual_evidence as manual_evidence_module
     from coverage_contract import validate_manual_current
     manual_evidence = export_records(artifacts, [r for r in report.get("current_manual_checks", [])
                                                if r.get("schema_version") == 2 and r.get("evidence_validated")
@@ -1272,6 +1660,9 @@ def build(artifacts: Path) -> dict:
         "superseded_blocks": superseded_blocks(manifest, report),
         "coverage": coverage,
         "manual_evidence": manual_evidence,
+        # F5(e) 3: the walks the factory failed to prepare, under their own name; read by `check_delivery.unprepared_records`.
+        # Never exported as proof - the filter above keeps them out (no `evidence_validated`)
+        "unprepared_walks": manual_evidence_module.unprepared_rows(report),
         "subtasks_open": subtasks,
         "review_skipped": review_skipped,
         "repair_windows": debts["windows"],

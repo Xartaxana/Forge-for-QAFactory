@@ -60,7 +60,8 @@ confidence: high                       # low — a register built from ac alone 
      observable - fill `code_says`. Write the norm without the code's values; a value only the code states (a status, an
      error code, a limit) is a fork: one `open_questions` row per fork, never one for a class. The norms you derived go to
      the person in ONE confirmation question (the norm stays the default reading, silence or "yes" keeps it; code that
-     departs from it is an expected red, `contradicts`, no question of its own; none derived, no such question). Its readings:
+     departs from it is an expected red, `contradicts`, no question of its own; none derived, no such question).
+     That one question carries `norms_list: true` on its `open_questions` row and names only norm rows. Its readings:
      the norms hold (default), or one does not apply (`from: person`); never a reading `from: code` that drops the norm. A `derived` row with a `diff:` observable and
      no norm is a claim: a `## Behaviour claims` row (`before: unknown`, `now_ref: current-code:<path:line>`; never the
      as-built value as the intended reading); the other side's test is `derived_from: test:<ref>`, not `source`. -->

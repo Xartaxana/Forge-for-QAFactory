@@ -879,7 +879,7 @@ def block_size_is_the_controllers_constant() -> None:
     """t-323 C4: `blocks_total` counts the windows left by `controller.MANUAL_WINDOW_CASES`, read where it is counted (SC2-38 item 3)."""
     import controller
     check_eq("C4: the ceiling keeps its value", controller.MANUAL_BLOCK_CASES, 5)
-    check_eq("C4: the window is one case", controller.MANUAL_WINDOW_CASES, 1)
+    check_eq("C4: the window is three cases (one account set, t-1957 N5s)", controller.MANUAL_WINDOW_CASES, 3)
     check("C4: story_progress holds no copy of the number", not hasattr(SP, "MANUAL_BLOCK_MAX"))
     case_ids = [f"{TASK}_TC_{n:03d}" for n in range(1, 13)]
     first = disp("S6-qa-runner-2", "S6", "qa-runner", "running", scope=case_ids[:5], execution_kind="manual",
@@ -888,7 +888,7 @@ def block_size_is_the_controllers_constant() -> None:
     SP._scope_of = lambda *_a, **_k: {"derived": True, "scope": case_ids}
     try:
         got = SP._block_position(None, {}, [first], first, TASK)
-        check_eq("C4: 7 cases left, one to a window: the block in flight + 7 more", got["blocks_total"], 8)
+        check_eq("C4: 7 cases left (no request names an account: one lane), 3 to a window: the block in flight + 3 more", got["blocks_total"], 4)
         controller.MANUAL_WINDOW_CASES = 2
         got = SP._block_position(None, {}, [first], first, TASK)
         check_eq("C4: the constant changed in this copy: 7 left, 2 to a window: blocks_total follows (1 + 4)",

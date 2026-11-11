@@ -769,38 +769,24 @@ def answers_lock(task_root, wait: float = LOCK_WAIT_SECONDS):
     The package's own `EventStore.lock` was not reused: it fails at once when another writer holds
     it (an answer would be refused instead of waiting), it creates `state/` and takes `events.lock`
     - the controller's lock for its own commits, so an answer would collide with a running
-    controller. This is the same OS primitive (msvcrt / flock on one byte of a lock file, released
-    when the process dies, so no stale lock) on a file of its own, retried until `wait` seconds."""
+    controller. This is the package's one file lock (`event_store.take_file_lock`: one byte of a lock
+    file, released when the process dies, so no stale lock) on a file of its own, retried until `wait`
+    seconds. The file is in the story's tracked work folder: no holder is recorded in it."""
     path = Path(task_root).joinpath(*ANSWERS_REL)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with (path.parent / LOCK_NAME).open("a+b") as handle:
-        if handle.seek(0, 2) == 0:
-            handle.write(b"0")
-            handle.flush()
-        deadline = time.monotonic() + wait
-        while True:
-            handle.seek(0)
-            try:
-                if os.name == "nt":
-                    import msvcrt
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise Refused(f"- another writer has held {path} for {wait:g} s: nothing was written. "
-                                  "Expected: try again in a moment")
-                time.sleep(0.02)
-        try:
-            yield
-        finally:
-            handle.seek(0)
-            if os.name == "nt":
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    from event_store import LockBroken, LockBusy, take_file_lock
+    try:
+        held = take_file_lock(path.parent / LOCK_NAME, wait, record_holder=False, poll_s=0.02)
+    except LockBusy as exc:
+        raise Refused(f"- another writer has held {path} for {wait:g} s: nothing was written. "
+                      "Expected: try again in a moment; " + exc.holder_clause) from exc
+    except LockBroken as exc:
+        raise Refused("- " + str(exc) + " Expected: the file must be writable") from exc
+    try:
+        yield
+    finally:
+        held.release()
 
 
 def _append(root: Path, rec: dict) -> None:
@@ -1546,6 +1532,17 @@ def raise_role_question(task_root, spec, *, stage, asked_by, raised_from) -> tup
     return row, True
 
 
+def _task_path(task_root, given):
+    """The one reader of a path the driver passes in the task-relative form the role sees (`work/handoffs/<dispatch>.yaml`): an absolute
+    path stays as it is, a relative one is read against the story folder, never the process cwd. A blank `given` is None (a bare
+    `Path("")` is the cwd, which is never a form)."""
+    text = str(given)
+    if not text.strip():
+        return None
+    path = Path(text)
+    return path if path.is_absolute() else Path(os.path.abspath(task_root)) / path
+
+
 def raise_from_handoff(task_root, handoff_file, *, stage, asked_by) -> dict:
     """Raise every entry of `questions[]` of the role's handoff form (`work/handoffs/<dispatch>.yaml`) and return `{"raised": [rows written],
     "already": [rows that stood], "dispatch": id}`. ALL OR NOTHING over the form's own errors: one entry `role_question_errors` names refuses the
@@ -1553,21 +1550,32 @@ def raise_from_handoff(task_root, handoff_file, *, stage, asked_by) -> dict:
     if str(HERE) not in sys.path:
         sys.path.insert(0, str(HERE))
     import handoff
-    path = Path(handoff_file)
+    path = _task_path(task_root, handoff_file)
     try:
+        if path is None:
+            raise ValueError("the path is empty")
         data = handoff.parse(path.read_text(encoding="utf-8")).data
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise Refused(f"- --from-handoff {str(handoff_file)!r} could not be read ({type(exc).__name__}). "
                       "Expected the role's form, work/handoffs/<dispatch>.yaml")
     entries = data.get("questions") if isinstance(data, dict) else None
     entries = entries if isinstance(entries, list) else []
+    # F1 (B-11): a row whose `question` is still the contract's placeholder is the sample, not a question (the row index stays the
+    # form's own, so `raised_from` of a later real row does not move).
+    # Only a NON-EMPTY `<...>` text is the sample: an empty or missing `question` is still a defective entry the shape check names.
+    entries = [None if (isinstance(e, dict) and isinstance(e.get("question"), str) and e["question"].strip()
+                        and handoff.PLACEHOLDER.match(e["question"].strip())) else e for e in entries]
     problems = []
     for i, entry in enumerate(entries):
+        if entry is None:
+            continue
         problems += [f"questions[{i}]: {p}" for p in role_question_errors(entry, stage=stage, asked_by=asked_by)]
     if problems:
         raise Refused("\n".join(f"- {p}" for p in problems))
     out = {"dispatch": path.stem, "raised": [], "already": []}
     for i, entry in enumerate(entries):
+        if entry is None:
+            continue
         row, written = raise_role_question(task_root, entry, stage=stage, asked_by=asked_by,
                                            raised_from={"dispatch": path.stem, "row": f"questions[{i}]"})
         out["raised" if written else "already"].append(row)

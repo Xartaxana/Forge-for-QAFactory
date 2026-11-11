@@ -1,6 +1,6 @@
 # Every block in the controller, and the route through it
 
-`controller.py` refuses **327** times: 327 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
+`controller.py` refuses **351** times: 351 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
 mean the same thing. `StateConflict` says the request is fine and the story's recorded state is not
 ready for it (`DerivedViewStale`, a subclass of it, says the event IS committed and only what
 follows it failed); `ValueError` says the request itself is malformed and the story was never consulted. The
@@ -17,9 +17,9 @@ evidence.
 
 | route | blocks | what it means |
 |---|---|---|
-| `person` | 15 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
-| `command` | 207 | a factory command clears it. The person decides, the command records; the message names it |
-| `caller` | 92 | the call was built wrong. Whoever built it fixes it, and no person is involved |
+| `person` | 17 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
+| `command` | 219 | a factory command clears it. The person decides, the command records; the message names it |
+| `caller` | 102 | the call was built wrong. Whoever built it fixes it, and no person is involved |
 | `unpassable` | 13 | no word passes it, and the reason is here. These are invariants of the record itself: passing one would destroy what the block protects |
 
 The table was built by a classifier that lives with the plans, outside the package
@@ -104,6 +104,8 @@ every edit above it. Rows are in source order.
 | `build_rework_request` | `ValueError` | this story is closed (gate B is decided and S8 is done), and | `command` | reopening is the person's word: `--operation rework --reason <their words>` |
 | `build_rework_request` | `ValueError` | --reason must say what this round repairs; it is what the role reads | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `build_rework_request` | `ValueError` | --cause {cause!r} must be one of: | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `build_rework_request` | `StateConflict` | this story is held for code ({hold['cause']}) from S{held_number}: a rework of {stage} | `command` | the doors the message prints: the code arrives (`--operation arrive`), the person stops the wait (`--operation stop_waiting`), or an earlier stage is reworked with their words |
+| `build_rework_request` | `StateConflict` | this story was stopped while it waited for code: a rework of {stage} reopens it, | `command` | `controller.py --operation rework --stage <earlier stage> --role <role> --words-file <file>` with the person's own words (a typed `--reason` is refused) |
 | `build_rework_request` | `ValueError` | --cases must name at least one case of the approved scope: `controller.py --operation | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `build_rework_request` | `ValueError` | case(s) outside the approved scope: {', '.join(unknown)}; the approved | `command` | name cases of the approved scope, or revise the scope at the gate |
 | `build_rework_request` | `ValueError` | plan row(s) not in the approved plan: {', '.join(missing)}; | `command` | name rows of the approved plan, or revise the plan |
@@ -212,6 +214,7 @@ every edit above it. Rows are in source order.
 | `validate` | `ValueError` | (ValueError, issue) | `caller` | a reference in the request that does not resolve - the path is not there, or its sha does not match; fix the call |
 | `validate` | `StateConflict` | unknown dispatch: the request names no dispatch - \"id\" is absent (keys given: | `command` | put the dispatch's id in the request's `\"id\"`; the refusal lists the keys the request had and prints the door (`story_step.py finish`, or `--operation checkpoint` with flags) |
 | `validate` | `StateConflict` | unknown dispatch | `command` | `--operation dispatch` registers it; `recover` prints the packet |
+| `validate` | `StateConflict` | {d.get('id')} was passed over when its stage was closed by code (receipt {d['passed_over_by']}): | `command` | `controller.py --operation rework`, which the message names: going back over the stage |
 | `validate` | `StateConflict` | accept {retry[-1]} | `command` | accept the retry, which the message names |
 | `validate` | `StateConflict` | {d.get('id')} is {d['status']}: a stopped dispatch is not accepted | `command` | retry it and accept the retry; the message carries the command |
 | `validate` | `StateConflict` | only the active dispatch can finish; | `command` | finish the active one |
@@ -224,7 +227,7 @@ every edit above it. Rows are in source order.
 | `validate` | `StateConflict` | S1 requires canonical source inventory | `command` | `ticket_adapter.py collect` writes it |
 | `validate` | `StateConflict` | S1 unavailable sources require explicit unresolved gap handoff: the inventory | `command` | the person's `ticket_adapter.py accept-gap` first (the refusal prints it), then a plain `story_step.py finish`, which derives `unresolved` and `reason` from the inventory |
 | `validate` | `StateConflict` | raise StateConflict(refusal) | `command` | dispatch the stage critic (`story_step.py start --stage <Sn> --role <acceptance_by role, e.g. qa-case-critic>`) and record its verdict with `stage_done.py --task <key> --stage <Sn> --acceptance work/handoffs/<its dispatch>.yaml`; or the person's word with `waiver.py --stage <Sn> --block "stage acceptance"` |
-| `validate` | `StateConflict` | raise StateConflict( "; ".join(blocking) + ". Accept this dispatch wit | `person` | raised from the list `_passed_by_person` has already filtered |
+| `validate` | `StateConflict` | (StateConflict, "; ".join(blocking) + ". Accept this dispatch with `st | `person` | raised from the list `_passed_by_person` has already filtered |
 | `validate` | `ValueError` | checkpoint is not acceptance; use accept with validated evidence | `unpassable` | acceptance and a checkpoint are different facts about the same work, and calling one the other loses the difference the next session needs |
 | `validate` | `ValueError` | checkpoint requires remaining work and reason | `unpassable` | a checkpoint with neither says nothing at all, and the next session reads it as the only record of what is left |
 | `validate` | `StateConflict` | (StateConflict, item_sentence) | `command` | the person words each open item (a door line, or a block `waiver.py` records), or answers the closed word `approve as is`; `gate-decision` lists the items with their doors |
@@ -241,6 +244,7 @@ every edit above it. Rows are in source order.
 | `validate` | `ValueError` | code-only receipts are allowed only for S0, S6, S7 or S8 | `command` | a stage with a role is closed by that role, not by code |
 | `validate` | `ValueError` | code-only receipt requires id and reason | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `validate` | `ValueError` | code-only receipt requires evidence | `command` | name the artifact code produced |
+| `validate` | `StateConflict` | the state moved while the close was prepared: the dispatches it passes over changed, send it again | `command` | send the close again: the request is rebuilt from the state as it is now |
 | `validate` | `ValueError` | (ValueError, issue) | `caller` | a reference in the request that does not resolve - the path is not there, or its sha does not match; fix the call |
 | `validate` | `ValueError` | invalidation requires a cause | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `validate` | `ValueError` | invalidation must name a nonempty affected current scope | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
@@ -305,6 +309,11 @@ every edit above it. Rows are in source order.
 | `_plan_review_problems` | `StateConflict` | (StateConflict, blocking[0] + ". " + then + end + " If a person decide | `person` | raised from the list `_passed_by_person` has already filtered |
 | `_s5_completion_problems` | `StateConflict` | (StateConflict, blocking[0]) | `person` | raised from the list `_passed_by_person` has already filtered |
 | `_s5_completion_problems` | `ValueError` | S5 window record is incomplete: | `command` | `window_record.py --task <T> --dispatch <ID>` writes every one of these from what is on disk |
+| `_open_windows_problems` | `ValueError` | open_windows requires a plain --not-complete, not unresolved: unresolved already says why | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_open_windows_problems` | `ValueError` | open_windows must be a non-empty list of case ids, one or more of each other window still open | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_open_windows_problems` | `ValueError` | open_windows requires cases of another window of {stage}; {named(bad, SCOPE_SHOWN)} | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_s5_running_beside_problems` | `StateConflict` | . The stage closes with the last window to finish: finish this one with | `person` | raised from the list `_passed_by_person` has already filtered |
+| `_s6_running_beside_problems` | `StateConflict` | . The stage closes with the last lane to finish: wait for the running lane, or finish | `person` | raised from the list `_passed_by_person` has already filtered |
 | `_s5_collect` | `ValueError` | S5 window needs a nonempty exact scope_instances map | `command` | `window_record.py` builds the map from the manifest |
 | `_s5_collect` | `ValueError` | S5 window needs a nonempty exact scope_instances map: | `command` | `window_record.py` builds the map from the manifest |
 | `_s5_collect` | `ValueError` | S5 window instances do not exactly cover the dispatched scope map | `command` | `window_record.py` rebuilds it for the dispatched scope |
@@ -342,6 +351,21 @@ every edit above it. Rows are in source order.
 | `_held_work_refusal` | `StateConflict` | {did} is the retro (S9), which runs on a closed story with no word of | `command` | nothing: the retro needs no word on a closed story, and `--operation next` relaunches it |
 | `_held_work_refusal` | `StateConflict` | {did} is {dispatch.get('status')}, not {NEVER_STARTED}: {what}. | `command` | only a dispatch that never reached an agent is left; `--operation next` lists what is held (a released one asks for nothing) |
 | `_held_work_refusal` | `StateConflict` | {did} is not held back on this story ({dispatch.get('status')}): a word | `command` | name the dispatches `--operation next` lists as `held`; the message carries them |
+| `_hold_op_refusal` | `ValueError` | `cause` and `held_from` go together: a cause names why the story is held and `held_from` the | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_hold_op_refusal` | `ValueError` | `cause` must be a non-empty word naming why the story is held, e.g. `s5_absent_side` or `first_look_stop` | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_hold_op_refusal` | `ValueError` | `held_from` must be a stage id `S0`..`S9`, got {held_from!r} | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_hold_op_refusal` | `StateConflict` | this story was stopped while it waited, and a bare `await` does not take that back: {door_arrive}, | `command` | the code arrives (`--operation arrive`), or the person's words reopen an earlier stage (`--operation rework --words-file`); the message names both |
+| `_hold_op_refusal` | `ValueError` | --words-file records the person's own words: {op.replace('_', ' ')} is their decision, not the | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_hold_op_refusal` | `StateConflict` | nothing is held for code, so there is no wait to stop: `--operation next` says what the story does now | `command` | nothing: no wait is held, and `--operation next` says what the story does now |
+| `_hold_op_refusal` | `StateConflict` | the wait was stopped already: {door_arrive}, or {door_rework} | `command` | the code arrives (`--operation arrive`), or the person's words reopen an earlier stage (`--operation rework --words-file`); the message names both |
+| `_hold_op_refusal` | `ValueError` | --source-head is the text of the code heads the first look saw, as the caller computed it: {keys} | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_hold_op_refusal` | `ValueError` | --register-hash must be 64 hex characters, got {register!r}: {keys} | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_hold_op_refusal` | `StateConflict` | the wait was stopped: `first_look_continue` does not reopen it. {door_arrive}, or {door_rework} | `command` | the code arrives (`--operation arrive`), or the person's words reopen an earlier stage (`--operation rework --words-file`); the message names both |
+| `_hold_op_refusal` | `StateConflict` | this story is held for {hold['cause']}, and only the code arriving clears that hold, never | `command` | the code arriving or the person's stop (`--operation stop_waiting --words-file`): the only word that lifts a hold for code is the person's `not ours` about an absent side, carried out by the driver (`arrive` naming that side); the message names the doors |
+| `_hold_dispatch_refusal` | `ValueError` | `await_reopened` is the person's word reopening a stopped story: it carries their own words | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_hold_dispatch_refusal` | `StateConflict` | `await_reopened` reopens a STOPPED story and this one is not stopped: | `command` | nothing: the story is not stopped; `--operation next` says what it does now |
+| `_hold_dispatch_refusal` | `StateConflict` | a stopped story is reopened only by the rework of an accepted dispatch of S0-S{number - 1} | `command` | `--operation rework` of an accepted dispatch below the held stage with the person's words, or the code arriving (`--operation arrive`) |
+| `_hold_dispatch_refusal` | `StateConflict` | this story was stopped while it waited for code: no dispatch starts on it by itself. | `command` | `--operation rework --words-file <file>` of an earlier stage, or the code arriving (`--operation arrive`) |
 | `_settle_order_refusal` | `ValueError` | --order names the order of gate B to settle, one of: {', '.join(table) or 'none declared'}; | `command` | name an order the refusal lists (`bugs`, `mr`) |
 | `_settle_order_refusal` | `ValueError` | --outcome is how the order ended, one of: {', '.join(SETTLE_OUTCOMES)}; got {outcome!r} | `command` | `--outcome done` (an MR with its record) or `cancelled` (a person's words or a coded reason) |
 | `_settle_order_refusal` | `ValueError` | bugs is done by the accepted qa-bug-reporter dispatch, not by a word: run the reporter | `command` | run the reporter (`--operation next` names it), or call the order off with `--outcome cancelled` and the person's words |

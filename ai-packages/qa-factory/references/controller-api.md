@@ -57,7 +57,7 @@ by the accepted reporter; cancelled takes `--words-file`, or a code with `--ref`
 A `stage_transition` of `running`/`halted`/`paused` on an accepted stage records `rework`
 instead of lowering it, and `stage_done.py --status running` refuses such a stage. Rework is
 `--operation rework`, which takes input hash, paths and budget from the role's last accepted
-dispatch, never `SendMessage` (it misses after a session change). On S1–S3, whose
+dispatch, never `SendMessage` (it misses after a session change). On S1-S3, whose
 roles have no cases, `--rows TS-3` names plan rows instead of `--cases` (`plan_rows`).
 
 `stage-scope` is read-only, takes `{"stage", "execution_kind": "manual"|"automation"}` and
@@ -66,10 +66,10 @@ returns the scope from the approved plan's dispositions (`automate` rows for S5,
 `windows[]` (`surface` ui|other, `scope`, `accepted_by`): one dispatch each. `prepare` carries
 it as `stage_scope`. Never type an S5/S6 scope: an empty one is refused while the plan names
 cases, at Gate A too; `waiver.py --stage S5 --block "empty scope"` passes on a person's word.
-`repair_cause` test_defect|mechanical|environment|tooling|reviewer_error|question_answer|ticket_changed (+`reason`;
+`repair_cause` test_defect|mechanical|environment|tooling|reviewer_error|question_answer|source_arrived|ticket_changed (+`reason`;
 `rework --cause`): only test_defect spends the cap, counted by receipts (a retry chain =
 1 round); mechanical: author-only, `dispatch.mechanical_rounds` per window. `prepare`
-adds `repair_budget`; S5 receipts carry `read_first` after `work/s5-notes.md`.
+adds `repair_budget`; S5 `read_first` carries `work/s5-notes.md` and `work/s5-notes/`.
 
 ## Gate-A repair and continuation
 
@@ -125,7 +125,7 @@ telemetry: [orchestrator-handoff.md](orchestrator-handoff.md).
    A code-only update with unchanged requirements, oracle, plan and scope may carry Gate A
    by adding `gate_a_applicability`: the prior current Gate-A `decision_id`,
    `requirements_unchanged: true`, unchanged `plan_revision`, exact `scope`, hashed
-   `evidence_refs` — provenance, not a new decision; missing or stale evidence makes Gate A
+   `evidence_refs`: provenance, not a new decision; missing or stale evidence makes Gate A
    stale. Gate B is never carried. `gate-inputs` hashes the plan and the cases, never the
    source revision: S5 runs `invalidate` on the revision it checked out.
 7. `next` returns one action: wait_existing_job, resolve_return, resume_checkpoint (with

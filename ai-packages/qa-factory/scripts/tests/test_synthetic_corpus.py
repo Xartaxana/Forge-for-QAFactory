@@ -218,7 +218,7 @@ def k6_negative_control() -> None:
     clean = [("work/a.md", "a plain sentence\n")]
     check("K6 the clean sample has no hit", not forbidden(clean))
     for text in (f"see {plant}.com", "key " + "EP" + "MCD" + "ME-1", '"displayName": "dev1"', "to a@corp.test", "http://corp.test/x",
-                 "C:\\Users\\x\\y"):
+                 "C:\\Users\\dev3\\y"):
         check(f"K6 a planted form is found: {text[:12]}", bool(forbidden([("work/a.md", text)])), text)
     check("K6 a planted form in a path is found", bool(forbidden([(f"work/{plant}/a.md", "x")])))
 

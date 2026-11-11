@@ -475,9 +475,6 @@ def k9_fix_round():
                  ("S4-qa-case-critic-3", sorted(ALL_CASES), CONCERN_CASES))
         check_eq("K9: a receipt on other bytes lists nothing and carries nothing",
                  R.accepted_rounds(FIXED, [(sha(RECORDED), "x")])[0]["listed"], set())
-        source = (SCRIPTS / "s5_plan.py").read_text(encoding="utf-8")
-        check("K9: s5_plan uses no private name of critic_rollcall (AR-13)", "CR._" not in source and "R._receipt_round" not in source)
-        check("K9: ... and no second 'which cases a round lists' rule", "CR.parse_rollcall" not in source)
     finally:
         cleanup(root)
 
@@ -531,26 +528,12 @@ def k9_gate_a_collect():
         cleanup(root)
 
 
-# --- K6: the card says the rule (DOC-WITNESS; keys quoted from the DoD before the run) --------------------------
+# --- K6: the card's start load (the role-text keys of the rule moved to design/role-rules.json) -----------------
 
 CARD = SCRIPTS.parent / "agents" / "qa-case-critic.md"
-CARD_KEYS = ("`approve_with_concerns` — 0 fail, any number of concerns",
-             "`reject` — at least one `fail`",
-             "never concerns alone",
-             "a `reject` line over cells that hold no `reject` is refused by code",
-             "an `approve_with_concerns`\nround is headed `ok`, not `concerns`")
-
-
-def absent_keys(text, keys):
-    return [key for key in keys if key not in text]
 
 
 def k6_the_card():
-    text = CARD.read_text(encoding="utf-8")
-    check_eq("K6: the card carries every key of the rule", absent_keys(text, CARD_KEYS), [])
-    check("K6: the old count (>=3 concerns reject) is gone", "≥3 concern" not in text and "≤2 concern" not in text)
-    for key in CARD_KEYS:
-        check_eq("K6 negative control: with the key removed the check reports it", absent_keys(text.replace(key, ""), CARD_KEYS), [key])
     # The per-file 9000-byte cap of agents/*.md is retired (selftest --limits says "old 9000 per-file cap"): the cap
     # that binds is audit A22, the WHOLE start load of the role (role_load.py, in tokens). The card is checked against that one.
     import role_load as RL

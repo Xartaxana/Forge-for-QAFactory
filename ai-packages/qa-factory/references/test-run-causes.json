@@ -49,6 +49,7 @@
     "tooling": "factory_defect",
     "reviewer_error": "factory_defect",
     "question_answer": "person",
+    "source_arrived": "person",
     "ticket_changed": "person"
   },
   "by_triage_verdict": {

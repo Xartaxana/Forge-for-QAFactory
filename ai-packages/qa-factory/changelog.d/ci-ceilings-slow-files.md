@@ -1,0 +1,1 @@
+- Test harness: three slow test files (`test_story_run_s7_live.py`, `test_no_move_seam.py`, `test_story_run_refusals.py`) get a 600 s per-file ceiling in the selftest table, so a loaded shared CI runner no longer kills them at the default 300 s (FR-31); the ceiling only keeps a green file green, and the contract test pins all three rows.

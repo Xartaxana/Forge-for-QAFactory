@@ -331,8 +331,42 @@ def test_a_busy_registry_is_a_one_line_refusal() -> None:
     root = temp_project("qa-factory-change-request-")
     try:
         path = words_file(root, WORDS)
-        lock_dir = root / "qa-factory" / "state" / ".project-decisions.lock"
-        lock_dir.mkdir(parents=True)
+        import event_store as ES
+        lock_file = root / "qa-factory" / "state" / "project-decisions.lock"
+        real = PD.lock
+        PD.lock = lambda r, timeout=0.2: real(r, timeout)
+        argv, err, code = sys.argv, io.StringIO(), None
+        sys.argv = ["project_decisions.py", "--root", str(root), "add-finding", "--essence", ESSENCE, "--scope", SCOPE,
+                    "--words-file", str(path), "--idempotency-key", "change-request:TP3-1"]
+        holder = ES.take_file_lock(lock_file, 0.0, record_holder=True)          # another handle holds the OS lock (a second handle in one process is busy)
+        try:
+            with contextlib.redirect_stderr(err):
+                try:
+                    PD.main()
+                except SystemExit as exc:
+                    code = exc.code
+        finally:
+            sys.argv = argv
+            PD.lock = real
+        text = err.getvalue()
+        check_eq("E16: exit 2, exactly one line, no traceback", (code, len(text.strip().splitlines()), "Traceback" in text),
+                 (2, 1, False))
+        check("E16: the line says the registry is busy and to run the same command again",
+              "the registry is busy" in text and "run the same command again" in text, text)
+        check("E16: the busy line carries the holder clause the lock recorded (F6)", "held by process" in text.lower(), text)
+        holder.release()
+        check_eq("E16: the retry after the lock is free writes the row", (add_words(root, WORDS).returncode, len(rows(root))), (0, 1))
+    finally:
+        cleanup(root)
+
+
+def test_a_broken_lock_never_says_another_writer() -> None:
+    """F6 (t-2196): a folder at the lock path cannot be locked: the LockBroken sentence is printed, never 'another writer' or
+    'run the same command again' (a retry cannot help). NEGATIVE control: a TimeoutError with no cause keeps today's busy line."""
+    root = temp_project("qa-factory-change-request-")
+    try:
+        path = words_file(root, WORDS)
+        (root / "qa-factory" / "state" / "project-decisions.lock").mkdir(parents=True)
         real = PD.lock
         PD.lock = lambda r, timeout=0.2: real(r, timeout)
         argv, err, code = sys.argv, io.StringIO(), None
@@ -348,12 +382,12 @@ def test_a_busy_registry_is_a_one_line_refusal() -> None:
             sys.argv = argv
             PD.lock = real
         text = err.getvalue()
-        check_eq("E16: exit 2, exactly one line, no traceback", (code, len(text.strip().splitlines()), "Traceback" in text),
-                 (2, 1, False))
-        check("E16: the line says the registry is busy and to run the same command again",
-              "the registry is busy" in text and "run the same command again" in text, text)
-        lock_dir.rmdir()
-        check_eq("E16: the retry after the lock is free writes the row", (add_words(root, WORDS).returncode, len(rows(root))), (0, 1))
+        check_eq("F6: exit 2, one line, no traceback", (code, len(text.strip().splitlines()), "Traceback" in text), (2, 1, False))
+        check("F6: the LockBroken sentence is printed", "cannot be locked" in text, text)
+        check("F6: no busy head and no retry advice", "the registry is busy" not in text and "run the same command again" not in text, text)
+        check_eq("F6: a TimeoutError with no cause keeps the busy line",
+                 PD._registry_busy_line("add-finding", TimeoutError("x")),
+                 "project_decisions: add-finding refused - the registry is busy (another writer); run the same command again")
     finally:
         cleanup(root)
 
@@ -589,6 +623,7 @@ if __name__ == "__main__":
     test_the_words_route_refuses_in_one_line_and_writes_nothing()
     test_control_bytes_and_non_ascii_words()
     test_a_busy_registry_is_a_one_line_refusal()
+    test_a_broken_lock_never_says_another_writer()
     test_an_inline_change_request_is_refused_with_its_door()
     test_every_line_break_is_one_space_in_a_row()
     test_the_digest_is_over_the_text_after_the_control_collapse()

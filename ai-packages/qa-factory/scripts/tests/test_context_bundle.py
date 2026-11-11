@@ -486,16 +486,9 @@ def discovery_checks(check) -> None:
         absent = (words_in((*C.V2_REQUIRED["coverage_search"], *C.SEARCH_STATUSES), "`coverage_search[]` rows:")
                   + words_in((*C.V2_REQUIRED["existing_test_candidates"], *C.TEST_ORIGINS), "`existing_test_candidates[]` rows:")
                   + [n for n in ("coverage_status: not_found",) if n not in card])
-        check("N1: the section pin reads the section's own sentence (control: a row without repo, revision, path is caught)",
-              (lambda c: [n for n in ("repo", "revision", "path")
-                          if not re.search(r"(?<![\w])" + n + r"(?![\w])",
-                                           c[c.find("`existing_test_candidates[]` rows:"):].split(". ")[0])])(
-                  card.replace("rows: candidate_id, repo, revision, path,", "rows: candidate_id,")) == ["repo", "revision", "path"])
         check("N1: the qa-scout card names the coverage_search and existing_test_candidates fields, their closed lists "
               "and the top-level not_found", not absent, absent)
         check("N1: the qa-scout card stays within 1,200 bytes", len(card.encode("utf-8")) <= 1200, len(card.encode("utf-8")))
-        check("N1: no second copy of the field list in the module (AR-13)",
-              (Path(C.__file__).read_text(encoding="utf-8")).count('"changed_area", "searched_paths"') == 1)
 
 
 def main() -> None:

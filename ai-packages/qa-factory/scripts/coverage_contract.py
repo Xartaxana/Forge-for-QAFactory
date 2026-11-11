@@ -292,6 +292,31 @@ def plan_rows(task):
     return value.get("rows", []) if isinstance(value, dict) else value
 
 
+# F5(a): the fixed part of the refusal of a manual-agent obligation whose `evidence_policy` is not one word of the
+# manual evidence policies. ONE producer (`validate_obligations`); `manual_evidence.prepare_request` reads it to tell a
+# shape error (the factory's own, walkable) from any other error of the plan (F5(c) item 1).
+POLICY_SHAPE_ERROR = "evidence_policy is one word of"
+# The same class for a `manual-human` obligation (m9, t-1945): its policy is text, not a list or a record - also the factory's own.
+POLICY_TYPE_ERROR = "manual evidence_policy is one word (text)"
+
+# F5(d): the one issue of `validate_manual_current` for an unprepared walk (a record carrying `unprepared`, no result).
+UNPREPARED = "unprepared walk: no result is bound"
+
+
+def unprepared_only(issues) -> bool:
+    """True exactly when `validate_manual_current` found nothing but the unprepared marker (F5(d), AR-13)."""
+    return list(issues or []) == [UNPREPARED]
+
+
+def _version_door(row):
+    """The tail of the refusal of a row that is not on schema version 2 (TR2-6/8, B-9; FR-1): the KEY NAME and its value,
+    and, when the row carries a key that looks like it (`coverage_schema_version`), that this is not the key. Reads the
+    row's key names only; the verdict stays with the caller."""
+    alike = sorted(k for k in row if isinstance(k, str) and k != "schema_version" and "schema" in k and "version" in k)
+    seen = f" (this row has {', '.join('`' + k + '`' for k in alike)}, which is not the key)" if alike else ""
+    return f": the row key is exactly `schema_version`, written as the number 2 (`schema_version: 2`){seen}"
+
+
 def validate_obligations(rows, require_v2=False):
     errors, ids = [], set()
     for row in rows:
@@ -299,7 +324,7 @@ def validate_obligations(rows, require_v2=False):
             continue  # base plan validator reports this
         version = row.get("schema_version", 1)
         if version not in (1, 2) or (require_v2 and version != 2):
-            errors.append(f"{row.get('id')}: coverage schema version 2 required")
+            errors.append(f"{row.get('id')}: coverage schema version 2 required" + _version_door(row))
         if version == 1:
             continue
         revision = row.get("coverage_contract_revision")
@@ -411,8 +436,20 @@ def validate_obligations(rows, require_v2=False):
                 errors.append(f"{oid}: parity needs independent input partitions")
             if ob.get("decision") == "unresolved" and not ob.get("remaining_gap"):
                 errors.append(f"{oid}: unresolved gap must be named")
-            if ob.get("decision") in {"manual-agent", "manual-human"} and not ob.get("evidence_policy"):
-                errors.append(f"{oid}: manual evidence_policy required before Gate A")
+            if ob.get("decision") == "manual-agent":
+                # F5(a) (B-15): the policy is ONE word of POLICIES (the one set, manual_evidence's); a dict, a list, a
+                # blank or an unknown word is refused here, at the S3 exit, with the allowed words (FR-38, FR-1)
+                from manual_evidence import POLICIES
+                policy = ob.get("evidence_policy")
+                if not isinstance(policy, str) or policy.strip() not in POLICIES:
+                    errors.append(f"{oid}: {POLICY_SHAPE_ERROR} {'|'.join(sorted(POLICIES))}; evidence kinds, phases "
+                                  "and the completion condition go in completion_condition and the observation fields")
+            elif ob.get("decision") == "manual-human":
+                policy = ob.get("evidence_policy")
+                if not isinstance(policy, str):
+                    errors.append(f"{oid}: {POLICY_TYPE_ERROR}, not a list or a record")
+                elif not policy.strip():
+                    errors.append(f"{oid}: manual evidence_policy required before Gate A")
             from observation_contract import validate_observation_contract
             errors.extend(validate_observation_contract(
                 ob, required=revision == COVERAGE_CONTRACT_REVISION))
@@ -573,7 +610,15 @@ def coverage_projection(task, report=None, manifest=None):
             except Exception:  # a projection never refuses over a story's own data (P1): the stored status stands
                 oracle = {"status": str(ob.get("oracle_status") or ""), "waiting": False, "question": "", "answers": []}
             oracle_status = oracle["status"]
+            unprepared_reason = ""
             if ob.get("decision") in {"manual-agent", "manual-human"}:
+                # F5(e) 2: an unprepared walk is no result row - `execution` is computed on the result rows only (none ->
+                # `not_run`) and the item names the walk (AR-27); `verified` stays False
+                unprepared_rows = [r for r in manual if r.get("unprepared") is not None]
+                manual = [r for r in manual if r.get("unprepared") is None]
+                if unprepared_rows:
+                    marker = unprepared_rows[-1].get("unprepared")
+                    unprepared_reason = str((marker.get("reason") if isinstance(marker, dict) else marker) or "no reason recorded")
                 valid_manual = [r for r in manual if r.get("evidence_validated") and not r.get("stale")
                                 and not validate_manual_current(task, r)]
                 execution = "passed" if valid_manual and len(valid_manual) == len(manual) and all(r.get("result") == "pass" for r in valid_manual) else "failed" if any(r.get("result") == "fail" for r in valid_manual) else "inconclusive" if manual else "not_run"
@@ -608,6 +653,10 @@ def coverage_projection(task, report=None, manifest=None):
                 else candidate_gap or ob.get("remaining_gap") or
                 ("compound obligation has an incomplete part" if not _parts_complete(ob)
                  else "current sufficient evidence incomplete")}
+            if unprepared_reason:
+                item["unprepared"] = unprepared_reason
+                if not verified and not awaiting and not person_debt:
+                    item["gap"] = f"not checked by hand: unprepared - {unprepared_reason}"
             if oracle_status != str(ob.get("oracle_status") or "") or oracle["answers"]:
                 # What the projection read differs from what the plan stored (read at read time, the
                 # approved plan is never edited): say so, with the answered value.
@@ -642,11 +691,33 @@ def recorded_checkout_revisions(task, profile_id) -> set:
     return found
 
 
+def _validate_unprepared(task, record):
+    """F5(d): the issues of a record carrying `unprepared` - ALWAYS starting with UNPREPARED, never empty, so every
+    filter `not validate_manual_current(r)` keeps it out of the results (FR-59). The marker is honoured only where code
+    wrote it (E5.8): the case's `request.json` holds `unprepared` with the same reason. Presence checks only (AR-29)."""
+    import manual_evidence as ME
+    issues = [UNPREPARED]
+    marker = record.get("unprepared")
+    reason = marker.get("reason") if isinstance(marker, dict) else None
+    request = ME.unprepared_request(task, record.get("case"))
+    if not request or not reason or request.get("reason") != reason:
+        issues.append("unprepared marker without an unprepared request")
+    if "result" in record or "then_quotes" in record:
+        issues.append("an unprepared walk records no result: its observations go to the analyst")
+    if request:
+        recorded = record.get("obligation_ids") or [record.get("obligation_id")]
+        if sorted(str(x) for x in recorded) != sorted(str(x) for x in request.get("obligation_ids") or []):
+            issues.append("an unprepared walk names the obligations of its request")
+    return issues
+
+
 def validate_manual_current(task, record):
     """Bind capture policy, exact case version, approved scope and source to planned intent."""
     import contract as C
     from controller import Controller
     from manual_evidence import validate_record
+    if record.get("unprepared") is not None:
+        return _validate_unprepared(task, record)
     state = Controller(task).state()
     captured_ids = record.get("obligation_ids") or [record.get("obligation_id")]
     ids = record.get("current_obligation_ids") or captured_ids

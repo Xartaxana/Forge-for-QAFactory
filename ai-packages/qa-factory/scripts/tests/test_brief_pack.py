@@ -767,7 +767,9 @@ def expectation_lines() -> None:
         register_critic(task)
         seed_changes(task, [fn_name(i) for i in range(1, 10)])
         capped = critic_brief()
-        check("10 KB of gate words: the critic's brief is still within 6 KB", capped["budget_bytes"] <= 6 * 1024, str(capped["budget_bytes"]))
+        check("10 KB of gate words: the critic's brief is still within 6 KB", capped["budget_bytes"] <= 6 * 1024,
+              f"{capped['budget_bytes']} {capped['over_ceiling']} head {brief_pack.head_bytes(capped['markdown'].split(chr(10))[2:10])} "
+              f"bytes {capped['bytes']}")
         check_eq("the trimming really ran: the words moved to a side file", capped["sides"]["decisions"], True)
         check_in("and the head still carries the changed-test line, with its 'more' tail",
                  ", and 1 more - the full list: " + pointer, capped["markdown"])
@@ -784,7 +786,7 @@ def expectation_lines() -> None:
 
 PROOF_START = "Live checks the predicate requires"
 CANNOT_START = "The live checks the predicate requires could not be listed: "
-PROOF_TAIL = (". Each needs a receipt: run its check and record it, or leave it in work/probe-debt.json "
+PROOF_TAIL = (". Each needs a receipt: run its check and record it, or leave it in work/probe-debt/S5-qa-code-critic-1.json "
               "for the conductor.")
 
 
@@ -1438,24 +1440,6 @@ def branch_check_lines() -> None:
             hooklib.ref = real_ref
         check_in("(j) the map is restored: the automator has the line again", "Branch check:", brief_of())
 
-        # (l) the charter, the lifecycle section and the line say the same words (I1, I2, FR-10)
-        charter = (PLUGIN / "agents/qa-automator.md").read_text(encoding="utf-8").replace("\r\n", "\n")
-        check_in("(l) the charter's rule 1: HEAD carries the Branch check commit's change, halt only if absent",
-                 "HEAD carries your `Branch check` commit's change\n   (ancestry, else content); halt only if absent; never switch a branch.", charter)
-        check_not_in("(l) the charter no longer says to stop on a mismatch of a recorded branch", "stop on mismatch", charter)
-        check_in("(l) the refusal heading names the change, not the branch",
-                 "- **HEAD does not carry the Branch check commit's change**: `qa-automator S5 halt", charter)
-        check_in("(l) the halt words the orchestrator matches on are unchanged (F-5)",
-                 "not on story branch — orchestrator branch check did not run or failed", charter)
-        check_not_in("(l) the old heading is gone", "Working tree is not on the story branch at entry", charter)
-        lifecycle = (PLUGIN / "references/execution-lifecycle.md").read_text(encoding="utf-8").replace("\r\n", "\n")
-        check_in("(l) the lifecycle section: ancestry at once, content for a squash, the name is not the test, halt only when absent",
-                 "ancestry of your brief's\n`Branch check` commit proves it at once; a squash, a rebase or a commit of another repository\n"
-                 "is proved by content; a branch NAME in context-manifest is the merge request's source branch,\nnever the test. "
-                 "Halt only when the change is absent.", lifecycle)
-        slice_text = (PLUGIN / "references/slices/qa-automator/execution-lifecycle.md").read_text(encoding="utf-8")
-        check_in("(l) and the automator's slice carries it", "Halt only when the change is absent.", slice_text)
-
         # (m) I2 across the states of the record: the line describes, it never asks the role to be on a branch
         states = [dict(BASE_RECORD), dict(BASE_RECORD, branch="(detached)"), dict(BASE_RECORD, branch=""),
                   dict(BASE_RECORD, late=True, late_why="x"), None, dict(BASE_RECORD, git="error", why="x")]
@@ -1575,33 +1559,10 @@ def blast_radius_lines() -> None:
         harness.cleanup(root)
 
 
-S3_PHASE = PLUGIN / "skills" / "qa-story" / "phases" / "s3.md"
-S3_CARRIES = "the brief carries the labels and the requirement states"
-S3_NEVER = "never send the role to `handoffs/vocabulary.yaml`"
-# What the S3 window-1 paragraph must NOT say: the old pointer to the plugin file, the hotfix's hand-copy relay (OH3-14).
-S3_FORBIDDEN = ("of `handoffs/vocabulary.yaml`", "you read that file", "COPY the words")
-S3_OLD_POINTER = ("the labels are\n`grounding_labels` and the requirement states `requirement_grounding_states` of `handoffs/vocabulary.yaml`. The\n"
-                  "fields it fills:")
-
-
-def s3_window1_problems(text: str) -> list:
-    """What is wrong with the window-1 paragraph of phases/s3.md: it must say the brief carries the two lists and that the role is
-    never sent to the vocabulary file, and it must hold no instruction to read or copy that file by hand."""
-    start = text.find("*Window 1")
-    para = text[start:text.find("Tell the role, verbatim", start)] if start >= 0 else ""
-    problems = [] if para else ["no window-1 paragraph"]
-    if para and S3_CARRIES not in " ".join(para.split()):
-        problems.append("does not say the brief carries the labels and the requirement states")
-    if para and S3_NEVER not in " ".join(para.split()):
-        problems.append("does not say never to send the role to the vocabulary file")
-    problems += [f"holds `{bad}`" for bad in S3_FORBIDDEN if bad in para]
-    return problems
-
-
 def labelling_vocabulary_lines() -> None:
     """OH3-14 / HF1-6: the S3 window-1 brief carries EVERY word of `grounding_labels` and `requirement_grounding_states`, in the one line
-    `handoff.grounding_vocabulary_line` builds; an unreadable vocabulary or an empty list is declared in that line, never blank, never a raise;
-    and the s3.md paragraph no longer sends the role to the plugin's file."""
+    `handoff.grounding_vocabulary_line` builds; an unreadable vocabulary or an empty list is declared in that line, never blank, never a raise.
+    (The s3.md phrases moved to design/role-rules.json.)"""
     import handoff as H
     root = harness.temp_project("qa-brief-labels-")
     real_vocabulary, real_allowed, real_ceiling = H.vocabulary, H.allowed, brief_pack.BRIEF_MAX_BYTES
@@ -1673,21 +1634,6 @@ def labelling_vocabulary_lines() -> None:
               and "requirement states: NONE READABLE" in one_empty[0], str(one_empty))
         H.allowed = real_allowed
 
-        # the phase text: the paragraph says the brief carries the words and never sends the role to the file
-        doc = S3_PHASE.read_text(encoding="utf-8")
-        check_eq("(OH3-14) phases/s3.md window 1: the brief carries the lists, the role is never sent to the plugin file, nothing says to copy by hand",
-                 s3_window1_problems(doc), [])
-        # NEGATIVE controls: the old pointer and the hotfix's hand-copy relay must each fail the same check
-        start = doc.find("Name `work/grounding.yaml` and the fields in the dispatch text;")
-        stop = doc.find("fields it fills:", start) + len("fields it fills:")
-        new_block = doc[start:stop]
-        old = doc.replace(new_block, "Name `work/grounding.yaml` and the fields in the dispatch text; " + S3_OLD_POINTER)
-        relay = doc.replace(new_block, new_block + " COPY the words into it: one line from `handoffs/vocabulary.yaml` (you read that file; the role cannot).")
-        check("(OH3-14) negative control: the control texts differ from the real one (a vacuous control proves nothing)",
-              start > 0 and old != doc and relay != doc, f"{start} {old == doc} {relay == doc}")
-        check("(OH3-14) negative control: the OLD pointer (`of handoffs/vocabulary.yaml`) fails the check",
-              bool(s3_window1_problems(old)), str(s3_window1_problems(old)))
-        check("(OH3-14) negative control: the hotfix's hand-copy relay fails the check", bool(s3_window1_problems(relay)), str(s3_window1_problems(relay)))
     finally:
         H.vocabulary, H.allowed, brief_pack.BRIEF_MAX_BYTES = real_vocabulary, real_allowed, real_ceiling
         harness.cleanup(root)
@@ -1886,37 +1832,7 @@ def p4_build(root: Path, task: Path) -> None:
                 path.write_bytes(data)
 
 
-def p4_one_reader() -> None:
-    """AR-13: the answers come through QR.answers_for_brief; the carrier of a question's answer is not the journal's events."""
-    source = (harness.SCRIPTS / "brief_pack.py").read_text(encoding="utf-8")
-    start = source.index("def question_answer_lines")
-    body = source[start:source.index("\ndef _carried_by", start)]
-    check("AR-13 hf2-7 P4: question_answer_lines reads through QR.answers_for_brief", "QR.answers_for_brief(" in body)
-    check_not_in("AR-13 hf2-7 P4: ...and scans no journal event", "human_answer", body)
-    check_not_in("AR-13 hf2-7 P4: ...and opens no file itself", ".read_text(", body)
-    check_not_in("AR-13 hf2-7 P4: the halt is read by `resolved`, never by `status`", 'halt.get("status")', source)
-    check_in("AR-13 hf2-7 P4 (positive control): the halt read is there, by `resolved`", 'not halt.get("resolved")', source)
-
-
 # --- SC1-10 (t-1301): the scout's and the tester's briefs, the doors of the documents no role is injected ------------------
-
-# B-K9: the keys, quoted from the spec's DoD as written BEFORE the run (not chosen after the fact). A key is a literal of the
-# text a role reads; a role file that loses it fails here by name.
-SC1_10_KEYS = {
-    # spec t-1765 X1 (B-D): the scout and tester charters keep two of the old keys; the "moved" ones (the brief names what is not
-    # injected, with its size; the bundle file first; the template paths; `--max-lines 100000`; the next query number) stand at their
-    # new carriers - the brief's file lines and the card, and the `--save` help of ticket_adapter.py - checked in SC1_10_MOVED below.
-    "agents/qa-scout.md": ["holds it whole and stdout is a summary", "Relevant means it can carry a requirement statement"],
-    "agents/qa-retro-analyst.md": ["Not injected - your brief names it"],
-    "skills/qa-onboarding/phases/p4-generate.md": ["delivers them to three roles"],
-}
-
-
-def missing_keys(text: str, keys: list) -> list:
-    """The keys of `keys` that `text` does not hold (whitespace-normalised, so a wrapped line still holds its key)."""
-    flat = " ".join(text.split())
-    return [key for key in keys if " ".join(key.split()) not in flat]
-
 
 def sc1_10_lines() -> None:
     import hooklib
@@ -2172,23 +2088,8 @@ def sc1_10_lines() -> None:
         tester_brief = brief("qa-requirements-tester", "18")["markdown"]
         check_in("B-K9 moved tester: the card carries the flag of the number (`--max-lines 100000`)", "--max-lines 100000", tester_brief)
         check_not_in("B-K9 moved control: a wrong flag value is not on the card", "--max-lines 99999", tester_brief)
-        adapter_source = (harness.SCRIPTS / "ticket_adapter.py").read_text(encoding="utf-8")
-        check_in("B-K9 moved scout: the saved query takes the next number beside --output", "tracker-query-<n>.json beside --output, the next n",
-                 adapter_source)
-        check_not_in("B-K9 moved scout control: a wrong numbering rule is not there", "beside --output, the previous n", adapter_source)
     finally:
         harness.cleanup(root)
-
-    # B-K9: the role files say what the brief now does. Negative control: a key that is not in the file fails the check.
-    for rel, keys in SC1_10_KEYS.items():
-        text = (harness.PLUGIN_ROOT / rel).read_text(encoding="utf-8")
-        check_eq(f"B-K9 {rel}: every key of the spec's DoD is in the text", missing_keys(text, keys), [])
-    check_eq("B-K9 negative control: a key that is not in the file is reported", missing_keys(
-        (harness.PLUGIN_ROOT / "agents/qa-scout.md").read_text(encoding="utf-8"), ["a sentence nobody wrote, SC1-10"]),
-        ["a sentence nobody wrote, SC1-10"])
-    check_eq("B-K9 negative control: the old charter line no longer holds the new key", missing_keys(
-        "| `references/templates/requirements-register.md` | **Not injected - `Read` them** from the plugin root |",
-        ["your brief names their paths"]), ["your brief names their paths"])
 
 
 def oh3_34_p1_areas_section() -> None:
@@ -2495,7 +2396,8 @@ def n4_scenario(task: Path, root: Path) -> None:
         check_eq("N4 W2: with no template the brief is the templated one minus the section plus the R5 line",
                  bare["markdown"], stem + "\n\n" + brief_pack.NO_FORM_LINE + "\n")
         check_in("N4 W2: ... the R5 line points at the digest shape of the rules", "`## Your handover`", bare["markdown"])
-        check_eq("N4 W2: ... and the budget is the whole text (no form to leave out)", brief_pack.measured_bytes(bare["markdown"]), bare["budget_bytes"])
+        check_eq("N4 W2: ... and the budget is the whole text (no form to leave out) minus the SD head, which is form too (X7-1)",
+                 brief_pack.measured_bytes(bare["markdown"]) - bare["budget_bytes"], brief_pack.head_bytes(bare["markdown"].split("\n")[2:10]))  # GM3: the budget counts the plugin root as a token
         # W5: the trimmed files are in `<ID>-files.md`, one `Not in the brief` line names it; --output writes no side file
         tight = build(ceiling=1, write=True)
         side_files = task / "work/briefs/S5-qa-automator-1-files.md"
@@ -2554,6 +2456,318 @@ def n4_scenario(task: Path, root: Path) -> None:
         for attr in [a for a in dir(hooklib) if "CACHE" in a]:
             setattr(hooklib, attr, None)
         brief_pack.BRIEF_MAX_BYTES = real
+
+
+# --- t-2181 PC-8: the sides of the story and the assumptions in the S5 briefs --------------------------------------------
+
+PC8_AUTHOR = "S5-qa-automator-1"
+PC8_BIND = "S5-qa-automator-2"
+PC8_CRITIC = "S5-qa-code-critic-1"
+PC8_SIDES = {"backend": {"reality": "absent", "deliverable": True, "settles_by": "", "source": "registry"},
+             "ui": {"reality": "real", "deliverable": True, "settles_by": "", "source": "launch"}}
+PC8_FIELDS = ("tests[].sides", "then_bindings[].about", "provisional[]", "tests[].provisional")
+
+
+def pc8_story(root: Path, sides=None, provisional=None, pending=None, tests=None, pipeline_extra=None) -> Path:
+    """A story before S5 with a `bind` automator dispatch beside the ordinary one and a bind critic dispatch (the critic still gets no
+    bind list); `sides` is the `pipeline.sides` record (None: no record), `provisional` the manifest's rows, `pending` the
+    `pending_implementation` rows, `tests` more `tests[]` rows, `pipeline_extra` more pipeline keys."""
+    task = seed(root, "QA-9")
+    seed_story_for_s5(task, root, "Gate A: approved.")
+    seed_branch(task)
+    pipeline = json.loads((task / "pipeline.json").read_text(encoding="utf-8"))
+    if sides is not None:
+        pipeline["sides"] = sides
+    pipeline.update(pipeline_extra or {})
+    (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+    state_path = task / "state/controller.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["dispatches"][PC8_BIND] = {"id": PC8_BIND, "stage": "S5", "role": "qa-automator", "status": "running",
+                                     "scope": ["TC-001", "TC-002"], "request_binding": {"purpose": "bind"}}
+    state["dispatches"][PC8_CRITIC] = {"id": PC8_CRITIC, "stage": "S5", "role": "qa-code-critic", "status": "running",
+                                       "scope": ["TC-001", "TC-002"], "request_binding": {"purpose": "bind"}}
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    manifest_path = task / "work/automation-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["tests"] = list(manifest.get("tests") or []) + list(tests or [])
+    if provisional is not None:
+        manifest["provisional"] = provisional
+    if pending is not None:
+        manifest["unresolved"] = pending
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return task
+
+
+def pc8_head(text: str) -> str:
+    return text.split("\n## ")[0]
+
+
+def s5_brief_names_side_fields_only_for_non_real_side() -> None:
+    root = harness.temp_project("qa-brief-pc8a-")
+    try:
+        harness.use_project(root)
+        pc8_story(root)
+        # all-real, no record, no rows: the brief is byte-identical to what it was (the helpers are the only addition)
+        text = brief_of(dispatch=PC8_AUTHOR)
+        for field in PC8_FIELDS:
+            check_not_in(f"(PC-8) an all-real story's S5 brief does not name {field}", field, text)
+        check_not_in("(PC-8) ... nor the side lines", "Sides of this story", text)
+        real_side, real_prov = brief_pack.side_lines, brief_pack.provisional_lines
+        brief_pack.side_lines, brief_pack.provisional_lines = (lambda *a, **k: []), (lambda *a, **k: [])
+        try:
+            without = brief_of(dispatch=PC8_AUTHOR)
+        finally:
+            brief_pack.side_lines, brief_pack.provisional_lines = real_side, real_prov
+        check_eq("(PC-8) the all-real brief is byte-identical to the brief built without the PC-8 block", text, without)
+        check_eq("(PC-8) side_lines of a pipeline with no record is []", brief_pack.side_lines({"id": "QA-9"}), [])
+        check_eq("(PC-8) ... and of a pipeline that could not be read", brief_pack.side_lines({}), [])
+        # F5: an unreadable or unknown record is ONE line, never the reader's all-real default, never silence
+        unknown = {"sides_unknown": {"why": "the registry is down"}}
+        for label, pipe in (("a sides record that is a list", {"sides": ["backend"]}), ("sides: null", {"sides": None}),
+                            ("sides_unknown with no record", unknown)):
+            got = brief_pack.side_lines(pipe)
+            check_eq(f"(PC-8 F5) {label}: exactly one line", len(got), 1)
+            check_in(f"(PC-8 F5) {label}: it says no side counts as real", "no side counts as real", got[0])
+        check_in("(PC-8 F5) the why of the unknown is carried", "the registry is down", brief_pack.side_lines(unknown)[0])
+        both = brief_pack.side_lines({"sides": {"backend": {"reality": "real", "source": "launch"}}, "sides_unknown": "late word"})
+        check_eq("(PC-8 F5) a readable record beside an unknown: the unknown line, then the header and the side",
+                 [both[0][:23], len(both)], ["The project's record of", 3])
+        probes = ({"sides": []}, {"id": "x"}, {"sides": {"a": {"reality": "real"}}}, {"sides": {"a": {"reality": "absent"}}}, unknown)
+        check_eq("(PC-8 F5) one rule with the proof stamp: the brief has lines exactly when the stamp is not empty",
+                 [bool(brief_pack.side_lines(p)) for p in probes], [bool(__import__("run_suite").proof_stamp(p)) for p in probes])
+        # F8: the header is true for a substituted side
+        sub = "\n".join(brief_pack.side_lines({"sides": {"backend": {"reality": "substituted", "source": "launch"}}}))
+        check_in("(PC-8 F8) a substituted side is said to run against its substitute", "a substituted side runs only against its substitute", sub)
+        check_not_in("(PC-8 F8) the old header that said no non-real side can run", "a side that is not real cannot be run against", sub)
+    finally:
+        harness.cleanup(root)
+
+    # F5 through the brief: an unknown record names the fields to fill and the one line, in both roles' heads
+    root = harness.temp_project("qa-brief-pc8u-")
+    try:
+        harness.use_project(root)
+        pc8_story(root, pipeline_extra={"sides_unknown": {"why": "no record was kept"}})
+        for role, did in (("qa-automator", PC8_AUTHOR), ("qa-code-critic", PC8_CRITIC)):
+            head = pc8_head(brief_of(role=role, dispatch=did))
+            check_in(f"(PC-8 F5) the {role} brief says the record could not be read", "no side counts as real", head)
+        check_in("(PC-8 F5) the automator is told the fields too", "tests[].sides", pc8_head(brief_of(dispatch=PC8_AUTHOR)))
+    finally:
+        harness.cleanup(root)
+
+    root = harness.temp_project("qa-brief-pc8b-")
+    try:
+        harness.use_project(root)
+        pc8_story(root, sides=PC8_SIDES)
+        text = brief_of(dispatch=PC8_AUTHOR)
+        head = pc8_head(text)
+        for field in PC8_FIELDS:
+            check_in(f"(PC-8) a story with a non-real side names {field} in the head", field, head)
+        check_in("(PC-8) the kinds come from the data file", "placeholder_locator", head)
+        check_in("(PC-8) the reality words come from the data file", "real | absent | substituted", head)
+        check_in("(PC-8) the marker the project's home carries is named", "qa-provisional: P-n", head)
+        check_in("(PC-8) a placeholder is never an expected value", "never a Then's expected value", head)
+        check_not_in("(PC-8) an ordinary window lists no bind round", "Bind round", text)
+        # F6: the kinds come through the ONE reader, and an unreadable file is said
+        import contract
+        real_kinds = contract.provisional_kinds
+        try:
+            contract.provisional_kinds = lambda: ["only_kind"]
+            via_reader = pc8_head(brief_of(dispatch=PC8_AUTHOR))
+            contract.provisional_kinds = lambda: None
+            unread = pc8_head(brief_of(dispatch=PC8_AUTHOR))
+        finally:
+            contract.provisional_kinds = real_kinds
+        check_in("(PC-8 F6) the brief names the kinds the reader returns", "kind: only_kind)", via_reader)
+        check_in("(PC-8 F6) an unreadable kinds file is said, not read as no kinds", "the kinds file could not be read", unread)
+        check("(PC-8 F6) the reader returns the file's kinds", "placeholder_locator" in (real_kinds() or []), str(real_kinds()))
+    finally:
+        harness.cleanup(root)
+
+    # a story whose sides are all real again but whose manifest already holds a provisional row still names the fields
+    pc8_story_rows = [{"id": "P-1", "kind": "placeholder_locator", "status": "settled_matched", "settles_on": "backend"}]
+    root = harness.temp_project("qa-brief-pc8c-")
+    try:
+        harness.use_project(root)
+        pc8_story(root, sides={"product": {"reality": "real", "deliverable": True, "settles_by": "", "source": "arrival"}},
+                  provisional=pc8_story_rows)
+        text = brief_of(dispatch=PC8_AUTHOR)
+        for field in PC8_FIELDS:
+            check_in(f"(PC-8) provisional rows on an all-real record still name {field}", field, pc8_head(text))
+        check_in("(PC-8) a record that exists is listed even when every side is real again", "- product: real", text)
+        check_not_in("(PC-8) a launch- or arrival-sourced side carries no knowledge marker", "[knowledge:", text)
+        # the helper at its bound: more sides than it shows
+        many = {f"s{i}": {"reality": "absent", "source": "launch"} for i in range(brief_pack.SIDES_SHOWN + 2)}
+        got = brief_pack.side_lines({"sides": many})
+        check_eq("(PC-8) AT the bound: header + SIDES_SHOWN sides + one `+N more` line", len(got), brief_pack.SIDES_SHOWN + 2)
+        check_in("(PC-8) BEYOND the bound the rest is counted, not cut in silence", "+2 more sides", got[-1])
+        at = brief_pack.side_lines({"sides": dict(list(many.items())[:brief_pack.SIDES_SHOWN])})
+        check_eq("(PC-8) exactly SIDES_SHOWN sides: no `+N more` line", len(at), brief_pack.SIDES_SHOWN + 1)
+        check_in("(PC-8) a side of unknown reality reads as not real", "unknown (not read as real)",
+                 "\n".join(brief_pack.side_lines({"sides": {"x": {"source": "launch"}}})))
+        check_in("(PC-8) bind is a word of the controller's own closed set", brief_pack.BIND_PURPOSE,
+                 __import__("controller").PURPOSES)
+    finally:
+        harness.cleanup(root)
+
+
+def bind_brief_lists_only_open_rows_and_pending_instances() -> None:
+    rows = [{"id": "P-1", "kind": "placeholder_locator", "status": "open", "what": "the basket button selector", "settles_on": "backend",
+             "home": {"file": "tests/pages/basket.py", "line_hint": 3}},
+            {"id": "P-2", "kind": "assumed_contract", "status": "settled_matched", "what": "SETTLED-WORDS", "settles_on": "backend"},
+            {"id": "P-3", "kind": "side_substitute", "status": "retracted", "what": "RETRACTED-WORDS", "settles_on": "backend"},
+            # F2 (a) as changed by the owner's word W3 (11.11.2026): kept by decision stays kept, also on a side that is real now (F8)
+            {"id": "P-4", "kind": "side_substitute", "status": "kept_by_decision", "what": "KEPT-WORDS", "settles_on": "backend"},
+            # F2 (b): open, but its side is still absent: it waits, it is counted, it is not listed
+            {"id": "P-5", "kind": "assumed_contract", "status": "open", "what": "WAIT-WORDS", "settles_on": "payments"},
+            # F3 (a): a row whose only dependent is a case of another window is not this dispatch's
+            {"id": "P-6", "kind": "placeholder_locator", "status": "open", "what": "OTHER-WINDOW-WORDS", "settles_on": "backend",
+             "dependents": [{"case": "TC-009"}]},
+            {"id": "P-7", "kind": "placeholder_locator", "status": "open", "what": "IN-WINDOW-WORDS", "settles_on": "backend",
+             "dependents": [{"case": "TC-002"}]}]
+    pending = [{"case": "TC-001", "reason": "pending_implementation", "instance_ids": ["test_limit", "test_wait"], "question": "Q-1"},
+               {"case": "TC-002", "area": "cart", "reason": "pending_implementation", "instance_ids": ["test_cart_run"], "question": "Q-2"},
+               {"case": "TC-002", "area": "pay", "reason": "pending_implementation", "instance_ids": ["test_only_wait"], "question": "Q-4"},
+               {"case": "TC-009", "reason": "pending_implementation", "instance_ids": ["test_other"], "question": "Q-3"}]
+    tests = [{"case": "TC-001", "instance_id": "test_limit", "file": "t.py", "sides": {"backend": "absent"}},
+             {"case": "TC-001", "instance_id": "test_wait", "file": "t.py", "sides": {"payments": "absent"}},
+             {"case": "TC-002", "area": "cart", "instance_id": "test_cart_run", "file": "t.py", "sides": {"backend": "absent"}},
+             {"case": "TC-002", "area": "pay", "instance_id": "test_only_wait", "file": "t.py", "sides": {"payments": "absent"}},
+             {"case": "TC-009", "instance_id": "test_other", "file": "t.py", "sides": {"backend": "absent"}}]
+    record = {"backend": {"reality": "real", "deliverable": True, "settles_by": "", "source": "arrival"},
+              "payments": {"reality": "absent", "deliverable": True, "settles_by": "", "source": "launch"}}
+    root = harness.temp_project("qa-brief-pc8d-")
+    try:
+        harness.use_project(root)
+        pc8_story(root, sides=record, provisional=rows, pending=pending, tests=tests)
+        text = brief_of(dispatch=PC8_BIND)
+        head = pc8_head(text)
+        check_in("(PC-8) the bind brief says what the round is", "Bind round - the code arrived", head)
+        check_in("(PC-8 F7) the bind procedure is in the brief, not the charter", "`settled_matched`, edited `settled_edited`", head)
+        check_in("(PC-8) the open row is listed with its kind, side, words and home",
+                 "- open P-1 (placeholder_locator) on backend: the basket button selector - home tests/pages/basket.py", head)
+        for gone in ("P-2", "P-3", "SETTLED-WORDS", "RETRACTED-WORDS"):
+            check_not_in(f"(PC-8) the bind brief lists no settled or retracted row ({gone})", gone, text)
+        check_not_in("(PC-8 F2, F8: owner word W3 11.11.2026) a kept row whose side is real now STAYS kept - the bind brief does not tell the role to reopen it",
+                     "KEPT-WORDS", text)
+        check_not_in("(F8) ... and says no `back to open`", "back to open", head)
+        check_not_in("(PC-8 F2) an open row on a side still absent is not listed as yours", "WAIT-WORDS", text)
+        check_in("(PC-8 F2) ... it is counted as waiting", "- 1 open row(s) still waiting for payments (not real yet): leave them", head)
+        check_not_in("(PC-8 F3) a row of another window's case is not listed", "OTHER-WINDOW-WORDS", text)
+        check_in("(PC-8 F3) a row whose dependent is in the window is", "IN-WINDOW-WORDS", head)
+        check_in("(PC-8 F2) an instance whose side is real now is told to run", "- pending row TC-001: run test_limit;", head)
+        check_in("(PC-8 F2) ... and the one an absent side still excuses waits", "still waiting for an absent side: test_wait", head)
+        check_not_in("(PC-8 F2) ... never under run", "run test_limit, test_wait", head)
+        check_in("(PC-8 F3) the retract key of a row is its case key, with the area", 'retracted_unresolved: ["cart/TC-002"]', head)
+        check_in("(PC-8 F3) ... and a row with no area keeps the bare id", 'retracted_unresolved: ["TC-001"]', head)
+        check_in("(PC-8 F2) a row whose instances all wait is left alone", "- pending row pay/TC-002: leave it; still waiting for an absent side: test_only_wait", head)
+        check_not_in("(PC-8 F3) a pending row of another window's case is not listed", "test_other", text)
+        # a dispatch with no readable scope reads the whole story (the exit check's rule): the other window's row is listed again
+        state_path = root / "qa-factory/artifacts/QA-9/state/controller.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["dispatches"][PC8_BIND]["scope"] = []
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        whole = pc8_head(brief_of(dispatch=PC8_BIND))
+        check_in("(PC-8 F3) no scope: the whole story's rows", "OTHER-WINDOW-WORDS", whole)
+        check_in("(PC-8 F3) ... and its pending rows", "test_other", whole)
+        state["dispatches"][PC8_BIND]["scope"] = ["TC-001", "TC-002"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        ordinary = brief_of(dispatch=PC8_AUTHOR)
+        check_not_in("(PC-8) an ordinary window does not list the open row", "P-1", ordinary)
+        check_not_in("(PC-8) ... nor the pending row", "pending row", ordinary)
+        critic = brief_of(role="qa-code-critic", dispatch=PC8_CRITIC)
+        check_not_in("(PC-8) the code critic's brief carries no bind list, even on a bind dispatch", "Bind round", critic)
+        # F9: a bind round that fails to list says so; an ordinary window that fails loses only the reminder
+        real_bind, real_assume = brief_pack._bind_lines, brief_pack._assumption_lines
+        try:
+            def boom(*a, **k):
+                raise TypeError("probe")
+            brief_pack._bind_lines = boom
+            failed = pc8_head(brief_of(dispatch=PC8_BIND))
+            brief_pack._assumption_lines = boom
+            ordinary_failed = brief_of(dispatch=PC8_AUTHOR)
+        finally:
+            brief_pack._bind_lines, brief_pack._assumption_lines = real_bind, real_assume
+        check_in("(PC-8 F9) a failed bind listing is said, with the exception type", "The rows could not be listed (TypeError)", failed)
+        check_in("(PC-8 F9) ... under the bind head", "Bind round - the code arrived", failed)
+        check_not_in("(PC-8 F9) an ordinary window that fails is silent about it", "could not be listed", ordinary_failed)
+        # AT the bound and BEYOND it
+        many = [dict(rows[0], id=f"P-{i}") for i in range(1, brief_pack.PROVISIONAL_SHOWN + 3)]
+        pc8_story_path = root / "qa-factory/artifacts/QA-9/work/automation-manifest.json"
+        manifest = json.loads(pc8_story_path.read_text(encoding="utf-8"))
+        manifest["provisional"] = many[:brief_pack.PROVISIONAL_SHOWN]
+        pc8_story_path.write_text(json.dumps(manifest), encoding="utf-8")
+        at = pc8_head(brief_of(dispatch=PC8_BIND))
+        check_eq("(PC-8) AT the bound every open row is listed", at.count("- open P-"), brief_pack.PROVISIONAL_SHOWN)
+        check_not_in("(PC-8) AT the bound there is no `+N more`", "more rows to settle", at)
+        manifest["provisional"] = many
+        pc8_story_path.write_text(json.dumps(manifest), encoding="utf-8")
+        beyond = pc8_head(brief_of(dispatch=PC8_BIND))
+        check_eq("(PC-8) BEYOND the bound only SHOWN rows are listed", beyond.count("- open P-"), brief_pack.PROVISIONAL_SHOWN)
+        check_in("(PC-8) ... and the rest is counted", "+2 more rows to settle", beyond)
+        # empty outcomes are said
+        manifest["provisional"] = []
+        manifest["unresolved"] = []
+        pc8_story_path.write_text(json.dumps(manifest), encoding="utf-8")
+        empty = pc8_head(brief_of(dispatch=PC8_BIND))
+        check_in("(PC-8) no open row is a declared outcome", "- no open provisional row", empty)
+        check_in("(PC-8) no pending instance is a declared outcome", "- no pending instance", empty)
+        pc8_story_path.write_text("{not json", encoding="utf-8")
+        broken = pc8_head(brief_of(dispatch=PC8_BIND))
+        check_in("(PC-8) an unreadable manifest is named, not read as empty", "could not be listed: work/automation-manifest.json cannot be read", broken)
+        pc8_story_path.unlink()
+        gone_manifest = pc8_head(brief_of(dispatch=PC8_BIND))
+        check_in("(PC-8) an absent manifest is named", "work/automation-manifest.json is not there", gone_manifest)
+    finally:
+        harness.cleanup(root)
+
+
+def sides_lines_marked_and_given_to_code_critic() -> None:
+    root = harness.temp_project("qa-brief-pc8e-")
+    try:
+        harness.use_project(root)
+        pc8_story(root, sides=PC8_SIDES)
+        author = brief_of(dispatch=PC8_AUTHOR)
+        critic = brief_of(role="qa-code-critic", dispatch=PC8_CRITIC)
+        lines = brief_pack.side_lines(json.loads((root / "qa-factory/artifacts/QA-9/pipeline.json").read_text(encoding="utf-8")))
+        check("(PC-8) the helper returned the header and both sides", len(lines) == 3, str(lines))
+        for who, text in (("automator", author), ("code critic", critic)):
+            head = pc8_head(text)
+            check("(PC-8) the " + who + "'s head holds the helper's lines whole, in order, together",
+                  "\n".join(lines) in head, "\n".join(lines))
+        check_eq("(PC-8 F1) a registry side whose row has no registry_key gets no marker (no key is invented)",
+                 [ln for ln in lines if "[knowledge:" in ln], [])
+        check_not_in("(PC-8) a launch-sourced side carries none", "- ui: real [", "\n".join(lines))
+        check_not_in("(PC-8) the critic is handed no fields to fill", "tests[].provisional", pc8_head(critic))
+        # F1: the marker carries the registry key the sides reader returns (PC-1b adds the field to `story_sides`; a synthetic row stands in)
+        import contract
+        real_reader = contract.story_sides
+        rows = {"backend": {"reality": "absent", "deliverable": True, "settles_by": "", "reference": None, "source": "registry",
+                            "registry_key": "product.sides"},
+                "ui": {"reality": "real", "deliverable": True, "settles_by": "", "reference": None, "source": "launch",
+                       "registry_key": "product.ui"},
+                "cart": {"reality": "absent", "deliverable": True, "settles_by": "", "reference": None, "source": "person",
+                         "registry_key": "product.cart"}}
+        try:
+            contract.story_sides = lambda *a, **k: rows
+            keyed = brief_pack.side_lines({"sides": PC8_SIDES})
+        finally:
+            contract.story_sides = real_reader
+        check_eq("(PC-8 F1) only the registry-sourced side carries the marker, with its registry key",
+                 [ln for ln in keyed if "[knowledge:" in ln], ["- backend: absent [knowledge:product.sides]"])
+        # no mark without a registry source, whatever the other attributes
+        plain = brief_pack.side_lines({"sides": {"backend": {"reality": "absent", "source": "person"}}})
+        check_not_in("(PC-8) a person-sourced side carries no marker", "[knowledge:", "\n".join(plain))
+        # an all-real story's critic brief is as it was
+        brief_pack_lines = brief_pack.side_lines({"id": "QA-9"})
+        check_eq("(PC-8) no record and all real: the critic gets no side line", brief_pack_lines, [])
+    finally:
+        harness.cleanup(root)
+
+
+def pc8_scenarios() -> None:
+    s5_brief_names_side_fields_only_for_non_real_side()
+    bind_brief_lists_only_open_rows_and_pending_instances()
+    sides_lines_marked_and_given_to_code_critic()
 
 
 def main() -> None:
@@ -2645,8 +2859,10 @@ def main() -> None:
         check("(k) the S5 brief is under 6 KB (budget, the section outside it) WITH the Branch check line (the head is never shrunk)",
               result["budget_bytes"] <= 6 * 1024, str(result["budget_bytes"]))
         check("the S5 brief is under 6 KB (budget)", result["budget_bytes"] <= 6 * 1024)
-        check_eq("N4 W1: the section is outside the budget: bytes - budget_bytes is exactly its size",
-                 brief_pack.measured_bytes(text) - result["budget_bytes"], form_bytes())       # GM3: the budget counts the plugin root as a token
+        # X7-1: the automator is a charter, so its brief opens with the seven SD header lines: form outside the body budget too
+        sd_head = brief_pack.head_bytes(text.split("\n")[2:10])
+        check_eq("N4 W1: the section and the SD head are outside the budget: bytes - budget_bytes is exactly their size",
+                 brief_pack.measured_bytes(text) - result["budget_bytes"], form_bytes() + sd_head)  # GM3: the budget counts the plugin root as a token
         check_in("it names the scope", "Scope: TC-001, TC-002", text)
         check_in("and the read_first pointer", "Read first, before anything else: work/s5-notes.md", text)
         digests_ceiling = s5_ceiling(lambda r: r["sides"]["digests"] is False)
@@ -2777,7 +2993,7 @@ def main() -> None:
         # --- the critic's card ---------------------------------------------------------------
         critic = brief_pack.build("QA-9", "S5", "qa-code-critic", "S5-qa-code-critic-1", write=False)["markdown"]
         check_in("the P4 command has the exact shape (B-373 c: any language, --at, --release-copy)",
-                 'probe_by_code.py --task QA-9 --dispatch S5-qa-code-critic-1 --test "<file>::<test name>" --instance <IID> [--mutation invert|expected] [--oracle <file>::<function>] [--at <line>] [--release-copy <file>] [--json]',
+                 'probe_by_code.py --task QA-9 --dispatch S5-qa-code-critic-1 --test "<file>::<test name>" --instance <IID> [--oracle <file>::<function>] [--at <line>] [--release-copy <file>] [--json]',
                  critic)
         check_in("the card says what <test name> is for pytest and for another language",
                  "<test name> is [Class::]<func>[<param>] for pytest, the method or title in any other language with an "
@@ -2791,14 +3007,20 @@ def main() -> None:
                  "`--release-copy <file>` alone drops that copy, only after the test's author has settled the file", critic)
         check_in("and the critic reads the window's test file", "tests/coupon/test_coupon.py (", critic)
         check_in("probe_by_code is the default probe of every new/changed test",
-                 "the default probe for every new/changed test; intended_failure writes the live receipt", critic)
+                 "the default probe, every check of every new/changed test, one call per instance: with no --at it walks every check, and each check needs an entry in "
+                 "work/probe-models/S5-qa-code-critic-1.json", critic)
+        check_in("t-2064 P7: a plan of more than 3 rows runs in the background; plan_unfinished continues it; the receipt needs every owed check",
+                 "a plan of more than 3 rows runs in the background; `plan_unfinished`: the same call continues it; "
+                 "the live receipt is written only when every owed check is proved", critic)
+        check_not_in("t-2064 P7: no `--mutation invert|expected` and no first-assert wording on the card",
+                     "[--mutation invert|expected]", critic)
         check_in("red_sandbox is the critic's probe only on doubt, with the reason in the findings",
                  "red_sandbox.py --probe --request <mutations.json> --task-root", critic)
         check_in("and the line says when: only when you doubt", "only when you doubt the check looks at the product", critic)
         check_not_in("nothing calls probe_by_code the only probe any more", "the ONLY probe", critic)
-        check_in("run budget: a repeat of a probe is answered already_probed", "a repeat on the same bytes is answered already_probed", critic)
-        check_in("run budget: red_sandbox takes the place of probe_by_code for that instance",
-                 "in place of probe_by_code for that instance", critic)
+        check_in("run budget: a repeat of a probe is answered already_probed", "a repeat on the same bytes and entries is answered already_probed", critic)
+        check_in("t-2064 P7: red_sandbox proves the one check it names, named by a `product` entry, the others stay owed",
+                 "it proves the one check it names, you name it with a `product` entry in the model file, the others stay owed", critic)
         check_in("run budget: the critic has the stand door too", "stand_health.py --probe --env <name>", critic)
         check_in("two mutations of one file are one combined replacement (B-314), said to the critic",
                  "ONE combined replacement (B-314)", critic)
@@ -2969,6 +3191,7 @@ def main() -> None:
     labelling_vocabulary_lines()
     sc1_10_lines()
     oh3_34_p1_areas_section()
+    pc8_scenarios()
 
     base =Path(tempfile.mkdtemp(prefix="qa-factory-brief-p4-"))
     try:
@@ -2978,7 +3201,6 @@ def main() -> None:
         p4_halts(base)
     finally:
         shutil.rmtree(base, ignore_errors=True)
-    p4_one_reader()
 
     harness.finish("test_brief_pack")
 

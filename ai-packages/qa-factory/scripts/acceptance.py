@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
 import proof_level  # noqa: E402
-from hooklib import sorted_paths  # noqa: E402
+from hooklib import read_json, sorted_paths  # noqa: E402
 
 # A mechanical fix (a sleep, a raw locator, a lint) made on the critic's word after the review
 # and the probe were bound to the test's bytes. The window record then carries
@@ -43,12 +43,12 @@ BLOCKED_OUTCOME = "blocked_by_env"
 # statically and says it was not verified. `approved` would claim a live check that never happened.
 BLOCKED_REVIEW_VERDICT = "unverified"
 
-# A probe that could not run here, named by a person's word or by the factory (HF1-14, TP1-12586; RN1-9): the item RAN GREEN, owes a live
+# A probe that could not run here, named by a person's word (HF1-14, TP1-12586): the item RAN GREEN, owes a live
 # check, reached no valid receipt, and carries a `probe_gap` block. The claim is believed only as far as the story's
-# own `pipeline.json` says (a live `probe gap: <instance or case>` word, `contract.probe_gap_words`): named ->
+# own `pipeline.json` says (a live `probe gap: <case key>` word, `contract.probe_gap_words`): named ->
 # `probe_gap:<iid>`; the block with no such word -> `probe_gap_unrecorded:<iid>` (the controller refuses it whatever the
-# caller typed); a gap of the factory's own data (E15: `incomplete`, `cause: data_row`, `proof_level.probe_factory_data_gap`) is
-# named by the FACTORY, last, and counts the same. The review of such an item is the critic's static word, `unverified` (D-0013: S8 reads it as
+# caller typed). The factory names no gap: a failure at the mutated line whose text the tool cannot read (E15: `incomplete`,
+# `cause: judgment`, `proof_level.probe_owes_judgment`) is the code critic's to judge, never a gap. The review of such an item is the critic's static word, `unverified` (D-0013: S8 reads it as
 # `review_unverified`, "Left with you"); `approved` would claim a live check that never happened.
 PROBE_GAP_KIND = "probe_gap"
 PROBE_GAP_UNRECORDED_KIND = "probe_gap_unrecorded"
@@ -541,6 +541,113 @@ def blocked_instances(manifest, items, scope=None, root=None, runs=None, refused
     return found
 
 
+# --- an instance whose side does not exist yet (t-2181 PC-4, C5) -------------------------------------------------------
+# ONE reader decides "pending" for an INSTANCE (AR-13, S14): `s5_precheck` (the run mapping and C5), `window_record` (is a
+# probe owed) and `run_witness_excused` (so the witness readers) all call `pending_instances`, a sibling of `blocked_instances`.
+#
+# ERROR DIRECTION (it moves from a report reader into the gate that excuses a run): the allowed error is "not pending" - the
+# instance must run, a refusal costs the author one more round; the forbidden error is "pending" for an instance that could
+# run - it would excuse a run, a probe and a witness nobody owed away (FR-59). Every doubt answers "not pending": a row
+# without `instance_ids`, an instance the manifest holds no row for, a test that declares no `absent` side, a side the reader
+# does not call `absent` (an unknown reads as not absent), a row of another case, an instance outside the given scope.
+
+PENDING_OUTCOME = C.PENDING_IMPLEMENTATION
+
+
+def pending_rows(manifest) -> list:
+    """The `pending_implementation` rows of the manifest that name at least one instance (`instance_ids`): the ONE filter of them
+    (AR-13) - `pending_instances`, the S5 sides check and the window re-derivation read through it. A whole-case row with no
+    `instance_ids` is not one of them (E-X2)."""
+    if not isinstance(manifest, dict):
+        return []
+    return [r for r in C.manifest_unresolved(manifest)
+            if str(r.get("reason") or "") == PENDING_OUTCOME and isinstance(r.get("instance_ids"), list)
+            and any(str(n or "").strip() for n in r["instance_ids"])]
+
+
+def tests_by_alias(manifest, cfg=None) -> dict:
+    """`{alias: tests[] row}` over every alias of every test (`contract.instance_id_aliases`): the ONE alias map of the pending
+    readers, FIRST row wins on a repeated alias (the tie-break `pending_instances` always had)."""
+    cfg = cfg if cfg is not None else C.case_config()
+    by_alias: dict = {}
+    for test in C.manifest_tests(manifest):
+        for alias in C.instance_id_aliases(test, cfg):
+            by_alias.setdefault(alias, test)
+    return by_alias
+
+
+def pending_instances(manifest, items, scope=None, sides=None) -> dict:
+    """`{instance id: the unresolved[] row that excuses it}` for the `items` (dicts with an `instance_id`).
+
+    An instance is pending when ALL hold (C5):
+      (i)   a `pending_implementation` row of the manifest names it (an alias of it, `contract.instance_id_aliases`) in its
+            `instance_ids`, and the row's case is a case the instance covers - those of `scope` (case -> instance ids) that
+            list it, or, without `scope`, the cases of its `tests[]` row;
+      (ii)  its `tests[]` row declares a side valued `absent` in `sides` (`{side: real|substituted|absent}`);
+      (iii) with `sides` (the output of `contract.story_sides`: `{name: {reality, ...}}`) that same side is `absent` there.
+    Without `sides` (manifest-only mode: `check_witness` has no story root) (iii) is not made here; `s5_precheck` makes it
+    at the same S5 exit. A whole-case row with no `instance_ids` excuses no instance (E-X2)."""
+    rows = pending_rows(manifest)
+    if not rows:
+        return {}
+    cfg = C.case_config()
+    by_alias = tests_by_alias(manifest, cfg)
+    by_case = ({str(case): [str(i) for i in ids] for case, ids in scope.items() if isinstance(ids, list)}
+               if isinstance(scope, dict) else None)
+    found: dict = {}
+    for item in items or []:
+        iid = str((item or {}).get("instance_id") or "") if isinstance(item, dict) else ""
+        if not iid or iid in found:
+            continue
+        entry = by_alias.get(iid)
+        declared = entry.get("sides") if isinstance(entry, dict) else None
+        if not isinstance(declared, dict):
+            continue
+        absent = [str(name) for name, value in declared.items() if value == "absent"]
+        if sides is not None:
+            absent = [name for name in absent
+                      if isinstance(sides.get(name), dict) and sides[name].get("reality") == "absent"]
+        if not absent:
+            continue
+        names = set(C.instance_id_aliases(entry, cfg)) | {iid}
+        cases = ([case for case, ids in by_case.items() if iid in ids] if by_case is not None
+                 else list(C.manifest_test_links(entry, cfg)) + [str(entry.get("case") or "")])
+        for row in rows:
+            named = {str(n).strip() for n in row["instance_ids"] if str(n or "").strip()}
+            if named & names and any(C.case_matches(str(row.get("case") or ""), case, cfg=cfg)
+                                     for case in cases if case):
+                found[iid] = row
+                break
+    return found
+
+
+# --- no run to witness (t-2181 PC-4, B3) -------------------------------------------------------------------------------
+# ONE public reader of "this manifest owes no `run_witness`" (AR-13): `check_witness.RULES`, `validate_artifacts.check_phase_json`
+# and `handoff_check._run_witness` all ask it, so the all-handed and the all-pending roads are excused in the same three
+# places and never in two of them. ERROR DIRECTION: "" (witness owed) on any doubt; the forbidden error is excusing a run
+# that was owed (FR-59).
+
+def run_witness_excused(manifest) -> str:
+    """`"handed"` when every test of the manifest belongs to a case the person took over (nothing in the session could launch a
+    run: TP2-2536), `"pending"` when every test is named by `pending_instances` in its MANIFEST-ONLY mode (no story root
+    here, so the reader's third condition is made by `s5_precheck` at the same S5 exit; the collect is owed instead,
+    `check_witness._collect_row_missing`), else `""`. One test that could run puts the whole manifest back under the rule."""
+    if not isinstance(manifest, dict):
+        return ""
+    try:
+        handed = {row["case"] for row in C.handed_tests(manifest)}
+        if handed:
+            tests = [t for t in manifest.get("tests") or [] if isinstance(t, dict)]
+            if all(({str(c) for c in C.manifest_test_links(t)} | {str(t.get("case") or "")}) & handed for t in tests):
+                return "handed"
+        ids = [C.test_instance_id(t) for t in C.manifest_tests(manifest)]
+        if ids and all(ids) and all(i in pending_instances(manifest, [{"instance_id": i} for i in ids]) for i in ids):
+            return "pending"
+    except Exception:
+        return ""
+    return ""
+
+
 # --- an instance the person runs (B-375) -------------------------------------------------------------------------------
 # ONE reader decides "handed to the person" for an INSTANCE (AR-13): `window_record.build` (writes the outcome) and
 # `validate_window` (re-derives it from the manifest under the root, so a record that merely CLAIMS the outcome is not
@@ -875,15 +982,16 @@ def probe_gap_named(window, root) -> dict:
     """{instance id: {"key", "words", "at"}} — the items of `window` that carry a `probe_gap` block AND that a live
     recorded word of the person names: the instance id itself, else a case key of `scope_instances` that lists it, else (GW1-43)
     the decision of the CLASS (`contract.probe_gap_class_word`, key `class:probe_gap_accepted`) for a green instance whose probe
-    the tool could not read; LAST (RN1-9, E15) the FACTORY's own naming, key `factory:data_row`, for a green instance whose probe
-    record says `incomplete` with `cause: data_row` and that no word of the person names. The ONE join (identifier equality through `contract.probe_gap_words`; never `*`, never a substring), read from
+    the tool could not read (`cause: judgment` is never that: the code critic's, `proof_level.probe_owes_judgment`). The factory
+    names no gap of its own (t-1968 N2). A `cannot_judge` item (t-1968 N5) is named ONLY by the person's `probe not proved: <case key>`
+    word (`contract.probe_not_proved_words`) not older than the judgment, key `probe not proved: <case key>`. The ONE join (identifier equality through `contract.probe_gap_words`; never `*`, never a substring), read from
     the story's own `pipeline.json` under `root` and not from the window, which a role could have written. Error
     direction: toward NO entry (an unreadable pipeline names nothing)."""
     try:
         pipeline = json.loads((Path(root) / "pipeline.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return {}
-    words = C.probe_gap_words(pipeline)
+    words, proved = C.probe_gap_words(pipeline), C.probe_not_proved_words(pipeline)
     scope = window.get("scope_instances") if isinstance(window.get("scope_instances"), dict) else {}
     named: dict = {}
     for item in window.get("instances") or []:
@@ -892,6 +1000,18 @@ def probe_gap_named(window, root) -> dict:
         identity = str(item.get("instance_id") or "")
         keys = [identity] + [str(case) for case, ids in scope.items() if isinstance(ids, list) and identity in ids]
         own = list(keys)
+        # t-1968 N5 (twin of `window_record.probe_gap_block`): a test whose probe the code critic could not judge (`cannot_judge`) is
+        # named ONLY by the person's `probe not proved: <case key>` word of the judgment's time or later, through the one reader of
+        # it; the `probe gap:` words (instance, case, `tooling:`, class) are not read for it
+        # F1 (t-2007): a record still `unjudged` is the critic's and is named by NO word (instance, case, `tooling:` or class)
+        if proof_level.probe_owes_judgment(root, identity, str(item.get("input_hash") or "")) == "unjudged":
+            continue
+        facts = proof_level.cannot_judge_facts(root, identity, str(item.get("input_hash") or ""))
+        if facts is not None:
+            found = proof_level.not_proved_word(facts, keys[1:], proved) if identity else None
+            if found:
+                named[identity] = {"key": f"{C.PROBE_NOT_PROVED_PREFIX} {found[0]}", **found[1]}
+            continue
         # the class word `tooling:<language>` (EP1-36), last: the instance's own word and its case's stay first. The same reader
         # as the window's (`proof_level.tooling_gap_key`), over the current hash the item carries.
         keys.append(proof_level.tooling_gap_key(root, identity, str(item.get("input_hash") or "")))
@@ -908,11 +1028,6 @@ def probe_gap_named(window, root) -> dict:
             if (identity and klass and item.get("outcome") == "passed"
                     and proof_level.probe_could_not_run(root, identity, str(item.get("input_hash") or ""))):
                 named[identity] = dict(klass)
-            # RN1-9 (E15), LAST (twin of `window_record.probe_gap_block`, AR-19): no word of the person names it, and the probe's
-            # record of THESE bytes says the failure's wording is missing from the factory's detector row: the factory names it.
-            elif (identity and item.get("outcome") == "passed"
-                    and proof_level.probe_factory_data_gap(root, identity, str(item.get("input_hash") or ""))):
-                named[identity] = {"key": proof_level.FACTORY_DATA_GAP_KEY, "words": proof_level.FACTORY_DATA_GAP_WORDS, "at": ""}
     return named
 
 
@@ -958,6 +1073,14 @@ def validate_window(window, root):
     handed_claims = [i for i in window.get("instances", []) if isinstance(i, dict) and i.get("outcome") == HANDED_OUTCOME]
     handed_ok = (handed_instances(_manifest_under(root), handed_claims, window.get("scope_instances"), root)
                  if handed_claims else {})
+    # t-2181 PC-4 (B2): the same for an item that CLAIMS `pending_implementation` - ONE call (`pending_instances`) over the manifest
+    # and the story's sides under `root`, never for a window with no such item. A claim the reader does not name (no row, a
+    # side the story does not call absent, a terminal run of it) is not excused: it is an outcome other than `passed`
+    # (`product:`) and a probe is owed as for any instance that could run (AR-28, error direction "not pending").
+    pending_claims = [i for i in window.get("instances", []) if isinstance(i, dict) and i.get("outcome") == PENDING_OUTCOME]
+    pending_ok = (pending_instances(_manifest_under(root), pending_claims, window.get("scope_instances"),
+                                    C.story_sides(read_json(root / "pipeline.json", {}, kind=dict)))
+                  if pending_claims else {})
     # HF1-14: the words that name a probe gap, read once (E11: an item without `probe_gap` is judged exactly as before).
     gap_words = probe_gap_named(window, root) if any(
         isinstance(i, dict) and isinstance(i.get("probe_gap"), dict) for i in window.get("instances", [])) else {}
@@ -978,6 +1101,7 @@ def validate_window(window, root):
         handed = claimed_handed and identity in handed_ok
         unconfirmed = claimed_handed and not handed
         stopped = item.get("outcome") == BLOCKED_OUTCOME and identity in blocked
+        pending = item.get("outcome") == PENDING_OUTCOME and identity in pending_ok
         explained = not handed and not stopped and identity in red
         if unconfirmed:
             # FIRST in the chain, and the invariant that position keeps: a claim the manifest does not confirm never produces
@@ -993,6 +1117,8 @@ def validate_window(window, root):
             # a red test a `contradicts_requirement` row explains is an OUTCOME, not a defect of this record: S7 judges
             # it (FR-21, FR-34); its review is the critic's `approved` below, bound to the bytes like any other
             gaps.append(CONTRADICTS_REQUIREMENT + ":" + identity)
+        elif pending:
+            pass        # excused by the reader that excuses its run, its probe and its witness (C5): no outcome gap
         elif item.get("outcome") != "passed":
             gaps.append("product:" + identity)
         # HF2-11: the instance's latest run ran other code than the test holds now (the item's `run_identity` against
@@ -1001,7 +1127,7 @@ def validate_window(window, root):
         # item that ran nothing here (handed, stopped) has no run to be stale; a red, explained by its row or not,
         # keeps its own gap and gets this one beside it. Unknown (no `run_identity`, no `instance_identity`) is NOT a
         # gap - it leaves today's reading, and `window_record.verdict` prints it.
-        if not handed and not stopped and run_freshness_of(item)[0] == "stale":
+        if not handed and not stopped and not pending and run_freshness_of(item)[0] == "stale":
             gaps.append("stale_run:" + identity)
         # An item that ran green, owes a live check and CARRIES a probe gap (HF1-14): reviewed statically, like a
         # blocked one. Decided before the review because the review word depends on it.
@@ -1060,7 +1186,7 @@ def validate_window(window, root):
             # No probe exists to judge, so the sensitivity, semantic, level and probe-evidence checks do not run
             # (saying `sensitivity:` would claim a probe ran and missed). The gap is named, or it is unrecorded.
             gaps.append((PROBE_GAP_KIND if identity in gap_words else PROBE_GAP_UNRECORDED_KIND) + ":" + identity)
-        elif proof_level.proof_required(item, {}) and not handed and not stopped and not explained:
+        elif proof_level.proof_required(item, {}) and not handed and not stopped and not explained and not pending:
             # (`explained`: no probe is asked of a red test - whether the mutated run fails at the intended assert
             # depends on the order of the asserts, F-20 (a); the item records `probe_not_applicable` instead)
             probe = item.get("probe", {})
@@ -1083,7 +1209,10 @@ def validate_window(window, root):
                         probe.get("obligation_hash") != item.get("obligation_hash") or
                         probe.get("defect_location") != item.get("defect_location") or
                         probe.get("assertion_id") != item.get("assertion_id") or
-                        probe.get("defect_location") == probe.get("expected_location")):
+                        probe.get("defect_location") == probe.get("expected_location") or
+                        # a probe of another line than the obligation's check proves nothing about it (FR-18):
+                        # the one reader names it, by the recorded fact (`target`), never by a role's judgment
+                        proof_level.receipt_off_target(probe)):
                     gaps.append("semantic_sensitivity:" + identity)
                 # Which level a probe is, and what mutation that level is made of, is
                 # `proof_level`'s to say (D-0010): a probe that claims to catch a broken product
@@ -1230,8 +1359,43 @@ def stage_acceptance_errors(record, *, stage_def, author_dispatch) -> list:
     return problems
 
 
+SUPERSEDED_WORD = "stage_superseded"         # the open-work word of a consumer's finish that sent the upstream handoff back (its own work is stale)
+AWAITS_WORD = "stage_awaits_acceptance"      # the open-work word an author's finish carries when its stage is judged by a CONSUMER role (X7-6)
+
+
+def unresolved_has_word(dispatch, word) -> bool:
+    """True when the `unresolved` field of the dispatch record names `word` EXACTLY (a token of a string, of a list item, or of the
+    `id`/`word` of a mapping item) - never a substring of the `reason` or of a quote (m2 of t-1860). Pure; crooked input is False."""
+    import re
+    raw = dispatch.get("unresolved") if isinstance(dispatch, dict) else None
+    items = raw if isinstance(raw, list) else [raw]
+    texts = []
+    for item in items:
+        if isinstance(item, dict):
+            texts += [str(item.get(k)) for k in ("id", "word", "unresolved") if isinstance(item.get(k), str)]
+        elif isinstance(item, str):
+            texts.append(item)
+    return any(token == word for text in texts for token in re.split(r"[\s,;:]+", text))
+
+
+def author_dispatches(state, stage_def) -> list:
+    """THE reading of "the author's dispatches of the CURRENT life" (AR-13; M4 and m5 of t-1860): the dispatches of the stage's first role,
+    in the state's creation order, that are neither a read-only INVESTIGATION of S7 (`controller.s7_part_of`: it is no triage and nothing
+    to accept) nor superseded (`stage_superseded`: a consumer sent its upstream handoff back, so this one is stale work). Status is left to
+    the caller. `[]` for a stage with no roles."""
+    roles = [str(r) for r in (stage_def or {}).get("roles") or []]
+    stage = str((stage_def or {}).get("id") or "")
+    if not roles or not stage:
+        return []
+    from controller import s7_part_of
+    held = (state or {}).get("dispatches") if isinstance(state, dict) else None
+    return [d for d in (held.values() if isinstance(held, dict) else [])
+            if isinstance(d, dict) and d.get("stage") == stage and d.get("role") == roles[0]
+            and not s7_part_of(d) and not unresolved_has_word(d, SUPERSEDED_WORD)]
+
+
 def stage_author_dispatch(state, stage_def, current=None) -> str:
-    """The id of the author's last ACCEPTED dispatch of the stage (the first role of the stage's `roles`), in the state's creation order; the
+    """The id of the author's last ACCEPTED dispatch of the stage's current life (`author_dispatches`), in the state's creation order; the
     dispatch being accepted when it is the author's own; `""` when there is none."""
     roles = [str(r) for r in (stage_def or {}).get("roles") or []]
     stage = str((stage_def or {}).get("id") or "")
@@ -1240,13 +1404,35 @@ def stage_author_dispatch(state, stage_def, current=None) -> str:
     if isinstance(current, dict) and current.get("stage") == stage and current.get("role") == roles[0]:
         return str(current.get("id") or "")
     found = ""
-    for d in ((state or {}).get("dispatches") or {}).values():
-        if isinstance(d, dict) and d.get("stage") == stage and d.get("role") == roles[0] and d.get("status") == "accepted":
+    for d in author_dispatches(state, stage_def):
+        if d.get("status") == "accepted":
             found = str(d.get("id") or "")
     return found
 
 
-AWAITS_WORD = "stage_awaits_acceptance"      # the open-work word an author's finish carries when its stage is judged by a CONSUMER role (X7-6)
+def accepted_for(pipeline, stage, author, acceptor=None) -> bool:
+    """THE accept predicate (AR-13): an `accept` record stands for the dispatch `author` of `stage` (its `reviewed_dispatch` is exactly that
+    dispatch), by `acceptor` when one is named. A missing author or record is False - an unknown never accepts."""
+    record = stage_acceptance(pipeline, stage)
+    return bool(author and isinstance(record, dict) and record.get("verdict") == "accept" and record.get("reviewed_dispatch") == author
+                and (acceptor is None or record.get("acceptor") == acceptor))
+
+
+def consumer_dispatch(state, consumer_stage, consumer_role, after) -> str:
+    """The id of the consumer's LAST accepted, not superseded dispatch of `consumer_stage` created AFTER the dispatch `after` (the author's
+    dispatch it judges), in the state's creation order; `""` when there is none or `after` is unknown (M2 of t-1860: a consumer's dispatch of an
+    earlier life is another handoff's judge and never stands for this one)."""
+    seen, found = False, ""
+    held = (state or {}).get("dispatches") if isinstance(state, dict) else None
+    for d in (held.values() if isinstance(held, dict) else []):
+        if not isinstance(d, dict):
+            continue
+        if str(d.get("id") or "") == after:
+            seen = True
+        elif (seen and d.get("stage") == consumer_stage and d.get("role") == consumer_role and d.get("status") == "accepted"
+              and not unresolved_has_word(d, SUPERSEDED_WORD)):
+            found = str(d.get("id") or "")
+    return found
 
 
 def awaits_acceptance(state, stage, pipeline=None, table=None) -> str:
@@ -1263,16 +1449,23 @@ def awaits_acceptance(state, stage, pipeline=None, table=None) -> str:
     entry = (state.get("stages") or {}).get(stage) if isinstance(state.get("stages"), dict) else None
     if isinstance(entry, dict) and entry.get("status") == "completed":
         return ""
-    rows = [d for d in ((state.get("dispatches") or {}).values() if isinstance(state.get("dispatches"), dict) else [])
-            if isinstance(d, dict) and d.get("stage") == stage and d.get("role") == roles[0]]
+    # ONE reading of the author's dispatches with `stage_author_dispatch` (`author_dispatches`: the current life, no investigation, no
+    # superseded one); a dispatch that never ran or was released (DISCOUNTED) is no author work either, so a cancelled relaunch after the
+    # accepted, awaiting dispatch does not end the wait (m5). A live one (running) after it does: the author works again.
+    from controller import DISCOUNTED
+    rows = [d for d in author_dispatches(state, stage_def) if d.get("status") not in DISCOUNTED]
     last = rows[-1] if rows else None
-    if not last or last.get("status") != "accepted" or AWAITS_WORD not in json.dumps(last.get("unresolved")):
+    if not last or last.get("status") != "accepted":
         return ""
     did = str(last.get("id") or "")
-    if pipeline is not None:
-        record = stage_acceptance(pipeline, stage)
-        if record and record.get("verdict") == "accept" and record.get("reviewed_dispatch") == did:
-            return ""
+    # The stop is marked by the author's own finish (the awaits word) OR, when its work ended AFTER the finish (S7: the repairs run after the
+    # analyst's finish), by the driver's marker `pipeline["acceptance_awaits"][stage] == <that last dispatch>` (X7-6b; this is the one reader).
+    marks = pipeline.get("acceptance_awaits") if isinstance(pipeline, dict) else None
+    marked = isinstance(marks, dict) and marks.get(stage) == did
+    if not unresolved_has_word(last, AWAITS_WORD) and not marked:
+        return ""
+    if pipeline is not None and accepted_for(pipeline, stage, did):
+        return ""
     return did
 
 
@@ -1294,8 +1487,7 @@ def consumer_close_refusal(pipeline, state, stage, table=None) -> str:
     author = stage_author_dispatch(state, stage_def)
     if not author:
         return ""
-    record = stage_acceptance(pipeline, stage)
-    if isinstance(record, dict) and record.get("verdict") == "accept" and record.get("reviewed_dispatch") == author:
+    if accepted_for(pipeline, stage, author):
         return ""
     ticket = (pipeline.get("ticket") if isinstance(pipeline, dict) else None) or "<T>"
     return (f"{stage} is closed by the {STAGE_ACCEPTANCE_PHRASE} of {consumer}, and none stands for {author}. Dispatch {consumer} (it is let in "

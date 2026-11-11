@@ -1,7 +1,7 @@
 {
   "generated_by": "python tools/lint_ratchet.py --update (pyflakes; identity = path + class + arguments, no line)",
   "pyflakes_version": "3.2.0",
-  "total": 29,
+  "total": 30,
   "rows": [
     {
       "path": "ai-packages/qa-factory/scripts/factory_dashboard.py",
@@ -43,6 +43,12 @@
       "path": "ai-packages/qa-factory/scripts/s5_precheck.py",
       "class": "UnusedImport",
       "args": "run_history.record_functions",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/fixtures/probe-languages/sample_unittest.py",
+      "class": "UndefinedName",
+      "args": "helper_that_checks",
       "count": 1
     },
     {

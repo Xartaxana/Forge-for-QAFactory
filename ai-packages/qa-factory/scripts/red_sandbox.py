@@ -787,6 +787,48 @@ def _original_hash_of(probe_receipt: dict, test_file: str) -> str:
     return ""
 
 
+_LOCATION_RE = re.compile(r"^(?P<file>.+):(?P<line>\d+)$")
+
+
+def _receipt_scope(test_file, location) -> tuple:
+    """`(scope, checks)` of a product receipt (t-2064 P6, EP-W): what the receipt proves, said in the receipt itself.
+
+    `scope` is `"whole_unlisted"` when the assertion-probe tables (`assertion_detectors`: the AST row, then the entry by suffix) have NO
+    reader for the test file's suffix - no list of that test's checks can exist, so the receipt stands as it always did - and
+    `"one_check"` otherwise: it proves the one check at `assertion_location` and no other. `checks` is `[{"key": "<file>:<line>",
+    "probe_kind": "product"}]` for that location, `[]` when the location is not `<file>:<line>` (unread). The test file is the one the
+    identity measured, else the file of the location. ERROR DIRECTION: a table that cannot be read, or no file to tell the suffix by,
+    is `one_check` (the receipt never proves more than it names; FR-41, AR-28). Reads the tables; writes nothing."""
+    import assertion_detectors as AD
+    found = _LOCATION_RE.match(str(location or "").strip())
+    checks = [{"key": found.group(0), "probe_kind": "product"}] if found else []
+    named = str(test_file or "").strip() or (found.group("file") if found else "")
+    suffix = Path(named).suffix if named else ""
+    if not suffix:
+        return proof_level.ONE_CHECK, checks
+    try:
+        _language, ast_row = AD.ast_entry(suffix)
+        entry = None
+        if ast_row is None:
+            _language, entry = AD.entry_for_suffix(AD.assertion_detectors(), suffix)
+    except AD.DetectorsError:
+        return proof_level.ONE_CHECK, checks
+    if ast_row is None and entry is None:
+        return proof_level.WHOLE_UNLISTED, []
+    return proof_level.ONE_CHECK, checks
+
+
+def _written_scope(task_root, ref) -> str:
+    """The `scope` word of the receipt `ref` ({receipt_ref: {path}}) names, read from the file just written (the ONE source of the
+    publish decision, t-2064 fix round G). ERROR DIRECTION: a receipt that cannot be read says `one_check` (nothing is published
+    for what cannot be named; FR-41, AR-28). Reads; writes nothing."""
+    try:
+        data = json.loads((Path(task_root) / ref["receipt_ref"]["path"]).read_text(encoding="utf-8"))
+        return str(data.get("scope") or proof_level.ONE_CHECK)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return proof_level.ONE_CHECK
+
+
 def write_sensitivity_receipts(task, probe_receipt, results, bindings, baseline=None, identity=None,
                                notes=None):
     """Publish hash-bound S5 proof receipts from a verified isolated red probe.
@@ -845,6 +887,8 @@ def write_sensitivity_receipts(task, probe_receipt, results, bindings, baseline=
         if probe_receipt.get("dependency_setup"):
             # What the clone was provisioned with is part of what the proof was measured on: INSIDE the hash.
             proof["dependency_setup"] = probe_receipt["dependency_setup"]
+        # t-2064 P6 (EP-W): what the receipt proves, inside the hash. A reader that finds no `scope` knows it is an old receipt (EP-I).
+        proof["scope"], proof["checks"] = _receipt_scope((measured or {}).get("test_file"), result.get("location"))
         proof["receipt_hash"] = content_hash(proof)
         directory = task / "work" / "sensitivity-receipts"
         # An instance id is an identity, not a path: `TC-012::test_x[eu]` cannot be a file
@@ -1552,9 +1596,14 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
         answered = {}
         for iid, info in placed.items():
             info["now"] = proof_level.instance_identity(info["entry"], task_root, repo)
+            # t-2064 fix round H: this is a PRODUCT probe's question; the check key is the location the request expects the test to
+            # fail at (one distinct key, else no `kind`: today's answer, a repeat of several checks is never answered by one receipt).
+            keys = {str(t.get("expected_location")) for t in targets
+                    if isinstance(t, dict) and str(t.get("instance_id")) == iid and _LOCATION_RE.match(str(t.get("expected_location") or ""))}
+            asked = {"kind": "product", "check_key": next(iter(keys)) if keys else ""} if len(keys) <= 1 else {}
             try:
                 got = proof_level.already_probed(info["entry"], manifest, task_root, now=info["now"],
-                                                 project=repo, dispatch=dispatch)
+                                                 project=repo, dispatch=dispatch, **asked)
             except Exception as exc:
                 got = {"probed": False, "notes": [f"{iid}: the repeat check failed ({type(exc).__name__}: "
                                                   f"{str(exc)[:160]}); the probe runs"]}
@@ -1785,14 +1834,27 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
     except ValueError as exc:
         notes.append(f"sensitivity receipt: {exc}")
 
+    # t-2064 fix round G, B3 (EP-W, AR-22, AR-28): a receipt whose `scope` is `one_check` proves the ONE check it names and has no
+    # level for the test as a whole, so it is NOT published to the manifest - no row ref (it would overwrite a valid live ref, a
+    # downgrade) and no `proven` binding (`case_stamp` and `coverage_contract` read that pair without a level, so one proved check of
+    # several would read as a proven obligation). The decision reads the scope the receipt just written carries (one source). The
+    # critic names the receipt with a `product` entry; a `whole_unlisted` receipt (the factory has no reader for the test's
+    # language: its only door) publishes as it always did.
+    held_back = {iid: ref for iid, ref in refs.items() if _written_scope(task_root, ref) != proof_level.WHOLE_UNLISTED}
+    if held_back:
+        notes.append("the receipt proves the one check it names, and the other checks of that test stay owed: it is not "
+                     "published to the manifest. The critic names it with a `product` entry in the probe's model file "
+                     "(`work/probe-models/<dispatch id>.json`); only that entry counts it. Instances: "
+                     + ", ".join(sorted(held_back)))
+    refs = {iid: ref for iid, ref in refs.items() if iid not in held_back}
     if refs:
         by_obligation: dict = {}
         # `manifest_put` REPLACES a binding's `instance_ids`, so a second instance of one
         # obligation - or a live `probe_by_code.py` receipt already listing another instance -
         # would be erased by a list of only this run's instances. The list here starts from what
         # the manifest already holds (the same class as probe_by_code.publish_binding, FR-17).
-        # Nothing here can downgrade: this is the higher level, and the same or a lower one is
-        # replaced by it.
+        # Only a `whole_unlisted` receipt reaches this point (above): it is the test's only door and stands for the
+        # whole test, so a same or lower level is replaced by it, as before.
         try:
             held = contract.load_json(contract.artifact(task_root, "automation-manifest.json"))
         except (OSError, ValueError):
@@ -1838,7 +1900,7 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
 
 
 # --- --diagnostic: ONE run of a test without the red assert, in a copy (t-1508 R4) ---------------------
-# The failure analyst's step of S7 (rule 2c b): a Then that sits after a red assert of its own test cannot answer
+# The failure analyst's step of S7 ("One red, one triage"): a Then that sits after a red assert of its own test cannot answer
 # while the red stands; to learn whether it would hold, the test is run once WITHOUT the lines that assert the red
 # Then, in a disposable copy of the tree. It is the same sequence as `probe` (prepare -> `_run_mine` ->
 # `_report_rows` -> `bind_row`/`target_result` -> clean) and publishes nothing: no receipt, no `work/probes/`, no

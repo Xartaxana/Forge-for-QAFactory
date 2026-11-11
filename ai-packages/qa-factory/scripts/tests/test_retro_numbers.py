@@ -308,7 +308,39 @@ def the_rules_cost_is_never_silently_smaller_than_the_whole() -> None:
              (True, ["qa-runner", "qa-scout"]))
 
 
+def the_retro_prints_the_knowledge_table_beside_the_question_count() -> None:
+    """t-2277 FL-8 F1: `retro_numbers.render` shows the question count with its counter-metrics and the table "reached / used / not used"
+    (`report_facts`' words, one reader); a story with no such facts renders none of it; an unreadable count is `unmeasured`, never 0."""
+    root, base, troot = project()
+    try:
+        older = RN.numbers("QA-1", base, troot)
+        check_eq("F1 CONTROL: a story with no first look and no registry has no knowledge block", "knowledge" in older, False)
+        check_not_in("F1 CONTROL: ... and the render prints no such line", "Questions put to the person", RN.render(older))
+        (base / "records").mkdir()
+        (base / "records" / "project-knowledge.json").write_text(json.dumps({"schema_version": 1, "facts": [
+            {"id": "PK-1", "key": "product.roles", "environment": "", "element": "auditor", "state": "known", "scope": "project",
+             "value": {"sign_in": "account"}, "provenance": {"source": "person", "words": "w", "story": "T-0", "by": "conductor", "where": ""},
+             "at": "2026-11-01T10:00:00+00:00"}]}), encoding="utf-8")
+        (troot / "pipeline.json").write_text(json.dumps({"ticket": "QA-1", "size": "M", "stages": {}, "created_at": "2026-11-05T09:00:00+00:00"}),
+                                             encoding="utf-8")
+        data = RN.numbers("QA-1", base, troot)
+        check_in("F1: a story that knew a fact before it began carries the knowledge block", "knowledge_use", data["knowledge"]["facts"])
+        text = RN.render(data)
+        check_in("F1: the render prints the question count (no register: unmeasured, not 0) with its counter-metrics",
+                 "**Questions put to the person: unmeasured: the story has no question register", text)
+        check_in("F1: ... and the table of what the story knew, a line per fact", "- registry product.roles auditor: unmeasured: briefs are not kept; unmeasured: ", text)
+        (troot / "work" / "requirements-readiness.json").write_text(json.dumps({"open_questions": []}), encoding="utf-8")
+        zero = RN.render(RN.numbers("QA-1", base, troot))
+        check_in("F1: a register read with no question: ZERO is printed only WITH the counter-metrics",
+                 "**Questions put to the person: 0; known facts no brief carried: unmeasured: briefs are not kept", zero)
+        check_eq("F1: facts of an older shape (no key) render nothing", RN.knowledge_lines(None), [])
+        check_in("F1: a block that could not be built is one `unmeasured` line", "unmeasured: boom", "\n".join(RN.knowledge_lines({"problem": "boom"})))
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
+    the_retro_prints_the_knowledge_table_beside_the_question_count()
     the_resumes_add_up_per_stage()
     the_unknown_and_the_empty_are_not_the_same()
     the_class_of_a_gate_block_has_one_reader()

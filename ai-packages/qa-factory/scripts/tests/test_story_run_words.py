@@ -418,8 +418,108 @@ def words_no_other_site_hands_the_words_over_inline() -> None:
           '--gate A --words \\"' in source + 'details = "--gate A --words \\"<their words>\\""')
 
 
+def words_the_arrival_road_hands_no_words_over_inline() -> None:
+    """t-2181 PC-7 (AR-24): the arrival road carries the person's WORD about the code (`--branch`, `--side`) in the kept launch record,
+    never as inline words to a command; the stop of a wait is the controller's own `stop_waiting --words-file`, which the driver
+    never calls, so no function of the road names the inline option. The stopped line quotes the person's words, bounded."""
+    source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
+    bodies = {}
+    for name in ("arrival_keep", "arrival_record", "arrival_rework_step", "_act_await_implementation", "_act_awaiting_stopped"):
+        start = source.find(f"    def {name}(")
+        bodies[name] = source[start:].split("\n    def ")[0]
+        check(f"{name} exists in the driver", start >= 0)
+        check_eq(f"{name} names no inline words option", ('"--words"' in bodies[name], '"--reason"' in bodies[name]), (False, False))
+    check_in("the stopped line cuts the quoted words at a bound", "[:200]", bodies["_act_awaiting_stopped"])
+    check_eq("negative control: an inline option in a body would be seen", '"--words"' in bodies["arrival_record"] + '\nx=["--words", w]', True)
+
+
+def _answer_file(root: Path, text: str) -> Path:
+    return put(root / "answer.txt", text)
+
+
+def words_arrival_not_waiting_tokens_have_an_executor() -> None:
+    """t-2181 PC-7 B2 (FR-9, FR-7): each of the three tokens of `arrival.not_waiting` is written to `launch.arrival.answer` by
+    `take_answer` (the word `arrival_record` reads), so the question never comes back with the same text; a token is read whole
+    (case and spaces only, FR-12); any other answer goes to the seam once; a token with no pending word changes nothing."""
+    from story_run_common import seed
+    for token in ("re-ground", "ignore", "stop"):
+        root, task_root, env = seed("QA-5")
+        try:
+            driver = driver_for(root, env, "QA-5")
+            driver.state.setdefault("launch", {})["arrival"] = {"source": {"branch": "feat"}, "side": {}}
+            driver.state["asked"] = {"kind": "arrival_not_waiting", "stage": "S0", "dispatch": ""}
+            driver.take_answer(_answer_file(root, f"  {token.upper()}  \n"))
+            check_eq(f"{token}: the token is the pending word's answer", driver.state["launch"]["arrival"].get("answer"), token)
+            check_eq(f"{token}: the question is closed", driver.state.get("asked"), {})
+        finally:
+            harness.cleanup(root)
+    root, task_root, env = seed("QA-5")
+    try:
+        driver = driver_for(root, env, "QA-5")
+        seen = []
+        driver.unread = lambda *a, **k: seen.append((a, k))
+        driver.state.setdefault("launch", {})["arrival"] = {"source": {"branch": "feat"}, "side": {}}
+        taken = driver._answer_arrival_not_waiting("re-ground it please", "q", "S0")
+        check_eq("other words are not a token: they go to the seam, with the two doors", (taken, len(seen), seen[0][1]["doors"]),
+                 (False, 1, ("re-ground", "ignore")))
+        check_eq("... and write no answer", "answer" in driver.state["launch"]["arrival"], False)
+        driver.state["launch"].pop("arrival")
+        check_eq("a token with no pending word is taken and changes nothing", driver._answer_arrival_not_waiting("ignore", "q", "S0"), True)
+        check_eq("... and writes no record", "arrival" in driver.state["launch"], False)
+    finally:
+        harness.cleanup(root)
+
+
+def words_s1_not_built_yet_records_the_side_like_the_s0_twin() -> None:
+    """t-2181 PC-7 B3 (FR-9, AR-19): the `not built yet` answer of the S1 halt records `pipeline.sides.product` absent, deliverable,
+    `source: person` - the three fields the `s0.no_change` answer records through `s0_sides_sets` - and files the words for the
+    scout. The WHOLE answer only: other words take the unread road (not this branch)."""
+    from story_run_common import seed
+    root, task_root, env = seed("QA-5")
+    try:
+        driver = driver_for(root, env, "QA-5")
+        driver.s1_has_no_diff = lambda: True
+        driver.state["asked"] = {"kind": "halt", "stage": "S1", "dispatch": "S1-qa-scout-1"}
+        driver.state.setdefault("pending_words", {})
+        driver.take_answer(_answer_file(root, "Not built yet\n"))
+        product = ((json.loads((task_root / "pipeline.json").read_text(encoding="utf-8")).get("sides") or {}).get("product") or {})
+        twin = driver_for(root, env, "QA-5")
+        twin.state.setdefault("launch", {})["not_built_yet"] = True
+        wanted = {key.rsplit(".", 1)[1]: value for key, value in twin.s0_sides_sets().items()
+                  if key.startswith("sides.product.") and not key.endswith(".at")}
+        check_eq("the s1 answer records the product side the way the s0 answer does",
+                 {key: product.get(key) for key in ("reality", "deliverable", "source")}, wanted)
+        check_eq("... absent, deliverable, from the person", (product.get("reality"), product.get("deliverable"), product.get("source")),
+                 ("absent", True, "person"))
+        check_eq("the words wait for the scout", driver.state["pending_words"].get("S1-qa-scout-1"), "Not built yet")
+        import contract
+        check_eq("the story now parks after S5", contract.parks_after_s5(json.loads((task_root / "pipeline.json").read_text(encoding="utf-8"))), True)
+    finally:
+        harness.cleanup(root)
+
+
+def words_continue_command_drops_the_absent_pair_of_a_waited_side() -> None:
+    """t-2181 PC-7 F7: the packet's restart line `... --branch <the branch>` never carries `--side <s>=absent` for a side the story
+    waits for; the other pairs are repeated, and with no `drop_absent` the command is as before."""
+    from story_run_common import seed
+    root, task_root, env = seed("QA-5")
+    try:
+        driver = driver_for(root, env, "QA-5", side=[("product", "absent"), ("ui", "substituted")])
+        full, cut = driver.continue_command(), driver.continue_command(drop_absent={"product"})
+        check_in("by default every pair is repeated", "--side product=absent --side ui=substituted", full)
+        check_eq("the waited side's absent pair is dropped, the other stays", ("product=absent" in cut, "--side ui=substituted" in cut), (False, True))
+        other = driver_for(root, env, "QA-5", side=[("product", "real")]).continue_command(drop_absent={"product"})
+        check_in("only an ABSENT pair is dropped: a real one stays", "--side product=real", other)
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
     run_scenarios([], [
+        words_the_arrival_road_hands_no_words_over_inline,
+        words_arrival_not_waiting_tokens_have_an_executor,
+        words_s1_not_built_yet_records_the_side_like_the_s0_twin,
+        words_continue_command_drops_the_absent_pair_of_a_waited_side,
         words_gate_and_adapter_calls_are_byte_exact,
         words_the_helper_names_bytes_and_folder,
         words_an_empty_answer_writes_no_file,

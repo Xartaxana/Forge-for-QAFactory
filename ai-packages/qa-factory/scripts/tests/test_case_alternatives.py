@@ -1,9 +1,7 @@
 """The case field `alternatives` (TQ1-25, t-739 + t-750): the one reader, the one validator, the validator path, the texts.
 
-Pure contract functions (K1-K8d), the validator on a temp case file (K9, with its date cutoff), and the doc keys K-T1..K-T5
-quoted VERBATIM from the DoD before the run, each with a NEGATIVE control (one key removed from the text -> the check reports
-absence), so an evergreen check cannot pass here. K-T2 is the corrected wording of the plan review (B-1): the success verdict
-is never sent to `unverified`.
+Pure contract functions (K1-K8d) and the validator on a temp case file (K9, with its date cutoff). The doc keys K-T1..K-T5
+and B-1 (the role-text phrases) moved to design/role-rules.json.
 """
 import sys
 from pathlib import Path
@@ -11,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness import PLUGIN_ROOT, check, check_eq, check_in, finish, temp_dir  # noqa: E402,F401
+from harness import check_eq, check_in, finish, temp_dir  # noqa: E402
 
 import contract as C  # noqa: E402
 import validate_artifacts as V  # noqa: E402
@@ -105,49 +103,9 @@ def the_validator_path() -> None:
              case("2026-09-01", bad), [])
 
 
-def read(relative: str) -> str:
-    return " ".join((PLUGIN_ROOT / relative).read_text(encoding="utf-8").split())
-
-
-def key_with_control(label: str, relative: str, keys: list) -> None:
-    text = read(relative)
-    for key in keys:
-        check(f"{label}: `{key}` is in {relative}", key in text, key)
-        check(f"{label} NEGATIVE control: with the key removed, the same check reports it absent", key not in text.replace(key, ""),
-              key)
-
-
-def the_texts() -> None:
-    key_with_control("K-T1", "references/code-review-rubric.md",
-                     ["must fail under each reading B", "never the expected side or a constant of the assert",
-                      "B's value is one A cannot give and the assert reads (a model that changes nothing the assert reads proves "
-                      "nothing: `unverified`, never `test_defect`)"])      # t-768 m-2: the dead-store model
-    key_with_control("K-T2", "agents/qa-code-critic.md",
-                     ["--alternatives", "any other verdict `unverified`, unless you name the test's fault",
-                      "`intended_failure` (`proven`) proves it",
-                      "a `case_unreadable` row is `unverified` with its why"])      # t-768 m-1
-    key_with_control("K-T3", "agents/qa-code-critic.md",
-                     ["except the files it lists under not checked by code: read those in full"])
-    key_with_control("K-T4", "references/artifact-contract.md", ["**`alternatives` (optional key).**", "No key or `[]`: no claim."])
-    key_with_control("K-T5", "references/test-code-patterns.md", ["**A Then the case lists in `alternatives`**"])
-    # the slices the roles are actually handed carry the same keys
-    key_with_control("K-T4 slice", "references/slices/qa-case-designer/artifact-contract.md",
-                     ["**`alternatives` (optional key).**"])
-    key_with_control("K-T5 slice", "references/slices/qa-automator/test-code-patterns.md",
-                     ["**A Then the case lists in `alternatives`**"])
-    # B-1: the success verdict is not sent to `unverified` by the text: `proves it` stands BEFORE the catch-all
-    charter = read("agents/qa-code-critic.md")
-    check("B-1 `proves it` comes before `any other verdict`", charter.index("proves it") < charter.index("any other verdict `unverified`"))
-    check("B-1 `no_failure` is `cause: test_defect`, naming B's value", "`no_failure` is `cause: test_defect`, naming B's value" in charter)
-    check("B-1 the duplicate step number `1c` is gone (the second one is `1h`)", charter.count(" 1c. **") == 1 and " 1h. **" in charter)
-    check("AR-26 the new texts say Then/requirement, never AC",
-          " AC " not in charter[charter.index("--alternatives") - 80:charter.index("--alternatives") + 400])
-
-
 def main() -> None:
     contract_functions()
     the_validator_path()
-    the_texts()
     finish("test_case_alternatives")
 
 

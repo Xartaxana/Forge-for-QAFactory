@@ -40,7 +40,9 @@ qa-story <ticket>
   [--branch <name>] a branch to diff against the default branch
   [--commit <sha>] a commit to diff
   [--env <name>] the stand this story is tested on (a config.environments name)
-  [--ungrounded] requirements only, no implementation — expected-red tests
+  [--ungrounded] requirements only, on the code the stand runs now
+  [--side <name>=<reality>] a part of the product with its reality word (`real`, `substituted`, `absent`); `--side product=absent` is "not built yet"
+  [--reference <side>=<stand>] the stand that stands in for a side
   [--ticket-file <path>] this file is the requirement; REST is read beside it if set up
 ```
 

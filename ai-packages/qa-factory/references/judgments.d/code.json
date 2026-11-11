@@ -233,59 +233,6 @@
       }
     },
     {
-      "id": "code_smell_justified",
-      "stage": "S5",
-      "script": "s5_precheck.py",
-      "type": "noul",
-      "replaces": "a `smell` finding of s5_precheck (not `sleep`, which has its own question)",
-      "undecided": "the finding stands and goes back to the author, as without a judge",
-      "instructions": {
-        "question": "The rule in `finding.message` was raised against the code in `code`. Does the code already answer the risk that rule names?",
-        "read": [
-          "finding.message",
-          "finding.fix",
-          "code",
-          "case.then"
-        ],
-        "focus": "Whether the exact failure mode the rule describes can still happen in this code."
-      },
-      "criteria": {
-        "true": "The code makes that failure mode impossible here — the value the rule calls optional is checked for presence first, the body the rule calls raw is already normalised, the environment value the rule calls a credential is not one, or the duplicate the rule names does something different.",
-        "false": "The failure mode the rule describes can still happen in this code, or the code gives no reason to believe otherwise."
-      },
-      "thresholds": {
-        "true_at": 0.92,
-        "false_at": 0.1
-      },
-      "calibration": "2026-09-23: no live sample - the story's final manifest carried no `smell` finding. Checked against a table transport in scripts/tests/test_judge_code.py. `true_at` is 0.92, the level this factory fixes for a question that passes a refusal."
-    },
-    {
-      "id": "code_oracle_change_justified",
-      "stage": "S5",
-      "script": "s5_precheck.py",
-      "type": "noul",
-      "replaces": "a remaining `oracle` finding of s5_precheck (case-is-oracle, dispute-unstated, the relative oracle; never `open-oracle-asserted`, which no judge sees, and never `changed-after-red`: a test changed after its red run is answered by an expectation_changes[] record and the critic's verdict, and no judge downgrades it)",
-      "undecided": "the finding stands: the doubt travels with the red test to triage, as without a judge",
-      "instructions": {
-        "question": "Does the code in `code` still demand exactly what the clauses in `case.then` say, without any weakening?",
-        "read": [
-          "code",
-          "case.then",
-          "finding.message"
-        ],
-        "focus": "The strength of what is asserted, compared with what the approved case wrote."
-      },
-      "criteria": {
-        "true": "Every value the clauses fix is asserted at that same value and with the same strictness; nothing was widened, made optional or removed.",
-        "false": "An expected value differs from the clause, an assertion accepts a range where the clause fixed one value, or a clause has no assertion left."
-      },
-      "thresholds": {
-        "true_at": 0.92,
-        "false_at": 0.1
-      },
-      "calibration": "2026-09-23: no live sample - the story's final manifest carried no `oracle` finding. Checked against a table transport in scripts/tests/test_judge_code.py. `true_at` is 0.92, the level this factory fixes for a question that passes a refusal."
-    },
-    {
       "id": "code_repair_cause",
       "stage": "S5",
       "script": "judge_code.py",

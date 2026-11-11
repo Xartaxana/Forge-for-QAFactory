@@ -21,15 +21,16 @@ writes them (`artifact-contract-plan.md`, `artifact-contract-results.md`).
     state/story-case-links.json  state/case-versions/<CASE>/<VERSION>.md
     work/
       ticket-snapshot.json  context-manifest.json  context-bundle.json  impl-diff.txt
-      requirements-register.md  requirements-readiness.json  test-plan.json  grounding.yaml
+      requirements-register.md  requirements-readiness.json  test-plan.json  grounding.yaml  first-look.yaml  reference-snapshot.yaml
       test-cases/<area>/<id>.md
       automation-manifest.json  run-report.json  triage.json
-      ledger.json  ledger.md  s5-plan.json
-      retro-numbers.json  retro-numbers.md  estimate-facts.json
-      evidence/  proposals/  bug-drafts/
+      ledger.json  ledger.md  s5-plan.json  retro-numbers.json  retro-numbers.md  estimate-facts.json
+      evidence/  proposals/  bug-drafts/  s5-notes/
 ```
 
-Names are fixed. A role that invents a filename produces an artifact nobody reads. `records/` is
+`work/s5-plan.json` is written by `s5_plan.py --init` for qa-automator; fields: the brief.
+
+Names are fixed. A role that invents a filename makes an artifact nobody reads. `records/` is
 committed, `state/` is ignored; an older project keeps them in `state/`.
 
 **Four documents are written for a person**, and they sit at the top of the story's folder:
@@ -129,7 +130,7 @@ then_oracles: [{"then": 1, "source": "requirement", "ref": "R-13"}, {"then": 4, 
 
 `source`: `requirement | ac | spec | precedent | person | unknown`; `code` is not a word. `requirement`
 (`ac` is its older name)/`spec`: ref `R-n`, never an implementation-only R. `precedent`: only when a requirement names the
-parity with OLDER behaviour, ref `base:<rev>:<path>:<line>`; any other precedent is a question.
+parity with OLDER behaviour, ref `base:<rev>:<path>:<line>` or `reference:<item>` (a reference snapshot item, under a `parity: yes` requirement basis); any other precedent is a question.
 `person`: ref a question the person answered. `unknown`: ref a question that shows before/now, the
 same Then in `question_thens`, and no literal in the Then. `basis` never names an implementation-only R.
 A case asserts only its own requirements: a Then whose oracle is an R-n outside covers belongs to that R-n's case.

@@ -211,7 +211,7 @@ def c1_the_edges() -> None:
 
 def c2_the_class_is_stored() -> None:
     pipeline: dict = {}
-    for match, want in (("probe gap: TC_1", KLASS), ("probe gap: tooling:typescript", KLASS), ("probe gap: <instance, case or tooling:language>", ""),
+    for match, want in (("probe gap: TC_1", KLASS), ("probe gap: tooling:typescript", KLASS), ("probe gap: <case key or tooling:language>", ""),
                         ("probe gap: two words", ""), ("then handed: TC-1#1", ""), ("executor unavailable: e2e-ui", ""), ("*", ""),
                         ("not receipted", ""), ("keep it local", "")):
         say(pipeline, match, stage="S5" if match != "keep it local" else "S8")
@@ -324,24 +324,26 @@ def c4_the_record_state() -> None:
         record(task, iid, verdict="incomplete", notes=["site_unread: the page was not read"])
         check_eq("c4 incomplete (site_unread): can-not-run", (state()["state"], state()["why"], proof_level.probe_could_not_run(task, iid, BYTES)),
                  ("incomplete", "site_unread: the page was not read", True))
-        # RN1-9 B2 (E15): the factory's own data gap is NOT "the tool could not read it"; the pair is (can-not-run, factory-gap)
-        gap = lambda sha=BYTES: (proof_level.probe_could_not_run(task, iid, sha), proof_level.probe_factory_data_gap(task, iid, sha))
-        record(task, iid, verdict="incomplete", cause="data_row")
-        check_eq("c4 E15 (incomplete, data_row) of these bytes: can-not-run False, factory gap True", gap(), (False, True))
-        check_eq("c4 E15: the state still says incomplete and carries the cause", (state()["state"], state()["cause"]), ("incomplete", "data_row"))
-        check_eq("c4 E15 of OTHER bytes: False / False", gap(OTHER), (False, False))
-        check_eq("c4 E15 with an empty hash: False / False", gap(""), (False, False))
+        # t-1968 N2 (E15): a record that owes the critic's judgment is NOT "the tool could not read it"; the pair is (can-not-run, owes-judgment)
+        gap = lambda sha=BYTES: (proof_level.probe_could_not_run(task, iid, sha), proof_level.probe_owes_judgment(task, iid, sha))
+        record(task, iid, verdict="incomplete", cause="judgment")
+        check_eq("c4 E15 (incomplete, judgment) of these bytes: can-not-run False, owes `unjudged`", gap(), (False, "unjudged"))
+        check_eq("c4 E15: the state still says incomplete and carries the cause", (state()["state"], state()["cause"]), ("incomplete", "judgment"))
+        check_eq("c4 E15 of OTHER bytes: False / ''", gap(OTHER), (False, ""))
+        check_eq("c4 E15 with an empty hash: False / ''", gap(""), (False, ""))
+        record(task, iid, verdict="incomplete", cause="judgment", judgment={"verdict": "cannot_judge"})
+        check_eq("c4 E15 judged `cannot_judge`: still not can-not-run, owes `cannot_judge`", gap(), (False, "cannot_judge"))
         record(task, iid, verdict="incomplete", cause="tooling")
-        check_eq("c4 incomplete + `cause: tooling`: can-not-run True, factory gap False", gap(), (True, False))
+        check_eq("c4 incomplete + `cause: tooling`: can-not-run True, owes ''", gap(), (True, ""))
         record(task, iid, verdict="incomplete")
-        check_eq("c4 incomplete with no cause: can-not-run True, factory gap False", gap(), (True, False))
-        record(task, iid, verdict="not_executed", cause="data_row")
-        check_eq("c4 not_executed + data_row: False / False (the factory names only `incomplete`)", gap(), (False, False))
-        record(task, iid, verdict="intended_failure", cause="data_row")
-        check_eq("c4 a record that judged: False / False", gap(), (False, False))
+        check_eq("c4 incomplete with no cause: can-not-run True, owes ''", gap(), (True, ""))
+        record(task, iid, verdict="not_executed", cause="judgment")
+        check_eq("c4 not_executed + judgment: False / '' (only `incomplete` owes it)", gap(), (False, ""))
+        record(task, iid, verdict="intended_failure", cause="judgment")
+        check_eq("c4 a record that judged: False / ''", gap(), (False, ""))
         proof_level.probe_record_path(task, iid).write_text("{broken", encoding="utf-8")
-        check_eq("c4 an unreadable record: False (never raises)", proof_level.probe_factory_data_gap(task, iid, BYTES), False)
-        check_eq("c4 a task root that does not exist: False", proof_level.probe_factory_data_gap(task / "nope", iid, BYTES), False)
+        check_eq("c4 an unreadable record: '' (never raises)", proof_level.probe_owes_judgment(task, iid, BYTES), "")
+        check_eq("c4 a task root that does not exist: ''", proof_level.probe_owes_judgment(task / "nope", iid, BYTES), "")
         record(task, iid, verdict="intended_failure", refused="tool", last_attempt={"verdict": "not_executed"})
         check_eq("c4 intended_failure with a last_attempt: the verdict that judged, not a gap",
                  (state()["state"], state()["refused"], proof_level.probe_could_not_run(task, iid, BYTES)), ("judged", "", False))
@@ -518,7 +520,7 @@ def c8_the_f4_fixture() -> None:
 def c9_the_data_row() -> None:
     rows = W.load_block_names()
     marked = [r["block"] for r in rows if r.get("class")]
-    check_eq("c9 exactly one row of the shipped table carries a class (the other rows get none)", marked, [W._fold("probe gap: <instance, case or tooling:language>")])
+    check_eq("c9 exactly one row of the shipped table carries a class (the other rows get none)", marked, [W._fold("probe gap: <case key or tooling:language>")])
     check_eq("c9 ... and its value is the one the reader takes", [r["class"] for r in rows if r.get("class")], [C.PROBE_GAP_CLASS])
     check_eq("c9 the key a window prints", C.PROBE_GAP_CLASS_KEY, KEY)
 

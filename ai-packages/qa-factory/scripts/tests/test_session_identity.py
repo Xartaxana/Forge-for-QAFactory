@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness import PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir, temp_project, use_project  # noqa: E402
+from harness import PLUGIN_ROOT, check, check_eq, check_in, cleanup, finish, temp_dir, temp_project, use_project  # noqa: E402
 
 use_project(temp_project("qa-session-identity-"))  # onboard_apply pulls config_contract, which reads the hook layer
 
@@ -621,17 +621,8 @@ def skill_texts() -> None:
     # enforces, and A22/A25 bound the dispatch weight (test_audit_rules)
     for name in ("qa-story", "qa-doctor", "qa-onboarding"):
         raw = (skills / name / "SKILL.md").read_bytes()
-        text = raw.decode("utf-8")
-        for needle in ("CODEX_THREAD_ID", "CLAUDE_SESSION_ID", "<real-current-session-id>", "-<session>.json"):
-            check_not_in(f"K6: {name}/SKILL.md does not contain {needle}", needle, text)
         check(f"K6: {name}/SKILL.md is within the 19000-byte cap ({len(raw)})", len(raw) <= 19000, str(len(raw)))
-    doctor = (skills / "qa-doctor" / "SKILL.md").read_text(encoding="utf-8")
-    check_in("K6: the doctor names the one smoke report", "doctor-install-smoke-latest.json", doctor)
-    check_in("K6: ...and the probe finds its own session", "host_probe.py --prepare` (it finds its own session)", doctor)
-    check_not_in("K6: ...and the doctor no longer asks for the session in the report's name", "Real session identity in the filename", doctor)
-    for name in ("qa-story", "qa-onboarding"):
-        check_in(f"K6: {name} says the command finds its own session", "It finds its own session; pass `--session` only with an id a person gives you, never a placeholder.",
-                 (skills / name / "SKILL.md").read_text(encoding="utf-8"))
+    # the "finds its own session" sentence of qa-story and qa-onboarding is a row of design/role-rules.json
 
 
 def receipt_named() -> None:

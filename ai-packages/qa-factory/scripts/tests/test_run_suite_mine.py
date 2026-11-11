@@ -974,6 +974,51 @@ def with_forms(rows, fn):
     return with_runner_data(dict(shipped_runner_data(), collect_forms=rows), fn)
 
 
+def c8_battery() -> None:
+    """C8 (t-2181 PC-9b, rewritten t-2277 W1): `run_suite.py --request` no longer refuses at entry a request aimed at a stand that runs the OLD
+    version of a side of the story (it goes on, the run is a sample); it still refuses at ENTRY - `run_refused`, exit 2, nothing begun
+    (no job store) - the record that names the story's own stand also as the reference. A request on the story's own stand, or on a story
+    with no reference, goes on to the ordinary validation (negative controls)."""
+    import subprocess
+    pipeline = TASK_ROOT / "pipeline.json"
+    saved = pipeline.read_text(encoding="utf-8") if pipeline.exists() else None
+
+    def call(stand):
+        path = ROOT / "c8-request.json"
+        path.write_text(json.dumps({"task": TASK, "purpose": "initial", "idempotency_key": "c8-" + stand,
+                                    "runtime_provenance": {"environment_id": stand}}), encoding="utf-8")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(ROOT), QA_FACTORY_SKIP_DASHBOARD_REFRESH="1")
+        return subprocess.run([PY, str(PLUGIN_ROOT / "scripts" / "run_suite.py"), "--request", str(path)], cwd=ROOT, env=env,
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+    try:
+        sides = {"ui": {"reality": "real", "deliverable": True, "reference": "old", "source": "person"}}
+        pipeline.write_text(json.dumps({"ticket": TASK, "environment": "dev", "sides": sides}), encoding="utf-8")
+        jobs = TASK_ROOT / "state" / "execution-jobs"
+        before = sorted(str(p) for p in jobs.rglob("*")) if jobs.exists() else []
+        got = call("old")
+        check("C8 (t-2277 W1): a request aimed at the reference stand is NOT run_refused at entry - it goes on to the ordinary validation "
+              "(invalid_request: this request is a bare stub)", "run_refused" not in got.stdout and "invalid_request" in got.stderr,
+              got.stdout[-300:] + got.stderr[-300:])
+        pipeline.write_text(json.dumps({"ticket": TASK, "environment": "old", "sides": sides}), encoding="utf-8")
+        before = sorted(str(p) for p in jobs.rglob("*")) if jobs.exists() else []
+        got = call("old")
+        check("C8: the record that names the story's own stand ALSO as the reference is still run_refused at entry (exit 2), the record is the door",
+              got.returncode == 2 and "run_refused" in got.stdout and "both as its own stand" in got.stdout, got.stdout[-300:] + got.stderr[-300:])
+        check_eq("C8: ... and nothing was begun (the job store is as it was)", sorted(str(p) for p in jobs.rglob("*")) if jobs.exists() else [], before)
+        pipeline.write_text(json.dumps({"ticket": TASK, "environment": "dev", "sides": sides}), encoding="utf-8")
+        own = call("dev")
+        check("C8 negative control: the story's own stand goes on to the ordinary validation (invalid_request, not run_refused)",
+              "run_refused" not in own.stdout and "invalid_request" in own.stderr, own.stdout[-200:] + own.stderr[-200:])
+        pipeline.write_text(json.dumps({"ticket": TASK, "environment": "dev"}), encoding="utf-8")
+        none = call("old")
+        check("C8: a story with no reference reads the rule nowhere (as before)", "run_refused" not in none.stdout, none.stdout[-200:])
+    finally:
+        if saved is None:
+            pipeline.unlink(missing_ok=True)
+        else:
+            pipeline.write_text(saved, encoding="utf-8")
+
+
 def request_for(argv, tokens=("tests/test_a.py::test_green",)) -> dict:
     """The part of a typed request `verify_node_ids` reads: one selected instance and its tokens."""
     return {"task": TASK, "command": {"argv": list(argv), "cwd": ".", "selector_args": {"i1": list(tokens or ())}},
@@ -2567,6 +2612,57 @@ def memo_key_battery() -> None:
         shutil.rmtree(base, ignore_errors=True)
 
 
+def collect_only_battery() -> None:
+    """t-2181 PC-4 (B6): `--collect-only` takes ONE collect (`collect_files`) of the files `--tests` names and prints the `runs[]`
+    row `kind: collect`; a partial collect (a file failed to import) says `partial: true` and lists the broken file; neither is a
+    run - nothing is launched, no run block, no job - and a collect that gave no id is a refusal, never a row."""
+    real = real_node_ids()
+    saved = run_suite.collect_files
+    seen = []
+    argv = ("--task", TASK, "--collect-only", "--tests", "tests/test_a.py::test_green", "tests/test_a.py::test_red", "--",
+            PY, str(ROOT / "fake" / "pytest"))
+    before = (len(launches()), len(list((TASK_ROOT / "work" / "run-blocks").glob("*.json"))))
+    try:
+        def full(cmd, cwd, files, cfg, notes=None):
+            seen.append(list(files))
+            return ["tests/test_a.py::test_green", "tests/test_a.py::test_red"]
+        run_suite.collect_files = full
+        code, out, _err = call(*argv)
+        row = last_json(out).get("runs_row", {})
+        check_eq("collect-only: exit 0 and a row of kind collect, the files named once, no partial key",
+                 (code, row.get("kind"), seen, "partial" in row), (0, "collect", [["tests/test_a.py"]], False))
+        check_eq("collect-only: the row's scope is the collected node ids", row.get("scope"),
+                 ["tests/test_a.py::test_green", "tests/test_a.py::test_red"])
+
+        def partial(cmd, cwd, files, cfg, notes=None):
+            raise real.CollectError("1 file(s) could not be collected", "head", kind="partial",
+                                    ids=["tests/test_a.py::test_green"], broken=[{"path": "tests/test_b.py", "head": "ImportError"}])
+        run_suite.collect_files = partial
+        code, out, _err = call(*argv)
+        row = last_json(out).get("runs_row", {})
+        check_eq("collect-only: a partial collect is `partial: true`, its healthy ids and the broken file named",
+                 (code, row.get("kind"), row.get("partial"), row.get("scope"), row.get("broken")),
+                 (0, "collect", True, ["tests/test_a.py::test_green"], ["tests/test_b.py"]))
+        check_eq("collect-only: a partial collect is never a run: the status says so, no `results`, no run_witness key",
+                 (last_json(out).get("status"), "results" in row, "run_witness" in row), ("collected_partial", False, False))
+
+        def nothing(cmd, cwd, files, cfg, notes=None):
+            raise real.CollectError("collect timed out after 180s", kind="timeout")
+        run_suite.collect_files = nothing
+        code, out, err = call(*argv)
+        check_eq("collect-only: a collect that gave nothing is exit 2 and no row", (code, "runs_row" in out), (2, False))
+        check_in("collect-only: and the refusal says what to do", "run --collect-only again", err)
+        run_suite.collect_files = lambda *a, **k: []
+        code, out, err = call(*argv)
+        check_eq("collect-only: a collect that listed no id is no evidence: exit 2", (code, "runs_row" in out), (2, False))
+        code, _out, _err = call("--task", TASK, "--collect-only", "--tests", "tests/test_a.py::test_green")
+        check_eq("collect-only: without the test command it is a usage error (exit 2)", code, 2)
+    finally:
+        run_suite.collect_files = saved
+    check_eq("collect-only: nothing was launched and no run block was written",
+             (len(launches()), len(list((TASK_ROOT / "work" / "run-blocks").glob("*.json")))), before)
+
+
 def main() -> None:
     os.environ["CLAUDE_PROJECT_DIR"] = str(ROOT)
     os.environ["QA_FACTORY_SKIP_DASHBOARD_REFRESH"] = "1"
@@ -3183,6 +3279,8 @@ def main() -> None:
         one_collect_battery()
         phases_battery()
         memo_battery()
+        collect_only_battery()
+        c8_battery()
     finally:
         for name in ("node_ids", "stand_lease", "stand_health"):
             sys.modules.pop(name, None)

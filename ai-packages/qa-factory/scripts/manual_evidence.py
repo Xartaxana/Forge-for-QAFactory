@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import shutil
 import sys
@@ -284,11 +284,125 @@ def _observation_errors(record, root) -> list:
 
 def _declared_errors(record) -> list:
     """The rule for a record written NOW (`build`, `rejudge`): `observations` is declared, `[]` when the runner saw nothing doubtful
-    (AR-23, FR-38). Records made before the rule have no field and are read as `[]` (E14); they are not asked again."""
+    (AR-23, FR-38). Records made before the rule have no field and are read as `[]` (E14); they are not asked again. (The recorder's
+    surprise fields are NOT asked of a record written by hand: `write-block` adds them from the attempt's own files, `_hand_surprises`.)"""
     if "observations" in record:
         return []
     return ["declare observations: [] when you saw nothing doubtful (observations: [{step, expected, seen, evidence, quote}] "
             "otherwise)"]
+
+
+def surprises_of(folder) -> list:
+    """Every `surprise` line of `<folder>/surprises.jsonl` in file order; `[]` when the
+    file is absent, empty or holds no such line. The ONE reader of the lines (AR-13): `build`, `rejudge`, `write-block` and
+    `--with-attempt` ask it, and the capture tool is their only writer (AR-14). A line that is not JSON is skipped by the ONE tolerant
+    reader (`manual_capture._surprise_rows`), and `detection_of` says the attempt was not fully watched (a damaged file never reads as `on`). Pure data, no judgment (AR-29)."""
+    import manual_capture as MC
+    try:
+        rows, _ = MC._surprise_rows(folder)
+    except OSError:
+        return []
+    return [row for row in rows if row.get("line") == "surprise" and isinstance(row.get("id"), str) and row["id"].strip()]
+
+
+def detection_of(folder) -> str:
+    """`on` | `partial: ...` | `absent: <why>`: how much of the attempt the detector WATCHED, read from the `detector` lines of
+    `<folder>/surprises.jsonl` by the capture tool's own reader (`manual_capture._detection_of`, AR-13 - one reading for the
+    summary of a call and for the record). A file that cannot be read is `absent`, never `on` (AR-28, E15)."""
+    import manual_capture as MC
+    try:
+        return MC._detection_of(folder)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        return f"absent: surprises.jsonl of the attempt cannot be read ({exc.__class__.__name__}): the detector's lines are lost"
+
+
+def _detection_of_attempts(parts) -> str:
+    """The one `surprise_detection` of a record built from several attempts (`--with-attempt`): `on` only when EVERY attempt was
+    watched whole; otherwise `partial: attempt <a>: <its words>` for each attempt that was not (an unknown never becomes a pass,
+    AR-28). One attempt: its own words."""
+    parts = list(parts)
+    if len(parts) == 1:
+        return parts[0][1]
+    if all(words == "on" for _, words in parts):
+        return "on"
+    return "partial: " + "; ".join(f"attempt {name}: {words}" for name, words in parts if words != "on")
+
+
+def _surprise_evidence(task, refs) -> dict:
+    """`{surprise id: path of the capture that holds its line}`: the `NNN-surprises.txt` captures of the record's evidence
+    (`proves` has `surprises`), each line `surprise: <id> step ...`. A line no capture holds is not in the map (the entry then
+    carries `evidence: ""`)."""
+    found = {}
+    for ref in refs:
+        if not isinstance(ref, dict) or "surprises" not in (ref.get("proves") or []):
+            continue
+        try:
+            text = (Path(task) / str(ref.get("path"))).read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            continue
+        for line in text.splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) > 2 and parts[0] == "surprise:":
+                found.setdefault(parts[1], str(ref.get("path")))
+    return found
+
+
+def _surprise_fields(task, root, names, refs) -> dict:
+    """The two fields every record written NOW carries (AR-23, AR-27): `surprises` - every line the attempts `names` (the main one
+    first, then the joined ones) wrote, `[{id, step, kind, fact, evidence}]`, in the order of the files; `surprise_detection` -
+    `detection_of`. `[]` is NOT 'nothing happened': the detection says whether anyone watched (E15). Code carries the lines;
+    whether one is a bug is the analyst's (AR-29)."""
+    lines = [(name, row) for name in names for row in surprises_of(Path(root) / name)]
+    where = _surprise_evidence(task, refs)
+    return {"surprises": [{"id": row["id"], "step": row.get("step"), "kind": row.get("kind"), "word": row.get("word"), "fact": row.get("fact"),
+                           "evidence": where.get(row["id"], "")} for _, row in lines],
+            "surprise_detection": _detection_of_attempts((name, detection_of(Path(root) / name)) for name in names)}
+
+
+def _surprise_cite_errors(observations, known, attempts, door) -> list:
+    """The `surprise` key of `observations[]` (an observation that cites a surprise line by id, so the line is not a target of its own):
+    a non-empty string that is the id of a line of THIS record's attempts (`known`: every line of their `surprises.jsonl`).
+    A cross-reference only - whether the cited line is a bug is the analyst's (AR-29). An id of an attempt the
+    record does not hold is refused with `door` (`build`: `--with-attempt <attempt>`); `observations` that is no list of objects is
+    `_observation_errors`' to say. Pure, never raises."""
+    if not isinstance(observations, list):
+        return []
+    errors = []
+    for index, entry in enumerate(observations):
+        if not isinstance(entry, dict) or "surprise" not in entry:
+            continue
+        cited, where = entry["surprise"], f"observations[{index}].surprise"
+        if not isinstance(cited, str) or not cited.strip():
+            errors.append(f"{where} must be the id of a surprise line (for example a2-ui-S3), or the key left out")
+        elif cited.strip() not in known:
+            owner = cited.strip().partition("-")[0]
+            if owner and owner not in attempts and re.fullmatch(r"a[0-9]+", owner):
+                errors.append(f"{where} {cited.strip()!r} is a surprise of attempt {owner}, which this record does not hold. "
+                              f"Door: {door.format(attempt=owner)}")
+            else:
+                errors.append(f"{where} {cited.strip()!r} is no surprise line of {', '.join(attempts)} "
+                              f"(its ids: {', '.join(sorted(known)[:8]) or 'none - no surprise was written'}). Door: cite one of them, "
+                              "or leave the `surprise` key out and quote the capture as for any observation")
+    return errors
+
+
+def _hand_surprises(task, record) -> tuple:
+    """`(attempts, known ids, fields)` of a record handed to `write-block`: the attempts it names (`rejudge_of` or `attempt_id`, then
+    its `other_profiles`), the ids of every line their `surprises.jsonl` hold, and the two fields `_surprise_fields` computes from
+    those files - `None` when the attempt has no folder (a record whose files are not here: its own `surprises` are all there is
+    to cite, and nothing is added). Pure data, never raises."""
+    case, main = record.get("case"), record.get("rejudge_of") or record.get("attempt_id")
+    own = [str(row.get("id")) for row in record.get("surprises") or [] if isinstance(row, dict)]
+    try:
+        import manual_capture as MC
+        root = MC.case_root(Path(task), case)
+        names = [str(main)] + [str(p.get("attempt")) for p in record.get("other_profiles") or [] if isinstance(p, dict)]
+        if not isinstance(case, str) or not main or not (root / names[0]).is_dir():
+            return [str(main)], set(own), None
+        refs = record.get("evidence_refs") if isinstance(record.get("evidence_refs"), list) else []
+        return names, {row["id"] for n in names for row in surprises_of(root / n)}, _surprise_fields(task, root, names, refs)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return [str(main)], set(own), None
 
 
 def _then_quote_errors(record, root) -> list:
@@ -334,6 +448,61 @@ def _then_quote_errors(record, root) -> list:
                 errors.append(where + f"Then {number}: the picture it names is not an image of this record's attempt")
         else:
             errors.append(where + f"Then {number}: kind is text or seen")
+    return errors
+
+
+def _by_phase(refs) -> tuple:
+    """`(phases, by_phase)` of the evidence refs: the rules speak the old two words, `pre_action` / `post_action` read as the same phases."""
+    phases = set()
+    by_phase = {phase: [] for phase in ("before", "after", "supporting", "baseline")}
+    for ref in refs if isinstance(refs, list) else []:
+        if isinstance(ref, dict) and ref.get("phase") in PHASES:
+            phase = PHASE_ALIAS.get(ref["phase"], ref["phase"])
+            phases.add(phase)
+            by_phase[phase].append(ref)
+    return phases, by_phase
+
+
+def _result_errors(record, policy, phases, by_phase) -> list:
+    """What the record's RESULT needs of its evidence - the ONE place of these rules: `validate` asks it of a record, `walk_rule_errors`
+    asks it of a walk's verdict while the session lives (the same function, never a copy). FR-23: an `inconclusive` result is a
+    recordable outcome under EVERY policy - the check could not be completed, so the phase rules (which describe a completed check) do
+    not apply; what it needs is at least one evidence ref and a limitation that says what stopped it. pass and fail keep the full phase
+    rules, and an inconclusive record is never coverage (coverage_contract: inconclusive != passed)."""
+    errors = []
+    judged = record.get("result") in {"pass", "fail"}
+    if record.get("result") == "inconclusive" and not any(
+            isinstance(x, str) and x.strip() for x in record.get("limitations") or []):
+        errors.append("inconclusive requires a limitation: say in `limitations[]` what stopped the check "
+                      "(`manual_evidence.py build --limitation \"<words>\"`)")
+    if judged and policy == "ui" and not {"before", "after"}.issubset(phases):
+        errors.append("ui requires pre_action and post_action evidence (the old before and after read the same)")
+    elif judged and policy == "ui" and any(not any(r.get("kind") in {"image", "trace"} for r in by_phase[p])
+                                           for p in ("before", "after")):
+        errors.append("ui requires visual or trace evidence before and after")
+    if judged and policy in {"api", "cli"}:
+        all_refs = [r for values in by_phase.values() for r in values]
+        if ("after" not in phases or not any(r.get("kind") in {"request_response", "log"} for r in all_refs)
+                or not any(r.get("kind") == "state" for r in by_phase["after"])):
+            errors.append("api/cli requires request/output and post_action state evidence")
+    if judged and policy == "no_write":
+        before_state = any(r.get("kind") == "state" for r in by_phase["before"])
+        after_state = any(r.get("kind") == "state" for r in by_phase["after"])
+        completion = any("completion" in [str(x).lower() for x in r.get("proves", [])]
+                         for r in by_phase["after"])
+        if not before_state or not after_state or not completion:
+            errors.append("no_write requires before and after state evidence and completion proof: "
+                          "evidence_refs entries with `kind: state` for both `phase: pre_action` and "
+                          "`phase: post_action`, and \"completion\" in the post_action entry's `proves`")
+    if judged and policy == "static" and (not record.get("before_not_applicable_reason") or "after" not in phases):
+        errors.append("static requires explicit before reason and post_action evidence: set "
+                      "`before_not_applicable_reason` and add an evidence_refs entry with `phase: post_action`")
+    if record.get("result") == "pass" and not any(
+            "completion" in [str(x).lower() for x in ref.get("proves", [])]
+            for ref in by_phase["after"]):
+        errors.append("pass requires post_action evidence proving completion: one evidence_refs entry with "
+                      "`phase: post_action` must list \"completion\" in its `proves` array (the runner's "
+                      "`capture post_action completion` line)")
     return errors
 
 
@@ -384,13 +553,31 @@ def validate(record, root):
     errors.extend(_other_profile_errors(record, root))
     errors.extend(_then_quote_errors(record, root))
     errors.extend(_observation_errors(record, root))
+    # C11 (t-2181 PC-5a): the sides a walked case speaks about are sides of THIS story. Data only (names against the story's
+    # record, read through `contract.story_sides`, AR-13); whether the case speaks about the right sides is the S6 acceptance's.
+    if record.get("about") is not None:
+        about = record["about"]
+        if not isinstance(about, list) or any(not isinstance(x, str) or not x for x in about):
+            errors.append("about must be an array of side names, e.g. [\"ui\"]. Door: write `about` as a list of the story's side "
+                          "names, or leave it out")
+        else:
+            import contract as C
+            from run_suite import story_pipeline     # the one reader of the story's record for a stamp (BOM-safe, absent vs unreadable)
+            pipeline, unreadable = story_pipeline(Path(str(root)) / "pipeline.json")
+            known = sorted(C.story_sides(pipeline))
+            unknown = [name for name in about if name not in known]
+            if unreadable and about:
+                errors.append("about names " + ", ".join(repr(n) for n in about) + ", but the story's sides could not be read ("
+                              + unreadable + "). Door: repair the story's pipeline.json, or leave `about` out")
+            elif unknown:
+                errors.append("about names " + ", ".join(repr(n) for n in unknown) + ", not a side of this story (its sides: "
+                              + (", ".join(known) or "none read") + "). Door: name only those sides in `about`, or leave "
+                              "`about` out when the case does not speak about a particular side")
     refs = record.get("evidence_refs")
     if not isinstance(refs, list) or not refs:
         errors.append("evidence_refs required")
         refs = []
-    phases = set()
-    # The rules below speak the old two words; `pre_action` / `post_action` are read as the same phases.
-    by_phase = {phase: [] for phase in ("before", "after", "supporting", "baseline")}
+    phases, by_phase = _by_phase(refs)
     for ref in refs:
         if not isinstance(ref, dict):
             errors.append("evidence ref must be an object")
@@ -399,12 +586,8 @@ def validate(record, root):
             errors.append("invalid evidence kind")
         if ref.get("phase") not in PHASES:
             errors.append("invalid evidence phase: use " + " | ".join(G.MANUAL_PHASE_WORDS))
-        else:
-            phase = PHASE_ALIAS.get(ref["phase"], ref["phase"])
-            phases.add(phase)
-            by_phase[phase].append(ref)
-            if phase == "baseline":
-                errors.append("baseline evidence belongs only to an evidence_phase=baseline capture")
+        elif PHASE_ALIAS.get(ref["phase"], ref["phase"]) == "baseline":
+            errors.append("baseline evidence belongs only to an evidence_phase=baseline capture")
         if not _iso(ref.get("captured_at")):
             errors.append("evidence captured_at must be timezone-aware ISO-8601")
         if not isinstance(ref.get("proves"), list) or not ref.get("proves"):
@@ -423,43 +606,7 @@ def validate(record, root):
                 errors.append("evidence hash mismatch")
         except (OSError, ValueError) as exc:
             errors.append(str(exc))
-    # FR-23: an `inconclusive` result is a recordable outcome under EVERY policy - the check could not be
-    # completed, so the phase rules (which describe a completed check) do not apply; what it needs is at
-    # least one evidence ref (above) and a limitation that says what stopped it. pass and fail keep the full
-    # phase rules, and an inconclusive record is never coverage (coverage_contract: inconclusive != passed).
-    judged = record.get("result") in {"pass", "fail"}
-    if record.get("result") == "inconclusive" and not any(
-            isinstance(x, str) and x.strip() for x in record.get("limitations") or []):
-        errors.append("inconclusive requires a limitation: say in `limitations[]` what stopped the check "
-                      "(`manual_evidence.py build --limitation \"<words>\"`)")
-    if judged and policy == "ui" and not {"before", "after"}.issubset(phases):
-        errors.append("ui requires pre_action and post_action evidence (the old before and after read the same)")
-    elif judged and policy == "ui" and any(not any(r.get("kind") in {"image", "trace"} for r in by_phase[p])
-                                           for p in ("before", "after")):
-        errors.append("ui requires visual or trace evidence before and after")
-    if judged and policy in {"api", "cli"}:
-        all_refs = [r for values in by_phase.values() for r in values]
-        if ("after" not in phases or not any(r.get("kind") in {"request_response", "log"} for r in all_refs)
-                or not any(r.get("kind") == "state" for r in by_phase["after"])):
-            errors.append("api/cli requires request/output and post_action state evidence")
-    if judged and policy == "no_write":
-        before_state = any(r.get("kind") == "state" for r in by_phase["before"])
-        after_state = any(r.get("kind") == "state" for r in by_phase["after"])
-        completion = any("completion" in [str(x).lower() for x in r.get("proves", [])]
-                         for r in by_phase["after"])
-        if not before_state or not after_state or not completion:
-            errors.append("no_write requires before and after state evidence and completion proof: "
-                          "evidence_refs entries with `kind: state` for both `phase: pre_action` and "
-                          "`phase: post_action`, and \"completion\" in the post_action entry's `proves`")
-    if judged and policy == "static" and (not record.get("before_not_applicable_reason") or "after" not in phases):
-        errors.append("static requires explicit before reason and post_action evidence: set "
-                      "`before_not_applicable_reason` and add an evidence_refs entry with `phase: post_action`")
-    if record.get("result") == "pass" and not any(
-            "completion" in [str(x).lower() for x in ref.get("proves", [])]
-            for ref in by_phase["after"]):
-        errors.append("pass requires post_action evidence proving completion: one evidence_refs entry with "
-                      "`phase: post_action` must list \"completion\" in its `proves` array (the runner's "
-                      "`capture post_action completion` line)")
+    errors.extend(_result_errors(record, policy, phases, by_phase))
     change = record.get("before_change")
     if change is not None:
         if not isinstance(change, dict) or change.get("source") not in BEFORE_SOURCES:
@@ -696,9 +843,22 @@ class Refused(ValueError):
     field name or row id the person has never seen); `door` is what ends it - the person's answer, or the
     orchestrator's operation - and is never a dead end (FR-1, FR-57). `str()` is both, for a role."""
 
-    def __init__(self, reason, door, detail="", door_code=""):
+    # F5(c) (B-15, FR-46): `walkable` is True ONLY for the factory's own preparation failures (a malformed plan row shape, a
+    # tool crash after the scope checks); then the case still goes to the manual agent as an unprepared walk. The default is
+    # False - every refusal the story owns (P20, gate A, an unpinned case, the scope) stays a refusal. `trace` is the last
+    # lines of the traceback of a crash (C3), kept in the request file for the conductor.
+    def __init__(self, reason, door, detail="", door_code="", walkable=False, trace=""):
         super().__init__(f"{reason} - {door}" + (f" [{detail}]" if detail else ""))
         self.reason, self.door, self.door_code = reason, door, door_code
+        self.detail, self.walkable, self.trace = detail, bool(walkable), trace
+
+
+TRACE_LINES = 20       # C3: how many last lines of a traceback the request file keeps
+
+
+def _trace_tail() -> str:
+    import traceback
+    return "".join(traceback.format_exc().splitlines(True)[-TRACE_LINES:]).strip()
 
 
 # t-263 D6 (FR-6): `reason` and `door` are what the report quotes to a person, so neither names an operation of
@@ -788,6 +948,24 @@ def expectation_gaps(task, case_fact) -> list:
     return gaps
 
 
+def _walk_fields(rows, obligation_ids) -> dict:
+    """TR3-10 E (AR-21, FR-49): what the walk changes, from the plan rows that own this case's obligations, in plan order -
+    `{"walk_data": [...]}` and/or `{"walk_global": "..."}`, each key only when said. `walk_data` entries are concatenated as given;
+    the distinct `walk_global` reasons are kept as given (joined by " | " only when rows differ). An absent field and
+    `walk_data: []` are the same: not said, so no key (no constraint). The ONE statement, called by the prepared request AND the
+    unprepared document, so a case through either door carries the fields whole."""
+    owners = [row for row in rows if isinstance(row, dict) and any(isinstance(o, dict) and o.get('obligation_id') in obligation_ids
+                                                                   for o in row.get('coverage_obligations') or [])]
+    walk_data = [entry for row in owners if isinstance(row.get('walk_data'), list) for entry in row['walk_data']]
+    reasons = list(dict.fromkeys(row['walk_global'] for row in owners if isinstance(row.get('walk_global'), str)))
+    out = {}
+    if walk_data:
+        out['walk_data'] = walk_data
+    if reasons:
+        out['walk_global'] = ' | '.join(reasons)
+    return out
+
+
 def prepare_request(task, case, obligation_ids):
     """Resolve approved design before opening a browser; never invent observed steps.
 
@@ -798,7 +976,6 @@ def prepare_request(task, case, obligation_ids):
     from controller import Controller
     from coverage_contract import plan_rows
     from planning_contract import validate_plan
-    from event_store import content_hash
     task = Path(task).resolve()
     controller = Controller(task)
     state = controller.state()
@@ -809,10 +986,16 @@ def prepare_request(task, case, obligation_ids):
         raise Refused("no gate A decision is current for this source revision", _REOPEN, door_code=_REOPEN_CODE)
     rows = plan_rows(task)
     errors = validate_plan(rows)
+    shape_errors = []
     if errors:
-        raise Refused("the approved plan does not pass its own checks, so no manual check can be taken from it",
-                      "the plan is repaired and approved again at gate A; until then the case stands as not "
-                      "checked by hand", '; '.join(errors))
+        from coverage_contract import POLICY_SHAPE_ERROR, POLICY_TYPE_ERROR
+        if not all(POLICY_SHAPE_ERROR in str(error) or POLICY_TYPE_ERROR in str(error) for error in errors):
+            raise Refused("the approved plan does not pass its own checks, so no manual check can be taken from it",
+                          "the plan is repaired and approved again at gate A; until then the case stands as not "
+                          "checked by hand", '; '.join(errors))
+        # F5(c) item 1: ONLY evidence-rule shape errors - the factory's own (the plan exit let a malformed rule through).
+        # Every story-owned check below still runs for this case; the walkable refusal is raised after them.
+        shape_errors = [str(error) for error in errors]
     pins = {p['case_id']: p['version'] for p in C.story_case_links(task)}
     if case not in pins:
         raise Refused(f"the case {case} is not among the cases pinned when the plan was approved",
@@ -856,12 +1039,43 @@ def prepare_request(task, case, obligation_ids):
             raise Refused("what the right answer is for this check has not been settled",
                           "the person answers the open question at gate A",
                           "manual-agent request is outside approved executable scope")
+    # --- the walkable split (F5(c)): everything above is the story's own and refused as it always was ----------------------
+    # POSITION INVARIANT: after every story-owned check, so a case outside the approved scope, with an unresolved or
+    # unconfirmed expectation, unpinned or on a drifted gate A is never walked (P20, E5.6).
+    from event_store import StateConflict
+    walk_door = ("the plan is repaired and approved again at gate A; meanwhile the manual agent walks the case itself and "
+                 "records what it observes, with no result")
+    # M1 (t-1945): the plan check is whole-plan; only the shape errors of THIS case's own obligations unprepare it (an error
+    # reads "<obligation id>: ..."). A malformed rule in another case's row leaves this case prepared normally.
+    own = {str(o.get('obligation_id')) for o in selected}
+    shape_errors = [e for e in shape_errors if e.split(":", 1)[0].strip() in own]
+    bad = [o for o in selected if not isinstance(o.get('evidence_policy'), str)]
+    if shape_errors or bad:
+        raise Refused(f"the plan gives {case}'s check an evidence rule that is not one word", walk_door,
+                      '; '.join(shape_errors) or "evidence_policy is not text for " + ", ".join(
+                          str(o.get('obligation_id')) for o in bad), walkable=True)
+    try:
+        request = _request_tail(task, case, state, decision, obligation_ids, selected, obs, pins, case_fact, walk_door)
+        request.update(_walk_fields(rows, obligation_ids))      # TR3-10 E: what the walk changes travels whole (AR-22, FR-49)
+        return request
+    except (Refused, StateConflict):
+        raise
+    except Exception as exc:        # F5(c) item 4: a crash of OUR preparation is the factory's, not the story's
+        raise Refused(f"the check of {case} could not be prepared: {type(exc).__name__}: "
+                      f"{' '.join(str(exc).split())[:160]}", walk_door, walkable=True, trace=_trace_tail()) from exc
+
+
+def _request_tail(task, case, state, decision, obligation_ids, selected, obs, pins, case_fact, walk_door):
+    """The tail of `prepare_request` (policy step through the actors): its crash is a walkable refusal (F5(c) item 4)."""
+    from event_store import content_hash
     policies = {o.get('evidence_policy') for o in selected}
     conditions = {o.get('completion_condition') for o in selected}
     if len(policies) != 1 or not policies.issubset(POLICIES) or len(conditions) != 1 or not next(iter(conditions)):
         raise Refused("the checks of this case have different rules for what counts as evidence",
                       "the strategist gives them one evidence policy and one completion condition and gate A "
-                      "approves again", "shared manual capture needs the same valid policy and completion condition")
+                      "approves again; meanwhile the manual agent walks the case itself and records what it observes, "
+                      "with no result", "shared manual capture needs the same valid policy and completion condition",
+                      walkable=True)
     policy = next(iter(policies))
     policy_contract = {'evidence_policy': policy, 'completion_condition': next(iter(conditions)),
                        'obligation_hashes': {oid: content_hash(obs[oid]) for oid in obligation_ids}}
@@ -971,22 +1185,112 @@ def prepare_to_file(task, case, obligation_ids) -> dict:
     except ValueError as exc:
         reason, door = refusal_words(exc, case)
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_json(path, {"refused": {"reason": reason, "door": door}})
+        if getattr(exc, "walkable", False):        # F5(c): the factory's own failure - the case is walked unprepared
+            atomic_json(path, _unprepared_document(task, case, obligation_ids, exc, reason, door))
+        else:
+            atomic_json(path, {"refused": {"reason": reason, "door": door}})
         raise
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_json(path, request)
     return request
 
 
+def _unprepared_document(task, case, obligation_ids, exc, reason, door) -> dict:
+    """The `request.json` of an unprepared case: `{"unprepared": {"reason", "door", "detail"?, "trace"?, "obligation_ids",
+    "source_revision"?, "gate_a_decision_ref"?}, "case", "case_version"?, "thens"?, "covers"?, "walk_data"?, "walk_global"?}`. Each `?` key is written only
+    when code could read it (a failure to read one is no reason to lose the case, builder-rules 9)."""
+    marker = {"reason": reason, "door": door, "obligation_ids": list(obligation_ids)}
+    if getattr(exc, "detail", ""):
+        marker["detail"] = str(exc.detail)
+    if getattr(exc, "trace", ""):
+        marker["trace"] = str(exc.trace)
+    doc = {"unprepared": marker, "case": case}
+    try:
+        from controller import Controller
+        controller = Controller(Path(task).resolve())
+        state = controller.state()
+        if state.get("source_revision"):
+            marker["source_revision"] = state["source_revision"]
+        current = controller._current_gate_a(state)
+        if current and current.get("id"):
+            marker["gate_a_decision_ref"] = current["id"]
+    except Exception:
+        pass
+    try:
+        import contract as C
+        pins = {p["case_id"]: p["version"] for p in C.story_case_links(task)}
+        if case in pins:
+            doc["case_version"] = pins[case]
+        fact = C.case_index(task).get(case) or {}
+        if fact.get("requirements"):
+            doc["covers"] = list(fact["requirements"])
+        thens = _case_thens(case, fact)
+        if thens:
+            doc["thens"] = thens
+    except Exception:
+        pass
+    try:
+        from coverage_contract import plan_rows
+        doc.update(_walk_fields(plan_rows(Path(task).resolve()), obligation_ids))      # TR3-10 E F10: the walkable door carries them too
+    except Exception:
+        pass
+    return doc
+
+
+def unprepared_request(task, case):
+    """The `unprepared` marker of the case's `request.json` (`{"reason", "obligation_ids", ...}`), or None: the ONE reader of
+    that key (AR-13) - None for no file, an unreadable file, a prepared request or a `refused` one."""
+    try:
+        data = json.loads(request_path(task, case).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    marker = data.get("unprepared") if isinstance(data, dict) else None
+    return marker if isinstance(marker, dict) else None
+
+
+def unprepared_rows(report) -> list:
+    """`[{case, obligation_ids, reason, observations, finding}]` from the `current_manual_checks` of a run report that carry
+    `unprepared` - the ONE reader of unprepared rows (AR-13, F5(d)); `[]` when there are none."""
+    out = []
+    for row in (report or {}).get("current_manual_checks") or []:
+        marker = row.get("unprepared") if isinstance(row, dict) else None
+        if marker is None:
+            continue
+        entry = {"case": row.get("case"),
+                 "obligation_ids": list(row.get("current_obligation_ids") or row.get("obligation_ids") or []),
+                 "reason": str((marker.get("reason") if isinstance(marker, dict) else marker) or ""),
+                 "observations": row.get("observations") or [], "finding": row.get("finding") or ""}
+        if isinstance(marker, dict) and isinstance(marker.get("walked"), bool):
+            # t-1955 N3: what `write_unprepared` derived from the recorder's files; a record made before it says nothing (AR-23)
+            entry["walked"] = marker["walked"]
+            if not marker["walked"]:
+                entry["not_walked"] = str(marker.get("not_walked") or "")
+        out.append(entry)
+    return out
+
+
+def _write_refused(task_root, case, reason, door) -> None:
+    """`request.json` of the case as `{refused: {reason, door, trace}}`; a file that cannot be written changes nothing (the decision is returned)."""
+    try:
+        path = request_path(task_root, case)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json(path, {"refused": {"reason": reason, "door": door, "trace": _trace_tail()}})
+    except Exception:
+        pass
+
+
 def prepare_for_block(task_root, case) -> tuple:
-    """([obligation ids], "") for a case the agent may check by hand, ([], the refusal in words) otherwise.
+    """([obligation ids], "", "") for a case the agent may check by hand, ([], the refusal in words, "") for a case the story
+    refuses, (ids, "", <reason>) for a case the FACTORY failed to prepare (F5(c), the owner's word 05.11: the factory never
+    stands - the case goes to the manual agent as an unprepared walk).
 
     THE one per-case prepare of a manual runner block (AR-15): the driver (`Driver.manual_prepare`) and
     `story_step.py start` both call it, so the runner finds `request.json` on either road. `prepare_to_file` is the one
-    reader (the obligation ids come from `_case_obligation_mapping`): it writes `request.json`, either the request or
-    `{refused: {reason, door}}`, and a refusal is a `ValueError` carrying its two halves. Any other failure is a refusal
-    too - said, and written - so a case is never dispatched on a doubt (error direction: toward NOT checking by hand,
-    P20)."""
+    reader (the obligation ids come from `_case_obligation_mapping`): it writes `request.json`, either the request, an
+    `unprepared` marker (a `Refused` with `walkable`), or `{refused: {reason, door}}`, and a refusal is a `ValueError`
+    carrying its two halves. ERROR DIRECTION: a refusal the STORY owns (P20, gate A, scope, an unpinned case) and any
+    failure outside `prepare_request` stay refusals - said, and written - so a case is never dispatched on a doubt; only
+    the factory's own preparation failures are walked, and an unprepared walk never carries a result (FR-59)."""
     try:
         from coverage_contract import plan_rows
         ids = sorted(_case_obligation_mapping(task_root, plan_rows(task_root), case))
@@ -995,21 +1299,22 @@ def prepare_for_block(task_root, case) -> tuple:
     code = ""
     try:
         prepare_to_file(task_root, case, ids)
-        return ids, ""
+        return ids, "", ""
     except ValueError as exc:
         reason, door = refusal_words(exc)
+        if getattr(exc, "walkable", False):
+            if ids:
+                return ids, "", reason
+            # E5.10: no obligation ids -> not walkable (coverage could not attach it); `request.json` holds the unprepared
+            # marker `prepare_to_file` wrote, so the file is rewritten to say the same as the decision: a refusal
+            _write_refused(task_root, case, reason, door)
         # The person-facing words carry no operation (t-263 D6, FR-6); the caller's why does - it is read by the
         # orchestrator and the log, never shown to the person as a question - so the door stays usable (FR-2).
         code = str(getattr(exc, "door_code", "") or "")
     except Exception as exc:
         reason, door = refusal_words(ValueError(f"{type(exc).__name__}: {' '.join(str(exc).split())[:160]}"))
-        try:
-            path = request_path(task_root, case)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            atomic_json(path, {"refused": {"reason": reason, "door": door}})
-        except Exception:
-            pass
-    return [], f"{reason} — {door}" + (f" (operation: {code})" if code else "")
+        _write_refused(task_root, case, reason, door)
+    return [], f"{reason} — {door}" + (f" (operation: {code})" if code else ""), ""
 
 
 def write_block(task, records, declared=False):
@@ -1029,18 +1334,42 @@ def write_block(task, records, declared=False):
             continue
         if declared:
             issues.extend(where + issue for issue in _declared_errors(record))
+            attempts, known, _ = _hand_surprises(task, record)
+            issues.extend(where + issue for issue in _surprise_cite_errors(
+                record.get("observations"), known, attempts, "a record written by hand holds the attempts it names; cite a surprise of "
+                "one of them, or build the case again with `--with-attempt {attempt}`"))
         try:
-            issues.extend(where + issue for issue in _validate_current(task, record))
+            found = _validate_current(task, record)
         except ValueError as exc:
-            issues.append(where + str(exc))
+            found = [str(exc)]
+        # F5(d): an unprepared walk's only "issue" is its constant (no result is bound); it is written, every other issue stays
+        unprepared = record.get("unprepared") is not None
+        if unprepared:
+            from coverage_contract import UNPREPARED
+            found = [issue for issue in found if issue != UNPREPARED]
+        issues.extend(where + issue for issue in found)
         # the quote rule of `build` and `rejudge` holds for a record written by hand too (AR-19): when the case's request
-        # lists Thens, a pass or fail names them through the one coverage function
-        numbers = _request_thens(task, record.get("case"))
+        # lists Thens, a pass or fail names them through the one coverage function. An unprepared walk has no result and
+        # asks no quote (F5(d)); a `result` on it is refused by `_validate_current` above (E5.9).
+        numbers = [] if unprepared else _request_thens(task, record.get("case"))
         if numbers:
             issues.extend(where + problem + ". Door: " + QUOTE_DOOR for problem in
                           _then_coverage_problems(numbers, record.get("result"), record.get("then_quotes")))
     if issues:
         raise ValueError(compound(issues))
+    if declared:        # a runner cannot drop a surprise line by leaving it out of the record it writes (P26): code carries them
+        # a hand record that still carries the retired `surprises_ignored` is written without it, with or without an attempt folder
+        # (nothing reads it, AR-22); a record without the key is unchanged
+        stripped = [{k: v for k, v in record.items() if k != "surprises_ignored"} for record in records]
+        records = [dict(rec, **fields) if (fields := _hand_surprises(task, record)[2]) else rec
+                   for record, rec in zip(records, stripped)]
+    for index, record in enumerate(records):        # t-1955 N3: a missing key is a refusal with a door, never a KeyError
+        absent = [key for key in ("dispatch_id", "attempt_started_at", "attempt_ended_at", "source_revision")
+                  if record.get(key) is None]
+        if absent:
+            raise ValueError(f"records[{index}] has no {', '.join(absent)}: a block binds to the running dispatch, the attempt's "
+                             "times and the source revision. Door: write the record with `manual_evidence.py build` (or `unprepared` "
+                             "for an unprepared case), which fills them")
     dispatches = {r["dispatch_id"] for r in records}
     starts = {r["attempt_started_at"] for r in records}
     ends = {r["attempt_ended_at"] for r in records}
@@ -1050,6 +1379,10 @@ def write_block(task, records, declared=False):
     payload = {"schema_version": 2, "dispatch_id": next(iter(dispatches)),
                "attempt_started_at": next(iter(starts)), "attempt_ended_at": next(iter(ends)),
                "head": next(iter(heads)), "manual_checks": records}
+    # t-2181 PC-5a (B2): the same stamp as a run block, from the one function (`run_suite.proof_stamp`, AR-15); {} leaves the
+    # payload - and so its identity key - as it was. The runner's `about` rides on each record.
+    from run_suite import proof_stamp
+    payload.update(proof_stamp(task))
     key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     payload["block_id"] = "manual-" + key[:20]
     path = task / "work" / "manual-blocks" / f"manual-{key}.json"
@@ -1119,6 +1452,161 @@ def _running_dispatch(task, case) -> str:
         raise ValueError(f"{len(running)} running S6 dispatches hold {case} in their scope ({', '.join(sorted(running))}): "
                          "the record cannot tell which one it belongs to. Say so in your findings and halt")
     return running[0]
+
+
+NOT_WALKED_MAX = 300      # the characters of `--not-walked` the record keeps
+
+
+def _recorded_walks(task, case) -> list:
+    """`[(attempt, steps rows, probes rows)]`, oldest first: the attempts of `case` that hold at least one recorder step. An attempt
+    that is env_blocked is no walk (E3.10); nothing is read from the runner (E3.9, P26). Pure data, no judgment (AR-29)."""
+    import manual_capture as MC
+    root = MC.case_root(task, case)
+    walks = []
+    for name in MC.attempts_of(root):
+        folder = root / name
+        if MC.attempt_state(folder) == "env_blocked":
+            continue
+        steps = MC.jsonl_rows(folder / "steps.jsonl")
+        if steps:
+            walks.append((name, steps, MC.jsonl_rows(folder / "probes.jsonl")))
+    return walks
+
+
+def write_unprepared(task, case, observations, not_walked="") -> Path:
+    """The record of an UNPREPARED case (the factory could not prepare it; `request.json` holds `unprepared`): what the runner saw,
+    and whether anything was walked with the recorder - never a result (FR-59). ONE record through `write_block` (AR-14), bound to
+    the running dispatch by `_running_dispatch` (AR-13). `walked` is DERIVED from the recorder's `steps.jsonl` files on disk, never taken
+    from the runner (P26): the newest attempt that holds a step is the record's `attempt_id` (so its `surprise` lines travel with
+    it); no such attempt means `not_walked` is required, and is refused when one exists. Raises `ValueError` with the door."""
+    task = Path(task).resolve()
+    marker = unprepared_request(task, case)
+    if marker is None:
+        import manual_capture as MC
+        _load_request(task, MC.case_root(task, case), case)       # called for its refusal: a missing / refused request speaks in its own words
+        raise ValueError(f"{case} was prepared (its request.json holds no `unprepared`): close it with `manual_evidence.py build`. "
+                         "The `unprepared` command is for a case whose request.json says it was not prepared")
+    if not isinstance(observations, list):
+        raise ValueError("observations must be a list ([] when you saw nothing doubtful)")
+    dispatch = _running_dispatch(task, case)
+    walks = _recorded_walks(task, case)
+    why = _squash(not_walked or "")
+    if walks:
+        name, steps, probes = walks[-1]
+        if why:
+            raise ValueError(f"{case} was walked (attempt {name} holds {len(steps)} step(s)): leave --not-walked out")
+        moments = [_moment(row["at"]) for row in steps + probes if row.get("at")]
+        started, ended = min(moments).isoformat(timespec="seconds"), max(moments).isoformat(timespec="seconds")
+        flag = {"walked": True}
+    else:
+        if not why:
+            raise ValueError(f"nothing of {case} was walked with the recorder: say why with --not-walked \"<why>\", or walk it first "
+                             "(`manual_capture.py ...`)")
+        name = ""
+        started = ended = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        flag = {"walked": False, "not_walked": why if len(why) <= NOT_WALKED_MAX else why[:NOT_WALKED_MAX - 1] + "…"}
+    revision = marker.get("source_revision")
+    if not revision:
+        from controller import Controller
+        revision = Controller(task).state().get("source_revision")
+    record = {"schema_version": 2, "case": case, "obligation_ids": list(marker.get("obligation_ids") or []),
+              "unprepared": {"reason": marker.get("reason"), **flag}, "observations": observations,
+              "dispatch_id": dispatch, "attempt_started_at": started, "attempt_ended_at": ended, "source_revision": revision}
+    if name:
+        record["attempt_id"] = name
+    return write_block(task, [record], declared=True)
+
+
+def _walk_observations(walk_record) -> list:
+    """The observations of a walk's result record as the case record carries them (`OBSERVATION_FIELDS`): the record's `capture` is the
+    record's `evidence`, a `surprise` citation travels. An observation `about: card` is a note on the app card, not on the case: it stays
+    in the walk's result record for the card-notes reader and is not copied here. Code NEVER writes a citation the role did not make (P26,
+    AR-29, t-2022 N3): an observation with no `quote` stays without, and the record's rule (`_observation_errors`) refuses it - at the
+    verdict while the session lives (`walk_rule_errors`), with the door."""
+    out = []
+    for entry in walk_record.get("observations") or []:
+        if not isinstance(entry, dict) or entry.get("about") == "card":
+            continue
+        row = {key: entry[key] for key in OBSERVATION_FIELDS if key != "evidence" and key in entry}
+        row["evidence"] = entry.get("evidence") or entry.get("capture") or ""
+        if entry.get("surprise"):
+            row["surprise"] = entry["surprise"]
+        out.append(row)
+    return out
+
+
+def walk_result(thens) -> str:
+    """`result` of a walk as a PURE FOLD of the role's own per-Then words, never a judgment of code: `fail` if any Then is `fail`, else
+    `inconclusive` if any is `inconclusive` or `unreached` (or there is no Then at all: no recorded words, no pass - AR-28), else `pass`."""
+    words = [t.get("result") for t in thens]
+    return ("fail" if "fail" in words else
+            "inconclusive" if not words or any(w in ("inconclusive", "unreached") for w in words) else "pass")
+
+
+def walk_rule_errors(task, case, walk_record) -> list:
+    """The rules `record_from_walk` will meet, asked while the walk's session LIVES (t-2016 F2: a verdict that the build refuses after the
+    session is gone is a lost case, because the role can no longer act). The SAME functions `validate` calls on the record - the
+    observations (`_observation_errors`) and what the result needs of the evidence (`_result_errors`: phases, completion, limitation) - over
+    a record made from the attempt's own files; never a copy of a rule. Not asked: what the build alone can know (the stand probes, the
+    dispatch). A case with no `request.json` policy is asked the rules that do not depend on one. Errors only; `[]` = the build will not
+    refuse on these (it may on others). ERROR DIRECTION: the limitations seen here are the captures' own and the walker's; the build adds
+    code's sentences (`person_sentences`), so a refusal here can be one the build would not make - never the reverse."""
+    import manual_capture as MC
+    task = Path(task).resolve()
+    root = MC.case_root(task, case)
+    request = _read_json(root / "request.json")
+    attempt = str(walk_record.get("attempt") or "")
+    folder = root / attempt
+    captures, steps = _jsonl(folder / "captures.jsonl"), _jsonl(folder / "steps.jsonl")
+    refs = _evidence_refs([c for c in captures if all(k in c for k in ("path", "content_hash", "kind", "phase", "captured_at", "proves"))])
+    thens = [t for t in walk_record.get("thens") or [] if isinstance(t, dict)]
+    limitations = [c["limitation"] for c in captures if isinstance(c.get("limitation"), str) and c["limitation"].strip()]
+    if walk_record.get("limitation"):
+        limitations.append(str(walk_record["limitation"]))
+    record = {"case": case, "attempt_id": attempt, "result": walk_result(thens), "limitations": limitations, "evidence_refs": refs,
+              "steps_actual": [_step_line(s) for s in steps if isinstance(s, dict) and "step" in s and "outcome" in s],
+              "observations": _walk_observations(walk_record),
+              "before_not_applicable_reason": request.get("before_not_applicable_reason")}
+    errors = _observation_errors(record, task)
+    if not captures:          # the build's `_attempt_files` refuses it (t-2022 N1); the server takes one `look` first, so this is the door when it could not
+        errors.append(f"attempt {attempt} of {case} holds no captures: take one - `look` (or `capture <phase> <label>`) in a step call, then give the verdict")
+    errors += _surprise_cite_errors(record["observations"], {row["id"] for row in surprises_of(folder)}, [attempt],
+                                    "a walk's observation cites a surprise line of its own attempt only")      # N2: the build asks it too
+    if unprepared_request(task, case) is None:
+        phases, by_phase = _by_phase(refs)
+        errors += _result_errors(record, request.get("evidence_policy"), phases, by_phase)
+    return sorted(set(errors))
+
+
+def record_from_walk(task, case, walk_record) -> dict:
+    """The case record of one walked item, reduced from its result record `work/walks/<W>/<item>.json` (spec 3.4): the walker judged each
+    Then, code only carries the words (P27, AR-29). An UNPREPARED case goes to `write_unprepared` with the observations and never to
+    `build_record`: no pass or fail from an unprepared walk (FR-59, E2.7). A prepared case calls `build_record(task, case, result, actual,
+    masked=True, attempt=<the item's attempt>, quotes=<each pass/fail Then's own quote>, observations=<...>)`. `result` is a PURE FOLD of the
+    role's own per-Then words, never a judgment of code: `fail` if any Then is `fail`, else `inconclusive` if any is `inconclusive` or
+    `unreached` (or the record holds no Then at all: no recorded words, no pass - AR-28), else `pass`. `actual` is the record's own `actual`
+    when the walker gave one, else the Thens' own words joined. `masked=True`: the recorder stores every capture masked (P26). A record
+    `build_record` or `write_unprepared` refuses is RETURNED as `{"refused": <the refusal text>}`, never raised and never turned into a pass:
+    the caller re-queues the case once (E2.8). Returns `build_record`'s answer, or `{"written": True, "unprepared": True, "case", "block"}`."""
+    task = Path(task).resolve()
+    thens = [t for t in walk_record.get("thens") or [] if isinstance(t, dict)]
+    observations = _walk_observations(walk_record)
+    try:
+        if unprepared_request(task, case) is not None:
+            walked = bool(_recorded_walks(task, case))
+            path = write_unprepared(task, case, observations, not_walked="" if walked else "the walker ran no step for this case")
+            return {"written": True, "unprepared": True, "case": case, "block": path.relative_to(task).as_posix()}
+        result = walk_result(thens)
+        quotes = [(("unreached", str(t["n"])) if t.get("result") == "unreached" else ("text", f"{t['n']}={t.get('quote') or ''}"))
+                  for t in thens if t.get("result") in ("pass", "fail", "unreached")]
+        said = "; ".join(f"Then {t['n']} {t.get('result')}" + (f": {t['quote']}" if t.get("quote") else "") for t in thens)
+        actual = str(walk_record.get("actual") or "").strip() or said or str(walk_record.get("limitation") or "the walker recorded no result for any Then")
+        return build_record(task, case, result, actual, masked=True,
+                            limitations=[walk_record["limitation"]] if walk_record.get("limitation") else (),
+                            attempt=walk_record.get("attempt") or None, quotes=quotes, observations=observations,
+                            about=walk_record.get("about"))
+    except ValueError as exc:
+        return {"refused": str(exc)}
 
 
 def _load_request(task, root, case) -> dict:
@@ -1333,7 +1821,7 @@ def _joined_attempt(task, root, case, main_name, name, taken, expected) -> dict:
 
 
 def build_record(task, case, result, actual, masked, limitations=(), attempt=None, quotes=(), with_attempts=(),
-                 observations=()) -> dict:
+                 observations=(), about=None) -> dict:
     """Assemble the record of ONE case from `request.json` and the latest attempt's captured files, validate
     it, and write its block. Returns {"block", "record", ...}.
 
@@ -1344,7 +1832,10 @@ def build_record(task, case, result, actual, masked, limitations=(), attempt=Non
     `quotes` (HF8-19): the Then quotes the verdict stands on, `_then_quote_problems`. `with_attempts` (FB-12): the open
     attempts of OTHER stand profiles that join this record (`_joined_attempt`): one record, each profile with its own
     probes. `observations` (P26): everything doubtful the runner saw, `[{step, expected, seen, evidence, quote}]`, the record's
-    `observations[]` (`_observation_errors`); `()` writes the declared empty outcome `[]`."""
+    `observations[]` (`_observation_errors`); `()` writes the declared empty outcome `[]`. An observation may carry
+    `"surprise": "<id>"` (a line of `surprises.jsonl`, `_surprise_cite_errors`); the record carries `surprises`
+    and `surprise_detection` (`_surprise_fields`, t-1765 X8-3). `about` (t-2181 PC-5a): the record-level list of the story's sides the walk
+    speaks about, put on the record when it is not None (C11 checks the names; `validate_record` refuses a non-side)."""
     import manual_capture as MC
     task = Path(task).resolve()
     _check_words(result, actual)
@@ -1371,6 +1862,11 @@ def build_record(task, case, result, actual, masked, limitations=(), attempt=Non
         # One message for both causes the capture writes env_blocked.json for: the stand's probe (the stand could not
         # be identified) and the login by code that did not land (`do_not_retry`); the probe line says which.
         why = ""
+        if row.get("cause") == MC.LOGIN_UNKNOWN_CAUSE:
+            # the login by code was not tried (nothing sent): the factory's gap, no gap of the stand and no halt
+            raise ValueError(f"attempt {name} of {case} has no record: {row.get('probe_line')}. (the login by code was "
+                             "not tried and nothing was sent: capture the case again as a new attempt, signing in "
+                             "through fill-account steps; the block goes on)")
         if row.get("do_not_retry"):
             # a build the person must answer for (cause `build`, t-300 N2 X13) and a login that did not land say the
             # same thing about the door - no capture again while the cause stands - each with its own cause
@@ -1413,6 +1909,15 @@ def build_record(task, case, result, actual, masked, limitations=(), attempt=Non
     entries, problems = _then_quote_problems(task, request, result, quotes, refs)
     if problems:
         raise _quote_refusal(problems)
+    # t-1765 X8-3: the surprise lines of the main attempt and of each joined one travel in the record whole (AR-21, AR-27); a
+    # citation in `observations[].surprise` is checked against the same lines (an id of an attempt this record does not hold: the
+    # door is `--with-attempt`, E16)
+    attempts = [name] + [p["part"]["attempt"] for p in joined]
+    carried = _surprise_fields(task, root, attempts, refs)
+    cited = _surprise_cite_errors(observations, {row["id"] for a in attempts for row in surprises_of(root / a)}, attempts,
+                                  "join that attempt: `manual_evidence.py build ... --with-attempt {attempt}` (an open attempt of ANOTHER stand profile)")
+    if cited:
+        raise ValueError("the observations cannot be used: " + "; ".join(cited))
     record = {"schema_version": 2, "case": request["case"], "case_version": request["case_version"],
               "obligation_ids": request["obligation_ids"], "obligation_hashes": request["obligation_hashes"],
               "attempt_id": name, "dispatch_id": _running_dispatch(task, request["case"]),
@@ -1428,9 +1933,11 @@ def build_record(task, case, result, actual, masked, limitations=(), attempt=Non
               "gate_a_decision_ref": request["gate_a_decision_ref"],
               "approved_policy_hash": request["approved_policy_hash"],
               "before_change": before_change_for(register, request.get("covers") or []),
-              "observations": list(observations or [])}
+              "observations": list(observations or []), **carried}
     if request.get("before_not_applicable_reason"):
         record["before_not_applicable_reason"] = request["before_not_applicable_reason"]
+    if about is not None:
+        record["about"] = about
     if entries:
         record["then_quotes"] = entries
     if joined:
@@ -1500,7 +2007,7 @@ def _later_record(root, of_attempt):
     return later[-1] if later else None
 
 
-OBSERVATION_FILE_COMMANDS = ("build", "rejudge", "write-block")      # the commands that read `--observations-file`
+OBSERVATION_FILE_COMMANDS = ("build", "rejudge", "write-block", "unprepared")    # the commands that read `--observations-file`
 
 
 def rejudge_record(task, case, of_attempt, result, actual, reason, quotes=(), completion=None, limitations=(),
@@ -1577,7 +2084,19 @@ def rejudge_record(task, case, of_attempt, result, actual, reason, quotes=(), co
         new.pop("then_quotes", None)
     if observations is not None:      # F6: the runner's own list of this re-judge REPLACES the base's (`[]` is a list too)
         new["observations"] = observations
+        # t-1765 X8-3: a citation names a line of the attempts the base record holds; a re-judge joins no attempt (nothing is run)
+        held = [of_attempt] + [str(p.get("attempt")) for p in base.get("other_profiles") or [] if isinstance(p, dict)]
+        cited = _surprise_cite_errors(observations, {row["id"] for a in held for row in surprises_of(root / a)}, held,
+                                      "a re-judge keeps the attempts of the record it judges again; cite a surprise of one of them, "
+                                      "or build the case again with `--with-attempt {attempt}`")
+        if cited:
+            raise ValueError("the observations cannot be used: " + "; ".join(cited))
     new.setdefault("observations", [])      # a record made before the rule reads as [] (E14); the new one declares it
+    # t-1765 X8-3 (C6): the surprise fields of the base travel unchanged - nothing is run again, so nothing is recounted (AR-21); a base
+    # made before the detector declares what is true of it
+    new.setdefault("surprises", [])
+    new.pop("surprises_ignored", None)      # a base written before X9 carries the retired count; nothing reads it (AR-22)
+    new.setdefault("surprise_detection", "absent: the attempt was recorded before the detector wrote its lines")
     sentence = rejudge_sentence(of_attempt, reason)
     kept = [x for x in base.get("limitations") or [] if x != sentence]
     new["limitations"] = kept + [x for x in given if x not in kept] + [sentence]
@@ -1607,7 +2126,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(epilog=epilog("manual_evidence.py"),
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=("prepare", "validate", "write-block", "write-baseline", "export",
-                                            "build", "rejudge"))
+                                            "build", "rejudge", "unprepared"))
     parser.add_argument("--task-root", required=True)
     parser.add_argument("--input", help="the JSON file of every command but `build` and `rejudge`")
     parser.add_argument("--output")
@@ -1630,8 +2149,12 @@ def main(argv=None):
     parser.add_argument("--of-attempt", help="rejudge: the written attempt whose captures are read again")
     parser.add_argument("--reason", help="rejudge: why the first verdict was wrong, in words")
     parser.add_argument("--completion", help="rejudge: the post_action capture (its path) that proves the completion")
-    parser.add_argument("--observations-file", help="build, rejudge, write-block: a JSON list of observations "
-                                                    "[{step, expected, seen, evidence, quote}]; absent = []")
+    parser.add_argument("--observations-file", help="build, rejudge, write-block, unprepared: a JSON list of observations "
+                                                    "[{step, expected, seen, evidence, quote[, surprise]}]; absent = []")
+    parser.add_argument("--about", action="append", metavar="SIDE",
+                        help="build: a side of the story this walk speaks about (repeat per side); absent = the record has no `about`")
+    parser.add_argument("--not-walked", help="unprepared: why nothing of the case was walked with the recorder (required when no "
+                                             "attempt holds a step, refused when one does)")
     args = hooklib.exact_options(parser).parse_args(argv)
     quotes = ([("text", v) for v in args.then_quote or []] + [("seen", v) for v in args.then_seen or []]
               + [("unreached", v) for v in args.then_unreached or []])
@@ -1654,14 +2177,30 @@ def main(argv=None):
         if not isinstance(observations, list):
             return refuse(f"manual_evidence.py {args.command}", f"{args.observations_file} must hold a JSON list of "
                           "observations ([] when you saw nothing doubtful)")
+    if args.about and args.command != "build":
+        return refuse(f"manual_evidence.py {args.command}", f"--about is read by `build` only, and `{args.command}` would ignore it. "
+                      "Leave it out (a re-judge keeps the `about` of the record it judges again)")
     if args.command == "build":
         missing = [flag for flag, value in (("--case", args.case), ("--result", args.result),
                                             ("--actual", args.actual)) if not value]
         if missing:
             return refuse("manual_evidence.py build", f"{', '.join(missing)} missing")
         done = build_record(args.task_root, args.case, args.result, args.actual, args.masked,
-                            args.limitation or [], args.attempt, quotes, args.with_attempt or [], observations)
+                            args.limitation or [], args.attempt, quotes, args.with_attempt or [], observations,
+                            about=args.about)
         print(json.dumps(done))
+        return 0
+    if args.command == "unprepared":
+        if not args.case:
+            return refuse("manual_evidence.py unprepared", "--case missing")
+        if args.not_walked is not None and not args.not_walked.strip():
+            return refuse("manual_evidence.py unprepared", "--not-walked is blank: say why it was not walked, or leave it out when "
+                          "the case was walked with the recorder")
+        try:
+            block = write_unprepared(args.task_root, args.case, observations, args.not_walked or "")
+        except ValueError as exc:
+            return refuse("manual_evidence.py unprepared", str(exc))
+        print(json.dumps({"written": True, "case": args.case, "block": Path(block).relative_to(Path(args.task_root).resolve()).as_posix()}))
         return 0
     if args.command == "rejudge":
         missing = [flag for flag, value in (("--case", args.case), ("--of-attempt", args.of_attempt), ("--result", args.result),

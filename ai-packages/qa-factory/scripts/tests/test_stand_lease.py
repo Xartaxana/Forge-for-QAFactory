@@ -43,9 +43,9 @@ def lease_file(root) -> dict:
     return json.loads((root / "qa-factory" / "state" / "stand-lease.json").read_text(encoding="utf-8"))
 
 
-def write_lease(root, environment, lease, notes=None):
+def write_lease(root, environment, holder, notes=None):
     path = root / "qa-factory" / "state" / "stand-lease.json"
-    path.write_text(json.dumps({"schema_version": 1, "leases": {environment: lease},
+    path.write_text(json.dumps({"schema_version": 1, "leases": {environment: {"holders": [holder]}},
                                 "notes": notes or []}), encoding="utf-8")
 
 
@@ -67,7 +67,185 @@ def start_holder(root, environment=""):
     return proc, line
 
 
+def test_a_held_lease_lock_runs_unprotected_with_the_holder_named():
+    """TR4-2 C: the lease lock held past the wait is the helper's LockBusy; `hold` keeps its fail-open policy (the run goes on
+    unprotected) and says why with the holder sentence, `status` answers its `error` key the same way."""
+    import event_store as ES
+    from event_store import take_file_lock
+    root = temp_project("qa-stand-lease-held-")
+    path, lock_path = stand_lease._paths(root)
+    holder = take_file_lock(lock_path, 0, purpose="test holder", record_holder=True)
+    saved = ES.SHORT_RMW_LOCK_WAIT_S
+    ES.SHORT_RMW_LOCK_WAIT_S = 0.2
+    try:
+        with stand_lease.hold(root, "job-held", "", wait_s=0) as lease:
+            error = lease.get("lease_error", "")
+            assert "LockBusy" in error and "held by process %d" % os.getpid() in error.lower(), error
+        answer = stand_lease.status(root)
+        assert "held by process %d" % os.getpid() in answer.get("error", "").lower(), answer
+    finally:
+        ES.SHORT_RMW_LOCK_WAIT_S = saved
+        holder.release()
+        cleanup(root)
+
+
+def _lease_bytes(root):
+    path, _ = stand_lease._paths(root)
+    return path.read_bytes() if path.exists() else None
+
+
+class _BusyLock:
+    """The lease lock held by a second handle, the wait cut to a fifth of a second; restores both on exit."""
+
+    def __init__(self, root, wait_s=0.2):
+        self.root, self.wait_s = root, wait_s
+
+    def __enter__(self):
+        import event_store as ES
+        self.es, self.saved = ES, ES.SHORT_RMW_LOCK_WAIT_S
+        ES.SHORT_RMW_LOCK_WAIT_S = self.wait_s
+        self.lock = ES.take_file_lock(stand_lease._paths(self.root)[1], 0, purpose="test holder", record_holder=True)
+        return self
+
+    def __exit__(self, *_exc):
+        self.lock.release()
+        self.es.SHORT_RMW_LOCK_WAIT_S = self.saved
+
+
+def _seed_live_lease(root):
+    """A lease of a live process of another job (this one), so every path has a record to read and decide from."""
+    write_lease(root, "default", {"job": "other", "pid": os.getpid(), "started": "", "mode": "exclusive",
+                                  "acquired_at": "2026-01-01T00:00:00+00:00"})
+
+
+def test_busy_lock_take_refuses_and_writes_nothing():
+    from event_store import LockBusy
+    for wait in (0, 0.2):                      # at the helper's limit (one try) and just beyond it
+        root = temp_project("qa-stand-lease-busy-take-")
+        try:
+            _seed_live_lease(root)
+            before = _lease_bytes(root)
+            with _BusyLock(root, wait):
+                try:
+                    stand_lease._try_acquire(root, "job-new", "default")
+                    raise AssertionError("take under a busy lock must refuse")
+                except LockBusy as busy:
+                    assert "held by process %d" % os.getpid() in str(busy).lower(), str(busy)
+            assert _lease_bytes(root) == before
+        finally:
+            cleanup(root)
+
+
+def test_busy_lock_release_refuses_and_writes_nothing():
+    from event_store import LockBusy
+    root = temp_project("qa-stand-lease-busy-release-")
+    try:
+        with stand_lease.hold(root, "job-r", "", wait_s=0):
+            before = _lease_bytes(root)
+            with _BusyLock(root):
+                try:
+                    stand_lease._release(root, "job-r", "default")
+                    raise AssertionError("release under a busy lock must refuse")
+                except LockBusy:
+                    pass
+            assert _lease_bytes(root) == before
+    finally:
+        cleanup(root)
+
+
+def test_busy_lock_release_by_person_refuses_and_writes_nothing():
+    root = temp_project("qa-stand-lease-busy-person-")
+    try:
+        _seed_live_lease(root)
+        before = _lease_bytes(root)
+        import contextlib
+        import io
+        saved_argv, err, code = sys.argv, io.StringIO(), None
+        sys.argv = ["stand_lease.py", "--project-root", str(root), "--release", "--reason", "gone"]
+        try:
+            with _BusyLock(root), contextlib.redirect_stderr(err):     # in-process: the wait is the cut seam, not 10 s
+                try:
+                    stand_lease.main()
+                except SystemExit as exit_:
+                    code = exit_.code
+        finally:
+            sys.argv = saved_argv
+        assert code == 3, (code, err.getvalue())
+        text = err.getvalue()
+        assert "wait a moment and repeat the same command" in text and "held by process %d" % os.getpid() in text, text
+        assert "Traceback" not in text and "qa-factory" not in text and ".lock" not in text, text
+        assert _lease_bytes(root) == before
+    finally:
+        cleanup(root)
+
+
+def test_busy_lock_status_reports_the_error_and_writes_nothing():
+    root = temp_project("qa-stand-lease-busy-status-")
+    try:
+        _seed_live_lease(root)
+        before = _lease_bytes(root)
+        with _BusyLock(root):
+            answer = stand_lease.status(root)
+        assert answer["leases"] == [] and "held by process %d" % os.getpid() in answer["error"].lower(), answer
+        assert _lease_bytes(root) == before
+    finally:
+        cleanup(root)
+
+
+def test_broken_lock_surfaces():
+    """A lock that cannot be TRIED is not another writer: every path raises the helper's LockBroken, `status` names it."""
+    from event_store import LockBroken
+    root = temp_project("qa-stand-lease-broken-")
+    try:
+        _seed_live_lease(root)
+        before = _lease_bytes(root)
+        _, lock_path = stand_lease._paths(root)
+        lock_path.mkdir()                       # a directory where the lock file must be: the open fails
+        for name, call in (("take", lambda: stand_lease._try_acquire(root, "job-b", "default")),
+                           ("release", lambda: stand_lease._release(root, "job-b", "default")),
+                           ("release_by_person", lambda: stand_lease.release_by_person(root, "", "gone"))):
+            try:
+                call()
+                raise AssertionError(name + " must surface LockBroken")
+            except LockBroken:
+                pass
+        assert "LockBroken" in stand_lease.status(root)["error"]
+        assert _lease_bytes(root) == before
+    finally:
+        cleanup(root)
+
+
+def test_a_held_lock_with_an_absent_empty_or_corrupt_lease_reads_as_no_lease():
+    """Today's behaviour kept: with the lock HELD, a missing, empty or non-JSON lease file is an empty record."""
+    for label, content in (("absent", None), ("empty", ""), ("not_json", "{half")):
+        root = temp_project("qa-stand-lease-bad-file-")
+        try:
+            path, _ = stand_lease._paths(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if content is not None:
+                path.write_text(content, encoding="utf-8")
+            with stand_lease.hold(root, "job-" + label, "", wait_s=0) as lease:
+                assert "lease_error" not in lease, (label, lease)
+                assert stand_lease.status(root)["leases"][0]["holders"][0]["job"] == "job-" + label
+        finally:
+            cleanup(root)
+
+
 def main() -> None:
+    test_a_held_lease_lock_runs_unprotected_with_the_holder_named()
+    check("a held lease lock runs unprotected with the holder named (hold, status)", True)
+    test_busy_lock_take_refuses_and_writes_nothing()
+    check("busy_lock_take_refuses_and_writes_nothing", True)
+    test_busy_lock_release_refuses_and_writes_nothing()
+    check("busy_lock_release_refuses_and_writes_nothing", True)
+    test_busy_lock_release_by_person_refuses_and_writes_nothing()
+    check("busy_lock_release_by_person_refuses_and_writes_nothing", True)
+    test_busy_lock_status_reports_the_error_and_writes_nothing()
+    check("busy_lock_status_reports_the_error_and_writes_nothing", True)
+    test_broken_lock_surfaces()
+    check("broken_lock_surfaces", True)
+    test_a_held_lock_with_an_absent_empty_or_corrupt_lease_reads_as_no_lease()
+    check("a held lock with an absent, empty or corrupt lease reads as no lease", True)
     real_sleep, real_clock = stand_lease._sleep, stand_lease._monotonic
     root = temp_project("qa-stand-lease-")
     try:
@@ -77,10 +255,10 @@ def main() -> None:
         with stand_lease.hold(root, "job-a", "") as lease:
             check_eq("a free stand is taken at once", (lease["waited_s"], lease["queued_behind"]), (0, None))
             check_eq("no environment name is the `default` stand", lease["environment"], "default")
-            held = lease_file(root)["leases"]["default"]
-            check_eq("the lease names the job and this process", (held["job_id"], held["pid"]),
-                     ("job-a", os.getpid()))
-            check("the holder's birth identity is recorded", bool(held.get("process_started_at")))
+            held = lease_file(root)["leases"]["default"]["holders"][0]
+            check_eq("the lease names the job and this process", (held["job"], held["pid"], held["mode"]),
+                     ("job-a", os.getpid(), "exclusive"))
+            check("the holder's birth identity is recorded", bool(held.get("started")))
             with stand_lease.hold(root, "job-a", "") as inner:
                 check_eq("the same job re-enters its own lease", inner["waited_s"], 0)
             check_in("re-entering does not release the outer lease", "default", lease_file(root)["leases"])
@@ -113,14 +291,14 @@ def main() -> None:
                 check_in("the refusal says nothing was launched", "nothing was launched", str(busy))
                 check_in("the refusal names the person's way through", "--release --env default", str(busy))
             check_eq("the holder's lease is untouched by the refusal",
-                     lease_file(root)["leases"]["default"]["job_id"], "child-job")
+                     lease_file(root)["leases"]["default"]["holders"][0]["job"], "child-job")
 
             with stand_lease.hold(root, "job-c", "another-stand", wait_s=0) as lease:
                 check_eq("a different environment is free while this one is held", lease["waited_s"], 0)
 
             status = stand_lease.status(root)
             check_eq("--status calls a live holder alive",
-                     [(row["job_id"], row["holder"]) for row in status["leases"]], [("child-job", "alive")])
+                     [(h["job"], h["state"]) for row in status["leases"] for h in row["holders"]], [("child-job", "alive")])
             # FR-41: three words, because there are three states. A lease with no recorded birth
             # time cannot be checked against a recycled pid, so its holder is `unknown` and the
             # report says so - while the decision stays conservative and keeps the stand.
@@ -156,17 +334,19 @@ def main() -> None:
         # --- dead and damaged records -----------------------------------------------------
         clock = FakeClock()
         with_clock(clock)
-        write_lease(root, "default", {"job_id": "ghost", "pid": os.getpid(),
-                                      "process_started_at": "winfiletime:1", "acquired_at": "2026-09-21T16:54:05+00:00"})
+        write_lease(root, "default", {"job": "ghost", "pid": os.getpid(), "mode": "exclusive",
+                                      "started": "winfiletime:1", "acquired_at": "2026-09-21T16:54:05+00:00"})
         with stand_lease.hold(root, "job-e", "", wait_s=0) as lease:
             check_eq("a recycled pid is not the holder (birth identity differs)",
                      (lease.get("took_over") or {}).get("job_id"), "ghost")
+        check_eq("t-2070 F5: a scheduler row's `process_started_at` is read as the birth (recycled pid is gone)",
+                 stand_lease._holder_state({"pid": os.getpid(), "process_started_at": "winfiletime:1"}), "gone")
         (root / "qa-factory" / "state" / "stand-lease.json").write_text("{ not json", encoding="utf-8")
         with stand_lease.hold(root, "job-f", "", wait_s=0) as lease:
             check_eq("a corrupt lease file does not close the stand", lease["waited_s"], 0)
         check_eq("and is rewritten clean", lease_file(root)["leases"], {})
 
-        write_lease(root, "default", {"job_id": "old", "pid": 0}, notes=[{"n": i} for i in range(50)])
+        write_lease(root, "default", {"job": "old", "pid": 0}, notes=[{"n": i} for i in range(50)])
         with stand_lease.hold(root, "job-g", "", wait_s=0):
             pass
         check("the notes do not grow without bound", len(lease_file(root)["notes"]) <= stand_lease.NOTES_KEPT)
@@ -214,6 +394,9 @@ def main() -> None:
             check("the person's reason is kept",
                   any(n.get("event") == "released_by_person" and n.get("reason") == "the run was stopped by hand"
                       for n in lease_file(root)["notes"]))
+            check("t-2070 F6: the release note carries no `pid` key (held_pid), so no reader takes it for a holder",
+                  all("pid" not in n and n.get("held_pid") is not None
+                      for n in lease_file(root)["notes"] if n.get("event") == "released_by_person"))
         finally:
             child.kill()
             child.wait(timeout=30)

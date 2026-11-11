@@ -41,7 +41,7 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 
 - **Minimise the reproduction.** Remove steps one at a time until the bug disappears; keep the fewest steps that still show it.
 - **Impact on a person, not on the code.** Say what a user loses (data, money, access, a blocked flow, a worse experience), not which function misbehaves.
-- **One defect, one report.** Defects that share a mechanism stay separate reports, each naming its siblings.
+- **One cause, one report.** Defects with one confirmed cause are one report listing every manifestation, each with its steps from its own start and its own failing test; a suspected shared cause is a link between separate reports, never a merge.
 - **The actual result through an independent channel.** Read the state back by another route than the one that changed it, and quote it.
 - **Search before you file.** Look in the open bugs by area and symptom; a likely duplicate is named with the reason and left for the person to decide.
 - **Severity as a suggestion.** Loss of data or money suggests blocker, lost access critical, a blocked flow major, a degraded or cosmetic result minor; move it when the people affected would, and say why.
@@ -52,10 +52,10 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 <!-- kind: process -->
 ## Tools
 
-Your Commands card lists the scripts you may call (the bug skeleton, batch validation, publication, the open-bugs search); none is required and there is no order.
+Your Commands card lists the scripts you may call; none is required.
 
 - You run after gate B, on the drafts the person chose, and the decision stands in the journal before you open a file. The local `bugs/BUG-n.md` comes first and nothing overwrites it later.
-- Copy `source_draft` and the gate B decision id; `confirmation` is copied from the draft, never judged by you. A title or priority the person edited at gate B wins.
+- Copy `source_draft`, the gate B decision id, `confirmation` (never judged by you) and `red_test` (flat: `<path> -- <command>`, the primary manifestation's; with 2+ manifestations the sections `## Cause` and `## Manifestations`) or `red_test_none`. A title or priority the person edited at gate B wins.
 - A flaky test the person quarantined gets `bugs/DEBT-n.md`: test id, mechanism, decision reference, re-verification trigger; no decision, no file.
 - A tracker is never written by you: with the `jira` channel you add a proposal under `work/proposals/` and `external_writes.py` carries it later. In a comparison run nothing leaves the project.
 <!-- gen:digest contract_slices.py -->

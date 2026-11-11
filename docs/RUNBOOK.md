@@ -113,6 +113,19 @@ GitHub её мерят (FK-4), дверь — строка `canon-over-hour: <п
 `MSYS_NO_PATHCONV=1 docker run --rm -v "<папка>:/src:ro" python:3.12 bash -c "cp -a /src/. /repo && cd /repo && git config --global user.name forge-ci && git config --global user.email forge-ci@invalid.example && git config core.hooksPath .githooks && pip install -q pytest pyflakes==3.2.0 pyyaml openpyxl && python -m pytest tools/ -q; cd ai-packages/qa-factory && python -B scripts/selftest.py --jobs 4; python -B scripts/install_smoke.py"`
 (рецепт ещё не прогонялся: первый запуск — его проверка; `cd` здесь — внутри контейнера, не в шелле сессии).
 
+**Наблюдатель карантина тестов** (спека `docs/tasks/specs/td-15-scenarios-quarantine.md` §D; правило — `docs/TESTING.md`,
+«Карантин старых тестов»). Канон гоняет всё, кроме раздела `quarantine` файла
+`ai-packages/qa-factory/scripts/tests/test-layers.json`; сам карантин гоняет задача `quarantine-watch` — по расписанию два раза
+в неделю и после смены версии пакета на ветке. Расписание создаёт владелец один раз: Settings → CI/CD → Schedules, cron
+`0 3 * * 1,4`, ветка из `plans/test-quarantine/config.json` (`branch`), переменная `QUARANTINE_WATCH=1`; без него
+`python tools/test_quarantine.py enter` отказывает. Разовый прогон — web-пайплайн с той же переменной. Что читать:
+`python tools/test_quarantine.py status` (то же печатает строка `TEST QUARANTINE …` в начале сессии); результаты прогонов
+вытягивает `pull` в `plans/test-quarantine/watch.jsonl`; красное разбирает роль (`judge`), настоящий улов переносится (`land`) и
+сразу сообщается владельцу. Замер покрытия остающегося набора — web-пайплайн `TEST_REDUNDANCY=1 REDUNDANCY_SCOPE=keep`, его
+id передаётся в `enter --coverage-pipeline`. Удаление карантина — `purge`, только по слову владельца и не раньше строки
+`READY TO DELETE` (полный прогон на втором релизе после входа, всё красное разобрано). При релизе: перед публикацией прочитать
+`status`; `ALERT` — сказать владельцу до публикации.
+
 ## 8. Версия сборки стенда: OCI-метка образа
 
 Стенд со своей сборкой образа (пример прежнего стенда: сервис UI в `docker-compose.yaml`) несёт

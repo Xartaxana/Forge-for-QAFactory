@@ -1046,7 +1046,6 @@ def main() -> None:
         for spelling, needle in (("see `work/ledger.json`", "a path under work/"),
                                  ("case version cv_3e3e8c5e0bed", "content-addressed case version"),
                                  ("instance ti_4fa2889035ca", "selector-hash instance id"),
-                                 ("Look here first: `src/a.py:1`", '"look here first"'),
                                  ("<!-- factory-summary:start -->", "generated verification fragment")):
             check_in(f"the report may not carry {spelling[:24]!r}", needle,
                      errors_for(task, REPORT.replace("None found.", "None found. " + spelling)))

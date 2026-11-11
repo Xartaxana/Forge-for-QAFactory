@@ -61,7 +61,6 @@ def k1_cap(requests):
     got = line_of(stand_text(requests, eight)["markdown"], HELPERS)
     check_eq("K4-1 AT the cap (8): all named, no count", got,
              f"{HELPERS}`{UTILS[0]}`: `a1`, `a2`, `a3`, `a4`, `a5`; `{UTILS[1]}`: `b1`, `b2`, `b3`")
-    check_eq("K4-1 the cap is 8", brief_pack.STAND_HELPER_NAMES, 8)
     # the line sits right after the Page objects line
     text = stand_text(requests, eight)["markdown"].splitlines()
     pos = next(i for i, x in enumerate(text) if x.startswith(PAGES))

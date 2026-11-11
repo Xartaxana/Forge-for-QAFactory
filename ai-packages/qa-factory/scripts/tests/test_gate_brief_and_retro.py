@@ -7,6 +7,7 @@ agent reading journals, so one pilot's retro passed 114k tokens before a person 
 Arithmetic and file reading are the cheapest thing a machine does.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -506,6 +507,277 @@ def test_t1676_code_reading_candidates_and_cuts_by_words() -> None:
     check_eq("W4 BEYOND the cap: the cap shown and `(+1 more - ...)`", (sum(x.startswith("- your words") for x in beyond.splitlines()), "(+1 more -" in beyond), (cap, True))
     check_in("W4 unread: the factory says it could not read, and asks nothing", "that is the factory's defect, nothing is asked of you", section([], excluded_by_words_unread=True))
     check_eq("W4 human_text.problems of the section is []", human_text.problems(got, kind="report"), [])
+
+
+def _merged_fixture(task_root: Path, manifestations: int = 3, mechanism: dict | None = None, linked: bool = False) -> None:
+    """Drafts of t-2187 (English re-typing of LOCAL-1): `qty` is one bug drafted from `manifestations` ways it shows; `cart` is another."""
+    drafts = task_root / "work" / "bug-drafts"
+    drafts.mkdir(parents=True, exist_ok=True)
+    ways = [{"action": f"type value {i}", "start_state": "field shows 1, selected" if i % 2 else "field erased first", "seen": f"1{i}",
+             "requirement": f"R-{8 + i}", "case": f"TC-0{15 + i}", "evidence": f"work/evidence/manual/x/{i}.txt",
+             "red_test_none": "manual check only"} for i in range(manifestations)]
+    qty = {"title": "The quantity field turns invalid input into a different number", "impact": "degraded", "violates": "requirement:R-8",
+           "case": "TC-015", "manifestations": ways, "expected": "invalid input is rejected", "actual": "the field shows 11"}
+    if mechanism is not None:
+        qty["mechanism"] = mechanism
+    if linked:
+        qty["possibly_same_cause"] = [{"draft": "cart.json", "why": "both fields turn input into a different number"}]
+    (drafts / "qty.json").write_text(json.dumps(qty), encoding="utf-8")
+    cart = {"title": "Typing 12 in the cart keeps one digit", "impact": "degraded", "violates": "requirement:R-11", "case": "TC-019"}
+    if linked:
+        cart["possibly_same_cause"] = [{"draft": "qty.json", "why": "both fields turn input into a different number"}]
+    (drafts / "cart.json").write_text(json.dumps(cart), encoding="utf-8")
+
+
+CONFIRMED = {"statement": "the field replaces a value it cannot read as a whole number with 1 after every key", "status": "confirmed",
+             "basis": [{"id": "b1", "kind": "code_line", "path": "src/Page.tsx", "line": 4, "quote": "x"},
+                       {"id": "b2", "kind": "run", "case": "settle-q", "capture": "c1", "quote": "1 11", "start_state": "field erased first"},
+                       {"id": "b3", "kind": "run", "case": "settle-q", "capture": "c2", "quote": "1 1", "start_state": "typed over a selection"}],
+             "claims": [{"says": "an invalid value becomes 1", "confirmed_by": ["b1", "b2"]},
+                        {"says": "whether pasting -1 behaves like typing it", "confirmed_by": []}], "why": ""}
+
+
+def test_t2187_n3b_a_merged_bug_is_one_row_with_its_ways_and_one_door_block() -> None:
+    """t-2187 N3b (spec 5.7, 5.8, 8.1, 8.2): the cases of a manifestation count as spoken for; a bug drafted from several ways it shows
+    prints its cause, what is not verified and its ways (at most MAX_MANIFESTATIONS_SHOWN, then how many more); the door block names
+    `file`, `split`, `merge` (only for linked drafts) and `not a bug`, each priced; a one-manifestation bug renders as it did."""
+    from unittest import mock
+    import bug_records as BR
+    import human_text
+    base = story("qa-gate-b-merged-")
+    task_root = base / "artifacts" / "LOCAL-1"
+    try:
+        # 5.7: a case named only by a manifestation is spoken for
+        _merged_fixture(task_root, 3, mechanism=CONFIRMED)
+        (task_root / "work" / "automation-manifest.json").write_text(json.dumps({"unresolved": [
+            {"case": "TC-017", "reason": "contradicts_requirement", "detail": "d"},
+            {"case": "TC-099", "reason": "contradicts_requirement", "detail": "d"}]}), encoding="utf-8")
+        check_eq("5.7 a case covered only by a manifestation is not `no draft speaks for it`; an unnamed one still is",
+                 [r["case"] for r in gate_brief.undrafted_discrepancies(task_root)], ["TC-099"])
+        items = gate_brief.packet_items(task_root, "B")
+        check("5.7 the manifestation's case is an item of the packet", "TC-017" in items and "TC-019" in items)
+        with mock.patch.object(BR, "_mechanism_scan", return_value=([], {"b1", "b2", "b3"})):
+            text = gate_brief.render_gate_b("LOCAL-1", task_root)
+            rows = gate_brief.bug_rows(task_root, {})
+            block = gate_brief.merged_bug_block(rows)
+        check_in("8.1 the head counts the ways, one cause when confirmed", "· one cause, 3 ways it shows", text)
+        check_in("8.1 the cause line says how it was confirmed, in words", "Cause, confirmed by the line of the application code that does it and by trying it "
+                 "from two starting states: the field replaces a value it cannot read as a whole number with 1 after every key.", text)
+        check_in("8.1 a claim no basis confirms is printed as not verified", "Not verified: whether pasting -1 behaves like typing it.", text)
+        check_in("8.1 the ways are lettered", "   c) type value 2;", text)
+        check_not_in("8.1 ... and the cart bug (one way) has none", "   a) type value 0;\n   b) type value 1;\n   c) type value 2;\n   d)", text)
+        check_in("8.2 the door block", "## One bug or several", text)
+        check_in("8.2 ... names the bug and its count", "The factory found that 2 has one cause behind 3 different-looking problems", text)
+        offered = ["file", "split", "not a bug"]
+        body = "\n".join(block) + "\n---\nAnswer: say which, in your words\n"
+        check_eq("8.2 every option names its three prices (price_problems empty)", human_text.price_problems(body, offered), [])
+        check_eq("8.2 ... and human_text.problems finds nothing", human_text.problems(body, offered=offered), [])
+        check_not_in("8.2 no `merge` without a linked draft", "`merge`", body)
+        check_not_in("8.2 no file name and no field name in the body", "possibly_same_cause", body + text)
+        check_not_in("8.2 ... nor a draft file", ".json", text)
+        # 8.2 / F-6: the reverse door only for drafts linked as possibly the same cause
+        _merged_fixture(task_root, 3, mechanism=CONFIRMED, linked=True)
+        with mock.patch.object(BR, "_mechanism_scan", return_value=([], {"b1", "b2", "b3"})):
+            linked_text = gate_brief.render_gate_b("LOCAL-1", task_root)
+            linked_block = "\n".join(gate_brief.merged_bug_block(gate_brief.bug_rows(task_root, {}))) + "\n---\nAnswer: x\n"
+        check_in("8.2 a linked draft offers `merge` with both numbers", "(d) `merge` 1 2 — they are one bug; draft them together.", linked_block)
+        check_in("8.1 the link is said in numbers with its reason", "Possibly the same cause as 2 (not verified: both fields turn input into a different number).", linked_text)
+        check_eq("8.2 the merge option is priced too", human_text.price_problems(linked_block, ["file", "split", "merge", "not a bug"]), [])
+        check_not_in("8.2 `split` is offered for the merged bug only, `merge` names no unlinked draft", "`split` 1, 2", linked_block)
+    finally:
+        cleanup(base)
+
+
+def test_t2187_n3b_the_unknown_is_said_as_unknown_and_the_cap_holds_at_six_and_seven() -> None:
+    """t-2187 N3b edges: `unknown` is never a cause; a confirmed cause whose basis cannot be re-read is not printed as confirmed; the ways cap at
+    MAX_MANIFESTATIONS_SHOWN (AT: no `more` line; BEYOND: the count); a one-manifestation bug is byte-equal to the plain one."""
+    from unittest import mock
+    import bug_records as BR
+    cap = gate_brief.MAX_MANIFESTATIONS_SHOWN
+    check_eq("14 the cap is six", cap, 6)
+    base = story("qa-gate-b-merged-edges-")
+    task_root = base / "artifacts" / "LOCAL-1"
+    try:
+        for ways, more in ((cap, False), (cap + 1, True)):
+            _merged_fixture(task_root, ways, mechanism=CONFIRMED)
+            with mock.patch.object(BR, "_mechanism_scan", return_value=([], {"b1", "b2", "b3"})):
+                text = gate_brief.render_gate_b("LOCAL-1", task_root)
+            shown = [x for x in text.splitlines() if x.startswith("   ") and x[3:5] in {f"{c})" for c in "abcdefghij"}]
+            check_eq(f"cap {ways} ways: {cap} lines shown", len(shown), cap)
+            check_eq(f"cap {ways} ways: the `more` line is there only beyond the cap", "(+1 more)" in text, more)
+        unknown = {"statement": "ignored", "status": "unknown", "why": "only one starting state was run", "basis": [], "claims": []}
+        _merged_fixture(task_root, 1, mechanism=unknown)
+        one = gate_brief.render_gate_b("LOCAL-1", task_root)
+        check_in("an unknown cause says so with its reason", "   Cause not established: only one starting state was run.", one)
+        check_not_in("... and never prints the statement as a cause", "ignored", one)
+        check_not_in("... a single way gets no `ways it shows` and no door block", "ways it shows", one)
+        check_not_in("... nor the merged block", "One bug or several", one)
+        _merged_fixture(task_root, 2, mechanism=CONFIRMED)
+        with mock.patch.object(BR, "_mechanism_scan", return_value=([("r", "the quote is not on that line")], set())):
+            broken = gate_brief.render_gate_b("LOCAL-1", task_root)
+        check_in("a confirmed cause whose basis cannot be re-read is a cause not established", "Cause not established: the evidence behind it could not be re-read.", broken)
+        check_not_in("... and is not named one cause", "one cause,", broken)
+        # M2: ... and the block's intro does not say "has one cause" of it either: the row is drafted as one bug, the cause not confirmed
+        check_in("M2 the intro of an unconfirmed merged row says the cause could not be confirmed",
+                 "The factory drafted 2 as one bug from 2 different-looking problems, but could not confirm one cause behind them", broken)
+        check_not_in("M2 ... and never `has one cause` for it", "has one cause", broken)
+        with mock.patch.object(BR, "_mechanism_scan", side_effect=OSError("x")):
+            check_in("a check that could not run is not a pass", "Cause not established", gate_brief.render_gate_b("LOCAL-1", task_root))
+        with mock.patch.object(BR, "_mechanism_scan", return_value=([], {"b1", "b2", "b3"})):
+            sure_text = gate_brief.render_gate_b("LOCAL-1", task_root)
+        check_in("M2 control: a confirmed and standing row keeps the confirmed intro", "The factory found that 2 has one cause behind 2 different-looking problems", sure_text)
+        _merged_fixture(task_root, 2, mechanism=dict(CONFIRMED, status="unverified", why="one start state only"))
+        unconfirmed = gate_brief.render_gate_b("LOCAL-1", task_root)
+        check_in("M2 an unverified merged row: the same words", "could not confirm one cause behind them", unconfirmed)
+        check_not_in("M2 ... no `has one cause`", "has one cause", unconfirmed)
+        # a single-manifestation bug renders byte-for-byte as the plain draft
+        drafts = task_root / "work" / "bug-drafts"
+        plain_draft = {"title": "T", "impact": "degraded", "violates": "requirement:R-8", "case": "TC-015", "expected": "e", "actual": "a"}
+        (drafts / "cart.json").unlink()
+        (drafts / "qty.json").write_text(json.dumps(plain_draft), encoding="utf-8")
+        plain = gate_brief.render_gate_b("LOCAL-1", task_root)
+        entry = {"action": "x", "start_state": "y", "seen": "z", "evidence": "w", "red_test_none": "manual"}
+        (drafts / "qty.json").write_text(json.dumps(dict(plain_draft, manifestations=[entry])), encoding="utf-8")
+        check_eq("golden: one manifestation renders byte-equal to the plain draft", gate_brief.render_gate_b("LOCAL-1", task_root), plain)
+        check_not_in("golden: the plain packet carries none of the new lines", "ways it shows", plain)
+    finally:
+        cleanup(base)
+
+
+def _linked_drafts(task_root: Path, links: dict, ways: dict | None = None, mechanism: dict | None = None) -> None:
+    """Drafts a.json, b.json, ... (in file order, numbers 1, 2, ...): `links` maps a draft's name to the names it lists in `possibly_same_cause`;
+    `ways` maps a name to a number of manifestations (2+ makes it a merged bug); `mechanism` goes to the draft named `a`."""
+    drafts = task_root / "work" / "bug-drafts"
+    drafts.mkdir(parents=True, exist_ok=True)
+    for old in drafts.glob("*.json"):
+        old.unlink()
+    for name in links:
+        data = {"title": f"Bug {name}", "impact": "degraded", "violates": "requirement:R-8", "case": "TC-015", "expected": "e", "actual": "a"}
+        if (ways or {}).get(name):
+            data["manifestations"] = [{"action": f"do {i}", "start_state": f"state {i}", "seen": f"seen {i}", "evidence": "w",
+                                       "red_test_none": "manual"} for i in range(ways[name])]
+        if links[name]:
+            data["possibly_same_cause"] = [{"draft": f"{other}.json", "why": "both turn input into a different number"} for other in links[name]]
+        if name == "a" and mechanism is not None:
+            data["mechanism"] = mechanism
+        (drafts / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_t2187_n3b_linked_drafts_get_the_merge_block_without_a_multi_manifestation_row() -> None:
+    """t-2187 N3b fix round (Lead decision 10.11.2026, spec 8.2, F-6): the block is rendered when a shown row has two or more ways it shows OR
+    a shown row is linked as possibly the same cause to another shown row; `merge` is offered for linked groups only, `file`/`split`/`not a bug`
+    for rows with two or more ways only; a linked pair alone gets its own intro and `merge` plus `file` (keep apart); every variant passes
+    price_problems and problems."""
+    import human_text
+    base = story("qa-gate-b-linked-")
+    task_root = base / "artifacts" / "LOCAL-1"
+    try:
+        def block_of(links, ways=None):
+            _linked_drafts(task_root, links, ways)
+            return "\n".join(gate_brief.merged_bug_block(gate_brief.bug_rows(task_root, {})))
+
+        def clean(body, offered):
+            text = body + "\n---\nAnswer: say which, in your words\n"
+            check_eq("price_problems is empty", human_text.price_problems(text, offered), [])
+            check_eq("human_text.problems is empty", human_text.problems(text, offered=offered), [])
+            check_not_in("no field name in the body", "possibly_same_cause", text)
+            check_not_in("... nor a draft file", ".json", text)
+        # a linked pair, no row with several ways: the block with its own intro and exactly the two options
+        pair = block_of({"a": ["b"], "b": ["a"]})
+        check_in("pair: the block is there", "## One bug or several", pair)
+        check_in("pair: its own intro, in plain words", "The factory suspects that bugs 1 and 2 share one cause, but it could not confirm it", pair)
+        check_in("pair: merge is offered with both numbers", "(a) `merge` 1 2 — they are one bug; draft them together.", pair)
+        check_in("pair: keep apart is the gate's own word `file`", "(b) `file` 1, 2 — file them as separate bugs, each naming the other as possibly the same cause.", pair)
+        check_in("pair: the keep-apart story line", "if one fix does not cure both, nothing is lost", pair)
+        check_eq("pair: exactly two options", len([x for x in pair.splitlines() if x.startswith("(")]), 2)
+        check_not_in("pair: no `split` for a row without several ways", "`split`", pair)
+        check_not_in("pair: ... nor `not a bug`", "`not a bug`", pair)
+        clean(pair, ["merge", "file"])
+        # a one-way link (a names b, b does not name a) is a link; both numbers named once
+        one_way = block_of({"a": ["b"], "b": []})
+        check_in("one-way link: treated as linked, merge 1 2", "`merge` 1 2 —", one_way)
+        check_eq("one-way link: one merge option", one_way.count("`merge`"), 1)
+        clean(one_way, ["merge", "file"])
+        # m1: the link reads the same from both rows, so "each naming the other" is true of what the person sees
+        _linked_drafts(task_root, {"a": ["b"], "b": []})
+        seen = gate_brief.bug_rows(task_root, {})
+        check_eq("m1 a one-way link is on both rows (a names b; b shows a)",
+                 [[x["n"] for x in r.get("possibly_same_cause") or []] for r in seen], [[2], [1]])
+        both_ways = gate_brief.render_gate_b("LOCAL-1", task_root)
+        check_in("m1 row 2 says it too", "Possibly the same cause as 1 (not verified:", both_ways)
+        check_in("m1 row 1 says it", "Possibly the same cause as 2 (not verified:", both_ways)
+        # three drafts linked in a chain are one group
+        chain = block_of({"a": ["b"], "b": ["c"], "c": []})
+        check_in("chain: one group merge 1 2 3", "(a) `merge` 1 2 3 —", chain)
+        check_eq("chain: one merge option, not two overlapping", chain.count("`merge`"), 1)
+        check_in("chain: the intro names the three", "bugs 1, 2 and 3 share one cause", chain)
+        clean(chain, ["merge", "file"])
+        # a link to a draft that is not in this packet offers no merge: there is nothing to merge with
+        ghost = block_of({"a": ["zz"], "b": []})
+        check_eq("a link to a draft not shown in this packet: no block at all", ghost, "")
+        mixed_ghost = block_of({"a": ["zz"], "b": []}, ways={"a": 3})
+        check_not_in("a link to a draft not shown in this packet: no merge beside a multi-way bug", "`merge`", mixed_ghost)
+        check_in("... the multi-way block is still there", "(a) `file` 1 —", mixed_ghost)
+        # a linked pair AND a multi-way row: one block, every applicable option, lettering continuous
+        both = block_of({"a": ["b"], "b": ["a"], "c": []}, ways={"c": 3})
+        check_eq("mixed: one block", both.count("## One bug or several"), 1)
+        check_in("mixed: file for the multi-way bug only", "(a) `file` 3 —", both)
+        check_in("mixed: split", "(b) `split` 3 —", both)
+        check_in("mixed: not a bug", "(c) `not a bug` 3 —", both)
+        check_in("mixed: merge for the linked pair, lettering continues", "(d) `merge` 1 2 —", both)
+        check_in("mixed (m2): the linked pair also gets its keep-apart option, in the gate's own word `file`",
+                 "(e) `file` 1, 2 — file them as separate bugs, each naming the other as possibly the same cause.", both)
+        check_in("mixed (m2): its price is a difference from filing, not a second cost of the same word", "nothing beyond filing them", both)
+        check_eq("mixed: five options", len([x for x in both.splitlines() if x.startswith("(")]), 5)
+        clean(both, ["file", "split", "not a bug", "merge"])
+        # the multi-way row is itself linked: file/split/not a bug for it AND merge for the group
+        self_linked = block_of({"a": ["b"], "b": ["a"]}, ways={"a": 2})
+        check_in("multi-way and linked: file for it", "`file` 1 —", self_linked)
+        check_in("multi-way and linked: merge for the group", "`merge` 1 2 —", self_linked)
+        clean(self_linked, ["file", "split", "not a bug", "merge"])
+        # no links, no multi-way row: no block, and one manifestation is byte-equal to the plain draft (golden)
+        _linked_drafts(task_root, {"a": [], "b": []})
+        plain = gate_brief.render_gate_b("LOCAL-1", task_root)
+        check_not_in("golden: no block without links or several ways", "One bug or several", plain)
+        _linked_drafts(task_root, {"a": [], "b": []}, ways={"a": 1})
+        check_eq("golden: one manifestation and no links is byte-equal", gate_brief.render_gate_b("LOCAL-1", task_root), plain)
+        # the whole packet of a linked pair: the block, and the link said in numbers
+        _linked_drafts(task_root, {"a": ["b"], "b": ["a"]})
+        text = gate_brief.render_gate_b("LOCAL-1", task_root)
+        check_in("packet: the pair's block is in the packet", "## One bug or several", text)
+        check_in("packet: the link is said in numbers", "Possibly the same cause as 2 (not verified:", text)
+        check_not_in("packet: no file name", ".json", text)
+    finally:
+        cleanup(base)
+
+
+def test_t2187_n3b_an_unverified_cause_is_printed_as_a_hypothesis() -> None:
+    """t-2187 N3b fix round (Lead decision 10.11.2026): `unverified` with words is "Possible cause, not verified: <statement>" and then the
+    reason when there is one - never "Cause," alone and never "confirmed"; with an empty statement it is printed as `unknown` is; `unknown`
+    stays "Cause not established: <why>"."""
+    base = story("qa-gate-b-hypothesis-")
+    task_root = base / "artifacts" / "LOCAL-1"
+    try:
+        def text_of(mechanism):
+            _linked_drafts(task_root, {"a": []}, mechanism=mechanism)
+            return gate_brief.render_gate_b("LOCAL-1", task_root)
+        said = text_of({"statement": "the field resets a value it cannot read", "status": "unverified",
+                        "why": "only one starting state was run", "basis": [], "claims": []})
+        check_in("hypothesis: statement and reason", "   Possible cause, not verified: the field resets a value it cannot read. only one starting state was run.", said)
+        check_not_in("hypothesis: never `Cause,` alone", "Cause,", said)
+        cause_line = next(x for x in said.splitlines() if "ossible cause" in x)
+        check_not_in("hypothesis: its line never says `confirmed`", "confirmed", cause_line)
+        check_not_in("hypothesis: never `one cause`", "one cause", said)
+        bare = text_of({"statement": "the field resets a value", "status": "unverified", "why": "", "basis": [], "claims": []})
+        check_in("hypothesis without a reason: the statement alone", "   Possible cause, not verified: the field resets a value.\n", bare)
+        empty = text_of({"statement": "  ", "status": "unverified", "why": "no run yet", "basis": [], "claims": []})
+        check_in("unverified with an empty statement is printed as unknown is", "   Cause not established: no run yet.", empty)
+        check_not_in("... and not as a hypothesis", "Possible cause", empty)
+        unknown = text_of({"statement": "ignored", "status": "unknown", "why": "no run yet", "basis": [], "claims": []})
+        check_in("unknown stays `Cause not established`", "   Cause not established: no run yet.", unknown)
+        check_not_in("... without the statement", "ignored", unknown)
+    finally:
+        cleanup(base)
 
 
 def test_gate_b_bug_list_is_rendered_by_code() -> None:
@@ -2937,7 +3209,271 @@ def test_g2_5_grounding_lines_at_gate_a() -> None:
         cleanup(base.parent if base.name == "qa-factory" else base)
 
 
+def pc9c_story(prefix: str, items: int, differs: list, used: set, parity=("R-1",), claim_words=None, with_snapshot: bool = True,
+               gaps=()) -> Path:
+    """A story with a reference (side `ui`, stand `old`): a snapshot of `items` behaviours (`item-01`...), a register whose rows R-1..R-n
+    carry `parity`, one behaviour claim per `differs` word (the claim of R-k cites `reference:item-k`), and one case per `used` item."""
+    import grounding_table as GT
+    import reference_snapshot as RS
+    base = story(prefix)
+    task_root = base / "artifacts" / "TP1-15045"
+    pipeline = json.loads((task_root / "pipeline.json").read_text(encoding="utf-8"))
+    pipeline["sides"] = {"ui": {"reality": "real", "reference": "old", "source": "launch"}}
+    (task_root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+    if with_snapshot:
+        GT.write_yaml(RS.snapshot_path(task_root), {
+            "reference_env": "old", "walked_at": "2026-11-11T00:00:00Z", "gaps": list(gaps),
+            "items": [{"id": f"item-{n:02d}", "area": f"page {n}", "user_path": f"open page {n} and read the total", "observed": f"total {n}",
+                       "evidence": [], "old_test": f"old.spec.ts:{n}", "locators_portable": "yes"} for n in range(1, items + 1)]})
+    count = max(len(differs), len(parity), 1)
+    rows = "".join(f"| R-{n} | requirement {n} words | description | | | | | {'yes' if f'R-{n}' in parity else 'no'} |\n" for n in range(1, count + 1))
+    claims = "".join(f"| R-{n} | the old total is {n} | reference:item-{n:02d} | the new total is {n + 1} | code | {word} | | S2 |\n"
+                     for n, word in enumerate(differs, start=1))
+    (task_root / "work" / "requirements-register.md").write_text(
+        "# Requirements register\n\n## Register\n\n| ID | Requirement (one verifiable statement) | source | derived_from | quote | ac_ref | observable | parity |\n"
+        "|---|---|---|---|---|---|---|---|\n" + rows + "\n## Behaviour claims\n\n| R | before | before_ref | now | now_ref | differs | question | origin |\n"
+        "|---|---|---|---|---|---|---|---|\n" + claims, encoding="utf-8")
+    for n in sorted(used):
+        (task_root / "work" / "test-cases" / f"TC-{n:03d}.md").write_text(
+            f"---\nid: TC-{n:03d}\ntask: TP1-15045\ntitle: reads total {n}\nbasis: requirement:R-1\n"
+            f'then_oracles: [{{"then": 1, "source": "precedent", "ref": "reference:item-{n:02d}"}}]\n---\n## Then\n1. the total is {n}\n', encoding="utf-8")
+    return base
+
+
+def test_pc9c_gate_a_for_a_story_with_a_reference() -> None:
+    """t-2181 PC-9c (owner D3, F-7; W1): a story with a reference gets ONE block at gate A: the claims that differ or are not known to,
+    the parity requirements with nothing seen, the unused items, the gaps of the walk and a count line; the rest is the count. Mutations
+    named, NOT run, each killed here: the differing claims not filtered by `differs` (the 2-of-20 key); an unused item taken for a used one
+    (the unused key); an empty heading for a story that matches (the one-line key); a missing snapshot read as a pass (the unreadable key);
+    the cap off by one (the AT and BEYOND keys); a story with no reference gaining a line (the byte-identity key)."""
+    shown = gate_brief.REFERENCE_SHOWN
+    # edge 1: a story with NO reference reads as it did, byte for byte
+    base = story("qa-gate-brief-pc9c-none-")
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        data = gate_brief.collect("TP1-15045", task_root)
+        check_eq("PC-9c no reference: the facts say none", data["reference"], {"state": "none"})
+        check_eq("PC-9c no reference: no line", gate_brief._reference_lines(data), [])
+        check_eq("PC-9c no reference: gate A text is byte-identical to the text without the key",
+                 gate_brief.render(data), gate_brief.render({k: v for k, v in data.items() if k != "reference"}))
+    finally:
+        cleanup(base.parent)
+    # (b) 20 items, 2 differences, the other 18 used by cases: exactly the 2 and the count line
+    base = pc9c_story("qa-gate-brief-pc9c-20-", 20, ["yes", "unknown"], set(range(3, 21)), parity=("R-1", "R-2"))
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        data = gate_brief.collect("TP1-15045", task_root)
+        text = gate_brief.render(data)
+        block = text.split("## The old version as the reference (old)")[1].split("\n## ")[0].splitlines()
+        shown_rows = [l for l in block if l.startswith("- R-")]
+        check_eq("PC-9c 20 items, 2 differences: exactly the 2 differences are listed", len(shown_rows), 2)
+        check_in("PC-9c ... the first by its requirement and both texts", "- R-1 (requirement 1 words): the old version the old total is 1; the story now the new total is 2", shown_rows[0])
+        check_in("PC-9c ... the unknown one says it is not known", "(not known whether this is a difference)", shown_rows[1])
+        check_in("PC-9c ... the count line: 18 of 20 carried over", "18 of the 20 behaviours the factory saw in the old version are carried over as they are. All of them are listed in the document below.", block)
+        check_in("PC-9c ... and the long documents list the file of every behaviour seen (F1)", "- reference behaviours: work/reference-behaviours.md", text)
+        check_not_in("PC-9c ... no unused list, no gap list", "used by no test case", "\n".join(block))
+        check_in("PC-9c ... the approval confirms the parity requirements (F-7)", "these requirements ask to match the old version: R-1, R-2.", block)
+        check_in("PC-9c ... the sample sentence (W1)", "is not evidence for it", block)
+        check_eq("PC-9c ... the block stands in the head, before the rehearsal",
+                 text.splitlines().index("## After your approval") > text.splitlines().index("## The old version as the reference (old)") > 0, True)
+        for raw in ("item-0", "reference:", "before_ref", ".yaml", "reference-snapshot", "parity"):
+            check_not_in(f"PC-9c ... no raw key `{raw}` in the block", raw, "\n".join(block))
+        # edge 6 (W1): gate_brief reads NO run ledger, so a run recorded on the reference stand cannot reach the block. This is a pin of
+        # absence, made able to fail: the reference readers' source names no ledger, and a ledger written beside them is not shown (N2)
+        import inspect
+        source = "".join(inspect.getsource(fn) for fn in (gate_brief.reference_facts, gate_brief._reference_uses, gate_brief._reference_lines,
+                                                           gate_brief.reference_behaviours_text))
+        check_not_in("PC-9c W1: the reference readers read no run ledger (a pin of absence: reading one fails this)", "ledger", source.lower())
+        (task_root / "work" / "run-ledger.json").write_text(json.dumps({"runs": [{"id": "RUN-ON-REFERENCE-77", "stand": "old", "result": "passed"}]}), encoding="utf-8")
+        check_not_in("PC-9c a run recorded on the reference stand is not shown as evidence", "RUN-ON-REFERENCE-77", gate_brief.render(gate_brief.collect("TP1-15045", task_root)))
+        check_not_in("PC-9c ... the block is inside the budget of the cover sheet: the packet is not cut", "brief truncated", text)
+    finally:
+        cleanup(base.parent)
+    # edge 3: zero differences and zero gaps: ONE line with the count, no heading
+    base = pc9c_story("qa-gate-brief-pc9c-same-", 20, ["no"], set(range(1, 21)))
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        lines = gate_brief._reference_lines(gate_brief.collect("TP1-15045", task_root))
+        check_eq("PC-9c zero differences and zero gaps: a blank line and ONE line", len(lines), 2)
+        check_in("PC-9c ... it says the story matches on all 20 behaviours", "this story matches the old version (old) on all 20 behaviours", lines[1])
+        check_not_in("PC-9c ... and there is no empty heading", "## The old version", gate_brief.render(gate_brief.collect("TP1-15045", task_root)))
+    finally:
+        cleanup(base.parent)
+    # (c) the claim of R-2 differs, R-3 asks to match and nothing was seen, items 4 and 5 are used by no case, the walk has a gap line
+    base = pc9c_story("qa-gate-brief-pc9c-all-", 5, ["no", "yes"], {1, 2, 3}, parity=("R-1", "R-2", "R-3"), gaps=["the checkout page needs a sign-in the factory did not have"])
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        facts = gate_brief.collect("TP1-15045", task_root)["reference"]
+        check_eq("PC-9c the differing claim is the one with `yes`", [d["r"] for d in facts["differing"]], ["R-2"])
+        check_eq("PC-9c the parity requirement with nothing seen is R-3 (R-1 rests on a case, R-2 on a claim)", [g["r"] for g in facts["parity_gaps"]], ["R-3"])
+        check_eq("PC-9c the unused items are listed by their words (item 2 is shown by its claim, 1 and 3 by cases)",
+                 facts["unused"], ["page 4 — open page 4 and read the total", "page 5 — open page 5 and read the total"])
+        text = "\n".join(gate_brief._reference_lines({"reference": facts}))
+        check_in("PC-9c the unused list is counted", "Seen in the old version and used by no test case (2):", text)
+        check_in("PC-9c the gap of the walk is shown", "the checkout page needs a sign-in the factory did not have", text)
+        check_in("PC-9c the count line: 2 of 5 carried over (5 less the claim's item and the 2 unused)", "2 of the 5 behaviours", text)
+        check_in("PC-9c ... the requirement with nothing seen is named", "- R-3 (requirement 3 words)", text)
+    finally:
+        cleanup(base.parent)
+    # edge 2: a snapshot that is absent, or cannot be read: a plain sentence, the full brief as today, never a pass (AR-28)
+    for label, damage in (("absent", None), ("unreadable", b"items: [\n\t- {{{")):
+        base = pc9c_story(f"qa-gate-brief-pc9c-{label}-", 3, [], set(), with_snapshot=damage is not None)
+        task_root = base / "artifacts" / "TP1-15045"
+        try:
+            if damage is not None:
+                (task_root / "work" / "reference-snapshot.yaml").write_bytes(damage)
+            data = gate_brief.collect("TP1-15045", task_root)
+            check_eq(f"PC-9c snapshot {label}: unreadable, with the stand", (data["reference"]["state"], data["reference"]["env"]), ("unreadable", "old"))
+            said = gate_brief._reference_lines(data)
+            check_eq(f"PC-9c snapshot {label}: ONE line after a blank line, in plain words", (len(said), "could not be read" in said[1]), (2, True))
+            full = gate_brief.render(data)
+            check_in(f"PC-9c snapshot {label}: the brief is shown whole as today", "## After your approval", full)
+            check_not_in(f"PC-9c snapshot {label}: never an empty section or a match line", "matches the old version", full)
+        finally:
+            cleanup(base.parent)
+    # edge 4 and 5: the cap AT and BEYOND, for the differences and for the unused items
+    for count in (shown, shown + 1, shown + 5):
+        base = pc9c_story(f"qa-gate-brief-pc9c-cap{count}-", count + 2, ["yes"] * count, set())
+        task_root = base / "artifacts" / "TP1-15045"
+        try:
+            text = "\n".join(gate_brief._reference_lines(gate_brief.collect("TP1-15045", task_root)))
+            listed = [l for l in text.splitlines() if l.startswith("- R-")]
+            check_eq(f"PC-9c {count} differences: at most {shown} are listed", len(listed), min(count, shown))
+            check_eq(f"PC-9c {count} differences: the rest is counted, not cut in silence",
+                     [l for l in text.splitlines() if l.startswith("- and ") and "more" in l][:1],
+                     [f"- and {count - shown} more"] if count > shown else [])
+            check_in(f"PC-9c {count} differences: the heading says all {count}", f"({count}):", text)
+            names = [l for l in text.splitlines() if l.startswith("- page ")]
+            check_eq(f"PC-9c {count} differences, 2 unused items: both unused items are listed by name", len(names), 2)
+        finally:
+            cleanup(base.parent)
+    base = pc9c_story("qa-gate-brief-pc9c-unused-", shown + 3, ["no"], set())
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        lines = gate_brief._reference_lines(gate_brief.collect("TP1-15045", task_root))
+        check_eq(f"PC-9c {shown + 3} unused items: {shown} by name and the count of the rest",
+                 (len([l for l in lines if l.startswith("- page ")]), "- and 3 more" in lines), (shown, True))
+    finally:
+        cleanup(base.parent)
+    # a register that cannot be read: differences and gaps are NOT known, and the block says so (never none)
+    base = pc9c_story("qa-gate-brief-pc9c-noreg-", 4, ["yes"], {1, 2, 3, 4})
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        (task_root / "work" / "requirements-register.md").write_text("no table here\n", encoding="utf-8")
+        text = "\n".join(gate_brief._reference_lines(gate_brief.collect("TP1-15045", task_root)))
+        check_in("PC-9c an unread register is said, not read as no difference", "could not be read, so where the story differs", text)
+        check_not_in("PC-9c ... and no match line is made of it", "matches the old version", text)
+    finally:
+        cleanup(base.parent)
+    # F2: ONE list renderer, so the cap AT and BEYOND holds for all four lists, the parity requirements and the gaps of the walk too
+    for count in (shown, shown + 1, shown + 5):
+        base = pc9c_story(f"qa-gate-brief-pc9c-lists{count}-", 1, [], {1}, parity=tuple(f"R-{n}" for n in range(1, count + 1)),
+                          gaps=[f"gap line {n}" for n in range(1, count + 1)])
+        task_root = base / "artifacts" / "TP1-15045"
+        try:
+            text = gate_brief._reference_lines(gate_brief.collect("TP1-15045", task_root))
+            rest = [f"- and {count - shown} more"] if count > shown else []
+            parity_lines = [l for l in text if l.startswith("- R-")]
+            check_eq(f"PC-9c F2 {count} parity requirements with nothing seen: at most {shown} listed", len(parity_lines), min(count - 1, shown))
+            gap_lines = [l for l in text if l.startswith("- gap line")]
+            check_eq(f"PC-9c F2 {count} gaps of the walk: at most {shown} listed", len(gap_lines), min(count, shown))
+            check_in(f"PC-9c F2 {count} gaps: the heading counts all of them", f"What the factory could not see of the old version ({count}):", "\n".join(text))
+            check_eq(f"PC-9c F2 {count} gaps: the rest of the gaps is counted", [l for l in text[text.index(gap_lines[0]):] if l.startswith("- and ")][:1], rest)
+            parity_rest = [f"- and {count - 1 - shown} more"] if count - 1 > shown else []
+            after = text[text.index(parity_lines[0]):text.index(f"What the factory could not see of the old version ({count}):")]
+            check_eq(f"PC-9c F2 {count} parity requirements: the rest is counted", [l for l in after if l.startswith("- and ")][:1], parity_rest)
+        finally:
+            cleanup(base.parent)
+    # F4 (F-7): a story that matches on everything, with no parity requirement, says its approval confirms none, like the full block
+    base = pc9c_story("qa-gate-brief-pc9c-same-noparity-", 3, ["no"], {1, 2, 3}, parity=())
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        lines = gate_brief._reference_lines(gate_brief.collect("TP1-15045", task_root))
+        check_eq("PC-9c F4 matches, no parity requirement: still ONE line after a blank line", (len(lines), lines[0]), (2, ""))
+        check_in("PC-9c F4 ... and it says the approval confirms none", "so your approval confirms none.", lines[1])
+        check_in("PC-9c F4 ... and the sample sentence stands before it", "is not evidence for it", lines[1])
+    finally:
+        cleanup(base.parent)
+
+
+def test_pc9c_every_behaviour_is_written_to_the_reference_behaviours_document() -> None:
+    """F1 (critic t-2549, D3 'the attached document'): `write_gate_message` writes `work/reference-behaviours.md` from the same facts as
+    the block: every snapshot item in words, marked carried over / differs / used by no test case, the walk's gaps whole (no cap). Edges:
+    a story with no reference or an unreadable snapshot gets no file; the count line and the long documents point to it only when it is
+    written (the driver mode writes no message, so names no document)."""
+    base = pc9c_story("qa-gate-brief-pc9c-doc-", 20, ["yes", "no"], set(range(3, 19)), parity=("R-1",), gaps=[f"gap line {n}" for n in range(1, 13)])
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        data = gate_brief.collect("TP1-15045", task_root)
+        text = gate_brief.render(data)
+        path = gate_brief.write_gate_message(task_root, text, "s-1")
+        doc = (task_root / "work" / gate_brief.REFERENCE_BEHAVIOURS).read_text(encoding="utf-8")
+        check_eq("PC-9c F1 the message is written beside the document", path.name, "gate-a-message.md")
+        check_eq("PC-9c F1 every one of the 20 behaviours is in the document, by its words", len([l for l in doc.splitlines() if l.startswith("- page ")]), 20)
+        check_in("PC-9c F1 ... the claim's item differs, with its requirement", "- page 1 — open page 1 and read the total (R-1): total 1", doc)
+        check_in("PC-9c F1 ... the sections count the standings: 1 differs, 16 carried (item 2 is cited by a claim that says no: used by no case)", "## Differs from the story (1)", doc)
+        facts = data["reference"]
+        counts = {k: sum(1 for b in facts["behaviours"] if b["standing"] == k) for k in ("differs", "carried", "unused")}
+        check_eq("PC-9c F1 the document and the count line read the same lists", (counts["carried"], facts["carried"], len(facts["unused"]), counts["unused"]),
+                 (facts["carried"], facts["carried"], counts["unused"], counts["unused"]))
+        check_in("PC-9c F1 ... the carried section carries the count line's number", f"## Carried over as they are ({facts['carried']})", doc)
+        check_in("PC-9c F1 ... the walk's 12 gaps are listed whole (the brief caps at 8)", "- gap line 12", doc)
+        check_in("PC-9c F1 the count line points to the document and the long documents list it", "All of them are listed in the document below.", text)
+        check_in("PC-9c F1 ... the sample sentence stands in the document", "is not evidence for it", doc)
+    finally:
+        cleanup(base.parent)
+    base = story("qa-gate-brief-pc9c-doc-none-")
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        gate_brief.write_gate_message(task_root, gate_brief.render(gate_brief.collect("TP1-15045", task_root)), "s-1")
+        check_eq("PC-9c F1 no reference: no document", (task_root / "work" / gate_brief.REFERENCE_BEHAVIOURS).exists(), False)
+    finally:
+        cleanup(base.parent)
+    base = pc9c_story("qa-gate-brief-pc9c-doc-unread-", 3, [], set())
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        (task_root / "work" / "reference-snapshot.yaml").write_bytes(b"items: [\n\t- {{{")
+        data = gate_brief.collect("TP1-15045", task_root)
+        gate_brief.write_gate_message(task_root, gate_brief.render(data), "s-1")
+        check_eq("PC-9c F1 an unreadable snapshot: no document, and none named", ((task_root / "work" / gate_brief.REFERENCE_BEHAVIOURS).exists(),
+                                                                                  "reference behaviours" in data["documents"]), (False, False))
+    finally:
+        cleanup(base.parent)
+    base = pc9c_story("qa-gate-brief-pc9c-doc-driver-", 3, ["no"], {1, 2, 3})
+    task_root = base / "artifacts" / "TP1-15045"
+    saved = os.environ.get(gate_brief.RUN_MODE_ENV)
+    try:
+        os.environ[gate_brief.RUN_MODE_ENV] = "driver"
+        data = gate_brief.collect("TP1-15045", task_root)
+        check_eq("PC-9c F1 the driver mode names no document (it writes no message file)", ("reference behaviours" in data["documents"], "document" in data["reference"]), (False, False))
+        check_not_in("PC-9c F1 ... and the count line points nowhere", "document below", gate_brief.render(data))
+    finally:
+        if saved is None:
+            os.environ.pop(gate_brief.RUN_MODE_ENV, None)
+        else:
+            os.environ[gate_brief.RUN_MODE_ENV] = saved
+        cleanup(base.parent)
+
+
+def test_pc9c_f3_the_project_root_walk_has_one_copy() -> None:
+    """F3 (critic t-2549): `portable`, `project_config` and the filing line go through `_project_root_of`, like the reference facts."""
+    base = story("qa-gate-brief-pc9c-root-")
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        root = gate_brief._project_root_of(task_root)
+        check_eq("PC-9c F3 the project root is the folder above `qa-factory/config.json`", root, base.parent.resolve())
+        check_eq("PC-9c F3 `portable` is relative to it", gate_brief.portable(task_root / "work" / "x.md", task_root), (task_root / "work" / "x.md").resolve().relative_to(root).as_posix())
+        check_eq("PC-9c F3 `project_config` reads the config found by the same walk", gate_brief.project_config(task_root), json.loads((base / "config.json").read_text(encoding="utf-8")))
+        import inspect
+        check_eq("PC-9c F3 the marker walk is written once in gate_brief", inspect.getsource(gate_brief).count('/ "config.json").is_file()'), 1)
+    finally:
+        cleanup(base.parent)
+
+
 if __name__ == "__main__":
+    test_pc9c_gate_a_for_a_story_with_a_reference()
+    test_pc9c_every_behaviour_is_written_to_the_reference_behaviours_document()
+    test_pc9c_f3_the_project_root_walk_has_one_copy()
     test_g2_5_grounding_lines_at_gate_a()
     test_rh16_open_rehearsal_items_one_reader_and_its_doors()
     test_rh16_b1_the_one_reader_drops_a_doorless_item_the_person_passed_as_is()
@@ -2981,6 +3517,10 @@ if __name__ == "__main__":
     test_gate_a_brief_obeys_the_human_text_rules()
     test_an_answer_is_read_against_the_packet()
     test_gate_brief_degrades()
+    test_t2187_n3b_a_merged_bug_is_one_row_with_its_ways_and_one_door_block()
+    test_t2187_n3b_the_unknown_is_said_as_unknown_and_the_cap_holds_at_six_and_seven()
+    test_t2187_n3b_linked_drafts_get_the_merge_block_without_a_multi_manifestation_row()
+    test_t2187_n3b_an_unverified_cause_is_printed_as_a_hypothesis()
     test_gate_b_bug_list_is_rendered_by_code()
     test_t1676_code_reading_candidates_and_cuts_by_words()
     test_gate_b_names_the_direct_api_author()

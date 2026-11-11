@@ -116,7 +116,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hooklib import artifacts_dir, project_root, load_config, story_root, StoryRootError
+from hooklib import artifacts_dir, project_root, load_config, story_root, StoryRootError, read_json
 from execution_request import (JobStore, ProvenanceRefused, RequestError, is_pytest_command, probe_record,
                                pytest_timeout_setting, validate_request)
 from execution_fingerprint import verify_files
@@ -569,7 +569,7 @@ def build_run_block(request: dict, summary: dict, attempt_id: str) -> dict | Non
     # judged, and no row is coded for it: the rows keep `not_run` and the code they already have (E7). An ambiguous row is in the
     # report, so "short" would be a false cause (critic t-1748 F1); a run that is inconclusive says its own cause per row.
     matched_count = sum(1 for r in results if r.get("report_matched"))
-    return {"schema_version": 2, "block_id": attempt_id, "attempt_id": attempt_id,
+    block = {"schema_version": 2, "block_id": attempt_id, "attempt_id": attempt_id,
             "attempt_started_at": summary.get("started_at"),
             "attempt_ended_at": summary.get("ended_at"),
             "dispatch_id": request.get("dispatch_id"), "profile_id": request.get("profile_id"),
@@ -594,6 +594,85 @@ def build_run_block(request: dict, summary: dict, attempt_id: str) -> dict | Non
                              "unmatched_report_rows": sorted(set(by_test) -
                                 {str((contracts.get(i) or {}).get("report_test_id") or "") for i in selected}
                                 - {str(r.get("test_id") or "") for found in by_file.values() for r in found})}}
+    # t-2181 PC-5a (B2): the sides this execution met, copied by CODE from the story's record at the moment of the run (S13: only
+    # a story that has a `pipeline.sides` record, a non-real side or `sides_unknown` is stamped; any other block stays as it was)
+    block.update(proof_stamp(request.get("task")))
+    # t-2277 W1 (owner 11.11.2026): a run whose target is the story's reference stand is a SAMPLE - the one field of the mark, written where the
+    # run record is written (never read back from the story at a later moment). {} (no key) for every other run, an older block included.
+    mark = reference_mark_of(request)
+    if mark:
+        block["reference_run"] = mark
+    return block
+
+
+def reference_mark_of(request) -> dict:
+    """The `reference_run` mark of a request (`stand_identity.reference_run_mark` of its task and its probe's `environment_id`, the stand
+    the launch trusts), {} when it has none, the request names no story or stand, or anything cannot be read. Never raises."""
+    try:
+        provenance = request.get("runtime_provenance") if isinstance(request, dict) else None
+        task = str(request.get("task") or "").strip() if isinstance(request, dict) else ""
+        stand = str(provenance.get("environment_id") or "").strip() if isinstance(provenance, dict) else ""
+        if not (task and stand):
+            return {}
+        import stand_identity as SI
+        return SI.reference_run_mark(project_root(), task, stand)
+    except Exception:
+        return {}
+
+
+PROOF_STAMP_KEYS = ("sides_met", "sides_unknown")   # the keys of the proof stamp: the one list of them (writers, reparse, import re-check)
+
+
+def story_pipeline(path) -> tuple[dict, str]:
+    """(pipeline, why) of one story's `pipeline.json`, read through `hooklib.read_json` (BOM-safe, the reader `acceptance` and
+    `side_realities` use). `why` is "" when the record can be used. An ABSENT file is ({}, "") - the story has no record. A file
+    that is present but not a JSON object, or a `sides` that is present and not a non-empty object, is `why` words: the story's
+    sides are UNKNOWN, never the reader's default (AR-28, FR-59)."""
+    path = Path(path)
+    if not path.exists():
+        return {}, ""
+    pipeline = read_json(path, None, kind=dict)
+    if pipeline is None:
+        return {}, "the story's pipeline.json could not be read"
+    if "sides" in pipeline and not (isinstance(pipeline["sides"], dict) and pipeline["sides"]):
+        return pipeline, "pipeline.sides is not a side record"
+    return pipeline, ""
+
+
+def proof_stamp(task_or_pipeline) -> dict:
+    """The proof stamp of an execution block (t-2181 PC-5a, B2, AR-14/AR-21/AR-22): {} or {"sides_met": {side: reality},
+    ["sides_unknown": why]}, read through `contract.story_sides` (the one reader, AR-13) from the story's `pipeline.json`
+    (`task_or_pipeline`: the story id, a story root `Path`, or the parsed pipeline). ONE function for both writers, the run block
+    here and `manual_evidence.write_block` (kept here rather than beside `story_sides` in contract.py: that file is another
+    node's, a later move). S13: {} unless the story has a `pipeline.sides` record, a side that is not `real` or
+    `pipeline.sides_unknown`. Error direction (AR-28): no pipeline.json at all is {} (no record exists to copy); a file that is
+    present and unreadable, or a `sides` that is not a side record, stamps `sides_unknown` and no `sides_met` (the reader's
+    default side is all-real, a guess); a reality the record does not name is copied as "" (unknown, never real)."""
+    import contract as C
+    pipeline, why = task_or_pipeline, ""
+    if not isinstance(pipeline, dict):
+        if not task_or_pipeline:
+            return {}
+        try:
+            path = (Path(task_or_pipeline) if isinstance(task_or_pipeline, Path) else artifacts_dir(str(task_or_pipeline))) / "pipeline.json"
+        except ValueError:
+            return {}
+        pipeline, why = story_pipeline(path)
+    elif "sides" in pipeline and not (isinstance(pipeline["sides"], dict) and pipeline["sides"]):
+        why = "pipeline.sides is not a side record"
+    unknown = pipeline.get("sides_unknown")
+    if why:
+        return {"sides_unknown": str((unknown.get("why") or unknown.get("at") or why) if isinstance(unknown, dict) else (unknown or why))}
+    if not pipeline:
+        return {}
+    sides = C.story_sides(pipeline)
+    if not (pipeline.get("sides") or unknown or any(side["reality"] != "real" for side in sides.values())):
+        return {}
+    # the reader's default side (no record) is all-real: beside an unknown it is a guess, so it is not copied as `sides_met`
+    stamp = {} if (unknown and not pipeline.get("sides")) else {"sides_met": {name: side["reality"] for name, side in sides.items()}}
+    if unknown:
+        stamp["sides_unknown"] = str(unknown.get("why") or unknown.get("at") or "unknown") if isinstance(unknown, dict) else str(unknown)
+    return stamp
 
 
 NEAREST_NOTE = "nearest"
@@ -630,8 +709,16 @@ def _file_verdict(found: list, contract: dict, report_rows: list, claims: dict) 
     return "not_run", "a matched report row has no result", True, ""
 
 
+def block_folder(block: dict) -> str:
+    """The folder under `work/` a run block lives in: a sample (`reference_run`, t-2277 W1) goes to `work/reference-runs`, never into the
+    folder every evidence reader reads (AR-13, AR-15). The one choice, used by every writer of a run block (run, reparse, import)."""
+    import stand_identity as SI
+    return SI.REFERENCE_RUNS_DIR if isinstance(block, dict) and block.get("reference_run") else "run-blocks"
+
+
 def write_run_block(task: str, block: dict) -> Path:
-    directory = story_root(task, "run_suite") / "work" / "run-blocks"      # under a story that EXISTS (CX1-18)
+    folder = block_folder(block)
+    directory = story_root(task, "run_suite") / "work" / folder      # under a story that EXISTS (CX1-18)
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     path = directory / f"{stamp}-{block['attempt_id']}.json"
@@ -708,8 +795,18 @@ def reparse_run_block(task_root: Path, block_path: Path, mapping: dict) -> Path:
     material = json.dumps(contracts, sort_keys=True, separators=(",", ":")).encode("utf-8")
     block["block_id"] = attempt + "-reparse-" + hashlib.sha256(material).hexdigest()[:12]
     block["supersedes_block_id"] = old_block_id
+    # PC-5a: a reparse re-reads the same attempt, so the stamp is the superseded block's, never today's record of the story
+    for key in PROOF_STAMP_KEYS:
+        if key in old:
+            block[key] = old[key]
     block["reparse_of"] = block_path.relative_to(task_root).as_posix()
-    directory = task_root / "work" / "run-blocks"
+    # t-2277 W1: a reparse of a sample is a sample, and a reparse of a plain block stays plain - the mark and the folder are the superseded
+    # block's, never today's record of the story (build_run_block above read today's record, so its answer is dropped when the old block had none)
+    if old.get("reference_run"):
+        block["reference_run"] = old["reference_run"]
+    else:
+        block.pop("reference_run", None)
+    directory = task_root / "work" / block_folder(block)
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / (block["block_id"] + ".json")
     payload = json.dumps(block, ensure_ascii=False, indent=2) + "\n"
@@ -1362,14 +1459,17 @@ def stand_is_serial(cfg: dict) -> bool:
 
 
 @contextlib.contextmanager
-def hold_stand(cfg: dict, job_id: str, environment: str, wait_s: int | None):
+def hold_stand(cfg: dict, job_id: str, environment: str, wait_s: int | None, mode: str = "exclusive", max_shared: int = 1):
     """The stand lease around one launch; yields the lease record, or None when not needed.
 
     TP1-15045: `run.parallel` was false "precisely because localhost has one account",
     and nothing enforced it — a critic's five-way batch and an automator's single run met
     on the stand, and the `Locator.fill` timeouts that followed were triaged as test
     defects. A stand that stays busy is said so in one JSON line and nothing is launched:
-    exit 3, the same "not now, call again" a `--wait` that is still running answers with."""
+    exit 3, the same "not now, call again" a `--wait` that is still running answers with.
+
+    `mode` is `exclusive` (the default: a suite, a capture) or `walk` (a manual walker, which shares the stand with up to
+    `max_shared` other walkers and with no suite); the caller gives both, this function reads no project fact for them."""
     if not stand_is_serial(cfg):
         yield None
         return
@@ -1382,7 +1482,10 @@ def hold_stand(cfg: dict, job_id: str, environment: str, wait_s: int | None):
         configured = _setting(cfg, "run", "stand_wait_s", 1800)
         wait_s = int(configured) if isinstance(configured, (int, float)) and not isinstance(configured, bool) else 1800
     try:
-        manager = stand_lease.hold(project_root(), job_id, environment, max(0, int(wait_s)))
+        if mode == "exclusive":     # the suites' call, unchanged
+            manager = stand_lease.hold(project_root(), job_id, environment, max(0, int(wait_s)))
+        else:
+            manager = stand_lease.hold(project_root(), job_id, environment, max(0, int(wait_s)), mode=mode, max_shared=max_shared)
         lease = manager.__enter__()
     except stand_lease.StandBusy as busy:
         print(json.dumps({"status": "stand_busy", "holder": getattr(busy, "holder", {}) or {},
@@ -2607,6 +2710,10 @@ def main() -> None:
                     help="--mine with ONE case: the test(s) to run when the manifest does not name them yet. "
                          "An id without [...] in an existing file is not collected: the run itself answers "
                          "`node_id_mismatch` when pytest does not find it")
+    ap.add_argument("--collect-only", dest="collect_only", action="store_true",
+                    help="run NOTHING: take one collect of the files the --tests ids name (the test command after `--`) and print "
+                         "the `runs[]` row `kind: collect` (`partial: true` when a file failed to import) - the evidence of a "
+                         "test that is written but cannot run yet; a collect is never a run witness")
     ap.add_argument("--again", action="store_true",
                     help="--mine: run again even though a green run over the same bytes is recorded")
     ap.add_argument("--reason", default="", help="--mine: one sentence recorded as the run's reason")
@@ -2679,6 +2786,11 @@ def main() -> None:
             ap.error("--detail needs --task and --label, or --request FILE, or --mine CASE")
         _refuse_phantom_story(args.task)
         detail(args)
+    if args.collect_only:
+        if not args.task or not args.tests or not args.cmd:
+            ap.error("--collect-only needs --task, --tests <node ids> and the test command after `--`")
+        _refuse_phantom_story(args.task)
+        sys.exit(collect_only(args))
     if args.mine:
         args.request = mine(args)
     cfg = load_config()
@@ -2691,6 +2803,16 @@ def main() -> None:
             # the request's task is the story it runs for: a story that is not there is refused HERE, before a store
             # is named and long before a job is begun - a key from outside must never make a folder (CX1-18, E-7)
             task_root = story_root(raw_task, "run_suite.py --request: the request's task")
+            # C8 (t-2181 PC-9b, t-2277 W1): a request aimed at a reference stand GOES - its block is written as a sample (`reference_run`). What
+            # is still refused at entry is the record's contradiction (the story's own stand named as a reference too) - after the story is
+            # known to exist, before a store, a key, a probe, a budget answer or a stand lease: nothing is left behind. Exit 2 as the budget's refusal.
+            from execution_request import reference_target_problem
+            _reference = reference_target_problem(project_root(), raw_task,
+                                                  (raw_request.get("runtime_provenance") or {}).get("environment_id")
+                                                  if isinstance(raw_request.get("runtime_provenance"), dict) else "")
+            if _reference:
+                print(json.dumps({"status": "run_refused", "error": _reference}, ensure_ascii=False))
+                sys.exit(2)
             store = JobStore(task_root / "state" / "execution-jobs")
             existing = store.read(str(raw_request.get("idempotency_key") or ""))
             request = validate_request(raw_request, project_root(), allow_exhausted_reuse=bool(existing))
@@ -2823,6 +2945,41 @@ def main() -> None:
     with hold_stand(cfg, f"{args.label}-{os.getpid()}", "", args.stand_wait) as lease:
         args.stand_lease = lease
         launch(args)
+
+
+def collect_only(args) -> int:
+    """`--collect-only` (t-2181 PC-4, B6): one collect over the files of `--tests`, through `collect_files` (the ONE collect of S5,
+    AR-15), and the `runs[]` row of it: `kind: collect`, `scope` the node ids collected, `partial: true` when some file failed to
+    import (its healthy ids are listed, the broken files named). It launches no test, writes no run block, no job and no
+    evidence summary: a collect proves that a written test is collectable, never that it passed - `check_witness` takes it as the
+    evidence of a manifest whose every test is pending, and never as `run_witness`. Exit 0 with a row; 2 when nothing could be
+    collected (a collect that listed no id is no evidence)."""
+    files = sorted({str(t).partition("::")[0].replace("\\", "/") for t in args.tests})
+    notes: list = []
+    row = {"label": args.label or "collect", "kind": "collect", "files": files,
+           "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    try:
+        ids = list(collect_files(args.cmd, args.cwd_override or str(project_root()), files, load_config(), notes))
+    except Exception as exc:
+        # A `node_ids.CollectError` of kind `partial` carries the healthy ids and the broken files (RH1-3); any other kind, and
+        # any other failure, is a collect that gave nothing to stand on - never a pass (FR-59).
+        if getattr(exc, "kind", "") != "partial" or not list(getattr(exc, "ids", []) or []):
+            print(json.dumps({"status": "collect_failed", "error": str(getattr(exc, "message", "") or exc),
+                              "hint": "fix what the collect names (an import error, a missing file), then run --collect-only again"},
+                             ensure_ascii=False), file=sys.stderr)
+            return 2
+        ids = list(exc.ids)
+        row["partial"] = True
+        row["broken"] = [b.get("path", "") if isinstance(b, dict) else str(b) for b in exc.broken]
+    if not ids:
+        print(json.dumps({"status": "collect_failed", "error": "the collect listed no test id over " + ", ".join(files)},
+                         ensure_ascii=False), file=sys.stderr)
+        return 2
+    row["scope"] = ids
+    print(json.dumps({"status": "collected_partial" if row.get("partial") else "collected", "runs_row": row, "notes": notes,
+                      "hint": "append the row with `manifest_put.py --task <TICKET> --fragment` as {\"runs\": [<runs_row>]}; "
+                              "it is a collect, not a run: it never stands for run_witness"}, ensure_ascii=False))
+    return 0
 
 
 def launch(args) -> None:

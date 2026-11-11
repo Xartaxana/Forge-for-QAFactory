@@ -16,7 +16,7 @@
       "applies_to": "fields",
       "subject": "every input field of the flow you meet",
       "kinds": [
-        {"id": "multi_digit", "steps": ["type <selector> 12"], "why": "a value saved on every change is cut at the first character when the page redraws"},
+        {"id": "multi_digit", "steps": ["fill <selector> 12"], "why": "a value saved on every change is cut at the first character when the page redraws"},
         {"id": "empty", "steps": ["press <selector> Control+A", "press <selector> Backspace"], "why": "an emptied field sends null or not-a-number"},
         {"id": "paste", "steps": ["paste <selector> 12"], "why": "an inserted value reaches no key handler"},
         {"id": "beyond_limit", "steps": ["type <selector> <the limit plus one, 0, -1>"], "why": "a value past the limit is clamped silently or refused in words"}

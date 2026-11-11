@@ -47,7 +47,11 @@ COMMAND = {
     # `_retry_holds` (F6) is the one head of the refusals of a superseded dispatch; each site adds its own door after it.
     "accept {retry[-1]}": "accept the retry, which the message names",
     "finish or pause {retry[-1]}": "finish or pause the retry, which the message names (`story_step.py finish` / `pause`)",
-    "approved Gate A required before deployment": "the gate decision itself (`gate-decision`)",
+    # TR1-9 B3 (AR-25): a row a code close passed over; the refusal names the door itself
+    "was passed over when its stage was closed by code": "`controller.py --operation rework`, which the message names: going back over the stage",
+    # TR1-9 B4: the passed-over list in the request is stale; the close is sent again from the state as it is now
+    "the state moved while the close was prepared": "send the close again: the request is rebuilt from the state as it is now",
+    "approved Gate A required before deployment":"the gate decision itself (`gate-decision`)",
     "managed lifecycle requires work/test-plan.json": "the strategist writes the plan; `plan_row.py --add-row` adds one row",
     "current Gate A decision required": "`gate-decision --words-file <file>` records the person's approval",
     "current Gate ": "`gate-decision --words-file <file>` records the person's approval of that gate",
@@ -249,6 +253,18 @@ COMMAND = {
     "each lifecycle decision must bind action, source": "`gate-decision` builds each lifecycle decision with its action, revision and hash",
     # RH1-6 (the owner's F-2): a gate A approval over open `person_decides` items; the refusal names each item and its door
     "approve as is: the word for": "`gate-decision --as-is` again (a waiver already written is replaced, so a retry is harmless), or the person's word with `waiver.py`",
+    # PC-6 (t-2181, the story held for code: `_hold_op_refusal`, `_hold_dispatch_refusal`, the hold part of `build_rework_request`): the state says no,
+    # and each sentence carries the doors of `_hold_doors` (the code arriving, the person's stop, a rework of an earlier stage with their words).
+    "this story is held for code (": "the doors the message prints: the code arrives (`--operation arrive`), the person stops the wait (`--operation stop_waiting`), or an earlier stage is reworked with their words",
+    "this story was stopped while it waited for code: a rework of": "`controller.py --operation rework --stage <earlier stage> --role <role> --words-file <file>` with the person's own words (a typed `--reason` is refused)",
+    "this story was stopped while it waited, and a bare `await`": "the code arrives (`--operation arrive`), or the person's words reopen an earlier stage (`--operation rework --words-file`); the message names both",
+    "nothing is held for code, so there is no wait to stop": "nothing: no wait is held, and `--operation next` says what the story does now",
+    "the wait was stopped already": "the code arrives (`--operation arrive`), or the person's words reopen an earlier stage (`--operation rework --words-file`); the message names both",
+    "the wait was stopped: `first_look_continue`": "the code arrives (`--operation arrive`), or the person's words reopen an earlier stage (`--operation rework --words-file`); the message names both",
+    "this story is held for {hold": "the code arriving or the person's stop (`--operation stop_waiting --words-file`): the only word that lifts a hold for code is the person's `not ours` about an absent side, carried out by the driver (`arrive` naming that side); the message names the doors",
+    "`await_reopened` reopens a STOPPED story": "nothing: the story is not stopped; `--operation next` says what it does now",
+    "a stopped story is reopened only by the rework": "`--operation rework` of an accepted dispatch below the held stage with the person's words, or the code arriving (`--operation arrive`)",
+    "this story was stopped while it waited for code: no dispatch starts": "`--operation rework --words-file <file>` of an earlier stage, or the code arriving (`--operation arrive`)",
     "approve as is: still open after recording": "the refusal names the items still open; `waiver.py --stage <S> --block <the item's block>` records the person's word on each",
 }
 
@@ -285,7 +301,10 @@ CALLER_SHAPES = ("must be one of", "must be an", "must be a ", "requires ", "req
                  # the scope names something that is no pinned case (R1) or the story's own key (R2): the call's fault (CX1-11)
                  "scope member(s) that are not pinned case ids", "scope holds case ids",
                  # `reopen_story` / `leave_unlaunched` called with no dispatch id (C1-6a): the call's own field
-                 "names the held dispatches")
+                 "names the held dispatches",
+                 # PC-6 hold ops: the call's own fields (`await`, `first_look_continue`, a dispatch carrying `await_reopened`)
+                 "`cause` and `held_from` go together", "--source-head is the text", "--register-hash must be 64 hex",
+                 "`await_reopened` is the person's word reopening")
 
 
 def classify(cls, fn, head, seg, line, by_line):

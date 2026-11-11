@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness import (PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, finish,  # noqa: E402
+from harness import (check,check_eq, check_in, check_not_in, cleanup, finish,  # noqa: E402
                      run_script, temp_project, use_project)
 
 import execution_request as er  # noqa: E402
@@ -392,7 +392,7 @@ def build_request_and_the_judge_pass_the_rows_profile() -> None:
     try:
         use_project(root)
         er.build_mine_request = stand_in
-        spec = {"file": "tests/t.py", "node": "tests/t.py::test_x"}
+        spec = {"file": "tests/t.py", "node": "tests/t.py::test_x", "reader": "ast"}
         try:
             pbc.build_request(root, two(), "QA-1", "D-1", "TC-1", spec, "test_x", "invert", "r", "ui")
             named = ""
@@ -438,13 +438,6 @@ def onboarding() -> None:
     check_eq("the gate rehearsal picks no test by path for a shared root", rehearsal_fixture.gate_preflight.Rehearsal.SHARED_ROOT_PICKS_NOTHING, True)
     check_eq("the onboarding probe, which learns what a command writes, still takes any test under the root",
              onboarding_probe.ProbeRehearsal.SHARED_ROOT_PICKS_NOTHING, False)
-    text = " ".join((PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p4-generate.md")
-                    .read_text(encoding="utf-8").split())
-    check_in("p4 asks for distinct test roots per profile", "No two profiles get the same `roots.test`", text)
-    check_in("and says what to do when the folders cannot be told apart (ask, with the closed form)",
-             "ask the person which folder holds each profile's tests", text)
-    check_in("p4 keeps a flag the project's own `addopts` carries out of the argv", "a flag appears once", text)
-    check_in("naming the flag of FB-7", "`-v`", text)
 
 
 def _one_root_cfg(**extra):

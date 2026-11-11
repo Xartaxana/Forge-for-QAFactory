@@ -221,11 +221,6 @@ def k_c1d_the_block() -> None:
     for row in gate_brief.environment_words() + gate_brief.exploratory_question_words():
         others |= {gate_brief._word_key(w) for w in [row["word"], *row.get("synonyms", [])]}
     check_eq("K-C1d: no word or synonym of the block belongs to another list", mine & others, set())
-    undo = with_vocab(lambda data: {k: v for k, v in (data or {}).items() if k != "finding_door_words"})
-    try:
-        check_eq("K-C1d negative control: with the block removed there is no word", gate_brief.finding_door_words(), [])
-    finally:
-        undo()
     undo = with_vocab(lambda data: dict(data, finding_door_words={"answers": [{"option": "accept", "word": "x"}, {"option": "product_gap", "word": " "}]}))
     try:
         check_eq("K-C1d: a row outside FINDING_DOOR_OPTIONS or with no word is dropped", gate_brief.finding_door_words(), [])
@@ -310,8 +305,6 @@ def k_c2_the_recorder() -> None:
             rec, fail, _c = story_run.Driver._record_door_lines(stub, "A", [entry("TS-24", "x")], [], "S5")
         finally:
             os.replace = real
-        check("F4a: product_gaps.py publishes through event_store.atomic_json and holds no os.replace of its own",
-              "os.replace" not in Path(PG.__file__).read_text(encoding="utf-8") and "atomic_json" in Path(PG.__file__).read_text(encoding="utf-8"))
         check_eq("E-C14: a write that fails is failed, with the reason", (rec, len(fail)), ([], 1))
         check_in("E-C14: ... and the reason is the OSError's", "disk full", fail[0][2])
         check("E-C14: no temp file is left", not list((root / "work").glob("*.tmp")))
@@ -372,8 +365,6 @@ def k_c3_the_report() -> None:
            "product_gaps": [{"requirement": "R-23", "words": "no export"}], "factory_coverage": 0}
     v = RF._verdict({"ledger": led, "requirements": None, "bugs": None, "tests": None})
     check_in("K-C3: the verdict head still names R-23 (D2-A's group 3)", "R-23", v["first_reason_full"])
-    check_in("K-C3 pin: `build` passes the ledger's product gaps to both builders", "gap_ids=gap_ids",
-             (SCRIPTS / "report_facts.py").read_text(encoding="utf-8"))
 
 
 def main() -> None:

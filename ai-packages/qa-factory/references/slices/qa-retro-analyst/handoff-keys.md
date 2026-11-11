@@ -48,6 +48,11 @@ Contract `s9-retro-to-project` (fill `work/handoffs/<dispatch>.yaml`; `handoff_c
 - `claims.nothing_was_archived_by_a_role` (required) - true|false
 - `claims.the_feedback_answer_is_verbatim_or_declined` (required) - true|false
 - `claims.the_dashboard_was_rebuilt` (required) - true|false
+- `tried[].requirement` (required) - the thing that went wrong or dear
+- `tried[].technique` (required) - where you looked for the cause (the journal, a log, a record)
+- `tried[].observation` (required) - what you found, in one line
+- `tried[].evidence` (required) - the path (and anchor) where it shows
+- `tried_note` (optional) - why the table is empty, or a dash when it has rows
 - `unresolved[].id` (required) - obligation or fold row
 - `unresolved[].reason` (required) - one of vocabulary.unresolved_reasons
 - `unresolved[].detail` (required) - what exactly is missing, and what would settle it

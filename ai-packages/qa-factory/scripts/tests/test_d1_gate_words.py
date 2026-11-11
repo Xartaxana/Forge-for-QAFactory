@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, finish, temp_project  # noqa: E402
+from harness import PLUGIN_ROOT, check, check_eq, check_in, cleanup, finish, temp_project  # noqa: E402
 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 import branch_accounting as BA  # noqa: E402
@@ -204,21 +204,7 @@ def k_b4_a_question_on_a_decided_requirement(root) -> None:
 
 def k_b5_the_role_text() -> None:
     text = (PLUGIN_ROOT / "agents" / "qa-requirements-tester.md").read_text(encoding="utf-8")
-    # spec t-1765 X1 (B-D, "moved"): the five words of the settled-fork form stand where the role is handed them - the register
-    # template, the plan contract - or in the code that checks them. Three have no verbatim carrier any more; the closest
-    # existing sentence is pinned (reported to the Lead): `not a matrix row` -> risk-policy.md, `norms_list: true` -> contract.py,
-    # "ask nothing it decides or a row states" -> the `asks_beyond_words` key of branch_accounting.py (the detector of that rule).
-    carriers = {
-        '"<their words>" (<file>.txt)': "references/templates/requirements-register.md",
-        "code_says: contradicts": "references/artifact-contract-plan.md",
-        "not a matrix row": "references/risk-policy.md",
-        "norms_list: true": "scripts/contract.py",
-        "asks_beyond_words": "scripts/branch_accounting.py",
-    }
-    for key, rel in carriers.items():
-        check_in(f"K-B5 the S2 role is handed: {key} (in {rel})", key, (PLUGIN_ROOT / rel).read_text(encoding="utf-8"))
-    check_not_in("K-B5 negative control: a key that is not there is reported absent", "a phrase nobody wrote here",
-                 "".join((PLUGIN_ROOT / rel).read_text(encoding="utf-8") for rel in carriers.values()) + text)
+    # the role-text keys of the settled-fork form are rows of design/role-rules.json (test-diet TD-5.3.2)
     check("K-B5 the charter did not grow past the pin it had (10,672 B before this change)", len(text.encode("utf-8")) <= 10672, str(len(text.encode("utf-8"))))
 
 

@@ -403,6 +403,20 @@ def template(contract_id: str) -> Doc:
     return _read(path)
 
 
+AUTHOR_TOKEN = "<the author's dispatch>"          # the ONE token of the contracts that review a dispatch: S2-S4 stage critics, S7/S8 consumers (AR-15)
+
+
+def only_template(value) -> bool:
+    """Is every leaf of `value` (nested rows, lists, maps) still a placeholder? A real value anywhere - a word, a number, a
+    boolean - says the section was filled (carried, prefilled). The one reader of an untouched template row (AR-15): the
+    skeleton's emptying and the rows-owed check both call it."""
+    if isinstance(value, dict):
+        return all(only_template(v) for v in value.values())
+    if isinstance(value, list):
+        return all(only_template(v) for v in value)
+    return is_placeholder(value)
+
+
 # -------------------------------------------------------------------------------- the schema
 class FieldSpec:
     __slots__ = ("path", "options", "optional", "max_len", "kind", "hint")
@@ -437,7 +451,7 @@ def _spec_of_value(path: str, value) -> FieldSpec:
 # sending role fills. A check that refuses them refuses the contract for being a contract.
 CONTRACT_OWNED = ("schema_version", "contract", "stage", "gate", "kind", "from_role", "to_role",
                   "inputs", "expected_of_the_receiver", "rules", "not_shown", "message_sections",
-                  "common_shape", "handoffs", "escalation", "judged_row", "judged", "null_outcome", "required_when")
+                  "common_shape", "handoffs", "escalation", "judged_row", "judged", "null_outcome", "required_when", "rows_owed_when")
 # Every contract's item list. It is the one list a role may not leave empty: a handover with no
 # items is not a handover. Every other list may legitimately be empty (`unresolved` above all).
 # One contract may name its own exception: a `null_outcome` block (see `null_outcomes` below).
@@ -526,13 +540,30 @@ def relaxed_sections(contract_id: str, header_value) -> set:
     real word and no entry for that word lists the section; a missing or unfilled verdict, or a malformed block, relaxes
     nothing (AR-28: the safe default is the refusal). Nothing present is refused for being present: this only lifts
     the 'not filled' check."""
+    owed_now, listed = _verdict_block(contract_id, "required_when", header_value)
+    return listed - owed_now
+
+
+def rows_owed(contract_id: str, header_value) -> set:
+    """The list sections that must hold at least one real row under the verdict `header_value` (F4, AR-10, AR-28).
+
+    The form's own `rows_owed_when:` block says `<verdict word>: [<section>, ...]`: under that word each listed section
+    is owed rows (the verdicts that send a window back owe the findings the author must act on). A missing or unfilled
+    verdict, an absent block or a malformed block owes nothing. It reads the contract only - never what a row says."""
+    return _verdict_block(contract_id, "rows_owed_when", header_value)[0]
+
+
+def _verdict_block(contract_id: str, key: str, header_value) -> tuple:
+    """`(owed_now, listed)` of the contract's `<key>:` block (`<verdict word>: [<section>, ...]`): the sections listed
+    under the word the form holds, and the sections listed under any word. `(set(), set())` for a missing or unfilled
+    verdict, an absent or malformed block (AR-28: nothing is relaxed or owed on a doubt); a malformed entry is skipped."""
     try:
-        block = template(contract_id).data.get("required_when")
+        block = template(contract_id).data.get(key)
     except FileNotFoundError:
-        return set()
+        return set(), set()
     word = str(header_value if header_value is not None else "").strip()
     if not isinstance(block, dict) or not word or is_placeholder(word):
-        return set()
+        return set(), set()
     owed_now, listed = set(), set()
     for said, sections_listed in block.items():
         if not isinstance(sections_listed, list) or not all(isinstance(x, str) and x.strip() for x in sections_listed):
@@ -540,7 +571,7 @@ def relaxed_sections(contract_id: str, header_value) -> set:
         listed |= {x.strip() for x in sections_listed}
         if str(said).strip() == word:
             owed_now |= {x.strip() for x in sections_listed}
-    return listed - owed_now
+    return owed_now, listed
 
 
 def owned_by_contract(path: str) -> bool:

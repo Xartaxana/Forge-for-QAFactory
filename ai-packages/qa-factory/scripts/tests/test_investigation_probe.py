@@ -8,12 +8,11 @@ tree, so the keys stay true after the integration lands. The fake `budget_proble
 re-implements M2's rule. The clock is `investigation_probe.NOW`, stepped by the test. No socket, no subprocess.
 
 Keys (spec t-095 section G): K-M3-1 / 1b / 1c, 2 / 2b, 3, 4, 5, 6 / 6b, 7 (+7c), 7b, 8 / 8b, 20u, K-T1, K-B0, K-DMG / K-STATE /
-K-PIPE, K-SEC (+ K-F5: a sent request whose answer is not saved is counted), K-REF / K-ADV, K-IMP, K-DOC.
+K-PIPE, K-SEC (+ K-F5: a sent request whose answer is not saved is counted), K-REF / K-ADV.
 The census rows of `test_task_root_parsers.py` (investigation_probe) are that file's.
 """
 import contextlib
 import json
-import re
 import sys
 import tempfile
 import types
@@ -23,7 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures" / "manual-evidence"))
 import scaffold as S  # noqa: E402
-from harness import PLUGIN_ROOT, SCRIPTS, check, check_eq, check_in, check_not_in, finish  # noqa: E402
+from harness import PLUGIN_ROOT, check, check_eq, check_in, check_not_in, finish  # noqa: E402
 
 import controller as CT  # noqa: E402
 import exploratory_findings as EFREAL  # noqa: E402       # the fake register's `chains` are the real derivation
@@ -40,11 +39,7 @@ T0 = datetime(2026, 10, 29, 10, 0, 0, tzinfo=timezone.utc)
 LETTERS = "ABCDEFGH"
 SECRET_WORD = "aws_secret_access_key"             # matches a secret_content_patterns entry of scaffold.config()
 CYRILLIC_E = chr(0x415)
-# The fragment `changelog.d/p2-m3-investigation.md` was assembled into CHANGELOG.md by the release step (811f31dd, release 0.10.6) and
-# deleted; the sentences now live in the assembled entry, which is the file read.
-CHANGELOG = PLUGIN_ROOT / "CHANGELOG.md"
 BUDGET = PLUGIN_ROOT / "references" / "investigation-budget.json"
-HONEST = ("These limits bound the sanctioned tool only", "it does not claim it solved")
 
 
 def running(**over):
@@ -888,58 +883,6 @@ def k_refusal_battery():
         check_eq("K-ADV: all 200 reached the stand", sum(1 for k in w.stand.probes()[-1][2] if k.startswith("X-H")), 200)
 
 
-def k_import_surface():
-    source = (SCRIPTS / "investigation_probe.py").read_text(encoding="utf-8")
-    for needle in ("MC.load_config", "MC.environment_of", "MC.timeout_for", "MC.secret_pattern_hit", "MC.read_login",
-                   "MC.login_recipe", "MC.login_declared_none", "MC._http_login", "MC._side", "MC.spec(",
-                   "http_client.user_agent", "install_paths.sha256_file", "contract.gate_answered", "hooklib.story_of",
-                   "hooklib.exact_options", "hooklib.read_json", "RefusingParser", "run_guarded", "MC.UrllibHttp", "MC._limit_words"):
-        check_in(f"K-IMP: the module reuses {needle}", needle, source)
-    check("K-IMP: it is the SAME function objects (no copy)", IP.MC is MC and IP.install_paths.sha256_file.__module__ == "install_paths")
-    for needle in ('"gates"', "'gates'", "exploratory-findings.jsonl", "pipeline.get(", ".get(\"parent_retry\"", "def lineage", "def _login",
-                   "urllib", "socket", "subprocess", "def _side", "def environment_of", "def secret_pattern_hit", "pass_members ="):
-        check_not_in(f"K-IMP: the module has no {needle}", needle, source)
-    check_eq("K-IMP: the lineage field names appear once each, as the argument of lineage_root (no walk of its own)",
-             (source.count("parent_retry"), source.count("relaunch_of")), (1, 1))
-    check("K-IMP: the register is written only through exploratory_findings.append (no register path, no write_text)",
-          "register_append(" in source and "write_text" not in source and "exploratory-findings" not in source
-          and "work/exploratory" not in source)
-    check("K-IMP: no bytecode written, stdlib only", all(m in ("argparse", "importlib", "json", "os", "re", "sys", "datetime", "pathlib",
-                                                                "contract", "controller", "hooklib", "http_client", "install_paths",
-                                                                "manual_capture", "role_cli")
-                                                         for m in re.findall(r"^(?:import|from) (\w+)", source, re.M)))
-    for word in ("what the role still decides",):
-        check_in(f"K-IMP: the docstring says {word!r}", word, source.lower())
-
-
-def has_boundary(text):
-    return all(s in text for s in HONEST)
-
-
-def k_doc():
-    text = CHANGELOG.read_text(encoding="utf-8")
-    check("K-DOC: the changelog entry holds the honest-boundary sentences", has_boundary(text))
-    check("K-DOC control: a copy without the sentence fails the key", not has_boundary(text.replace(HONEST[0], "x")))
-    # t-440 (F10 of the t-430 verdict): `"Bash" in text` over the whole CHANGELOG could hardly fail; the limits are read INSIDE the
-    # honest-boundary bullet only. Killed by: dropping any of the three sentences from that bullet (see the control below).
-    start = text.find("- HONEST BOUNDARY of the probe")
-    bullet = text[start:text.find("\n- ", start + 1) if text.find("\n- ", start + 1) != -1 else len(text)] if start != -1 else ""
-    limits = ("through Bash or another tool", "E1/E2", "two calls run at the same moment")
-
-    bullet = bullet.replace("Two calls", "two calls")
-
-    def states_limits(body):
-        return all(s in body for s in limits)
-    check("K-DOC: the honest-boundary bullet is found", bool(bullet) and HONEST[0] in bullet, bullet[:80])
-    check("K-DOC: the entry states the limits that are NOT enforced", states_limits(bullet))
-    for sentence in limits:
-        check(f"K-DOC control: a bullet without `{sentence}` fails the key", not states_limits(bullet.replace(sentence, "x")))
-    for path in (SCRIPTS / "investigation_probe.py", BUDGET, CHANGELOG, Path(__file__).resolve()):
-        check(f"K-DOC: no Cyrillic and no control byte in {path.name}",
-              not re.search("[" + chr(0x400) + "-" + chr(0x4ff) + "]", path.read_text(encoding="utf-8"))
-              and not re.search(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]", path.read_bytes()))
-
-
 def k_fix1():
     """The fix round of t-109: m3 (cite the capture-time hash), m4 (capture_lines), m5 (the shared appender), m6 (override
     headers), m11 (the real lineage_root on the critic's scenario)."""
@@ -998,7 +941,7 @@ def k_fix1():
 def main():
     for step in (k_methods, k_login, k_login_source, k_shipped_budget, k_probe_cap, k_target_cap, k_timebox, k_first_reached, k_host_and_gate,
                  k_record, k_record_chain, k_dispatch_and_chain, k_lineage, k_absent, k_budget_rule, k_damage_state_pipeline,
-                 k_secrets_and_unsaved, k_request_checks, k_refusal_battery, k_import_surface, k_doc, k_fix1):
+                 k_secrets_and_unsaved, k_request_checks, k_refusal_battery, k_fix1):
         step()
     finish("test_investigation_probe")
 

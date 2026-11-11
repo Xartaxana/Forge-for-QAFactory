@@ -32,35 +32,36 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 - **The changed branches of the diff.** New conditions, new early returns, a moved check: each changed branch is a place the old behaviour can break.
 - **Seams between features.** Where the changed code hands data to code it did not change: a new field the old consumer ignores, a format the reader does not expect.
 - **Shared mutable state.** Caches, singletons, counters, a record two screens edit: the bug appears only when two paths touch it.
-- **Permissions.** A new action is checked for the role that asked for it and forgotten for the others; the refusal path is the test.
+- **Permissions and roles.** A new action is checked for the role that asked for it and forgotten for the others; the refusal path is the test. Your brief lists the product's roles known so far, not a limit: check an access rule per role it distinguishes, as parameters of one check where enough. Every role the requirements name, listed or not, goes into the optional `product_roles` section (role, sign_in, where); `[]` or no section when no role matters. Never invent a role from the code.
 - **Concurrency and order.** Double submit, two tabs, a retry after a timeout, a background job racing the request.
 - **Failure of a dependency.** Each request the flow makes can fail; what does the person see when it does?
-- **Migrations and old data.** Records written before the change meet the new code; a test on fresh data only misses what the first real user hits.
-- **Flags and configuration.** Each switch doubles the paths; the off path is the one nobody tests after the release.
-- **The second time and the undo.** Running the new flow twice, or undoing it, is where idempotency and cleanup bugs live.
-- **Data the stand cannot reset.** A test reading a global total, or needing bulk data, is fragile; plan it on its own data or say why not.
-- **What the flow leaves behind.** Data a flow creates (a draft, a file, a scheduled job) and never removes grows until a limit trips; plan a row for what remains after the flow ends.
-- **Counts computed twice.** Totals, percentages and page counts built in two places drift apart by one; a row that compares them finds it.
-- **Appearance is cheap, behaviour is not.** Colour, badge and icon state rarely earn e2e code; the behaviour behind them does.
-- **Norm rows.** A norm row does not wait on the norms-list question: it is planned with the norm as the oracle.
+- **Migrations and old data.** Records written before the change meet the new code; fresh data misses what the first real user hits.
+- **Flags and configuration.** Each switch doubles the paths; the off path is the one nobody tests.
+- **The second time and the undo.** Running the new flow twice, or undoing it, finds idempotency and cleanup bugs.
+- **Data the stand cannot reset.** A test reading a global total or needing bulk data is fragile; plan it on its own data or say why not.
+- **What the flow leaves behind.** Data a flow creates (a draft, a file, a scheduled job) and never removes grows until a limit trips; plan a row for it.
+- **Counts computed twice.** Totals, percentages and page counts built in two places drift apart by one; compare them in a row.
+- **Appearance is cheap, behaviour is not.** Colour, badge and icon state rarely earn e2e code; the behaviour does.
+- **Norm rows.** A norm row does not wait on the norms-list question; the norm is its oracle.
 
 <!-- kind: craft -->
 ## Techniques
 
 - **Risk-based testing.** Rank by impact times likelihood; the impact comes from the register and the P1/P2/P3 risk areas of the project's strategy, never by hand; unknown consequences are never low.
-- **Defect hypothesis first.** Write the bug you expect before the row ("the limit is checked on create, not on edit"); a row without one tests nothing in particular.
+- **Defect hypothesis first.** Write the bug you expect before the row ("the limit is checked on create, not on edit").
 - **Reading the diff for risk.** For each changed hunk ask: what did this protect before, who calls it, what input now takes a new path.
 - **Mutation thinking.** Imagine the smallest wrong change of the code (a flipped condition, an off-by-one, a missing check); a row no such change would turn red is weak.
-- **What is worth automating.** Automate what will run many times (what this story adds to the project's regression) and what is RED: a failing test proves the bug to the developer and is the retest later. A one-off check of the new behaviour that will not join the regression needs no automated test; the agent walks it by hand (P26). The manifesto ladder answers only the LEVEL of what is automated. Each plan row's `reason` says "regression: yes" or "regression: no".
-- **The pyramid, from the bottom.** After deciding WHAT is automated (the line above), prefer the lowest level that observes the behaviour; merge checks into one parametrised case when a red line still names the case and branch.
+- **What is worth automating.** Automate what will run many times (what this story adds to the project's regression) and what is RED: a failing test proves the bug to the developer and is the retest later. A one-off check of the new behaviour that will not join the regression needs no automated test; the agent walks it by hand (P26). The manifesto ladder (P19) answers only the LEVEL of what is automated. Each plan row's `reason` says "regression: yes" or "regression: no".
+- **The first look is evidence, not an oracle.** Its lines in your brief say what a walker saw on the stand before this plan. A red or unreachable row is evidence for what to automate as red or hand to a person; name the roles your checks need in `product_roles` by your own judgment.
+- **The pyramid, from the bottom.** After deciding WHAT is automated, prefer the lowest level that observes the behaviour; merge checks into one parametrised case when a red line still names the case and branch.
 - **Pairwise for configurations.** When options combine (role x state x setting), cover the pairs, not the product; name the pairs you left out.
-- **Depth by risk, not by count.** A few deep rows on the riskiest requirement beat one shallow row each; say which requirements get less and why.
+- **Depth by risk, not by count.** A few deep rows on the riskiest requirement beat one shallow row each; say which get less and why; one helper behind several requirements gets one deep row serving them all.
 - **What else could break is YOUR judgment.** `work/blast-radius.json` is evidence (importers, same-name callers, nearby tests, `unmeasured`), not the radius; name the radius in the plan with the reason, and name what the index could not see (dynamic calls, routes, UI to API, non-Python).
-- **Regression by the radius you judged.** Existing tests that read or write what the diff changes, within that radius, are the regression set; a test of an untouched area is not regression for this story.
-- **Exploratory charters.** Where a risk is real but the expected result unknown, plan a time-boxed exploration with its mission and what counts as a finding.
-- **Test the risk, not the story.** When two requirements share one risky code path, one deep row on the path beats two shallow rows; apply it when the diff shows one helper behind several requirements.
-- **Smoke before depth.** Put one thin row on the main flow first: if it is red, the deep rows behind it tell nothing; apply it when the flow is new end to end.
+- **Regression by the radius you judged.** Existing tests that read or write what the diff changes, within that radius, are the regression set; a test of an untouched area is not.
+- **Exploratory charters.** When a risk is real but the result unknown, plan a time-boxed exploration with its mission and what counts as a finding.
+- **Smoke before depth.** When the flow is new end to end, one thin row on the main flow first: if it is red, the deep rows behind it tell nothing.
 - **Extend before you add.** An existing test that already walks the area is extended or parametrised; a new file is for what nothing covers.
+- **What a walk changes:** a manual check that changes a record other checks read says which kind and whether it must be its own.
 
 <!-- kind: process -->
 ## Tools

@@ -224,6 +224,8 @@ def main() -> None:
     the_third_verdict_in_the_ledger()
     the_repair_limit_carrier()
     the_carrier_is_written_once_and_read_whole()
+    the_untyped_reason_is_recorded_and_worded()
+    test_ledger_lists_unprepared_walks()
     triage_refs_names_what_the_ledger_matches()
     one_test_covers_three_cases()
     rollup_status_is_the_per_instance_projection()
@@ -1369,6 +1371,49 @@ def an_unknown_run_word_is_not_executed() -> None:
 
         check_eq("C-K5: a passed row is an executed test (control)", executed("passed"), 1)
         check_eq("C-K5: a row with the unknown word is NOT an executed test", executed(word), 0)
+    finally:
+        cleanup(root)
+
+
+def the_untyped_reason_is_recorded_and_worded() -> None:
+    """FU2 (t-1936): `untyped` (the verdict sent the window back with no finding the test writer can act on) is a reason of the
+    ledger's closed list: written, read back, worded without a count (the counted reasons stay `cap` and `mech_cap`), and a debt
+    file written before the word (reasons `sent_back` / `nobody`) still loads."""
+    root = temp_project("qa-ledger-untyped-")
+    try:
+        art = install_artifacts(root, GOOD, "QA-1")
+        check_in("untyped is in the closed list", "untyped", L.DEBT_REASONS)
+        L.write_review_debt(art, window(reason="untyped", rounds={"counted": None, "cap": None, "by_cause": {}}))
+        entry = L.read_review_debts(art)["windows"][0]
+        check_eq("an untyped window is written and read back, nothing missing (it needs no counts)", (entry["reason"], L.debt_missing(entry)), ("untyped", []))
+        check_eq("limit_words: the critic wrote no finding the test writer can act on",
+                 L.limit_words("untyped", None, None), "the critic sent the tests back without writing a finding the test writer can act on")
+        check_not_in("...and no cause token or count in it", "test_defect", L.limit_words("untyped", 2, 2))
+        L.write_review_debt(art, window(reason="sent_back", critic_dispatch="d-2"))
+        L.write_review_debt(art, window(reason="nobody", critic_dispatch="d-3"))
+        check_eq("an old record without the word still loads beside it", [w["reason"] for w in L.read_review_debts(art)["windows"]],
+                 ["untyped", "sent_back", "nobody"])
+    finally:
+        cleanup(root)
+
+
+def test_ledger_lists_unprepared_walks() -> None:
+    """F5(e) 3 (t-1936 N5): a run report row carrying the `unprepared` marker is listed in the ledger's `unprepared_walks`
+    (the one list `check_delivery.unprepared_records` reads); a report without such a row, or no report, lists none."""
+    root = temp_project("qa-ledger-unprepared-")
+    try:
+        art = rejected_story(root)
+        check_eq("no unprepared row: the list is empty (the key is present)", L.build(art).get("unprepared_walks"), [])
+        report = C.load_json(art / "work" / "run-report.json")
+        report["current_manual_checks"] = [
+            {"case": "TC-007", "current_obligation_ids": ["OB-7"], "observations": ["the field took 12"], "finding": "",
+             "unprepared": {"reason": "the plan gives TC-007's check an evidence rule that is not one word"}},
+            {"case": "TC-008", "current_obligation_ids": ["OB-8"], "result": "pass"}]
+        (art / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
+        walks = L.build(art)["unprepared_walks"]
+        check_eq("the unprepared row is listed with its case, obligations and reason; the ordinary row is not",
+                 [(w["case"], w["obligation_ids"], w["reason"], w["observations"]) for w in walks],
+                 [("TC-007", ["OB-7"], "the plan gives TC-007's check an evidence rule that is not one word", ["the field took 12"])])
     finally:
         cleanup(root)
 

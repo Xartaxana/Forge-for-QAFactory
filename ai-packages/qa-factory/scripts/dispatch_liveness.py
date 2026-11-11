@@ -111,6 +111,33 @@ def _started_at(dispatch) -> float | None:
     return None
 
 
+def session_transcripts(project_root, since: float = 0.0) -> list:
+    """The transcripts a driver's role sessions write: a driver role is its OWN `claude -p` session, so its transcript is a MAIN one
+    (`<folder>/<session>.jsonl`), never under `subagents/` (which is all `transcripts()` sees). The folders are the parents of the
+    `transcript` paths in `qa-factory/state/cost/*.json` (the layout `cost_capture` writes - no guess at the host's folder encoding);
+    the files are the `*.jsonl` there written at or after `since` (epoch). Never raises; no cost file yet is an empty list."""
+    folders, found = set(), []
+    try:
+        cost_dir = Path(project_root) / "qa-factory" / "state" / "cost"
+        for cost_file in sorted(cost_dir.glob("*.json")):
+            try:
+                transcript = json.loads(cost_file.read_text(encoding="utf-8")).get("transcript")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if transcript:
+                folders.add(Path(transcript).parent)
+        for folder in sorted(folders):
+            for path in sorted(folder.glob("*.jsonl")):
+                try:
+                    if path.stat().st_mtime >= since:
+                        found.append(path)
+                except OSError:
+                    continue
+    except Exception:  # noqa: BLE001
+        return found
+    return found
+
+
 def transcripts(project_root) -> list | None:
     """Every subagent transcript this host kept for the project, with its parsed header.
 
@@ -792,10 +819,30 @@ def driver_session_end(project_root, ticket, identifier):
     return last
 
 
-def role_stops(project_root, ticket) -> list:
-    """`(role, epoch-or-None)` for every `subagent_stop` this project journalled for a story: a view over
-    `_stop_records`, the one parser of those lines."""
-    return [(stop["agent"], stop["ts"]) for stop in _stop_records(project_root) if stop["task"] == str(ticket)]
+def names_no_dispatch(value) -> bool:
+    """Does a `subagent_stop` row's `dispatch` field name no dispatch? It is empty (a legacy row) or the gate's own
+    sentinel (`exit_gate.UNKNOWN_DISPATCH`, what `exit_gate._identity` writes when the event carries no id at all)."""
+    if not value:
+        return True
+    try:
+        from exit_gate import UNKNOWN_DISPATCH
+    except Exception:  # noqa: BLE001 - the sentinel cannot be read: the field is then read as naming a dispatch (never closes)
+        return False
+    return value == UNKNOWN_DISPATCH
+
+
+def role_stops(project_root, ticket, identifier=None, names=()) -> list:
+    """`(role, epoch-or-None, dispatch-field)` for every `subagent_stop` this project journalled for a story: a
+    view over `_stop_records`, the one parser of those lines. With `identifier` (the asked dispatch's own id) a stop
+    that NAMES another dispatch is left out - a sibling of the same role that stopped says nothing about this one.
+    A field names THIS dispatch when it is the id or one of `names` (the host names of the dispatch's receipts,
+    `host_dispatch.binding_names`: the stop hook writes the host's agent id there when the event had no `dispatch_id`,
+    and `_claude_votes` matches it the same way). A stop that names no dispatch (`names_no_dispatch`: empty or the
+    gate's sentinel) is kept, as it always was, and the caller says so."""
+    return [(stop["agent"], stop["ts"], stop["dispatch"]) for stop in _stop_records(project_root)
+            if stop["task"] == str(ticket)
+            and not (identifier and not names_no_dispatch(stop["dispatch"])
+                     and stop["dispatch"] != str(identifier) and stop["dispatch"] not in names)]
 
 
 def process_alive(pid):
@@ -1069,14 +1116,22 @@ def _state(project_root, ticket, dispatch, now=None) -> dict:
                 "evidence": evidence + ["a non-terminal host receipt of this story and role names no "
                                         "dispatch and is not proven older than this one"]}
 
-    for agent, when in role_stops(project_root, ticket):
+    try:
+        from host_dispatch import binding_names
+        # `bound` is empty here (a receipt naming this dispatch answered above), so the receipts that MAY be this
+        # dispatch (`_may_be_this_dispatch`: the role's, naming none, not proven older) give the host names
+        names = set().union(*(binding_names(b) for b in bindings if _may_be_this_dispatch(b, role, ticket, began)))
+    except Exception:  # noqa: BLE001 - no names: only the id itself matches
+        names = set()
+    for agent, when, stop_of in role_stops(project_root, ticket, identifier, names):
         if not role or not agent.endswith(role):
             continue
         if began is not None and when is not None and when < began - 1:
             continue
+        note = [] if not names_no_dispatch(stop_of) else ["that journal row names no dispatch, so it is read as this role's stop"]
         return {"state": RETURNED, "last_at": when if when is not None else last_at,
                 "evidence": evidence + [f"the project journal recorded {agent} stopping"
-                                        " after this dispatch started"]}
+                                        " after this dispatch started"] + note}
 
     if best:
         return {"state": ABANDONED, "last_at": last_at, "evidence": evidence}

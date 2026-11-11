@@ -111,9 +111,19 @@ def _fill_line(dispatch: str, role: str, form: str = "", doc=None) -> str:
             "a Write over this form is refused, and while that file waits an Edit here is refused too." + rows)
 
 
-def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, scope: str, form: str = "") -> str:
+AUTHOR_TOKEN = handoff.AUTHOR_TOKEN
+AUTHOR_NOTE = ("# inputs_read[0] names the author's form the driver handed you; change it if you reviewed another")
+
+
+def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, scope: str, form: str = "",
+              author_dispatch: str = "") -> str:
     """The values code knows before the role starts. Everything else stays a placeholder. `form`: where the form is
-    written, for the head line (see `_fill_line`)."""
+    written, for the head line (see `_fill_line`). `author_dispatch`: the id of the author's last accepted dispatch (F1, B-2);
+    when given, it replaces the token `<the author's dispatch>` and one comment line above `inputs_read:` tells the critic the
+    row is its own word to change; when empty the token stays a placeholder (a guessed author never stands in a form)."""
+    filled_author = bool(author_dispatch) and AUTHOR_TOKEN in text
+    if filled_author:
+        text = text.replace(AUTHOR_TOKEN, author_dispatch)
     text = text.replace("<TICKET>", task)
     text = text.replace("work/handoffs/<dispatch>.yaml", f"work/handoffs/{dispatch}.yaml")
     text = re.sub(r"<dispatch>", dispatch, text)
@@ -129,7 +139,53 @@ def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, sco
     while top < len(doc.lines) and (not doc.lines[top].strip() or doc.lines[top].lstrip().startswith("#")):
         top += 1
     doc.lines.insert(top, _fill_line(dispatch, role, form, shape))
+    if filled_author:
+        at = next((n for n, line in enumerate(doc.lines) if re.match(r"^inputs_read:", line)), None)
+        if at is not None:
+            doc.lines.insert(at, AUTHOR_NOTE)
     return doc.text()
+
+
+# F1 (b): the sections whose template rows are emptied in the role's copy, by contract. The contract files stay the schema.
+EMPTIED = {
+    "questions": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer"),
+    "findings": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer",
+                 "s5-critic-to-automator"),
+}
+
+
+def empty_optional_lists(text: str, contract: str) -> str:
+    """The role's copy with every optional list section of `EMPTIED` for this contract that still holds only template rows
+    written as `<section>: []` followed by the sample rows as comment lines (F1 (b), B-11: a reader never meets a template row as
+    data). Never touched: a `REQUIRED_LISTS` section, a `null_outcome` section, a section holding any real value (a carried or
+    prefilled row). Runs LAST, after the carry and the prefill. A text that cannot be read is returned as it was."""
+    wanted = [name for name, contracts in EMPTIED.items() if contract in contracts]
+    if not wanted:
+        return text
+    try:
+        doc = handoff.parse(text)
+        nulled = handoff.null_outcomes(contract)
+        for section in wanted:
+            if section in handoff.REQUIRED_LISTS or section in nulled:
+                continue
+            if not isinstance(doc.data.get(section), list) or not doc.data.get(section):
+                continue
+            if not handoff.only_template(doc.data.get(section)):
+                continue
+            start = next((n for n, line in enumerate(doc.lines) if re.match(r"^" + re.escape(section) + r":\s*(#.*)?$", line)), None)
+            if start is None:
+                continue
+            end = start + 1
+            while end < len(doc.lines) and (not doc.lines[end].strip() or doc.lines[end][0] in " \t-#"):
+                end += 1
+            while end > start + 1 and (not doc.lines[end - 1].strip() or not doc.lines[end - 1].startswith((" ", "\t", "-"))):
+                end -= 1                                    # the blank and comment lines under the block belong to what follows
+            sample = ["# " + line for line in doc.lines[start + 1:end]]
+            doc.lines = doc.lines[:start] + [f"{section}: []"] + sample + doc.lines[end:]
+            doc = handoff.parse(doc.text())
+        return doc.text()
+    except Exception:                                       # noqa: BLE001 - the skeleton is written as it was; the check reads the same
+        return text
 
 
 # A listed row field: `section[].key` (the key in every row) or `section[0].key` (in one row).
@@ -337,6 +393,9 @@ def main() -> int:
     ap.add_argument("--rows", default="",
                     help="comma-separated plan row ids the dispatch was sent for (S3 rework): written as `scope[i].id` of the "
                          "form and recorded under `derived:`; nothing else of a row is written")
+    ap.add_argument("--author-dispatch", default="",
+                    help="a stage critic's form (S2-S4): the id of the author's last accepted dispatch; fills the token "
+                         "`<the author's dispatch>` of the contract (the critic may change the row)")
     args = (hooklib.exact_options(ap) if hooklib else ap).parse_args()
     try:                                              # the story is decided first: before the contract, before `--out`
         root = task_root(args.task, args.task_root)
@@ -369,13 +428,15 @@ def main() -> int:
         print(stale_line)
     written = fill_head(text, task=args.task, dispatch=dispatch, role=args.role,
                         stage=args.stage, scope=args.scope,
-                        form=Path(args.out).as_posix() if args.out else "")
+                        form=Path(args.out).as_posix() if args.out else "",
+                        author_dispatch=args.author_dispatch.strip())
     carry_note = ""
     if args.carry_from:                               # a repair dispatch: the accepted parent's whole-stage answers (HF9-2)
         written, carry_note = carry_from_parent(written, contract, Path(args.carry_from))
     # AFTER the carry: `carry` matches a row by its identity (`_same_row`: a non-placeholder value the new form already holds must
     # equal the parent's), so ids written first would only be compared, never hidden; the carry has finished before they stand.
     written, rows_note = prefill_rows(written, contract, args.rows.split(","))
+    written = empty_optional_lists(written, contract)  # LAST: a carried or prefilled row has made its section non-empty by now
     out.write_text(written, encoding="utf-8")
     print(f"handoff form: {out}")
     if carry_note:

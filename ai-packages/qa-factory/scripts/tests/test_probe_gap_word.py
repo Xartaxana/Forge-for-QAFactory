@@ -5,7 +5,7 @@ TP1-12586 (22.10.2026): three UI probes came back `not_executed` (the wrong prof
 on without receipts was recorded, and the S5 window stalled: "probe is missing for a new_or_changed instance" is a SHAPE
 error that tier 2 of `controller._s5_completion_problems` refuses without reading any word, and `validate_window` wants
 `approved`. The unit the fix adds is a `probe_gap` block on the window item, written by `window_record.build` ONLY when a
-recorded word `probe gap: <instance id or case key>` names the instance (`contract.probe_gap_words`, the ONE reader),
+recorded word `probe gap: <case key>` names the instance (`contract.probe_gap_words`, the ONE reader),
 accepted by `contract.window_shape_errors`, `acceptance.validate_window` and the controller's tiers 2 and 4 in one change.
 Downstream (S8) nothing changes: D-0013's `review_unverified` -> "Left with you".
 
@@ -159,7 +159,7 @@ def k2_no_word_is_refused_with_the_door():
         check_in("K2: with today's line", f"{IID}: probe is missing for a new_or_changed instance", out.stdout)
         check_in("K2: and the critic's door", "probe_by_code.py", out.stdout)
         check_in("K2: and the orchestrator's door, the block named, the words by file",
-                 'waiver.py --task <T> --stage S5 --block "probe gap: <IID>" --words-file <file>', out.stdout)
+                 'waiver.py --task <T> --stage S5 --block "probe gap: <case key>" --words-file <file>', out.stdout)
         window = window_file(task)
         check_eq("K2: and no block was written (F6: the no-word path is today's)", "probe_gap" in item_of(window), False)
         refused = TW.accept_window(project, task, window, "k2")
@@ -168,7 +168,7 @@ def k2_no_word_is_refused_with_the_door():
         check_in("K2: with the shape list", f"S5 window record is incomplete: {IID}: probe is missing for a new_or_changed "
                                            "instance", text)
         check_in("K2: and the door sentence for the orchestrator, ending with the block named",
-                 'waiver.py --task QA-WINDOW-1 --stage S5 --block "probe gap: <instance id>" --words-file <file>', text)
+                 'waiver.py --task QA-WINDOW-1 --stage S5 --block "probe gap: <case key>" --words-file <file>', text)
         check_eq("K2: nothing was accepted", CONTROLLER.Controller(task).state()["dispatches"][TW.CRITIC]["status"],
                  "running")
         check_eq("K2: and nothing was recorded as a pass", passed_lines(task), [])
@@ -194,7 +194,7 @@ def k3_an_unrecorded_claim_is_refused_whatever_the_caller_typed():
             text = (refused.stdout + refused.stderr).replace('\\"', '"')   # the refusal is a JSON string
             check(f"K3: {label}: the controller refuses", refused.returncode != 0, text)
             check_in(f"K3: {label}: and says no recorded word names the instance", "no recorded word of the person names", text)
-            check_in(f"K3: {label}: and names the door", 'waiver.py --task QA-WINDOW-1 --stage S5 --block "probe gap: <instance id>"',
+            check_in(f"K3: {label}: and names the door", 'waiver.py --task QA-WINDOW-1 --stage S5 --block "probe gap: <case key>"',
                      text)
             check_eq(f"K3: {label}: nothing was accepted",
                      CONTROLLER.Controller(task).state()["dispatches"][TW.CRITIC]["status"], "running")
@@ -586,7 +586,7 @@ def k13_a_story_without_the_word_is_today():
               probe_note.startswith("no sensitivity receipt reaches this instance"), str(notes))
         check_in("K13: its door gains the second door (the orchestrator's word), the first stays",
                  "probe_by_code.py --task <T>", probe_note)
-        check_in("K13: and the second", 'waiver.py --task <T> --stage S5 --block "probe gap: <IID>"', probe_note)
+        check_in("K13: and the second", 'waiver.py --task <T> --stage S5 --block "probe gap: <case key>"', probe_note)
         check_eq("K13: `ORIGIN[\"probe\"]` stays the critic's command alone (test_red_sandbox_reports holds its flags)",
                  WR.ORIGIN["probe"][1], WR.PROBE_DOOR)
         for gap in ("sensitivity", "semantic_sensitivity", "probe_level", "probe_evidence"):
@@ -817,69 +817,45 @@ def k20_the_word_for_a_class_of_tooling_gaps():
         cleanup(project)
 
 
-def k21_the_factory_names_its_own_data_gap():
-    """RN1-9 B2 (E15, spec t-722 + review t-727): a green instance whose probe record of THESE bytes is `incomplete` with `cause:
-    data_row` (the failure's wording is not in the factory's detector row) is a gap the FACTORY names: `named_by`
-    `factory:data_row`, never written to `passed-by-person.jsonl`, never quoted as the person's words, left with the person under
-    its own kind with ONE finding. The person's word is read FIRST."""
-    FACTORY = proof_level.FACTORY_DATA_GAP_KEY
+def k21_the_factory_names_no_gap_of_its_own():
+    """t-1968 N2 (E15, was RN1-9 B2): a green instance whose probe record of THESE bytes is `incomplete` with `cause: judgment` (the
+    run failed at the mutated line on a text the factory cannot read) is the CODE CRITIC's to judge, never a gap: the window writes
+    no `probe_gap` block for it (the factory names none), the class word does not cover it, the person's word about the instance
+    still keeps `named_by`; at S8 it is left with the person under its own kind with ONE finding `PROBE_NOT_JUDGED`."""
     project = temp_project("qa-probe-gap-k21-")
     use_project(project)
     try:
         task = gap_story(project, record=None, word=None)
-        probe_record(task, verdict="incomplete", cause="data_row")
+        probe_record(task, verdict="incomplete", cause="judgment")
         window, _ = built(task)
-        gap = item_of(window).get("probe_gap") or {}
-        check_eq("K21: no word, E15: the window names it itself (named_by, verdict, words, at)",
-                 (gap.get("named_by"), gap.get("verdict"), gap.get("words"), gap.get("at")),
-                 (FACTORY, "incomplete", proof_level.FACTORY_DATA_GAP_WORDS, ""))
-        check_eq("K21: validate_window gives `probe_gap:<iid>`, not `probe_gap_unrecorded`",
-                 AC.validate_window(window, task), ["probe_gap:" + IID])
-        check_eq("K21/m13: the acceptance names it through its twin",
-                 {k: v["key"] for k, v in AC.probe_gap_named(window, task).items()}, {IID: FACTORY})
-        check_eq("K21: the shape check accepts the block", C.window_shape_errors(window), [])
-        segments = WR.probe_gap_segments(window, ["probe_gap:" + IID])
-        check_eq("K21/m19b: ONE segment says `named by the factory:` and never `their words`",
-                 (len(segments), "named by the factory: " in segments[0], "their words" in segments[0]), (1, True, False))
-        # the CLI and the controller: acceptable as unresolved, derived pair, and NO line in passed-by-person.jsonl
-        cli = TB.run_window_cli(project, "--review-receipt")
-        check_eq("K21: window_record exits 0 (acceptable as unresolved)", cli.returncode, 0)
-        check_in("K21: and says `named`, with the factory's own words", "probe gap(s) named - " + IID, cli.stdout)
-        check_in("K21: ... `named by the factory:`", "named by the factory: " + proof_level.FACTORY_DATA_GAP_WORDS, cli.stdout)
-        check_not_in("K21: ... and never as the person's", "their words", cli.stdout)
-        done = TB.finish_cli(project, task)
-        check_eq("K21: the controller accepts the derived pair", done.returncode, 0)
-        check_eq("K21/m19: and writes NO line to passed-by-person.jsonl (a factory gap is not a person's pass)", passed_lines(task), [])
-        # the person's word first; the class word does not cover it; the other roads of the instance
+        check_eq("K21: no word, E15: the window writes NO probe_gap block (the factory names none)", "probe_gap" in item_of(window), False)
         item = {"instance_id": IID, "input_hash": TW.SHAS[CASE], "outcome": "passed"}
         mine = {IID: {"words": "mine", "at": "t"}}
-        check_eq("K21/m11: the person's word about the instance is read FIRST", WR.probe_gap_block(task, item, [], mine)["named_by"], IID)
+        # t-2007 F1 (critic t-2000): a record still `unjudged` is NEVER named, by any word - the person's own word about the instance included
+        check_eq("K21/m11: a record `unjudged` is named by no word, the person's word about the instance too", WR.probe_gap_block(task, item, [], mine), None)
         class_word = {"key": "class:probe_gap_accepted", "words": "class", "at": "t"}
-        check_eq("K21: the GW1-43 class word + E15: the factory names it, not the class word",
-                 WR.probe_gap_block(task, item, [], {}, class_word)["named_by"], FACTORY)
+        check_eq("K21: the GW1-43 class word does NOT cover a `cause: judgment` record", WR.probe_gap_block(task, item, [], {}, class_word), None)
         check_eq("K21: a RED instance (E15 record): no gap", WR.probe_gap_block(task, dict(item, outcome="failed"), [], {}), None)
         check_eq("K21/m12: other bytes: no gap", WR.probe_gap_block(task, dict(item, input_hash="0" * 64), [], {}), None)
-        check_eq("K21: no outcome on the item: no gap (only a green item)",
-                 WR.probe_gap_block(task, {k: v for k, v in item.items() if k != "outcome"}, [], {}), None)
         probe_record(task, **TOOLING)
-        check_eq("K21: `cause: tooling` is not the factory's: no word, no gap", WR.probe_gap_block(task, item, [], {}), None)
-        probe_record(task, verdict="not_executed", cause="data_row")
-        check_eq("K21: `not_executed` + data_row is not named by the factory", WR.probe_gap_block(task, item, [], {}), None)
+        check_eq("K21: `cause: tooling` is not the critic's: no word, no gap", WR.probe_gap_block(task, item, [], {}), None)
+        probe_record(task, verdict="not_executed", cause="judgment")
+        check_eq("K21: `not_executed` + judgment is not owed a judgment", WR.probe_gap_block(task, item, [], {}), None)
         probe_record(task, verdict="incomplete")
         check_eq("K21: `incomplete` with no cause: no word, no gap", WR.probe_gap_block(task, item, [], {}), None)
         # S8: the kind and the ONE finding
         import check_delivery
-        probe_record(task, verdict="incomplete", cause="data_row")
+        probe_record(task, verdict="incomplete", cause="judgment")
         check_eq("K21: S8: the record is of kind `review_unverified_factory`",
                  [(r["kind"], r["case"]) for r in check_delivery.unverified_records(task)], [("review_unverified_factory", CASE)])
         check_eq("K21: ... with ONE finding, owner factory, naming the instance",
                  [(f["code"], f["entity"], f["owner"]) for f in check_delivery.factory_data_gap_findings(task)],
-                 [("PROBE_DETECTOR_ROW_MISSING", IID, "factory")])
+                 [("PROBE_NOT_JUDGED", IID, "factory")])
         probe_record(task, verdict="incomplete", cause="tooling", language="typescript")
         check_eq("K21: the K12 control (not E15): plain `review_unverified`, no finding",
                  ([r["kind"] for r in check_delivery.unverified_records(task)], check_delivery.factory_data_gap_findings(task)),
                  (["review_unverified"], []))
-        probe_record(task, verdict="incomplete", cause="data_row")
+        probe_record(task, verdict="incomplete", cause="judgment")
         manifest = json.loads((task / "work/automation-manifest.json").read_text(encoding="utf-8"))
         test_file = project / next(t["file"] for t in manifest["tests"] if t["instance_id"] == IID)
         saved = test_file.read_bytes()
@@ -908,19 +884,19 @@ def k21_the_factory_names_its_own_data_gap():
         (root / row["file"]).write_bytes(source)
         iid = C.test_instance_id(row)
         TW.write(proof_level.probe_record_path(art, iid), {
-            "schema_version": 1, "probe_tool": "probe_by_code.py", "instance_id": iid, "verdict": "incomplete", "cause": "data_row",
+            "schema_version": 1, "probe_tool": "probe_by_code.py", "instance_id": iid, "verdict": "incomplete", "cause": "judgment",
             "test_file_sha256": hashlib.sha256(source).hexdigest(), "notes": [WHY], "recorded_at": "2026-11-02T10:00:00+00:00"})
         doc = check_delivery.assess(art)
         check_eq("K21/m17: the delivery word on the E15 fixture is `after_checks` (the kind is known; an unknown kind gives `no`)",
                  (doc["delivery_verdict"], doc["delivery_ready"], doc["blocked_by"]), ("after_checks", False, []))
         check_eq("K21: ONE counting item, `review_unverified_factory`",
                  [(i["kind"], len(i["tests"])) for i in doc["left_items"] if i["counts"]], [("review_unverified_factory", 1)])
-        check_eq("K21/m18: `doc[factory_findings]` holds ONE PROBE_DETECTOR_ROW_MISSING, owner factory",
-                 [(f["code"], f["entity"], f["owner"]) for f in doc["factory_findings"] if f["code"] == "PROBE_DETECTOR_ROW_MISSING"],
-                 [("PROBE_DETECTOR_ROW_MISSING", iid, "factory")])
+        check_eq("K21/m18: `doc[factory_findings]` holds ONE PROBE_NOT_JUDGED, owner factory",
+                 [(f["code"], f["entity"], f["owner"]) for f in doc["factory_findings"] if f["code"] == "PROBE_NOT_JUDGED"],
+                 [("PROBE_NOT_JUDGED", iid, "factory")])
         written = json.loads((art / "work" / "ledger.json").read_text(encoding="utf-8"))
         check_in("K21: and the ledger the report reads carries it (the finding reaches the collector through ledger.json)",
-                 "PROBE_DETECTOR_ROW_MISSING", [f.get("code") for f in written.get("factory_findings") or []])
+                 "PROBE_NOT_JUDGED", [f.get("code") for f in written.get("factory_findings") or []])
     finally:
         cleanup(root)
 
@@ -945,7 +921,7 @@ def main() -> None:
     k17_the_negative_control()
     k18_one_reader_skips_a_revoked_word()
     k19_a_word_that_matches_the_probe_gap_line_is_not_printed_as_unread()
-    k21_the_factory_names_its_own_data_gap()
+    k21_the_factory_names_no_gap_of_its_own()
     finish("probe gap with the person's word")
 
 

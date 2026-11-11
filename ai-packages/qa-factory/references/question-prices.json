@@ -67,8 +67,27 @@
     "s0.no_change": [
       {"answer": "current code", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "new behaviour, which the code in place cannot show"},
       {"answer": "change", "factory": "command", "person": "your_work", "delivery": "waits"},
-      {"answer": "ungrounded", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "behaviour no code shows; its tests are written expected-red"},
+      {"answer": "ungrounded", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "behaviour no code shows; a test that goes red is judged like any red"},
+      {"answer": "not built yet", "factory": "record", "person": "your_work", "delivery": "waits", "unverified": "everything that needs the product: nothing is checked against it until the code exists"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
+    ],
+    "sides.deliverable": [
+      {"answer": "ours", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "whatever needs the real side: it is checked only once that side exists"},
+      {"answer": "another team's", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "that side, which the report lists for whoever makes it real"},
+      {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
+    ],
+    "arrival.not_waiting": [
+      {"answer": "re-ground", "factory": "stages_again", "person": "none", "delivery": "waits"},
+      {"answer": "ignore", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "what the code you named changes; the story is not read against it"},
+      {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "unchanged"}
+    ],
+    "awaiting.stop": [
+      {"answer": "stop waiting", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "everything that needs the code that does not exist yet: it is never checked"},
+      {"answer": "keep waiting", "factory": "nothing", "person": "none", "delivery": "waits"}
+    ],
+    "awaiting.absent_side": [
+      {"answer": "not ours", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "whatever needs the real side: the tests run against a stand-in for it, and the report lists what was not checked against the real one"},
+      {"answer": "relaunch", "factory": "nothing", "person": "your_work", "delivery": "waits"}
     ],
     "s0.stand": [
       {"answer": "stand", "factory": "record", "person": "none", "delivery": "unchanged"},
@@ -99,7 +118,8 @@
     "s1.no_diff": [
       {"answer": "change", "factory": "role_round", "person": "your_work", "delivery": "waits"},
       {"answer": "lives", "factory": "role_round", "person": "your_work", "delivery": "not_known", "unverified": "new behaviour, which the code in place cannot show"},
-      {"answer": "ungrounded", "factory": "role_round", "person": "none", "delivery": "not_known", "unverified": "behaviour no code shows; its tests are written expected-red"},
+      {"answer": "ungrounded", "factory": "role_round", "person": "none", "delivery": "not_known", "unverified": "behaviour no code shows; a test that goes red is judged like any red"},
+      {"answer": "not built yet", "factory": "role_round", "person": "your_work", "delivery": "waits", "unverified": "everything that needs the product: nothing is checked against it until the code exists"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
     ],
     "halt": [
@@ -164,6 +184,12 @@
       {"answer": "go on", "factory": "command", "person": "none", "delivery": "not_known", "unverified": "what the check named stays as it is; your words are kept as the reason, with the decisions you made"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
     ],
+    "exit.resume_limit_halted": [
+      {"answer": "round", "factory": "role_round", "person": "answer", "delivery": "waits"},
+      {"answer": "fresh", "factory": "stages_again", "person": "answer", "delivery": "waits"},
+      {"answer": "go on", "factory": "role_round", "person": "none", "delivery": "not_known", "unverified": "what the check named stays as it is; your words are kept as the reason, with the decisions you made"},
+      {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
+    ],
     "s7.repair_limit": [
       {"answer": "round", "factory": "role_round", "person": "answer", "delivery": "waits"},
       {"answer": "debt", "factory": "record", "person": "none", "delivery": "no", "unverified": "the tests that still fail; each is listed in the report with the reason the run failed"},
@@ -187,6 +213,11 @@
       {"answer": "retry", "factory": "nothing", "person": "your_work", "delivery": "unchanged"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "unchanged"}
     ],
+    "code_close.behind": [
+      {"answer": "go on", "factory": "record", "person": "none", "delivery": "unchanged", "unverified": "the judgment the role that accepts the earlier stage would have given on its work stays missing; your word stands in for it"},
+      {"answer": "retry", "factory": "nothing", "person": "your_work", "delivery": "waits"},
+      {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
+    ],
     "closed.held": [
       {"answer": "run again", "factory": "role_round", "person": "answer", "delivery": "not_known", "unverified": "the report already written is not rebuilt by this - ask for it at the delivery"},
       {"answer": "leave", "factory": "record", "person": "none", "delivery": "unchanged", "unverified": "the work that never started; nobody does it unless you do"},
@@ -196,6 +227,21 @@
       {"answer": "retry", "factory": "nothing", "person": "your_work", "delivery": "waits"},
       {"answer": "by hand", "factory": "record", "person": "your_checks", "delivery": "not_known", "unverified": "the screen checks named above; they are left with you and the report lists them; ready after your checks only if nothing else holds it"},
       {"answer": "go on", "factory": "record", "person": "none", "delivery": "no", "unverified": "the screen checks named above"}
+    ],
+    "s6.walk_supply": [
+      {"answer": "the app makes them", "factory": "record", "person": "none", "delivery": "unchanged"},
+      {"answer": "one at a time", "factory": "record", "person": "none", "delivery": "unchanged"},
+      {"answer": "I will add accounts", "factory": "record", "person": "your_work", "delivery": "unchanged"}
+    ],
+    "s6.walk_account": [
+      {"answer": "added", "factory": "record", "person": "your_work", "delivery": "waits"},
+      {"answer": "by hand", "factory": "record", "person": "your_checks", "delivery": "not_known", "unverified": "the cases named above; they are left with you and the report lists them; ready after your checks only if nothing else holds it"},
+      {"answer": "go on", "factory": "record", "person": "none", "delivery": "no", "unverified": "the cases named above"}
+    ],
+    "s6.data_change": [
+      {"answer": "only use what exists", "factory": "record", "person": "none", "delivery": "unchanged"},
+      {"answer": "may create, never delete", "factory": "record", "person": "none", "delivery": "unchanged"},
+      {"answer": "may create and delete", "factory": "record", "person": "none", "delivery": "unchanged"}
     ],
     "s6.stand_confirm": [
       {"answer": "stand name", "factory": "command", "person": "none", "delivery": "unchanged"},
@@ -222,6 +268,15 @@
     "s3.grounding_refactoring": [
       {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "whether the moved code behaves as before, beyond the checks the plan adds"},
       {"answer": "stop", "factory": "nothing", "person": "your_work", "delivery": "waits"}
+    ],
+    "first_look.dead": [
+      {"answer": "continue", "factory": "command", "person": "none", "delivery": "no"},
+      {"answer": "stop", "factory": "record", "person": "none", "delivery": "waits"}
+    ],
+    "first_look.same_code": [
+      {"answer": "wait", "factory": "nothing", "person": "none", "delivery": "waits"},
+      {"answer": "source", "factory": "command", "person": "your_work", "delivery": "waits"},
+      {"answer": "continue", "factory": "command", "person": "none", "delivery": "no"}
     ],
     "s8.report_match": [
       {"answer": "no delivery", "factory": "nothing", "person": "none", "delivery": "unchanged", "unverified": "the report keeps lines that do not match your gate B answers"},

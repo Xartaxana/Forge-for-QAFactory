@@ -13,7 +13,6 @@ socket there is a local counter that stands in for the default stack.
 import copy
 import http.server
 import json
-import re
 import sys
 import tempfile
 import threading
@@ -27,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import env_probe as E  # noqa: E402
 
 STAND = "qa2406-01a1122d"
-SCRIPTS = Path(__file__).resolve().parents[1]
 
 
 def config() -> dict:
@@ -414,15 +412,6 @@ def main_cases() -> None:
         server.server_close()
 
 
-def driver_cases() -> None:
-    """The three driver calls (S0, S5 stand_probe, S6 stand_check) run the text form: the verdict line is what they see."""
-    source = (SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-    calls = re.findall(r'self\.py\("env_probe\.py",([^)]*)\)', source)
-    check_eq("the driver calls env_probe with --env in exactly three places", len(calls), 3)
-    check("...none of them asks for --json (they read the text form and the exit code)",
-          all("--json" not in call for call in calls), str(calls))
-
-
 DEVICE_ROW = {"name": "emulator", "surface": "android", "driver": {"url": "http://127.0.0.1:4723"},
               "device": {"serial_key": "ANDROID_SERIAL"}, "app": {"id": "com.example.app"}}
 READ_OK = {"verdict": "ok", "checks": [{"name": "devices", "state": "devices", "line": "one device is connected: emulator-5554"},
@@ -586,7 +575,6 @@ def main() -> None:
         device_stand_cases(root)
     selected_config_cases()
     main_cases()
-    driver_cases()
     finish("test_env_selected_stand")
 
 

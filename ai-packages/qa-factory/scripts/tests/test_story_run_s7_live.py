@@ -6,7 +6,7 @@ Every world here is `Driver.run()` over the real controller CLI in a temp projec
 module caches persist), the scripts are real subprocesses. The world runs with `handoffs.required: false` and deletes the handover form, so the
 exit gate's triage binding is NOT exercised: this is the LEGACY road, on which nothing but the driver bounds a re-triage.
 
-The file stays in the FAST tier (it is not in `SLOW_TESTS`): the T-L1 regression guard of the S7-open mechanism runs on every push.
+The file is in SLOW_TESTS (package-full only) and has a 600 s ceiling in selftest.TEST_TIMEOUTS (t-2197).
 
   * T-L1  two processes: the Person at the cap, `--answer round`, S7 closed by code, `next` is S8 (+ T-L2 a rerun re-asks, T-L4 `stop` is held);
   * T-L3  `debt` -> the other row is repaired -> the close; the debt names the LEDGER's ref (+ T-S4 the order of the close);
@@ -51,7 +51,7 @@ class Live7:
     Every process is a NEW Driver over the same task root on disk: nothing is carried in memory between two of them. `bound`: the manifest
     holds the two tests, so the ledger binds the rows."""
 
-    def __init__(self, bound=False, seeded=2, seed_case="TC-1", open_decision=False):
+    def __init__(self, bound=False, seeded=2, seed_case="TC-1", open_decision=False, scribe=True):
         import datetime
         import test_controller_rework_scope as SCOPED
         import test_controller_state as BASE
@@ -59,6 +59,7 @@ class Live7:
         import story_run
         from controller import Controller
         self.SR, self.bound, self.open_decision, self.decided = story_run, bound, open_decision, (None, "")
+        self.scribe = scribe        # X7-6c: S7 closes only over the consumer's (scribe's) accept record; True = the scribe accepts each triage at once
         self.root = harness.temp_project("qa-s7-live-")
         harness.use_project(self.root)
         self.task_root = self.root / "qa-factory" / "artifacts" / TASK
@@ -108,8 +109,23 @@ class Live7:
         self.work.joinpath("automation-manifest.json").write_text(json.dumps({"tests": tests, "unresolved": [], "run_witness": witness}), encoding="utf-8")
         self.before = set(self.state()["dispatches"])
         self.claude_log, self.events, self.answers = [], [], 0
-        self.saved = {name: getattr(story_run.Driver, name) for name in ("run_claude", "py", "code_only")}
-        live, real_py, real_code_only = self, self.saved["py"], self.saved["code_only"]
+        self.saved = {name: getattr(story_run.Driver, name) for name in ("run_claude", "py", "code_only", "s7_await_scribe")}
+        live, real_py, real_code_only, real_await = self, self.saved["py"], self.saved["code_only"], self.saved["s7_await_scribe"]
+
+        def await_scribe(d, person_words=""):
+            """X7-6c: the repairs ended and S7 would await the scribe; the stub scribe has judged the analyst's LAST triage `accept` (its record,
+            written the way `stage_done.py --acceptance` writes it), so the close by code goes on. `scribe=False`: nobody judges it."""
+            if live.scribe:
+                import acceptance
+                author = acceptance.stage_author_dispatch(live.state(), acceptance.stage_def_of("S7"))
+                pipeline_path = live.task_root / "pipeline.json"
+                pipeline = json.loads(pipeline_path.read_text(encoding="utf-8"))
+                if author and not acceptance.accepted_for(pipeline, "S7", author):
+                    pipeline.setdefault("acceptance", {})["S7"] = [{"stage": "S7", "role": "qa-failure-analyst", "acceptor": "qa-doc-scribe",
+                                                                    "reviewed_dispatch": author, "verdict": "accept", "failure_class": None, "quote": "",
+                                                                    "witness_paths": [], "at": "t"}]
+                    pipeline_path.write_text(json.dumps(pipeline), encoding="utf-8")
+            return real_await(d, person_words)
 
         def py(d, script, *args, **kw):
             if script == "finalize_task.py" or (script == "stage_done.py" and "S7" in args):
@@ -123,6 +139,7 @@ class Live7:
                 live.receipt = dict((live.state().get("stages") or {}).get("S7") or {})
         story_run.Driver.run_claude = lambda d, kind, prompt, **kw: live.claude(prompt, **kw)
         story_run.Driver.py, story_run.Driver.code_only = py, code_only
+        story_run.Driver.s7_await_scribe = await_scribe
         self.receipt = {}
 
     def state(self) -> dict:
@@ -372,7 +389,7 @@ def fx2_the_open_work_question_live() -> None:
     nothing; `stop` is held and a rerun asks again; `close` closes S7 by code (finalize, the receipt, stage_done; `next` is S8) and runs no
     further round. `decide --close` on the accepted analyst is shown to refuse (the door the old text named). MU-FX2 (the closed question removed:
     the old print-and-return) is killed here: process 1 returns with S7 open and nothing asked."""
-    live = Live7(seeded=0, open_decision=True)
+    live = Live7(seeded=0, open_decision=True, scribe=False)       # the person's `close` is the pass here, not the scribe's record
     SR = live.SR
     try:
         code, out = live.process()
@@ -405,9 +422,10 @@ def fx2_the_open_work_question_live() -> None:
         check_eq("FX-2: `close` -> S7 is closed by code: finalize ONCE, the receipt (code_only true at the receipt), then completed with the repairs' words",
                  (code, len([e for e in live.events if e[0] == "finalize_task.py"]) - before, live.receipt.get("code_only"), live.s7().get("status"),
                   "repairs: fixed=2 not_fixed=0 stopped=0" in str(live.s7().get("reason"))), (SR.EXIT_DONE, 1, True, "completed", True))
-        check_eq("FX-2: the order is finalize_task, the code_only receipt, stage_done; no further round was paid; `next` is S8 and no question is open",
+        # X7-6c (M3): the person's `close` is recorded FIRST as the driver's accept (`stage_done.py --acceptor driver`, by: person), then the close by code
+        check_eq("FX-2: the order is the person's pass recorded (stage_done), finalize_task, the code_only receipt, stage_done; no further round was paid; `next` is S8 and no question is open",
                  ([e[0] for e in live.events], len(live.new_rounds()), live.next_action(), live.question()),
-                 (["finalize_task.py", "code_only", "stage_done.py"], 2, "S8", {}))
+                 (["stage_done.py", "finalize_task.py", "code_only", "stage_done.py"], 2, "S8", {}))
     finally:
         live.done()
 

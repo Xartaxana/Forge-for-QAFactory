@@ -189,6 +189,30 @@ def instances_by_id(manifest: dict) -> dict:
     return out
 
 
+def _draft_cause_facts(artifacts: Path, data, shows: list, cause: dict, linked: list) -> tuple:
+    """`(shows, cause, linked)` of a record after reading one more of its drafts (t-2187, rows 5.5 and 5.9). The FIRST draft that
+    has each fact keeps it (a filed bug names one draft in practice; a second one never overwrites the first).
+
+    `shows`: `bug_records.manifestation_summary(data)`, one line per manifestation (the reader of the lines is the bug reader's).
+    `cause`: `{}` for a draft with no `mechanism` object (an old draft: read as today), else `{status, statement, why, by_code,
+    runs, by_person, unverified}` printed from `bug_records.cause_view` - the ONE reader of the cause facts the bug text and the gate B
+    packet print from too (M3): `status` is the EFFECTIVE word (`confirmed` only when the basis still stands: an entry that cannot be
+    re-read makes the whole cause `unknown`, never a pass, FR-41); `runs` counts distinct start states by the one rule.
+    `linked`: the file stems named by `possibly_same_cause[].draft` (`bug_records.cause_links`), which the report turns into row numbers.
+    Presence and cross-references only: whether the run discriminates is the analyst's judgment, accepted by the scribe (AR-29)."""
+    if not isinstance(data, dict):
+        return shows, cause, linked
+    shows = shows or BR.manifestation_summary(data)
+    view = BR.cause_view(artifacts, data)
+    if not cause and view:
+        cause = {"status": view["status"], "statement": _one_line(view["statement"], 400), "why": _one_line(view["why"], 400),
+                 "by_code": view["by_code"], "runs": view["runs"], "by_person": view["by_person"],
+                 "unverified": [_one_line(says, 300) for says in view["unverified"]]}
+    if not linked:
+        linked = [Path(link["draft"]).stem for link in BR.cause_links(data)]
+    return shows, cause, linked
+
+
 def story_bug_records(root: Path, artifacts: Path) -> dict:
     """{"records": [...], "outside_home": [...], "sources": [...]} - the bugs of THIS story, read by
     `bug_records.story_bugs` (the one reader of which bug files belong to a story: the story's own
@@ -218,6 +242,7 @@ def story_bug_records(root: Path, artifacts: Path) -> dict:
     for record in found.get("records") or []:
         paths = [Path(p) for p in record.get("paths") or []]
         filed_file = next((p for p in paths if p.suffix.lower() == ".md"), None)
+        shows, cause, linked = [], {}, []
         if filed_file is not None:
             head = C.read_text(filed_file).split("\n## ", 1)[0]
             cases, requirements = C.case_ids(head), C.REQ_ID_RE.findall(head)
@@ -232,22 +257,31 @@ def story_bug_records(root: Path, artifacts: Path) -> dict:
                 if not data:
                     continue
                 stem = Path(ref).stem
+                # t-2187 (5.5, AR-13): the cases of a draft are `bug_records.draft_cases` - `case`, `cases` and every manifestation's
+                # `case`; passed through `case_ids` here, where the artifacts config is held (spec 17, D3)
                 cases = list(dict.fromkeys(cases + C.case_ids(
-                    data.get("case") or data.get("cases") or f"{stem} {stem.upper()}", artifacts)))
+                    " ".join(BR.draft_cases(data)) or f"{stem} {stem.upper()}", artifacts)))
                 structural = _dumped_for_ids([data.get(field) for field in DRAFT_REQUIREMENT_FIELDS if data.get(field)])
-                requirements = list(dict.fromkeys(requirements + C.REQ_ID_RE.findall(structural)))
+                requirements = list(dict.fromkeys(
+                    requirements + C.REQ_ID_RE.findall(structural) + BR.draft_requirements(data)))
+                shows, cause, linked = _draft_cause_facts(artifacts, data, shows, cause, linked)
         elif paths:
             data = C.load_json(paths[0])
             # A draft with no case field is read by its file name, in both spellings: the stem as
             # written and upper-cased (a draft file is `tc-009.json`, a project-form id is upper-case
             # letters plus digits, and a form with lower-case literals reads the stem as written).
-            cases = C.case_ids(data.get("case") or data.get("cases")
+            cases = C.case_ids(" ".join(BR.draft_cases(data))
                                or f"{paths[0].stem} {paths[0].stem.upper()}", artifacts)
             requirements = C.REQ_ID_RE.findall(_dumped_for_ids(data))
+            shows, cause, linked = _draft_cause_facts(artifacts, data, shows, cause, linked)
         else:
             cases, requirements = [], []
+        # the stems of the draft files this bug came from: how a "possibly the same cause" link finds the row of the draft it names
+        names = [Path(str(ref)).stem for ref in record.get("source_drafts") or []] or (
+            [paths[0].stem] if paths and filed_file is None else [])
         records.append(dict(record, title=_one_line(record.get("title")), cases=cases,
-                            requirements=requirements))
+                            requirements=requirements, manifestations=shows, mechanism=cause,
+                            possibly_same_cause=linked, draft_names=names))
     return {"records": records, "outside_home": list(found.get("outside_home") or []),
             "sources": list(found.get("sources") or [])}
 
@@ -506,6 +540,24 @@ class Story:
         implementation (P20)."""
         return {"tests": [], "level": self.level_for(case_key), "shape": self.shape_for(case_key, None),
                 "bug": "", "result": "wait", "basis": L.green_on_open_words(oracle)}
+
+    def proof_reading(self, case_key: str, then: int):
+        """`(ledger state, detail)` when the green runs of this Then are no proof (`ledger.proof_readings`, read once per case), else
+        None. A reader that cannot be built reads nothing: a table never crashes over it (P1), and the ledger still says the state."""
+        cache = self.__dict__.setdefault("_proof_readings", {})
+        if case_key not in cache:
+            try:
+                cache[case_key] = L.proof_readings(self.manifest, self.report, [case_key])
+            except Exception:  # noqa: BLE001
+                cache[case_key] = {}
+        return next((got for (case, number), got in cache[case_key].items() if number == then and C.case_matches(case, case_key)), None)
+
+    def proof_strength_outcome(self, state: str, case_key: str) -> dict:
+        """A green Then whose proof is not one (substituted or unknown side, open placeholder): `wait`, never `pass`; the basis is the
+        state's own words, the table the delivery summary reads (`delivery_summary.state_words`)."""
+        import delivery_summary as DS
+        return {"tests": [], "level": self.level_for(case_key), "shape": self.shape_for(case_key, None),
+                "bug": "", "result": "wait", "basis": DS.state_words(state)[0]}
 
     def plan_row_for(self, case_key: str) -> dict:
         meta = self.cases.get(case_key) or {}
@@ -1075,6 +1127,13 @@ class Story:
             gap = self.oracle_gaps(case_key).get(then)
             if gap:
                 outcomes.append(self.green_on_open_outcome(gap, case_key))
+            # t-2181 PC-5 / t-2277 J-C7 (AR-13, AR-15, FR-10): a green that met only a substituted or unknown side, or that rests on an
+            # open first-look placeholder, is not `pass` here either - the ledger reads the same Then `not_verified:*` and "Left with
+            # you" says "run it again": one packet never says both. The reader is the ledger's own (`proof_readings`); `wait` is the
+            # worst-wins partner of a pass (`_merge_outcomes`), so a red or blocked outcome of the same Then still wins over it.
+            reading = self.proof_reading(case_key, then)
+            if reading:
+                outcomes.append(self.proof_strength_outcome(reading[0], case_key))
             return _merge_outcomes(outcomes)
         if unresolved:
             if not str(unresolved[0].get("instance_id") or ""):
@@ -1777,12 +1836,28 @@ def resolve(task: str, root: str | None, task_root: str | None) -> tuple:
     return (project / "qa-factory", artifact_root(root=project) / task)
 
 
+def add_story_options(ap, example: str) -> None:
+    """The three options that name a story (`--task`, `--root`, `--task-root`), declared once (AR-15) for this script and `report_facts`."""
+    ap.add_argument("--task", default=None, help=f"ticket id, e.g. {example}")
+    ap.add_argument("--root", default=None, help="project root (default: the current project)")
+    ap.add_argument("--task-root", dest="task_root", default=None, help="the story's artifacts dir")
+
+
+def story_of(args, script: str):
+    """(bugs_root, artifacts) of the story the options name; None, with the refusal printed, when neither `--task` nor `--task-root`
+    is given (the caller exits 2). The story first (CX1-18): a phantom is a refusal of the call, exit 2 like every other (E-6; it was 1),
+    not a read of nothing. `--root` is the project the KEY resolves under."""
+    if args.task is None and args.task_root is None:
+        print(f"{script}: --task or --task-root is required", file=sys.stderr)
+        return None
+    hooklib.story_cli(script, key=args.task, root=args.task_root, project=args.root)
+    return resolve(args.task, args.root, args.task_root)
+
+
 def main() -> None:
     C.force_utf8()
     ap = argparse.ArgumentParser(description="The report's traceability table")
-    ap.add_argument("--task", default=None, help="ticket id, e.g. TP1-15045")
-    ap.add_argument("--root", default=None, help="project root (default: the current project)")
-    ap.add_argument("--task-root", dest="task_root", default=None, help="the story's artifacts dir")
+    add_story_options(ap, "TP1-15045")
     ap.add_argument("--write", action="store_true", help="write work/traceability.json")
     ap.add_argument("--render", action="store_true", help="print the report's appendix")
     ap.add_argument("--check", action="store_true", help="exit 1 on a missing R or TC")
@@ -1799,13 +1874,10 @@ def main() -> None:
 
     if args.selftest:
         sys.exit(selftest())
-    if args.task is None and args.task_root is None:
-        print("traceability.py: --task or --task-root is required", file=sys.stderr)
+    story = story_of(args, "traceability.py")
+    if story is None:
         sys.exit(2)
-    # The story first (CX1-18): a phantom is a refusal of the call, exit 2 like every other (E-6; it was 1), not a
-    # read of nothing. `--root` is the project the KEY resolves under.
-    hooklib.story_cli("traceability.py", key=args.task, root=args.task_root, project=args.root)
-    bugs_root, artifacts = resolve(args.task, args.root, args.task_root)
+    bugs_root, artifacts = story
     if args.close_gate_b:
         outcome = close_gate_b(artifacts)
         print(("test-report.md: gate B recorded"

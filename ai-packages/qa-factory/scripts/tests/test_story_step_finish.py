@@ -753,11 +753,40 @@ def c29_the_s1_pair_names_what_a_kind_and_the_factory_closed() -> None:
         shutil.rmtree(task_root, ignore_errors=True)
 
 
+def first_look_dispatch_never_closes_the_stage(root, env) -> None:
+    """t-2277 FL-5 (B2 reader: the form/evidence/exit gate at `finish`; decision 3): the optional first-look runner dispatch is accepted by its
+    own output, with `--complete` given S3 stays open (the strategist's windows and the critic close it), and S3's `roles` are unchanged."""
+    import test_controller_state as BASE
+    from controller import Controller
+    from story_step_common import finish_here, open_story
+    task = open_story(root, env, "QA-FL")
+    c = Controller(task)
+    for stage in ("S1", "S2"):
+        BASE.accept_stage(c, task, stage)
+    packet = c.prepare({"stage": "S3", "role": "qa-runner", "id": "S3-qa-runner-1", "purpose": "first_look"})
+    c.apply("dispatch", packet["dispatch_request"])
+    code, said = finish_here("QA-FL", dispatch="S3-qa-runner-1", output=[], complete=True)
+    check("first_look_dispatch_never_closes_the_stage: with no record the finish is refused (the runner owes its own output)",
+          code == 3 and "left none of the outputs" in said and "run-report" not in said, said[-300:])
+    (task / "work" / "first-look.yaml").write_text("rows:\n", encoding="utf-8")
+    code, said = finish_here("QA-FL", dispatch="S3-qa-runner-1", output=[], complete=True)
+    state = Controller(task).state()
+    pipeline = json.loads((task / "pipeline.json").read_text(encoding="utf-8-sig"))
+    check_eq("first_look_dispatch_never_closes_the_stage: with its record the dispatch is accepted", (code, state["dispatches"]["S3-qa-runner-1"]["status"]),
+             (0, "accepted"))
+    check("first_look_dispatch_never_closes_the_stage: and `--complete` did not complete S3",
+          (pipeline.get("stages") or {}).get("S3", {}).get("status") != "done", pipeline.get("stages"))
+    s3 = {s["id"]: s for s in json.loads((harness.PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))["stages"]}["S3"]
+    check_eq("first_look_dispatch_never_closes_the_stage: S3 roles are unchanged - the runner is no role of the stage",
+             s3["roles"], ["qa-test-strategist", "qa-case-critic"])
+
+
 def main() -> None:
     root = harness.temp_project("qa-story-step-")
     env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
     try:
         harness.use_project(root)
+        first_look_dispatch_never_closes_the_stage(root, env)
         unresolved_argument_checks(root, env)
         unresolved_door_checks(root, env)
         caller_pair_checks(root, env)

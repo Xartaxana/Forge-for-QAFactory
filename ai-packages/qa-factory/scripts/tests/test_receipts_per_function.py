@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import SCRIPTS, check, check_eq, check_in, cleanup, finish, use_project  # noqa: E402
+from harness import SCRIPTS, check, check_eq, cleanup, finish, use_project  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 import check_delivery as CD  # noqa: E402
@@ -595,18 +595,6 @@ def settle_asks_again_after_the_rebind():
         TD.cleanup(w.project)
 
 
-def docs_state_the_rule():
-    s5 = (SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s5.md").read_text(encoding="utf-8")
-    keys = ["adding a test to the file, a comment, a docstring or the marker does not change it",
-            "admit it outside the dispatch's scope by code"]
-    for key in keys:
-        check_in(f"K-Doc s5.md states: {key[:50]}", key, s5)
-    old = "an edit to one test no longer invalidates its neighbours"
-    check(f"K-Doc s5.md no longer says: {old}", old not in s5)
-    check("K-Doc negative control: today's sentence FAILS the key check",
-          keys[0] not in "Staleness is per test function: an edit to one test no longer invalidates its neighbours.")
-
-
 def main():
     code_sha_equal_to_today()
     append_alone_is_exact()
@@ -621,7 +609,6 @@ def main():
     admission_survives_the_rebind()
     hand_edit_after_journal_is_not_the_writer()
     settle_asks_again_after_the_rebind()
-    docs_state_the_rule()
     finish("test_receipts_per_function")
 
 

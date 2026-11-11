@@ -12,8 +12,10 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -1838,6 +1840,27 @@ def test_x2_6_role_questions(tmp):
         code, out, err = cli("--task", "QA-9", "--raise", "--stage", "S1", "--asked-by", "qa-scout", "--from-handoff", str(s1))
         check_eq("X2-6 a raise from S1 is accepted", code, 0)
 
+        # the driver's form: the path the role sees, relative to the story folder, with the process cwd somewhere else (g10)
+        elsewhere = Path(tempfile.mkdtemp(prefix="qa-question-register-g10-cwd-"))
+        try:
+            rel_env = dict(os.environ, CLAUDE_PROJECT_DIR=str(proj), PYTHONDONTWRITEBYTECODE="1")
+
+            def rel_run(handoff):
+                return subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / "question_register.py"), "--task", "QA-9", "--raise",
+                                       "--stage", "S2", "--asked-by", "qa-case-critic", "--from-handoff", handoff],
+                                      capture_output=True, encoding="utf-8", errors="replace", cwd=str(elsewhere), env=rel_env, timeout=120)
+            form("S2-qa-case-critic-g10", entry("Is the export limit 10 or 20?"))
+            proc = rel_run("work/handoffs/S2-qa-case-critic-g10.yaml")
+            check_eq("g10 a task-relative --from-handoff, cwd not the story folder -> exit 0, one question raised",
+                     (proc.returncode, len(json.loads(proc.stdout)["raised"]) if proc.returncode == 0 else proc.stderr), (0, 1))
+            proc = rel_run("work/handoffs/S2-qa-case-critic-9.yaml")
+            check_eq("g10 the same relative path with no such form -> exit 2", proc.returncode, 2)
+            check_in("g10 ... the refusal quotes the path as given", "'work/handoffs/S2-qa-case-critic-9.yaml' could not be read", proc.stderr)
+            proc = rel_run("  ")
+            check_eq("g10 a blank --from-handoff is refused, never read as the cwd", proc.returncode, 2)
+        finally:
+            shutil.rmtree(elsewhere, ignore_errors=True)
+
         # the driver closes from disk: --by driver, the source in the words; the closed row is not open
         qid = "Q2"
         shown = row_hash_of(task, qid)
@@ -1899,7 +1922,70 @@ def test_x2_6_role_questions(tmp):
         cleanup(proj)
 
 
-TESTS = [test_x2_6_role_questions, test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,
+def test_placeholder_question_row_dropped(tmp):
+    """t-1936 F1 (B-11): a `questions[]` row whose `question` is still the contract's placeholder is the sample, not a question: it is
+    not raised and not refused; a real row beside it keeps its own form index in `raised_from`."""
+    proj = temp_project("qa-question-register-b11-")
+    try:
+        use_project(proj)
+        task = proj / "qa-factory" / "artifacts" / "QA-9"
+        write_story(task, [q("Q1")])
+        forms = task / "work" / "handoffs"
+        forms.mkdir(parents=True)
+        sample = {"question": "<the question, in plain words>", "read": ["<path#anchor the critic read before asking>"],
+                  "recommendation": "<what the work goes on with meanwhile>", "options": [], "severity": "<blocker|major|minor>"}
+        real = {"question": "Is the import limit 100 or 1000?", "read": ["work/requirements-register.md#R-7"], "recommendation": "plan on 100",
+                "options": [{"reading": "100", "if_chosen": "the plan checks 100"}, {"reading": "1000", "if_chosen": "the plan checks 1000"}],
+                "severity": "blocker", "owner_role": "po_ba", "why_person": "requirement_intent"}
+
+        def form(name, *entries):
+            lines = ["header: {role: qa-case-critic, stage: S2, window_or_scope: S2, verdict: ok}", "questions:"]
+            lines += ["  - " + json.dumps(e, ensure_ascii=False) for e in entries]
+            path = forms / (name + ".yaml")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return path
+
+        only_sample = form("S2-qa-case-critic-1", sample)
+        before = (task / "work" / "requirements-readiness.json").read_bytes()
+        result = QR.raise_from_handoff(task, only_sample, stage="S2", asked_by="qa-case-critic")
+        check_eq("F1 a form holding only the template row raises nothing and is no refusal",
+                 (result["raised"], result["already"], (task / "work" / "requirements-readiness.json").read_bytes() == before), ([], [], True))
+        both = form("S2-qa-case-critic-2", sample, real)
+        result = QR.raise_from_handoff(task, both, stage="S2", asked_by="qa-case-critic")
+        check_eq("F1 beside a real row the template row is dropped and the real one keeps its form index",
+                 (len(result["raised"]), result["raised"][0]["raised_from"]), (1, {"dispatch": "S2-qa-case-critic-2", "row": "questions[1]"}))
+    finally:
+        cleanup(proj)
+
+
+def test_answers_lock_busy_names_the_holder(tmp=None):
+    """TR4-2 part B: the answers lock is the package's one file lock. Busy = the old head + the holder clause (the file is in
+    the story's tracked work folder: none recorded); broken = Refused with the LockBroken sentence and the writable door,
+    never the busy head."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="qa-answers-lock-") as td:
+        root = Path(td) / "story"
+        with QR.answers_lock(root):
+            try:
+                with QR.answers_lock(root, wait=0.1):
+                    raise AssertionError("a second writer got the answers lock")
+            except QR.Refused as exc:
+                text = str(exc)
+        assert text.startswith("- another writer has held "), text
+        assert "nothing was written. Expected: try again in a moment; no holder recorded - released when that process ends: wait and repeat" in text, text
+        assert (root / "work" / QR.LOCK_NAME).read_bytes() == b"0", "no holder is written into the story's work folder"
+        folder_root = Path(td) / "other"
+        (folder_root / "work" / QR.LOCK_NAME).mkdir(parents=True)
+        try:
+            with QR.answers_lock(folder_root, wait=0.1):
+                raise AssertionError("a folder at the lock path was taken as a lock")
+        except QR.Refused as exc:
+            text = str(exc)
+        assert text.startswith("- ") and "cannot be locked" in text and text.endswith("Expected: the file must be writable"), text
+        assert "has held" not in text and "try again in a moment" not in text and "holder" not in text, text
+
+
+TESTS = [test_answers_lock_busy_names_the_holder, test_placeholder_question_row_dropped, test_x2_6_role_questions,test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,
          test_e6_cli_subprocess, test_e7_battery, test_edge2_fence_and_quote, test_edge3_row_hash, test_edge4_where_by,
          test_edge5_case_decisions, test_edge5_case_cli, test_edge6_words_file, test_edge7_lock, test_edge8_named,
          test_cmp1, test_t256_o6_accept_as_blocked_is_a_whole_line_case_token, test_t256_o4_raise_for_case_is_keyed_by_case_and_then,

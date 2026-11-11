@@ -12,12 +12,15 @@ fail and is not refused: it waits in line (`waited_s` lands in its summary), and
 `wait_s` does it give up with `StandBusy`, having launched nothing.
 
 The lease is a record in `qa-factory/state/stand-lease.json`, one per environment name,
-written atomically under the same OS file lock the scheduler's lease registry uses. A lease
-whose process is gone is taken over and the takeover is noted in the file: a killed runner
-must never close the stand for the rest of the day.
+written atomically under the same OS file lock the scheduler's lease registry uses. The record
+holds `holders: [{job, pid, started, mode, acquired_at}]`: one `exclusive` holder (a suite, a
+capture) or up to `max_shared` `walk` holders of distinct jobs (manual walkers), never both. A
+holder whose process is gone is dropped at the next acquire and named in the notes: a killed
+runner, or a dead walker, must never close the stand for the rest of the day. Each holder
+releases only itself (job + pid + birth). Records of an older package version are not read.
 
 A person's word passes this block: `stand_lease.py --release --env NAME --reason "..."`
-removes a lease the person knows to be dead or wrong, and the reason is kept in the file.
+removes EVERY holder of the stand, each named in the notes with the reason.
 
 Usage:
     stand_lease.py --status [--project-root DIR]
@@ -36,6 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from event_store import LockBusy  # noqa: E402
 
 DEFAULT_WAIT_S = 1800
 DEFAULT_ENVIRONMENT = "default"
@@ -103,7 +107,9 @@ def _holder_state(lease: dict) -> str:
         pid = 0
     if pid <= 0:
         return "gone"
-    started = str(lease.get("process_started_at") or "")
+    # This reader serves both lease files: stand-lease.json rows carry `started`, the scheduler's
+    # execution-leases.json rows carry `process_started_at`; a recycled pid must not read as live in either.
+    started = str(lease.get("started") or lease.get("process_started_at") or "")
     try:
         if started:
             from execution_scheduler import _same_process
@@ -129,8 +135,9 @@ def _identity(pid: int) -> str:
 
 @contextlib.contextmanager
 def _locked(lock_path: Path):
-    from execution_scheduler import _file_lock
-    with _file_lock(lock_path):
+    import event_store
+    from event_store import hold_file_lock
+    with hold_file_lock(lock_path, event_store.SHORT_RMW_LOCK_WAIT_S, purpose="stand lease", record_holder=True):
         yield
 
 
@@ -155,50 +162,106 @@ def _write(path: Path, state: dict) -> None:
     atomic_json(path, state)
 
 
-def _try_acquire(project_root, job_id: str, environment: str) -> tuple[str, dict]:
-    """One attempt. Returns `(outcome, record)`: acquired | reentered | busy, and the holder
-    (busy), the taken-over lease (acquired after a takeover) or `{}`."""
+def _mode_of(mode) -> str:
+    return "walk" if mode == "walk" else "exclusive"
+
+
+def _holders_of(lease) -> list:
+    """The holder rows of one environment's record: `[{job, pid, started, mode, acquired_at}]`. A record
+    without `holders` (an older package's shape) is not read: it holds nothing."""
+    rows = lease.get("holders") if isinstance(lease, dict) else None
+    return [dict(h) for h in rows if isinstance(h, dict)] if isinstance(rows, list) else []
+
+
+def _public(holder: dict) -> dict:
+    """A holder as callers and the `stand_busy` answer see it (`job_id` is the long-standing key of that answer)."""
+    return {"job_id": holder.get("job"), "pid": holder.get("pid"), "acquired_at": holder.get("acquired_at"),
+            "mode": holder.get("mode") or "exclusive"}
+
+
+def _is_me(holder: dict, job_id: str, started: str) -> bool:
+    """Pid + birth: a holder row is ours only when job and pid agree and, if both sides recorded a birth, so does it."""
+    try:
+        pid = int(holder.get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
+    theirs = str(holder.get("started") or "")
+    return (str(holder.get("job") or "") == job_id and pid == os.getpid()
+            and (not theirs or not started or theirs == started))
+
+
+def _try_acquire(project_root, job_id: str, environment: str, mode: str = "exclusive",
+                 max_shared: int = 1) -> tuple[str, dict]:
+    """One attempt. Returns `(outcome, record)`: acquired | reentered | busy, and the blocking holder
+    row (busy), the first dead holder dropped on the way (acquired) or `{}`.
+
+    `exclusive` needs the stand with no holder at all; `walk` needs no `exclusive` holder and fewer than
+    `max_shared` `walk` holders, each of a distinct job. A holder whose process is gone is dropped here,
+    each named in the notes (a dead walker never holds the stand); one that merely cannot be checked keeps it."""
+    mode, limit = _mode_of(mode), max(1, int(max_shared or 1))
     path, lock_path = _paths(project_root)
     with _locked(lock_path):
         state = _read(path)
-        current = state["leases"].get(environment)
-        taken_over = {}
-        if isinstance(current, dict) and current:
-            if str(current.get("job_id") or "") == job_id and int(current.get("pid") or 0) == os.getpid():
-                return "reentered", {}
-            if _holder_alive(current):
-                return "busy", dict(current)
-            taken_over = dict(current)
+        holders = _holders_of(state["leases"].get(environment))
+        started = _identity(os.getpid())
+        live, dropped = [], []
+        for holder in holders:
+            (dropped if _holder_state(holder) == "gone" else live).append(holder)
+        for holder in dropped:
             state["notes"].append({
                 "at": _now(), "event": "takeover", "environment": environment, "by": job_id,
-                "from": current.get("job_id"), "dead_pid": current.get("pid"),
-                "held_since": current.get("acquired_at")})
-        state["leases"][environment] = {
-            "job_id": job_id, "environment": environment, "pid": os.getpid(),
-            "process_started_at": _identity(os.getpid()), "acquired_at": _now()}
+                "from": holder.get("job"), "dead_pid": holder.get("pid"), "held_since": holder.get("acquired_at")})
+        if any(_is_me(h, job_id, started) and _mode_of(h.get("mode")) == mode for h in live):
+            if dropped:
+                state["leases"][environment] = {"environment": environment, "holders": live}
+                _write(path, state)
+            return "reentered", {}
+        if mode == "exclusive":
+            blocker = live[0] if live else None
+        else:
+            walkers = [h for h in live if _mode_of(h.get("mode")) == "walk"]
+            blocker = next((h for h in live if _mode_of(h.get("mode")) == "exclusive"), None)
+            if blocker is None and (len(walkers) >= limit or any(str(h.get("job") or "") == job_id for h in walkers)):
+                blocker = walkers[0]
+        if blocker is not None:
+            if dropped:                         # the dead are dropped even when this attempt is refused
+                state["leases"][environment] = {"environment": environment, "holders": live}
+                _write(path, state)
+            return "busy", _public(blocker)
+        live.append({"job": job_id, "pid": os.getpid(), "started": started, "mode": mode, "acquired_at": _now()})
+        state["leases"][environment] = {"environment": environment, "holders": live}
         _write(path, state)
-        return "acquired", taken_over
+        return "acquired", (_public(dropped[0]) if dropped else {})
 
 
 def _release(project_root, job_id: str, environment: str) -> None:
+    """Remove OUR holder row only (job + pid + birth); the others stay. The last one out removes the record."""
     path, lock_path = _paths(project_root)
     with _locked(lock_path):
         state = _read(path)
-        current = state["leases"].get(environment)
-        # Only our own lease: after a takeover the record belongs to somebody else.
-        if (isinstance(current, dict) and str(current.get("job_id") or "") == job_id
-                and int(current.get("pid") or 0) == os.getpid()):
+        holders = _holders_of(state["leases"].get(environment))
+        started = _identity(os.getpid())
+        kept = [h for h in holders if not _is_me(h, job_id, started)]
+        if len(kept) == len(holders):
+            return
+        if kept:
+            state["leases"][environment] = {"environment": environment, "holders": kept}
+        else:
             del state["leases"][environment]
-            _write(path, state)
+        _write(path, state)
 
 
 @contextlib.contextmanager
 def hold(project_root, job_id: str, environment: str = "", wait_s: int = DEFAULT_WAIT_S,
-         poll_s: int = 5):
+         poll_s: int = 5, mode: str = "exclusive", max_shared: int = 1):
     """Hold the stand for the duration of the block.
 
+    `mode="exclusive"` (the default: suites, captures) shares the stand with nobody; `mode="walk"` shares it
+    with up to `max_shared` walks of distinct jobs and with nothing else. `max_shared` is the caller's
+    number: this module never reads the project to find it.
+
     Yields `{"waited_s": int, "queued_behind": job_id|None, "environment": name}` plus
-    `took_over` when a dead holder's lease was taken and `lease_error` when the lease file
+    `took_over` when a dead holder's row was dropped and `lease_error` when the lease file
     itself could not be used. Raises `StandBusy` (with `.holder`) when the stand stayed
     leased for `wait_s` seconds; `wait_s=None` reads `run.stand_wait_s` from the config.
 
@@ -214,7 +277,7 @@ def hold(project_root, job_id: str, environment: str = "", wait_s: int = DEFAULT
     outcome = "unprotected"
     while True:
         try:
-            outcome, record = _try_acquire(project_root, job_id, env)
+            outcome, record = _try_acquire(project_root, job_id, env, mode, max_shared)
         except Exception as exc:  # lock or disk trouble: the factory's defect, not the run's
             outcome, record = "unprotected", {}
             result["lease_error"] = f"{type(exc).__name__}: {exc}"
@@ -254,12 +317,13 @@ def status(project_root) -> dict:
     rows = []
     for name, lease in sorted(state["leases"].items()):
         if isinstance(lease, dict):
-            rows.append({**lease, "environment": name, "holder": _holder_state(lease)})
+            rows.append({"environment": name,
+                         "holders": [{**h, "state": _holder_state(h)} for h in _holders_of(lease)]})
     return {"leases": rows, "notes": state.get("notes") or []}
 
 
 def release_by_person(project_root, environment: str, reason: str) -> dict:
-    """A person's decision to free the stand, kept with its reason."""
+    """A person's decision to free the stand: EVERY holder of it goes, each named in the notes with the reason."""
     env = _env_name(environment)
     path, lock_path = _paths(project_root)
     with _locked(lock_path):
@@ -267,10 +331,12 @@ def release_by_person(project_root, environment: str, reason: str) -> dict:
         lease = state["leases"].pop(env, None)
         if lease is None:
             return {"status": "not_held", "environment": env}
-        state["notes"].append({"at": _now(), "event": "released_by_person", "environment": env,
-                               "from": lease.get("job_id"), "reason": reason})
+        holders = _holders_of(lease)
+        for holder in holders or [{}]:
+            state["notes"].append({"at": _now(), "event": "released_by_person", "environment": env,
+                                   "from": holder.get("job"), "held_pid": holder.get("pid"), "reason": reason})
         _write(path, state)
-    return {"status": "released", "environment": env, "released": lease}
+    return {"status": "released", "environment": env, "released": holders}
 
 
 def selftest() -> int:
@@ -290,7 +356,7 @@ def selftest() -> int:
         _sleep = lambda _s: None  # noqa: E731
         with hold(root, "job-a", "", wait_s=0) as lease:
             case("a free stand is taken without waiting", lease["waited_s"] == 0 and lease["queued_behind"] is None)
-            case("the lease is on disk", status(root)["leases"][0]["job_id"] == "job-a")
+            case("the lease is on disk", status(root)["leases"][0]["holders"][0]["job"] == "job-a")
             try:
                 with hold(root, "job-b", "", wait_s=0, poll_s=0):
                     case("a second run is kept out", False)
@@ -301,7 +367,7 @@ def selftest() -> int:
         case("the lease is released", status(root)["leases"] == [])
         path, _ = _paths(root)
         _write(path, {"schema_version": 1, "notes": [], "leases": {DEFAULT_ENVIRONMENT: {
-            "job_id": "dead", "pid": 0, "process_started_at": "", "acquired_at": _now()}}})
+            "holders": [{"job": "dead", "pid": 0, "started": "", "mode": "exclusive", "acquired_at": _now()}]}}})
         with hold(root, "job-d", "", wait_s=0) as lease:
             case("a dead holder is taken over", (lease.get("took_over") or {}).get("job_id") == "dead")
         case("the takeover is noted", any(n.get("event") == "takeover" for n in status(root)["notes"]))
@@ -331,7 +397,14 @@ def main() -> None:
     if args.release:
         if not args.reason.strip():
             parser.error("--release needs --reason: the person's decision is kept with its reason")
-        print(json.dumps(release_by_person(root, args.env, args.reason.strip()), ensure_ascii=False))
+        try:
+            answer = release_by_person(root, args.env, args.reason.strip())
+        except LockBusy as busy:     # nothing was changed: the record is untouched
+            print(f"The stand's lease record is held by another process for over {busy.waited_s:g} s, so nothing was "
+                  f"released. A release needs that record to itself: wait a moment and repeat the same command; "
+                  f"{busy.holder_clause}.", file=sys.stderr)
+            raise SystemExit(3)      # the exit code of `stand_busy`, the other try-again answer of this lease
+        print(json.dumps(answer, ensure_ascii=False))
         return
     if args.status:
         print(json.dumps(status(root), ensure_ascii=False, indent=1))

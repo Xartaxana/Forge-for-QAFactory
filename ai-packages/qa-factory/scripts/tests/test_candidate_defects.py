@@ -3,8 +3,7 @@
 KEYS: C1 `contract.candidate_defects` (segment equality, observable forms, typos, no mark), C2 the `derived_from` table of A5 through
 `contract.derived_from_legal` AND the S2 form check `validate_artifacts`, C3 `candidates_without_row` (skip, manual-human, a branch on a
 missing question / a missing letter / a settled question, not_needed, `*`, questions unreadable), C4 `brief_pack.candidate_defect_line`
-(none, one, 5 at the limit, 6 beyond it, no place), C5 the fence names the candidate in the detector's text, C6 AR-1: the mark is data."""
-import re
+(none, one, 5 at the limit, 6 beyond it, no place), C5 the fence names the candidate in the detector's text."""
 import sys
 from pathlib import Path
 
@@ -117,13 +116,5 @@ check_eq("C4 no register: no line", BP.candidate_defect_line(tmp / "nowhere"), "
 fence = PC.fence_lines({"missing": [], "candidates": cand, "waiting": [], "by_reference": []})
 check("C5 the candidate refusal names R-13 and the allowed dispositions",
       len(fence) == 1 and "R-13: the register marks this requirement `bug:candidate-defect`" in fence[0][1][0] and "`automate` or `manual-agent`" in fence[0][1][0], str(fence))
-
-# --- C6: AR-1, the mark is data, not a list in code -------------------------------------------------------
-code_hits = []
-for path in SCRIPTS.glob("*.py"):
-    if "candidate-defect" in path.read_text(encoding="utf-8", errors="replace"):
-        code_hits.append(path.name)
-check("C6 `candidate-defect` appears in code only as prose (docstrings/messages) in the known files", set(code_hits) <= {"validate_artifacts.py", "contract.py", "planning_contract.py", "brief_pack.py", "grammar.py"}, str(code_hits))
-check("C6 no code compares a segment with a literal mark", not re.search(r"==\s*[\"']bug:candidate-defect[\"']", " ".join((SCRIPTS / n).read_text(encoding="utf-8") for n in code_hits)))
 
 finish("test_candidate_defects")

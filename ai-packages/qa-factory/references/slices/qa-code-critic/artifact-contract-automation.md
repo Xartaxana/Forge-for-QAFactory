@@ -79,6 +79,24 @@ A `tests[]` entry records the shape its author chose:
 line of why (`consolidates` means two lists: in the S5 plan, the tests a consolidated test merges; in the manifest, the cases the instance proves). One instance may carry SEVERAL cases (N:M; a consolidated test is not a finding), each with its
 own `then_bindings` rows; each `case_version_links` pin is the task's active `{case_id, version}`.
 
+### Sides and assumptions
+
+A story with a non-real side (`absent`, `substituted`), and the one real-side row below. `tests[].sides` `{<side>: real|substituted|absent}`: an `absent` side is
+collected, never run, and listed in a `pending_implementation` row with `instance_ids`. `then_bindings[].about` `[<side>]`.
+`tests[].provisional` `[P-n]`. `runs[].kind` `collect` (+ `partial: true`); absent reads `run`.
+
+`provisional[]` via `manifest_put.py --fragment`, merged by `id`: `{id: P-n, kind (key of references/provisional-kinds.json), what,
+assumed_from, home {file, line_hint}, dependents [{case, then}], settles_on (a side), status
+open|settled_matched|settled_edited|kept_by_decision|retracted, evidence {run: <run id>, home_hash_after}}`. The home is the line
+marked `qa-provisional: P-n` in `file`. `home_hash` and `evidence.home_hash_after` are tool-stamped (send `home` with a settling
+status): never send them. `retracted_provisional: ["P-n"]` retires a row. A provisional value never sets what a Then expects. None:
+`[]`; every side real: no key.
+
+On a REAL side one row is legal, as accounting only (the grounding rule does not change): `placeholder_locator` (`on_real:
+first_look_only`; `never` or none is refused), `assumed_from: first_look:<R-n>`, while the first-look record holds R-n `missing` or
+`unreachable`, `blocked_by: product`. A test bound to a Then of its `dependents`, or leaning on it, names the row in `tests[].provisional`
+(an accounting, not a claim: also a test not touching it), is run, never `blocked_by_env`, handed over or skipped; its green proves no Then.
+
 ### `runs[]`
 
 `runs[]` — **every** launch in this story, appended by its maker, never

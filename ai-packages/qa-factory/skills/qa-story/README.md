@@ -54,13 +54,18 @@ qa-story <ticket>
   --branch <name>      a branch to diff against the default branch
   --commit <sha>       a commit to diff
   --env <name>         which environment to test on (from your onboarding config)
-  --ungrounded         requirements only — no implementation exists yet
+  --ungrounded         requirements only, on the code the stand runs now
+  --side <name>=<reality>   a part of the product and its reality (`real`, `substituted`, `absent`); `--side product=absent` is "not built yet"
+  --reference <side>=<stand> the stand that stands in for a side
   --ticket-file <path> read the ticket from a markdown file instead of a tracker
 ```
 
 Tell it where the change lives at launch. If it cannot find a diff, it stops and offers you
-three options rather than hunting: give it the change, name the environment and repo where
-the change already lives, or run `--ungrounded` and accept expected-red tests.
+four options rather than hunting: give it the change, name the environment and repo where
+the change already lives, go on with `--ungrounded` (the requirements only, on the code the
+stand runs now), or answer `not built yet` (the code is not written: the tests are written
+from the requirements and the story stops after them; `--side product=absent` says the same
+at launch).
 
 ## Prerequisites
 

@@ -25,7 +25,7 @@ anything reaches a merge request. Installs as a Claude Code plugin. Project stat
 | Command | What it does |
 |---|---|
 | `/qa-factory:qa-onboarding` | One-time (repeatable) setup — discovers the repository, interviews only the gaps, writes `qa-factory/config.json` and the strategy files after an explicit "yes". |
-| `/qa-factory:qa-story <ticket> [--mr\|--branch\|--commit] [--env] [--ungrounded]` | Runs the ten-stage pipeline for one ticket, stopping at gate A (the plan and cases) and gate B (the results). |
+| `/qa-factory:qa-story <ticket> [--mr\|--branch\|--commit] [--env] [--ungrounded] [--side <name>=<reality>] [--reference <side>=<stand>]` | Runs the ten-stage pipeline for one ticket, stopping at gate A (the plan and cases) and gate B (the results). |
 | `/qa-factory:qa-doctor` | Read-only diagnosis — install health, project readiness, factory audit, every open story's state — ending in exactly one recommended next action. |
 
 ## How a story runs

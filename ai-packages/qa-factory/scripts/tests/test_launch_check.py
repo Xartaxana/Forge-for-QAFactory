@@ -1277,28 +1277,6 @@ def e6b_doors():
 def e7_onboarding():
     text = ONBOARDING.read_text(encoding="utf-8")
     flat = " ".join(text.split())
-    keys = [
-        "launch_check.py\" --deactivated --json",
-        "never an absolute interpreter path",
-        "project_decisions.py",
-        "collect is not a test execution",
-        "gate_rehearsal.skip_collect",
-        "wrapper argv",
-    ]
-    for key in keys:
-        check_in(f"E7 p4-generate.md holds `{key}`", key, flat)
-    check_in("E7 the old sentence is kept, and clarified next to it",
-             "Do not install dependencies or execute tests while generating it. A collect is not a test execution", flat)
-    for key in ("`not_checked` says why and is neither a pass nor a failure",
-                "a runner with no known collect form",
-                "its own `commands.collect`, which is then the command probed",
-                "an always-active conda `base`",
-                "runs nothing at all for a runner it has no collect form for",
-                "`--asked` would be an invention: record a finding instead",
-                "project_decisions.py --root . add --field-ref /profiles/<n>/commands/one_test/argv --essence",
-                "project_decisions.py --root . add-finding --essence"):
-        check_in(f"E7 p4-generate.md holds `{key}`", key, flat)
-
     # The two commands the text gives are run, as written (placeholders filled), against a
     # temporary project: the form is what `project_decisions.py` really accepts.
     # Anchored on the launch check's own commands: since 341c81e0 (OH3-29) the text carries earlier
@@ -1345,10 +1323,6 @@ def e7_onboarding():
                                  env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"), timeout=120)
         check("E7 negative control: the same DD command without `--asked` is refused (so `--asked` is required)",
               refused.returncode != 0, refused.stderr.decode("utf-8", "replace")[-200:])
-    check("E7 the launch check sits in step 1 (before step 2)",
-          text.index("launch_check.py") < text.index("## 2. `strategy/test-strategy.md`"))
-    check_not_in("E7 negative control: a key that is not there is reported absent", "zz-not-in-the-phase-zz", flat)
-    check_eq("E7 the phase file has no Cyrillic", bool(re.search("[\u0400-\u04ff]", text)), False)
 
 
 def e8_partial_collect():

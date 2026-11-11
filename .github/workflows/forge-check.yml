@@ -3,7 +3,8 @@
 # Xartaxana/Forge-for-QAFactory unchanged. tools/test_workflows.py judges it (the draft, or the live folder once
 # .github exists) against the steps of .gitlab-ci.yml.
 #   forge-check   every push to main and every pull request: lint/clone ratchets, journal, attribution, indexes,
-#                 piles, install parity, the whole tools/ suite
+#                 piles, install parity, the test quarantine check, the whole tools/ suite
+#   runner-facts  push to main and pull request only (not the canon): the runner probe, never blocking
 #   package-fast  same triggers, only when the package or the workflows changed
 # GitLab variables are re-exported under their old names (CI_*), so the tools that read them need no change on day one.
 # A value that comes from a person (the canon's ref, a pull request's sha) reaches a shell only through env:,
@@ -92,6 +93,9 @@ jobs:
       - name: install parity (push, canon)
         if: github.event_name != 'pull_request'
         run: python tools/install_parity.py --check
+      # the test quarantine (.gitlab-ci.yml forge-check, spec td-15 K5): no file of a quarantine cohort changes without the door;
+      # no layers file = exit 0
+      - run: python tools/test_quarantine.py check
       - run: python -m pytest tools/ -q
       - uses: actions/upload-artifact@v7
         if: always()
@@ -99,6 +103,32 @@ jobs:
           name: forge-metrics
           path: plans/forge-metrics.md
           retention-days: 7
+
+  runner-facts:
+    # .gitlab-ci.yml runner-facts: what the runner is (a probe, allow_failure), on a pull request and a push to main only --
+    # never in the canon (a called run carries the caller's event, workflow_dispatch, so the condition skips it there)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: |
+          echo "nproc: $(nproc)"
+          echo "python: $(python --version)"
+          echo "git: $(git --version)"
+          echo "disk: $(df -h . | tail -n 1)"
+          docker info >/dev/null 2>&1 && echo "docker: yes" || echo "docker: no"
+          echo "os-release: $(cat /etc/os-release | head -2 | tr '\n' ' ')"
+          t0=$(date +%s)
+          python -B ai-packages/qa-factory/scripts/selftest.py --limits --lang
+          t1=$(date +%s)
+          echo "selftest --limits --lang wall time: $((t1 - t0)) s"
 
   changes:
     runs-on: ubuntu-latest

@@ -19,7 +19,7 @@ dispatch the factory ran `manual_evidence.py prepare`; its answer per case is
   `capture <pre_action|post_action|supporting> [label]`, `fill-account <selector> <actor> user|secret` (quote a
   selector or text that holds a space). One browser session; the first `goto` names the stand.
 - You see the screen: the stdout summary's `steps[]` rows are `{step, outcome, screenshot, text}` for the first 40
-  steps (later ones: `outcome` only, and a limitation says so). `text` is a short excerpt of the page after the step
+  steps (later ones: `outcome` only, and a limitation says so). `text` is an excerpt of the page after the step
   (<= 160 characters; a failed step <= 600, its screenshot also a `supporting` capture); the screen of a
   passed step is saved in `<attempt>/observe/NNN-<word>.png`, NOT in `captures.jsonl` and never in the record.
   Excerpts are cut at 8000 characters (the oldest passed ones emptied, `observation_trimmed` counts them); a
@@ -34,7 +34,7 @@ dispatch the factory ran `manual_evidence.py prepare`; its answer per case is
   naming a stand role with two keys as it, any other account is refused with its doors; `--as default` is the default account (seeding under the admin),
   `--as "<role>"` a role of the stand's `credentials_by_role`, `--as env:USER_KEY/SECRET_KEY` two key names in the
   project's env file (a person's account; never kept), `--as created:<name>` a
-  user this story made. A refusal (exit 2) names the door. To create a user, `http --as default --method POST --url
+  user this story made. To create a user, `http --as default --method POST --url
   <the stand's create-user endpoint> --body-file F` with `{generated_username}` and `{generated_password}` in the
   body (never in the url or a header): the template check runs on the file as written, the values are put in only
   into the bytes sent, the saved request keeps the placeholders, the answer is saved without them, the password
@@ -42,14 +42,16 @@ dispatch the factory ran `manual_evidence.py prepare`; its answer per case is
   rights the precondition's `what` needs, never a global admin unless it says so.
 - `pre_action` is the state before the action under test, `post_action` after it, `supporting` anything
   else; `before`/`after` are the old words, still read, never written. The label of a capture is what it
-  proves: `capture post_action completion` (or `--proves completion`) is the ONE line that proves the
-  completion condition was reached; code never writes it for you.
+  proves: `capture post_action completion` (or `--proves completion`) is the ONE line that proves
+  completion; code never writes it for you.
 - Code logs in (the stand's `.env`, never printed) and proves it landed (`login.ui.landed`); a login that does not
   land exits 3 with `do_not_retry` and an owner. Owner `user` (the account was refused after the submit): make no
-  further capture of any kind in this block, put the case in env_blocked[] with the printed `login by code: ...`
+  further capture in this block, put the case in env_blocked[] with the printed `login by code: ...`
   line, halt the block; a steps file with `fill-account` after it is refused (exit 2). Owner `factory` (the recipe did
   not fit the page): you may sign in ONCE through `fill-account` steps in a new attempt; if that fails too, the same
-  halt. Never `build` a blocked attempt. Code probes the stand's build at the start and the end, hashes
+  halt. Cause `login_unknown` (not tried, nothing sent: the factory's gap): sign in through
+  `fill-account` and do the seed through the screens, in a new attempt; the block goes on. Never
+  `build` a blocked attempt. Code probes the stand's build at the start and the end, hashes
   every file and refuses a host that is not a configured stand. Authorization, Cookie and Set-Cookie are saved
   as `[redacted]`; a text matching `secret_content_patterns` is not saved. A step may take the stand's measured
   page load + 30 s (else 180 s); a body is stored up to 2 MB, cut beyond with a limitation. A failed step stops
@@ -57,7 +59,7 @@ dispatch the factory ran `manual_evidence.py prepare`; its answer per case is
 - On a container with no sources (a built bundle) the probe cannot compare files; it reads the image's label
   or a file the person named, and when it can read nothing it answers `unknown`. A capture never proceeds on an
   `unknown`, image or none: it exits 3, `env_blocked`, and `do_not_retry` when the person must answer (the stand
-  runs another build, or the build is not known): the same stand answers again, so do not capture again. The person
+  runs another build, or it is not known): do not capture again. The person
   answers the build question at the stage entry; the decision is in `qa-factory/records/stand-identity.json`. A build confirmed by the person (`person_confirmed`, given for THIS
   story) is taken and stored as the probe said it, never as `matched`; the record's `limitations[]` then carry
   code's sentence (who confirmed it, when, "not read by the factory", and for `test deployed` the build that was
@@ -79,8 +81,8 @@ dispatch the factory ran `manual_evidence.py prepare`; its answer per case is
   you never reached: `--then-unreached <n>`), an `inconclusive` for none. The words are copied from a text capture of
   THIS attempt (`.txt .log .json .xml .csv`; whitespace is folded, case counts), at most 300 characters, the shortest
   part that decides; a Then only the picture shows: `--then-seen "<n>=<what it shows>"`. Code checks that the words
-  are there, never what they mean. A request with no `thens` or `thens: {}` asks for none.
-  The record carries them as `then_quotes[]` (`{then, quote, source, kind: text|seen}` or `{then, reached: false}`).
+  are there, never what they mean. A request with no `thens` (or `{}`) asks for none.
+  Recorded as `then_quotes[]` (`{then, quote, source, kind: text|seen}` or `{then, reached: false}`).
 - One record, two stand profiles (a ui check and an api read): capture each as its own attempt, then
   `build --attempt a<main> --with-attempt a<other>` (repeat per profile). Each joined attempt must be open, of
   another profile, on the same expected source revision; the record carries them as `other_profiles[]` with their
@@ -89,7 +91,7 @@ dispatch the factory ran `manual_evidence.py prepare`; its answer per case is
   --of-attempt a<n> --result pass|fail|inconclusive --actual "<words>" --then-quote ... --reason "<why the first
   verdict was wrong>" [--completion <path of the post_action capture that proves it>] [--limitation "<words>"]`. The check is not run
   again: the new record `a<n>-r<k>` copies the evidence, probes and steps of `a<n>` as they were, changes only
-  result, actual and quotes, starts now, and says so in `limitations[]`; `record.json` is untouched and the new record passes every rule a
+  result, actual and quotes, starts now, and says so in `limitations[]`; `record.json` is untouched and it passes every rule a
   built one does (a changed file, a stale revision, a `pass` with no completion proof: refused). It needs an open S6
   dispatch. An `inconclusive` re-judge needs your own `--limitation "<what stopped the check>"`. An attempt older than
   another with its own record cannot be re-judged: re-judge the newer, or capture again.
@@ -111,7 +113,7 @@ Each evidence ref has `kind: image|log|request_response|state|trace|other`, `pha
 `content_hash`, `captured_at`, nonempty `proves[]` and `mask_acknowledged: true` (your `--masked`). UI needs
 visual or trace evidence in `pre_action` and `post_action`; for API/CLI the refusal reads
 "api/cli requires request/output and post_action state evidence": the call that proves the check carries
-`--state-url` (a `state` capture in `post_action`), and a pass without one is refused;
+`--state-url` (a `state` capture in `post_action`);
 `no_write` state in both and the completion proof; static an explicit `before_not_applicable_reason` and
 `post_action` evidence: static reason equals the planned text.
 A pass needs `completion` in a post_action `proves`.

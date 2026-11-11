@@ -55,6 +55,11 @@ Subcommands (all but --hooks run when no flag is given):
                         --hygiene; the summary reads `(shard I/N)`. An empty part prints an explicit note and
                         passes. Not with --fast or --slow-tests: concatenate every shard's output once and
                         pass it as --slow-tests --from; a missing, repeated or mixed-N shard is exit 2.
+  --quarantined          runs ONLY the files scripts/tests/test-layers.json lists under "quarantine" (implies --tests;
+                        not with --fast or --slow-tests; --shard works, weighted by each row's "seconds"). A measurement,
+                        not a gate: exit 0 whatever the files do, 2 when the runner itself fails.
+  --watch-out PATH       with --quarantined: writes the watch record (sha, package_version, shard, expected, one status
+                        per file: green|red|timeout|ran_nothing|missing, FAIL names, last traceback line) to PATH.
   --hygiene              fails when the package directory holds anything git does not track.
                         A marketplace whose source is a local directory copies the tree as it
                         lies on disk, so a leftover of a test run is installed for the next
@@ -64,6 +69,7 @@ Subcommands (all but --hooks run when no flag is given):
 Prints one PASS/FAIL line per check and a final summary; exits 1 on any failure.
 """
 import argparse
+import ast
 import json
 import math
 import os
@@ -97,6 +103,11 @@ SLOW_TESTS_FILE = SCRIPTS_DIR / "slow_tests.json"
 # is a ceiling, not a target: it stops a slow-but-green file from reading as a failure, it does not
 # make the slowness fine.
 TEST_TIMEOUTS = {
+    # 11.11: TD-15, a story replays a recorded run through the real doors: every `handed` facet is a real
+    # `story_step start` on its own copy of the world. 330 s on a loaded Windows box; full tier only.
+    "test_scenario_cart_1.py": 1200,
+    "test_scenario_local_1_arm_b.py": 1200,
+    "test_scenario_local_1_0108.py": 1800,
     "test_infra_failure.py": 600,
     "test_red_sandbox_probe.py": 600,
     # 05.10: 345 checks split out of test_red_sandbox_probe.py (which ran 769 s as one file): 327 s alone on
@@ -120,6 +131,21 @@ TEST_TIMEOUTS = {
     # runs only in the nightly package-full, where a loaded runner would turn it red (FR-31). The cost cut is queued (the B-155 class);
     # the ceiling only keeps a green file green.
     "test_blast_radius.py": 600,
+    # 10.11: TR4-4, 13 checks, 238 s in the builder's run on Windows (t-2053 F5) against 20.0 s on the CI canon 8063481: every check builds
+    # its own seeded project and runs the S0 stage_done subprocess, so the cost is process spawn on a loaded machine (FR-31). The
+    # ceiling only keeps a green file green.
+    "test_exit_limit_halt_answered.py": 600,
+    # 10.11: t-2197, five live worlds (each a real controller init + seeded S5 rework/finish subprocesses + several Driver.run processes),
+    # 211-229 s on a normal CI runner and timed out at 300 s on three jobs co-scheduled on contended GKE nodes (28303701, 28303725,
+    # 28303050; every file in those shards ran 1.3-1.6x slower). FR-31: the ceiling only keeps a green file green; the split of the
+    # file (the B-155 class) is queued.
+    "test_story_run_s7_live.py": 600,
+    # 10.11: t-2202, the same contended-runner class (t-2197): 266.0 s seen on a loaded GKE node against 157-165 s normal, 34 s under the
+    # default 300 s. FR-31: the ceiling only keeps a green file green; the cost cut is queued (the B-155 class).
+    "test_no_move_seam.py": 600,
+    # 10.11: t-2202, the same class: 258.6 s seen on a loaded GKE node (shard 2) against 129-146 s normal. FR-31: the ceiling only keeps
+    # a green file green; the cost cut is queued (the B-155 class).
+    "test_story_run_refusals.py": 600,
 }
 
 # A child that imports the package writes __pycache__ into it, and what lies in the package
@@ -131,6 +157,7 @@ sys.dont_write_bytecode = True
 
 RESULTS: list[tuple[bool, str]] = []
 TEST_DURATIONS: dict[str, float] = {}  # relative test file -> seconds, filled by cmd_tests()
+TEST_CAPTURE: dict[str, dict] = {}     # test file name -> {"fails": every FAIL line, "crash": last traceback line}
 
 
 def check(name: str, ok: bool, detail: str = "", seconds: float | None = None) -> bool:
@@ -374,7 +401,14 @@ def cmd_limits() -> bool:
                f"{len(violations)} file(s)")
     for v in violations[:30]:
         print(f"  - {v}")
-    return ok
+    # A rule a role must keep is a row of design/role-rules.json; trimming a file to its cap must not take one out silently.
+    import role_rules
+    lost = role_rules.findings(PLUGIN_ROOT)
+    ok_rules = check("limits: every mandatory role rule of design/role-rules.json holds in its carrier", not lost,
+                     f"{len(lost)} finding(s)")
+    for line in lost:
+        print(f"  - {line}")
+    return ok and ok_rules
 
 
 # --- --hooks / --tests ----------------------------------------------------------------------
@@ -385,6 +419,58 @@ def cmd_limits() -> bool:
 # cannot collide. CPU and %TEMP% capacity are the only shared resources, and four workers on
 # an 8-CPU box leaves room for the other selftests that run on the same machine.
 TEST_WORKERS = 4
+
+
+# "Ran nothing" (TR2-12): a test file is judged by its exit code, and a pytest-style file (functions
+# `test_*`, no entry) run as a script defines functions, exits 0 and executes no check. A script-style
+# file prints its tally (`finish()` / `N/N ok`), a pytest-style file with the entry prints pytest's
+# summary. The evidence of execution is DATA in the output: a tally `N/M ok` with M > 0, a pytest summary
+# with at least one passed or failed, or unittest's `Ran N tests`. A 0/0 tally, a summary of skips only and
+# any other output (a print at import) are not evidence. The definitions are read from the parsed source
+# (an `ast` walk), so a `def test_x():` inside a string is not a test; a working script that calls its own
+# `test_a()` by name and prints no tally is a stated limit (it reads as ran nothing). pytest exit 5 (nothing
+# collected) is already non-zero. The door is a script entry in the file.
+RAN_NOTHING_TEXT = "ran nothing: add a script entry"
+_TALLY = re.compile(r"(\d+)/(\d+) ok ===")
+_PYTEST_SUMMARY = re.compile(r"\b(\d+) (?:passed|failed)\b")
+_UNITTEST_RAN = re.compile(r"^Ran (\d+) tests?\b", re.MULTILINE)
+
+
+def defines_tests(source: str) -> bool:
+    """True when the parsed source defines a function named `test_*` (any depth, async too)."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return False
+    return any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.startswith("test_")
+               for n in ast.walk(tree))
+
+
+def executed_checks(text: str) -> bool:
+    """True when the output carries evidence that at least one check ran."""
+    if any(int(m.group(2)) > 0 for m in _TALLY.finditer(text)):
+        return True
+    if any(int(m.group(1)) > 0 for m in _PYTEST_SUMMARY.finditer(text)):
+        return True
+    return any(int(m.group(1)) > 0 for m in _UNITTEST_RAN.finditer(text))
+
+
+def ran_nothing(path: Path, stdout: str, stderr: str) -> bool:
+    """True when the file exited 0, defines `test_*` functions and its output shows no check executed."""
+    if executed_checks(stdout + "\n" + stderr):
+        return False
+    return defines_tests(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _crash_line(p) -> str:
+    """The exception line that closes the last traceback in a child's output (200 chars), or '' when there is none."""
+    for text in (p.stderr or "", p.stdout or ""):
+        rows = text.splitlines()
+        marks = [i for i, row in enumerate(rows) if row.startswith("Traceback (most recent call last)")]
+        if marks:
+            tail = [row for row in rows[marks[-1] + 1:] if row.strip() and not row[0].isspace()]
+            return tail[-1][:200] if tail else ""
+    return ""
 
 
 def _test_outcome(path: Path) -> tuple[Path, bool, str, float]:
@@ -403,10 +489,14 @@ def _test_outcome(path: Path) -> tuple[Path, bool, str, float]:
     # alone the only way to learn which check broke was to reproduce the load — twice this
     # cost an hour. Three lines here answer it from the run that actually failed.
     failed = [line for line in lines if line.startswith("FAIL")]
+    TEST_CAPTURE[path.name] = {"fails": failed, "crash": _crash_line(p)}
     detail = f"exit {p.returncode}" + (f" | {lines[-1][:200]}" if lines else "")
     if failed:
         detail += "".join("\n      " + line[:300] for line in failed[:3])
-    return path, p.returncode == 0, detail, elapsed
+    ok = p.returncode == 0
+    if ok and ran_nothing(path, p.stdout or "", p.stderr or ""):
+        return path, False, detail + " | " + RAN_NOTHING_TEXT, elapsed
+    return path, ok, detail, elapsed
 
 
 def _report_test(outcome: tuple[Path, bool, str, float]) -> bool:
@@ -478,6 +568,225 @@ def cmd_contracts() -> bool:
     return ok
 
 
+# --- test layers (scripts/tests/test-layers.json) ----------------------------------------------
+# Which package test files run in the canon (keep) and which sit in quarantine. The file is DATA (FR-13), read only
+# by test_layers(); this runner filters by it and judges nothing about a file's content. Absent = today's behaviour.
+LAYER_WORDS = ("scenario", "data_join", "table", "register", "gate_named", "detector")
+_TEST_FILE_NAME = re.compile(r"test_[A-Za-z0-9_]+\.py")
+_TEST_NAME_IN_TEXT = re.compile(r"test_[a-z0-9_]+\.py")
+# A fixture whose owner test is named by the fixture's place, not by its text (a ratchet fixture's owner) is a row of
+# the "fixture_owners" section of test-layers.json (fixture file -> owning test file): data, FR-13.
+
+
+class TestLayersError(ValueError):
+    """test-layers.json is malformed; the message is the one sentence main() prints."""
+
+
+def layers_problems(raw, tests_dir: Path) -> list[str]:
+    """What is wrong with the parsed layers file, one sentence each; [] when its shape is right."""
+    if not isinstance(raw, dict):
+        return ["the top level is not a JSON object; expected an object with keep, quarantine, pin_holds, cohorts"]
+    layers = raw.get("layers", list(LAYER_WORDS))
+    if not (isinstance(layers, list) and all(isinstance(w, str) for w in layers)):
+        return ['"layers" must be a list of layer words']
+    for key in ("keep", "quarantine", "pin_holds", "cohorts"):
+        if not isinstance(raw.get(key, {}), dict):
+            return [f'"{key}" must be an object keyed by test file name']
+    owners = raw.get("fixture_owners", {})
+    if not (isinstance(owners, dict) and all(isinstance(k, str) and isinstance(v, str) and _TEST_FILE_NAME.fullmatch(v)
+                                             for k, v in owners.items())):
+        return ['"fixture_owners" must be an object mapping a fixture file name to its owning test_*.py file']
+    if not isinstance(raw.get("enforce_listing", False), bool):
+        return ['"enforce_listing" must be true or false']
+    keep, quarantine = raw.get("keep", {}), raw.get("quarantine", {})
+    pins, cohorts = raw.get("pin_holds", {}), raw.get("cohorts", {})
+    out: list[str] = []
+    for section, rows in (("keep", keep), ("quarantine", quarantine), ("pin_holds", pins)):
+        out += [f'"{section}" key {n!r} is not a bare test file name; expected test_*.py with no folder'
+                for n in rows if not _TEST_FILE_NAME.fullmatch(n)]
+    out += [f"{n} is in both keep and quarantine; expected it in one section" for n in sorted(set(keep) & set(quarantine))]
+    for name, row in keep.items():
+        if not isinstance(row, dict):
+            out.append(f"keep row {name} must be an object with layer and why")
+            continue
+        if row.get("layer") not in layers:
+            out.append(f"keep row {name}: layer {row.get('layer')!r} is not one of {', '.join(layers)}")
+        if not (isinstance(row.get("why"), str) and row["why"].strip()):
+            out.append(f"keep row {name}: why is empty; expected one line saying what the file protects")
+        if row.get("layer") == "detector":
+            if not (isinstance(row.get("named_by"), list) and row["named_by"]):
+                out.append(f"keep row {name}: a detector needs named_by, the carriers that name it")
+            if "replaced_by" not in row:
+                out.append(f"keep row {name}: a detector needs the key replaced_by (null until replaced)")
+    for name, row in quarantine.items():
+        if not isinstance(row, dict):
+            out.append(f"quarantine row {name} must be an object with cohort, entered, release_at_entry")
+            continue
+        out += [f"quarantine row {name}: {k} is missing; expected a non-empty value"
+                for k in ("cohort", "entered", "release_at_entry") if not row.get(k)]
+        if row.get("cohort") and not (isinstance(row["cohort"], str) and row["cohort"] in cohorts):
+            out.append(f"quarantine row {name}: cohort {row['cohort']!r} is not in cohorts")
+    out += [f"pin_holds names {n}, which is not in scripts/tests/; expected an existing test file (restore it, or remove "
+            "the pin_holds row)" for n in pins if _TEST_FILE_NAME.fullmatch(n) and not (tests_dir / n).is_file()]
+    out += [f"quarantine row {n}: seconds must be a number, got {row['seconds']!r}"
+            for n, row in quarantine.items() if isinstance(row, dict) and "seconds" in row
+            and (isinstance(row["seconds"], bool) or not isinstance(row["seconds"], (int, float)))]
+    return out
+
+
+def test_layers(path: Path | None = None) -> dict:
+    """The one reader of scripts/tests/test-layers.json. Absent: the world before the file exists (`absent: True`,
+    nothing filtered). Malformed or a form `layers_problems` refuses: TestLayersError, one sentence."""
+    path = path or TESTS_DIR / "test-layers.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return {"keep": {}, "quarantine": {}, "pin_holds": {}, "cohorts": {}, "fixture_owners": {},
+                "enforce_listing": False, "absent": True}
+    except (OSError, ValueError) as exc:
+        raise TestLayersError(f"{path}: cannot be read as JSON ({' '.join(str(exc).split())}); expected an object "
+                              "with keep, quarantine, pin_holds, cohorts") from None
+    problems = layers_problems(raw, path.parent)
+    if problems:
+        raise TestLayersError(f"{path}: {problems[0]}")
+    return {"keep": dict(raw.get("keep", {})), "quarantine": dict(raw.get("quarantine", {})),
+            "pin_holds": dict(raw.get("pin_holds", {})), "cohorts": dict(raw.get("cohorts", {})),
+            "fixture_owners": dict(raw.get("fixture_owners", {})),
+            "enforce_listing": raw.get("enforce_listing", False), "layers": list(raw.get("layers", LAYER_WORDS)),
+            "story_coverage_required": list(raw.get("story_coverage_required", [])), "absent": False}
+
+
+_PROOF_IN_BACKTICKS = re.compile(r"`(test_[a-z0-9_]+\.py)`")
+# Carriers read as PROSE (a name anywhere in the text counts); the structured ones are read by their field below.
+_PROSE_CARRIERS = ("scripts/install_smoke.py", "design/architecture.md", "design/factory-rules.md")
+
+
+def _carrier_text(rel: str) -> str:
+    carrier = PLUGIN_ROOT / rel
+    return carrier.read_text(encoding="utf-8", errors="replace") if carrier.is_file() else ""
+
+
+def _field_names(rows, *path) -> set[str]:
+    """The test_*.py names in the string found at `path` of each row of a JSON carrier; another shape names nothing."""
+    out: set[str] = set()
+    for row in rows if isinstance(rows, list) else []:
+        for key in path:
+            row = row.get(key) if isinstance(row, dict) else None
+        if isinstance(row, str):
+            out.update(_TEST_NAME_IN_TEXT.findall(row))
+    return out
+
+
+def _json_carrier(rel: str) -> dict:
+    try:
+        data = json.loads(_carrier_text(rel) or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def registry_proof_names(text: str) -> set[str]:
+    """The test_*.py names in the `test` field of every row of REGISTRY in scripts/refusal_registry.py (read by AST, not
+    imported: the FR-57 proof of a refusal). A docstring that mentions a test names nothing."""
+    names: set[str] = set()
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return names
+    for node in ast.walk(tree):
+        target = node.target if isinstance(node, ast.AnnAssign) else node.targets[0] if isinstance(node, ast.Assign) else None
+        if not (isinstance(target, ast.Name) and target.id == "REGISTRY" and node.value is not None):
+            continue
+        for row in (d for d in ast.walk(node.value) if isinstance(d, ast.Dict)):
+            for key, value in zip(row.keys, row.values):
+                if isinstance(key, ast.Constant) and key.value == "test":
+                    for part in ast.walk(value):
+                        if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                            names.update(_TEST_NAME_IN_TEXT.findall(part.value))
+    return names
+
+
+def gate_named_files(extra_texts=()) -> set[str]:
+    """Test files a carrier of the package names: the selftest contract and hooks walks; by FIELD, gate-registry.json
+    `rows[].test`, stage-joints.json `joints[].joint.test`, the REGISTRY `test` field of scripts/refusal_registry.py, the
+    owner of a fixture (`fixture_owners` of test-layers.json); as PROSE, install_smoke.py, design/architecture.md,
+    design/factory-rules.md and the backticked proofs of design/state-exits.md; plus the names in `extra_texts` (carriers
+    outside the package: the forge passes them). Only names present in scripts/tests/ come back."""
+    names = set(CONTRACT_TESTS) | {"test_hooks_wiring.py"}
+    for text in [*extra_texts, *(_carrier_text(rel) for rel in _PROSE_CARRIERS)]:
+        names.update(_TEST_NAME_IN_TEXT.findall(text))
+    names.update(_PROOF_IN_BACKTICKS.findall(_carrier_text("design/state-exits.md")))
+    names.update(_field_names(_json_carrier("references/gate-registry.json").get("rows"), "test"))
+    names.update(_field_names(_json_carrier("references/stage-joints.json").get("joints"), "joint", "test"))
+    names.update(registry_proof_names(_carrier_text("scripts/refusal_registry.py")))
+    names.update(owner for fixture, owner in test_layers(TESTS_DIR / "test-layers.json")["fixture_owners"].items()
+                 if (TESTS_DIR / "fixtures" / fixture).is_file())
+    return {n for n in names if (TESTS_DIR / n).is_file()}
+
+
+_UNLISTED_DOOR = ("add a keep row (layer + why) to scripts/tests/test-layers.json, or put its case as a scenario/table "
+                  "row and remove the file (docs/TESTING.md)")
+
+
+def _listing_ok(layers: dict, selected: list, once: bool) -> bool:
+    """The enforce_listing FAIL lines. A file in neither section still runs (it is in `selected`) and is reported;
+    the keep-wide lines print once per pipeline (`once`: no shard, or shard 1)."""
+    if layers["absent"] or not layers["enforce_listing"]:
+        return True
+    keep, ok = layers["keep"], True
+    if once and not keep:
+        ok = check("tests: keep list empty", False, "every file runs; add keep rows to scripts/tests/test-layers.json")
+    if once:
+        for name in sorted(keep):
+            if not (TESTS_DIR / name).is_file():
+                ok = check(f"tests: keep row names no file: {name}", False) and ok
+    if keep:
+        listed = set(keep) | set(layers["quarantine"]) | set(layers["pin_holds"])
+        for f in selected:
+            if f.name not in listed:
+                ok = check(f"tests: unlisted: {f.name} -- {_UNLISTED_DOOR}", False) and ok
+    return ok
+
+
+def _head_sha() -> str:
+    sha = os.environ.get("CI_COMMIT_SHA", "").strip()
+    if sha:
+        return sha
+    try:
+        p = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(PLUGIN_ROOT), capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else "unknown"
+
+
+def _package_version() -> str:
+    try:
+        import install_paths
+        return install_paths.plugin_version(PLUGIN_ROOT)
+    except (ImportError, ValueError):
+        return "unknown"
+
+
+def _watch_entry(outcome: tuple) -> dict:
+    """One file's record: status green|red|timeout|ran_nothing, seconds, FAIL names (50 x 160 chars + `+N more`), crash."""
+    _, ok, detail, elapsed = outcome
+    status = ("green" if ok else "timeout" if detail.startswith("timed out") else
+              "ran_nothing" if RAN_NOTHING_TEXT in detail else "red")
+    captured = TEST_CAPTURE.get(outcome[0].name, {"fails": [], "crash": ""})
+    fails = [line[5:].strip()[:160] for line in captured["fails"][:50]]
+    if len(captured["fails"]) > 50:
+        fails.append(f"+{len(captured['fails']) - 50} more")
+    return {"status": status, "seconds": round(elapsed, 1), "fails": fails, "crash": captured["crash"][:200]}
+
+
+def _write_watch(path: str, shard, expected: list, entries: dict) -> None:
+    record = {"sha": _head_sha(), "package_version": _package_version(),
+              "shard": f"{shard[0]}/{shard[1]}" if shard else "1/1", "expected": expected, "files": entries}
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
 _SHARD_FORM = re.compile(r"([0-9]+)/([0-9]+)")
 
 
@@ -519,7 +828,24 @@ def shard_files(files, weights: dict, n: int, default: float = 0.0) -> list[list
     return parts + [[] for _ in range(n - len(parts))]
 
 
-def cmd_tests(workers: int = TEST_WORKERS, fast: bool = False, shard: tuple[int, int] | None = None) -> bool:
+def _quarantine_branch(quarantine: dict, quarantined: bool) -> tuple[list[Path], dict, str | None]:
+    """The quarantine branch of cmd_tests: which files this run takes, their weights, and the line that says so.
+
+    quarantined=True takes only the quarantine rows (weights = each row's "seconds") and the line counts them;
+    otherwise it takes every test_*.py that is not a quarantine row, weights are left empty (the caller takes them
+    from slow_tests.json), and the line names how many files were not run, or is None when none were."""
+    if quarantined:
+        files = [TESTS_DIR / name for name in sorted(quarantine)]
+        weights = {name: row.get("seconds") for name, row in quarantine.items()}
+        return files, weights, f"tests: quarantine: {len(quarantine)} files"
+    files = [f for f in _sorted_paths(TESTS_DIR.glob("test_*.py")) if f.name not in quarantine]
+    line = (f"tests: quarantine: {len(quarantine)} file(s) not run (scripts/tests/test-layers.json)"
+            if quarantine else None)
+    return files, {}, line
+
+
+def cmd_tests(workers: int = TEST_WORKERS, fast: bool = False, shard: tuple[int, int] | None = None,
+              quarantined: bool = False, watch_out: str | None = None) -> bool:
     """Every test file as its own process, `workers` of them at a time.
 
     shard=(I, N) runs only the I-th of N weight-balanced parts of the file list (shard_files); the first line
@@ -533,28 +859,68 @@ def cmd_tests(workers: int = TEST_WORKERS, fast: bool = False, shard: tuple[int,
 
     fast=True skips the files scripts/slow_tests.json names (the release run — a plain `--tests`
     or `--fast`'s absence — still covers them). Whether that list has gone stale is no longer
-    an INFO line here: `--slow-tests` diffs it against the run (cmd_slow_tests)."""
-    if not TESTS_DIR.exists():
-        if shard:
-            print(f"selftest shard {shard[0]}/{shard[1]}: 0 of 0 test files")
-        print("tests: scripts/tests/ does not exist yet — nothing to run (explicit note)")
-        return True
-    files = _sorted_paths(TESTS_DIR.glob("test_*.py"))
-    if not files:
-        if shard:
-            print(f"selftest shard {shard[0]}/{shard[1]}: 0 of 0 test files")
-        print("tests: no test_*.py files under scripts/tests/ yet (explicit note)")
-        return True
+    an INFO line here: `--slow-tests` diffs it against the run (cmd_slow_tests).
+
+    scripts/tests/test-layers.json (test_layers): the "quarantine" rows are filtered out BEFORE sharding and `fast`, so a
+    quarantined file is in no shard and no tier; `quarantined=True` runs only them (weights = each row's "seconds") and,
+    with `watch_out`, writes the watch record. A file in neither section is never dropped: it runs, and with
+    "enforce_listing" it is reported. The file absent = none of this, today's behaviour."""
+    layers = test_layers()
+    quarantine = layers["quarantine"]
+    if not quarantined:
+        if not TESTS_DIR.exists():
+            if shard:
+                print(f"selftest shard {shard[0]}/{shard[1]}: 0 of 0 test files")
+            print("tests: scripts/tests/ does not exist yet — nothing to run (explicit note)")
+            return True
+        if not _sorted_paths(TESTS_DIR.glob("test_*.py")):
+            if shard:
+                print(f"selftest shard {shard[0]}/{shard[1]}: 0 of 0 test files")
+            print("tests: no test_*.py files under scripts/tests/ yet (explicit note)")
+            return True
+    files, weights, quarantine_line = _quarantine_branch(quarantine, quarantined)
     if shard:
         total = len(files)
         data = slow_tests()
+        default = data["thresholds"]["fast_under_s"] / 2
+        if not quarantined:
+            weights = data["files"]
         # the tested selection, asked for at most `total` shards: a shard past that is empty either way, and an
         # absurd N must not allocate N lists
-        parts = shard_files(files, data["files"], min(shard[1], total), data["thresholds"]["fast_under_s"] / 2)
+        parts = shard_files(files, weights, min(shard[1], total), default)
         files = parts[shard[0] - 1] if shard[0] <= len(parts) else []
         print(f"selftest shard {shard[0]}/{shard[1]}: {len(files)} of {total} test files")
-        if not files:
-            return check(f"tests: shard {shard[0]}/{shard[1]}: 0 test files (explicit note)", True)
+    if quarantine_line:
+        print(quarantine_line)
+    entries: dict = {}
+    expected = [f.name for f in files]
+    listing_ok = quarantined or _listing_ok(layers, files, shard is None or shard[0] == 1)
+    if shard and not files:
+        ok = check(f"tests: shard {shard[0]}/{shard[1]}: 0 test files (explicit note)", True)
+        if quarantined and watch_out:
+            _write_watch(watch_out, shard, expected, entries)
+        return ok and listing_ok
+    if quarantined and not files:
+        if watch_out:
+            _write_watch(watch_out, shard, expected, entries)
+        return True
+    if quarantined:
+        runnable = [f for f in files if f.is_file()]
+        for f in files:
+            if f not in runnable:
+                check(f"tests: quarantine row names no file: {f.name}", False)
+                entries[f.name] = {"status": "missing", "seconds": 0.0, "fails": [], "crash": ""}
+        ok = True
+        pool = ThreadPoolExecutor(max_workers=max(1, workers))
+        with pool:
+            futures = [(f, pool.submit(_test_outcome, f)) for f in runnable]
+            for f, future in futures:
+                outcome = future.result()
+                ok = _report_test(outcome) and ok
+                entries[f.name] = _watch_entry(outcome)
+        if watch_out:
+            _write_watch(watch_out, shard, expected, {n: entries[n] for n in expected})
+        return ok
     skipped = 0
     if fast:
         before = len(files)
@@ -563,11 +929,11 @@ def cmd_tests(workers: int = TEST_WORKERS, fast: bool = False, shard: tuple[int,
         skipped = before - len(files)
 
     if workers <= 1:
-        ok = True
+        ok = listing_ok
         for f in files:
             ok = _run_test_file(f) and ok
     else:
-        ok = True
+        ok = listing_ok
         with ThreadPoolExecutor(max_workers=workers) as pool:
             # Threads, not processes: every one of them only waits on a subprocess.
             for future in [pool.submit(_test_outcome, f) for f in files]:
@@ -722,11 +1088,14 @@ def this_run_durations() -> dict[str, float]:
 def slow_tests_diff(data: dict, measured: dict, tests_dir: Path | None = None) -> dict:
     """The list against a measurement. A file that is not on disk is ignored when it is only
     measured (a stale artifact) and reported as `missing` when it is listed. A file at exactly a
-    threshold is unchanged; a listed file nobody measured is unchanged (nothing says it moved)."""
+    threshold is unchanged; a listed file nobody measured is unchanged (nothing says it moved). A quarantined
+    file (test-layers.json) is not in the canon's list, so it is neither added, removed, missing nor counted."""
     tests_dir = tests_dir or TESTS_DIR
     over = data["thresholds"]["slow_over_s"]
     under = data["thresholds"]["fast_under_s"]
-    listed = data["files"]
+    benched = set(test_layers(tests_dir / "test-layers.json")["quarantine"])
+    listed = {n: s for n, s in data["files"].items() if n not in benched}
+    measured = {n: s for n, s in measured.items() if n not in benched}
 
     def on_disk(name: str) -> bool:
         return (tests_dir / name).is_file()
@@ -748,16 +1117,17 @@ def slow_tests_updated(data: dict, measured: dict, measured_on: str, source: str
     tests_dir = tests_dir or TESTS_DIR
     over = data["thresholds"]["slow_over_s"]
     under = data["thresholds"]["fast_under_s"]
+    benched = set(test_layers(tests_dir / "test-layers.json")["quarantine"])
     files: dict = {}
     for name, secs in data["files"].items():
-        if not (tests_dir / name).is_file():
+        if name in benched or not (tests_dir / name).is_file():
             continue
         if name not in measured:
             files[name] = secs
         elif measured[name] >= under:
             files[name] = round(measured[name], 1)
     for name, secs in measured.items():
-        if secs > over and (tests_dir / name).is_file():
+        if secs > over and name not in benched and (tests_dir / name).is_file():
             files[name] = round(secs, 1)
     return {"measured_on": measured_on, "source": source, "thresholds": dict(data["thresholds"]),
             "max_drift": data["max_drift"], "files": files}
@@ -967,9 +1337,20 @@ def main() -> None:
     ap.add_argument("--shard", metavar="I/N",
                     help="--tests (or a flagless run): run only the I-th of N weight-balanced parts of the "
                          "test files; shard 1 also runs every other check, the rest run tests + hygiene")
+    ap.add_argument("--quarantined", action="store_true",
+                    help="run ONLY the quarantine rows of scripts/tests/test-layers.json (implies --tests); a "
+                         "measurement: exit 0 whatever the files do, 2 when the runner fails")
+    ap.add_argument("--watch-out", metavar="PATH",
+                    help="--quarantined: write the watch record (JSON) to PATH, creating its folder")
     args = ap.parse_args()
     if (args.from_file or args.update) and not args.slow_tests:
         ap.error("--from and --update belong to --slow-tests")
+    if args.watch_out and not args.quarantined:
+        ap.error("--watch-out belongs to --quarantined: it writes the record of a quarantine run")
+    if args.quarantined and (args.fast or args.slow_tests):
+        ap.error("--quarantined runs only the quarantine rows; it does not combine with "
+                 + ("--fast, which is a tier of the canon" if args.fast else
+                    "--slow-tests, which measures the canon's whole run"))
     if args.slow_tests and args.fast:
         ap.error("--slow-tests measures a run that includes the slow files; it does not combine with --fast")
     shard = None
@@ -983,8 +1364,8 @@ def main() -> None:
 
     flags_given = any([args.selftest_scripts, args.roots, args.lang, args.limits,
                        args.wiring, args.slices, args.hooks, args.contracts, args.tests,
-                       args.homes, args.hygiene, args.slow_tests])
-    if shard and (flags_given or args.ping) and not args.tests:
+                       args.homes, args.hygiene, args.slow_tests, args.quarantined])
+    if shard and (flags_given or args.ping) and not (args.tests or args.quarantined):
         ap.error("--shard splits the test files: use it with --tests or with no check flag")
     run_all = not flags_given and not args.ping and not args.fast
     # a flagless sharded run: only shard 1 carries the non-test checks, so each runs once per pipeline
@@ -999,10 +1380,11 @@ def main() -> None:
     # The slow-test list is read at the START of every run that uses it (the fast tier, any run
     # that includes --tests, --slow-tests): absent or malformed it is one line and exit 2, never a
     # fast tier that quietly runs everything.
-    if args.fast or args.tests or args.slow_tests or run_all:
+    if args.fast or args.tests or args.quarantined or args.slow_tests or run_all:
         try:
             slow_tests()
-        except SlowTestsError as exc:
+            test_layers()
+        except (SlowTestsError, TestLayersError) as exc:
             print(f"selftest: {exc}", file=sys.stderr)
             sys.exit(2)
 
@@ -1040,7 +1422,13 @@ def main() -> None:
         ok = cmd_hooks() and ok
     if args.contracts:
         ok = cmd_contracts() and ok
-    if run_all or args.tests:
+    if args.quarantined:
+        try:
+            cmd_tests(max(1, args.jobs), shard=shard, quarantined=True, watch_out=args.watch_out)
+        except Exception as exc:    # the runner itself failed (an unwritable --watch-out, say): 2, not a measurement
+            print(f"selftest: the quarantine run failed: {' '.join(str(exc).split())}", file=sys.stderr)
+            sys.exit(2)
+    elif run_all or args.tests:
         ok = cmd_tests(max(1, args.jobs), shard=shard) and ok
     # After --tests, which is what fills this process's durations; its own exit code (1 = more
     # changes than the limit, 2 = nothing to measure) is not a PASS/FAIL line.
@@ -1058,6 +1446,10 @@ def main() -> None:
         bad = sum(1 for good, _ in RESULTS if not good)
         tag = f" (shard {shard[0]}/{shard[1]})" if shard else ""
         print(f"\n=== qa-factory selftest{tag}: {len(RESULTS) - bad}/{len(RESULTS)} ok ===")
+    if args.quarantined:
+        # a measurement of the quarantine, not a gate: its own result never fails the call, but another check flag
+        # given in the same call (--limits, --lang ...) keeps its own verdict
+        sys.exit(0 if ok else 1)
     sys.exit(2 if slow_code == 2 else (0 if ok and not slow_code else 1))
 
 

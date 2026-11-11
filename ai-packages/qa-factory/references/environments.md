@@ -12,8 +12,8 @@ covers both and never prints secret values) and a list `config.environments[]`, 
 per named stand (`local`, `QA`, `staging`, …): name, `base_url`, how to bring it up,
 credentials by role, and what may safely be broken there (a destructive test needs an
 explicit "safe" marking on that entry — absence means unsafe, not unknown). A role's account:
-`credentials_by_role["<role>"] = "<USER_KEY> / <SECRET_KEY>"` (env-file names, never values), recorded by
-`project_decisions.py stand-account`.
+`credentials_by_role["<role>"] = "<USER_KEY> / <SECRET_KEY>"` (env-file names, no values), recorded by
+`project_knowledge.py account` (config).
 
 ## Authorized environment preparation
 
