@@ -12,6 +12,7 @@ import ast
 import contextlib
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -502,9 +503,178 @@ def layers_cases(root: Path) -> None:
              {"test_plain.py": 12.0})
 
 
+def _num(value):
+    return None if value is None else round(value, 6)
+
+
+def clock_cases(root: Path) -> None:
+    """TD-11 D0: the per-scenario clock's reader (a measurer, FR-28): one table of sink -> report. Seconds below are the
+    FIXTURE's own (written into the sink rows here), never a measurement of this run. The reader is loaded by path:
+    the keep row's `covers` names helpers a file IMPORTS; the integrator's `covers` row for scenario_clock.py (needed
+    from integration, node NC-D) is what lets this become a plain `import scenario_clock`."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("scenario_clock", Path(__file__).resolve().parent / "scenario_clock.py")
+    clock = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(clock)
+
+    head = {"event": "file", "file": "test_x.py", "start": 100.0, "end": 110.0, "exit": 0, "python": "3.12.0",
+            "sha": "abc"}
+    ok_check = lambda t, scope, ok=True: {"event": "check", "t": t, "name": "c", "ok": ok, "scope": scope}  # noqa: E731
+    build = lambda t, seconds, scope, nested=False: {"event": "build", "t": t, "seconds": seconds, "name": "seed",  # noqa: E731
+                                                     "scope": scope, "nested": nested}
+    tempdir = lambda t, scope: {"event": "tempdir", "t": t, "name": "qa-world-x1y2z3w4", "scope": scope}  # noqa: E731
+    a_scope = ["<module>", "main", "scn_a"]
+    child = {"event": "child", "t": 101.0, "seconds": 1.0, "script": "stage_done.py", "scope": a_scope + ["seed"]}
+    normal = [head, tempdir(100.5, a_scope + ["seed"]), child, build(100.2, 2.0, a_scope + ["seed"]),
+              ok_check(103.0, a_scope), ok_check(107.0, ["<module>", "main", "scn_b"], ok=False)]
+    # per case: (label, rows or text for the one file, expected[, builders]) - expected is (scenario table, unattributed wall)
+    # or a refusal word. scenario row: (name, wall, checks, fails, children, tempdirs, builds, builder_s, child_in_build_s);
+    # None = `not measured`
+    cases = [
+        ("a sink with build events: builder seconds are the build row's own (2.0, not the 3.0 wall of its scenario), the "
+         "child inside the build is flagged and is not added again, the tail after the last event is unattributed",
+         normal, ([("scn_a", 3.0, 1, 0, 1, 1, 1, 2.0, 1.0), ("scn_b", 4.0, 1, 1, 0, 0, 0, 0.0, 0.0)], 3.0)),
+        ("a tempdir outside any build is a tempdir, never a build",
+         [head, tempdir(101.0, a_scope), ok_check(103.0, a_scope)],
+         ([("scn_a", 3.0, 1, 0, 0, 1, 0, 0.0, 0.0)], 7.0)),
+        ("a nested build is neither counted nor added to the builder seconds a second time",
+         [head, build(100.2, 0.5, a_scope + ["seed"], nested=True), build(100.0, 2.0, a_scope + ["seed"]),
+          ok_check(103.0, a_scope)], ([("scn_a", 3.0, 1, 0, 0, 0, 1, 2.0, 0.0)], 7.0)),
+        ("no builders named: builds, builder seconds and the in-build children are `not measured`, never 0",
+         normal, ([("scn_a", 3.0, 1, 0, 1, 1, None, None, None), ("scn_b", 4.0, 1, 1, 0, 0, None, None, None)], 3.0), []),
+        ("a scenario under a `_contained` runner frame (and `run`) is attributed to its own name",
+         [head, ok_check(103.0, ["<module>", "main", "run", "_contained", "scn_a"])],
+         ([("scn_a", 3.0, 1, 0, 0, 0, 0, 0.0, 0.0)], 7.0)),
+        ("an unattributed check: no scenario in its scope - its seconds go to the bucket, not to a scenario and not to 0",
+         [head, ok_check(104.0, ["<module>", "main"]), ok_check(105.0, a_scope)],
+         ([("scn_a", 1.0, 1, 0, 0, 0, 0, 0.0, 0.0)], 4.0 + 5.0)),
+        ("a zero-scenario file: one file row, no scenario row, the whole wall seconds still shown",
+         [head], ([], 10.0)),
+        ("a sink with no file row: refused", [ok_check(101.0, a_scope)], "no `file` row"),
+        ("a broken JSON line: refused, the line number is named", [head, "{ not json"], "line 2"),
+        ("an empty directory: refused", None, "no *.jsonl"),
+    ]
+    for label, rows, expected, *given in cases:
+        builders = given[0] if given else ["seed"]
+        sink = root / f"clock-{abs(hash(label))}"
+        sink.mkdir()
+        if rows is not None:
+            (sink / "test_x.jsonl").write_text(
+                "".join((r if isinstance(r, str) else json.dumps(r)) + "\n" for r in rows), encoding="utf-8")
+        try:
+            derived = [clock.derive(e, builders=builders) for e in clock.read_sink(sink)]
+            text, message = clock.render(derived), None
+        except clock.ClockSinkError as exc:
+            derived, text, message = None, "", str(exc)
+        if isinstance(expected, str):
+            check(f"clock report ({label})", message is not None and expected in message and str(sink) in message,
+                  repr(message))
+            continue
+        got = None if derived is None else (
+            [(s["name"], _num(s["wall"]), s["checks"], s["fails"], s["children"], s["tempdirs"], s["builds"],
+              _num(s["builder_s"]), _num(s["child_in_build_s"])) for s in derived[0]["scenarios"]],
+            round(derived[0]["unattributed"]["wall"], 6))
+        check_eq(f"clock report ({label})", got, expected)
+        check_in(f"clock report ({label}): the table names the scenario count", f"scenarios: {len(expected[0])}", text)
+        if not builders:
+            check_in(f"clock report ({label}): the printed table says so", "builds not measured", text)
+    clock_hook_cases(root, clock)
+
+
+FIXTURE_HARNESS = '''import sys
+
+def check(name, ok, detail=""):
+    print(("PASS " if ok else "FAIL ") + name)
+
+def finish(label):
+    print("=== %s ===" % label)
+    sys.exit(0)
+'''
+FIXTURE_TEST = '''import shutil
+import subprocess
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+
+import harness
+
+
+def make_world():
+    path = tempfile.mkdtemp(prefix="qa-fix-")
+    subprocess.Popen([sys.executable, "-c", "pass"]).wait()
+    return path
+
+
+def pool_check():
+    harness.check("pool", False)
+
+
+def scn_one():
+    path = make_world()
+    harness.check("one", True)
+    shutil.rmtree(path)
+
+
+def scn_pool():
+    with ThreadPoolExecutor(1) as pool:
+        pool.submit(pool_check).result()
+
+
+def main():
+    scn_one()
+    scn_pool()
+    harness.finish("tiny")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def clock_hook_cases(root: Path, clock) -> None:
+    """The hook (a stage junction: a tiny test-shaped file through `scenario_clock run`) and the sitecustomize chain.
+    Nothing here asserts a duration."""
+    fixture = root / "clockfix" / "scripts" / "tests"
+    fixture.mkdir(parents=True)
+    (fixture / "harness.py").write_text(FIXTURE_HARNESS, encoding="utf-8")
+    (fixture / "test_tiny.py").write_text(FIXTURE_TEST, encoding="utf-8")
+    sink = root / "clock-hook-sink"
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("QA_SCENARIO_CLOCK") and k != "PYTHONPATH"}
+    with patch.dict(os.environ, clean, clear=True), contextlib.redirect_stdout(io.StringIO()):
+        code = clock.cmd_run(sink, [str(fixture / "test_tiny.py")], ["make_world"])
+    plain = subprocess.run([sys.executable, "-B", str(fixture / "test_tiny.py")], capture_output=True, text=True,
+                           encoding="utf-8", env=clean)
+    entry = clock.read_sink(sink)[0]
+    kinds = sorted(e["event"] for e in entry["events"])
+    tail = lambda kind: [(e["scope"][-1:], e.get("nested")) for e in entry["events"] if e["event"] == kind]  # noqa: E731
+    check_eq("clock hook: the clocked run prints byte-for-byte what the plain run prints, with the same exit code",
+             ((sink / "test_tiny.stdout.txt").read_text(encoding="utf-8"), code), (plain.stdout, plain.returncode))
+    check_eq("clock hook: one row per event kind - two checks (one from a pool thread, scope of that thread), one child "
+             "and one tempdir inside the builder's scope, one `build` row for the named builder, a `file` row that "
+             "saw the exit",
+             (kinds, tail("build"), tail("child"), tail("tempdir"), [e["scope"] for e in entry["events"]
+                                                                  if e["event"] == "check" and not e["ok"]],
+              entry["file"]["exit"], entry["file"]["exit_seen"], entry["errors"]),
+             (["build", "check", "check", "child", "tempdir"], [(["make_world"], False)], [(["make_world"], None)],
+              [(["make_world"], None)], [["pool_check"]], 0, True, []))
+
+    golden = Path(__file__).resolve().parent / "golden_sitecustomize"
+    for label, parts in (("the clock first", [clock.HOOK_DIR, golden]), ("the golden first", [golden, clock.HOOK_DIR])):
+        env = {**clean, "PYTHONPATH": os.pathsep.join(str(p) for p in parts)}
+        done = subprocess.run([sys.executable, "-B", "-c", "print('ran')"], capture_output=True, text=True, env=env)
+        check_eq(f"clock chain with the driver golden's sitecustomize ({label}): no recursion, the process runs",
+                 (done.returncode, done.stdout.strip(), done.stderr.strip()), (0, "ran", ""))
+    with patch.dict(os.environ, {**clean, "PYTHONPATH": str(golden)}, clear=True), contextlib.redirect_stdout(io.StringIO()):
+        both = clock.cmd_run(root / "clock-chain-sink", [str(fixture / "test_tiny.py")], ["make_world"])
+    chained = clock.read_sink(root / "clock-chain-sink")[0]
+    check_eq("clock chain: a recorded test run with the golden's directory also on PYTHONPATH records once, no clock error",
+             (both, sum(e["event"] == "build" for e in chained["events"]), chained["errors"]), (0, 1, []))
+
+
 def main() -> None:
     root = temp_dir("slow-tests-")
     try:
+        clock_cases(root)
         layers_cases(root)
         loader_cases(root)
         fast_skip_cases(root)

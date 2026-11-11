@@ -3982,6 +3982,14 @@
     "tests/scenario_walk.py"
    ]
   },
+  "test_scenario_world.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): the shared-world module and the one scenario runner",
+   "covers": [
+    "tests/harness.py",
+    "tests/scenario_world.py"
+   ]
+  },
   "test_scoped_invalidation.py": {
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
@@ -4020,6 +4028,8 @@
    "layer": "table",
    "why": "table (B.2 criterion 5): the canon runner itself (slow tests, layers)",
    "covers": [
+    "tests/scenario_clock.py",
+    "tests/clock_sitecustomize/sitecustomize.py",
     "console_io.py",
     "content_size.py",
     "selftest.py",

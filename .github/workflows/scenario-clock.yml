@@ -1,0 +1,104 @@
+# The per-scenario clock (TD-11 node D0, spec docs/tasks/specs/td-11d-world-per-file.md section 3): runs the named package test
+# files under ai-packages/qa-factory/scripts/tests/scenario_clock.py and uploads the sinks and each file's full stdout.
+# A MEASUREMENT on demand: workflow_dispatch ONLY (no push, pull_request or schedule trigger), read-only, no secrets.
+#   inputs  files  space-separated test file names (bare names from scripts/tests, e.g. "test_story_run_loop_b.py test_no_move_seam.py")
+#           ref    branch or sha to measure (empty: main)
+#           builders  comma-separated world-builder function names (may be empty); passed to `run --builders` and to the report
+#                     step, which prints `scenario_clock.py report` into the log and into report.txt of the artifact
+#           order  normal | reverse; reverse is exported as QA_SCENARIO_ORDER=reverse (witness of order independence);
+#                  normal exports nothing
+# Read the result: download the artifact scenario-clock, then
+#   python -B ai-packages/qa-factory/scripts/tests/scenario_clock.py report --sink <unpacked dir> [--builders a,b,...]
+# (builder names are data of that command line). `python tools/ci_read.py start --workflow scenario-clock.yml --ref <branch>`
+# starts it. A red test file makes the run step red, but every named file still runs and the artifact is uploaded (if: always()).
+name: scenario-clock
+run-name: scenario-clock ${{ inputs.ref || 'main' }} ${{ inputs.order }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "space-separated test file names from ai-packages/qa-factory/scripts/tests"
+        required: true
+      ref:
+        description: "branch or sha to measure (empty: main)"
+        required: false
+        default: main
+      builders:
+        description: "comma-separated world-builder function names to time directly (may be empty: the builder columns then say not measured)"
+        required: false
+        default: ""
+      order:
+        description: "scenario order: normal or reverse"
+        required: false
+        default: normal
+        type: choice
+        options: [normal, reverse]
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  scenario-clock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: run the named test files under the clock
+        env:
+          FILES: ${{ inputs.files }}
+          ORDER: ${{ inputs.order }}
+          REF: ${{ inputs.ref || 'main' }}
+          BUILDERS: ${{ inputs.builders }}
+        run: |
+          set -euf
+          TESTS="$GITHUB_WORKSPACE/ai-packages/qa-factory/scripts/tests"
+          OUT="$GITHUB_WORKSPACE/ci-out/scenario-clock"
+          mkdir -p "$OUT"
+          if [ "$ORDER" = "reverse" ]; then export QA_SCENARIO_ORDER=reverse; fi
+          PATHS=""
+          for name in $FILES; do
+            case "$name" in
+              test_*.py) ;;
+              *) echo "refused: '$name' is not a bare test file name (test_*.py)"; exit 2 ;;
+            esac
+            case "$name" in
+              */*|*\\*) echo "refused: '$name' carries a path separator"; exit 2 ;;
+            esac
+            if [ ! -f "$TESTS/$name" ]; then echo "refused: $name is not in scripts/tests of ref $REF"; exit 2; fi
+            PATHS="$PATHS $TESTS/$name"
+          done
+          if [ -z "$PATHS" ]; then echo "refused: the files input names no test file"; exit 2; fi
+          python -B "$TESTS/scenario_clock.py" run --sink "$OUT" --builders "$BUILDERS" $PATHS
+      - name: print the per-scenario report of the sinks
+        if: always()
+        continue-on-error: true
+        env:
+          BUILDERS: ${{ inputs.builders }}
+        run: |
+          set -euf
+          OUT="$GITHUB_WORKSPACE/ci-out/scenario-clock"
+          python -B "$GITHUB_WORKSPACE/ai-packages/qa-factory/scripts/tests/scenario_clock.py" report --sink "$OUT" --builders "$BUILDERS" | tee "$OUT/report.txt"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: scenario-clock
+          path: ci-out/scenario-clock/
+          retention-days: 14
+          if-no-files-found: warn
