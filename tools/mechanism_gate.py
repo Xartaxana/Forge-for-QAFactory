@@ -260,6 +260,8 @@ MECHANISM_PREFIXES = (
     # mechanism_prefixes is the machine check that this list stays
     # complete against that closure as the wiring drifts.
     "tools/tier_echo.py",           # imported by tools/journal_echo.py
+    "tools/ci_read.py",             # imported by tools/test_quarantine.py, which session_context.py imports (the quarantine line of SessionStart, TD-15)
+    "tools/ci_read_common.py",      # imported by tools/ci_read.py
     "tools/preflight_quota.py",     # imported by tools/session_context.py
     "tools/test_quarantine.py",     # imported by tools/session_context.py (the TEST QUARANTINE line, TD-15.7)
     "tools/wiring_check.py",        # imported by tools/session_context.py

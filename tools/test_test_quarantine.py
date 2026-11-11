@@ -1245,12 +1245,14 @@ def test_schedules_reads_the_list_then_each_schedule_on_the_branch_only():
 
 
 def test_watch_pipelines_branch_literal_equals_config():
+    # The CI file is .github/workflows/quarantine-watch.yml since the move (FG7-9, risk 3): the push branch of the watch is read
+    # from it. A watch schedule that starts no other job is the GitHub form of the old `QUARANTINE_WATCH != "1"` rules: the watch
+    # is a workflow of its own (tools/test_workflows.py holds the cron and the start events).
     cfg = json.loads(Path(REPO, tq.CONFIG_REL).read_text(encoding="utf-8"))
-    text = Path(REPO, ".gitlab-ci.yml").read_text(encoding="utf-8")
-    literals = set(re.findall(r'\$CI_PIPELINE_SOURCE == "push" && \$CI_COMMIT_BRANCH == "([^"]+)"', text))
+    text = Path(REPO, ".github", "workflows", "quarantine-watch.yml").read_text(encoding="utf-8")
+    literals = set(re.findall(r"^\s*branches:\s*\[([^\]]+)\]", text, re.M))
     assert literals == {cfg["branch"]} and cfg["branch"] == "main"
     assert cfg["schedule_variable"] == tq.WATCH_VARIABLE
-    assert text.count('$CI_PIPELINE_SOURCE == "schedule" && $QUARANTINE_WATCH != "1"') == 5          # the full tier ignores the watch schedule
 
 
 # --- TD-15.6c: purge ------------------------------------------------------------------------------------------------------
