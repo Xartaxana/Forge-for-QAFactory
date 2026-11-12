@@ -147,7 +147,7 @@ PERSON_NOTE = ("Root of the test repository, relative to the project root (never
 PORTABLE_PROBE = {"argv": ["{python}", "{plugin_root}/scripts/runtime_probe.py", "--probe"], "cwd": ".", "timeout_s": 60}
 ANSWERS = {"dod": "Done means the change is reviewed and the suite is green in CI.", "tests_root": "tests",
            "protected_app_paths": ["src"]}
-SEVEN_KEYS = ["requirements_sources", "strategy_documents", "records_policy", "format_changed", "format_all", "metrics"]
+SEVEN_KEYS = ["requirements_sources", "strategy_documents", "format_changed", "metrics"]
 
 
 def put(root: Path, rel: str, text: str = "x") -> Path:

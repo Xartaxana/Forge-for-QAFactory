@@ -741,11 +741,7 @@ def check(cfg, root, max_files: int = DEFAULT_MAX_FILES, candidates=()) -> dict:
 # --- the CLI -----------------------------------------------------------------------------------------------
 
 def _config_of(root: Path) -> dict:
-    try:
-        data = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return hooklib.read_json(root / "qa-factory" / "config.json", {}, errors=Exception, kind=dict)
 
 
 def _count_words(files: int, without, truncated: bool) -> str:

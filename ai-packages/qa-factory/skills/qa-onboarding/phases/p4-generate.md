@@ -125,11 +125,11 @@ also carries `channels.<name>.writes` and, for bugs, `bugs_project`, and the
 `tracker_write.py` receipt from phase 2 says whether that right was confirmed),
 `requirements_sources` (phase 1's section of that name, as the summary showed it: source_id, kind, locator, status, evidence_refs and, when not the tracker's, auth_type, secret_ref, username_ref as names only; `[]` when none were found; a tracker the factory has no client for (anything but Jira with direct_api) writes its route in method and invoke_or_command_ref, proved once in this session on one real key, names only and never a value, and when topic 7 answered `command` the row takes the same command; an agent, a skill or an MCP tool is a write channel, not a read route: status unavailable with that reason),
 `strategy_documents` (topic 8's exact-file permissions and provenance), the legacy
-`factory_may_edit_strategy` compatibility value, `pre_commit_commands`, `format_changed`
-and `format_all` (never one key doing both jobs), `records_policy`, canonical
-`execution.parallel`,
+`factory_may_edit_strategy` compatibility value, `pre_commit_commands`, `format_changed`,
+canonical `execution.parallel`,
 `run.levels` (below), `git_conventions`, `dod` (topic 9), and the canonical `impact_scale`
-unless an approved project mapping overrides it. A
+unless an approved project mapping overrides it. `artifact_root` is optional and is not written by default: absent, the story folders live in `qa-factory/artifacts`; write it only
+when the team asks for the story folders elsewhere (a path relative to the project, or absolute). A
 gap answered "later" is written as `""`/`[]`/`{}` in the field, **plus** a `[DEFERRED: …]`
 marker in the matching strategy doc (never a silently invented value). **`execution.runtime_probes` is not written by hand.** A stand the factory must identify by
 content (a docker stand: the project's tests run against a container, not against the local
@@ -390,8 +390,7 @@ Sections:
   (file and test counts). *What exists and how much of it* — how a test in a layer is
   actually written is step 4's.
 - **Git conventions** — branch/commit/MR pattern + `pre_commit_commands`, the narrow
-  `format_changed` command a role may run and the wide `format_all` it may not, and
-  `records_policy` for where the shared factory records are committed.
+  `format_changed` command a role may run.
 - **Risk and impact scale** — two halves, in this order. First the impact-class map in force, as a table
   `Impact | Priority | Severity`; `[DEFERRED: impact scale not set]` stands in its place only when the targeted question
   about a preserved legacy numeric value was asked and not answered, with its DD (step 8). Then topic 4's risk areas. `scripts/sizing.py` sizes every story from

@@ -22,6 +22,7 @@ Before the first `record` the file does not exist; every reader treats an absent
   project_knowledge.py side --task T --name S [--stand N] (--reality real|substituted|absent | --deliverable yes|no
                           [--settles-by-file F] | --reference) --words-file F
 """
+import copy
 import json
 import sys
 from contextlib import contextmanager
@@ -29,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import config_contract as CC  # the one reader of the config file and of the catalogue (AR-13)
 import environment_record as ER  # the record family this registry is built on: no copy of its reader, writer or numbering
 
 RECORD_REL = "qa-factory/records/project-knowledge.json"
@@ -44,15 +46,59 @@ SIDES_KEY = "product.sides"                     # project scope: {"deliverable":
 STAND_SIDES_KEY = "environments.sides"          # stand scope: {"reality": a word of references/side-realities.json}
 REFERENCE_KEY = "environments.reference_for"    # stand scope: {"reference": True} - this stand runs the OLD version of the side
 SIDE_KEYS = (SIDES_KEY, STAND_SIDES_KEY, REFERENCE_KEY)
-# S15: one table; the comparator registered for a key compares its elements (phase 0: the role form for both keys). Phase 1's
-# catalogue replaces this literal.
-KEYS = {
-    ROLES_KEY: {"scope": "project", "compare": "role_form"},
-    ACCOUNTS_KEY: {"scope": "stand", "compare": "role_form"},
-    SIDES_KEY: {"scope": "project", "compare": "exact"},
-    STAND_SIDES_KEY: {"scope": "stand", "compare": "exact"},
-    REFERENCE_KEY: {"scope": "stand", "compare": "exact"},
-}
+
+# S15 / phase 1: the catalogue (references/config-keys.json, section `knowledge`) is the ONE table of project facts, read through
+# `config_contract.config_keys()` (AR-13). `KEYS` is DERIVED from its registry rows, once, at import: the comparator a row names compares
+# its elements. A damaged catalogue never raises here: `rows()` is `[]`, `KEYS` is `{}` (or lacks the damaged row) and CATALOGUE_PROBLEM
+# says why, so every reader errs toward asking and `record_problems` names the true cause (FR-1, AR-28).
+def _cut(text) -> str:
+    return str(text)[:200]
+
+
+def _read_catalogue() -> tuple:
+    """`(rows, problem)`: the `knowledge` rows as copied dicts `{"key", ...}` in file order, and the first damage found ("" when none).
+    Never raises: an unreadable table, no section, a section that is not a non-empty object -> `([], <why>)`."""
+    try:
+        table = CC.config_keys()
+    except ValueError as exc:     # a damaged plugin install, named as one by config_contract
+        return [], _cut(exc)
+    except Exception as exc:      # noqa: BLE001 - a reader of facts never stops a gate
+        return [], _cut(f"the catalogue could not be read ({type(exc).__name__})")
+    section = table.get("knowledge") if isinstance(table, dict) else None
+    if not isinstance(section, dict) or not section:
+        return [], "references/config-keys.json has no `knowledge` section"
+    out, problem = [], ""
+    for key, row in section.items():
+        if isinstance(row, dict):
+            out.append(dict(copy.deepcopy(row), key=key))
+        else:
+            problem = problem or _cut(f"the knowledge row {key} is not an object")
+    return out, problem
+
+
+def rows(key=None) -> list:
+    """The catalogue rows (copied dicts, each with its `key`), all of them or those of `key`. Never raises; a damaged catalogue is `[]`."""
+    table, _ = _read_catalogue()
+    return [row for row in table if key is None or row["key"] == key]
+
+
+def _derive_keys() -> tuple:
+    """`(KEYS, problem)` from the registry rows (`store` registry or config+registry), in row order. A registry row without `scope` or
+    `compare` is left OUT (toward "not a project-knowledge key", never a guessed scope) and is the problem when none came first."""
+    table, problem = _read_catalogue()
+    keys = {}
+    for row in table:
+        if row.get("store") not in ("registry", "config+registry"):
+            continue
+        scope, compare = row.get("scope"), row.get("compare")
+        if not (isinstance(scope, str) and scope and isinstance(compare, str) and compare):
+            problem = problem or _cut(f"the knowledge row {row['key']} has no scope/compare")
+            continue
+        keys[row["key"]] = {"scope": scope, "compare": compare}
+    return keys, problem
+
+
+KEYS, CATALOGUE_PROBLEM = _derive_keys()
 KNOWN, NOT_NEEDED, NOTICED, UNKNOWN = "known", "not_needed", "noticed_unconfirmed", "unknown"
 # `asked` is RESERVED for phase 2 (no producer here); `unreachable` is run-scoped and never stored. A row in any other state is skipped.
 STATES = (KNOWN, NOT_NEEDED, NOTICED)
@@ -160,13 +206,23 @@ def _latest(rows, key, environment, element, states=STATES):
 
 # --- the one reader ----------------------------------------------------------------------------------------------------
 
-def _config(root, cfg):
+def _read(root, cfg) -> tuple:
+    """`(data, source, problem)` of the project's config through the ONE reader (`config_contract.read_config_file`, BOM tolerated).
+    A `cfg` dict is used as given. Absent file: `(None, "absent", "")`; unreadable, empty or not an object: `(None, "", <why, 200 chars>)`.
+    Never raises."""
     if isinstance(cfg, dict):
-        return cfg
+        return cfg, "config", ""
     try:
-        data = json.loads((Path(root) / "qa-factory" / "config.json").read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return {}
+        data = CC.read_config_file(Path(root))
+    except CC.ConfigUnreadable as exc:
+        return None, "", _cut(exc)
+    except Exception as exc:    # noqa: BLE001 - toward unknown, never toward a value
+        return None, "", _cut(f"qa-factory/config.json could not be read ({type(exc).__name__})")
+    return (None, "absent", "") if data is None else (data, "config", "")
+
+
+def _config(root, cfg):
+    data, _, _ = _read(root, cfg)
     return data if isinstance(data, dict) else {}
 
 
@@ -177,8 +233,8 @@ def _stands(cfg) -> list:
 
 def _stand_roles(cfg, environment):
     """The `credentials_by_role` object of the stand NAMED `environment` (exact), or None: no such stand, two of one name, no object."""
-    named = [e for e in _stands(cfg) if str(e.get("name") or "") == environment] if environment else []
-    roles = named[0].get("credentials_by_role") if len(named) == 1 else None
+    card = _stand_card(environment, cfg)
+    roles = card["entry"].get("credentials_by_role") if card["found"] else None
     return roles if isinstance(roles, dict) else None
 
 
@@ -230,6 +286,103 @@ def state(root, key, environment="", element="", cfg=None) -> dict:
         return out
     except Exception as exc:    # a reader never stops a gate: an unknown it could not establish is `unknown`
         return _blank(f"the record of project knowledge could not be read ({type(exc).__name__})")
+
+
+def _stand_card(name, data) -> dict:
+    """`{"found", "entry", "problem"}` of the stand NAMED `name` (exact) in a config dict: the one rule of `environment()`."""
+    out = {"found": False, "entry": None, "problem": ""}
+    raw = data.get("environments") if isinstance(data, dict) else None
+    if raw is None or raw == []:
+        out["problem"] = "the project records no stand"
+    elif not isinstance(raw, list):
+        out["problem"] = "environments is not a list"
+    elif not isinstance(name, str) or name == "":
+        out["problem"] = "no stand name was given"
+    else:
+        named = [entry for entry in raw if isinstance(entry, dict) and entry.get("name") == name]
+        if len(named) > 1:
+            out["problem"] = _cut(f"two stands are named {name}")
+        elif not named:
+            out["problem"] = _cut(f"no stand is named {name}")
+        else:
+            out.update(found=True, entry=copy.deepcopy(named[0]))
+    return out
+
+
+def environment(name, root=None, cfg=None) -> dict:
+    """`{"found", "entry", "problem"}`: the stand card of the stand named `name` - CONFIG ONLY in phase 1 (`environments[]`, exact name
+    match). Empty or absent list: `found` False, "the project records no stand"; not a list: "environments is not a list"; two of one
+    name: `found` False (a doubt is never one stand); `name` "" : `found` False (which stand is THE stand stays with
+    `stand_gaps.stand_name`). PURE: never raises, writes nothing."""
+    try:
+        if isinstance(cfg, dict) or root is not None:
+            data, _, problem = _read(root, cfg)
+            if data is None and problem:
+                return {"found": False, "entry": None, "problem": problem}
+            return _stand_card(name, data)
+        return {"found": False, "entry": None, "problem": "no project root was given"}
+    except Exception as exc:    # noqa: BLE001
+        return {"found": False, "entry": None, "problem": f"the stand could not be read ({type(exc).__name__})"}
+
+
+def value(root, key, environment="", cfg=None, element="") -> dict:
+    """`{"value", "state", "source", "problem"}` of ONE catalogued fact. PURE: writes nothing, never raises.
+
+    A registry row is per element: pass `element=`; an empty element is `unknown` with a problem naming it. A found row's stored
+    `value` is returned.
+    ORDER (the catalogue is consulted FIRST, so a key with no row never reads as `known`): no row -> `unknown`; a registry row ->
+    `state()`; a config row -> the config through `_read` (absent file `unknown`/`absent`, unreadable `unknown` with its message),
+    `environments[].x` rows through the stand card of the stand NAMED `environment`. ERROR DIRECTION: toward `unknown`, never `known`:
+    a missing path, a non-object parent and a stored `None` are `unknown`; a stored `""` is `known` and stays `""` (no default is
+    substituted: the consumer keeps its own "blank = not recorded" rule)."""
+    out = {"value": None, "state": UNKNOWN, "source": "", "problem": ""}
+    try:
+        table, damage = _read_catalogue()
+        row = next((r for r in table if r["key"] == key), None)
+        if row is None:
+            out["problem"] = _cut(f"the project-knowledge catalogue is damaged ({damage})") if damage and not table \
+                else _cut(f"no catalogue row for {key}")
+            return out
+        store = row.get("store")
+        if store in ("registry", "config+registry"):
+            if not isinstance(element, str) or not element.strip():
+                out["problem"] = _cut(f"{key} is a fact per element and no element was named; pass `element=` (the role or the side)")
+                return out
+            got = state(root, key, str(environment or ""), element, cfg)
+            row = got["row"] if isinstance(got["row"], dict) else None
+            out.update(state=got["state"], source=got["source"], problem=got["problem"])
+            if got["state"] == KNOWN and row is not None and row.get("value") is not None:
+                out["value"] = copy.deepcopy(row["value"])
+            return out
+        if not (isinstance(store, str) and store.startswith("config:") and store[len("config:"):]):
+            out["problem"] = _cut(f"the knowledge row {key} names no store this reader knows")
+            return out
+        path = store[len("config:"):]
+        data, source, problem = _read(root, cfg)
+        if data is None:
+            out.update(source=source, problem=problem)
+            return out
+        out["source"] = "config"
+        node, parts = data, path.split(".")
+        if "[]." in path:
+            head, _, rest = path.partition("[].")
+            if head != "environments" or not rest:
+                out["problem"] = _cut(f"the knowledge row {key} names a list this reader does not know")
+                return out
+            card = _stand_card(str(environment or ""), data)
+            if not card["found"]:
+                out["problem"] = card["problem"]
+                return out
+            node, parts = card["entry"], rest.split(".")
+        for part in parts:
+            if not isinstance(node, dict) or part not in node:
+                return out
+            node = node[part]
+        if node is not None:
+            out.update(value=copy.deepcopy(node), state=KNOWN)
+        return out
+    except Exception as exc:    # noqa: BLE001 - a reader of facts never stops a gate
+        return {"value": None, "state": UNKNOWN, "source": "", "problem": f"the fact could not be read ({type(exc).__name__})"}
 
 
 def subjects(root, key, environment=None) -> dict:
@@ -353,6 +506,10 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     side name. Returns the reasons; never raises."""
     spec = KEYS.get(key)
     if spec is None:
+        if CATALOGUE_PROBLEM:     # a damaged catalogue: name the true cause and the door, never "not a key (the keys: )"
+            door = "" if "reinstall the plugin" in CATALOGUE_PROBLEM else "reinstall the plugin; "
+            return [f"the key {key!r} cannot be checked: the project-knowledge catalogue is damaged ({CATALOGUE_PROBLEM}); "
+                    f"{door}nothing was recorded"]
         return [f"the key {key!r} is not a project-knowledge key (the keys: {', '.join(KEYS)}); nothing was recorded"]
     out = []
     if state not in STATES:
