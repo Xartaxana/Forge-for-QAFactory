@@ -307,7 +307,7 @@ def every_problem_comes_in_one_refusal():
                            "--operation", "teleport",
                            needles=("2 problems", "must be one of", "gate-decision", "names no story")).stderr
         check_not_in("B20: the driver's phrase is not in it", PHRASE, stderr)
-        # an unknown operation alone keeps its text (test_controller_rework pins it through --task-root too)
+        # an unknown operation alone keeps its text (test_controller_rework_repair_binding pins it through --task-root too)
         untouched("unknown operation alone", project, env, "--task", "TP3-1", "--operation", "teleport",
                   needles=("must be one of", "gate-decision"))
         # B22: outside any project `--task` has no folder to look in (exit 3, the contract of every writer);

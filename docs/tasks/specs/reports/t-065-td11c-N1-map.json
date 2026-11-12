@@ -19,7 +19,7 @@
   {"name": "control", "kind": "def", "home": "infra_failure_common"},
   {"name": "install", "kind": "def", "home": "infra_failure_common"},
   {"name": "calls", "kind": "def", "home": "infra_failure_common"},
-  {"name": "taken", "kind": "def", "home": "infra_failure_common"},
+  {"name": "taken", "kind": "def", "home": "test_infra_failure_retries"},
   {"name": "prompt_for", "kind": "def", "home": "infra_failure_common"},
   {"name": "project_of", "kind": "def", "home": "infra_failure_common"},
   {"name": "done", "kind": "def", "home": "infra_failure_common"},

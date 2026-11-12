@@ -1226,7 +1226,7 @@ class DriverRunner:
     def file_defect(self, ref: str, notes: str) -> None:
         """One `defect_found` row of the driver's own. `log_append` requires `--ref`: the dispatch the failure belongs to, else the
         boundary (never empty). T2 (C1-7b): a rejected write is said once on stderr WITH the rejection's own words (N12b of
-        test_no_move_seam pins that line, which `py_trace` does not print) and journalled as `trace_failed` in driver-runs.jsonl,
+        test_no_move_seam_n2b_n15 pins that line, which `py_trace` does not print) and journalled as `trace_failed` in driver-runs.jsonl,
         and the run goes on: the journal never stalls it."""
         code, out = self.py("log_append.py", "--event", "defect_found", "--task", self.task, "--by", "driver",
                             "--ref", ref or self.boundary, "--notes", notes)

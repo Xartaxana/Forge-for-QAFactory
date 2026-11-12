@@ -1,7 +1,7 @@
 # The per-scenario clock (TD-11 node D0, spec docs/tasks/specs/td-11d-world-per-file.md section 3): runs the named package test
 # files under ai-packages/qa-factory/scripts/tests/scenario_clock.py and uploads the sinks and each file's full stdout.
 # A MEASUREMENT on demand: workflow_dispatch ONLY (no push, pull_request or schedule trigger), read-only, no secrets.
-#   inputs  files  space-separated test file names (bare names from scripts/tests, e.g. "test_story_run_loop_b.py test_no_move_seam.py")
+#   inputs  files  space-separated test file names (bare names from scripts/tests, e.g. "test_story_run_loop_b_loop.py test_no_move_seam_sites.py")
 #           ref    branch or sha to measure (empty: main)
 #           builders  comma-separated world-builder function names (may be empty); passed to `run --builders` and to the report
 #                     step, which prints `scenario_clock.py report` into the log and into report.txt of the artifact

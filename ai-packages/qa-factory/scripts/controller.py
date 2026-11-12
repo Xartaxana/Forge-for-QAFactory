@@ -257,7 +257,7 @@ REPAIR_LOOP_ROLES = {"qa-automator", "qa-code-critic", "qa-case-designer", "qa-c
 # `question_answer` (HF2-7) is the DRIVER's word too: the person answered a question after the plan or the cases were
 # written, and the owner of the rows or cases that followed the other reading is sent back to make them follow it. It
 # spends none of the cap, and a reviewer's finding that names it reads as `test_defect`, the same safe side. It stands
-# BEFORE `ticket_changed`, which stays the last word of the list (`test_story_run_freshness.py` K26 pins it).
+# BEFORE `ticket_changed`, which stays the last word of the list (`test_story_run_freshness_k15_k26.py` K26 pins it).
 REVIEWER_CAUSES = ("test_defect", "mechanical", "environment", "tooling", "reviewer_error")
 # `source_arrived` (t-2181 PC-6) is the DRIVER's word as well: code arrived for a story that waited for it, and the S0-S2 work
 # that follows is not a defect of any test, so it spends none of the cap and a reviewer's finding that names it reads as

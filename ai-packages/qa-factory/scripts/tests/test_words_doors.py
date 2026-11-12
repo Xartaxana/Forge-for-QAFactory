@@ -1326,7 +1326,7 @@ def row_person_rework_round_pass() -> None:
     so the `reviews` stamp of an S5 rework stales the S5 critic): two reworks within the cap, the third refused with the key,
     the round-3 pass opens exactly round 3, and the critic's re-review past ITS cap passes with the same answer - the stamp's
     staling of the critic's reviews does not reset the critic's count (A1), which the plain dispatches of `row_round_pass_keys`
-    never reach. Lives here, not in test_controller_rework.py: the pass is recorded through the real waiver.py door, and the
+    never reach. Lives here, not in the test_controller_rework parts: the pass is recorded through the real waiver.py door, and the
     door helpers (`open_door`, `recorded`, `pass_blocks`) are this file's."""
     import test_controller_rework as REWORK
     from controller import Controller, repair_passes

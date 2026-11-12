@@ -122,7 +122,7 @@ def k1_the_fixture_helpers_make_a_project_by_the_marker_alone() -> None:
     """t-774 (the class behind the red CI after F4-2): a test fixture is a project exactly when it carries the marker. The
     negative control pins only `nearest_project` is None: the marker taken out of a `temp_project` root, nothing else
     touched, and neither the root nor a story below it is a project. The "unknown" road a consumer takes on that None
-    (t-617 section 8.2: no project is `unknown`, not a closure) is pinned elsewhere: `test_controller_rework` (a story under
+    (t-617 section 8.2: no project is `unknown`, not a closure) is pinned elsewhere: `test_controller_rework_jobs_guard` (a story under
     no project closes nothing) and `test_controller_paths` (no project at all)."""
     root = harness.temp_project("qa-rp-helper-").resolve()
     CLEAN.append(root)

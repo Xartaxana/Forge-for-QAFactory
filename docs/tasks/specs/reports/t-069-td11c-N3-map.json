@@ -41,7 +41,7 @@
     {"name": "k7c_the_reworks_own_edges", "kind": "def", "home": "test_story_run_freshness_k6_k7"},
     {"name": "k7d_the_reopen_sets_aside_the_late_work_and_names_what_it_cannot", "kind": "def", "home": "test_story_run_freshness_k6_k7"},
     {"name": "k7e_a_ticket_rework_finished_through_the_restart_route_is_complete", "kind": "def", "home": "test_story_run_freshness_k6_k7"},
-    {"name": "k4b_an_unreadable_file_with_the_question_open_never_crashes", "kind": "def", "home": "test_story_run_freshness_k6_k7"},
+    {"name": "k4b_an_unreadable_file_with_the_question_open_never_crashes", "kind": "def", "home": "test_story_run_freshness_k1_k5"},
     {"name": "k8_stop_then_a_no_answer_run_asks_again_with_no_read", "kind": "def", "home": "test_story_run_freshness_k8_k14"},
     {"name": "k9_an_answer_that_is_not_a_token", "kind": "def", "home": "test_story_run_freshness_k8_k14"},
     {"name": "k9b_a_choice_the_adapter_could_not_carry_out", "kind": "def", "home": "test_story_run_freshness_k8_k14"},

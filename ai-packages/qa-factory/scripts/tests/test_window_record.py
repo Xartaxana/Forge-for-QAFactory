@@ -1586,8 +1586,8 @@ def a_word_nothing_reads_is_printed_and_changes_nothing():
         sources.update({path.name: text for path, text in driver_sources()})
         check_eq("S10: `word still passes` is in neither window_record.py nor any file of the driver set",
                  [name for name, text in sources.items() if "word still passes" in text], [])
-        control = (Path(__file__).resolve().parent / "test_story_run_loop_b.py").read_text(encoding="utf-8")
-        check("S10 positive control: the SAME pattern finds the fixture's own copy in test_story_run_loop_b.py",
+        control = (Path(__file__).resolve().parent / "test_story_run_loop_b_loop.py").read_text(encoding="utf-8")
+        check("S10 positive control: the SAME pattern finds the fixture's own copy in test_story_run_loop_b_loop.py",
               "word still passes" in control)
     finally:
         cleanup(project)

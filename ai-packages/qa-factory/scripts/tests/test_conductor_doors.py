@@ -638,7 +638,7 @@ PINNED_ELSEWHERE = {"package.copies": "test_package_generation.py (D3)", "s0.fla
                     "sides.deliverable": "test_no_mr_entry.py (not_built_yet_and_the_sides_at_launch: the question, its form, ours / another team's)",
                     "s0.stand": "test_story_run_s0_stand_trace.py", "s0.readiness": "test_story_run_s0.py",
                     "questions": "test_question_stop.py (T1..T5)",
-                    "questions.blocking": "test_story_run_loop_b.py (HF2-7 K2: the blocking stop's priced options and unverified line)",
+                    "questions.blocking": "test_story_run_loop_b_answers.py (HF2-7 K2: the blocking stop's priced options and unverified line)",
                     "s5.repair_limit": "test_story_run_repair_limit.py (RL1-RL4, RL6)", "s5.nobody_review": "test_story_run_repair_limit.py (RL5)",
                     "s5.nobody_environment": "test_story_run_repair_limit.py (RL5)", "s5.nobody_tooling": "test_story_run_repair_limit.py (RL5)",
                     "exit.resume_limit": "test_story_run_exit_limit.py (EL1-EL7, EL10, EL14)", "s7.repair_limit": "test_story_run_repair_limit.py (RL8)",

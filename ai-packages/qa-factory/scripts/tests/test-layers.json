@@ -951,8 +951,17 @@
    ]
   },
   "test_controller_rework.py": {
+   "layer": "data_join",
+   "why": "split shim: re-exports for importers; checks live in test_controller_rework_jobs_guard.py, test_controller_rework_repair_binding.py, test_controller_rework_window_words.py",
+   "named_by": [],
+   "replaced_by": null,
+   "covers": [
+    "tests/controller_rework_common.py"
+   ]
+  },
+  "test_controller_rework_jobs_guard.py": {
    "layer": "detector",
-   "why": "AR-25 exit proof named in design/state-exits.md",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_controller_rework.py split, TD-11c)",
    "named_by": [
     "design/state-exits.md:32"
    ],
@@ -972,7 +981,60 @@
     "tests/test_fixes_13797.py",
     "tests/test_story_closed.py",
     "tests/test_story_step_manual_block.py",
-    "waiver.py"
+    "waiver.py",
+    "tests/controller_rework_common.py"
+   ]
+  },
+  "test_controller_rework_repair_binding.py": {
+   "layer": "detector",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_controller_rework.py split, TD-11c)",
+   "named_by": [
+    "design/state-exits.md:32"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "controller.py",
+    "detector_verdict.py",
+    "event_store.py",
+    "no_move.py",
+    "person_words.py",
+    "stage_guard.py",
+    "story_step.py",
+    "tests/harness.py",
+    "tests/test_controller_rework_scope.py",
+    "tests/test_controller_state.py",
+    "tests/test_dispatch_liveness.py",
+    "tests/test_fixes_13797.py",
+    "tests/test_story_closed.py",
+    "tests/test_story_step_manual_block.py",
+    "waiver.py",
+    "tests/controller_rework_common.py"
+   ]
+  },
+  "test_controller_rework_window_words.py": {
+   "layer": "detector",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_controller_rework.py split, TD-11c)",
+   "named_by": [
+    "design/state-exits.md:32"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "controller.py",
+    "detector_verdict.py",
+    "event_store.py",
+    "no_move.py",
+    "person_words.py",
+    "stage_guard.py",
+    "story_step.py",
+    "tests/harness.py",
+    "tests/test_controller_rework_scope.py",
+    "tests/test_controller_state.py",
+    "tests/test_dispatch_liveness.py",
+    "tests/test_fixes_13797.py",
+    "tests/test_story_closed.py",
+    "tests/test_story_step_manual_block.py",
+    "waiver.py",
+    "tests/controller_rework_common.py"
    ]
   },
   "test_controller_rework_scope.py": {
@@ -2171,9 +2233,9 @@
     "tests/harness.py"
    ]
   },
-  "test_handoff_values.py": {
+  "test_handoff_values_keys.py": {
    "layer": "detector",
-   "why": "AR-25 exit proof named in design/state-exits.md",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
    "named_by": [
     "design/state-exits.md:112"
    ],
@@ -2200,7 +2262,74 @@
     "driver_stage_s7.py",
     "driver_stage_s8s9.py",
     "story_step.py",
-    "tests/harness.py"
+    "tests/harness.py",
+    "tests/handoff_values_common.py"
+   ]
+  },
+  "test_handoff_values_refusal.py": {
+   "layer": "detector",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
+   "named_by": [
+    "design/state-exits.md:112"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "handoff.py",
+    "handoff_check.py",
+    "handoff_help.py",
+    "handoff_init.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "tests/harness.py",
+    "tests/handoff_values_common.py"
+   ]
+  },
+  "test_handoff_values_main_block.py": {
+   "layer": "detector",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_handoff_values.py split, TD-11c)",
+   "named_by": [
+    "design/state-exits.md:112"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "handoff.py",
+    "handoff_check.py",
+    "handoff_help.py",
+    "handoff_init.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "tests/harness.py",
+    "tests/handoff_values_common.py"
    ]
   },
   "test_hook_lifecycle.py": {
@@ -2313,9 +2442,9 @@
     "tests/story_run_common.py"
    ]
   },
-  "test_infra_failure.py": {
+  "test_infra_failure_classify.py": {
    "layer": "gate_named",
-   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_infra_failure.py split, TD-11c)",
    "covers": [
     "artifact_supersede.py",
     "hooklib.py",
@@ -2341,7 +2470,136 @@
     "story_step.py",
     "references/driver-infra.json",
     "tests/harness.py",
-    "tests/story_run_common.py"
+    "tests/story_run_common.py",
+    "tests/infra_failure_common.py"
+   ]
+  },
+  "test_infra_failure_stops.py": {
+   "layer": "gate_named",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_infra_failure.py split, TD-11c)",
+   "covers": [
+    "artifact_supersede.py",
+    "hooklib.py",
+    "http_client.py",
+    "human_text.py",
+    "infra_failure.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "references/driver-infra.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/infra_failure_common.py"
+   ]
+  },
+  "test_infra_failure_retries.py": {
+   "layer": "gate_named",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_infra_failure.py split, TD-11c)",
+   "covers": [
+    "artifact_supersede.py",
+    "hooklib.py",
+    "http_client.py",
+    "human_text.py",
+    "infra_failure.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "references/driver-infra.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/infra_failure_common.py"
+   ]
+  },
+  "test_infra_failure_conductor_tracker.py": {
+   "layer": "gate_named",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_infra_failure.py split, TD-11c)",
+   "covers": [
+    "artifact_supersede.py",
+    "hooklib.py",
+    "http_client.py",
+    "human_text.py",
+    "infra_failure.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "references/driver-infra.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/infra_failure_common.py"
+   ]
+  },
+  "test_infra_failure_texts.py": {
+   "layer": "gate_named",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_infra_failure.py split, TD-11c)",
+   "covers": [
+    "artifact_supersede.py",
+    "hooklib.py",
+    "http_client.py",
+    "human_text.py",
+    "infra_failure.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "references/driver-infra.json",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/infra_failure_common.py"
    ]
   },
   "test_install_paths.py": {
@@ -2746,8 +3004,17 @@
    ]
   },
   "test_no_move_seam.py": {
+   "layer": "data_join",
+   "why": "split shim: re-exports for importers; checks live in test_no_move_seam_n1_n9.py, test_no_move_seam_n2b_n15.py, test_no_move_seam_sites.py, test_no_move_seam_k4s.py, test_no_move_seam_c26_g27_f2.py",
+   "named_by": [],
+   "replaced_by": null,
+   "covers": [
+    "tests/no_move_seam_common.py"
+   ]
+  },
+  "test_no_move_seam_n1_n9.py": {
    "layer": "detector",
-   "why": "AR-17 detector: no-move seam",
+   "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
    "named_by": [
     "design/architecture.md:192",
     "docs/SIBLING_MAP.md:123"
@@ -2781,7 +3048,168 @@
     "waiver.py",
     "references/human-questions.md",
     "tests/harness.py",
-    "tests/story_run_common.py"
+    "tests/story_run_common.py",
+    "tests/no_move_seam_common.py"
+   ]
+  },
+  "test_no_move_seam_n2b_n15.py": {
+   "layer": "detector",
+   "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
+   "named_by": [
+    "design/architecture.md:192",
+    "docs/SIBLING_MAP.md:123"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "audit_factory.py",
+    "controller.py",
+    "delivery_summary.py",
+    "environment_preparation.py",
+    "human_text.py",
+    "log_append.py",
+    "no_move.py",
+    "stage_done.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "waiver.py",
+    "references/human-questions.md",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/no_move_seam_common.py"
+   ]
+  },
+  "test_no_move_seam_sites.py": {
+   "layer": "detector",
+   "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
+   "named_by": [
+    "design/architecture.md:192",
+    "docs/SIBLING_MAP.md:123"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "audit_factory.py",
+    "controller.py",
+    "delivery_summary.py",
+    "environment_preparation.py",
+    "human_text.py",
+    "log_append.py",
+    "no_move.py",
+    "stage_done.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "waiver.py",
+    "references/human-questions.md",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/no_move_seam_common.py"
+   ]
+  },
+  "test_no_move_seam_k4s.py": {
+   "layer": "detector",
+   "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
+   "named_by": [
+    "design/architecture.md:192",
+    "docs/SIBLING_MAP.md:123"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "audit_factory.py",
+    "controller.py",
+    "delivery_summary.py",
+    "environment_preparation.py",
+    "human_text.py",
+    "log_append.py",
+    "no_move.py",
+    "stage_done.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "waiver.py",
+    "references/human-questions.md",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/no_move_seam_common.py"
+   ]
+  },
+  "test_no_move_seam_c26_g27_f2.py": {
+   "layer": "detector",
+   "why": "AR-17 detector: no-move seam (part of test_no_move_seam.py split, TD-11c)",
+   "named_by": [
+    "design/architecture.md:192",
+    "docs/SIBLING_MAP.md:123"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "audit_factory.py",
+    "controller.py",
+    "delivery_summary.py",
+    "environment_preparation.py",
+    "human_text.py",
+    "log_append.py",
+    "no_move.py",
+    "stage_done.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "waiver.py",
+    "references/human-questions.md",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/no_move_seam_common.py"
    ]
   },
   "test_no_mr_entry.py": {
@@ -5054,9 +5482,9 @@
     "tests/test_story_run_s6.py"
    ]
   },
-  "test_story_run_freshness.py": {
+  "test_story_run_freshness_k1_k5.py": {
    "layer": "gate_named",
-   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_story_run_freshness.py split, TD-11c)",
    "covers": [
     "controller.py",
     "human_text.py",
@@ -5085,12 +5513,118 @@
     "tests/harness.py",
     "tests/story_run_common.py",
     "tests/test_controller_rework_scope.py",
-    "tests/test_controller_state.py"
+    "tests/test_controller_state.py",
+    "tests/story_run_freshness_common.py"
    ]
   },
-  "test_story_run_loop_b.py": {
+  "test_story_run_freshness_k6_k7.py": {
+   "layer": "gate_named",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_story_run_freshness.py split, TD-11c)",
+   "covers": [
+    "controller.py",
+    "human_text.py",
+    "judge_code.py",
+    "repair_route.py",
+    "source_inventory.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "ticket_adapter.py",
+    "references/jira-fields.json",
+    "skills/qa-story/phases/s0.md",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_controller_rework_scope.py",
+    "tests/test_controller_state.py",
+    "tests/story_run_freshness_common.py"
+   ]
+  },
+  "test_story_run_freshness_k8_k14.py": {
+   "layer": "gate_named",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_story_run_freshness.py split, TD-11c)",
+   "covers": [
+    "controller.py",
+    "human_text.py",
+    "judge_code.py",
+    "repair_route.py",
+    "source_inventory.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "ticket_adapter.py",
+    "references/jira-fields.json",
+    "skills/qa-story/phases/s0.md",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_controller_rework_scope.py",
+    "tests/test_controller_state.py",
+    "tests/story_run_freshness_common.py"
+   ]
+  },
+  "test_story_run_freshness_k15_k26.py": {
+   "layer": "gate_named",
+   "why": "named as an exit proof by design/state-exits.md; kept at its TD-15.2 layer (part of test_story_run_freshness.py split, TD-11c)",
+   "covers": [
+    "controller.py",
+    "human_text.py",
+    "judge_code.py",
+    "repair_route.py",
+    "source_inventory.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "ticket_adapter.py",
+    "references/jira-fields.json",
+    "skills/qa-story/phases/s0.md",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_controller_rework_scope.py",
+    "tests/test_controller_state.py",
+    "tests/story_run_freshness_common.py"
+   ]
+  },
+  "test_story_run_loop_b_loop.py": {
    "layer": "detector",
-   "why": "AR-25 exit proof named in design/state-exits.md",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_story_run_loop_b.py split, TD-11c)",
    "named_by": [
     "design/state-exits.md:57"
    ],
@@ -5129,7 +5663,98 @@
     "tests/harness.py",
     "tests/story_run_common.py",
     "waiver.py",
-    "window_record.py"
+    "window_record.py",
+    "tests/story_run_loop_b_common.py"
+   ]
+  },
+  "test_story_run_loop_b_threshold.py": {
+   "layer": "detector",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_story_run_loop_b.py split, TD-11c)",
+   "named_by": [
+    "design/state-exits.md:57"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "acceptance.py",
+    "artifact_registry.py",
+    "controller.py",
+    "environment_preparation.py",
+    "external_writes.py",
+    "log_append.py",
+    "manifest_put.py",
+    "planning_contract.py",
+    "question_register.py",
+    "question_stop.py",
+    "references/controller-api.md",
+    "run_suite.py",
+    "stage_done.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "waiver.py",
+    "window_record.py",
+    "tests/story_run_loop_b_common.py"
+   ]
+  },
+  "test_story_run_loop_b_answers.py": {
+   "layer": "detector",
+   "why": "AR-25 exit proof named in design/state-exits.md (part of test_story_run_loop_b.py split, TD-11c)",
+   "named_by": [
+    "design/state-exits.md:57"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "acceptance.py",
+    "artifact_registry.py",
+    "controller.py",
+    "environment_preparation.py",
+    "external_writes.py",
+    "log_append.py",
+    "manifest_put.py",
+    "planning_contract.py",
+    "question_register.py",
+    "question_stop.py",
+    "references/controller-api.md",
+    "run_suite.py",
+    "stage_done.py",
+    "story_run.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "story_step.py",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "waiver.py",
+    "window_record.py",
+    "tests/story_run_loop_b_common.py"
    ]
   },
   "test_story_run_monorepo.py": {
@@ -5453,7 +6078,7 @@
   },
   "test_story_step_manual_block.py": {
    "layer": "data_join",
-   "why": "held by import: test_controller_rework.py, test_s6_lane_admission.py import it; leaves the canon when the import is cut (TD-15.8)",
+   "why": "held by import: the test_controller_rework parts, test_s6_lane_admission.py import it; leaves the canon when the import is cut (TD-15.8)",
    "covers": [
     "tests/harness.py",
     "tests/test_controller_rework_scope.py",

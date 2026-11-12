@@ -1615,7 +1615,7 @@ def a19_agents_contract() -> None:
 
 # The seam: its members (`Driver.<m>`) are exempt, and the internal ones may be referenced only from
 # inside it. A closed set of the package's own structure (FR-13), checked against the live Driver by
-# test_no_move_seam.py n24.
+# test_no_move_seam_c26_g27_f2.py n24.
 NO_MOVE_SEAM = frozenset({
     "Driver.no_move", "Driver._no_move", "Driver.no_move_legacy", "Driver._person_of",
     "Driver.site_person", "Driver.fallback_person", "Driver.last_resort", "Driver.options_person",

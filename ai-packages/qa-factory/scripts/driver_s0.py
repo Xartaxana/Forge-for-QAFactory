@@ -17,7 +17,7 @@ from driver_dialog import question_body_sha
 
 
 # The three answers `phases/s0.md` section 2b gives for a ticket whose requirements moved while the story waited, word
-# for word (test_story_run_freshness.py holds this string against that file: the prose twin is not copied by hand and
+# for word (test_story_run_freshness_k15_k26.py holds this string against that file: the prose twin is not copied by hand and
 # left to drift). They are put to the person as they are (an en dash and middle dots, as in that file).
 # TICKET_CHANGED_TOKENS are the words the person answers with: the factory's own fixed words for ONE
 # question, never variety across projects (FR-13: the precedent is the `package` tokens and S0_DOOR_WORDS), and the

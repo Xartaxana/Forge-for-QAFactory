@@ -1,7 +1,7 @@
 """Shared scaffolding of the story-runner tests: the stub `claude`, the temp-project builders, the helpers
 and constants every `test_story_run_*.py` file uses, and `run_scenarios` (the runner every file's `main` calls).
 
-This is not a test itself (selftest runs `test_*.py`); `test_human_questions.py`, `test_infra_failure.py`,
+This is not a test itself (selftest runs `test_*.py`); `test_human_questions.py`, the `test_infra_failure_*.py` parts and `infra_failure_common.py`,
 `test_package_generation.py` and `test_repair_route.py` import it as `T`. `harness` is imported before
 anything from scripts/, so no test ever reaches a real `claude -p` (harness points STORY_RUN_CLAUDE at
 no_claude.py unless a test names its own stub). What the stub proves and what each scenario proves is

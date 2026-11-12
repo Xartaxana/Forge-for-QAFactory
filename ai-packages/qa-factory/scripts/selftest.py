@@ -108,7 +108,6 @@ TEST_TIMEOUTS = {
     "test_scenario_cart_1.py": 1200,
     "test_scenario_local_1_arm_b.py": 1200,
     "test_scenario_local_1_0108.py": 1800,
-    "test_infra_failure.py": 600,
     "test_red_sandbox_probe.py": 600,
     # 05.10: 345 checks split out of test_red_sandbox_probe.py (which ran 769 s as one file): 327 s alone on
     # the second developer's machine, where the sibling runs 385 s under the same 600. The ceiling only
@@ -124,9 +123,6 @@ TEST_TIMEOUTS = {
     # 25 min 46 s under the shared load of a verification window): over the default 300 s, so a full
     # run killed it. The split is queued (B-381, the B-155 class); the ceiling only keeps a green file green.
     "test_words_doors.py": 600,
-    # 07.10: 209 checks, 223 s in the builder's run and 967 s under the critic's 5-agent load (t-555 F12), against the
-    # default 300 s. The split is queued (the B-155 class); the ceiling only keeps a green file green.
-    "test_story_run_freshness.py": 600,
     # 21.10: G1-2, 285.6 s in the builder's run against the default 300 s (it builds temp git repos, B21 alone 300 files twice); it
     # runs only in the nightly package-full, where a loaded runner would turn it red (FR-31). The cost cut is queued (the B-155 class);
     # the ceiling only keeps a green file green.
@@ -140,9 +136,6 @@ TEST_TIMEOUTS = {
     # 28303050; every file in those shards ran 1.3-1.6x slower). FR-31: the ceiling only keeps a green file green; the split of the
     # file (the B-155 class) is queued.
     "test_story_run_s7_live.py": 600,
-    # 10.11: t-2202, the same contended-runner class (t-2197): 266.0 s seen on a loaded GKE node against 157-165 s normal, 34 s under the
-    # default 300 s. FR-31: the ceiling only keeps a green file green; the cost cut is queued (the B-155 class).
-    "test_no_move_seam.py": 600,
     # 10.11: t-2202, the same class: 258.6 s seen on a loaded GKE node (shard 2) against 129-146 s normal. FR-31: the ceiling only keeps
     # a green file green; the cost cut is queued (the B-155 class).
     "test_story_run_refusals.py": 600,

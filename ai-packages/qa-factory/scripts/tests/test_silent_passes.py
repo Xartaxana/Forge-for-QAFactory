@@ -1341,7 +1341,7 @@ def k22_verdict_description_is_a_gate() -> None:
 # test_question_branches.py: 2 -> 0 (ae02ac71, DC1-19: its tests moved onto the controller seam, no `py` stub is left; the file stays listed
 # at 0 so a stub that comes back is seen); a SHRINK, not a raise.
 STUB_FILES = {"test_story_run_s7.py": 1, "test_question_branches.py": 0, "test_story_run_gate_repair.py": 4,
-              "test_story_run_refusals.py": 4, "test_no_move_seam.py": 1}
+              "test_story_run_refusals.py": 4, "test_no_move_seam_n2b_n15.py": 1}
 IGNORES_CHECK = "the stub takes `check` and returns a non-zero or non-constant exit with no `raise` under `if check`: it swallows a G site's check=True"
 # The stubs of that shape that are KNOWN and not fixed here (t-1252 Q4, a queue line): the lambdas of test_story_run_gate_repair.py at
 # :757 and :1463 (a non-zero exit for controller.py) and :1128 (an exit `code` read into RepairFailed) answer scripts the driver calls

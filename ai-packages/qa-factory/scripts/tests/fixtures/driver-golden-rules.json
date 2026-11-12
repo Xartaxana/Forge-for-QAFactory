@@ -5,7 +5,11 @@
     "rig_glob": "test_story_run_*.py",
     "outside": [
       "test_human_questions.py",
-      "test_infra_failure.py",
+      "test_infra_failure_classify.py",
+      "test_infra_failure_conductor_tracker.py",
+      "test_infra_failure_retries.py",
+      "test_infra_failure_stops.py",
+      "test_infra_failure_texts.py",
       "test_no_real_claude.py",
       "test_package_generation.py",
       "test_question_branches.py",
@@ -13,11 +17,11 @@
       "test_story_progress.py"
     ]
   },
-  "ceiling_seconds": {"default": 1200, "test_infra_failure.py": 2400},
+  "ceiling_seconds": {"default": 1200, "test_infra_failure_classify.py": 2400, "test_infra_failure_conductor_tracker.py": 2400, "test_infra_failure_retries.py": 2400, "test_infra_failure_stops.py": 2400, "test_infra_failure_texts.py": 2400},
   "caps": {"trace_bytes": 2097152, "text_bytes": 65536, "total_bytes": 50331648, "coverage_bytes": 262144},
   "scenario_exclude": [],
   "known_blind_spots": [
-    {"patch": "hooklib.load_ref_json (module attribute replaced by a lambda)", "where": "test_infra_failure.py k1_data_file_is_data, the_data_file_absent_is_one_note", "effect": "the call is absorbed: no fake_call, and no I/O of its own; seen only if a move makes the patch stop intercepting (the real read then shows as a different trace)"},
+    {"patch": "hooklib.load_ref_json (module attribute replaced by a lambda)", "where": "test_infra_failure_classify.py k1_classify, test_infra_failure_texts.py the_data_file_absent_is_one_note", "effect": "the call is absorbed: no fake_call, and no I/O of its own; seen only if a move makes the patch stop intercepting (the real read then shows as a different trace)"},
     {"patch": "execution_request.fresh_evidence (module attribute replaced, restored on exit)", "where": "story_run_common.py (the evidence fake, line ~494) used by the stand and S6 files", "effect": "as above"},
     {"patch": "mock.patch(\"controller.Controller\", ...) and mock.patch(\"contract.case_index\", ...)", "where": "test_story_run_s6.py lines ~335, 617, 655, 680, 934, 1239", "effect": "as above; the controller class the driver builds is a stand-in"},
     {"patch": "mock.patch.object(MC, \"_env_values\" / \"load_config\", side_effect=...)", "where": "test_story_run_s6.py lines ~1274, 1288", "effect": "as above"},
