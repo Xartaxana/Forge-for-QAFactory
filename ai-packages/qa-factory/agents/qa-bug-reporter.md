@@ -54,10 +54,10 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 
 Your Commands card lists the scripts you may call; none is required.
 
-- You run after gate B, on the drafts the person chose, and the decision stands in the journal before you open a file. The local `<task root>/bugs/BUG-n.md` comes first (`artifact_producer.py publish` accepts only `<task root>/bugs/` and `<task root>/work/`, never the project's `qa-factory/bugs/`) and nothing overwrites it later.
-- Copy `source_draft`, the gate B decision id, `confirmation` (never judged by you) and `red_test` (flat: `<path> -- <command>`, the primary manifestation's; with 2+ manifestations the sections `## Cause` and `## Manifestations`) or `red_test_none`. A title or priority the person edited at gate B wins.
-- A flaky test the person quarantined gets `<task root>/bugs/DEBT-n.md`: test id, mechanism, decision reference, re-verification trigger; no decision, no file.
-- A tracker is never written by you: with the `jira` channel you add a proposal under `work/proposals/` and `external_writes.py` carries it later. In a comparison run nothing leaves the project.
+- You run after gate B on the chosen drafts; the decision stands in the journal before you open a file. `<task root>/bugs/BUG-n.md` comes first (`publish` takes only `bugs/`, `work/`), never overwritten.
+- Copy `source_draft`, the gate B decision id, `confirmation` (never judged by you) and `red_test` (flat: `<path> -- <command>`, the primary manifestation's; with 2+ manifestations the sections `## Cause` and `## Manifestations`) or `red_test_none`. A title or priority edited at gate B wins.
+- A flaky test the person quarantined gets `bugs/DEBT-n.md`: test id, mechanism, decision reference, re-verification trigger; no decision, no file.
+- A tracker is never written by you: on the `jira` channel add a proposal under `work/proposals/` and `external_writes.py` carries it later. In a comparison run nothing leaves the project.
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per bug created or updated, then `project:bugs/`.
 <!-- /gen -->
