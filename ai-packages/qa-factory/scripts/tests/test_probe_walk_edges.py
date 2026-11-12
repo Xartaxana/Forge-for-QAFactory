@@ -372,10 +372,11 @@ def test_walk_carries_evidence_and_input_hash_to_the_aggregate(tmp_path, monkeyp
 
 
 def test_aggregate_is_written_after_every_row_with_the_authors_bytes_back(tmp_path, monkeypatch):
-    """Two rows: the aggregate is called after each row and at the end (3 calls), is ALREADY on disk when row 2 runs (unfinished, row 1
-    proved, row 2 named in `plan_remaining`), and every call sees the author's bytes (never the mutated copy).
-    Kills: no aggregate call inside the row loop (the count is 1 and row 2 sees no file), or a call from inside the attempt (the bytes
-    are the mutated ones at the call)."""
+    """Two rows: the aggregate is called after every row that has a follower, and once at the end (2 calls for two rows), is ALREADY on
+    disk when row 2 runs (unfinished, row 1 proved, row 2 named in `plan_remaining`), and every call sees the author's bytes (never the
+    mutated copy).
+    Kills: no aggregate call inside the row loop (the count is 1 and row 2 sees no file), a call from inside the attempt (the bytes
+    are the mutated ones at the call), or a second publish of the last row (3 calls: the regression PC2-4 removed)."""
     world = hard_world(tmp_path, monkeypatch)
     calls, at_run = [], []
     real_aggregate, real_run = PBC._aggregate_record, PBC.run_request
@@ -390,7 +391,7 @@ def test_aggregate_is_written_after_every_row_with_the_authors_bytes_back(tmp_pa
     monkeypatch.setattr(PBC, "_aggregate_record", spy_aggregate)
     monkeypatch.setattr(PBC, "run_request", spy_run)
     world.walk()
-    assert calls == [True, True, True], calls
+    assert calls == [True, True], calls
     assert at_run[0] is None, "before row 1 nothing is written"
     between = at_run[1]
     assert between and between["plan_unfinished"] is True and between["plan_remaining"] == [world.keys[1]]
