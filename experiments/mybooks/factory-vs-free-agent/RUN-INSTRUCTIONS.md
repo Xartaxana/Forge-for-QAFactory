@@ -55,6 +55,14 @@
    После перезагрузки машины ничего само не поднимается: те же три команды.
 3. **`claude` вошёл в аккаунт.** `claude --version` печатает версию; вход делает ТОЛЬКО владелец (`claude`, затем `/login`).
    Проверка без траты: шаг 3 (репетиция) — она же проверка входа. Отказ входа или лимит — выход 5 драйвера, RUNBOOK 9.4.
+   Сделано 12.11.2026 ≈ 14:25: `claude auth status` → `"loggedIn": true`, `"authMethod": "claude.ai"`; проба
+   `claude.cmd -p --model sonnet --output-format json` в пустой папке (stdin из файла) → выход 0, `result=OK`.
+   **Ловушка машины — песочница приложения Claude.** Приложение установлено пакетом Windows, и записи его сессий в
+   `AppData` ложатся в `C:\Users\i_mas\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\{Roaming,Local}\…`.
+   `%APPDATA%\npm\claude.cmd`, браузеры в `%LOCALAPPDATA%\ms-playwright` и Mailpit поставлены из такой сессии:
+   сессия приложения видит их по обычным путям, обычный терминал Windows — НЕ видит. Поэтому **весь прогон
+   запускается из сессии этого приложения**, а не из обычного терминала; владельцу в её терминале `claude` доступен
+   только по полному пути в `…\LocalCache\Roaming\npm\claude.cmd`. Вход (`C:\Users\i_mas\.claude`) общий.
 4. **Плечо `factory` онбордено здесь релизной версией** (слово владельца 12.11.2026: «Да, заново здесь»). Порядок:
    (а) релизный плагин ставится так, как его ставит новый пользователь (`ai-packages/qa-factory/INSTALL.md`):
    `claude plugin marketplace add Xartaxana/QAFactory`, `claude plugin install qa-factory@qafactory`;
