@@ -23,13 +23,14 @@
 
 | Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
 |---|---|---|---|---|---|---|
-| OH4-1 | П3 | Имена возможностей (`vcs_api`, `host_hooks`, `base_slice`) и префикс строки — одно определение для `_CAPABILITY_LINE` и `_NOT_ESTABLISHED_LINE` (`findings/20261102-oh1-11-imena-vozmozhnostej-v-dvuh-regulyarkah.md`; критик t-746 m-3; FR-13; AR-1) | builder → critic | `scripts/gate_brief.py`, `scripts/tests/test_gate_brief*.py` | OH1-11 (`release-next/1`, влит) | ожидает |
+| OH4-1 | П3 | Имена возможностей (`vcs_api`, `host_hooks`, `base_slice`) и префикс строки — одно определение для `_CAPABILITY_LINE` и `_NOT_ESTABLISHED_LINE` (`findings/20261102-oh1-11-imena-vozmozhnostej-v-dvuh-regulyarkah.md`; критик t-746 m-3; FR-13; AR-1) | builder → critic | `scripts/gate_brief.py`, `scripts/tests/test_gate_brief*.py` | OH1-11 (`release-next/1`, влит) | сдано |
 
 ## Ход
 
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
 
 - 02.11 — открыта пачка 4 под OH4-1 (очередь критика OH1-11; t-770)
+- 12.11 — OH4-1 сдан билдером (t-131): `CAPABILITY_NAMES`, `_PROVABLE_NAMES` (срез), `_CAPABILITY_PREFIX`, оба выражения строятся `_capability_lines()`; списка имён в `references/` нет — константа кода; тест `test_oh4_1_*`; коммит ca9cdf2
 
 ## Живые доказательства
 
