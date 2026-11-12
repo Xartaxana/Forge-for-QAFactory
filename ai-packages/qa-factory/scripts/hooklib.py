@@ -175,6 +175,26 @@ def state_dir(event: dict | None = None) -> Path:
 EXIT_NO_PROJECT = 3
 
 
+def require_project_at(root, purpose: str) -> Path:
+    """The `qa-factory/` directory of `root`, or a refusal on stderr and exit EXIT_NO_PROJECT.
+
+    The ONE refusal every writer that must not bring a `qa-factory/` tree into existence uses
+    (OH3-37, AR-15); `require_project` is the same rule for the ambient root. The marker is
+    `qa-factory/config.json` (`_carries_project`): a `qa-factory/` folder without it is not a
+    project. Nothing is read or written here."""
+    root = Path(root)
+    if _carries_project(root):
+        return root / "qa-factory"
+    print(f"{purpose}: no qa-factory/config.json under {root} - refusing to create one.\n"
+          f"This is either a project that was never onboarded (run "
+          f"/qa-factory:qa-onboarding), or a wrong project root: the factory looks for "
+          f"qa-factory/config.json in the current directory and its ancestors. Run the "
+          f"command from inside the project, point --root at it where the command has that "
+          f"option, or set CLAUDE_PROJECT_DIR to it.",
+          file=sys.stderr)
+    sys.exit(EXIT_NO_PROJECT)
+
+
 def require_project(purpose: str, event: dict | None = None) -> Path:
     """The state directory of an onboarded project, or a refusal on stderr.
 
@@ -184,16 +204,7 @@ def require_project(purpose: str, event: dict | None = None) -> Path:
     state tree at a monorepo root, and nobody learned of it until a human read the journal
     (TP1-14336). A resolved root with no `qa-factory/config.json` means the resolution
     is wrong or the project is not onboarded; either way it is not a place to write."""
-    root = project_root(event)
-    if _carries_project(root):
-        return root / "qa-factory"
-    print(f"{purpose}: no qa-factory/config.json under {root} — refusing to create one.\n"
-          f"This is either a project that was never onboarded (run "
-          f"/qa-factory:qa-onboarding), or a wrong project root: the factory looks for "
-          f"qa-factory/config.json in the current directory and its ancestors. Run the "
-          f"command from inside the project, or set CLAUDE_PROJECT_DIR to it.",
-          file=sys.stderr)
-    sys.exit(EXIT_NO_PROJECT)
+    return require_project_at(project_root(event), purpose)
 
 
 def ref(rel: str) -> Path:

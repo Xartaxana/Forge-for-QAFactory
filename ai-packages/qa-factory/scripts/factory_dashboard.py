@@ -18,7 +18,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hooklib import artifact_root, project_root, parse_frontmatter
+from hooklib import artifact_root, project_root, parse_frontmatter, require_project_at
 import adapter_forms as AF  # noqa: E402  — the project's ticket key form (B-405): which task name is a story
 import contract as C  # noqa: E402  — C.artifact resolves work/ or flat artifact paths
 import runtime_paths as RP  # noqa: E402  — where the carried records and the readiness report live (t-232)
@@ -3766,6 +3766,12 @@ def main(argv=None) -> None:
     out_path = Path(args.out).resolve() if args.out else root / "qa-factory" / "state" / "factory-dashboard.html"
     if args.read_only and (out_path == root or root in out_path.parents):
         ap.error(f"--read-only refuses --out inside --root ({out_path}): nothing under the root may change")
+    # OH3-37: every write below (the signal files, the cost recapture, the page itself) lands under
+    # <root>/qa-factory, and a root without qa-factory/config.json is not a project: refuse before any
+    # of them, exit 3, nothing written. A --read-only render writes nothing under the root (its scratch
+    # copy is in the temp folder, its page is the explicit --out), so it is the one run a bare root may have.
+    if not args.read_only:
+        require_project_at(root, "factory_dashboard")
     global _LEVEL_GLOBS
     _LEVEL_GLOBS = level_globs(root)
 

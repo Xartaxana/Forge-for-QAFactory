@@ -114,5 +114,31 @@ def main():
         cleanup(root)
 
 
+def bare_root_creates_nothing():
+    """OH3-37: on a root without qa-factory/config.json `cost_capture.py --all-stale` creates nothing named qa-factory/."""
+    import tempfile, shutil
+    tmp = Path(tempfile.mkdtemp(prefix="cc-bare-")).resolve()
+    try:
+        transcript = tmp / "t.jsonl"
+        transcript.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"},
+                                          "timestamp": "2026-11-12T10:00:00Z"}) + "\n", encoding="utf-8")
+        bare = tmp / "bare"
+        bare.mkdir()
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        # The hook-stdin form with a readable transcript DOES create qa-factory/state/cost here (measured 12.11.2026,
+        # OH3-37 question to the coordinator): it is not pinned until the owner of the node decides its behaviour.
+        forms = {"--all-stale": (["--all-stale"], "")}
+        for name, (args, stdin) in forms.items():
+            r = subprocess.run([sys.executable, "-B", str(SCRIPTS / "cost_capture.py"), *args], cwd=bare, env=env,
+                               input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=120)
+            assert r.returncode == 0, (name, r.returncode, r.stderr)
+            assert not list(bare.rglob("qa-factory")), (name, [p.name for p in bare.rglob("*")])
+        print("PASS bare root: cost_capture creates no qa-factory/")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     main()
+    bare_root_creates_nothing()

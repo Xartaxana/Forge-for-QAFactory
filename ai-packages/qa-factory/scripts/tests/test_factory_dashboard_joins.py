@@ -6,7 +6,11 @@ every run row, the level was looked for in one of its three sources, superseded 
 were counted as instances, and every session captured in the project's cost folder was summed
 into the project whatever directory it had been opened in.
 """
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -300,6 +304,60 @@ class BugRowTests(unittest.TestCase):
     def test_a_draft_with_every_case_filed_is_not_listed_again(self):
         filed = [{"id": "BUG-1", "title": "t", "task": "QA-1", "found_by": "TC-001 TC-002 TC-003"}]
         self.assertEqual([r["id"] for r in D.story_bug_rows(filed, [self.MERGED], {"TC-001"}, "QA-1")], ["BUG-1"])
+
+
+class BareRootTests(unittest.TestCase):
+    """OH3-37: the dashboard never brings a `qa-factory/` tree into existence under a root onboarding did not make."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dash-bare-")).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.bare = self.tmp / "bare"
+        self.bare.mkdir()
+        self.proj = self.tmp / "proj"
+        (self.proj / "qa-factory").mkdir(parents=True)
+        (self.proj / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
+        self.half = self.tmp / "half"            # a qa-factory/ folder with no config.json is not a project
+        (self.half / "qa-factory").mkdir(parents=True)
+
+    def tree(self, root):
+        return sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
+
+    def run_cli(self, cwd, *args):
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        env.update(QA_FACTORY_SKIP_DASHBOARD_REFRESH="1", PYTHONDONTWRITEBYTECODE="1")
+        return subprocess.run([sys.executable, "-B", str(Path(D.__file__).resolve()), *args], cwd=cwd, env=env,
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
+
+    def test_a_root_without_config_is_refused_and_nothing_is_written(self):
+        out = self.tmp / "elsewhere" / "page.html"
+        cases = {"bare cwd": ("bare", ()), "qa-factory/ without config.json": ("half", ()),
+                 "--root bare from a project cwd": ("proj", ("--root", "bare_abs")),
+                 "explicit --out, not read-only": ("bare", ("--out", str(out)))}
+        for name, (cwd, args) in cases.items():
+            with self.subTest(name):
+                before = self.tree(self.tmp)
+                args = tuple(str(self.bare) if a == "bare_abs" else a for a in args)
+                r = self.run_cli(self.tmp / cwd, *args)
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn("qa-factory/config.json", r.stderr)
+                self.assertEqual(self.tree(self.tmp), before)
+
+    def test_a_project_and_a_read_only_render_still_work(self):
+        out = self.tmp / "elsewhere" / "page.html"
+        out.parent.mkdir()
+        cases = {"project cwd": ("proj", (), self.proj / "qa-factory" / "state" / "factory-dashboard.html"),
+                 "--root project from a bare cwd": ("bare", ("--root", "proj_abs"),
+                                                    self.proj / "qa-factory" / "state" / "factory-dashboard.html"),
+                 "--read-only --out on a bare root": ("bare", ("--read-only", "--out", str(out)), out)}
+        for name, (cwd, args, page) in cases.items():
+            with self.subTest(name):
+                bare_before = self.tree(self.bare)
+                args = tuple(str(self.proj) if a == "proj_abs" else a for a in args)
+                r = self.run_cli(self.tmp / cwd, *args)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertTrue(page.is_file())
+                self.assertEqual(self.tree(self.bare), bare_before)
 
 
 class RemovedWidgetsTests(unittest.TestCase):
