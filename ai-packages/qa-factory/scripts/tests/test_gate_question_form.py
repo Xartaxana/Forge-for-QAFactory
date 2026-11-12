@@ -854,7 +854,228 @@ def test_answer_line_and_the_helper_sentence() -> None:
              [p["rule"] for p in human_text.problems(text[text.index("## Open questions"):])], [])
 
 
+def vcs_repo(prefix: str, dirty: tuple = (), pipeline_text=None, state_of=None):
+    """A temp project whose tests folder is its own git repository: one committed file, `dirty` untracked paths, and the factory's own
+    folder (`qa-factory/`, untracked) beside them. Returns (task_root, head). `pipeline_text` replaces pipeline.json as written."""
+    import os
+    import subprocess
+    root = temp_dir(prefix)
+    task_root = root / "qa-factory" / "artifacts" / "TP1-15045"
+    (task_root / "state").mkdir(parents=True)
+    (root / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
+    (task_root / "pipeline.json").write_text(pipeline_text if pipeline_text is not None else json.dumps({"ticket": "TP1-15045"}), encoding="utf-8")
+    env = dict(os.environ, GIT_AUTHOR_NAME="qa", GIT_AUTHOR_EMAIL="qa@example.invalid", GIT_COMMITTER_NAME="qa",
+               GIT_COMMITTER_EMAIL="qa@example.invalid")
+    (root / "base.py").write_text("x = 1\n", encoding="utf-8")
+    for args in (["init", "-b", "main"], ["add", "base.py"], ["commit", "-m", "base", "--no-gpg-sign"]):
+        subprocess.run(["git", *args], cwd=str(root), env=env, capture_output=True, text=True)
+    for name in dirty:
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("y = 2\n", encoding="utf-8")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root), capture_output=True, text=True).stdout.strip()
+    return task_root, head
+
+
+def vcs_finding(task_root: Path) -> dict:
+    """The `vcs-test-repo` finding of a rehearsal's `check_vcs`, or {}."""
+    rehearsal = gate_preflight.Rehearsal(task_root, "A")
+    rehearsal.check_vcs()
+    return next((f for f in rehearsal.findings if f.get("id") == "vcs-test-repo"), {})
+
+
+def read_vcs_line(finding: dict, words: str):
+    """What `Driver.read_finding_doors` takes of `words` for this finding, shown as the packet shows it: [(word option, door option)]."""
+    import story_run
+    driver = story_run.Driver.__new__(story_run.Driver)
+    shown = f"- [{finding['id']}] {finding['message']}"
+    got = driver.read_finding_doors(words, [finding], shown, {finding["id"]: finding["waives"]})
+    return [(r["word"], r["door"]["option"]) for r in got["read"]], [u["line"] for u in got["unread"]]
+
+
+def test_the_test_repository_question_offers_its_words_with_prices() -> None:
+    """FG7-8 B1: a dirty tree is one finding whose doors are `accept` (HEAD block, as before), `go on` and - on the block of the changes
+    shown - `commit` and `stash`; the `answers` list every path whole, then each word with its three price lines (B-5); each word is
+    read by the driver's reader, a question or a longer sentence is read as nothing (I-3)."""
+    task_root, head = vcs_repo("qa-vcs-words-", ("u.py", "d/v.py"))
+    found = vcs_finding(task_root)
+    head12 = head[:12]
+    check_eq("the message is today's, over the person's paths from the `-z` read (the factory's folder left out)", found["message"],
+             f"the test repository has 2 uncommitted change(s) on branch `main` (HEAD {head12}), and S5 writes test code into it: d/v.py, u.py")
+    doors = found["waives"]
+    check_eq("doors in order: accept on the HEAD block as today, go on on it too, then commit and stash on the block of the changes",
+             [(d["option"], d["block"].startswith("test repository changes")) for d in doors],
+             [("accept", False), ("vcs_go_on", False), ("vcs_commit", True), ("vcs_stash", True)])
+    check_eq("the accept door is byte-equal to today's", doors[0], {"block": f"test repository state: {head12}", "stage": "S5", "option": "accept"})
+    check_eq("the writing words' block is `test repository changes: <head12> <digest of the list>`", doors[2]["block"].split(" ")[:4],
+             ["test", "repository", "changes:", head12])
+    check_eq("both writing words stand on one block", doors[2]["block"], doors[3]["block"])
+    answers = found["answers"]
+    check_eq("every path is listed whole, under the header that says what takes them", answers[:3],
+             ["your uncommitted changes (2), all listed - commit and stash take exactly these:", "  - d/v.py", "  - u.py"])
+    labels = gate_brief._price_labels()
+    for word in ("commit", "stash", "go on"):
+        at = next(i for i, line in enumerate(answers) if line.startswith(f"`vcs-test-repo: {word}` - "))
+        check_eq(f"`{word}` is followed by its three price lines, in order",
+                 [line.strip().startswith(label) for line, label in zip(answers[at + 1:at + 4], labels)], [True, True, True])
+    check_eq("the answers obey the rules of text a person reads", [p["rule"] for p in human_text.problems("\n".join(answers), kind="report")], [])
+    check_in("the fix is one line that points at the words under the item", "answer with one of the words listed under this item - ", found["fix"])
+    check_eq("it is one line", "\n" in found["fix"], False)
+    for word, option in (("commit", "vcs_commit"), ("stash", "vcs_stash"), ("go on", "vcs_go_on"), ("`vcs-test-repo`: `commit`", "vcs_commit"),
+                         ("- vcs-test-repo: Stash them", "vcs_stash")):
+        text = word if word.startswith(("`", "-")) else f"vcs-test-repo: {word}"
+        check_eq(f"`{text}` is read by the driver with its option", read_vcs_line(found, text)[0], [(option, option)])
+    check_eq("`maybe` is read by none", read_vcs_line(found, "vcs-test-repo: maybe")[0], [])
+    check_eq("`commit please` is read by none (a repository write is never taken out of a sentence)", read_vcs_line(found, "vcs-test-repo: commit please")[0], [])
+    check_eq("two lines `commit` then `commit?`: both unread, the earlier set aside", read_vcs_line(found, "vcs-test-repo: commit\nvcs-test-repo: commit?")[0], [])
+    check_eq("`go on` with the person's reason is read, the reason kept", read_vcs_line(found, "vcs-test-repo: go on, the branch is mine")[0], [("vcs_go_on", "vcs_go_on")])
+    forms = gate_brief.answer_forms(forms_data(findings=[found]), [])
+    names = [row["form"] for row in forms]
+    for word in ("commit", "stash", "go on"):
+        check_in(f"the forms list holds `<item id>: {word}`", f"<item id>: {word}", names)
+    for row in forms:
+        if row["reader"] == "Driver.read_finding_doors" and row["form"] != "<item id>: accept <your reason>":
+            check_eq(f"the example `{row['example']}` is read by the driver", len(read_vcs_line(found, row["example"])[0]), 1)
+    product = dict(LINE_ITEM, id="gap-1", waives=[{"block": "x gap", "stage": "S5", "option": "product_gap"}, LINE_ITEM["waives"][0]])
+    check_in("a product-gap item gets its own form by the same rule", "<item id>: product gap",
+             [row["form"] for row in gate_brief.answer_forms(forms_data(findings=[product]), [])])
+
+
+def test_the_words_are_offered_only_where_they_can_be_carried_out() -> None:
+    """FG7-8 B1 edges: the cap is 20 (20 lists all and offers the words, 21 lists none and offers only `go on` and `accept`); a run that
+    leaves no trace or whose pipeline cannot be read offers no writing word; no HEAD, no door; a clean tree is today's question."""
+    writes = ("vcs_commit", "vcs_stash")
+
+    def options(found):
+        return [d["option"] for d in found["waives"]]
+    task_root, _ = vcs_repo("qa-vcs-cap20-", tuple(f"f{n:02d}.py" for n in range(20)))
+    found = vcs_finding(task_root)
+    check_eq("20 person entries: the writing words are offered", [o for o in options(found) if o in writes], list(writes))
+    check_eq("...and all 20 paths are listed", len([a for a in found["answers"] if a.startswith("  - ")]), 20)
+    task_root, _ = vcs_repo("qa-vcs-cap21-", tuple(f"f{n:02d}.py" for n in range(21)))
+    found = vcs_finding(task_root)
+    check_eq("21 person entries: only accept and go on", options(found), ["accept", "vcs_go_on"])
+    check_eq("...no path is listed", [a for a in found["answers"] if a.startswith("  - ")], [])
+    check_in("...the over-cap sentence says how many there are and what to do", "your uncommitted changes (21) are more than the 20 this question can list",
+             found["answers"][0])
+    check_in("...and names the item's own word", f"answer `{found['id']}: go on`", found["answers"][0])
+    check_eq("...and `commit` is read by none", read_vcs_line(found, "vcs-test-repo: commit")[0], [])
+    for label, pipeline in (("no-trace", json.dumps({"ticket": "TP1-15045", "no_trace": True})), ("unreadable pipeline", "{not json")):
+        task_root, _ = vcs_repo("qa-vcs-closed-", ("u.py",), pipeline_text=pipeline)
+        found = vcs_finding(task_root)
+        check_eq(f"{label}: only accept and go on", options(found), ["accept", "vcs_go_on"])
+        check_in(f"{label}: the hint names go on and no list", "`vcs-test-repo: go on`", "\n".join(found["answers"]))
+        check_eq(f"{label}: `commit` is read by none", read_vcs_line(found, "vcs-test-repo: commit")[0], [])
+    task_root, _ = vcs_repo("qa-vcs-clean-")
+    clean = vcs_finding(task_root)
+    check_eq("a clean tree is today's question: one accept door, no answers", ([d["option"] for d in clean["waives"]], "answers" in clean), (["accept"], False))
+    real = gate_brief.finding_door_words
+    try:
+        gate_brief.finding_door_words = lambda: []
+        task_root, _ = vcs_repo("qa-vcs-novocab-", ("u.py",))
+        found = vcs_finding(task_root)
+        check_eq("an unreadable vocabulary: only accept, plain-words fix, no answers", (options(found), "answers" in found, "listed under" in found["fix"]),
+                 (["accept"], False, False))
+    finally:
+        gate_brief.finding_door_words = real
+    import tempfile
+    nowhere = Path(tempfile.mkdtemp(prefix="qa-vcs-none-"))
+    try:
+        check_eq("no repository: nothing to decide", gate_preflight.vcs_changes(nowhere, {}, nowhere), None)
+    finally:
+        cleanup(nowhere)
+
+
+def test_the_blockers_name_what_the_words_cannot_take() -> None:
+    """FG7-8 B1: `vcs_blockers` per class (the Lead's decisions on the B0-2 measurement): staged changes and submodules block the stash
+    alone, a detached HEAD the commit alone, intent-to-add, conflicts, an operation, a nested repository, a guard separator, a path
+    under the factory's folder and an unknown home block both."""
+    def state(*entries, **more):
+        person = [{"xy": xy, "path": path, "orig": orig} for xy, path, orig in entries]
+        return dict({"person": person, "home": ("qa-factory/", ""), "head": "a" * 40, "branch": "main", "modes": {}, "ops": []}, **more)
+    blockers = gate_preflight.vcs_blockers
+    for label, built, commit, stash in (
+            ("plain untracked, modified, deleted", state(("??", "a", ""), (" M", "b", ""), (" D", "c", "")), False, False),
+            ("a staged entry `M `", state(("M ", "a", "")), False, True), ("`MM`", state(("MM", "a", "")), False, True),
+            ("`D `", state(("D ", "a", "")), False, True), ("`R ` (new then old)", state(("R ", "new", "old")), False, True),
+            ("a submodule by mode", state((" M", "sub", ""), modes={"sub": "160000"}), False, True),
+            ("`.gitmodules`", state((" M", "sub/.gitmodules", "")), False, True),
+            ("intent-to-add", state((" A", "a", "")), True, True), ("a conflict", state(("UU", "a", "")), True, True),
+            ("an operation in progress", state(("??", "a", ""), ops=["REVERT_HEAD"]), True, True),
+            ("a nested repository", state(("??", "x/", "")), True, True), ("a guard separator", state(("??", "a;b", "")), True, True),
+            ("a rename out of the factory's folder", state(("R ", "src/y", "qa-factory/x")), True, True),
+            ("an unknown home", state(("??", "a", ""), home=("", "unknown")), True, True),
+            ("no home in this tree", state(("??", "a", ""), home=("", "outside")), False, False),
+            ("a detached HEAD", state(("??", "a", ""), branch="HEAD"), True, False),
+            ("no commit yet", state(("??", "a", ""), head=""), True, True),
+            ("more than 20", state(*[("??", f"f{n}", "") for n in range(21)]), True, True)):
+        check_eq(f"{label}: commit blocked / stash blocked", (bool(blockers(built)["commit"]), bool(blockers(built)["stash"])), (commit, stash))
+
+
+def test_the_shown_doors_have_one_writer_and_one_reader() -> None:
+    """FG7-8 B1: `keep_shown_doors` / `shown_doors_of` - the driver's form (its state dict), the skill form (the state file), the three
+    no-write guards, and unreadable reads as None (I-2, AR-28)."""
+    doors = {"vcs-test-repo": [{"block": "b", "stage": "S5", "option": "accept"}]}
+    state: dict = {"other": 1}
+    gate_brief.keep_shown_doors(None, doors, state=state)
+    check_eq("driver form: the doors are in the dict, the rest of it kept", (state["shown_doors"], state["other"]), ({"A": doors}, 1))
+    check_eq("...and read back from the dict", gate_brief.shown_doors_of(state=state), doors)
+    folder = temp_dir("qa-shown-doors-")
+    (folder / "state").mkdir()
+    gate_brief.keep_shown_doors(folder, doors)
+    check_eq("skill form: written into state/driver-state.json, read back", gate_brief.shown_doors_of(folder), doors)
+    (folder / "state" / "driver-state.json").write_text(json.dumps({"shown_attachments": {"A": []}, "shown_doors": {"B": {"x": []}}}), encoding="utf-8")
+    gate_brief.keep_shown_doors(folder, doors)
+    held = json.loads((folder / "state" / "driver-state.json").read_text(encoding="utf-8"))
+    check_eq("...keeping the other keys and the other gate's doors", (held["shown_attachments"], held["shown_doors"]), ({"A": []}, {"B": {"x": []}, "A": doors}))
+    check_eq("a gate that stored nothing reads as None", gate_brief.shown_doors_of(folder, gate="Z"), None)
+    absent = temp_dir("qa-shown-doors-absent-") / "T"
+    gate_brief.keep_shown_doors(absent, doors)
+    check_eq("guard: a story folder that does not exist is not created", absent.exists(), False)
+    decided = temp_dir("qa-shown-doors-decided-")
+    (decided / "state").mkdir()
+    (decided / "state" / "controller.json").write_text(json.dumps({"source_revision": "r", "decisions": {"d": {"gate": "A", "status": "approved", "source_revision": "r"}}}), encoding="utf-8")
+    gate_brief.keep_shown_doors(decided, doors)
+    check_eq("guard: an approved gate A decision stands - nothing is written", (decided / "state" / "driver-state.json").exists(), False)
+    (decided / "state" / "controller.json").write_text("{broken", encoding="utf-8")
+    gate_brief.keep_shown_doors(decided, doors)
+    check_eq("guard: a decision that cannot be read - nothing is written", (decided / "state" / "driver-state.json").exists(), False)
+    broken = temp_dir("qa-shown-doors-broken-")
+    (broken / "state").mkdir()
+    (broken / "state" / "driver-state.json").write_text("[1, 2]", encoding="utf-8")
+    gate_brief.keep_shown_doors(broken, doors)
+    check_eq("guard: a state file that is not an object is left as it was, and reads as None",
+             ((broken / "state" / "driver-state.json").read_text(encoding="utf-8"), gate_brief.shown_doors_of(broken)), ("[1, 2]", None))
+    check_eq("unreadable: no file reads as None", gate_brief.shown_doors_of(temp_dir("qa-shown-doors-none-")), None)
+
+
+def test_the_answers_are_printed_whole_on_both_roads() -> None:
+    """FG7-8 B1: a row with `answers` is printed whole under its row by `brief_lines` (never cut by `limit`, which counts the other rows),
+    by `render` indented under `fix`, and `gate_brief.render` grows its cap by their lines; a row with none is byte-identical to before."""
+    answers = ["your uncommitted changes (2), all listed - x takes exactly these:", "  - a.py", "`<check-id>: go on` - go on", "  the factory: nothing."]
+    rows = [{"id": f"p-{n}", "check": "p", "class": gate_preflight.PERSON_DECIDES, "message": f"plain {n}", "fix": "f"} for n in range(1, 7)]
+    rows.append({"id": "vcs-test-repo", "check": "vcs", "class": gate_preflight.PERSON_DECIDES, "message": "the tree", "fix": "one line", "answers": answers})
+    result = {"gate": "A", "next_stage": "S5", "can_proceed": False, "by_class": {gate_preflight.PERSON_DECIDES: 7}, "findings": rows, "info": []}
+    lines = gate_preflight.brief_lines(result)
+    check_eq("the 7th of 7 rows is shown with every answers line under it", lines[lines.index("- [your call] the tree") + 1:][:4], [f"  {a}" for a in answers])
+    check_in("the limit counted the OTHER rows: one of them is `+1 more`", "- (+1 more", "\n".join(lines))
+    text = gate_preflight.render(result)
+    check_in("render: the answers are indented under fix", "      fix: one line\n          your uncommitted changes (2)", text)
+    plain = dict(result, findings=rows[:6])
+    check_eq("no answers: brief_lines is the five rows and `+1 more` as before", gate_preflight.brief_lines(plain)[-1].startswith("- (+1 more"), True)
+    check_eq("no answers: render prints the one-line fix as before", "      fix: f\n  - [p-2]" in gate_preflight.render(plain), True)
+    many = ["your uncommitted changes (30), all listed - x takes exactly these:"] + [f"  - file{n}.py" for n in range(30)] + ["`<check-id>: go on` - go on"]
+    cover = gate_brief.render(forms_data(findings=[dict(rows[-1], answers=many)]))
+    check_eq("gate_brief.render keeps every line of a long list under the cover sheet's cap", all(f"file{n}.py" in cover for n in range(30)), True)
+    check_not_in("...with no truncation marker", "brief truncated", cover)
+
+
 if __name__ == "__main__":
+    test_the_test_repository_question_offers_its_words_with_prices()
+    test_the_words_are_offered_only_where_they_can_be_carried_out()
+    test_the_blockers_name_what_the_words_cannot_take()
+    test_the_shown_doors_have_one_writer_and_one_reader()
+    test_the_answers_are_printed_whole_on_both_roads()
     test_answer_forms_are_one_list_and_each_has_its_reader()
     test_answer_forms_edges()
     test_answer_line_and_the_helper_sentence()

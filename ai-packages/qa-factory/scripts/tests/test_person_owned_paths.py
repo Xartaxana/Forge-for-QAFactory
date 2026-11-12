@@ -286,7 +286,7 @@ def k1_the_class_travels() -> None:
         found, lines = bare_lines(text)
         recording += found
         bare += [f"{path.name}:{n}" for n in lines]
-    check_eq("K1 positive control: the seven recording call sites", len(recording), 7)
+    check_eq("K1 positive control: the eight recording call sites", len(recording), 8)
     check_eq("K1 every recording call carries `waiver_road` (the lines that do not)", bare, [])
     check_eq("K1 negative control: one call site with the flag dropped is named (mutation of a copy)",
              len(bare_lines(source.replace("*self.waiver_road())", "", 1))[1]), 1)

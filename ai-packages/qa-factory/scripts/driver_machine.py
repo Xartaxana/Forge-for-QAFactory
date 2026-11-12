@@ -1375,7 +1375,8 @@ class DriverMachine:
         # Every terminal exit of this method that ends the story keeps `give_back_config` before its Stop (a new terminal branch gets the same call).
         if story_step.give_back_config(self.project, self.task_root, self.task):      # HF5-6: S9 is recorded, the story ends here (a second call reverts nothing: the copy is marked)
             self.rebuild_report()       # F4: the report's "where to look" block carries the revert line (read from the copy); once, a second call has no line
-        raise Stop(EXIT_DONE, f"{self.task}: the story is finished; nothing is pending.")
+        reminder = self._repo_reminder()        # OW-1: the person is told once more, at the end, where their changes stand
+        raise Stop(EXIT_DONE, f"{self.task}: the story is finished; nothing is pending." + (f"\n{reminder}" if reminder else ""))
 
     def _act_execute_gate_b(self, action: dict) -> None:
         """`execute_gate_b` (t-1509, GB-1b): gate B is decided and what the person ordered there is not carried out yet. The
@@ -1938,6 +1939,7 @@ class DriverMachine:
                 if action.get("action") in ("stop", "complete"):
                     import story_step
                     story_step.give_back_config(self.project, self.task_root, self.task)      # HF5-6: the story ends here, with or without `--until`
+                    self._repo_reminder()       # OW-1: the line is printed beside the revert line (the same end of the run)
                 if self.until_reached(action):
                     print(f"{self.task}: --until {self.until} reached at {json.dumps(action)}")
                     self.deferred_note()        # RN1-24 E9: a deferred question is never left unsaid
@@ -2790,7 +2792,7 @@ class DriverMachine:
         # file the answer belongs to - the text `shown_packet(kind)` reads): finding ids are ordinal per check, so a
         # rehearsal that changed since the packet could otherwise pass a block the person never saw under that id
         doors = (self.read_finding_doors(words, findings, qtext or self.shown_packet(kind),
-                                         (self.state.get("shown_doors") or {}).get(gate))
+                                         gate_brief.shown_doors_of(state=self.state, gate=gate))      # None reads as {}: no stored door, no line read
                  if rehearsal is not None else {"read": [], "unread": []})
         found = gate_brief.read_stand_gap_answers(words, gaps, covered=covered)
         forms = gate_brief.stand_gap_form_ids(list(gaps) + covered)
@@ -2834,17 +2836,51 @@ class DriverMachine:
                 stand_gaps.record_lasting(self.project, entry, self.task, print)
         return recorded, failed, failed_cases
 
+    def _repo_reminder(self) -> str:
+        """The end-of-run line about the person's changes put aside or committed on their word (`repo_words.reminder_line`, read from git; ""
+        when nothing stands there or git cannot answer): printed here, and returned for the done `Stop` text. Never raises."""
+        import repo_words
+        line = repo_words.reminder_line(self.project, self.config, self.task)
+        if line:
+            print(line)
+        return line
+
     def _record_door_lines(self, gate: str, entries: list, gaps: list, default_stage: str) -> tuple:
         """B-426 D7: write the record of every rehearsal-finding door the reader read, in order; the same return as
         `_record_gap_lines`."""
         import contract as C
+        import gate_brief
+        import repo_words
         recorded, failed, failed_cases = [], [], set()
+        executors = {row["option"]: row["executor"] for row in gate_brief.finding_door_words()}
         # twin of _record_gap_lines kept on purpose (t-666 F-4): four of eight steps differ; one loop would need a kind switch
         for entry in entries:
             # a rehearsal finding's door (`<check id>: accept` and the person's reason): the block and the stage are the
             # finding's own `waives` (gate_preflight), the person's line is quoted whole as the decision
             door, line = entry["door"], entry["line"]
-            if door.get("option") == "product_gap":
+            executor = executors.get(door.get("option"), "record")      # every branch is chosen by the row's executor (F-12); the stand-gap words have no row
+            if executor in repo_words.EXECUTORS:
+                # FG7-8 B: a word that acts on the person's repository - ONE executor for both roads (`repo_words.run`); a failure joins `failed`
+                # (the conductor gets it once, with git's text and the true state), a write that left changes dirty, could not be read
+                # afterwards or landed wrong is recorded as a REMARK (nothing passed; the wrong landing also joins `failed`, below)
+                done, problem = repo_words.run(self.task_root, self.project, self.config, door["option"], line, entry["replaced"], door, entry["id"])
+                if not done:
+                    failed.append((entry["id"], line, problem))
+                    continue
+                code, text = self.py("waiver.py", *repo_words.record_args(self.task, done), *self.waiver_road())
+                if code:
+                    failed.append((entry["id"], line, f"the change IS made ({done['undo']} undoes it), only its record failed: {text}"))
+                    continue
+                if done.get("failed"):
+                    failed.append((entry["id"], line, problem))
+                    continue
+                told = repo_words.done_line(done) + ("\n" + problem if problem else "")
+                self.state.setdefault("repo_done_lines", []).append(told)      # read and cleared by `_relay_note` (the person is told, line by line)
+                print(f"gate {gate}: {entry['id']}: {told}")
+                if not done["still"] and not done.get("unread"):
+                    recorded.append(entry["id"])
+                continue
+            if executor == "product_gap":
                 # D1-C2 (Q1-d): a product gap is the person's word about a requirement, recorded by its ONE writer and never a
                 # waiver - so it can never become a `stage_overrides[]` row that `_plan_decision` files as "your words at gate A"
                 import product_gaps
@@ -2911,6 +2947,11 @@ class DriverMachine:
         lines. The note is "" when nothing was recorded and nothing was unread."""
         import gate_brief
         note = ""
+        told = self.state.pop("repo_done_lines", None)      # FG7-8 B (OW-1): what `repo_words.run` did in the person's repository on their word
+        if told:
+            note += ("\n\n## Done in the person's repository on their word - tell the person each line as it stands\n"
+                     + "\n".join(f"- {line}" for line in told))
+        word_of = gate_brief.finding_door_word_of()
         # critic t-346 F4: whenever ANY line was recorded the conductor is told so - the gate decision can still fail to
         # record by code and the words then reach it, with these lines already on the record.
         if out["recorded"]:
@@ -2936,6 +2977,7 @@ class DriverMachine:
             # (a finding with no door is a gap of the factory's own: the conductor says so, never passes it silently)
             door_keys = "\n".join(
                 f"- {f['id']}: block `{d['block']}`, stage {d.get('stage') or ctx.default_stage}, word option `{d.get('option')}`"
+                + (f" (`{word_of[d.get('option')]}`)" if d.get("option") in word_of else "")
                 for f in (ctx.rehearsal or {}).get("findings") or [] if isinstance(f, dict) and f.get("id")
                 for d in f.get("waives") or [] if isinstance(d, dict) and d.get("block"))
             # F3: a door line whose id no longer names the message the person read goes whole to the conductor, with the

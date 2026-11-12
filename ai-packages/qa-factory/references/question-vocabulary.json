@@ -89,11 +89,29 @@
     ]
   },
   "finding_door_words": {
-    "note": "The words a rehearsal finding's OWN door takes besides the stand-gap answers, read ONLY by story_run.Driver.read_finding_doors, for a finding whose door option is the row's option (gate_brief.finding_door_words). The word may be followed by a separator and the person's reason, which is kept whole. The list is closed and English only (FR-13). A word or synonym of this block belongs to no other block of this file, and a test holds them apart.",
+    "note": "The words a rehearsal finding's OWN door takes besides the stand-gap answers, read ONLY by story_run.Driver.read_finding_doors, for a finding whose door option is the row's option (gate_brief.finding_door_words). The word may be followed by a separator and the person's reason, which is kept whole - EXCEPT a row with `writes_repository: true`, which is read only as the word (or a synonym) ALONE: a word that makes the factory write into the person's repository is never read out of a longer sentence (gate_brief.finding_door_option). `executor` names what carries the word out (gate_brief.FINDING_DOOR_EXECUTORS): `product_gap` and `record` are recorded as a waiver, `git_commit` and `git_stash` run one git command in the person's test repository (repo_words.py); a row with no valid executor is dropped. `says`, `factory`, `you` and `story` are the word's explanation and its three price lines (human-questions.md item 6), printed under the finding by gate_brief.finding_door_hint. The list is closed and English only (FR-13). A word or synonym of this block belongs to no other block of this file, and a test holds them apart.",
     "answers": [
-      {"option": "product_gap", "word": "product gap",
+      {"option": "product_gap", "word": "product gap", "executor": "product_gap",
        "says": "the product has no such function: the requirement is reported as not implemented and the delivery is not ready",
-       "synonyms": ["no such function", "not implemented"]}
+       "synonyms": ["no such function", "not implemented"]},
+      {"option": "vcs_commit", "word": "commit", "executor": "git_commit", "writes_repository": true,
+       "says": "I commit all your uncommitted changes listed above, each file as it is on disk now, on this branch, with a message that names this story",
+       "factory": "one git commit of exactly these changes runs in your repository, with your own hooks; no agent works.",
+       "you": "nothing more; I tell you how to undo it.",
+       "story": "the tests are written into a tree with none of your changes in it; delivery unchanged.",
+       "synonyms": ["commit them"]},
+      {"option": "vcs_stash", "word": "stash", "executor": "git_stash", "writes_repository": true,
+       "says": "I put all your uncommitted changes listed above aside in a git stash named after this story",
+       "factory": "one git stash of exactly these changes runs in your repository, with your own hooks; no agent works.",
+       "you": "work of yours outside the factory: taking them back from the stash when you want them (I remind you how).",
+       "story": "the tests are written into a tree with none of your changes in it; delivery unchanged.",
+       "synonyms": ["stash them"]},
+      {"option": "vcs_go_on", "word": "go on", "executor": "record",
+       "says": "go on with the tests on this branch as the tree is now; nothing is committed or put aside",
+       "factory": "a record only; no agent works.",
+       "you": "nothing more.",
+       "story": "the tests are written into a tree that still holds your changes; delivery unchanged.",
+       "synonyms": []}
     ]
   },
   "probe_answers": {

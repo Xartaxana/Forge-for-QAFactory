@@ -207,31 +207,59 @@ def measurement_is_stale(at, verified) -> str:
 _read_json = functools.partial(hooklib.read_json, errors=Exception)
 
 
-def _git(root, *args, timeout=10):
+def git_env(literal: bool = False) -> dict:
+    """THE one environment of a git call of the factory (AR-13): never prompts. `literal` (BL-1): every path after `--` is a LITERAL path,
+    not a pathspec with glob or `:(magic)` meaning - a person's `q[a]-factory/z.txt` must not also name `qa-factory/z.txt`. Every call that
+    hands git a person's path asks for it (`repo_words._exec`, the `ls-files` read of `vcs_changes`)."""
+    import os
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="Never")
+    if literal:
+        env["GIT_LITERAL_PATHSPECS"] = "1"
+    return env
+
+
+def _git(root, *args, timeout=10, literal=False):
     """One read-only git question, or None when git cannot answer it. Never prompts: a probe
     that opens a credential dialog in front of a gate is worse than an unanswered probe."""
+    raw = _git_raw(root, *args, timeout=timeout, literal=literal)
+    return None if raw is None else raw.strip()
+
+
+def _git_raw(root, *args, timeout=10, literal=False):
+    """`_git`'s question with the answer NOT stripped (`-z` output: `_git` strips its whole output, and a stripped ` M a` loses
+    the space of its status), or None when git cannot answer it (judged by the exit code alone: an unborn or root-commit
+    repository echoes a rev-parse argument on stdout). Read-only, never prompts, the environment of `git_env(literal)`."""
     try:
-        import os
         out = subprocess.run(["git", *args], cwd=str(root), capture_output=True, text=True,
-                             encoding="utf-8", errors="replace", timeout=timeout,
-                             env=dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="Never"))
+                             encoding="utf-8", errors="replace", timeout=timeout, env=git_env(literal))
     except Exception:
         return None
-    return out.stdout.strip() if out.returncode == 0 else None
+    return out.stdout if out.returncode == 0 else None
 
 
-def _factory_home_in_repo(project_root, repo_dir) -> str:
-    """The factory's own folder (`runtime_paths.home_dir`) as a path relative to the top of the git working tree that
-    `repo_dir` is in, with a trailing `/`; "" when it cannot be told (no git answer, or the folder lies outside that tree)."""
+def factory_home_place(project_root, repo_dir) -> tuple:
+    """`(rel, why)`: the factory's own folder (`runtime_paths.home_dir`) as a path relative to the top of the git working tree that
+    `repo_dir` is in, with a trailing `/`, and WHY it is not one: `""` (it is), `"outside"` (the folder lies outside that tree: no
+    entry of the tree can be the factory's) or `"unknown"` (git gave no top, or the folder cannot be told). THE one reader of where the
+    factory's folder is in a repository (AR-13): `_factory_home_in_repo` and the words that write into the repository ask here."""
     try:
         import runtime_paths
         top = _git(repo_dir, "rev-parse", "--show-toplevel")
         if not top:
-            return ""
-        rel = runtime_paths.home_dir(project_root).resolve().relative_to(Path(top).resolve())
-        return rel.as_posix().rstrip("/") + "/"
+            return "", "unknown"
+        try:
+            rel = runtime_paths.home_dir(project_root).resolve().relative_to(Path(top).resolve())
+        except ValueError:
+            return "", "outside"
+        return rel.as_posix().rstrip("/") + "/", ""
     except Exception:
-        return ""
+        return "", "unknown"
+
+
+def _factory_home_in_repo(project_root, repo_dir) -> str:
+    """The factory's own folder as a path relative to the top of the git working tree that `repo_dir` is in, with a trailing `/`;
+    "" when it cannot be told (no git answer, or the folder lies outside that tree) - `factory_home_place`'s first answer."""
+    return factory_home_place(project_root, repo_dir)[0]
 
 
 def porcelain_path(line: str) -> str:
@@ -252,10 +280,160 @@ def outside_factory_home(lines: list, home_rel: str) -> list:
     for line in lines:
         body = porcelain_path(line) if len(line.strip().split(None, 1)) > 1 else ""
         paths = [part.strip().strip('"') for part in body.split(" -> ")]
-        if paths and all(path == home_rel.rstrip("/") or path.startswith(home_rel) for path in paths):
+        if paths and all(_in_home(path, home_rel) for path in paths):
             continue
         kept.append(line)
     return kept
+
+
+def _in_home(path: str, home_rel: str) -> bool:
+    """Whether `path` (top-relative, `/`) is the factory's folder or lies under it (`home_rel`, trailing `/`); False with no home.
+    The one rule of `outside_factory_home` and of the `-z` read of the change set (`vcs_changes`)."""
+    return bool(home_rel) and (path == home_rel.rstrip("/") or path.startswith(home_rel))
+
+
+REPO_WORD_PATH_CAP = 20   # the most paths of the person's changes one question lists, so `commit` / `stash` take only what was read (F10)
+_VCS_UNMERGED = ("DD", "AU", "UD", "UA", "DU", "AA", "UU")
+_VCS_OPERATIONS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "index.lock")
+_GUARD_SEPARATORS = (" && ", " || ", ";", "\n", " | ")      # what `stage_guard` cuts a command at (`rule_pathspec`, `rule_stash`)
+
+
+def vcs_state_block(head: str, digest: str = "") -> str:
+    """THE block text gate A's test-repository question is passed by (AR-13): `test repository state: <HEAD[:12]>` (a word that does
+    not touch the repository stands while S5 writes its tests, and a moved HEAD asks again), or - with the digest of the person's
+    changes - `test repository changes: <HEAD[:12]> <digest>`, the block a repository-writing word is bound to. "" with no HEAD."""
+    if not head:
+        return ""
+    return f"test repository changes: {head[:12]} {digest}" if digest else f"test repository state: {head[:12]}"
+
+
+def _vcs_entries(raw: str) -> list:
+    """The entries of `git status --porcelain=v1 -z` as `[{"xy", "path", "orig"}]`. A rename or a copy is `XY new\\0old\\0` (NEW then
+    OLD, measured on git 2.56): `orig` is the old path, "" for every other entry. A token too short to hold `XY ` is skipped."""
+    tokens = [t for t in str(raw or "").split("\0")]
+    entries, at = [], 0
+    while at < len(tokens):
+        token = tokens[at]
+        at += 1
+        if len(token) < 4:
+            continue
+        xy, path, orig = token[:2], token[3:], ""
+        if ("R" in xy or "C" in xy) and at < len(tokens):
+            orig = tokens[at]
+            at += 1
+        entries.append({"xy": xy, "path": path, "orig": orig})
+    return entries
+
+
+def vcs_changes(project_root, config, task_root) -> dict | None:
+    """The change set of the test repository, read ONCE with `status --porcelain=v1 -z -uall` (AR-13), or None exactly where
+    `check_vcs` has nothing to decide (no project, no tests folder, not a working tree) or where git could not give the status.
+
+    `{tests_root, branch, head, top, home, entries, person, factory, digest, modes, ops}`: `home` is `factory_home_place`'s `(rel, why)`;
+    `entries` is every entry that is not wholly under the factory's folder (`_in_home`, the rule of `outside_factory_home`);
+    `person` is the person's changes and `factory` the factory's own files. Until a record of what the factory wrote exists (the
+    later node that reads `task_root`), EVERY entry is the person's and `factory` is `[]` - the error direction that shows a change,
+    never hides one (FR-59). `digest` is the first 12 hex of the sha256 of the sorted `<xy>\\0<path>\\0<orig>` of the person's entries:
+    the list the person was shown. `modes` is `{path: mode}` from `ls-files -s -z` for the person's paths (a mode 160000 is a
+    submodule); read only up to the cap, because above it no repository-writing word is offered. `ops` is the names of
+    `_VCS_OPERATIONS` whose path `rev-parse --git-path` names and that EXISTS (the command exits 0 for an absent name too)."""
+    if project_root is None:
+        return None
+    tests_root = (Path(project_root) / str(config.get("tests_root") or ".")).resolve()
+    if not tests_root.is_dir():
+        return None
+    branch = _git(tests_root, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch is None:
+        return None  # not a working tree, or no git here: nothing to decide
+    head = _git(tests_root, "rev-parse", "HEAD") or ""
+    top = _git(tests_root, "rev-parse", "--show-toplevel") or ""
+    home = factory_home_place(project_root, tests_root)
+    raw = _git_raw(tests_root, "status", "--porcelain=v1", "-z", "-uall")
+    if raw is None:
+        return None  # F-9: a status git could not give is not "no changes" - after a write it must read as unread, never as clean
+    entries =[e for e in _vcs_entries(raw)
+               if not (home[0] and all(_in_home(p, home[0]) for p in (e["path"], e["orig"]) if p))]
+    person, factory = list(entries), []
+    digest = hashlib.sha256("\n".join(sorted(f"{e['xy']}\0{e['path']}\0{e['orig']}" for e in person)).encode("utf-8", "replace")).hexdigest()[:12]
+    modes = {}
+    if top and 0 < len(person) <= REPO_WORD_PATH_CAP:
+        listed = _git_raw(top, "ls-files", "-s", "-z", "--", *[p for e in person for p in (e["path"], e["orig"]) if p], literal=True)
+        for row in (listed or "").split("\0"):
+            meta, _tab, name = row.partition("\t")
+            if name and meta.split(" ")[0]:
+                modes.setdefault(name, meta.split(" ")[0])
+    ops = []
+    for name in _VCS_OPERATIONS if person else ():      # asked only when there is a change a word could be offered for
+        where = _git(top or tests_root, "rev-parse", "--git-path", name)
+        if where and (Path(top or tests_root) / where).exists():
+            ops.append(name)
+    # Q-1 (the owner's question, decided by the Lead until her word): how many of the person's entries lie OUTSIDE the tests folder - product
+    # code the words would take as well. A tests folder that IS the top has none outside; one that cannot be placed in the top counts every entry.
+    try:
+        folder = tests_root.relative_to(Path(top).resolve()).as_posix() if top else "."
+    except ValueError:
+        folder = None
+    if folder in (".", ""):
+        outside_tests = 0
+    elif folder is None:
+        outside_tests = len(person)
+    else:
+        outside_tests = sum(1 for e in person if any(not (p == folder or p.startswith(folder + "/")) for p in (e["path"], e["orig"]) if p))
+    return {"tests_root": tests_root, "branch": branch, "head": head, "top": top, "home": home, "entries": entries,
+            "person": person, "factory": factory, "digest": digest, "modes": modes, "ops": ops, "outside_tests": outside_tests}
+
+
+def vcs_blockers(state: dict) -> dict:
+    """`{verb: [why, ...]}` - why a word that writes into the person's repository must NOT be offered for this change set; an empty
+    list is an open road (one reader, AR-13; the facts are measured, `docs/tasks/specs/reports/t-118-b0-2-git-measure.md`).
+
+    Both words: an unmerged entry; an operation in progress (a merge, a rebase, a cherry-pick, a revert, a git lock); the factory's
+    folder cannot be told; a person path under that folder or holding a separator the guard cuts commands at; a path that is not text;
+    a nested repository; more entries than `REPO_WORD_PATH_CAP`; an intent-to-add entry (` A`: the undo cannot bring it back); no
+    commit yet. The commit alone: a detached HEAD. The stash alone: any staged change (an X that is not space or `?`), a submodule
+    (mode 160000) or `.gitmodules` - the classes where the stash takes exactly the entry and `stash apply --index` restores it."""
+    person = list(state.get("person") or [])
+    rel, why_home = state.get("home") or ("", "unknown")
+
+    def named(rows) -> str:
+        shown = [e["path"] for e in rows][:3]
+        return ", ".join(shown) + (f" and {len(rows) - 3} more" if len(rows) > 3 else "")
+    both = []
+    rows = [e for e in person if e["xy"] in _VCS_UNMERGED]
+    if rows:
+        both.append(f"{len(rows)} change(s) are in conflict, unmerged: {named(rows)}")
+    if state.get("ops"):
+        both.append("a merge, rebase, cherry-pick, revert or git lock is in progress here (" + ", ".join(state["ops"]) + ")")
+    if why_home == "unknown":
+        both.append("where the factory's own folder lies in this repository cannot be told")
+    rows = [e for e in person if any(_in_home(p, rel) for p in (e["path"], e["orig"]) if p)]
+    if rows:
+        both.append(f"a change touches the factory's own folder: {named(rows)}")
+    rows = [e for e in person if any(sep in p for p in (e["path"], e["orig"]) for sep in _GUARD_SEPARATORS)]
+    if rows:
+        both.append(f"the guard cannot read this path whole: {named(rows)}")
+    rows = [e for e in person if "�" in e["path"] + e["orig"]]
+    if rows:
+        both.append(f"a path git printed is not text: {named(rows)}")
+    rows = [e for e in person if e["path"].endswith("/")]
+    if rows:
+        both.append(f"a nested git repository is among the changes: {named(rows)}")
+    if len(person) > REPO_WORD_PATH_CAP:
+        both.append(f"{len(person)} changes are more than the {REPO_WORD_PATH_CAP} one question lists")
+    rows = [e for e in person if e["xy"] == " A"]
+    if rows:
+        both.append(f"a file added with intent only, which an undo cannot bring back: {named(rows)}")
+    if not state.get("head"):
+        both.append("the repository has no commit yet")
+    commit_only = ["HEAD is detached, not on a branch"] if state.get("branch") == "HEAD" else []
+    modes = state.get("modes") or {}
+    rows = [e for e in person if e["xy"][0] not in " ?"]
+    stash_only = [f"{len(rows)} change(s) are staged: {named(rows)}"] if rows else []
+    rows = [e for e in person if modes.get(e["path"]) == "160000" or modes.get(e["orig"]) == "160000"
+            or e["path"].rsplit("/", 1)[-1] == ".gitmodules"]
+    if rows:
+        stash_only.append(f"a submodule is among the changes: {named(rows)}")
+    return {"commit": both + commit_only, "stash": both + stash_only}
 
 
 def collect_base(config: dict) -> list:
@@ -1392,8 +1570,9 @@ class Rehearsal:
         return f"{case}, gap {gap_id}" if case else str(gap_id)
 
     def add(self, check: str, klass: str, message: str, fix: str = "", gap: str = "", gap_case: str = "", subject: str = "",
-            **extra) -> None:
-        """Write one finding. `gap` (a stand-gap id): the message holds `GAP_SLOT`, which names that gap the way its
+            answers=None, **extra) -> None:
+        """Write one finding. `answers` (FG7-8 part B): the lines of the words this item takes, printed under `fix` on both roads
+        (`gate_brief.finding_door_hint`). `gap` (a stand-gap id): the message holds `GAP_SLOT`, which names that gap the way its
         card does (`gap_name`) - the block key of the gap's door is never in the text a person reads; it is matched
         here from the finding's own `waives` (FR-4), so a recorded word still drops the finding.
 
@@ -1425,7 +1604,10 @@ class Rehearsal:
         self.findings.append({"id": found, "check": check, "class": klass,
                               "message": template.replace(GAP_SLOT, self.gap_name(gap, gap_case) if gap else GAP_SLOT),
                               "fix": str(fix).replace(DOOR_ID, found),
-                              **({"waives": doors} if doors else {}), **extra})
+                              **({"waives": doors} if doors else {}),
+                              # the lines under `fix` that list the words of this item with their prices (`gate_brief.finding_door_hint`);
+                              # each carries the id the person writes, as `fix` does
+                              **({"answers": [str(line).replace(DOOR_ID, found) for line in answers]} if answers else {}), **extra})
         if gap:
             self._named.append((self.findings[-1], template, gap, gap_case))
         for finding, text, gap_id, case_id in self._named:
@@ -1942,37 +2124,64 @@ class Rehearsal:
         On TP1-15045 this arrived as a separate stop AFTER the gate, although `--probe-vcs`
         knew it at S0."""
         check = "vcs"
-        root = self.project_root
-        if root is None:
-            return
-        tests_root = (root / str(self.config.get("tests_root") or ".")).resolve()
-        if not tests_root.is_dir():
-            return
-        branch = _git(tests_root, "rev-parse", "--abbrev-ref", "HEAD")
-        if branch is None:
-            return  # not a working tree, or no git here: nothing to decide
-        status = _git(tests_root, "status", "--porcelain")
-        head = _git(tests_root, "rev-parse", "HEAD") or ""
-        dirty = outside_factory_home([line for line in (status or "").splitlines() if line.strip()],
-                                     _factory_home_in_repo(root, tests_root))
+        state = vcs_changes(self.project_root, self.config, self.task_root)       # the ONE read of the change set (AR-13)
+        if state is None:
+            return  # no project, no tests folder, not a working tree, or no git here: nothing to decide
+        branch, head, dirty = state["branch"], state["head"], state["person"]
         # GW1-43: the door of both branches is the block `test repository state: <HEAD>` - the HEAD, not the number of changes,
         # so a word stands while S5 writes its own tests into this tree, and a moved HEAD (other code) asks again. No HEAD,
         # no door (as before).
-        block = f"test repository state: {head[:12]}" if head else ""
+        block = vcs_state_block(head)
         if dirty:
+            labels = [f"{e['orig']} -> {e['path']}" if e["orig"] else e["path"] for e in dirty]
+            offered, answers = self._vcs_words(state, block, labels)
+            # the arguments run left to right: `fix` registers the `accept` door (waiver_command), then `_vcs_doors` registers the item's
+            # own words after it, so the doors read accept, go on, commit, stash
             self.add(check, PERSON_DECIDES,
                      f"the test repository has {len(dirty)} uncommitted change(s) on branch "
                      f"`{branch}` (HEAD {head[:12]}), and {self.next_stage} writes test code into "
-                     f"it: {', '.join(porcelain_path(line) for line in dirty[:5])}"
+                     f"it: {', '.join(labels[:5])}"
                      + (f" and {len(dirty) - 5} more" if len(dirty) > 5 else ""),
-                     "answer with your approval: commit, stash, or go on on this branch"
-                     + (f" - {self.waiver_command(block)}" if block else ""), subject="test-repo")
+                     ("answer with one of the words listed under this item" if answers else "answer with your approval on this branch")
+                     + (f" - {self.waiver_command(block)}" if block else ""),
+                     subject="test-repo",
+                     answers=self._vcs_doors(offered, block, vcs_state_block(head, state["digest"]), answers))
         else:
             self.add(check, PERSON_DECIDES,
                      f"{self.next_stage} will write test code on branch `{branch}` "
                      f"(HEAD {head[:12]}), the branch this checkout is on",
                      "answer with your approval: this branch, or name another"
                      + (f" - {self.waiver_command(block)}" if block else ""), subject="test-repo")
+
+    def _vcs_doors(self, offered: list, block: str, writes_block: str, answers: list) -> list:
+        """Register the doors of the item's own words (after the `accept` door): the word that only records on the HEAD block, a word that
+        writes into the repository on `writes_block` (HEAD and the digest of the list the person was shown). Returns `answers` unchanged."""
+        for row in offered:
+            self.door(writes_block if row["writes_repository"] else block, option=row["option"])
+        return answers
+
+    def _vcs_words(self, state: dict, block: str, labels: list) -> tuple:
+        """`(offered rows, the `answers` lines)` of the dirty-tree question: the item's own words (`gate_brief.finding_door_words`, in
+        the order their doors are registered - the `go on` word first, then the repository-writing words) and the hint that lists them.
+
+        The word that only records is offered whenever the vocabulary has it and there is a HEAD to bind it to. A word that WRITES into
+        the repository is offered only when ALL hold: the run leaves a trace and its record can be read (`closed_by_run`, I-7), the
+        person was shown every path it takes (`REPO_WORD_PATH_CAP`), and `vcs_blockers` names nothing for it. Nothing is offered with no
+        HEAD (no door at all, as before) or an unreadable vocabulary (`finding_door_words` is then [])."""
+        if not block:
+            return [], []
+        import gate_brief
+        import external_writes as _ew
+        rows = [r for r in gate_brief.finding_door_words() if r["executor"] != "product_gap"]
+        total = len(state["person"])
+        closed = _ew.closed_by_run(self.task_root, unreadable_closes=True)
+        blockers = vcs_blockers(state)
+        writers = [r for r in rows if r["writes_repository"] and not closed and total <= REPO_WORD_PATH_CAP
+                   and not blockers.get(r["executor"].removeprefix("git_"))]
+        offered = [r for r in rows if r["executor"] == "record"] + writers
+        listed = labels if total <= REPO_WORD_PATH_CAP else []
+        return offered, gate_brief.finding_door_hint(DOOR_ID, [r["option"] for r in offered], listed, total, REPO_WORD_PATH_CAP,
+                                                     outside=state.get("outside_tests", 0))
 
     def check_stand(self) -> None:
         """Only what an existing probe already answered. A gate is not the place to start a
@@ -5833,7 +6042,11 @@ def render(result: dict) -> str:
         for row in rows:
             lines.append(f"  - [{row['id']}] {row['message']}")
             if row.get("fix"):
-                lines.append(f"      fix: {row['fix']}")
+                first, *rest = str(row["fix"]).split("\n")
+                lines.append(f"      fix: {first}")
+                lines.extend(f"          {line}" for line in rest)          # a multi-line fix continues under its own first line
+            # the words of the item with their prices (`gate_brief.finding_door_hint`): under `fix`, in the rehearsal section too
+            lines.extend(f"          {line}" for line in row.get("answers") or [])
     proved = result.get("info") or []
     if proved:
         lines.append(f"\nINFO ({len(proved)}) — proved here, nothing waits on these:")
@@ -5999,14 +6212,20 @@ def brief_lines(result: dict, limit: int = 5, skip_checks: tuple = ()) -> list:
             return text[:size] + "…"
         return text
 
-    for row in rows[:limit]:
+    # FG7-8 part B: a row that carries `answers` (the words of an item with their prices and the list they act on) is the question
+    # itself on the skill road, whose message has no rehearsal section below: it is never cut by `limit`, which counts the OTHER rows
+    plain = [r for r in rows if not r.get("answers")]
+    kept = {id(r) for r in plain[:limit]}
+    shown = [r for r in rows if r.get("answers") or id(r) in kept]
+    for row in shown:
         tag = "factory owns this" if row["class"] == FACTORY_DEFECT else "your call"
         out.append(f"- [{tag}] {clipped(row['message'], BRIEF_CUT)}")
         if row.get("story_level") and row.get("fix"):
             # the question of an integration no case could be tied to has no card below it: its answers are THIS line
             out.append(f"  - how to answer: {clipped(' '.join(str(row['fix']).split()), 2 * BRIEF_CUT)}")
-    if len(rows) > limit or cut:
-        more = f"+{len(rows) - limit} more" if len(rows) > limit else ""
+        out.extend(f"  {line}" for line in row.get("answers") or [])
+    if len(plain) > limit or cut:
+        more = f"+{len(plain) - limit} more" if len(plain) > limit else ""
         marked = "… marks a line cut here" if cut else ""
         out.append(f"- ({' and '.join(part for part in (more, marked) if part)} — "
                    "the whole list is under \"Rehearsal of gate " + str(result.get("gate") or "") + "\" below)")

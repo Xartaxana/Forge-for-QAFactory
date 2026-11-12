@@ -344,17 +344,18 @@ def test_d1b_k_b6_a_finding_made_for_a_subject_keeps_its_id_between_rehearsals()
         check_eq("F5 a plain `word: text` line is no finding line", [reader.match(t) for t in ("note: x", "ok: fine", "Note: x - y", "note-: x")], [None] * 4)
         # the vcs finding is `vcs-test-repo`, in both of its branches
         (root / "tests").mkdir(exist_ok=True)
-        original = gate_preflight._git
+        original, original_raw = gate_preflight._git, gate_preflight._git_raw
         try:
             for status in ("", " M a.py"):
-                answers = {("rev-parse", "--abbrev-ref", "HEAD"): "main", ("status", "--porcelain"): status,
-                           ("rev-parse", "HEAD"): "0123456789abcdef"}
+                answers = {("rev-parse", "--abbrev-ref", "HEAD"): "main", ("rev-parse", "HEAD"): "0123456789abcdef"}
                 gate_preflight._git = lambda root, *args, **kw: answers.get(args)
+                # F-9: a status git could not give is no finding at all, so the read stands in the change set's own form (`-z`), not in None
+                gate_preflight._git_raw = lambda root, *args, **kw: (status + "\0" if status else "") if args[:1] == ("status",) else None
                 v = gate_preflight.Rehearsal(task_root, "A")
                 v.check_vcs()
                 check_eq(f"K-B6 vcs ({'dirty' if status else 'clean'}) -> the id is `vcs-test-repo`", [f["id"] for f in v.findings], ["vcs-test-repo"])
         finally:
-            gate_preflight._git = original
+            gate_preflight._git, gate_preflight._git_raw = original, original_raw
     finally:
         cleanup(root)
 
@@ -523,6 +524,621 @@ def test_the_dirty_tree_and_the_branch_are_asked_inside_the_packet() -> None:
               bool(clean[0].get("waives")) and _word_passes(clean[0]), str(clean[0].get("waives")))
     finally:
         cleanup(root)
+
+
+# --- FG7-8 part B, node B2: the executor of gate A's words `commit` / `stash` (`repo_words.py`) --------------------------------------
+# One temp project whose tests folder is its own git repository, with a dirty factory folder beside the person's changes; a case per
+# line of the node's table. Every case that writes is judged on the repository itself (porcelain, refs, the index), never on a text.
+
+def _g(repo, *args) -> str:
+    import os
+    import subprocess
+    env = dict(os.environ, GIT_AUTHOR_NAME="qa", GIT_AUTHOR_EMAIL="qa@example.invalid", GIT_COMMITTER_NAME="qa",
+               GIT_COMMITTER_EMAIL="qa@example.invalid", GIT_TERMINAL_PROMPT="0")
+    return subprocess.run(["git", *args], cwd=str(repo), env=env, capture_output=True, text=True, encoding="utf-8").stdout
+
+
+def _porcelain(repo) -> str:
+    return _g(repo, "status", "--porcelain=v1", "-z", "-uall") + "|" + _g(repo, "ls-files", "-s", "-z")
+
+
+def words_repo(prefix: str, tests_root: str = ".", pipeline=None):
+    """`(root, task_root)`: a project whose repository holds base.py, mm.txt, gone.txt, qa-factory/tracked.txt (committed) and, if the tests
+    folder is not the top, tests/t.py; the factory's story folder is untracked inside qa-factory/."""
+    root = temp_dir(prefix)
+    task_root = root / "qa-factory" / "artifacts" / "TP1-15045"
+    (task_root / "state").mkdir(parents=True)
+    (root / "qa-factory" / "config.json").write_text(json.dumps({"tests_root": tests_root}), encoding="utf-8")
+    (task_root / "pipeline.json").write_text(json.dumps(pipeline if pipeline is not None else {"ticket": "TP1-15045"}), encoding="utf-8")
+    names = ["base.py", "mm.txt", "gone.txt", "qa-factory/tracked.txt"] + (["tests/t.py"] if tests_root != "." else [])
+    for name in names:
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text("base\n", encoding="utf-8")
+    _g(root, "init", "-b", "main")
+    _g(root, "config", "user.name", "qa")         # the person's own identity: the executor runs git with the person's configuration
+    _g(root, "config", "user.email", "qa@example.invalid")
+    _g(root, "config", "commit.gpgsign", "false")
+    _g(root, "add", "--", *names)
+    _g(root, "commit", "-m", "base", "--no-gpg-sign")
+    return root, task_root
+
+
+def words_dirty(root: Path, staged: bool = True) -> None:
+    """Every class the words take: ` M`, ` D`, `??` (a file and a folder), `MM` when `staged`; beside them the factory's own dirty folder
+    with an entry STAGED in it (it must stay staged and uncommitted)."""
+    (root / "base.py").write_text("changed\n", encoding="utf-8")
+    (root / "gone.txt").unlink()
+    (root / "new.py").write_text("n\n", encoding="utf-8")
+    for name in ("d/a.py", "d/b.py"):
+        (root / name).parent.mkdir(exist_ok=True)
+        (root / name).write_text("x\n", encoding="utf-8")
+    if staged:
+        (root / "mm.txt").write_text("staged\n", encoding="utf-8")
+        _g(root, "add", "--", "mm.txt")
+        (root / "mm.txt").write_text("worktree\n", encoding="utf-8")
+    (root / "qa-factory" / "staged.txt").write_text("s\n", encoding="utf-8")
+    _g(root, "add", "--", "qa-factory/staged.txt")
+    (root / "qa-factory" / "other.txt").write_text("o\n", encoding="utf-8")
+
+
+def words_state(root: Path, task_root: Path) -> tuple:
+    config = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
+    return config, gate_preflight.vcs_changes(root, config, task_root)
+
+
+def words_run(root, task_root, option, timeout=60, door=None, line=None, replaced=(), finding_id="vcs-test-repo"):
+    import repo_words
+    config, state = words_state(root, task_root)
+    shown = door or {"block": gate_preflight.vcs_state_block(state["head"], state["digest"]), "stage": "S5", "option": option}
+    return repo_words.run(task_root, root, config, option, line or "vcs-test-repo: " + option.split("_", 1)[1], list(replaced), shown, finding_id,
+                          timeout=timeout)
+
+
+def test_repo_words_commit_takes_exactly_the_shown_list_and_the_undo_is_true() -> None:
+    """B2 `run` steps 1-8, the commit: HEAD moves by one commit holding exactly the person's paths (a folder file by file, `MM` as it is on
+    disk), the factory's folder stays dirty and its staged entry stays staged; the record is on the new HEAD block with the line quoted
+    and the undo named; the next read finds nothing of the person's; the undo in the words of `done_line` gives back the porcelain AND the
+    index (`MM` included)."""
+    import repo_words
+    root, task_root = words_repo("qa-repo-words-commit-")
+    try:
+        words_dirty(root)
+        before = _porcelain(root)
+        head = _g(root, "rev-parse", "HEAD").strip()
+        mm_staged = _g(root, "show", ":mm.txt")
+        done, problem = words_run(root, task_root, "vcs_commit")
+        check_eq("commit: done, no problem", (bool(done), problem), (True, ""))
+        check_eq("commit: HEAD moved by exactly one commit", _g(root, "rev-parse", "HEAD^").strip(), head)
+        taken = sorted(_g(root, "show", "--name-status", "--format=", "HEAD").split())
+        check_eq("commit: it holds the person's paths and nothing of the factory's", [t for t in taken if len(t) > 1],
+                 ["base.py", "d/a.py", "d/b.py", "gone.txt", "mm.txt", "new.py"])
+        check_eq("commit: the message names the story, as the one builder says it", _g(root, "log", "-1", "--format=%s").strip(),
+                 repo_words.message("TP1-15045", "commit"))
+        left = _g(root, "status", "--porcelain=v1", "-uall")
+        check_in("commit: the factory's staged entry stays staged and uncommitted", "A  qa-factory/staged.txt", left)
+        check_in("commit: the factory's other dirty file stays dirty", "?? qa-factory/other.txt", left)
+        check_eq("commit: the record is the passing form on the new HEAD block", repo_words.record_args("TP1-15045", done)[:6],
+                 ["--task", "TP1-15045", "--stage", "S5", "--block", f"test repository state: {done['head_after'][:12]}"])
+        check_in("commit: the decision quotes the person's line and names the undo", "the person wrote: vcs-test-repo: commit",
+                 done["decision"])
+        check_in("commit: ...and how to undo it", "git reset --soft " + head[:12], done["decision"])
+        check_eq("commit: the next read finds nothing of the person's", words_state(root, task_root)[1]["person"], [])
+        again = words_run(root, task_root, "vcs_commit", door=done and {"block": "x", "stage": "S5", "option": "vcs_commit"})
+        check_in("commit: asked again, nothing of yours is uncommitted and nothing is done", "Nothing of yours is uncommitted", again[1])
+        line = repo_words.done_line(done)
+        check_in("commit: the line told to the person names the undo in the person's own tool", f"`git reset --soft {head[:12]}`", line)
+        check_eq("commit: the line obeys the rules of text a person reads", [p["rule"] for p in human_text_problems(line)], [])
+        _g(root, "reset", "--soft", head[:12])
+        _g(root, "read-tree", done["tree"][:12])
+        check_eq("commit: after the undo the porcelain and the index equal the state before (`MM` included)", _porcelain(root), before)
+        check_eq("commit: ...and what was staged in mm.txt is still the staged text", _g(root, "show", ":mm.txt"), mm_staged)
+        check_eq("go on is not a repository word: nothing was done", words_run(root, task_root, "vcs_go_on")[0], {})
+    finally:
+        cleanup(root)
+
+
+def human_text_problems(text: str) -> list:
+    import human_text
+    return human_text.problems(text, kind="report")
+
+
+def test_repo_words_stash_takes_the_shown_list_and_the_undo_is_true() -> None:
+    """B2, the stash: the person's entries are gone from the tree, one stash entry carries the message, the record is on the HEAD block;
+    `git stash apply --index <sha12>` gives back the porcelain and the index; the entry is dropped by its `stash@{N}` and by nothing else;
+    the reminder finds it by its message, and finds nothing once it is dropped."""
+    import repo_words
+    root, task_root = words_repo("qa-repo-words-stash-")
+    try:
+        words_dirty(root, staged=False)
+        before = _porcelain(root)
+        head = _g(root, "rev-parse", "HEAD").strip()
+        done, problem = words_run(root, task_root, "vcs_stash")
+        check_eq("stash: done, no problem", (bool(done), problem), (True, ""))
+        check_eq("stash: HEAD did not move", _g(root, "rev-parse", "HEAD").strip(), head)
+        check_in("stash: the entry's subject carries the message", repo_words.message("TP1-15045", "stash"), _g(root, "log", "-1", "--format=%s", "refs/stash"))
+        left = _g(root, "status", "--porcelain=v1", "-uall")
+        check_not_in("stash: nothing of the person's is left in the tree", "base.py", left)
+        check_in("stash: the factory's staged entry is untouched", "A  qa-factory/staged.txt", left)
+        check_eq("stash: the record is on the HEAD block", done["block"], f"test repository state: {head[:12]}")
+        check_in("stash: the decision says what the pass also covers", repo_words.STASH_SENTENCE, done["decision"])
+        check_in("stash: the decision names the undo by apply and by `stash@{N}`", "git stash drop stash@{N}", done["decision"])
+        check_not_in("stash: never `stash drop <sha>`", "stash drop " + done["stash_sha"][:12], done["decision"] + repo_words.done_line(done))
+        check_eq("stash: the line obeys the rules of text a person reads", [p["rule"] for p in human_text_problems(repo_words.done_line(done))], [])
+        reminder = repo_words.reminder_line(root, {"tests_root": "."}, "TP1-15045")
+        check_in("stash: the end-of-run line finds the entry and prints its current `stash@{N}`", "`stash@{0}`", reminder)
+        check_in("stash: ...and the apply command by sha", f"git stash apply --index {done['stash_sha'][:12]}", reminder)
+        _g(root, "stash", "apply", "--index", done["stash_sha"][:12])
+        check_eq("stash: after `apply --index` the porcelain and the index equal the state before", _porcelain(root), before)
+        _g(root, "stash", "drop", "stash@{0}")
+        check_eq("stash: once dropped the reminder says nothing", repo_words.reminder_line(root, {"tests_root": "."}, "TP1-15045"), "")
+    finally:
+        cleanup(root)
+
+
+def test_repo_words_reminder_finds_a_commit_by_its_whole_subject() -> None:
+    """B2 `reminder_line`: a commit whose subject EQUALS the message is told (the grep is a substring test); a later commit that only
+    contains it is not; nothing done, or a path that is no repository, is the empty line."""
+    import repo_words
+    root, task_root = words_repo("qa-repo-words-reminder-")
+    try:
+        check_eq("reminder: nothing was done, nothing is said", repo_words.reminder_line(root, {"tests_root": "."}, "TP1-15045"), "")
+        words_dirty(root)
+        done, _problem = words_run(root, task_root, "vcs_commit")
+        line = repo_words.reminder_line(root, {"tests_root": "."}, "TP1-15045")
+        check_in("reminder: the commit is named by its short sha", done["head_after"][:12], line)
+        check_in("reminder: ...and the branch", "`main`", line)
+        (root / "later.py").write_text("l\n", encoding="utf-8")
+        _g(root, "add", "--", "later.py")
+        _g(root, "commit", "-m", "x " + repo_words.message("TP1-15045", "commit") + " y", "--no-gpg-sign")
+        check_in("reminder: a later commit that merely contains the message does not replace it", done["head_after"][:12],
+                 repo_words.reminder_line(root, {"tests_root": "."}, "TP1-15045"))
+        import tempfile
+        nowhere = Path(tempfile.mkdtemp(prefix="qa-repo-words-none-"))
+        try:
+            check_eq("reminder: no repository is the empty line", repo_words.reminder_line(nowhere, {}, "TP1-15045"), "")
+        finally:
+            cleanup(nowhere)
+    finally:
+        cleanup(root)
+
+
+def test_repo_words_refuse_before_any_write_and_say_the_door() -> None:
+    """B2 `run` steps 2-4 and the Edges: a stale shown block, a no-trace run, an unreadable pipeline, a blocker per class, a rename out of
+    the factory's folder, a path the guard cannot read and a guard that refuses all leave the porcelain AND `refs/stash` as they were, and
+    name what to do. The `MM on stash` row is a blocker (staged), so the stash is refused."""
+    import repo_words
+    import stage_guard
+
+    def case(label, setup, option, expect, pipeline=None, door=None, guard=False):
+        root, task_root = words_repo("qa-repo-words-refuse-", pipeline=pipeline)
+        try:
+            setup(root)
+            shown = door(root, task_root) if door else None
+            before = (_porcelain(root), _g(root, "rev-parse", "-q", "--verify", "refs/stash"), _g(root, "rev-parse", "HEAD"))
+            done, problem = words_run(root, task_root, option, door=shown)
+            check_eq(f"{label}: nothing was done", done, {})
+            check_in(f"{label}: the problem says why", expect, problem)
+            check("%s: the door names what to do" % label, "To go on without this" in problem or "Show the question again" in problem
+                  or "Nothing of yours" in problem, problem)
+            check_eq(f"{label}: the repository is as it was", (_porcelain(root), _g(root, "rev-parse", "-q", "--verify", "refs/stash"),
+                                                              _g(root, "rev-parse", "HEAD")), before)
+        finally:
+            cleanup(root)
+
+    def plain(root):
+        (root / "u.py").write_text("u\n", encoding="utf-8")
+
+    def stale(root, task_root):
+        config, state = words_state(root, task_root)
+        (root / "later.py").write_text("l\n", encoding="utf-8")
+        return {"block": gate_preflight.vcs_state_block(state["head"], state["digest"]), "stage": "S5", "option": "vcs_commit"}
+
+    def staged(root):
+        (root / "mm.txt").write_text("s\n", encoding="utf-8")
+        _g(root, "add", "--", "mm.txt")
+
+    def intent(root):
+        (root / "i.py").write_text("i\n", encoding="utf-8")
+        _g(root, "add", "-N", "--", "i.py")
+
+    def nested(root):
+        (root / "sub").mkdir()
+        _g(root / "sub", "init", "-b", "main")
+        (root / "sub" / "f.txt").write_text("f\n", encoding="utf-8")
+        _g(root / "sub", "add", "--", "f.txt")
+        _g(root / "sub", "commit", "-m", "s", "--no-gpg-sign")
+
+    def rename_out(root):
+        (root / "src").mkdir()
+        _g(root, "mv", "qa-factory/tracked.txt", "src/y.txt")
+
+    def semicolon(root):
+        (root / "a;b.txt").write_text("x\n", encoding="utf-8")
+
+    def detached(root):
+        plain(root)
+        _g(root, "checkout", "--detach")
+    case("stale block", plain, "vcs_commit", "changed since you were shown", door=stale)
+    case("no-trace run", plain, "vcs_commit", "leaves no trace", pipeline={"ticket": "TP1-15045", "no_trace": True})
+    case("unreadable pipeline", plain, "vcs_commit", "cannot be read", pipeline="x")
+    case("staged entry, stash", staged, "vcs_stash", "are staged")
+    case("intent-to-add", intent, "vcs_commit", "intent")
+    case("nested repository", nested, "vcs_stash", "nested git repository")
+    case("a rename out of the factory's folder", rename_out, "vcs_commit", "factory's own folder")
+    case("a path the guard cannot read", semicolon, "vcs_stash", "guard cannot read this path whole")
+    case("detached HEAD, commit", detached, "vcs_commit", "detached")
+    real = (stage_guard.rule_pathspec, stage_guard.rule_stash)
+    try:
+        stage_guard.rule_pathspec = lambda command: "refused by the guard: " + command[:10]
+        case("the guard refuses the commit command", plain, "vcs_commit", "refused by the guard")
+        stage_guard.rule_stash = lambda command: "refused by the guard: " + command[:10]
+        case("the guard refuses the stash command", plain, "vcs_stash", "refused by the guard")
+    finally:
+        stage_guard.rule_pathspec, stage_guard.rule_stash = real
+    root, task_root = words_repo("qa-repo-words-guard-")
+    try:
+        plain(root)
+        import shlex
+        config, state = words_state(root, task_root)
+        check_eq("the argv the executor builds passes the guard's own rules (commit)",
+                 stage_guard.rule_pathspec(shlex.join(["git", "commit", "-m", repo_words.message("TP1-15045", "commit"), "--", "u.py"])), "")
+        check_eq("...and the stash",
+                 stage_guard.rule_stash(shlex.join(["git", "stash", "push", "--include-untracked", "-m", repo_words.message("TP1-15045", "stash"),
+                                                    "--", "u.py"])), "")
+    finally:
+        cleanup(root)
+
+
+def test_repo_words_a_failing_hook_is_undone_and_a_rewriting_hook_asks_again() -> None:
+    """B2 step 7: a pre-commit hook that exits 1 leaves HEAD and the index (`MM` split, `git show :mm.txt`) as they were and no pass; a hook
+    that rewrites a listed file leaves the commit DONE with the path in `still`, a problem naming it, and the REMARK form (words kept,
+    nothing passed); a hook that waits is killed with its tree at the timeout: HEAD unmoved, the problem says so and names the lock or
+    the restored index, the factory deletes no lock."""
+    import repo_words
+    import sys
+
+    def hook(root, body):
+        path = root / ".git" / "hooks" / "pre-commit"
+        with open(path, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+    root, task_root = words_repo("qa-repo-words-hook1-")
+    try:
+        words_dirty(root)
+        hook(root, "echo hook: refused >&2\nexit 1\n")
+        before, head, staged = _porcelain(root), _g(root, "rev-parse", "HEAD"), _g(root, "show", ":mm.txt")
+        done, problem = words_run(root, task_root, "vcs_commit")
+        check_eq("hook exit 1: nothing done", done, {})
+        check_in("hook exit 1: git's own text reaches the problem", "hook: refused", problem)
+        check_in("hook exit 1: nothing is passed", "Nothing is passed", problem)
+        check_eq("hook exit 1: HEAD, porcelain and index are as before", (_g(root, "rev-parse", "HEAD"), _porcelain(root)), (head, before))
+        check_eq("hook exit 1: what was staged in mm.txt is still the staged text", _g(root, "show", ":mm.txt"), staged)
+    finally:
+        cleanup(root)
+    root, task_root = words_repo("qa-repo-words-hook2-")
+    try:
+        words_dirty(root, staged=False)
+        hook(root, "echo more >> base.py\n")
+        done, problem = words_run(root, task_root, "vcs_commit")
+        check_eq("hook that rewrites: the commit is done and the rewritten path is still the person's", (bool(done), done.get("still")), (True, ["base.py"]))
+        check_in("hook that rewrites: the problem names the path", "base.py", problem)
+        check_in("hook that rewrites: the problem says the change IS made", "The change IS made", problem)
+        check_eq("hook that rewrites: the record is a remark, no pass", repo_words.record_args("TP1-15045", done)[:5],
+                 ["--remark", "--task", "TP1-15045", "--stage", "S5"])
+    finally:
+        cleanup(root)
+    root, task_root = words_repo("qa-repo-words-hook3-")
+    try:
+        words_dirty(root)
+        hook(root, 'i=0\nwhile [ $i -lt 15 ]; do echo x >> "$(dirname "$0")/hook.log"; i=$((i+1)); sleep 1; done\n')
+        before, head = _porcelain(root), _g(root, "rev-parse", "HEAD")
+        done, problem = words_run(root, task_root, "vcs_commit", timeout=4)
+        import time
+        log = root / ".git" / "hooks" / "hook.log"
+        first = log.stat().st_size if log.exists() else -1
+        time.sleep(3)
+        check("timeout: the hook was running, and it is stopped with its git (the whole tree is killed, nothing keeps writing)",
+              first > 0 and log.stat().st_size == first, f"{first} -> {log.stat().st_size if log.exists() else -1}")
+        check_eq("timeout: nothing done, HEAD unmoved", (done, _g(root, "rev-parse", "HEAD")), ({}, head))
+        check_in("timeout: the problem says the command did not finish and was stopped", "did not finish in 4 s", problem)
+        locked = (root / ".git" / "index.lock").exists()
+        check("timeout: a lock names the one restoring command; no lock means the index is back as it was",
+              ("git read-tree" in problem) if locked else (_porcelain(root) == before), f"lock={locked} :: {problem}")
+        if locked:
+            check_in("timeout: the factory left the lock for the person (it never deletes one)", "remove that file yourself", problem)
+    finally:
+        cleanup(root)
+
+
+def test_repo_words_a_glob_path_of_the_person_never_takes_the_factorys_file() -> None:
+    """BL-1: git reads a path after `--` as a pathspec with glob magic, so a person's `q[a]-factory/tracked.txt` (and, where the file system
+    allows the names, `q*-factory/...` and `q?-factory/...`) also names the dirty `qa-factory/tracked.txt`. The executor runs git with
+    LITERAL pathspecs: commit and stash take exactly the listed path, the factory's file stays dirty and out of the commit and the stash,
+    the pass is recorded; the `ls-files` read of the modes is literal too (a glob entry cannot borrow a neighbour's submodule mode)."""
+    import os
+    names = ["q[a]-factory/tracked.txt"] + ([] if os.name == "nt" else ["q*-factory/tracked.txt", "q?-factory/tracked.txt"])
+    for person_rel in names:
+        for word in ("vcs_commit", "vcs_stash"):
+            label = f"{word} of {person_rel}"
+            root, task_root = words_repo("qa-repo-words-glob-")
+            try:
+                (root / "qa-factory" / "tracked.txt").write_text("the factory's own change\n", encoding="utf-8")
+                (root / person_rel).parent.mkdir(parents=True)
+                (root / person_rel).write_text("the person's file\n", encoding="utf-8")
+                config, state = words_state(root, task_root)
+                check_eq(f"{label}: the person's one entry is read, the factory's is not theirs", [e["path"] for e in state["person"]], [person_rel])
+                done, problem = words_run(root, task_root, word)
+                check_eq(f"{label}: done, no problem", (bool(done), problem), (True, ""))
+                left = _g(root, "status", "--porcelain=v1", "-uall")
+                check_in(f"{label}: the factory's file stays dirty", " M qa-factory/tracked.txt", left)
+                check_not_in(f"{label}: the person's file is gone from the tree", person_rel, left)
+                if word == "vcs_commit":
+                    taken = [t for t in _g(root, "show", "--name-status", "--format=", "HEAD").split() if len(t) > 1]
+                else:
+                    taken = [t for t in _g(root, "stash", "show", "--include-untracked", "--name-only", "-z", "stash@{0}").split("\0") if t]
+                check_eq(f"{label}: exactly the listed path was taken", taken, [person_rel])
+            finally:
+                cleanup(root)
+    import gate_preflight as GP
+    seen = []
+    real = GP._git_raw
+    try:
+        GP._git_raw = lambda root, *args, **kw: (seen.append((args[0], kw.get("literal"))) or real(root, *args, **kw))
+        root, task_root = words_repo("qa-repo-words-glob-modes-")
+        (root / "u.py").write_text("u\n", encoding="utf-8")
+        words_state(root, task_root)
+        check_eq("the ls-files read of the modes asks for literal pathspecs", [s for s in seen if s[0] == "ls-files"], [("ls-files", True)])
+    finally:
+        GP._git_raw = real
+        cleanup(root)
+    check_eq("the executor's git environment: literal pathspecs, never a prompt",
+             [GP.git_env(True).get(k) for k in ("GIT_LITERAL_PATHSPECS", "GIT_TERMINAL_PROMPT")] + [GP.git_env().get("GIT_LITERAL_PATHSPECS")], ["1", "0", None])
+
+
+def test_repo_words_round_two_texts_records_and_edges() -> None:
+    """Round 2 of the critic's verdict on B2: F-1 (the decision text is `contract.person_decision`'s, replaced lines included), F-4 (the undo
+    of a commit that landed wrong is two backtick spans), F-5 (a commit that landed wrong and a stash entry left by a failed stash are a
+    REMARK with the word, the facts and the undo - never a pass), F-6 (the id of the question is the caller's), F-7 (a done line leads its
+    undo with the data row `to undo it:` / `to take them back:`, a failure keeps its words), F-9 (a status that cannot be read after the
+    write is `unread`: a remark, no pass, the undo named) and the edges (no stored door, no traceback)."""
+    import re
+    import contract
+    import gate_preflight as GP
+    import human_text
+    import repo_words
+    root, task_root = words_repo("qa-repo-words-r2a-")
+    try:
+        words_dirty(root, staged=False)
+        done, problem = words_run(root, task_root, "vcs_commit", replaced=["vcs-test-repo:  stash", "vcs-test-repo: commit?"])
+        check_eq("F-1: the decision is the one writer's text, the earlier lines in its tail", done["decision"].split("; done: ")[0],
+                 contract.person_decision("vcs_commit", "vcs-test-repo: commit", ["vcs-test-repo: stash", "vcs-test-repo: commit?"]))
+        line = repo_words.done_line(done)
+        check_in("F-7: the commit's undo leads with the data row", "\nto undo it: `git reset --soft ", line)
+        check_not_in("F-7: ...and no `the fix:` on a success", "the fix:", line)
+        check_eq("F-7: the data row is the one the code reads", human_text.rules()["action_lines"]["done_prefixes"],
+                 {"commit": "to undo it:", "stash": "to take them back:"})
+    finally:
+        cleanup(root)
+    root, task_root = words_repo("qa-repo-words-r2b-")
+    try:
+        words_dirty(root, staged=False)
+        done, _problem = words_run(root, task_root, "vcs_stash")
+        check_in("F-7: the stash's undo leads with the data row", "\nto take them back: `git stash apply --index ", repo_words.done_line(done))
+        reminder = repo_words.reminder_line(root, {"tests_root": "."}, "TP1-15045")
+        check_in("F-7: so does the end-of-run line", "\nto take them back: `git stash apply --index ", reminder)
+        check_eq("F-7: the end-of-run line obeys the rules of text a person reads", [p["rule"] for p in human_text_problems(reminder)], [])
+    finally:
+        cleanup(root)
+    root, task_root = words_repo("qa-repo-words-r2c-")
+    try:
+        words_dirty(root, staged=False)
+        hook = root / ".git" / "hooks" / "pre-commit"
+        with open(hook, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write("#!/bin/sh\necho extra > extra.txt\ngit add extra.txt\n")
+        hook.chmod(0o755)
+        before_head = _g(root, "rev-parse", "HEAD").strip()
+        done, problem = words_run(root, task_root, "vcs_commit")
+        check_eq("F-5: a commit that is not the shown set is a `failed` write, not a pass", (bool(done.get("failed")), repo_words.record_args("TP1-15045", done)[:5]),
+                 (True, ["--remark", "--task", "TP1-15045", "--stage", "S5"]))
+        check_in("F-5: the remark keeps the person's word", "the person wrote: vcs-test-repo: commit", done["decision"])
+        check_in("F-5: ...what landed", "does not hold exactly the changes shown", done["decision"])
+        check_in("F-5: ...and the undo", "git reset --soft " + before_head[:12], done["decision"])
+        check_in("F-5: the problem says nothing is passed", "nothing is passed", problem)
+        check("F-4: the undo is two backtick spans, each one command", re.search(r"`git reset --soft \w+`, then `git read-tree \w+`", problem) is not None, problem)
+        check_eq("F-5: the commit stands, the factory deleted nothing", _g(root, "rev-parse", "HEAD^").strip(), before_head)
+    finally:
+        cleanup(root)
+    root, task_root = words_repo("qa-repo-words-r2d-")
+    real_exec = repo_words._exec
+    try:
+        words_dirty(root, staged=False)
+        repo_words._exec = lambda top, argv, timeout: (lambda r: (1, r[1], "boom", False))(real_exec(top, argv, timeout))
+        done, problem = words_run(root, task_root, "vcs_stash")
+        entry = _g(root, "rev-parse", "-q", "--verify", "refs/stash").strip()
+        check_eq("F-5: a stash entry left by a failed stash is a `failed` write with a remark, no pass",
+                 (bool(done.get("failed")), repo_words.record_args("TP1-15045", done)[:2], bool(entry)), (True, ["--remark", "--task"], True))
+        check_in("F-5: the remark names the entry and the undo", "git stash apply --index " + entry[:12], done["decision"])
+        check_in("F-5: the problem names the entry and the way back", "git stash apply --index " + entry[:12], problem)
+    finally:
+        repo_words._exec = real_exec
+        cleanup(root)
+    for word in ("vcs_commit", "vcs_stash"):
+        root, task_root = words_repo("qa-repo-words-r2e-")
+        real_raw, seen = GP._git_raw, []
+        try:
+            words_dirty(root, staged=False)
+
+            def second_status_fails(top, *args, **kw):
+                if args[:1] == ("status",):
+                    seen.append(1)
+                    if len(seen) > 2:       # the test's own read of the shown block, the executor's read before - then the read after the write fails
+                        return None
+                return real_raw(top, *args, **kw)
+            GP._git_raw = second_status_fails
+            done, problem = words_run(root, task_root, word)
+            GP._git_raw = real_raw
+            check_eq(f"F-9 {word}: a status that cannot be read afterwards is a remark, never a pass",
+                     (bool(done), repo_words.record_args("TP1-15045", done)[0]), (True, "--remark"))
+            check_in(f"F-9 {word}: the problem says the result could not be read", "could not be read afterwards", problem)
+            check_in(f"F-9 {word}: ...and names the undo", "git reset --soft" if word == "vcs_commit" else "git stash apply --index", problem)
+            check_eq(f"F-9 {word}: no pass is recorded", repo_words.record_args("TP1-15045", done).count("--block"), 0)
+        finally:
+            GP._git_raw = real_raw
+            cleanup(root)
+    root, task_root = words_repo("qa-repo-words-r2f-")
+    real_raw = GP._git_raw
+    try:
+        words_dirty(root, staged=False)
+        GP._git_raw = lambda top, *args, **kw: None if args[:1] == ("status",) else real_raw(top, *args, **kw)
+        config = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
+        check_eq("F-9: `vcs_changes` is None when the status cannot be read (not 'no changes')", GP.vcs_changes(root, config, task_root), None)
+        GP._git_raw = real_raw
+        check_eq("F-6: the constant is gone, the id is the caller's", hasattr(repo_words, "FINDING_ID"), False)
+        done, problem = words_run(root, task_root, "vcs_commit", door={"block": "stale", "stage": "S5", "option": "vcs_commit"}, finding_id="other-item-7")
+        check_in("F-6: the refusal's door names the id it was given", "`other-item-7: ", problem)
+        check_not_in("F-6: ...and no other", "vcs-test-repo", problem)
+        for label, door in (("no stored door", None), ("an empty door", {})):
+            done, problem = repo_words.run(task_root, root, config, "vcs_commit", "x", [], door, "other-item-7")
+            check_eq(f"edge: {label} is the refusal that the list changed, nothing done", (done, "changed since you were shown" in problem), ({}, True))
+        hook = root / ".git" / "hooks" / "pre-commit"
+        with open(hook, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        done, problem = words_run(root, task_root, "vcs_commit")
+        check_eq("edge: a hook that fails with no text at all - the refusal, nothing passed, no traceback", (done, "Nothing is passed" in problem), ({}, True))
+    finally:
+        GP._git_raw = real_raw
+        cleanup(root)
+
+
+def test_repo_words_the_first_answers_line_says_when_files_outside_the_tests_folder_are_taken() -> None:
+    """Q-1 (decided by the Lead until the owner's word): all entries inside the tests folder -> the first `answers` line is as B1 built it;
+    one entry outside -> the clause ", files outside your tests folder included" stands before the colon (F-8) and `vcs_changes` counts it as `outside_tests`."""
+    root, task_root = words_repo("qa-repo-words-q1-", tests_root="tests")
+    try:
+        (root / "tests" / "a.py").write_text("a\n", encoding="utf-8")
+        rehearsal = gate_preflight.Rehearsal(task_root, "A")
+        rehearsal.check_vcs()
+        inside = next(f for f in rehearsal.findings if f.get("id") == "vcs-test-repo")["answers"][0]
+        check_eq("Q-1 inside only: the first line is as built before", inside,
+                 "your uncommitted changes (1), all listed - commit and stash take exactly these:")
+        check_eq("Q-1 inside only: nothing is outside", words_state(root, task_root)[1]["outside_tests"], 0)
+        (root / "src").mkdir()
+        (root / "src" / "b.py").write_text("b\n", encoding="utf-8")
+        rehearsal = gate_preflight.Rehearsal(task_root, "A")
+        rehearsal.check_vcs()
+        found = next(f for f in rehearsal.findings if f.get("id") == "vcs-test-repo")
+        check_eq("Q-1 one outside: the clause stands before the colon (F-8)", found["answers"][0],
+                 "your uncommitted changes (2), files outside your tests folder included, all listed - commit and stash take exactly these:")
+        check_eq("Q-1 one outside: counted once", words_state(root, task_root)[1]["outside_tests"], 1)
+        check_in("Q-1 one outside: the `says` of the words is unchanged", "I commit all your uncommitted changes listed above", "\n".join(found["answers"]))
+    finally:
+        cleanup(root)
+
+
+def test_repo_words_the_driver_carries_the_words_out_and_tells_the_conductor() -> None:
+    """B2 driver changes: `_record_door_lines` dispatches on the row's executor (`repo_words.run` for a repository word - recorded by
+    `record_args` with the road flags, a REMARK when changes are still dirty, a failure joins `failed`; a `product_gap` entry keeps its own
+    branch, a stand-gap word its waiver); `_relay_note` carries the done lines under the section's exact title and clears them, and every
+    finding door shows its word; `Driver.gate` stores the doors through the one writer and `_stand_gap_lines` reads them through the one
+    reader; the terminal exit of a done story appends the end-of-run line."""
+    import types
+    import driver_machine
+    import gate_brief
+    import product_gaps
+    import repo_words
+    import story_run
+    import story_step
+    calls = []
+    stub = types.SimpleNamespace(task_root=Path("."), project=Path("."), config={}, task="TP1-15045", state={}, words_file=lambda *a: None,
+                                 py=lambda *a, **k: (calls.append(a) or (0, "ok")), waiver_road=lambda classed=True: ("--by", "driver"))
+    done = {"word": "vcs_commit", "head_before": "a" * 40, "head_after": "b" * 40, "tree": "c" * 40, "stash_sha": "", "paths": 2, "block": "test repository state: bbbb",
+            "stage": "S5", "decision": "vcs_commit - the person wrote: x; done: y", "undo": "u", "still": [], "branch": "main", "message": "m"}
+    real_run = repo_words.run
+    shown = []
+
+    def entry(option, **door):
+        return {"id": "vcs-test-repo", "line": "vcs-test-repo: x", "word": option, "reason": "", "replaced": [],
+                "door": dict({"block": "test repository changes: aaaa dddd", "stage": "S5", "option": option}, **door)}
+    try:
+        repo_words.run = lambda *a, **k: (shown.append(a) or (done, ""))
+        recorded, failed, _cases = story_run.Driver._record_door_lines(stub, "A", [entry("vcs_commit")], [], "S5")
+        check_eq("driver: a repository word runs the executor with the shown door and is recorded as it says", (recorded, failed, len(shown)),
+                 (["vcs-test-repo"], [], 1))
+        check_eq("driver: the record is `waiver.py` with `record_args` and the road flags", calls[-1],
+                 ("waiver.py", *repo_words.record_args("TP1-15045", done), "--by", "driver"))
+        note = story_run.Driver._relay_note(stub, {"recorded": ["vcs-test-repo"], "unread": [], "probed": []}, {},
+                                            driver_machine.RelayCtx({}, [], {}, "A", "S5"))
+        check_in("driver: the note carries the section with its exact title",
+                 "## Done in the person's repository on their word - tell the person each line as it stands", note)
+        check_in("driver: ...and the line as it stands", repo_words.done_line(done), note)
+        check_eq("driver: the lines are cleared once told", stub.state.get("repo_done_lines"), None)
+        repo_words.run = lambda *a, **k: (dict(done, still=["base.py"]), "The change IS made, but base.py is still uncommitted.")
+        recorded, failed, _cases = story_run.Driver._record_door_lines(stub, "A", [entry("vcs_commit")], [], "S5")
+        check_eq("driver: changes still dirty is a REMARK and not recorded as passed", (recorded, calls[-1][0], calls[-1][1]),
+                 ([], "waiver.py", "--remark"))
+        repo_words.run = lambda *a, **k: (shown.append(a) or (dict(done, failed=True, still=[]), "A commit was made, but it is not exactly the list."))
+        recorded, failed, _cases = story_run.Driver._record_door_lines(stub, "A", [entry("vcs_commit")], [], "S5")
+        check_eq("driver: a write that landed wrong is a REMARK, joins `failed` with its text, is not recorded as passed (F-5)",
+                 (recorded, calls[-1][1], [f[2] for f in failed]), ([], "--remark", ["A commit was made, but it is not exactly the list."]))
+        check_eq("driver: the executor is given the entry's own id as the question's id (F-6)", shown[-1][-1], "vcs-test-repo")
+        repo_words.run = lambda *a, **k: ({}, "Git did not do it (exit 1): hook: refused.")
+        recorded, failed, _cases = story_run.Driver._record_door_lines(stub, "A", [entry("vcs_commit")], [], "S5")
+        check_eq("driver: a refusal joins `failed` with its text", (recorded, [f[2] for f in failed]), ([], ["Git did not do it (exit 1): hook: refused."]))
+        real_gap = product_gaps.record
+        product_gaps.record = lambda *a, **k: (["R-1"], "")
+        try:
+            recorded, failed, _cases = story_run.Driver._record_door_lines(stub, "A", [entry("product_gap", row="TS-1")], [], "S5")
+        finally:
+            product_gaps.record = real_gap
+        check_eq("driver: a product-gap entry keeps its own branch", (recorded, failed), (["vcs-test-repo"], []))
+        n = len(calls)
+        recorded, failed, _cases = story_run.Driver._record_door_lines(stub, "A", [entry("accept", block="test repository state: aaaa")], [], "S5")
+        check_eq("driver: the word that only records is the waiver branch", (recorded, calls[n][0], "--block" in calls[n]), (["vcs-test-repo"], "waiver.py", True))
+    finally:
+        repo_words.run = real_run
+    word_note = story_run.Driver._relay_note(stub, {"recorded": [], "unread": ["l"], "probed": []}, {"unread": [{"line": "l", "why": "w"}]}, driver_machine.RelayCtx(
+        {}, [], {"findings": [{"id": "vcs-test-repo", "waives": [{"block": "b", "stage": "S5", "option": "vcs_commit"}]}]}, "A", "S5"))
+    check_in("driver: a finding door shows its word beside its option", "word option `vcs_commit` (`commit`)", word_note)
+    real_keep, real_shown = gate_brief.keep_shown_doors, gate_brief.shown_doors_of
+    seen = []
+    try:
+        gate_brief.keep_shown_doors = lambda *a, **k: seen.append(("keep", a, k))
+        driver = story_run.Driver.__new__(story_run.Driver)
+        driver.state, driver.task_root, driver.task, driver.boundary = {"last_rehearsal_doors": {"A": {"x-1": [{"block": "b"}]}}}, Path("nowhere-at-all"), "T", ""
+        driver.gate_rework_note, driver.keep_shown_exploratory, driver.gate_text = (lambda g: ""), (lambda: ""), (lambda g: "body")
+        try:
+            driver.gate("A")
+        except Exception:
+            pass
+        check_eq("driver: `gate` stores what it showed through the one writer, with its own state", [(s[0], s[2].get("state") is driver.state, s[2].get("gate"))
+                 for s in seen], [("keep", True, "A")])
+        gate_brief.shown_doors_of = lambda *a, **k: (seen.append(("read", a, k)) or {"vcs-test-repo": []})
+        reader = types.SimpleNamespace(state={"x": 1}, task_root=Path("."), rehearse=lambda g: {"findings": [{"id": "vcs-test-repo"}]}, shown_packet=lambda k: "",
+                                       _FINDING_LINE_RE=story_run.Driver._FINDING_LINE_RE,
+                                       read_finding_doors=lambda words, findings, packet, doors: seen.append(("doors", doors)) or {"read": [], "unread": []})
+        gate_brief.gate_b_split = lambda root: ([], [])
+        story_run.Driver._stand_gap_lines(reader, "gate_B", "B", "vcs-test-repo: commit", "q")
+        check_eq("driver: the stand-gap reader reads the stored doors through the one reader, with the driver's own state",
+                 [(s[0], s[2].get("state"), s[2].get("gate")) if s[0] == "read" else (s[0], s[1]) for s in seen[1:]],
+                 [("read", {"x": 1}, "B"), ("doors", {"vcs-test-repo": []})])
+    finally:
+        gate_brief.keep_shown_doors, gate_brief.shown_doors_of = real_keep, real_shown
+    real_back, real_reminder = story_step.give_back_config, repo_words.reminder_line
+    try:
+        story_step.give_back_config = lambda *a: False
+        repo_words.reminder_line = lambda *a: "Your changes are still in the git stash."
+        driver = story_run.Driver.__new__(story_run.Driver)
+        driver.project, driver.config, driver.task, driver.task_root = Path("."), {}, "TP1-15045", Path(".")
+        try:
+            driver._act_closed({})
+        except Exception as stop:
+            check_eq("driver: the done story's last text carries the end-of-run line", str(stop),
+                     "TP1-15045: the story is finished; nothing is pending.\nYour changes are still in the git stash.")
+        else:
+            check("driver: the closed action ends with a Stop", False)
+    finally:
+        story_step.give_back_config, repo_words.reminder_line = real_back, real_reminder
 
 
 def test_gate_b_rehearses_the_write_it_is_about_to_authorise() -> None:
@@ -5357,6 +5973,15 @@ if __name__ == "__main__":
     test_a_check_that_is_not_installed_is_a_finding_not_a_pass()
     test_a_refusal_waiting_on_the_other_side_is_named_before_the_gate()
     test_the_dirty_tree_and_the_branch_are_asked_inside_the_packet()
+    test_repo_words_commit_takes_exactly_the_shown_list_and_the_undo_is_true()
+    test_repo_words_stash_takes_the_shown_list_and_the_undo_is_true()
+    test_repo_words_reminder_finds_a_commit_by_its_whole_subject()
+    test_repo_words_refuse_before_any_write_and_say_the_door()
+    test_repo_words_a_failing_hook_is_undone_and_a_rewriting_hook_asks_again()
+    test_repo_words_a_glob_path_of_the_person_never_takes_the_factorys_file()
+    test_repo_words_round_two_texts_records_and_edges()
+    test_repo_words_the_first_answers_line_says_when_files_outside_the_tests_folder_are_taken()
+    test_repo_words_the_driver_carries_the_words_out_and_tells_the_conductor()
     test_gate_b_rehearses_the_write_it_is_about_to_authorise()
     test_the_write_right_the_project_already_denied_is_the_persons_question()
     test_an_experiment_rehearses_no_write_and_probes_no_tracker()

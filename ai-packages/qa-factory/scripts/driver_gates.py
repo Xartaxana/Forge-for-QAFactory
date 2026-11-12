@@ -309,8 +309,9 @@ class DriverGates:
         # door line is read only against these (`read_finding_doors`): ids are ordinal and a message does not bind a block.
         # Best effort: a rehearsal that cannot run stores none, and then no door line is read by code (the conductor is).
         # The doors are those of the rehearsal the repair step just ran (`rehearse` keeps them): no second rehearsal is run for them.
+        import gate_brief
         shown_doors = dict((self.state.get("last_rehearsal_doors") or {}).get(gate) or {})
-        self.state.setdefault("shown_doors", {})[gate] = shown_doors
+        gate_brief.keep_shown_doors(self.task_root, shown_doors, state=self.state, gate=gate)       # the ONE writer, as on the skill road (AR-14)
         # B-414 M12: the stand gaps (and the ones the environment record covered) of the rehearsal that built THIS packet - bound
         # to what the person is shown, like the doors: a later `rehearse()` (the answer's own) must not rewrite what they saw
         self.state.setdefault("shown_gaps", {})[gate] = dict((self.state.get("last_rehearsal_gaps") or {}).get(gate) or {})

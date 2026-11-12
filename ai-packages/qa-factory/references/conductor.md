@@ -18,7 +18,7 @@ names (`python <plugin>/scripts/<name>.py`).
 |---|---|
 | A person's words at gate A or B | Never record the gate yourself: offer `approve` when they approve and ask no change (the driver records it and applies their card answers); otherwise the moves open here, with their prices |
 | Words at gate A that name a requirement to add | `rework` stage S2, role qa-requirements-tester, with their words (never S3 or S4: the register is S2's) |
-| A gate item they answered by name (dirty tree, toolchain, credentials, a stand-gap card, an accepted gap) | `waiver.py --task <T> --stage S<n> --block "<a whole refusal line or card id>" --words-file <file>`; a requirement gap: `waiver.py --task <T> --gate A\|B --requirement <R-n> --words-file <file>` |
+| A gate item answered by name | `waiver.py --task <T> --stage S<n> --block "<a refusal line or card id>" --words-file <file>`; the test-repository item: its row in conductor-actions.json, exact word only, else ask once; a requirement gap: `waiver.py --task <T> --gate A\|B --requirement <R-n> --words-file <file>` |
 | A stand gap the person answered in other words (gate B) | `waiver.py --task <T> --stage S9 --block "stand gap: <id>" --words-file <file>`, the file holding `<option> - the person wrote: <their line>`: key, stage and option as the driver's note gives them; the decision's FIRST word is the option, or the gap is asked again |
 | The automator halted at a test file in the application tree | its row in `references/conductor-actions.json`: ask first, every story or only this one |
 | An answer that matches no option and changes nothing | `waiver.py --task <T> --remark --stage S<n> --words-file <file>` |

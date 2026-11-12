@@ -1779,7 +1779,81 @@ def row_words_carry() -> None:
         cleanup(root)
 
 
+def row_repo_words_cli() -> None:
+    """FG7-8 B2 `repo_words.py main`, both forms, through the real CLI: the person's answer comes by `--words-file` and must be EXACTLY the word
+    (a sentence, a question, an empty or blank file, another word are refused with exit 2 and nothing is done); with no stored record of what
+    gate A showed it exits 3 and prints how to show it again; the exact word runs the executor on the STORED door, records the person's word
+    with `waiver.py` and prints the line told to the person; every refusal of the executor prints the command with `--words-file`;
+    `--reminder` prints one JSON line and exits 0 whatever happens."""
+    import gate_brief
+    root, task_root = GP.words_repo("qa-words-door-repo-")
+    try:
+        GP.words_dirty(root, staged=False)
+        env = project_env(root)
+
+        def say(text: str) -> Path:
+            path = task_root / "state" / "answer.txt"
+            path.write_text(text, encoding="utf-8")
+            return path
+
+        def cli(word: str, text: str):
+            return run_script("repo_words.py", "--task", "TP1-15045", "--word", word, "--words-file", say(text), cwd=root, env=env)
+        none = cli("commit", "vcs-test-repo: commit")
+        check_eq("cli: no stored record of what gate A showed: exit 3", none.returncode, 3)
+        check_in("cli: ...and it says how to show gate A again", "gate_brief.py --task TP1-15045 --gate A", none.stdout)
+        rehearsal = GP.gate_preflight.Rehearsal(task_root, "A")
+        rehearsal.check_vcs()
+        gate_brief.keep_shown_doors(task_root, {f["id"]: f["waives"] for f in rehearsal.findings if f.get("waives")})
+        before = GP._porcelain(root)
+        for label, word, text, code in (("a sentence", "commit", "vcs-test-repo: commit please", 2), ("a question", "commit", "vcs-test-repo: commit?", 2),
+                                        ("another word's line", "commit", "vcs-test-repo: stash", 2), ("a word of no question", "maybe", "maybe", 2),
+                                        ("an empty file", "commit", "", 2), ("a blank file", "commit", "  \n\t\n", 2)):
+            done = cli(word, text)
+            check_eq(f"cli: {label} is refused with exit 2", done.returncode, code)
+            check_not_in(f"cli: {label} prints no traceback", "Traceback", done.stdout + done.stderr)
+            check_eq(f"cli: {label} leaves the repository as it was", GP._porcelain(root), before)
+        check_in("cli: a question is named as one, never consent", "a question is never consent", cli("commit", "vcs-test-repo: commit?").stdout)
+        done = cli("commit", "commit")
+        check_eq("cli: the exact word alone is carried out (exit 0)", done.returncode, 0)
+        check_in("cli: the printed line is the one told to the person", "uncommitted change(s) are now commit", done.stdout)
+        pipeline = json.loads((task_root / "pipeline.json").read_text(encoding="utf-8"))
+        check("cli: the person's word is recorded with the line quoted", any("the person wrote: commit" in str(o.get("decision")) for o in pipeline.get("stage_overrides") or []),
+              str(pipeline.get("stage_overrides")))
+        again = cli("commit", "vcs-test-repo: commit")
+        check_eq("cli: asked again, nothing is left to take: exit 3", again.returncode, 3)
+        check_in("cli: a refusal prints the command with the words file, to run again", "--words-file", again.stdout)
+        check_in("cli: ...and says what it did not do", "Nothing of yours is uncommitted", again.stdout)
+        reminder = run_script("repo_words.py", "--reminder", "--task", "TP1-15045", cwd=root, env=env)
+        check_eq("cli: the reminder is one JSON line, exit 0", (reminder.returncode, list(json.loads(reminder.stdout))), (0, ["line"]))
+        check_in("cli: ...naming the commit", "your changes were committed as", json.loads(reminder.stdout)["line"])
+        lost = run_script("repo_words.py", "--reminder", "--task", "NO-SUCH-STORY", cwd=root, env=env)
+        check_eq("cli: the reminder of a story that does not exist is the empty line, exit 0", (lost.returncode, json.loads(lost.stdout)), (0, {"line": ""}))
+    finally:
+        cleanup(root)
+    root, task_root = GP.words_repo("qa-words-door-repo-wrong-")
+    try:
+        GP.words_dirty(root, staged=False)
+        hook = root / ".git" / "hooks" / "pre-commit"
+        with open(hook, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write("#!/bin/sh\necho extra > extra.txt\ngit add extra.txt\n")
+        hook.chmod(0o755)
+        rehearsal = GP.gate_preflight.Rehearsal(task_root, "A")
+        rehearsal.check_vcs()
+        gate_brief.keep_shown_doors(task_root, {f["id"]: f["waives"] for f in rehearsal.findings if f.get("waives")})
+        path = task_root / "state" / "answer.txt"
+        path.write_text("vcs-test-repo: commit", encoding="utf-8")
+        landed = run_script("repo_words.py", "--task", "TP1-15045", "--word", "commit", "--words-file", path, cwd=root, env=project_env(root))
+        check_eq("cli: a commit that landed wrong exits 3 (F-5) with the problem and the door", (landed.returncode, "nothing is passed" in landed.stdout,
+                 "--words-file" in landed.stdout), (3, True, True))
+        pipeline = json.loads((task_root / "pipeline.json").read_text(encoding="utf-8"))
+        check_eq("cli: ...and the person's word is kept as a remark, with no override that passes", (len(pipeline.get("remarks") or []), pipeline.get("stage_overrides") or []),
+                 (1, []))
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
+    row_repo_words_cli()
     row_words_carry()
     row_settle_order()
     row_leave_unlaunched()

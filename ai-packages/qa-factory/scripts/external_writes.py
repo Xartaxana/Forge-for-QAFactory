@@ -186,7 +186,7 @@ def gate_b_decision(ticket: str) -> str:
     return str(((pipe.get("gates") or {}).get("B") or {}).get("decision") or "").strip()
 
 
-def closed_by_run(task_root) -> str:
+def closed_by_run(task_root, unreadable_closes=False) -> str:
     """Why this run may send nothing outward, or "" when it may (t-017 D3, B-003).
 
     The record is `pipeline.no_trace` and nothing else: written at S0 by `story_run.py
@@ -195,10 +195,17 @@ def closed_by_run(task_root) -> str:
     of them can disagree about whether the run is an experiment (P8, FR-53; a comparison run
     that filed a tracker comment on a real ticket is what the rule is for). Truthy closes: a
     pipeline that cannot be read, or that has no such key, closes nothing, and the way out of a
-    wrongly closed run is `stage_done.py --set no_trace=false` (FR-40)."""
+    wrongly closed run is `stage_done.py --set no_trace=false` (FR-40).
+
+    `unreadable_closes=True` (FG7-8 part B, I-7, AR-28): the one caller that WRITES into the person's repository
+    (`gate_preflight.check_vcs`, `commit` / `stash`) cannot tell an experiment from a normal run when the record is
+    unreadable, so for it a pipeline that cannot be read or is not an object closes the write too. Every other
+    caller keeps the default and is byte-identical."""
     pipeline, _ = load_json(Path(task_root) / "pipeline.json")
     if isinstance(pipeline, dict) and pipeline.get("no_trace"):
         return "it is an experiment that leaves no trace"
+    if unreadable_closes and not isinstance(pipeline, dict):
+        return "the run's record cannot be read, so nothing is written into your repository"
     return ""
 
 

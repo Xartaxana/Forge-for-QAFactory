@@ -258,7 +258,8 @@ def main() -> None:
     block = human_text.rules().get("action_lines") or {}
     check("the action-line prefixes, the rows a backquoted command is exempt from and the file extensions / domains are DATA in the rules file "
           "(FR-13): ONE `action_lines` block at the top (B-220 F3), the row carries no list of its own",
-          block.get("prefixes") == ["I propose to run", "the fix:", "where:", "To add a stand:"]
+          block.get("prefixes") == ["I propose to run", "the fix:", "where:", "To add a stand:", "to undo it:", "to take them back:"]
+          and set((block.get("done_prefixes") or {}).values()) <= set(block.get("prefixes") or [])
           and block.get("command_span_rows") == ["flag", "script_name", "config_key", "plugin_command"]
           and block.get("whole_line") == {"config_key": ["the fix:", "where:"]}
           and all(not r.get("exempt_line_prefixes") and "yaml" in r.get("skip_last_names", []) for r in human_text.rules()["forbidden"]

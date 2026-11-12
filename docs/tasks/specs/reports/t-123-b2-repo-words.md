@@ -1,0 +1,97 @@
+# t-123 B2: the executor of the words `commit` / `stash` (`repo_words.py`), the driver road, the census
+
+Worktree `agent-a365d2def0628cb25`, nothing committed (dispatch). B1's uncommitted diff is untouched except the ONE item the Lead added (Q-1). New:
+`scripts/repo_words.py`. Changed: `driver_machine.py`, `driver_gates.py`, `gate_brief.py` (Q-1 only), `gate_preflight.py` (Q-1 only), `tests/fixtures/judgment-census.json`,
+`tests/test_gate_preflight.py`, `tests/test_words_doors.py`, and (sibling, its own test demanded it) `tests/fixtures/driver-layers.json`. No change to `test-layers.json`
+(no new test file), `artifact-writers.json` (`test_artifact_writers.py` green: the script writes no artifact), `waiver.py`, `stage_guard.py`.
+
+## `run` steps, `main`, Driver changes, census (all DONE)
+
+1. DONE: option -> row; executor not `git_commit` / `git_stash` -> problem, `{}`.
+2. DONE: `closed_by_run(task_root, unreadable_closes=True)` truthy -> problem + door `answer vcs-test-repo: <the record word>`.
+3. DONE: `vcs_changes` None / no top -> "could not be read by git"; no person entries -> "Nothing of yours is uncommitted now" (no record); shown block != `vcs_state_block(head, digest)` -> "changed since you were shown the list".
+4. DONE: `vcs_blockers(state)[verb]` first reason named + door; guard layer 3 (`stage_guard.rule_pathspec(shlex.join(commit argv))` / `rule_stash(shlex.join(stash argv))`), a refusal is the problem with the guard's text. Layers 1-2 of §3.6 are `vcs_blockers` (home unknown, path under home incl. both rename sides, guard separators), the one reader.
+5. DONE: `before = {head, stash ref (G9), tree (G4, commit)}`; G4 failing -> problem, nothing written.
+6. DONE: `Popen`, stdout/stderr to temp files, no pipes; timeout parameter (default `REPO_WORD_TIMEOUT = 120`), kill = `taskkill /F /T /PID` on Windows, new session + `os.killpg` on POSIX; no `--no-verify`, no `-c`; commit = `git add -- <Y != ' ' or ??>` (skipped when empty) then `git commit -m MSG -- <all paths, both rename sides>`; stash = `git stash push --include-untracked -m MSG -- <paths>`.
+7. DONE: judged on the state: commit DONE = HEAD moved, `HEAD^ == head_before`, G12 (`diff --name-status -z`, rename = both sides) set == the person's paths; stash DONE = `refs/stash` changed to a sha whose subject carries MSG and the digest changed; `still` = the person's entries after; hook-dirtied -> `done` + problem "The change IS made ... still uncommitted"; not done -> `read-tree <tree>` (G6) never `reset -- paths`, problem = git's stderr tail + "nothing is passed"; restore failure names `git read-tree <tree12>`; stash ref changed on a non-zero exit -> "A stash entry was left: <sha12>", never dropped; timeout: no retry, state judged again (a landed commit/stash is DONE), else a stale `index.lock` -> problem names the lock and `git read-tree <tree12>` (commit), the factory never deletes it.
+8. DONE: `done = {word, head_before, head_after, tree, stash_sha, paths, block, stage, decision, undo, still}` + `branch`, `message`, `unread` (extra, used by `done_line` and `record_args`). Stash undo = `git stash apply --index <sha12>` then `git stash drop stash@{N}` (Lead decision 2); `reminder_line` finds the entry by message and prints its current `stash@{N}` from `git stash list --format="%H %gd %s"`; never `stash drop <sha>`.
+- `main`: `--task --word --words-file [--by]` and `--reminder --task`: word -> option via `finding_door_words` / `finding_door_option` (no id literal); stored doors by `gate_brief.shown_doors_of` (None -> exit 3 "show gate A again"); ONE door with the option (none or two -> exit 2); exact-word check through the driver's `_FINDING_LINE_RE` + `finding_door_option` (last line for the id decides; `?` -> exit 2; no id line -> the whole text); empty / blank / missing file -> exit 2 from `person_words.read`, never a traceback; `run`, then `waiver.py` through an argv list with `record_args` + `--by`; refusal prints the problem and `person_words.door(...)` with the words file (exit 3); record failure after a write -> exit 3 "the change IS made ... only the record failed" + the record command; `--reminder` prints `{"line": ...}`, exit 0 always (a story that does not exist -> empty line).
+- Driver: `_record_door_lines` dispatches on the row's `executor` (`git_*` -> `repo_words.run`, recorded with `record_args` + `waiver_road()`, REMARK when `still`/`unread`, failure joins `failed`; `product_gap` -> its branch; every other -> the waiver branch); `_relay_note` carries the done lines under "## Done in the person's repository on their word - tell the person each line as it stands" (ASCII hyphen) and clears them (state key `repo_done_lines`), and every finding door shows `word option \`vcs_commit\` (\`commit\`)`; `_stand_gap_lines` reads through `gate_brief.shown_doors_of(state=self.state, gate=gate)`; `Driver.gate` writes through `gate_brief.keep_shown_doors(..., state=self.state, gate=gate)` (the driver keeps its own shape: every finding id); both terminal exits call new `Driver._repo_reminder` (printed; at the done `Stop` appended on a new line).
+- Census: row `{"file": "repo_words.py", "function": "run", "class": "safety", "roles": ["conductor"], "owner": "intent"}` inserted after `repo_map.py`; `ratchet.safety` 54 -> 55 (this row only; `word-list`, `meaning-proxy`, `meaning`, `breach`, `blocks_overrides`, `blocking_per_role` unchanged). `test_judgment_census.py` 22/22 (dense ratchet satisfied). No other function of `repo_words.py` matches `UNIT_NAME_RE`; `run` raises nothing and calls no `deny`/`block`.
+- Q-1 item (B1's functions): `finding_door_hint(..., outside=0)`; with `outside` > 0 the first `answers` line ends ", files outside your tests folder included" (the `says` unchanged); `vcs_changes` carries `outside_tests: N` (an entry is outside when ANY of its paths is not under the tests root's top-relative folder; a tests root equal to the top -> 0; a tests root that cannot be placed under the top -> every entry counts); `_vcs_words` passes it.
+
+## F14 (the driver's note on a clean pass): NOT delivered
+`take_answer` passes `stand.get("note", "")` only to `_unread_kept_gate` (`driver_machine.py:3504`, the else branch). The clean-pass branch `elif kind in ("gate_A", "gate_B") and ... record_by_code(...)` (`:3483-3497`) never reads `stand["note"]`: it prints the "recorded by code" lines to the driver's log only. So on a gate A answer that is only `vcs-test-repo: commit` the section "Done in the person's repository" is built but reaches no conductor and no person; the person sees the action only through the driver log and the end-of-run line (`_repo_reminder`, which IS delivered: printed and appended to the done `Stop`). Per F14 (a): option (b) (a stored line shown at the person's next stop) opens as a node. `repo_done_lines` is cleared by `_relay_note`, so nothing is lost twice.
+
+## FR pass (§7 A-C), the touched rules
+- A. FR-1/2: every problem of `run` says what, what was expected, and a door the receiver can use (person: commit/stash yourself then answer the record word; conductor: the command through `person_words.door`). FR-3: failures reported to the conductor once (`failed`), the person not asked to resend. FR-4: the word `go on` / `accept` still pass the block; a pass is recorded with the block and the words. FR-46: git refused = the story's; stale door = the call's (exit 2 vs 3). FR-48: the conductor gets the failed line once with the evidence. FR-57: hooks run, no `--no-verify`/`-c`, guard asked second. FR-59: an unknown (unreadable pipeline / vocabulary / stored doors / state after a write) is a refusal or a remark, never a pass.
+- B. FR-6: `done_line` / `reminder_line` pass `human_text.problems(kind="report")` (see question 1: commands sit on a `the fix:` line). FR-7: after a clean commit/stash the question is not re-asked; a still-dirty tree asks again (I-2 over I-5). FR-8/9: the line reaches one executor; the person's line is quoted whole in the decision. FR-10: forms, hint and fix name the same words (B1).
+- C. FR-11: the CLI is named by the conductor-actions row B3 writes (`--task --word --words-file`, `--reminder --task`). FR-12: no phrase list: `finding_door_option` over the closed vocabulary. FR-13: words and executors in data; only git verbs are literals. FR-14: the CLI prints the one line (or problem) on stdout, JSON only for `--reminder`. FR-38: n/a (no check on a role's output). FR-42: every state `run` returns has a move (done / problem with door / remark). FR-45: validators write nothing; `run` writes only the repository on the person's word. D-G: FR-30 (ASCII, no Cyrillic: `selftest.py --lang` green), FR-29 (no escapes), FR-32 (rows below), FR-31 (the timeout test waits 4 s and 3 s, not wall-clock races: it asserts the hook stopped writing).
+
+## AR rows touched
+AR-1 (no person-word literal in `repo_words.py`; the grep `"commit"|"stash"|"go on"` hits only git argv elements, lines 184, 185, 305 of `repo_words.py`: the verbs of the git commands themselves), AR-9 (every refusal names a door; test rows read the sentence), AR-13 (one `message`, one `record_args`, one `done_line`, one reminder, `vcs_changes` the one read), AR-14 (shown doors: one writer `keep_shown_doors`, both roads; the waiver record: `waiver.py` only), AR-15 (the survivor of "never the factory's folder" is `vcs_blockers`/`factory_home_place`; the guard asked second), AR-17 (no new `Person`/`Stop`; `test_no_move_seam_sites.py` 506/506), AR-19 (one executor, `repo_words.run`, both roads), AR-20 (`safety` 54 -> 55, this row only), AR-24 (the line reaches `person_decision` whole; the CLI takes `--words-file`), AR-25 (the undo of both words is measured true: tests apply it), AR-28 (unreadable pipeline/vocabulary/doors/state never becomes a pass), AR-29 (data/safety checks only).
+
+## Tests: each case, "red on revert: yes" (probes in memory, `redprobe.py`; CLI probes on disk after a byte copy, `cliprobe.py`)
+New in `test_gate_preflight.py` (7 functions, a case per line): commit (exact set, factory folder + its staged entry untouched, record on the new HEAD block with line and undo, next read empty, undo restores porcelain AND index incl. `MM`), stash (+ undo by `apply --index`, drop by `stash@{N}`, reminder), reminder by whole subject, refusals table (stale, no-trace, unreadable pipeline, staged/stash, ` A`, nested repo, rename out of the factory folder, `;` path, detached HEAD, guard refuses commit, guard refuses stash, argv passes both rules), hooks (exit 1 on `MM`, rewriting hook -> remark, timeout kills the tree), Q-1 (inside only vs one outside), driver (dispatch, note title and clearing, remark on `still`, failure, `product_gap` and waiver branches, finding-door word, `gate` writer, `_stand_gap_lines` reader, terminal exit). New row in `test_words_doors.py`: `row_repo_words_cli` (no stored doors, sentence, question, another word's line, unknown word, empty and blank file, exact word runs and records, asked again refuses with the `--words-file` door, `--reminder` both cases).
+```
+[control (no mutation)] GREEN
+[step1 any option runs] RED crash=KeyError
+[step2 no-trace/unreadable pipeline ignored] RED fails=8
+[step3 empty change set runs on] RED fails=1
+[step3 stale block not compared] RED fails=4
+[step4 blockers ignored] RED fails=22
+[step4 guard ignored] RED fails=8
+[step6 index not restored after a failure] RED fails=2
+[step7 a rewritten file is not `still`] RED fails=4
+[step7 timeout: tree not killed] RED fails=3
+[record_args: a still-dirty tree is passed] RED fails=2
+[done_line: flag outside an action line] RED fails=1
+[reminder: a substring subject counts] RED fails=1
+[Q-1: the clause is not added] RED fails=1
+[Q-1: outside_tests is not counted] RED fails=2
+[driver: no dispatch on the executor] RED fails=6
+[driver: the note drops the done lines] RED fails=3
+[driver: the stored doors are read from the state key] RED fails=1
+[driver: gate stores doors by hand] RED fails=2
+[driver: the done Stop carries no reminder] RED fails=1
+[cli: a question in the line is not refused] RED fails=1   (after the test got the explicit "a question is never consent" check; the first version stayed GREEN because `finding_door_option` already refuses `commit?`)
+[cli: another word's line is carried out] RED fails=11
+[cli: no stored doors reads as nothing stored] RED fails=2
+restored from the byte copy: True f95b04c1bfce52d1e327822a66eda167e5f31b442cdb22cbae3549a83a96d121
+```
+(The first two CLI probes of `redprobe.py` were GREEN because they mutated sys.modules while the CLI row runs a subprocess: invalid, replaced by `cliprobe.py`. Mutated: the probe scripts are in the session scratchpad, not committed. The census row has its own red: `test_judgment_census.py` is the dense ratchet: removing the row or the 55 is red.) Not probed: the exit-code-alone judgment of step 7 is exercised through the hook cases only.
+
+## Changed expectations (old -> new)
+`driver-layers.json`: row `shown_doors` (owner driver_gates) deleted (the key is no longer used in the family: the one writer/reader is `gate_brief`), rows `Driver._repo_reminder` (method, driver_machine) and state key `repo_done_lines` (owner driver_machine) added. `finding_door_hint` first line unchanged when all entries are inside the tests folder. Nothing else in an existing assertion.
+
+## Witness (verbatim closing lines, run in this worktree)
+`scenario_walk.py --witness-for repo_words.py driver_machine.py driver_gates.py judgment-census.json` printed 76 keep files (and 4 scenario files: test_scenario_cart_1, test_scenario_local_1_0108, test_scenario_local_1_arm_b, test_scenario_walk: SLOW_TESTS/scenarios, CI judges). 22 fast files outside SLOW_TESTS were run by `witness.py`, all exit 0 (test_codex_tool_guidance 217/217, test_dispatch_identity 114/114, test_driver_stop_record 42/42, test_exploratory_answers 107/107, test_first_look_code_look 127/127, test_first_look_step 102/102, test_gate_question_form 297/297, test_human_questions 291/291, test_login_need 33 passed, test_null_outcomes 337/337, test_person_owned 82/82, test_probe_marker_judgment 46 passed, test_probe_not_proved 47 passed (25 s), test_reference_window 85/85, test_s5_window_leftovers 148/148, test_story_run_first_look 27/27, test_story_run_monorepo 71/71, test_story_run_s6_w1_frozen 6/6, test_walk_account 190/190, test_walk_lanes_parallel 196/196, test_walk_supply 261/261, test_whole_list_sites 292/292). 54 printed files are in `slow_tests.json` and were skipped (CI judges): audit_rules bug_records case_versions_scope check_delivery conductor_doors console_encoding controller_gate_decision controller_task_flag driver_chain gate_brief_and_retro gate_registry handoff_values_keys handoff_values_main_block handoff_values_refusal infra_failure_* (5) needs_author no_move_seam_c26_g27_f2/k4s/n1_n9/n2b_n15 no_mr_entry person_owned_paths read_json resolver s7_investigation_replay s7_rejudge silent_passes story_closed story_run_arrival story_run_deferred story_run_freshness_* (4) story_run_loop_b_* (3) story_run_refusals story_run_s0 story_run_s1_reference story_run_s3_windows story_run_s6 story_run_stand_identity window_record; of the slow-listed names I ran these by hand because they judge my paths and are fast (final state, after the last edit):
+```
+test_gate_preflight:     === gate rehearsal: 1396/1396 ok ===
+test_words_doors:        === test_words_doors: 567/567 ok ===
+test_gate_question_form: === gate question form: 297/297 ok ===
+test_gate_vocabulary:    === test_gate_vocabulary: 141/141 ok ===   (run before the last edit; Q-1 did not change it)
+test_state_exits:        === test_state_exits: 142/142 ok ===
+test_judgment_census:    === judgment_census: 22/22 ok ===
+test_artifact_writers:   === test_artifact_writers: 16/16 ok ===
+test_story_run_words:    === test_story_run_words: 115/115 ok ===
+test_driver_layers:      === test_driver_layers: 283/283 ok ===   (red 280/283 first: three rows demanded, added)
+test_no_move_seam_sites: === no_move seam_sites: 506/506 ok ===
+selftest.py --lang:      === qa-factory selftest: 2/2 ok ===
+```
+(`test_gate_vocabulary`, `test_state_exits`, `test_artifact_writers`, `test_story_run_words`, `test_no_move_seam_sites` ran once on the state before `repo_words.py`'s last cosmetic edit, replacing the `"commit"` literals by an `is_commit` flag; `test_gate_preflight`, `test_words_doors`, `test_judgment_census`, `test_driver_layers`, `test_gate_question_form`, `selftest --lang` ran again after it.)
+
+## Questions for the Lead
+1. `human_text.problems` flags a command-line flag (`--soft`, `--index`) anywhere but a line that starts with an `action_lines` prefix (`references/human-text.json`): backticks alone do not pass (§3.8's premise is false in reality). I put the command on a second line that starts with the existing prefix `the fix:` ("the fix: undo it with `git reset --soft ...`"). A cleaner carrier is a data prefix in `human-text.json` (e.g. `To undo it:`), a file outside my owns: yours to decide.
+2. Q-1's clause makes "... take exactly these:, files outside your tests folder included" (colon before the comma), as ordered ("ends with"). Moving the colon after the clause would change that line's wording: your call.
+3. A commit landed but does not hold exactly the shown set (the G12 set differs): the spec is silent. I return "a commit <sha12> was made, but ... nothing is passed" with the undo, no restore, no pass (the safe direction); `done` is `{}`. Confirm.
+4. `done` with `still` (hook rewrote files): the CLI prints the done line and the problem and exits 0 (the action happened, the remark is recorded, nothing passed); the driver prints both, tells the conductor, and does not list the id as recorded. Confirm exit 0 vs 3.
+5. A stash timeout with a stale lock: no tree exists for a stash (step 5: tree is commit only), so the door says "remove that file yourself, then look at `git status`", without `read-tree`. Confirm.
+6. A person path with pathspec glob characters (`*`, `?`, `[`) is not a blocker (B1's `vcs_blockers`, not mine to edit): git reads the path as a pathspec, so `a*.txt` could also match siblings; the executor judges the commit on the exact set (question 3 path) but a stash has no such check. `GIT_LITERAL_PATHSPECS=1` is an unmeasured form (not added). Suggest a blocker row or a B0-3 measurement.
+7. F14: see above (not delivered): open node (b)?
+
+## Analogs noticed (not touched)
+`gate_brief.keep_shown_doors` stores only findings that carry `waives` (skill road), the driver stores every id (B1 noted); `_record_gap_lines` has no repository twin. `tests/test_d1_product_gap.py:216` stays stale (quarantined, B1). The message builder uses the story folder name (`Path(task_root).name`) as the key, the same value the driver's `self.task` and `--task` carry.
+
+## Needed beyond the manifest
+`scripts/driver_runner.py` (`py`, `waiver_road`), `scripts/driver_core.py` (`Stop`), `scripts/critic_rollcall.py` (`project_root_of`), `scripts/hooklib.py` (`story_cli`, `exact_options`, `read_json`), `scripts/person_words.py`, `scripts/human_text.py` + `references/human-text.json` (question 1), `scripts/contract.py` (`person_decision`), `scripts/waiver.py` (flags only), `scripts/stage_guard.py` (rules only), `scripts/slow_tests.json`, `scripts/tests/test_driver_layers.py` and `fixtures/driver-layers.json` (edited: named above), `tests/test_story_run_words.py` (7c), `tests/test_no_move_seam_sites.py`.

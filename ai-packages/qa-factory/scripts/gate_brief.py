@@ -773,13 +773,19 @@ def environment_words() -> list:
             if isinstance(row, dict) and str(row.get("option") or "") == "revoke" and str(row.get("word") or "").strip()]
 
 
-FINDING_DOOR_OPTIONS = ("product_gap",)
+FINDING_DOOR_OPTIONS = ("product_gap", "vcs_commit", "vcs_stash", "vcs_go_on")
+# What carries a finding door's word out: `product_gap` and `record` are recorded as a waiver (the driver / the conductor), `git_commit`
+# and `git_stash` run ONE git command in the person's test repository (`repo_words.py`). A row with another executor is dropped.
+FINDING_DOOR_EXECUTORS = ("product_gap", "record", "git_commit", "git_stash")
 
 
 def finding_door_words() -> list:
-    """[{option, word, says, synonyms}] - the words a rehearsal finding's OWN door takes besides the stand-gap answers, from the data
-    file's `finding_door_words` block (D1-C2; AR-1). Read ONLY by `story_run.Driver.read_finding_doors`. A row whose option is not in
-    `FINDING_DOOR_OPTIONS`, or that names no word, is dropped; [] when the block or the file cannot be read (no door is then offered, E-C9)."""
+    """[{option, word, says, synonyms, executor, writes_repository, factory, you, story}] - the words a rehearsal finding's OWN door
+    takes besides the stand-gap answers, from the data file's `finding_door_words` block (D1-C2; AR-1). Read by
+    `story_run.Driver.read_finding_doors`, by `finding_door_hint` and by the gate-A rehearsal that decides which words to offer. A row whose
+    option is not in `FINDING_DOOR_OPTIONS`, whose executor is not in `FINDING_DOOR_EXECUTORS`, or that names no word, is dropped (fewer
+    words, never a wrong one); `writes_repository` is true only when the row says `true`; the three price lines default to "";
+    [] when the block or the file cannot be read (no door is then offered, E-C9)."""
     try:
         import hooklib
         block = (hooklib.load_ref_json("question-vocabulary.json") or {}).get("finding_door_words") or {}
@@ -788,20 +794,27 @@ def finding_door_words() -> list:
         return []
     return [{"option": str(row["option"]), "word": str(row["word"]).strip(),
              "says": " ".join(str(row.get("says") or "").split()),
-             "synonyms": [str(s) for s in (row.get("synonyms") or []) if str(s).strip()]}
+             "synonyms": [str(s) for s in (row.get("synonyms") or []) if str(s).strip()],
+             "executor": str(row["executor"]), "writes_repository": row.get("writes_repository") is True,
+             **{key: " ".join(str(row.get(key) or "").split()) for key in ("factory", "you", "story")}}
             for row in (rows if isinstance(rows, list) else [])
-            if isinstance(row, dict) and str(row.get("option") or "") in FINDING_DOOR_OPTIONS and str(row.get("word") or "").strip()]
+            if isinstance(row, dict) and str(row.get("option") or "") in FINDING_DOOR_OPTIONS and str(row.get("word") or "").strip()
+            and str(row.get("executor") or "") in FINDING_DOOR_EXECUTORS]
 
 
 def finding_door_option(rest, rows=None) -> tuple:
     """`(option, reason)` the text after a finding id's colon says by a finding door's own word (`finding_door_words`; `rows` given, else read), or
     `("", "")`. The word alone (or a synonym alone) is read; the word followed by a separator and the person's reason is read with the reason kept
-    whole; the word followed by a letter (`product gaps`) is not the word. The ONE reader of that block's rows (`story_run.Driver.read_finding_doors`)."""
+    whole; the word followed by a letter (`product gaps`) is not the word. A row that `writes_repository` is read ONLY as the word or a synonym
+    ALONE - anything after it reads as nothing, so a word that makes the factory write into the person's repository is never taken out of a
+    longer sentence (I-3). The ONE reader of that block's rows (`story_run.Driver.read_finding_doors`)."""
     said = _word_key(rest)
     for row in finding_door_words() if rows is None else rows:
         key = _word_key(row["word"])
         if said == key or said in {_word_key(s) for s in row["synonyms"]}:
             return row["option"], ""
+        if row.get("writes_repository"):
+            continue
         if key and said.startswith(key) and said[len(key)] in " ,;:.-—–":
             spelled = re.match(r"[`\"']*" + r"\s+".join(re.escape(w) for w in row["word"].split()) + r"[`\"']*[\s,;:.\-—–]*(.*)",
                                str(rest).strip(), re.IGNORECASE | re.DOTALL)
@@ -812,6 +825,44 @@ def finding_door_option(rest, rows=None) -> tuple:
 def finding_door_word_of() -> dict:
     """{option: word} of `finding_door_words()`; {} when the block cannot be read."""
     return {row["option"]: row["word"] for row in finding_door_words()}
+
+
+def finding_door_hint(finding_id, options, paths, total, cap, outside=0) -> list:
+    """The `answers` lines of a rehearsal finding: the words of its own door, each with its explanation and the three price lines
+    (human-questions.md item 6), and - for a word that WRITES into the person's repository - the whole list of what it takes.
+
+    `options` are the options of `finding_door_words` the finding offers (the rows speak in the file's order); `paths` are the person's
+    changes as the person reads them (`<path>`, or `<old> -> <new>` for a rename), `total` how many there are, `cap` the most this question
+    lists. A repository-writing word among `options`: first `your uncommitted changes (N), all listed - <words> take(s) exactly these:`,
+    then one line per path. None offered and `total` above `cap`: instead the sentence that says there are too many to list, so no such
+    word is offered and the person does it themselves, then answers with the item's other word - NO path is listed then. [] when no
+    offered option has a row (an unreadable vocabulary reads as no words, never a wrong one). `outside` (Q-1) is how many of those changes
+    lie outside the person's tests folder: more than none, the list's first line carries the clause ", files outside your tests folder included,"
+    before the colon (none outside: the plain line).
+    The words and texts are the data file's
+    (AR-1); `finding_id` is what the person writes before the colon."""
+    rows = finding_door_words()
+    offered = [r for r in rows if r["option"] in set(options or [])]
+    if not offered:
+        return []
+    writers = [r["word"] for r in rows if r["writes_repository"]]
+    taking = [r["word"] for r in offered if r["writes_repository"]]
+    lines = []
+    if taking:
+        # Q-1: product code is taken too, said in the list's own line, in the clause before the colon
+        lines.append(f"your uncommitted changes ({total}){', files outside your tests folder included' if outside else ''}, all listed - "
+                     f"{' and '.join(taking)} {'take' if len(taking) > 1 else 'takes'} exactly these:")
+        lines.extend(f"  - {path}" for path in paths)
+    elif writers and total > cap:
+        other = next((r["word"] for r in offered if not r["writes_repository"]), "")
+        lines.append(f"your uncommitted changes ({total}) are more than the {cap} this question can list, so I offer no "
+                     f"{' or '.join(writers)}: {' or '.join(writers)} them yourself, then "
+                     + (f"answer `{finding_id}: {other}`" if other else "answer this question again"))
+    labels = _price_labels()
+    for row in offered:
+        lines.append(f"`{finding_id}: {row['word']}` - {row['says']}")
+        lines.extend(f"  {label} {row[key]}" for label, key in zip(labels, ("factory", "you", "story")))
+    return lines
 
 
 def probe_answers() -> dict:
@@ -2853,7 +2904,8 @@ def _gap_form(data: dict) -> list:
 
 def _finding_forms(data: dict) -> list:
     """The forms of the open items of the rehearsal (`open_rehearsal_items`, the one reader of what is open): an item with a line door
-    takes `<item id>: accept <your reason>` (`Driver.read_finding_doors`); an item with only a words door, or none, takes no line -
+    takes `<item id>: accept <your reason>` (`Driver.read_finding_doors`), and `<item id>: <word>` for every word of its own door
+    (`finding_door_words`: the product-gap word, the words of the test-repository question); an item with only a words door, or none, takes no line -
     `approve as is`, when the data file has the word, passes every one of them (`Driver.as_is_word`)."""
     rehearsed = data.get("rehearsal")
     if not isinstance(rehearsed, dict) or not rehearsed:
@@ -2869,6 +2921,14 @@ def _finding_forms(data: dict) -> list:
         forms.append(_form(f"<item id>: {word} <your reason>", f"{door['id']}: {word} this is known and accepted",
                            "pass one open item of the list above anyway, with your reason", "After your approval",
                            "Driver.read_finding_doors"))
+    # the words an item's OWN door takes (`finding_door_words`): one form per word across the items, by capability - an item offers a word
+    # when a door of its `waives` carries that word's option, so every word the item's hint lists is a form a reader takes (FR-9, FR-10)
+    for row in finding_door_words():
+        item = next((i for i in items if i["door"]["kind"] == "line"
+                     and any(w.get("option") == row["option"] for w in i["door"]["waives"])), None)
+        if item:
+            forms.append(_form(f"<item id>: {row['word']}", f"{item['id']}: {row['word']}", row["says"], "After your approval",
+                               "Driver.read_finding_doors"))
     as_is = as_is_word_of("A")
     if as_is:
         forms.append(_form(as_is, as_is, "alone on the first line: approves over every open item, each recorded with your words",
@@ -3354,6 +3414,44 @@ def keep_shown_attachments(task_root, state=None) -> None:
     held["shown_attachments"]["A"], held["shown_attachments"]["A_named"] = shown, named
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(held, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def keep_shown_doors(task_root, doors: dict, state: dict | None = None, gate: str = "A") -> None:
+    """THE write of `state["shown_doors"][gate]` - `{finding id: waives}` of the rehearsal that built the packet the person reads (AR-14,
+    FG7-8 part B): a word that acts on the person's repository is read only against what they were SHOWN. The driver passes its own `state`
+    dict and saves it. The skill path (`main`, after the brief is printed) passes none and the record goes into `state/driver-state.json`,
+    under the guards of `keep_shown_attachments`: no write when the story folder does not exist, when a current approved decision of gate A
+    stands or cannot be read, when an existing file is not a JSON object, or when there is no file to keep other keys in and nothing to
+    record (the reader then finds nothing shown, and no word that writes is carried out: the error goes toward asking again)."""
+    if state is not None:
+        state.setdefault("shown_doors", {})[gate] = doors
+        return
+    root = Path(task_root)
+    if not root.is_dir() or gate_a_decided(root) is not False:
+        return
+    path = root / "state" / ATTACHMENTS_STATE_FILE
+    held = {}
+    if path.exists():
+        held = read_json(path, None)
+        if not isinstance(held, dict):
+            return
+    elif not doors:
+        return
+    if not isinstance(held.get("shown_doors"), dict):
+        held["shown_doors"] = {}
+    held["shown_doors"][gate] = doors
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(held, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def shown_doors_of(task_root=None, state=None, gate: str = "A"):
+    """THE read of what `keep_shown_doors` kept: `{finding id: waives}` of that gate's packet, or None when it is absent, unreadable or not a
+    dict. `state` given (the driver's own dict) is read as it stands; else `task_root`'s `state/driver-state.json`."""
+    held = state if state is not None else (read_json(Path(task_root) / "state" / ATTACHMENTS_STATE_FILE, None)
+                                            if task_root is not None else None)
+    doors = held.get("shown_doors") if isinstance(held, dict) else None
+    shown = doors.get(gate) if isinstance(doors, dict) else None
+    return shown if isinstance(shown, dict) else None
 
 
 def write_gate_message(task_root, text, session_id, now=None):
@@ -3865,7 +3963,12 @@ def render(data: dict) -> str:
     # exactly what the cards beyond a one-liner each take, so the document links at the bottom
     # survive a story with three questions and two stand gaps.
     shown = len(questions)
+    # FG7-8 part B: the `answers` of the rehearsal's rows (the words of an item, their prices, the list they act on) are printed whole
+    # under their row (`gate_preflight.brief_lines`) and are the question itself, so the budget grows by exactly their lines; the block
+    # is bounded (<= cap + 2 + 4 lines per word, `finding_door_hint`)
+    answer_lines = sum(len(f.get("answers") or []) for f in ((data.get("rehearsal") or {}).get("findings") or []) if isinstance(f, dict))
     cap = (MAX_LINES + 2      # GW1-11: the approval line and its blank line are not part of the cover sheet's budget
+           + answer_lines
            + len(cards) + max(0, len(question_lines) - ((2 + shown) if questions else 0))      # GW1-32: the answer block outlives the cap with no question too
            + (len(judged) + 1 if judged else 0)
            + len(grounding)      # G2-5: a bounded block (<= 5 lines) of the head, never cut by the cap
@@ -5088,6 +5191,14 @@ def main() -> int:
             keep_shown_attachments(artifacts_dir(args.task))
         except Exception as exc:  # noqa: BLE001 - no record is a debt, never a refused gate
             print(f"gate_brief: could not keep the list of shown attachments: {exc}", file=sys.stderr)
+        # the doors this packet SHOWED (`{finding id: waives}` of the rehearsal that built it): a word that acts on the person's repository
+        # is read against them, on this road by `repo_words.py` - the driver keeps its own copy (`Driver.gate`) through the same writer
+        try:
+            shown = ((data.get("rehearsal") or {}).get("findings") or [])
+            keep_shown_doors(artifacts_dir(args.task), {str(f["id"]): [d for d in f["waives"] if isinstance(d, dict)]
+                                                        for f in shown if isinstance(f, dict) and f.get("id") and f.get("waives")})
+        except Exception as exc:  # noqa: BLE001 - no record is a debt, never a refused gate
+            print(f"gate_brief: could not keep the doors this gate showed: {exc}", file=sys.stderr)
         # RN1-4: the message the person reads is this file, printed whole by the conductor. The driver (the branch above) never
         # gets here: `story_run.py` runs with QA_FACTORY_RUN_MODE=driver, shows the packet itself (`Driver.gate`) and writes no file.
         try:

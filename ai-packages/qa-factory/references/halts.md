@@ -16,7 +16,7 @@ human-questions form. "go on without it" is always an answer.
 | `qa-scout ... requirement/code conflict` | Both sources the scout quoted, with `path:line`. | Both quotes; go on only on a recorded decision. person-owned: requirement_intent |
 | `qa-scout ... <capability> unavailable` | The scout's probe line for that capability. | What is unreachable, what is needed, from whom. person-owned: access |
 | `qa-requirements-tester ... blocked` | The understanding brief and its question packet. | The brief alone, with its question packet, before any plan exists; the answers are recorded by code (`phases/s2.md`). person-owned: requirement_intent |
-| Dirty working tree at S5 | `git status` of the story's repository. | "stash / commit / proceed with a warning / abort", recorded. person-owned: risk |
+| Dirty working tree at S5 | `git status` of the story's repository. | A gate A item whose words are the item's own, listed under it; the answer is recorded. person-owned: risk |
 | `qa-automator ... not on story branch` | The branch the role reported against the story's branch. | Nothing: re-run the S5 entry steps; never let the role branch. factory: a finding, not a question |
 | `qa-automator`/`qa-code-critic ... repair cap reached` | The unresolved table of the window. | The table of what is unresolved; no third round. person-owned: money |
 | `qa-case-critic ... round cap` | The critic's digest. | Nothing: `done · verdict=reject` goes to gate A with the case ids. factory: a finding, not a question |

@@ -448,6 +448,63 @@ def part_option_word_map() -> None:
         hooklib.load_ref_json = real
 
 
+def part_finding_door_words() -> None:
+    """FG7-8 B1: the block `finding_door_words` holds the words of a rehearsal finding's own door - `product gap` and the three words of
+    the test-repository question. Each row names the executor that carries it out; the words are ASCII and belong to no other block;
+    a damaged row is dropped; and a word that WRITES into the person's repository is read only ALONE (I-3), at and beyond every edge."""
+    import gate_brief
+    import hooklib
+    data = json.loads((SCRIPTS.parent / "references" / "question-vocabulary.json").read_text(encoding="utf-8-sig"))
+    rows = data["finding_door_words"]["answers"]
+    check_eq("the four rows with their executors, in the file's order", [(r["option"], r["executor"]) for r in rows],
+             [("product_gap", "product_gap"), ("vcs_commit", "git_commit"), ("vcs_stash", "git_stash"), ("vcs_go_on", "record")])
+    check_eq("only the two repository-writing rows say so", [r["option"] for r in rows if r.get("writes_repository")], ["vcs_commit", "vcs_stash"])
+    check_eq("the reader returns them with their executors", [(r["option"], r["executor"], r["writes_repository"]) for r in gate_brief.finding_door_words()],
+             [(r["option"], r["executor"], bool(r.get("writes_repository"))) for r in rows])
+    texts = [t for r in rows for t in [r["word"], r["says"], r.get("factory", ""), r.get("you", ""), r.get("story", ""), *r["synonyms"]]]
+    check("every word, synonym, explanation and price line is ASCII", all(ord(ch) < 128 for t in texts for ch in t), str(texts))
+    check_eq("each of the three new words carries its three price lines", [all(r.get(k) for k in ("says", "factory", "you", "story")) for r in rows[1:]],
+             [True, True, True])
+    mine = {gate_brief._word_key(t) for r in rows for t in [r["word"], *r["synonyms"]]}
+    others = set()
+    for name, block in data.items():
+        if name != "finding_door_words" and isinstance(block, dict) and isinstance(block.get("answers"), list):
+            others |= {gate_brief._word_key(t) for r in block["answers"] if isinstance(r, dict) for t in [r.get("word", ""), *r.get("synonyms", [])]}
+    others |= {gate_brief._word_key(data["probe_answers"]["command"]["word"]), gate_brief._word_key(data["risk_word"])}
+    others |= {gate_brief._word_key(w) for w in data["case_decisions"] + ["not needed", "until the report", "accept as blocked"]}
+    approval = json.loads((SCRIPTS.parent / "references" / "gate-approval-words.json").read_text(encoding="utf-8-sig"))["gate_approval_words"]
+    others |= {gate_brief._word_key(w) for w in approval}
+    check_eq("no word or synonym of the block belongs to another block, `gate-approval-words.json` included", sorted(mine & others), [])
+    check_eq("and none is written twice in the block", len(mine), sum(1 + len(r["synonyms"]) for r in rows))
+    real = hooklib.load_ref_json
+    try:
+        good = {"option": "vcs_go_on", "word": "go on", "executor": "record", "synonyms": []}
+        hooklib.load_ref_json = lambda name: {"finding_door_words": {"answers": [
+            {"option": "bogus", "word": "x", "executor": "record"}, {"option": "vcs_commit", "word": "commit"},
+            {"option": "vcs_commit", "word": "commit", "executor": "shell"}, {"option": "vcs_stash", "word": " ", "executor": "git_stash"}, "junk", good]}}
+        check_eq("damaged rows (an unknown option, no executor, an unknown executor, no word, not an object) are dropped",
+                 [(r["option"], r["writes_repository"], r["factory"]) for r in gate_brief.finding_door_words()], [("vcs_go_on", False, "")])
+        hooklib.load_ref_json = lambda name: None
+        check_eq("a file that cannot be read gives no words", gate_brief.finding_door_words(), [])
+        check_eq("...and reads nothing", gate_brief.finding_door_option("commit"), ("", ""))
+    finally:
+        hooklib.load_ref_json = real
+    # --- finding_door_option: the whole text after the colon ---
+    cyrillic = "".join(chr(c) for c in (0x43a, 0x43e, 0x43c, 0x43c, 0x438, 0x442))                       # "commit" in Russian, from code points (FR-30)
+    homoglyph = chr(0x441) + "ommit"                                                                       # a Cyrillic `c` followed by Latin letters
+    fullwidth = "".join(chr(c) for c in (0xff43, 0xff4f, 0xff4d, 0xff4d, 0xff49, 0xff54))                  # `commit` in full-width letters
+    read = {"commit": "vcs_commit", "COMMIT": "vcs_commit", "`commit`": "vcs_commit", "commit.": "vcs_commit", "  commit  ": "vcs_commit",
+            "stash them": "vcs_stash", "go on": "vcs_go_on", "Go On!": "vcs_go_on", "go on": "vcs_go_on"}      # `str.split` folds an NBSP: intended
+    for said, option in read.items():
+        check_eq(f"{said!r} reads as {option}", gate_brief.finding_door_option(said), (option, ""))
+    check_eq("`go on` with a separator and the person's reason: read, the reason kept whole",
+             gate_brief.finding_door_option("go on, the branch is mine"), ("vcs_go_on", "the branch is mine"))
+    check_eq("`product gap` keeps its rule: the word, a separator, the reason", gate_brief.finding_door_option("product gap - no export"), ("product_gap", "no export"))
+    for said in ("commit or stash", "commit please", "stash, then go on", "commits", "go onward", cyrillic, homoglyph, fullwidth, "", "   ",
+                 "commit​", "commit " + "x" * 994):          # the last: magnitude (1001 characters); no limit exists in the reader
+        check_eq(f"{said[:24]!r} is not read", gate_brief.finding_door_option(said), ("", ""))
+
+
 def main() -> None:
     part_contract_reader()
     part_controller_to_guard()
@@ -456,6 +513,7 @@ def main() -> None:
     part_stand_gap_words()
     part_stand_gap_words_at_both_gates()
     part_option_word_map()
+    part_finding_door_words()
     finish("test_gate_vocabulary")
 
 
