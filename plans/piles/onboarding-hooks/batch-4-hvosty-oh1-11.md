@@ -10,6 +10,7 @@
 очередь: onboarding-hooks/4 → onboarding-forge/1
 очередь: onboarding-hooks/4 → onboarding-forge/2
 очередь: onboarding-hooks/4 → onboarding-hooks/5
+очередь: onboarding-hooks/4 → onboarding-forge/4
 Скоуп свидетеля: тестовый файл изменённого модуля и ключи DoD узла; BATCH CANON — интегратор.
 Общий бриф дизайнерам: карточка кучки («Дороги», «Содержание»); находка узла; `design/factory-rules.md` FR-13; вернуть спеку в `docs/tasks/specs/t-nnn-oh4-n.md`.
 
