@@ -175,17 +175,8 @@ def _render_hygiene(name: str) -> str:
 
 
 def _render_hygiene_wrapped() -> str:
-    # same concatenation pattern decide() itself uses for the warn-only
-    # branch (hygiene_gate.py, warn_reasons path) -- prefix check below.
-    return "Command hygiene (WARN, does not block): " + hygiene_gate.MSG_CD_PREFIX
-
-
-def _render_hygiene_cd_non_root_wrapped() -> str:
-    # MSG_CD_NON_ROOT_WARN goes through the SAME
-    # warn_reasons -> wrapped-prefix path as MSG_CD_PREFIX above (see
-    # the module docstring, "REGISTRY-DRIVEN SCOPE ADAPTATION --
-    # RESOLVED") -- not an independently-prefixed wire text.
-    return "Command hygiene (WARN, does not block): " + hygiene_gate.MSG_CD_NON_ROOT_WARN
+    # the same concatenation decide() uses for the warn-only branch (hygiene_gate.WARN_PREFIX + the one WARN text)
+    return hygiene_gate.WARN_PREFIX + hygiene_gate.MSG_WARN_PAYLOAD
 
 
 def _render_quoted_owns() -> str:
@@ -301,10 +292,12 @@ _VERB_CASES = [
     ("NEGATIVE_LINT", _render_negative_lint, {"add", "double-check"}),
     ("NEGATIVE_CLAIM", _render_negative_claim, {"run"}),
     ("SEARCH_RETURNED_NOTHING", _render_search_returned_nothing, {"run"}),
-    ("HYGIENE/MSG_CD_PREFIX", lambda: _render_hygiene("MSG_CD_PREFIX"), {"invoke"}),
-    ("HYGIENE/MSG_REDIRECT_STDERR", lambda: _render_hygiene("MSG_REDIRECT_STDERR"), {"drop"}),
-    ("HYGIENE/MSG_PYTHON_DASH_C", lambda: _render_hygiene("MSG_PYTHON_DASH_C"), {"use"}),
-    ("HYGIENE/MSG_CD_NON_ROOT_WARN", _render_hygiene_cd_non_root_wrapped, {"invoke"}),
+    ("HYGIENE/MSG_CD_BASH", lambda: _render_hygiene("MSG_CD_BASH"), {"use"}),
+    ("HYGIENE/MSG_CD_POWERSHELL", lambda: _render_hygiene("MSG_CD_POWERSHELL"), {"use"}),
+    ("HYGIENE/MSG_MUTATION", lambda: _render_hygiene("MSG_MUTATION"), {"use"}),
+    ("HYGIENE/MSG_JOURNAL_BLOCK", lambda: _render_hygiene("MSG_JOURNAL_BLOCK"), {"edit/write"}),
+    ("HYGIENE/MSG_ROLLBACK", lambda: _render_hygiene("MSG_ROLLBACK"), {"undo", "restore", "leave"}),
+    ("HYGIENE/MSG_WARN_PAYLOAD", _render_hygiene_wrapped, {"use"}),
 ]
 
 
@@ -495,7 +488,7 @@ _CK3_SPLIT_VERDICTS = {
     "NEGATIVE_LINT": 1,
     "NEGATIVE_CLAIM": 1,
     "SEARCH_RETURNED_NOTHING": 1,
-    "HYGIENE": 4,  # MSG_CD_PREFIX/MSG_REDIRECT_STDERR/MSG_PYTHON_DASH_C/MSG_CD_NON_ROOT_WARN
+    "HYGIENE": 6,  # MSG_CD_BASH/MSG_CD_POWERSHELL/MSG_MUTATION/MSG_JOURNAL_BLOCK/MSG_ROLLBACK/MSG_WARN_PAYLOAD
     "JOURNAL_ECHO_BASE": 1,  # one code path (build_context), no split needed
 }
 

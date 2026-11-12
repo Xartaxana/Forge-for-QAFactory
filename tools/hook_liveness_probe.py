@@ -1334,8 +1334,7 @@ CASES = [
         "build": _case_11_hygiene_gate,
         "expected_exit": 0,
         "anchors": (
-            "the journal is written only via Edit/Write (command hygiene "
-            "point 5); shell write to the journal blocked",
+            "the journal is written only through Edit/Write at the file's tail",
             '"permissionDecision": "deny"',
         ),
         "const_ref": ("hygiene_gate", "MSG_JOURNAL_BLOCK"),

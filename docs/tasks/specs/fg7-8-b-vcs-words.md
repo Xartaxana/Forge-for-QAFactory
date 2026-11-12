@@ -86,6 +86,13 @@ The verdict (`fit_with_fixes`, 4 blocking) stands and changes the order, not the
 4. Owner questions carried by the Lead: (Q-1) product code under `commit`/`stash`; (Q-2) "files the factory left in
    your repository from an earlier story or an earlier pass — the factory's (not shown, not taken) or yours?".
    OW-1 (the reminder in the chat) is unaffected and is built now.
+5. **Owner's word on Q-2 (12.11.2026): «Фабричными»** — files the factory left in the person's repository from an
+   earlier story or an earlier pass are the FACTORY's: not shown as the person's uncommitted changes, not taken by
+   `commit`/`stash`. So the deferred node is built on the critic's "if she says the factory's" branch: the record is
+   project-level (`qa-factory/state/factory-writes.jsonl`, `story` in every row), each row carries the file's state
+   before the write, and a path is the factory's only on an unbroken chain of rows back to a committed state (a hand
+   edit breaks the chain → the person's). It gets its own designer draft and critic on the plan (B-1, B-2, B-3 of
+   t-119 are its entry requirements) and does not hold B1–B3 or the release.
 
 ---
 

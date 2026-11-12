@@ -263,6 +263,7 @@ checks in some readers and by `git rev-parse --show-toplevel` in others, so a su
 A new reader of the repository top asks the one helper once it exists; until then a change to one reader's rule names
 the other four. `GIT_DIR` and `GIT_WORK_TREE` steer every `git -C` (queued, B-437): a reader that passes `-C` is not
 independent of the environment. The activity spool key of `hooklib.project_root` is the same class (A1, B-437 (d)).
+A reader of this class from C1 (t-120): `tools/hygiene_gate._tree_root` finds the tree of a write target by a `.git` path walk (file or directory), not by `git rev-parse`; a change to the top rule names it too.
 
 ## Axis 11 — "shell-command recognizers": one tokenizer <-> the gates that read a command's words (B-404/B-405, t-549, 07.10)
 
@@ -282,6 +283,7 @@ recognizer and B-405's delivery gate.
 The fix for a shell-indirection hole lives at the walker and the shell table, never per gate. A new gate that
 reads a command's words takes its segments from `hooklib.walk` (or `hooklib.command_segments`, its view), not from a private tokenizer; the two
 segmenters still standing (`guard_pre_tool._segments`, and `_request_path`'s `shlex`) are BACKLOG B-434, the holes that still pass are B-433.
+Queued (C1, F-C4, t-120): `tools/hygiene_gate.py` reads a command's words with its own masks and recognizers (a quote, heredoc and comment mask, a statement splitter, a tokenizer, the data rows `PAYLOAD_INTERPRETERS`, `INPLACE_EDITORS`, `ROLLBACK_SHAPES`) and not through `hooklib.walk`; its recognizers (cd verbs, redirects, in-place editors, python payloads, git rollback shapes) are new recognizers of this axis, and moving them onto the walker is queued, not done.
 
 ## Axis 12 — carriers of the work plan: piles <-> the frozen backlog <-> the generated board (D-0036, F0-2/F0-3/F0-8, 08.10)
 
@@ -526,7 +528,7 @@ hygiene; cost gates in rule 12, Cost gates), `delegation.config.yaml` (the model
 | `tools/dod_gate.py` | workers | SubagentStop, the resubmission hint | machine; the hint moves with the role files' hand-back rules |
 | `tools/handoff_gate.py` | critic, designer | Write only at `handoff:` | machine |
 | `tools/main_gate.py` | Lead | Stop hook | machine |
-| `tools/hygiene_gate.py` | all | command hygiene 3-4 | machine |
+| `tools/hygiene_gate.py` | all | command hygiene 3, 4, 5, 7 | machine |
 | `tools/negative_lint.py` | scout | negative-claim WARN | machine |
 | `tools/digest_form.py` | scout | digest reader | machine (pinned trio, axis 1) |
 | `tools/handback_extract.py` | scout, Lead | hand-back extraction | machine |
@@ -585,6 +587,7 @@ Numbering: axis 31 (t-1702 D3, role carriers) landed on `main` with the `local/p
 | The intended road | a language is a data row read by a capability key: `references/detectors.json` `assertion_probes` / `assertion_probes_ast` (incl. `marker_read`, D-0062) read by `scripts/assertion_detectors.py` (axis 5, the assertion-probe row); `references/test-path-markers.json` `code_extensions` read by `scripts/test_files.py`; a tracker or VCS host: axis 5, the adapter-forms row. Where no table can close the variety, one role step on every language alike (AR-2) |
 | The known roads off it | the census `docs/tasks/specs/reports/t-2046-language-exceptions-census.md` (mechanisms M1-M7 with their scripts, at 06.11); its nodes are TR2-16 of `plans/piles/thinking-roles/batch-2-proby-drajver-shvy.md`, cut by mechanism, not by file |
 | The code layer (planned) | `tools/language_sites.py` + `tools/test_language_sites.py`: INERT, wired by spec t-2065 N3 after its baseline `tools/language-sites-baseline.json` exists (N2); from then on the baseline is the live count and a member of axis 18 |
+| A content write into a git tree (C1, t-120) | one refusal in every syntax: `tools/hygiene_gate.py` reads redirects, tee-likes, in-place editors, .NET writes and python payloads through one `decide()`; an interpreter other than python (`node`, `ruby`, `perl`, `pwsh`, `bash -c`, `cmd`) is a named residual, a data row of `PAYLOAD_INTERPRETERS` with `payload_classifier: None`, never a branch; a new syntax is a data row |
 | The reviewers | `.claude/agents/designer.md` rule 6 (a spec); `.claude/agents/critic.md` rule 19 -> `docs/tasks/critic-diff-brief.md` question 12 (a plan and a diff); a kept exclusion is named in the verdict like a ratchet raise |
 | The symmetry | One action has one road on every language, project and case. A new language is a data row, never a branch in a consumer; a spec's non-goal or "not supported for X" that leaves one side out is a fork to the Lead and the owner, never a fact. A fix that removes a road on one mechanism walks the census rows of the same ACTION on the other mechanisms. A consumer that starts reading a capability key loses its census row in the same commit |
 | The detector | calibration check 42 (spec t-2065 §5.6); until the code layer is wired, the spec grep there: `grep -n -i -E "non-goals?.*(python|typescript|java|c#|csharp|pytest|язык)" docs/tasks/specs/`, positive control `t-1968-mutation-probe-marker-and-critic.md:222` must hit |

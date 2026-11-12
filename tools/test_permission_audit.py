@@ -355,23 +355,32 @@ def test_check_transcripts_present_no_warn_when_populated(tmp_path, capsys):
 # logic is correct (already covered by tools/test_hygiene_gate.py).
 
 
-def test_classify_hygiene_class_redirect_stderr():
-    assert pa.classify_hygiene("python tools/foo.py 2>&1") == ["2>&1"]
+@pytest.mark.parametrize("command,expected", [
+    ("python tools/foo.py 2>&1", []),                                   # an allowed form: no label at all
+    ("cd tools && python foo.py", ["cd"]),
+    ("Set-Location tools; python foo.py", ["cd"]),
+    ("echo x > docs/a.md", ["content write (literal target)"]),
+    ("echo '{}' >> logs/routing-log.jsonl", ["content write (literal target)", "journal write"]),
+    ("git checkout -- f.py", ["rollback shape"]),
+    ('python -c "exec(\'1\')"', ["payload uncertain"]),
+    ('python -c "print(1)"', []),
+    ("grep x logs/journal/dev1.jsonl 2>/dev/null", []),
+], ids=["2to1-none", "cd", "set-location", "write", "journal", "rollback", "uncertain", "pure-payload", "read-journal"])
+def test_classify_hygiene_one_row_per_label(command, expected):
+    assert pa.classify_hygiene(command) == expected
 
 
-def test_classify_hygiene_class_cd_set_location():
-    assert pa.classify_hygiene("cd tools && python foo.py") == ["cd/Set-Location"]
-    assert pa.classify_hygiene("Set-Location tools; python foo.py") == ["cd/Set-Location"]
+def test_the_five_labels_are_shapes_not_verdicts():
+    assert pa.HYGIENE_CLASS_LABELS == ["cd", "content write (literal target)", "journal write", "rollback shape",
+                                       "payload uncertain"]
 
 
-def test_classify_hygiene_class_python_dash_c():
-    assert pa.classify_hygiene('python -c "print(1)"') == ["python -c/heredoc"]
-
-
-def test_classify_hygiene_class_journal_bypass():
-    assert pa.classify_hygiene("echo '{}' >> logs/routing-log.jsonl") == [
-        "journal write bypassing Edit/Write"
-    ]
+def test_audit_replay_of_a_rollback_shaped_command_performs_no_subprocess(monkeypatch):
+    def forbid(*a, **k):
+        raise AssertionError("the audit replay must not run a process")
+    monkeypatch.setattr(subprocess, "run", forbid)
+    monkeypatch.setattr(hygiene_gate.gitcmd, "git", forbid)
+    assert pa.classify_hygiene("git checkout -- f.py") == ["rollback shape"]
 
 
 # --- known false positives inherited from hygiene_gate, must carry
@@ -381,12 +390,12 @@ def test_classify_hygiene_class_journal_bypass():
 def test_classify_hygiene_known_fp_git_statement_with_journal_path_in_args():
     cmd = ('git add logs/routing-log.jsonl && git commit -m "add journal file" '
            '&& git push origin main')
-    assert "journal write bypassing Edit/Write" not in pa.classify_hygiene(cmd)
+    assert "journal write" not in pa.classify_hygiene(cmd)
 
 
 def test_classify_hygiene_known_fp_2_greater_1_inside_commit_message():
-    cmd = 'git commit -m "ran tests 2>&1 output captured"'
-    assert "2>&1" not in pa.classify_hygiene(cmd)
+    cmd = 'git commit -m "ran tests 2>&1 output captured > docs/a.md"'
+    assert pa.classify_hygiene(cmd) == []
 
 
 def test_classify_hygiene_known_fp_quoted_greater_reading_journal():
@@ -414,14 +423,14 @@ def test_classify_hygiene_command_empty_string():
 
 
 def test_classify_hygiene_100kb_command_no_crash_and_correct():
-    huge = "echo " + ("x" * 100_000) + " 2>&1"
+    huge = "echo " + ("x" * 100_000) + " > docs/a.md"
     result = pa.classify_hygiene(huge)
-    assert result == ["2>&1"]
+    assert result == ["content write (literal target)"]
 
 
 def test_classify_hygiene_cyrillic_and_replacement_char_no_crash():
-    cmd = "echo привет мир 2>&1 �"
-    assert pa.classify_hygiene(cmd) == ["2>&1"]
+    cmd = "echo привет мир > docs/файл.md �"
+    assert pa.classify_hygiene(cmd) == ["content write (literal target)"]
 
 
 # --- collect_hygiene_class_stats: both bases (all scanned, not only
@@ -441,12 +450,12 @@ def test_collect_hygiene_class_stats_counts_all_scanned_not_only_suspects(tmp_pa
     projects = tmp_path / "projects"
     projects.mkdir()
     transcript = projects / "session.jsonl"
-    _write_tool_use(transcript, "python tools/foo.py 2>&1")
+    _write_tool_use(transcript, "cd tools && python tools/foo.py")
     monkeypatch.setattr(pa, "CLAUDE_PROJECTS", projects)
 
     class_counts, class_suspect_counts, any_class_count = pa.collect_hygiene_class_stats(None)
-    assert class_counts["2>&1"] == 1
-    assert class_suspect_counts["2>&1"] == 0  # allow(*) -> not a suspect
+    assert class_counts["cd"] == 1
+    assert class_suspect_counts["cd"] == 0  # allow(*) -> not a suspect
     assert any_class_count == 1
 
 
@@ -460,14 +469,14 @@ def test_collect_hygiene_class_stats_double_count_one_command_multiple_classes(t
     projects = tmp_path / "projects"
     projects.mkdir()
     transcript = projects / "session.jsonl"
-    _write_tool_use(transcript, 'cd tools && python -c "print(1)" 2>&1')
+    _write_tool_use(transcript, 'cd tools && echo x >> /srv/logs/routing-log.jsonl')
     monkeypatch.setattr(pa, "CLAUDE_PROJECTS", projects)
 
     class_counts, class_suspect_counts, any_class_count = pa.collect_hygiene_class_stats(None)
-    assert class_counts["2>&1"] == 1
-    assert class_counts["cd/Set-Location"] == 1
-    assert class_counts["python -c/heredoc"] == 1
-    assert class_counts["journal write bypassing Edit/Write"] == 0
+    assert class_counts["cd"] == 1
+    assert class_counts["content write (literal target)"] == 1
+    assert class_counts["journal write"] == 1
+    assert class_counts["rollback shape"] == 0
     # one command, but the sum of class hits == 3 != the command count (1)
     assert sum(class_counts.values()) == 3
     assert any_class_count == 1
@@ -505,7 +514,7 @@ def test_collect_audit_stats_single_iter_tool_calls_pass(tmp_path, monkeypatch):
     projects.mkdir()
     transcript = projects / "session.jsonl"
     now_ts = datetime.now(timezone.utc).isoformat()
-    _write_tool_use(transcript, "python tools/foo.py 2>&1", ts=now_ts)
+    _write_tool_use(transcript, "cd tools && python tools/foo.py", ts=now_ts)
     _write_tool_use(transcript, "git status", ts=now_ts)
     monkeypatch.setattr(pa, "CLAUDE_PROJECTS", projects)
 
@@ -529,7 +538,7 @@ def test_collect_audit_stats_single_iter_tool_calls_pass(tmp_path, monkeypatch):
     assert call_count["n"] == 1
     assert total == 2
     assert any_class_count == 1
-    assert class_counts["2>&1"] == 1
+    assert class_counts["cd"] == 1
     assert sum(class_counts.values()) <= total
     assert any_class_count <= total
 
@@ -577,14 +586,16 @@ def test_collect_audit_stats_total_and_class_counts_come_from_same_snapshot(tmp_
 def _gate_attribution(cmd: str) -> set[str]:
     signals = hygiene_gate._collect_signals(cmd)
     labels = set()
-    if signals["redirect"]:
-        labels.add("2>&1")
     if signals["cd"]:
-        labels.add("cd/Set-Location")
-    if signals["pyc"]:
-        labels.add("python -c/heredoc")
+        labels.add("cd")
+    if signals["write_targets"]:
+        labels.add("content write (literal target)")
     if signals["journal"]:
-        labels.add("journal write bypassing Edit/Write")
+        labels.add("journal write")
+    if signals["rollback_forms"]:
+        labels.add("rollback shape")
+    if signals["payload_uncertain"]:
+        labels.add("payload uncertain")
     return labels
 
 
@@ -593,6 +604,8 @@ _GATE_ATTRIBUTION_MATRIX = [
     "cd tools && python foo.py",
     "Set-Location tools; python foo.py",
     'python -c "print(1)"',
+    "git checkout -- f.py",
+    'python -c "exec(1)"',
     "echo '{}' >> logs/routing-log.jsonl",
     ('git add logs/routing-log.jsonl && git commit -m "add journal file" '
      '&& git push origin main'),
@@ -634,7 +647,7 @@ def test_main_summary_prints_all_four_classes_including_zero(tmp_path, monkeypat
     assert "By hygiene class (all scanned calls; in parens -- how many of them are suspects):" in out
     for label in pa.HYGIENE_CLASS_LABELS:
         assert label in out
-    assert "journal write bypassing Edit/Write" in out  # a load-bearing zero, explicit
+    assert "journal write" in out  # a load-bearing zero, explicit
 
 
 def test_main_summary_hygiene_block_position_between_reasons_and_recommendations(tmp_path, monkeypatch, capsys):

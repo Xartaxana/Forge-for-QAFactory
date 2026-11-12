@@ -199,13 +199,13 @@
       "carrier": ["tools/hygiene_gate.py"],
       "symbol": null,
       "literal": "Command hygiene: ",
-      "aliases": [],
+      "aliases": ["Command hygiene (WARN, does not block): "],
       "hook_event": "PreToolUse",
       "matcher": "Bash|PowerShell",
       "denominator": "Z1",
       "listed_in_density_check": false,
       "reachable": "unmeasured",
-      "reason": "achievable population (any non-empty Bash/PowerShell command string) is defined by analogy with the source deployment's own resolution, but not yet wired to a measured kind in this tool"
+      "reason": "achievable population is every non-empty Bash/PowerShell command string (the gate reads them all; C1 t-112), but no measured kind for it exists in tools/warn_density.py yet (POPULATION_KINDS_MEASURED is a closed set outside C1's owns)"
     },
     {
       "id": "NOTES_LEN",

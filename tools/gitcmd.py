@@ -11,6 +11,7 @@ Callers (each keeps its own decoding, error mapping and return shape):
     tools/exam_runner.py           _git, _git_rev_parse
     tools/install_parity.py        the eighth caller
     tools/ci_read.py               backend_for (origin URL; github-move GM1-4)
+    tools/hygiene_gate.py          the rollback measurement (`git status`, timeout 5; imported when present)
 
 NOT callers yet: the wrappers of the enforcement chain (tools/dispatch_gate.py, journal_validator.py, mechanism_gate.py,
 journal_echo.py, session_context.py, hook_liveness_probe.py) and two more with their own git code

@@ -83,7 +83,7 @@
       "Command hygiene (permission hygiene)",
       "1. Tests — the canonical form, from the repo root:",
       "2. The proxy server — not used in this deployment",
-      "3. Don't prefix commands with `cd <dir> && ...`",
+      "3. The shell's working directory never moves",
       "4. File edits — only via Edit/Write tools",
       "a NAMED, committed script with its output attached",
       "outside this point's scope, the gate stays silent",

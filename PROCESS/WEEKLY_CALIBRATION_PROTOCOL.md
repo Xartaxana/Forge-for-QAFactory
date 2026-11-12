@@ -229,7 +229,10 @@ for the period, and diffs to DECISIONS.md.
     tools/negative_lint.py; Negative
     claim -- tools/claim_control_gate.py; Search returned nothing --
     tools/search_control_gate.py; Command hygiene -- tools/
-    hygiene_gate.py. LIST IS OPEN: a live layer missing from this list
+    hygiene_gate.py (declared population: every non-empty Bash/PowerShell
+    command string, the HYGIENE row of `tools/warn_layers.json`; no
+    measured kind yet, so its share is "n/a (population not measured)").
+    LIST IS OPEN: a live layer missing from this list
     is a finding about THIS CHECK, not about the layer; a layer NAMED
     here but missing from `tools/warn_layers.json` is a finding about
     the registry (`warn_density.py`'s own `--check` mode surfaces both
@@ -784,35 +787,41 @@ the source's own number.
     `python tools/permission_audit.py --minutes <window>` (or `--all`)
     against transcripts of the period; the walkthrough steps are
     `.claude/skills/permission-audit/SKILL.md`. `--summary` prints the
-    "hygiene class breakdown" — a count by the FOUR classes (`2>&1`,
-    `cd`/`Set-Location`, `python -c`/heredoc, "journal bypassing
-    Edit/Write") across ALL scanned calls, with the suspect sub-count
-    alongside each, plus a "commands with >=1 class" line. The first
-    run of this check records ITS OWN baseline (there is no prior data
-    point on a fresh deployment); later runs compare against it. An
+    "hygiene class breakdown" — a count by the four REFUSAL classes of
+    `tools/hygiene_gate.py` (`cd`, content write, journal, rollback)
+    across ALL scanned calls; the SHAPES come from `--summary` (labels
+    from `HYGIENE_CLASS_LABELS`), the VERDICTS (refused / not refused)
+    from the gate's own denials in the transcripts. The first
+    run of this check after the gate records ITS OWN baseline: the
+    baseline of 12.11 (39/68/58/1 unique) is NOT comparable; later
+    runs compare against the new one. An
     empty window (no transcripts, or a fresh deployment with none yet)
     is noted explicitly — "no calls to audit". Two categories: (a)
-    hygiene VIOLATIONS themselves (the right-hand column of the
-    skill's step 2 table: a `cd` prefix/`2>&1`, a hand-built journal
-    line bypassing Edit/Write, an ad-hoc read bypassing Read/Grep,
-    bypassing the canonical pytest form, poll loops, a RELATIVE NUMBER
+    hygiene VIOLATIONS themselves: a call of a refusal class that was
+    NOT refused, or one of the gate's named residuals (file-level
+    copies onto tree files, non-literal targets, scripts outside the
+    repo writing into it, unclassified interpreters) found by reading
+    the suspects; compound commands, `2>&1` in Bash, reads via
+    `python -c` and poll loops are not counted (poll loops are check
+    17 cost); also a RELATIVE NUMBER
     WITH NO NAMED BASE, a REGISTRY ENTRY'S STATUS CLAIMED FROM A
     PARTIAL READ (command hygiene point 6: the entry's status line was
-    never reached)) — fix at the source; the count and class go into
+    never reached) — fix at the source; the count and class go into
     the calibration report. (b) `settings.local.json` curation
     (MASKED-by-broad-allowlist rules, duplicates, one-off entries) —
     the skill's steps 3-5; narrowing broad rules is an operator
     decision.
-    (c) UNSAFE ROLLBACK OF CORRUPTION: window transcripts are searched
-    for `git checkout --` / `git restore` NEAR a mutation probe (a
-    file corruption, a red-probe, "corrupt then restore"). Every hit
-    is checked: was a byte copy taken BEFORE the corruption, and was
-    the file clean per `git status --porcelain` beforehand? If not,
-    that is a violation of command hygiene point 7 (the byte-copy
-    rollback rule), and a finding — independent of whether harm
-    actually occurred that time. A positive-form control of the search itself
-    is mandatory (command hygiene point 6). An empty window (no
-    rollback-adjacent `git checkout`/`git restore` calls found) is
+    (c) UNSAFE ROLLBACK OF CORRUPTION: the gate's refusals of dirty
+    paths are counted from the window transcripts, and every
+    `rollback not checked` marker (a rollback the gate could not
+    measure, so it passed) is read by hand NEAR a mutation probe (a
+    file corruption, a red-probe, "corrupt then restore"): was a byte
+    copy taken BEFORE the corruption, and was the file clean per
+    `git status --porcelain`? If not, that is a violation of command
+    hygiene point 7 (the byte-copy rollback rule), and a finding —
+    independent of whether harm actually occurred that time. A
+    positive-form control of the search itself is mandatory (command
+    hygiene point 6). An empty window (no refusals, no markers) is
     noted explicitly — "no rollback events".
     (d) THE "TRUNCATED REGISTRY WINDOW -> STATUS CLAIM" LINK: an
     address scan of window transcripts for the combination of reading

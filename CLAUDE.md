@@ -389,21 +389,23 @@ to a lower tier:
 
 ## Command hygiene (permission hygiene)
 
-Every "custom" form of a command is a permission request to the operator. For all sessions and subagents here:
+The deployment runs in auto mode; four behaviours are refused by `tools/hygiene_gate.py`, every other form is allowed.
+Doors: `git -C <dir> <cmd>`, `python -B <abs path>`, a Bash `( cd <dir> && ... )` subshell, a PowerShell
+child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
 
-1. Tests — the canonical form, from the repo root: `python -m pytest tools/ -q`, or a narrower target in the same
-   form; locally a session runs only the narrow target its work needs. WHERE the full sets run is a second duty: on
-   CI, never on this machine (PROJECT.md, package change p. 2).
+1. Tests — the canonical form, from the repo root: `python -m pytest tools/ -q` or a narrower target; locally only
+   the narrow target the work needs; the full sets run on CI, never on this machine (PROJECT.md, package change p. 2);
+   the canonical form of a tool = its correctly invoked form, the invocation that finds a known sample.
 2. The proxy server — not used in this deployment: the contour is subscription and nothing in gateway/ is run.
-3. Don't prefix commands with `cd <dir> && ...` and don't append ` 2>&1` — both break the allowlist match.
-4. File edits — only via Edit/Write tools (not `python - <<EOF`, not `python -c "...replace..."`).
+3. The shell's working directory never moves (`cd`, `Set-Location`): refused.
+4. File edits — only via Edit/Write tools: a redirect, `tee`, `sed -i` or `python -c` writing a git-tree file's literal path is refused.
 
    | pt.4 | when | duty |
    |---|---|---|
-   | a | a NAMED, committed script with its output attached | legitimate: point 4's target is an ad-hoc, unauditable mutation, not a committed, reviewable one |
-   | b | a `-c`/heredoc payload that is a pure calculation/read | outside this point's scope, the gate stays silent; a mutation, or an opaque payload, still gets a WARN |
+   | a | a NAMED, committed script with its output attached | legitimate: committed and reviewable |
+   | b | a `-c`/heredoc payload that is a pure calculation/read | outside this point's scope, the gate stays silent; an unresolvable payload gets one WARN |
 
-5. Log entries — via an Edit/Write tool, not `printf` with `$(date)`.
+5. Log entries — via an Edit/Write tool, other writes to `logs/journal/*.jsonl` or `logs/routing-log.jsonl` are refused.
 6. An environment-negative claim requires verification: empty output or "command not found" from an INCORRECTLY
    invoked tool is a miscall, not proof the object is absent; a negative claim about the environment ("the
    service/key/file is missing") is valid only after a positive check using the canonical form (point 1). Not just
@@ -426,10 +428,8 @@ Every "custom" form of a command is a permission request to the operator. For al
    | b | a measured number appears in a norm/report | it carries its counting carrier (file/command) alongside it, or it isn't written at all; a comparison stays inside ONE metric |
    | c | a character-level claim (a slash, a case, a specific symbol) | valid ONLY by reading the carrier directly (the Read tool); a search tool's output is not a basis for it |
 
-7. Temporary corruption (a mutation probe, a red-probe, "corrupt and restore") is rolled back by a BYTE COPY, never
-   by `git checkout` / `git restore`: (a) take the copy BEFORE corrupting, and restore FROM IT; (b) `git checkout` /
-   `git restore` is legal only when `git status --porcelain -- <file>` was EMPTY before the corruption — check it,
-   don't assume: skipping the check risks wiping another session's uncommitted changes to that file; (c) the
-   rollback's witness is the VERBATIM output of the comparison (a hash or a diff), not the word "restored"; (d) a
-   live artifact (a ledger, a registry, a money table) is not corrupted at ALL when a pure function's verdict proves
-   the same point — corrupt a COPY of the tree instead.
+7. Temporary corruption (a probe) is rolled back by a BYTE COPY, never by `git checkout` /
+   `git restore`: (a) take the copy BEFORE corrupting, and restore FROM IT; (b) the gate refuses these on a dirty
+   path whatever its status was before, so the byte copy is the only road for a probe; (c) the
+   witness is the VERBATIM comparison (a hash or a diff), not "restored"; (d) a live artifact (a ledger, a
+   registry) is not corrupted at ALL when a pure function's verdict proves the point: corrupt a COPY.

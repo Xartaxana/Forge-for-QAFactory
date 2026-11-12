@@ -55,19 +55,28 @@
    После перезагрузки машины ничего само не поднимается: те же три команды.
 3. **`claude` вошёл в аккаунт.** `claude --version` печатает версию; вход делает ТОЛЬКО владелец (`claude`, затем `/login`).
    Проверка без траты: шаг 3 (репетиция) — она же проверка входа. Отказ входа или лимит — выход 5 драйвера, RUNBOOK 9.4.
-4. **Плечо `factory` онбордено.** Есть `C:\QAFactory\mybooks-stand\arm-factory\test-automation-framework\qa-factory\config.json`,
-   в нём `tests_root: "."`, `code_repos` с `../MyBooks`, адаптер задач `file`. На 12.11.2026 этого файла НЕТ — открытый
-   вопрос владельцу (см. `notebook.md`, «Открыто»): онбординг либо привозится со старой машины, либо делается здесь
-   релизной версией. Без него плечо не стартует: драйвер выходит с 3 «no qa-factory/config.json».
-5. **Текст стори один на оба плеча.** Файлы
-   `arm-factory\test-automation-framework\qa-factory\local-tickets\LOCAL-1.md` и
-   `arm-free\test-automation-framework\task\LOCAL-1.md` — `Get-FileHash` обоих совпадает, хэш в тетрадь. Доступ к трекеру
-   одинаковый: либо у обоих есть (тогда в промт `free` идёт строка «tracker is reachable», и способ доступа тот же), либо
-   у обоих нет. На 12.11.2026 трекер прошлых прогонов (корпоративная Jira) с этой машины не проверялся.
-6. **Промт `free` утверждён владельцем** и лежит заполненным в `runs/free-prompt-final.md` (только текст между линиями
-   `=====` из `free-agent-prompt.md`, подстановки заполнены: текст стори дословно, команда сида
-   `powershell -NoProfile -ExecutionPolicy Bypass -File C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\stand\stand.ps1 -Action seed -Arm free`,
-   строка про трекер).
+4. **Плечо `factory` онбордено здесь релизной версией** (слово владельца 12.11.2026: «Да, заново здесь»). Порядок:
+   (а) релизный плагин ставится так, как его ставит новый пользователь (`ai-packages/qa-factory/INSTALL.md`):
+   `claude plugin marketplace add Xartaxana/QAFactory`, `claude plugin install qa-factory@qafactory`;
+   (б) в папке `C:\QAFactory\mybooks-stand\arm-factory\test-automation-framework` — `/qa-factory:qa-doctor`, затем
+   `/qa-factory:qa-onboarding`. Онбординг — разговор с человеком: его ведёт владелец или оператор при ней; ответы по
+   фактам стенда — RUNBOOK §11, последний пункт (`tests_root: "."`, `code_repos: [{name: MyBooks, path: ../MyBooks,
+   default_branch: main}]`, задачи — адаптер `file`, трекера нет, среда — локальный стенд `http://localhost:3000`).
+   Запуск онбординга без человека (`claude -p`) **не проверен на живом прогоне**;
+   (в) время и цена онбординга записываются в тетрадь отдельной строкой: это вклад фабрики, которого у плеча `free` нет,
+   и в таблице он виден отдельно от прогона стори;
+   (г) после онбординга: есть `qa-factory\config.json`; текст стори кладётся фабрике её дверью —
+   `Copy-Item <копия>\task\LOCAL-1.md <копия>\qa-factory\local-tickets\LOCAL-1.md` (папку создать, если её нет).
+   Без `config.json` драйвер выходит с 3 «no qa-factory/config.json».
+5. **Текст стори один на оба плеча, трекера нет ни у кого** (слова владельца 12.11.2026). Канон —
+   `experiments/mybooks/factory-vs-free-agent/story/LOCAL-1.md`; в обеих копиях тестов уже лежат `task\LOCAL-1.md` и
+   `task\XPANBFLFA-44.xml` (выгрузка прежней стори, на неё ссылается текст). `Get-FileHash` трёх файлов `LOCAL-1.md`
+   (два в `task\`, один в `qa-factory\local-tickets\`) совпадает, обоих `XPANBFLFA-44.xml` — тоже; хэши в тетрадь.
+   Выгрузку в этот репозиторий не коммитить (корпоративная Jira, репозиторий публичный).
+6. **Промт `free`** утверждён владельцем 12.11.2026. Заполненный текст кладётся в `runs/free-prompt-final.md` (только
+   текст между линиями `=====` из `free-agent-prompt.md`; подстановки: текст стори дословно из `story/LOCAL-1.md`, команда
+   сида
+   `powershell -NoProfile -ExecutionPolicy Bypass -File C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\stand\stand.ps1 -Action seed -Arm free`).
 7. **Плечо `free` чисто от фабрики.** `Test-Path C:\QAFactory\mybooks-stand\arm-free\test-automation-framework\qa-factory`
    → `False`. Если плагин `qa-factory` установлен на машине (`claude plugin list`), в копии плеча лежит
    `.claude\settings.local.json` с `{"enabledPlugins": {"<id плагина>": false}}`. То же — в копии плеча `factory`, если

@@ -36,25 +36,26 @@ a decision, printed only in `--summary`
 =========================================================================
 Alongside the allowlist/sandbox suspect count, `--summary` also prints
 a MEASUREMENT of how many scanned Bash/PowerShell calls tripped each of
-tools/hygiene_gate.py's own detection classes (2>&1 / cd-Set-Location /
-python -c-heredoc / a journal write bypassing Edit/Write) -- whether or
-not that call ALSO needed a permission prompt. This block is a MEASURE
-ONLY: it does not decide whether any class should move from WARN to
-BLOCK, and it does not modify tools/hygiene_gate.py itself; that
-decision, if ever made, is a separate, later move.
+the signals tools/hygiene_gate.py reads: a directory move (`cd`), a
+literal content-write target, a journal write, a git rollback shape, an
+uncertain python payload -- whether or not that call ALSO needed a
+permission prompt. A signal is a FORM, not a refusal: the gate refuses
+only after measuring (a write target must lie in a git working tree, a
+rollback must meet `git status` changes), so these counts are an upper
+bound of what the gate would refuse. This block is a MEASURE ONLY: it
+decides nothing and does not modify tools/hygiene_gate.py.
 
 CLASSIFICATION SOURCE -- an IMPORT of tools/hygiene_gate.py, not a
-second implementation of the same four classes (fix the class, not the
+second implementation of the same classes (fix the class, not the
 instance): `classify_hygiene()` below calls hygiene_gate's OWN signal
-computation (`hygiene_gate._collect_signals`, the exact function
-`_classify` itself uses to assemble a real decision) -- the same
-regexes, the same scrubs (git-statement masking, -m/--message
-stripping, quote-masking before a `>`/` 2>&1` check). ACCEPTED
-LIMITATION: this measurement inherits whatever hygiene_gate itself is
-blind to -- if the gate doesn't see some write form/pattern, this audit
-doesn't either. That is the deliberate price of a single point of
-truth (one classification, not two that can drift apart), not an
-oversight of this addition.
+walk (`hygiene_gate._collect_signals`, the pure function the gate's
+`decide()` also starts from) -- the same masks, tokenizer and class
+extractors. The Bash capability row is used (the audit replays the
+command text only). ACCEPTED LIMITATION: this measurement inherits
+whatever hygiene_gate itself is blind to -- if the gate doesn't see some
+write form/pattern, this audit doesn't either. That is the deliberate
+price of a single point of truth (one classification, not two that can
+drift apart), not an oversight of this addition.
 
 The class breakdown is printed keyed by ALL SCANNED calls (comparable
 to a measurement baseline that counted hits independently of the
@@ -172,10 +173,11 @@ CLAUDE_PROJECTS = _resolve_claude_projects(REPO)
 # dispatcher decision, not a builder's own phrasing choice), so this
 # report's lines line up with calibration wording without translation.
 HYGIENE_CLASS_LABELS = [
-    "2>&1",
-    "cd/Set-Location",
-    "python -c/heredoc",
-    "journal write bypassing Edit/Write",
+    "cd",
+    "content write (literal target)",
+    "journal write",
+    "rollback shape",
+    "payload uncertain",
 ]
 
 # --- commands the harness auto-allows with no allowlist entry (a practical, trimmed list) ---
@@ -457,9 +459,9 @@ def classify_hygiene(command) -> list[str]:
     source: an IMPORT of tools/hygiene_gate.py -- a second implementation
     of the same regexes/scrubs here is forbidden (see the module
     docstring's "CLASSIFICATION SOURCE"). Calls
-    `hygiene_gate._collect_signals(command)` -- the exact function
-    `_classify` itself uses to assemble a real decision -- a single
-    source of truth, not a parallel one that can drift from the gate.
+    `hygiene_gate._collect_signals(command)` -- the pure signal walk
+    `decide()` starts from -- a single source of truth, not a parallel
+    one that can drift from the gate.
 
     `command` not a string / None / an empty string -> [] with no
     exception -- the class is simply not counted, the script does not
@@ -468,14 +470,16 @@ def classify_hygiene(command) -> list[str]:
         return []
     signals = hygiene_gate._collect_signals(command)
     classes = []
-    if signals["redirect"]:
-        classes.append("2>&1")
     if signals["cd"]:
-        classes.append("cd/Set-Location")
-    if signals["pyc"]:
-        classes.append("python -c/heredoc")
+        classes.append("cd")
+    if signals["write_targets"]:
+        classes.append("content write (literal target)")
     if signals["journal"]:
-        classes.append("journal write bypassing Edit/Write")
+        classes.append("journal write")
+    if signals["rollback_forms"]:
+        classes.append("rollback shape")
+    if signals["payload_uncertain"]:
+        classes.append("payload uncertain")
     return classes
 
 

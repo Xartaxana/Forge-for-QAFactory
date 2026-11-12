@@ -1,0 +1,1 @@
+There is no tracker ticket for this task and the tracker is not reachable from this stand. The written requirements are the task text, the file it names (task/XPANBFLFA-44.xml) and the repositories. Stand ok.

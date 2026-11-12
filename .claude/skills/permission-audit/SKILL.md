@@ -56,17 +56,17 @@ scanning, plus a MASKED-by-broad-allowlist detector).
    |---|---|---|
    | `python - <<EOF`, `python -c "...replace/open(...,'w')..."` on a tracked file | a file edit bypassing Edit/Write (hygiene point 4) | redo it through Edit/Write; remind the worker of the rule |
    | `printf`/`echo >>`/`cat <<EOF` into `logs/routing-log.jsonl` | a hand-built journal line instead of the Edit/Write tool (hygiene point 5); risk of missing required fields | write strictly via the Edit/Write tool; check the fields of lines already written |
-   | ad-hoc `grep`/`cat`/`python -c` for reading/searching | Bash instead of a dedicated tool | Read/Grep/Glob instead of Bash |
-   | a `cd X &&` prefix or a trailing ` 2>&1` on many calls | the form breaks the allowlist match (hygiene point 3) | don't prefix cwd, don't carry `2>&1` |
-   | a differently-shaped `python -m pytest ...` on every run | the canonical form isn't being used | the canonical form from the repo root (point 1); a narrow target only when the task justifies it |
-   | a manual poll loop (`while`/`for ... curl/sleep`) | a custom wait instead of the ready-made one | a named script under `tools/` if this repeats |
    | `git push` / installing packages / an edit outside the `owns` manifest, unasked | action outside the mandate — the prompt worked as a safety net | do NOT allow; investigate (an out-of-manifest write, the dispatch-context-manifest rule) |
+
+   No longer rows of this table: reads via `grep`/`cat`/`python -c`, `2>&1` and the pytest form (allowed); `cd X &&`
+   (the gate refuses it itself, with its door); poll loops (a cost finding, CLAUDE.md rule 7, not a hygiene one).
 
    Everything in the right-hand column is a finding of its own, listed
    separately — that's what "done wrong" looks like. Only what's LEFT goes
    into the silencer in step 4.
 
-3. **The MASKED-BY-BROAD-ALLOWLIST block is not about noise, it's a
+3. Steps 3-5 apply to a deployment that runs with permission prompts; in auto mode they are not a hygiene duty.
+   **The MASKED-BY-BROAD-ALLOWLIST block is not about noise, it's a
    blind spot.** Rules shaped like `Bash(python *)`, `Bash(python -c '
    *)`, `Bash(python -m *)`, `Bash(bash -c *)` (including with an env
    prefix, `VAR=1 ...`) let through ARBITRARY execution: anything from

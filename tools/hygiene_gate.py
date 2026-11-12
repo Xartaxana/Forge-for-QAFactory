@@ -1,264 +1,50 @@
-"""hygiene_gate.py -- PreToolUse hook for command hygiene, for the
-Bash|PowerShell tools. Mechanizes CLAUDE.md's "Command hygiene" points
-3-5: a `cd`/`Set-Location` prefix into this repo's own root, a
-` 2>&1` redirect, a `python -c`/`python - <<` edit bypassing
-Edit/Write, and a journal write bypassing Edit/Write -- catches them
-BEFORE the command runs.
+"""hygiene_gate.py -- PreToolUse hook for command hygiene on the Bash and PowerShell tools: it refuses exactly four behaviours (moving the shell's working directory, writing the content of a git working-tree file by a literal target past Edit/Write, writing the journal, discarding dirty working-tree changes) and lets every other form pass silently.
 
-DELIVERY CHANNEL (verified empirically against the installed harness
-binary, not assumed from memory): the hook's response is delivered via
-`hookSpecificOutput` on stdout, exit 0:
+DELIVERY CHANNEL (verified against the installed harness): the hook answers on stdout, exit 0, as
+`{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "...", "permissionDecision": "deny",
+"permissionDecisionReason": "..."}}`. `permissionDecision` appears ONLY on a refusal (never "allow": that would
+auto-approve a command the operator's own prompt should see); `additionalContext` always carries the refusal reasons too,
+so a refusal degrades to a visible text if the deny channel were inert.
 
-  {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                           "additionalContext": "<list of matched classes>",
-                           "permissionDecision": "deny",       # only on a BLOCK
-                           "permissionDecisionReason": "..."}}  # only on a BLOCK
+THE FOUR REFUSALS (spec docs/tasks/specs/fg-context-and-hygiene.md section 4; each text names what is wrong, what is
+expected and a door the refused party can use -- FR-1, FR-2, P15):
+  cd        the session shell's working directory is never moved: `cd`, `chdir`, `pushd`, `popd`, `Set-Location`, `sl`,
+            `Push-Location`, `Pop-Location` at a statement start, `eval "cd x"`, `[IO.Directory]::SetCurrentDirectory`,
+            `[Environment]::CurrentDirectory =`. Legal: a bare `cd <this checkout's root>` (the way back), a verb inside a
+            subshell when the tool's capability row says the subshell scopes the directory (Bash), a verb inside a quoted
+            child-shell argument.
+  mutation  a file of a git working tree never gets its CONTENT written by a redirect, tee / Tee-Object / Out-File /
+            Set-Content / Add-Content, a .NET file write, an in-place editor (sed -i, perl -i, awk -i inplace, ruby -i) or
+            an interpreter payload, when the target is a LITERAL path. File-level rm / mv / cp / mkdir pass (in every
+            syntax). Null sinks, non-literal targets and targets outside every working tree pass.
+  journal   a write (the same M1-M3 forms) whose literal target is a journal file (`logs/journal/*.jsonl` or
+            `logs/routing-log.jsonl`, under any directory prefix, either slash); refused wherever the file lies. Any other
+            `.jsonl` is judged only by the general tree check. Reading a journal is never refused.
+  rollback  `git checkout/restore/reset --hard/clean -f/switch --discard-changes/stash [push]` whose scope has changes
+            `git status` shows, measured in the repository the command ADDRESSES (`git -C` composed left to right).
 
-`permissionDecision` is OMITTED on WARN-only results: setting it to
-"allow" would auto-approve the very command being flagged, silencing
-the operator's own permission prompt. `additionalContext` ALWAYS
-duplicates the first BLOCK reason too (belt-and-suspenders): if
-`permissionDecision: "deny"` turns out to be inert on a given harness
-build, a BLOCK class degrades back into a visible WARN, not silence.
+NAMED RESIDUALS (a data row each in PAYLOAD_INTERPRETERS, `payload_classifier: None`): the payload of node, ruby, perl,
+pwsh/powershell, bash/sh/zsh/dash/ksh and cmd is not read; only python is classified.
 
-DETECTION CLASSES:
+INVARIANT ABOVE ALL: a read or a calculation is never refused (`>` inside `(( ))`, `$(( ))`, `[[ ]]` is not a redirect),
+and no refusal is issued on a target the gate could not resolve. A refusal needs a certain form AND a resolved literal target (or a measured dirty status); everything uncertain
+passes. The one exception to silence is a single short WARN for a python payload the gate cannot resolve (a non-literal
+path or mode, an unresolved `.write`, exec/eval/subprocess, a parse failure, a payload over PYC_PAYLOAD_LIMIT).
 
- (a) cd/Set-Location prefix -- see "Determinism principle" below: BLOCK
-     only when the target is unambiguously THIS repository's own root;
-     any other target -- WARN (MSG_CD_NON_ROOT_WARN), never silence.
- (b) a ` 2>&1` redirect -- BLOCK only when unambiguous (no heredoc
-     marker on the quote-masked text); WARN when a heredoc makes the
-     body's contents unknowable; silent when the ` 2>&1` itself sits
-     inside quotes (argument data, not a real redirect).
- (c) `python -c` or `python - <<` (literally "python", not "python3" --
-     command hygiene names this exact form) -- \\b-bounded so
-     "mypython -c" is not a substring match. WARN by default; BLOCK
-     only when BOTH `PYC_DENY_ENABLED` is on (off by default -- see its
-     own docstring below) AND the match is CERTAIN (unquoted, not
-     inside a foreign heredoc body -- `_is_python_dash_c_certain`).
-     Independently of BLOCK/WARN, the WARN TEXT is narrowed by the
-     PAYLOAD'S CONTENT (`_classify_pyc_payload`, see its docstring): a
-     certain payload proven to do nothing but read/compute stays
-     completely silent; one that is opaque to static analysis
-     (exec/eval/subprocess/dynamic dispatch/an unresolved mode) gets a
-     dedicated `MSG_PYTHON_DASH_C_OPAQUE` text; a payload the gate
-     cannot classify at all (quoted, embedded in a foreign heredoc/
-     wrapper, or with no certain match) falls back to the OLD
-     unconditional `MSG_PYTHON_DASH_C` text.
- (d) a journal write bypassing Edit/Write -- always BLOCK, unaffected
-     by the determinism principle below (see "Class (d) is the
-     exception" further down for why).
+WHERE EACH SIGNAL IS COMPUTED: `_collect_signals(command)` is PURE (no subprocess, no filesystem, no clock) because
+permission_audit.classify_hygiene replays every historical command through it; it returns FORMS only (cd hits, literal
+write targets, the journal flag, the rollback shape, the payload classes). Everything that needs the filesystem or git
+(the working tree of a target, `git status`, statting a checkout argument) runs only in `decide()`.
 
-All classes are case-insensitive. Every check is a substring test
-(`in`, O(n)) or a simple regex with no nested quantifiers -- no
-`.*...*` chains that could cause catastrophic backtracking -- linear
-in the length of the command.
+Fail-open: a non-Bash/PowerShell tool, empty or malformed stdin, a non-dict payload or a missing command pass silently;
+an exception while classifying a real command passes too, but VISIBLY (MSG_FAIL_OPEN_TEMPLATE); a rollback that cannot be
+measured passes with the marker `Command hygiene: rollback not checked: <reason>`. Every check is linear in the command:
+masks are plain regex substitutions or one pass over the lines, a statement is split once, a payload over
+PYC_PAYLOAD_LIMIT is never parsed, and past MAX_HEREDOC_OPENERS heredoc-bearing statements yield no write targets.
 
-Fail-open: a non-Bash/PowerShell tool, empty/malformed stdin, a
-non-dict payload, or a missing/non-string/empty command all fall
-through silently, with no stdout side effect. ANY exception raised
-while classifying a real command also fails open, but VISIBLY -- see
-"Fail-open with a visible marker" near decide() -- silent fail-open on
-a genuine classification bug would be indistinguishable from "checked,
-found nothing".
-
---- Determinism principle: "a BLOCK requires certainty; an ambiguous
-input degrades to a WARN." -----------------------------------------
-This gate does not try to tell code from data by parsing nested
-command structure (an earlier design attempted exactly that --
-masking nested `python -c`/heredoc payload bodies -- and was dropped:
-the parsing complexity did not pay for itself against the false
-positives it prevented, and introduced its own bugs). Instead, TWO
-cheap, linear signals decide when a match is certain enough to BLOCK
-rather than WARN:
-
- - QUOTES: `_mask_quoted_segments` blanks out the contents of single/
-   double-quoted segments before a determinism-sensitive check runs.
-   Quoted text is DATA by construction, regardless of which
-   interpreter (cmd, sh, powershell, python, anything else) consumes
-   it -- a hard-coded list of "risky interpreters" cannot keep up with
-   every quoting form a new tool introduces, but quoting itself is a
-   universal signal.
- - HEREDOC (`<<`): a heredoc's BODY can contain arbitrary text,
-   including an accidental match of the pattern being searched for
-   (a stray "2>&1" in prose). A `<<` marker on the quote-masked text
-   downgrades a redirect match from BLOCK-certain to WARN-only
-   ambiguous, rather than trying to parse where the heredoc actually
-   ends.
-
-Class (a) (cd/Set-Location) uses a THIRD kind of determinism instead of
-quotes/heredoc: POSITION. `CD_PREFIX_START_RE` anchors on the absolute
-start of the command (`.match()`, not `.search()`) -- a cd/Set-Location
-verb that is genuinely the FIRST thing in the command is always a real
-command, never data, regardless of what a payload elsewhere in the
-string might contain. What determines BLOCK vs WARN for class (a) is
-therefore not ambiguity at all, but WHERE the prefix targets (see
-"Class (a): repo-root only" below) -- known limitation: a cd-to-root
-that is NOT the first statement (e.g. `pwd; cd <root> && ...`) is not
-detected at all, neither BLOCK nor WARN, since the position anchor only
-looks at the absolute start of the command.
-
---- Class (a): repo-root only -----------------------------------------
-An EARLIER, narrower design blocked `cd`/`Set-Location` whenever the
-command carried a continuation (`&&`/`;`) -- ANY target. That produced
-false positives on legitimate cd's into a different tree entirely (a
-sibling deployment, an exam/test kit, a scratch directory, a sanctioned
-subdirectory such as gateway/ for the proxy server, command hygiene
-point 2) -- roughly half of all cd-class hits in a measured corpus, all
-sharing the same excuse: their working directory IS the point, not a
-hygiene slip. The class is narrowed to what command hygiene point 3
-actually means -- "invoke from the repo root" -- by checking the
-TARGET: BLOCK only when the cd/Set-Location prefix targets THIS
-repository's own root (by basename, case-insensitive, computed
-dynamically from this file's own location -- `Path(__file__).resolve()
-.parents[1].name` -- so it survives a rename/relocation of the tree
-without a constant edit); every OTHER target is a WARN
-(MSG_CD_NON_ROOT_WARN), never silent.
-
-A newline is treated as a THIRD, equal continuation separator alongside
-`&&`/`;` (`cd "<root>"\ngit status` was previously invisible to either
-class -- no `&&`/`;` anywhere) -- but a BARE `cd <root>` with NO
-continuation at all (or with only a single trailing newline and nothing
-real after it) stays completely legal: it is the only way back to the
-repo root once a session's working directory has already legitimately
-shifted via a WARN-class cd (e.g. `cd gateway` to run the proxy) --
-forbidding the bare return would strand the session outside the root
-with no way back, defeating the very point of "work from the root".
-
-Target parsing handles an optional `-Path`/`-LiteralPath` PowerShell
-flag (skipped before the target is read) and a quoted target containing
-spaces (matched up to its PAIRED closing quote, not the first space
-inside it) -- both via `_extract_cd_prefix_target`, the single shared
-entry point for the repo-root check.
-
---- Class (b): ` 2>&1` --------------------------------------------------
-`_collect_redirect_signal` computes `present`/`certain` against the
-QUOTE-MASKED command (`_mask_quoted_segments`):
- - ` 2>&1` absent on the masked text -> the class does not fire at all
-   (a quoted ` 2>&1` is argument data -- silence, not even a WARN);
- - ` 2>&1` present AND `<<` also present on the SAME masked text ->
-   WARN (heredoc ambiguity -- the body could contain anything,
-   including a coincidental "2>&1" as prose; note `<<` itself sits
-   OUTSIDE any quotes even when its delimiter is quoted, e.g. `<<'PY'`,
-   so it remains visible on the masked text);
- - ` 2>&1` present, no `<<` -> BLOCK.
-This REPLACES an earlier git-commit-message-specific scrub for this
-class entirely: quoting already handles a commit message's `-m` value
-(always quoted by shell syntax), and a heredoc-form commit message
-(`git commit -F - <<EOF ... EOF`) is now treated uniformly with any
-other heredoc (ambiguous -> WARN, not silence).
-
---- Class (c): python -c / python - <<heredoc -------------------------
-The RAW-command signal (`_is_python_dash_c`, `\\b`-bounded
-`python\\s+-c` or `python\\s+-\\s*<<`) is unchanged in shape from the
-original design and always fires the same as before. On top of it,
-TWO independent narrowings decide BLOCK vs WARN and the WARN TEXT:
-
- - CERTAINTY (`_is_python_dash_c_certain`): the same determinism
-   principle as classes (a)/(b) -- quotes and a FOREIGN heredoc body
-   make the "python -c"/"python - <<" token ambiguous (data, not a
-   real invocation: `git commit -m "run python -c to test"`, or a
-   `bash <<EOF ... python -c ... EOF` wrapper whose OWN heredoc body
-   is not this command's own payload). `_mask_heredoc_bodies` blanks
-   every heredoc BODY in the command (any opener, not just a
-   git-commit one -- a broader mask than `_strip_commit_messages`
-   below), THEN `_mask_quoted_segments` blanks quoted segments; the
-   token must survive BOTH masks to count as certain. `PYC_DENY_ENABLED`
-   (off by default, see its own docstring) gates whether "certain"
-   promotes class (c) to BLOCK at all -- with the switch off, class (c)
-   never blocks, matching the original design exactly.
- - PAYLOAD CONTENT (`_classify_pyc_payload`, only evaluated when
-   certain -- see its own docstring for the full "M"/"P"/"O"/"U"
-   contract): a certain payload that AST-parses clean with no
-   mutating or opaque call is silenced entirely (no WARN at all); one
-   that is opaque to static analysis gets `MSG_PYTHON_DASH_C_OPAQUE`
-   instead of the old text; a mutating or unclassifiable ("U", i.e.
-   NOT certain, or certain but parsed with nothing conclusive) payload
-   keeps the OLD unconditional `MSG_PYTHON_DASH_C` text -- so an
-   uncertain match (a wrapper, a proze mention) is exactly as before
-   this narrowing: always WARN, never silent.
-
-A REPEATED-OPENER GUARD (`MAX_HEREDOC_OPENERS`, see its own docstring)
-protects BOTH heredoc-body-masking paths in this file (this one, and
-the pre-existing git-commit-message heredoc scrub below) from the same
-catastrophic-backtracking shape: a command carrying more `<<` tokens
-than the cap takes the cheap, CONSERVATIVE branch (certainty -> False,
-journal-bypass -> False) instead of ever reaching the expensive regex.
-
---- Class (d) is the exception: the determinism principle does NOT
-apply to it ------------------------------------------------------
-The journal-bypass class stays a BLOCK unconditionally, without the
-quote/heredoc downgrade classes (a)/(b) get. Concretely:
-`python -c "open('logs/routing-log.jsonl','a').write(...)"` BLOCKS even
-though it carries the same `-c` ambiguity signal class (c) warns on --
-degrading class (d) the same way would OPEN a real bypass: that exact
-command is BOTH ambiguous-by-form (like class (c)) AND a real journal
-write at the same time, and if it degraded to a WARN, the write would
-slip past append-only enforcement unnoticed. The asymmetry is
-deliberate: classes (a)/(b) trade a false BLOCK for continued work (the
-class exists to catch a hygiene slip, not to gate correctness); class
-(d) trades a false WARN for a SILENT loss of the journal's append-only
-guarantee -- the two classes have different error costs, and the
-gate's determinism rule reflects that difference rather than applying
-one recipe everywhere.
-
-Target widened beyond the literal "routing-log": ANY `logs/*.jsonl`
-path also counts (`JOURNAL_JSONL_UNDER_LOGS_RE`) -- other log/journal
-files under the same directory, not just the routing journal by name.
-Write forms recognized: a redirect (`>`/`>>`, on quote-masked text --
-see `_mask_quoted_segments`, applied only to the redirect check, not to
-the other write indicators), printf/echo, `sed -i` (in-place,
-space-bounded so it doesn't match `-i` inside `--ignore-*`), `tee`
-(this also matches PowerShell's `Tee-Object` for free -- `\\btee\\b`'s
-word boundaries land correctly on both sides of "Tee" in
-"Tee-Object"), Python `open(path, 'w'/'a'/'x')`, and the PowerShell
-write cmdlets `Add-Content`/`Set-Content`/`Out-File` (PowerShell's
-`>`/`>>` redirect is internally the same Out-File/-Append alias, so it
-is already covered by the existing `>` check with no separate
-indicator needed).
-
-STATEMENT SCOPING: the command is split into shell statements on
-`;`/`&`/`|`/newline (`_statements`, operating on the already
-git-scrubbed text) -- class (d) triggers only when the SAME statement
-carries both a journal target and a write form (`cat <journal>; echo
-done` does not trigger: echo there does not write to the journal, it
-lands in a different statement).
-
-GIT-COMMIT-MESSAGE MASKING (`_strip_commit_messages`/
-`_mask_git_statements`, class (d) only): a `-m`/`--message` argument or
-a `-F - <<DELIM ... DELIM` heredoc body of `git commit`, and any
-`git [-C <dir>] add/commit/push/diff/log/show/status ...` statement, is
-masked before class (d) is evaluated -- prose in a commit message (a
-journal path mentioned in text, an ASCII arrow containing `>`) must not
-trigger the block on its own, and git itself is not a journal writer.
-Known residual gap, accepted, not preemptively closed: a git
-show/diff statement is masked WHOLLY, including a REAL `>` inside it --
-an actual bypass via git plumbing (`git show HEAD:<path> > <path>`)
-would also go undetected by this same masking.
-
-Fail-open with a visible marker: any exception raised while
-classifying a real (non-empty, correctly-typed) command is caught at
-the decide() boundary and turned into exit 0 + an additionalContext
-carrying `MSG_FAIL_OPEN_TEMPLATE` -- never a silent pass and never
-`permissionDecision`. Fail-CLOSED here would mean rejecting every
-Bash/PowerShell call of every session, including the ones fixing the
-gate itself -- a stuck deployment with no way out; a silent fail-open
-was rejected too, since a broken classifier would then be
-indistinguishable from a genuinely clean command.
-
---- Reading stdin on a deadline ------------------------------------------
-main() reads its harness-supplied JSON payload through a bounded
-background-thread read (see the stdin-deadline helper near the bottom
-of this file, the same shape as tools/session_context.py's own
-stdin-deadline helper -- a LOCAL copy per hook, not a shared import, by
-design). A harness that opens the pipe but never writes/closes it would
-otherwise hang the PreToolUse check, and by extension the tool call
-itself, forever; past the deadline the read degrades to "no payload"
-(silent pass, exit 0) instead of blocking. `OSLLM_STDIN_TIMEOUT`
-overrides the default; a background reader thread left blocked deep in
-a platform read syscall can crash normal interpreter shutdown, so the
-`if __name__ == "__main__"` guard escalates to `os._exit()` on a
-timeout instead of falling through to the ordinary shutdown path.
+Reading stdin on a deadline: main() reads the harness JSON through a bounded background-thread read (a local copy per
+hook, like tools/session_context.py's); past the deadline the read degrades to "no payload" (silent pass, exit 0).
+`OSLLM_STDIN_TIMEOUT` overrides the default; the `__main__` guard escalates to `os._exit()` after a timeout.
 """
 
 import ast
@@ -268,498 +54,877 @@ import re
 import sys
 import threading
 from pathlib import Path
+from typing import NamedTuple
 
-CD_PREFIX_START_RE = re.compile(r"^\s*(?:cd|Set-Location)\s+\S", re.IGNORECASE)
-PY_DASH_C_RE = re.compile(r"\bpython\s+-c\b", re.IGNORECASE)
-PY_HEREDOC_RE = re.compile(r"\bpython\s+-\s*<<", re.IGNORECASE)
-PRINTF_ECHO_RE = re.compile(r"\b(printf|echo)\b", re.IGNORECASE)
+try:
+    import gitcmd
+except Exception:  # a copy of this file alone in a folder (permission_audit's CLI) carries no gitcmd
+    gitcmd = None
 
-# Additional shell-WRITE indicators for class (d): sed -i (in-place),
-# tee (duplicates stdout into a file argument -- also matches
-# PowerShell's Tee-Object, see the module docstring), python
-# open(path,'a'/'w'/'x') -- all linear (simple \b-regexes / one
-# negative char class with no nested quantifiers).
-SED_INPLACE_RE = re.compile(r"\bsed\b[^\n]*\s-i(?:\s|$)", re.IGNORECASE)
-TEE_RE = re.compile(r"\btee\b", re.IGNORECASE)
-OPEN_WRITE_MODE_RE = re.compile(r"open\s*\([^)]*,\s*[\"'][wax]", re.IGNORECASE)
+# --- texts (P15: what is wrong, what is expected, the door; each <= 350 characters) --------------------------
+WARN_PREFIX = "Command hygiene (WARN, does not block): "
+DENY_PREFIX = "Command hygiene: "
 
-# PowerShell write cmdlets for class (d) -- see the module docstring,
-# "Class (d)": Tee-Object is already covered by TEE_RE above (not
-# duplicated here); PowerShell's `>`/`>>` redirect is already covered
-# by the existing `>` check in _has_write_form (internally the same
-# Out-File/-Append alias as bash's redirect, verified against
-# about_Redirection).
-_PS_WRITE_CMDLET_RE = re.compile(r"\b(?:Add-Content|Set-Content|Out-File)\b", re.IGNORECASE)
-
-# Single/double quotes -- their contents are masked before the `>`
-# redirect check (class (d)) and before the ` 2>&1` check (class (b)) --
-# see _mask_quoted_segments. The double-quote branch is the same
-# escape-aware char class COMMIT_MESSAGE_ARG_RE below uses for the -m
-# value (linear, no nested quantifiers); the single-quote branch is a
-# plain `[^']*` (bash has no escaping inside '...').
-QUOTED_SEGMENT_RE = re.compile(
-    r"'[^']*'" r'|"(?:[^"\\]|\\.)*"',
-    re.DOTALL,
+MSG_CD_BASH = (
+    "the shell's working directory must not move: the hooks find tools/ from it. "
+    "Use git -C <dir>, python -B <absolute path>, a tool's --repo/--root, or a ( cd <dir> && ... ) subshell."
 )
-
-# Class (d)'s target: the literal substring "routing-log" OR any
-# `logs/*.jsonl` path -- covers sibling log/journal files under the
-# same directory, not just routing-log.jsonl by name. Linear (negative
-# char class, no nested quantifiers).
-JOURNAL_JSONL_UNDER_LOGS_RE = re.compile(r"logs/[\w./-]*\.jsonl", re.IGNORECASE)
-
-# --- strip -m/--message of git commit -----------------------------------
-# All supported forms of the -m/--message value; DOTALL is needed only
-# by the branches with `.` (the here-string forms) -- the plain-quote
-# branches already match newlines via their negated char class. 0+
-# repetitions of a `-C <dir>` global option are allowed between "git"
-# and "commit" -- a `git -C <dir> commit ...` compound would otherwise
-# break the match and produce a false class-(d) result on an innocent
-# git compound.
-GIT_COMMIT_RE = re.compile(r"\bgit\b(?:\s+-C\s+\S+)*\s+commit\b", re.IGNORECASE)
-
-COMMIT_MESSAGE_ARG_RE = re.compile(
-    r"-m\s+\"(?:[^\"\\]|\\.)*\""
-    r"|-m\s+'[^']*'"
-    r"|--message=\"(?:[^\"\\]|\\.)*\""
-    r"|--message='[^']*'"
-    r"|-m\s+@'.*?'@"
-    r"|-m\s+@\".*?\"@",
-    re.DOTALL,
+MSG_CD_POWERSHELL = (
+    "the shell's working directory must not move: the hooks find tools/ from it. "
+    "Use git -C <dir>, python -B <absolute path>, a tool's --repo/--root, or a child shell: "
+    "powershell -NoProfile -Command \"Set-Location <dir>; <cmd>\"."
 )
+MSG_MUTATION = (
+    "{target} is a file of a git working tree and this command writes its content past the Edit/Write hooks. "
+    "Use Edit/Write (or a named committed script). Scratch output: write it outside the tree, or put the code in "
+    "a script under the scratchpad (python -B <path>). A reading role: Edit/Write your handoff file."
+)
+MSG_JOURNAL_BLOCK = (
+    "the journal is written only through Edit/Write at the file's tail (journal_echo checks the line). "
+    "Reading it with grep, cat or tail is fine."
+)
+MSG_ROLLBACK = (
+    "{n} path(s) under {dir} have uncommitted changes that may be another session's, and this command would discard "
+    "them. Your own edit: undo it with Edit/Write. A byte copy you took: restore from it. Changes that are not yours: "
+    "leave them and tell the Lead."
+)
+MSG_WARN_PAYLOAD = (
+    "this python payload may write a file the gate cannot resolve; if it writes inside a repository, use Edit/Write."
+)
+MSG_ROLLBACK_NOT_CHECKED = "rollback not checked: {reason}"
+MSG_FAIL_OPEN_TEMPLATE = "hygiene_gate: internal classifier error ({exc_type}), hygiene was NOT checked"
 
-# --- heredoc-body scrub for `git commit -F - <<DELIM ... DELIM` ---------
-# Group 1 is the opener up through `<<DELIM` (kept verbatim in the
-# replacement); group 2/3 are the optional quote char and the
-# delimiter name; group 4 is anything AFTER `<<DELIM` on the SAME line
-# (also kept verbatim -- a chained `&& echo ... >> journal` on that
-# line stays visible); group 5 is the body plus the closing delimiter
-# line (this is what gets cut, for class (d) only -- see
-# _strip_commit_messages).
+# --- data rows (AR-1: variety is data, never a list in logic) ----------------------------------------------
+# Read by capability, never by the tool's name in logic; an unknown tool takes the PowerShell row (the conservative
+# capability: no subshell scopes the directory).
+# Keys: `subshell_scopes_cwd` (a `( )` group keeps its own directory), `dq_escape` (the escape character inside a
+# double-quoted string: a backslash is an escape in Bash and a path character in PowerShell, where the backtick escapes),
+# `arith_regions` (`(( ))`, `$(( ))`, `[[ ]]` hold comparisons, never redirects), `assign_prefix` (`$x = cmd` starts a
+# statement). A doubled quote inside a PowerShell string reads as two adjacent strings: same mask, same statements.
+SHELL_CAPABILITIES = {
+    "Bash": {"subshell_scopes_cwd": True, "cd_door": MSG_CD_BASH, "dq_escape": "\\", "arith_regions": True,
+             "assign_prefix": False},
+    "PowerShell": {"subshell_scopes_cwd": False, "cd_door": MSG_CD_POWERSHELL, "dq_escape": "`",
+                   "arith_regions": False, "assign_prefix": True},
+}
+SHOWN_TARGET_CHARS = 40     # the target / directory a refusal shows is clipped to its tail, so a text stays <= 350
+# A root-relative path starting with a row is not "in a working tree" for the content-write refusal (F-C3).
+HYGIENE_IGNORE_ROWS = ("ci-out/",)
+# Statement starts: after these words the next word is a command again (t-098 F2).
+_START_WORD_RE = re.compile(r"\s*(?:then|do|else|elif|builtin|command|time|!)(?=\s|$)", re.IGNORECASE)
+_CD_VERBS = frozenset({"cd", "chdir", "pushd", "popd", "set-location", "sl", "push-location", "pop-location"})
+_CD_RETURN_VERBS = frozenset({"cd", "chdir", "set-location", "sl"})
+_NULL_SINKS = frozenset({"/dev/null", "nul", "nul:", "$null"})
+_PS_ASSIGN_RE = re.compile(r"\s*\$[A-Za-z_][A-Za-z0-9_:]*\s*=(?!=)\s*")
+# Commands that write the file(s) they are given -> which operands are targets (read by _path_targets): `tee` writes
+# EVERY operand, the cmdlets and their aliases take one path.
+_TEE_LIKE = {"tee": "all", "tee-object": "first", "out-file": "first", "set-content": "first", "add-content": "first",
+             "sc": "first", "ac": "first"}
+_PS_PATH_PARAMS = frozenset({"-filepath", "-path", "-literalpath", "-pspath"})
+_PS_VALUE_PARAMS = frozenset({"-value", "-encoding", "-width", "-stream", "-filter", "-include", "-exclude",
+                              "-inputobject", "-variable"})
+# Interpreters with an inline payload; `payload_classifier: none` = no classifier exists for it (P31: the difference is
+# data, not a branch by name). Only "python" is classified.
+_PYTHON_NAME = r"python[0-9.]*|py"      # one spelling, read by the row below and by the advisory _PY_HEAD
+PAYLOAD_INTERPRETERS = (
+    {"name": re.compile(rf"^(?:{_PYTHON_NAME})$"), "payload_classifier": "python", "payload_flags": ("-c",)},
+    {"name": re.compile(r"^(?:bash|sh|zsh|dash|ksh)$"), "payload_classifier": None, "payload_flags": ("-c",)},
+    {"name": re.compile(r"^cmd$"), "payload_classifier": None, "payload_flags": ("/c", "/k")},
+    {"name": re.compile(r"^(?:node|nodejs)$"), "payload_classifier": None, "payload_flags": ("-e", "--eval", "-p")},
+    {"name": re.compile(r"^(?:ruby|perl)$"), "payload_classifier": None, "payload_flags": ("-e",)},
+    {"name": re.compile(r"^(?:pwsh|powershell)$"), "payload_classifier": None, "payload_flags": ("-c", "-command")},
+)
+_PATH_CTORS = frozenset({"Path", "pathlib.Path"})
+
+# A cap on repeated heredoc openers: past it, heredoc-bearing statements yield no write targets (a pathological input
+# never widens a refusal).
+MAX_HEREDOC_OPENERS = 64
+# One payload over this many characters is never parsed: it is UNCERTAIN (a WARN, never a refusal).
+PYC_PAYLOAD_LIMIT = 20_000
+_MAX_PAYLOADS_PER_COMMAND = 16
+
+_REPO_ROOT_NAME = Path(__file__).resolve().parents[1].name
+
+
+# --- masks (own: F-C4) -----------------------------------------------------------------------------------
+_QUOTE_CHAR_RE = re.compile(r"['\"]")
+_BASH_ESC = SHELL_CAPABILITIES["Bash"]["dq_escape"]
+
+
+class _Rules(NamedTuple):
+    """The quote rules of one shell, built from its `dq_escape` capability (the one place the dialects differ)."""
+    dq_close: object     # matches the rest of a double-quoted string up to and including its closing quote
+    dq: object           # a whole double-quoted string, the body in group 1
+    unescape: object
+    dynamic_dq: object
+
+
+def _build_rules(esc: str) -> _Rules:
+    e = re.escape(esc)
+    # unrolled loops (`a*(?:e.a*)*`): linear on success and on failure, unlike `(?:a|e.)*`
+    body = rf'[^"{e}]*(?:{e}.[^"{e}]*)*'
+    dyn = "$" if esc == "`" else "$`"
+    return _Rules(re.compile(body + '"', re.DOTALL), re.compile('"(' + body + ')"', re.DOTALL),
+                  re.compile(rf'{e}(["{e}$`' + ("'" if esc == "`" else "") + '])'), re.compile(rf'(?<!{e})[{re.escape(dyn)}]'))
+
+
+_RULES = {row["dq_escape"]: _build_rules(row["dq_escape"]) for row in SHELL_CAPABILITIES.values()}
+_HEREDOC_OPEN_RE = re.compile(r"<<(?!<)(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+_COMMENT_RE = re.compile(r"(?m)(?:^|(?<=[\s;&|(]))#[^\n]*")
+_SEP_RE = re.compile(r"[;&|\n(){}]")
+# Kept for the advisory payload classifier (permission_audit's measurement), not read by the gate itself.
 COMMIT_HEREDOC_RE = re.compile(
     r"(<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2)([^\n]*)(\n.*?^\3\s*$)",
     re.DOTALL | re.MULTILINE,
 )
 
-# A heredoc opener belonging to class (c) (`python - <<...`) is
-# excluded from the commit scrub entirely -- such a heredoc is not a
-# commit message; scrubbing it would hide a real journal write inside a
-# `python - <<PY` body from the statement-scoped machinery below.
-# Checked by a POST-MATCH scan (the text immediately before this
-# heredoc match's own "<<"), not a lookbehind -- Python's `re` has no
-# variable-length lookbehind for `\s+`.
-_PY_HEREDOC_PREFIX_RE = re.compile(r"python\s+-\s*$", re.IGNORECASE)
+
+def _mask_quoted_segments(text: str, esc: str = _BASH_ESC) -> str:
+    """Blanks single/double-quoted segments (quoted text is data by construction); length is kept. An unclosed quote
+    is left unmasked. LINEAR: a quote that has no closer means no later quote of its kind has one either (the closers
+    are the same characters), so the first failure retires that quote kind instead of rescanning to the end again."""
+    if "'" not in text and '"' not in text:
+        return text
+    rules = _RULES[esc]
+    out, last, pos, dead = [], 0, 0, set()
+    while True:
+        m = _QUOTE_CHAR_RE.search(text, pos)
+        if m is None:
+            break
+        i, q = m.start(), m.group(0)
+        if q in dead:
+            pos = i + 1
+            continue
+        if q == "'":
+            j = text.find("'", i + 1)
+            end = -1 if j == -1 else j + 1
+        else:
+            c = rules.dq_close.match(text, i + 1)
+            end = -1 if c is None else c.end()
+        if end == -1:
+            dead.add(q)
+            pos = i + 1
+            continue
+        out.append(text[last:i])
+        out.append(" " * (end - i))
+        last = pos = end
+    out.append(text[last:])
+    return "".join(out)
 
 
-def _is_python_heredoc_opener(text: str, match) -> bool:
-    """True when the literal "<<" of this heredoc match is immediately
-    preceded by "python -" (the same form PY_HEREDOC_RE matches as a
-    whole) -- such a heredoc is not a commit message; the commit scrub
-    must not touch it."""
-    pos = match.start(1)  # the position of "<<" itself (group 1 starts there)
-    return bool(_PY_HEREDOC_PREFIX_RE.search(text[:pos]))
+def _mask_heredoc_bodies(text: str) -> str:
+    """Advisory-classifier mask (regex form): blanks every heredoc BODY, keeping the opener line."""
+    return COMMIT_HEREDOC_RE.sub(lambda m: m.group(1) + m.group(4) + " " * len(m.group(5)), text)
 
 
-def _heredoc_belongs_to_git_commit(text: str, match) -> bool:
-    """True when this heredoc genuinely belongs to a STATEMENT
-    containing `git commit`: finds the nearest preceding chain
-    separator (`;`, `&`, `|`) before the START of the heredoc match;
-    the text from there (or from the start of the command, if there is
-    no separator) up to the heredoc -- "the current statement so far"
-    -- must contain `git commit` (GIT_COMMIT_RE). Does not account for
-    heredocs nested inside one another -- a documented residual
-    limitation."""
-    start = match.start()
-    prefix = text[:start]
-    sep_idx = max(prefix.rfind(";"), prefix.rfind("&"), prefix.rfind("|"))
-    statement_prefix = prefix[sep_idx + 1:] if sep_idx != -1 else prefix
-    return bool(GIT_COMMIT_RE.search(statement_prefix))
+def _scan_heredocs(text: str):
+    """One linear pass over the lines: -> (masked, bodies). `masked` is `text` with every heredoc body and terminator
+    line blanked (length and newlines kept); `bodies` = [(opener position, quoted delimiter?, body text)]. An
+    unterminated heredoc is masked to the end (bash reads it to the end too)."""
+    if "<<" not in text:
+        return text, []
+    lines = text.split("\n")
+    out, bodies, pending = [], [], []
+    pos = 0
+    for line in lines:
+        if pending:
+            entry = pending[0]
+            check = line.strip() if entry["dash"] else line.rstrip("\r ")
+            if check == entry["delim"]:
+                pending.pop(0)
+                bodies.append((entry["pos"], entry["quoted"], "\n".join(entry["buf"])))
+            else:
+                entry["buf"].append(line)
+            out.append(" " * len(line))
+        else:
+            for m in _HEREDOC_OPEN_RE.finditer(line):
+                pending.append({"dash": bool(m.group(1)), "quoted": bool(m.group(2)), "delim": m.group(3),
+                                "pos": pos + m.start(), "buf": []})
+            out.append(line)
+        pos += len(line) + 1
+    for entry in pending:
+        bodies.append((entry["pos"], entry["quoted"], "\n".join(entry["buf"])))
+    return "\n".join(out), bodies
 
 
-# --- mask a git statement (class (d) only) -------------------------------
-# A statement starting with `git ` plus one of the listed subcommands
-# (at the start of the command, or right after a chain separator
-# `;`/`&`/`|`/newline). Group 1 is the separator itself (or an empty
-# string at the start) -- kept UNTOUCHED in the replacement so adjacent
-# statements are not glued together; group 2 (the statement body up to
-# the next separator) is replaced with a single space. 0+ repetitions of
-# `-C <dir>` are allowed, same as GIT_COMMIT_RE above.
-GIT_STATEMENT_RE = re.compile(
-    r"(^|[;&|\n])(\s*git\s+(?:-C\s+\S+\s+)*(?:add|commit|push|diff|log|show|status)\b[^;&|\n]*)",
-    re.IGNORECASE,
-)
-
-# Rule-of-three shape (what's wrong / what breaks / what to do instead)
-# for every WARN/BLOCK text below, kept consistent across all classes.
-MSG_CD_PREFIX = (
-    "a cd/Set-Location prefix ahead of a compound command does not match "
-    "the allowlist -- an extra permission prompt, or the command gets "
-    "refused outright; invoke from the root directly, with no cd "
-    "(command hygiene point 3)"
-)
-MSG_REDIRECT_STDERR = (
-    "a trailing \" 2>&1\" does not match the allowlist -- an extra "
-    "permission prompt, or the command gets refused outright; drop "
-    "\" 2>&1\" from the command (command hygiene point 3)"
-)
-MSG_PYTHON_DASH_C = (
-    "the command edits a file inline via python -c/heredoc, bypassing "
-    "Edit/Write -- such an edit skips ordinary diff review and risks "
-    "silently corrupting the file; use the Edit/Write tool or a named "
-    "script instead (command hygiene point 4)"
-)
-MSG_JOURNAL_BLOCK = (
-    "the journal is written only via Edit/Write (command hygiene point 5); "
-    "shell write to the journal blocked"
-)
-# Rule of three -- a short action clause with an imperative verb
-# ("invoke") appended, KEPT SHORT to stay inside the WARN_TEXT_BUDGET_
-# CHARS=550 ratchet once wrapped by "Command hygiene (WARN, does not
-# block): " (see tools/test_warn_messages.py); the existing text is
-# otherwise unchanged.
-MSG_CD_NON_ROOT_WARN = (
-    "cd/Set-Location -- a warning, not a block: the target does not look like "
-    "this repository's own root (the working directory is load-bearing there -- "
-    "e.g. a different tree/an exam kit/a nested kit install/scratchpad, or an "
-    "authorized subdirectory such as gateway, command hygiene point 2 -- there "
-    "is no 'invoke from the root' alternative for those); only an explicit cd "
-    "INTO THIS repository's own root is blocked (command hygiene point 3). "
-    "Not justified by the working tree? Invoke from the root, no cd."
-)
+def _blank_comments(raw: str, masked: str):
+    """A `#` at a word start (outside quotes) opens a comment to the end of the line: blank it in both texts."""
+    if "#" not in masked:
+        return raw, masked
+    spans = [m.span() for m in _COMMENT_RE.finditer(masked)]
+    if not spans:
+        return raw, masked
+    r, q, last = [], [], 0
+    for a, b in spans:
+        r.append(raw[last:a]); q.append(masked[last:a])
+        r.append(" " * (b - a)); q.append(" " * (b - a))
+        last = b
+    r.append(raw[last:]); q.append(masked[last:])
+    return "".join(r), "".join(q)
 
 
-def _strip_commit_messages(command: str) -> str:
-    """Strips -m/--message arguments of a `git commit` invocation, AND a
-    commit-message HEREDOC body (`git commit -F - <<EOF ... EOF`, any
-    delimiter quoting), before class (d) is evaluated: commit-message
-    TEXT (a journal path/substring in prose, `>` inside an ASCII arrow)
-    must not trigger detection on its own. Only applied when the
-    command contains `git commit`; the git add/commit paths themselves
-    are untouched -- only the message argument/heredoc body is
-    stripped. An unclosed quote does not match and is left as-is
-    (fail-safe toward detection).
-
-    The heredoc scrub cuts ONLY the body + closing delimiter line
-    (group 5) -- the remainder of the opener line AFTER `<<DELIM` is
-    preserved verbatim (`_heredoc_sub` keeps groups 1+4), so a chained
-    `&& echo ... >> journal` on the SAME line stays visible; a heredoc
-    opened by `python -...<<...` (class (c)) is excluded entirely
-    (`_is_python_heredoc_opener`); the scrub is scoped to a heredoc
-    that genuinely belongs to a STATEMENT containing `git commit`
-    (`_heredoc_belongs_to_git_commit`) -- a heredoc of some other
-    statement (e.g. `python - <<'PY'` after `&&`) is left untouched,
-    its real write staying visible to the statement-scoped machinery
-    below."""
-    if not GIT_COMMIT_RE.search(command):
-        return command
-    stripped = COMMIT_MESSAGE_ARG_RE.sub(" ", command)
-
-    def _heredoc_sub(m):
-        if _is_python_heredoc_opener(stripped, m):
-            return m.group(0)
-        if not _heredoc_belongs_to_git_commit(stripped, m):
-            return m.group(0)
-        return m.group(1) + m.group(4) + " "
-
-    return COMMIT_HEREDOC_RE.sub(_heredoc_sub, stripped)
+class _Stmt(NamedTuple):
+    start: int
+    end: int
+    sub: bool
+    depth: int = 0      # how many `(` / `$(` groups enclose the statement
 
 
-def _mask_git_statements(command: str) -> str:
-    """Masks `git [-C <dir>] add/commit/push/diff/log/show/status ...`
-    statements (git is not a journal writer) before class (d) is
-    evaluated -- see the module docstring's known residual gap
-    (show/diff with a redirect that REALLY overwrites the journal via
-    git plumbing -- accepted, not preemptively closed)."""
-    return GIT_STATEMENT_RE.sub(lambda m: m.group(1) + " ", command)
+def _neutralize_regions(raw: str, masked: str):
+    """Bash arithmetic and test regions -- `(( ))`, `$(( ))`, `for (( ))`, `[[ ]]` -- hold comparisons: a `<` or `>` inside
+    one is never a redirect, so each is blanked (in both texts, length kept). A real redirect after the closing bracket
+    is untouched. One stack pass for the parentheses and one forward `find` per `[[`: linear."""
+    spans = []
+    if "((" in masked:
+        stack, match = [], {}
+        for m in re.finditer(r"[()]", masked):
+            p = m.start()
+            if masked[p] == "(":
+                stack.append(p)
+            elif stack:
+                match[stack.pop()] = p
+        spans += [(p, q) for p, q in match.items() if masked[p + 1:p + 2] == "(" and match.get(p + 1) == q - 1]
+    i = 0
+    while True:
+        p = masked.find("[[", i)
+        if p == -1:
+            break
+        if p > 0 and masked[p - 1] not in " \t\r\n;&|(!{":
+            i = p + 2
+            continue
+        q = masked.find("]]", p + 2)
+        if q == -1:
+            break
+        spans.append((p, q))
+        i = q + 2
+    if not spans:
+        return raw, masked
+    table = str.maketrans("<>", "  ")
+    covered, r, q_out, last = 0, [], [], 0
+    for p, q in sorted(spans):
+        a = max(p, covered)
+        if q <= a:
+            continue
+        r.append(raw[last:a]); q_out.append(masked[last:a])
+        r.append(raw[a:q].translate(table)); q_out.append(masked[a:q].translate(table))
+        last = covered = q
+    r.append(raw[last:]); q_out.append(masked[last:])
+    return "".join(r), "".join(q_out)
 
 
-_STATEMENT_SPLIT_RE = re.compile(r"[;&|\n]")
+def _split_statements(masked: str) -> list:
+    """Statement spans of the quote- and heredoc-masked text, split on ; & | newline and on ( ) { } (a subshell or a
+    group opens a new statement; `(`/`$(` also mark the region as a subshell). `2>&1`, `>&`, `&>`, `>|` stay whole,
+    and a brace counts only when it stands alone (`{ cd x; }`, not `${x}`, `@{}` or `{}`)."""
+    out, start, depth, n = [], 0, 0, len(masked)
+    for m in _SEP_RE.finditer(masked):
+        i = m.start()
+        ch = masked[i]
+        if ch == "&":
+            if (i > 0 and masked[i - 1] in "<>") or (i + 1 < n and masked[i + 1] == ">"):
+                continue
+        elif ch == "|":
+            if i > 0 and masked[i - 1] == ">":
+                continue
+        elif ch in "{}":
+            prev = masked[i - 1] if i > 0 else " "
+            nxt = masked[i + 1] if i + 1 < n else " "
+            if not (prev in " \t\r\n;&|(" and nxt in " \t\r\n"):
+                continue
+        out.append(_Stmt(start, i, depth > 0, depth))
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        start = i + 1
+    out.append(_Stmt(start, n, depth > 0, depth))
+    return out
 
 
-def _statements(scrubbed: str) -> list[str]:
-    """Splits the already-scrubbed (git-masked) command into shell
-    statements on the same separators GIT_STATEMENT_RE uses
-    (`;`/`&`/`|`/newline) -- see the module docstring's "STATEMENT
-    SCOPING". `&&`/`||` produce an empty element between the two
-    separators -- harmless (matches none of the checks below)."""
-    return _STATEMENT_SPLIT_RE.split(scrubbed)
+# --- tokenizer ------------------------------------------------------------------------------------------
+_DYNAMIC_RUN_RE = re.compile(r'[$`]|%\w+%')
+_GLOB_RUN_RE = re.compile(r'[*?]')
+_RUN_RE = re.compile(r"[^\s'\"<>]+")
+_FD_WORD_RE = re.compile(r"\d+|\*")
+_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
-def _has_journal_target(text: str) -> bool:
-    """Class (d)'s target: the literal substring "routing-log"
-    (case-insensitive) OR any `logs/*.jsonl` path (case-insensitive)."""
-    return "routing-log" in text.lower() or bool(JOURNAL_JSONL_UNDER_LOGS_RE.search(text))
+class _Word(NamedTuple):
+    text: str        # quotes removed
+    inner: str       # quoted segments verbatim (for a payload parsed as written)
+    dynamic: bool    # holds a variable / substitution: the real text is unknown
+    glob: bool       # holds an unquoted wildcard
+    quoted: bool
+
+    @property
+    def literal(self) -> bool:
+        return not self.dynamic and not self.glob
 
 
-def _mask_quoted_segments(text: str) -> str:
-    """A quoted `>` (e.g. the argument string of `grep -c ">" <journal>`,
-    read-only) is not a shell redirect and must not count as a write
-    form; a quoted ` 2>&1` is likewise argument data, not a real
-    redirect. Blanks out single/double-quoted segments (the
-    double-quote branch mirrors COMMIT_MESSAGE_ARG_RE's already-proven
-    char class). An unclosed quote does not match and is left unmasked
-    (fail-safe toward detection, same principle as the rest of this
-    file)."""
-    return QUOTED_SEGMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
+class _Redir(NamedTuple):
+    op: str
+    fd: str
+    target: object   # _Word or None
 
 
-def _has_write_form(text: str) -> bool:
-    """Shell WRITE forms for class (d): redirect `>`/`>>`, printf/echo,
-    sed -i (in-place), tee, python open(...,'w'/'a'/'x'), and the
-    PowerShell write cmdlets (Add-Content/Set-Content/Out-File). The
-    redirect `>` check runs on text with quotes masked
-    (_mask_quoted_segments) -- a quoted `>` no longer counts; the other
-    indicators run on the UNMASKED text."""
-    redirect_check_text = _mask_quoted_segments(text)
-    return bool(
-        ">" in redirect_check_text
-        or PRINTF_ECHO_RE.search(text)
-        or SED_INPLACE_RE.search(text)
-        or TEE_RE.search(text)
-        or OPEN_WRITE_MODE_RE.search(text)
-        or _PS_WRITE_CMDLET_RE.search(text)
-    )
+def _read_word(s: str, i: int, rules: _Rules):
+    n = len(s)
+    text, inner, dynamic, glob, quoted = [], [], False, False, False
+    start = i
+    while i < n:
+        c = s[i]
+        if c in " \t\r\n" or c in "<>":
+            break
+        if c == "&" and i + 1 < n and s[i + 1] == ">":
+            break
+        if c == "'":
+            j = s.find("'", i + 1)
+            seg = s[i + 1:] if j == -1 else s[i + 1:j]
+            i = n if j == -1 else j + 1
+            text.append(seg); inner.append(seg); quoted = True
+        elif c == '"':
+            m = rules.dq.match(s, i)
+            if m:
+                seg, i = m.group(1), m.end()
+            else:
+                seg, i = s[i + 1:], n
+            text.append(rules.unescape.sub(r"\1", seg)); inner.append(seg); quoted = True
+            if rules.dynamic_dq.search(seg):
+                dynamic = True
+        else:
+            m = _RUN_RE.match(s, i)
+            if m is None:       # a lone `&`
+                run, i = c, i + 1
+            else:
+                run, i = m.group(0), m.end()
+            text.append(run); inner.append(run)
+            if _DYNAMIC_RUN_RE.search(run):
+                dynamic = True
+            if _GLOB_RUN_RE.search(run):
+                glob = True
+    if i == start:
+        i += 1
+    return _Word("".join(text), "".join(inner), dynamic, glob, quoted), i
 
 
-def _is_journal_bypass(command: str) -> bool:
-    """STATEMENT-SCOPED: triggers only when ONE AND THE SAME statement
-    carries both the target (_has_journal_target) and a write form
-    (_has_write_form) -- see the module docstring's "STATEMENT
-    SCOPING" (e.g. `cat logs/routing-log.jsonl; echo done` does NOT
-    trigger -- echo there writes nothing to the journal).
-
-    Guarded by `MAX_HEREDOC_OPENERS` (see its own docstring, defined
-    further down this file with the class (c) narrowing -- the SAME
-    constant, not a second copy, D-0043-style): `_strip_commit_messages`
-    below uses the SAME COMMIT_HEREDOC_RE.sub pattern that backtracks
-    quadratically on a command carrying many unclosed heredoc openers
-    together with `git commit`. Past the cap, this returns False
-    directly, without ever reaching the scrub -- the CONSERVATIVE
-    direction (journal BLOCK never widens from a pathological input
-    the un-narrowed gate would have paid an expensive, but not
-    necessarily bypass-detecting, price to evaluate)."""
-    if command.count("<<") > MAX_HEREDOC_OPENERS:
-        return False
-    scrubbed = _mask_git_statements(_strip_commit_messages(command))
-    return any(
-        _has_journal_target(stmt) and _has_write_form(stmt)
-        for stmt in _statements(scrubbed)
-    )
-
-
-# --- class (b): ` 2>&1` via quote-masking, no interpreter list ----------
-# See the module docstring, "Determinism principle" / "Class (b)", for
-# the full design and the rationale for replacing an earlier
-# interpreter-name list with quote-masking (a list cannot enumerate
-# every interpreter/quoting form; quoting itself is universal).
+def _tokenize(s: str, rules: _Rules) -> list:
+    """Words and redirects of one statement (quote-aware; outside quotes a backslash is a path character, not an
+    escape; inside double quotes the shell's own escape character applies)."""
+    toks, i, n = [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c in " \t\r\n":
+            i += 1
+            continue
+        fd = ""
+        if not (c in "<>" or (c == "&" and i + 1 < n and s[i + 1] == ">")):
+            word, j = _read_word(s, i, rules)
+            if j < n and s[j] in "<>" and not word.quoted and _FD_WORD_RE.fullmatch(word.text):
+                fd, i = word.text, j
+            else:
+                toks.append(word)
+                i = j
+                continue
+        for op in ("&>>", "&>", ">>", ">|", ">&", ">", "<<<", "<<-", "<<", "<&", "<"):
+            if s.startswith(op, i):
+                break
+        i += len(op)
+        while i < n and s[i] in " \t":
+            i += 1
+        target = None
+        if i < n and s[i] not in "\r\n":
+            target, i = _read_word(s, i, rules)
+        toks.append(_Redir(op, fd, target))
+    return toks
 
 
-def _collect_redirect_signal(command: str) -> dict:
-    """Computes `present`/`certain` for class (b) on the QUOTE-MASKED
-    (via `_mask_quoted_segments`, the same function class (d) uses --
-    not a second implementation) text -- see the module docstring's
-    "Class (b)" for the three branches (absent / present+heredoc-
-    ambiguous / present+certain)."""
-    masked = _mask_quoted_segments(command)
-    present = " 2>&1" in masked
-    if not present:
-        return {"present": False, "certain": False}
-    ambiguous_heredoc = "<<" in masked
-    return {"present": True, "certain": not ambiguous_heredoc}
+# --- class extractors ------------------------------------------------------------------------------------
+def _cmd_name(text: str) -> str:
+    name = re.split(r"[\\/]", text)[-1].lower()
+    return name[:-4] if name.endswith(".exe") else name
 
 
-# --- class (a): cd/Set-Location target parsing + repo-root check --------
-# See the module docstring, "Class (a): repo-root only", for the full
-# design.
-
-_CD_PREFIX_VERB_RE = re.compile(r"^\s*(?:cd|Set-Location)\b", re.IGNORECASE)
-_CD_PREFIX_PATH_FLAG_RE = re.compile(r"\s*-(?:Literal)?Path\b", re.IGNORECASE)
-_CD_PREFIX_QUOTED_TARGET_RE = re.compile(r"\s*(\"(?:[^\"\\]|\\.)*\"|'[^']*')")
-_CD_PREFIX_BARE_TARGET_RE = re.compile(r"\s*([^\s&;|]+)")
+_JOURNAL_RE = re.compile(r"(?:^|/)logs/(?:journal/[^/]+|routing-log)\.jsonl$")
 
 
-def _extract_cd_prefix_target(command: str) -> str | None:
-    """Parses the target of a cd/Set-Location prefix: skips an optional
-    `-Path`/`-LiteralPath` PowerShell flag, then reads the target --
-    quoted (up to the paired closing quote, including any spaces
-    inside) or bare (up to a space/`&`/`;`/`|`). Returns the RAW
-    substring (quotes included, if any), or None if this is not a
-    cd/Set-Location prefix with a non-empty argument at all (the same
-    boundary _is_cd_prefix uses -- "cd"/"Set-Location" with no
-    argument, "cd&&..." with no space -- is not a target)."""
-    verb_m = _CD_PREFIX_VERB_RE.match(command)
-    if not verb_m:
+def _is_journal_target(target: str) -> bool:
+    norm = target.replace("\\", "/").lower()
+    return bool(_JOURNAL_RE.search(norm))
+
+
+def _is_absolute(path: str) -> bool:
+    return bool(re.match(r"^(?:[A-Za-z]:[\\/]|[\\/]|~)", path))
+
+
+def _bound_value(a):
+    """`-Path:value` (a PowerShell parameter bound with a colon) -> (lowercased name, a word holding the value) | None."""
+    if not a.text.startswith("-") or ":" not in a.text:
         return None
-    pos = verb_m.end()
-    if pos >= len(command) or not command[pos].isspace():
-        return None
-    flag_m = _CD_PREFIX_PATH_FLAG_RE.match(command, pos)
-    if flag_m:
-        pos = flag_m.end()
-    qm = _CD_PREFIX_QUOTED_TARGET_RE.match(command, pos)
-    if qm:
-        return qm.group(1)
-    bm = _CD_PREFIX_BARE_TARGET_RE.match(command, pos)
-    if bm:
-        return bm.group(1)
+    name, value = a.text.split(":", 1)
+    return name.lower(), a._replace(text=value)
+
+
+def _first_path_arg(args: list):
+    for i, a in enumerate(args):
+        bound = _bound_value(a)
+        if bound is not None and bound[0] in _PS_PATH_PARAMS and bound[1].text:
+            return bound[1]
+        if a.text.lower() in _PS_PATH_PARAMS and i + 1 < len(args):
+            return args[i + 1]
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a.text.startswith("-") and len(a.text) > 1:
+            skip = a.text.lower() in _PS_VALUE_PARAMS and ":" not in a.text
+            continue
+        return a
     return None
 
 
-def _cd_prefix_target_basename(command: str) -> str | None:
-    """The basename of a cd/Set-Location prefix's target (separators/
-    quotes/a trailing slash normalized) -- None if there is no target
-    at all, or it is empty after normalization."""
-    raw_target = _extract_cd_prefix_target(command)
-    if raw_target is None:
+def _all_path_args(args: list) -> list:
+    """Every operand that is not an option (`tee a b` writes both; a lone `-` is no file)."""
+    return [a for a in args if a.text and not a.text.startswith("-")]
+
+
+def _path_targets(cmd: str, args: list) -> list:
+    """The words a tee-like command writes (data row `_TEE_LIKE`): [] when it has no file operand."""
+    mode = _TEE_LIKE.get(cmd)
+    if mode == "all":
+        return _all_path_args(args)
+    first = _first_path_arg(args) if mode else None
+    return [first] if first is not None else []
+
+
+def _sed_targets(args: list) -> list:
+    inplace = has_script = False
+    pos, i = [], 0
+    while i < len(args):
+        t = args[i].text
+        if t == "--":
+            pos.extend(args[i + 1:])
+            break
+        if t.startswith("--"):
+            if t == "--in-place" or t.startswith("--in-place="):
+                inplace = True
+            elif t in ("--expression", "--file"):
+                has_script = True
+                i += 1
+            elif t.startswith(("--expression=", "--file=")):
+                has_script = True
+        elif t.startswith("-") and len(t) > 1:
+            body = t[1:]
+            for j, ch in enumerate(body):
+                if ch == "i":
+                    inplace = True
+                    break
+                if ch in "efl":
+                    has_script = has_script or ch in "ef"
+                    if j == len(body) - 1:
+                        i += 1
+                    break
+        else:
+            pos.append(args[i])
+        i += 1
+    if not inplace:
+        return []
+    return pos if has_script else pos[1:]
+
+
+def _perl_targets(args: list) -> list:
+    """perl and ruby: `-i[ext]` among the short flags, `-e script` consumed."""
+    inplace = has_e = False
+    pos, i = [], 0
+    while i < len(args):
+        t = args[i].text
+        if t == "--":
+            pos.extend(args[i + 1:])
+            break
+        if t.startswith("-") and len(t) > 1 and not t.startswith("--"):
+            body = t[1:]
+            for j, ch in enumerate(body):
+                if ch == "i":
+                    inplace = True
+                    break
+                if ch in "eE":
+                    has_e = True
+                    if j == len(body) - 1:
+                        i += 1
+                    break
+                if ch in "IMmdDxCFl0":
+                    break
+        elif not t.startswith("--"):
+            pos.append(args[i])
+        i += 1
+    if not inplace:
+        return []
+    return pos if has_e else pos[1:]
+
+
+def _awk_targets(args: list) -> list:
+    texts = [a.text for a in args]
+    if not any(texts[k] == "-i" and k + 1 < len(texts) and texts[k + 1] == "inplace" for k in range(len(texts))):
+        return []
+    pos, has_f, i = [], False, 0
+    while i < len(args):
+        t = texts[i]
+        if t in ("-i", "-v", "-F"):
+            i += 2
+            continue
+        if t == "-f":
+            has_f = True
+            i += 2
+            continue
+        if not t.startswith("-"):
+            pos.append(args[i])
+        i += 1
+    return pos if has_f else pos[1:]
+
+
+# Data row: in-place editor -> the reader of its target arguments (an argument it cannot place yields no target).
+INPLACE_EDITORS = {"sed": _sed_targets, "perl": _perl_targets, "ruby": _perl_targets, "awk": _awk_targets,
+                   "gawk": _awk_targets}
+
+_NET_WRITE_RE = re.compile(
+    r"\[(?:System\.)?IO\.File\]::(?:WriteAllText|WriteAllLines|WriteAllBytes|AppendAllText|AppendAllLines)\(",
+    re.IGNORECASE)
+_NET_CD_RE = re.compile(
+    r"\[(?:System\.)?IO\.Directory\]::SetCurrentDirectory\(|\[(?:System\.)?Environment\]::CurrentDirectory\s*=",
+    re.IGNORECASE)
+
+
+def _net_target(seg: str, end: int):
+    """The literal first argument of a .NET file write (the masked text blanked it; `seg` is the unmasked statement)."""
+    while end < len(seg) and seg[end] in " \t":
+        end += 1
+    if end >= len(seg) or seg[end] not in "'\"":
         return None
-    target = raw_target.strip("\"'")
-    if not target:
+    j = seg.find(seg[end], end + 1)
+    if j == -1:
         return None
-    normalized = target.replace("\\", "/").rstrip("/")
-    if not normalized:
+    text = seg[end + 1:j]
+    return None if re.search(r"[$`]", text) and seg[end] == '"' else text
+
+
+# --- rollback shapes (data row: git subcommand -> reader of the shape) --------------------------------------
+def _split_args(rest: list, value_opts=()):
+    opts, pos, dd, i = [], [], None, 0
+    while i < len(rest):
+        t = rest[i].text
+        if dd is not None:
+            dd.append(rest[i])
+        elif t == "--":
+            dd = []
+        elif t.startswith("-") and len(t) > 1:
+            opts.append(t)
+            if t in value_opts and i + 1 < len(rest):
+                i += 1
+        else:
+            pos.append(rest[i])
+        i += 1
+    return opts, pos, dd
+
+
+def _has_short(opts: list, letter: str) -> bool:
+    return any(o.startswith("-") and not o.startswith("--") and letter in o[1:] for o in opts)
+
+
+def _shape(name, words, view="tracked", **extra):
+    scope = [w.text for w in words]
+    d = {"shape": name, "scope": scope, "view": view, "check_arg": None,
+         "dynamic": any(w.dynamic for w in words)}
+    d.update(extra)
+    return d
+
+
+def _shape_checkout(rest):
+    opts, pos, dd = _split_args(rest, value_opts=("--conflict",))
+    if (any(_has_short(opts, ch) for ch in "bBp")
+            or any(o in ("--orphan", "--detach", "--patch") or o.startswith("--orphan=") for o in opts)):
         return None
-    return normalized.split("/")[-1]
+    if any(o.startswith("--pathspec-from-file") for o in opts):
+        return _shape("checkout --pathspec-from-file", [], unresolvable="--pathspec-from-file")
+    if dd is not None:
+        return _shape("checkout -- paths", dd) if dd else None
+    if "--force" in opts or _has_short(opts, "f"):
+        return _shape("checkout -f", [])
+    if len(pos) >= 2:
+        return _shape("checkout rev paths", pos[1:])
+    if len(pos) == 1:
+        if pos[0].text == ".":
+            return _shape("checkout .", pos)
+        return _shape("checkout one-arg", pos, check_arg=pos[0].text)
+    return None
 
 
-_REPO_ROOT_NAME = Path(__file__).resolve().parents[1].name
+def _shape_switch(rest):
+    opts, _pos, _dd = _split_args(rest)
+    if "--discard-changes" in opts or "--force" in opts or _has_short(opts, "f"):
+        return _shape("switch --discard-changes", [])
+    return None
 
 
-def _is_cd_to_repo_root(command: str) -> bool:
-    """True when a cd/Set-Location prefix in `command` targets THIS
-    repository's own root (by basename). Does not itself check for a
-    continuation (`&&`/`;`/newline) -- the caller (`_is_cd_prefix`)
-    already guarantees something real follows the cd before asking
-    about its target."""
-    basename = _cd_prefix_target_basename(command)
-    return basename is not None and basename.lower() == _REPO_ROOT_NAME.lower()
+def _shape_restore(rest):
+    opts, pos, dd = _split_args(rest, value_opts=("-s", "--source"))
+    if any(o.startswith("--pathspec-from-file") for o in opts):
+        return _shape("restore --pathspec-from-file", [], unresolvable="--pathspec-from-file")
+    staged = "--staged" in opts or _has_short(opts, "S")
+    worktree = "--worktree" in opts or _has_short(opts, "W")
+    if (staged and not worktree) or "--patch" in opts or _has_short(opts, "p"):
+        return None
+    paths = pos + (dd or [])
+    return _shape("restore", paths) if paths else None
 
 
-# A newline is a THIRD, equal continuation separator alongside `&&`/`;`
-# (a command of the form `cd "<root>"\ngit status` -- a newline with NO
-# `&&`/`;` anywhere -- would otherwise evade detection entirely). A
-# BARE `cd <root>` with no continuation at all -- OR with only a single
-# trailing newline and nothing real after it -- must stay legal: it is
-# the only way back to the root once a session's working directory has
-# already legitimately shifted (see the module docstring's "Class (a)"
-# for why forbidding the bare return would be self-defeating). Known
-# limitation, NOT addressed here: cd-to-root that is NOT the first
-# statement of the command (e.g. `pwd; cd <root> && ...`) is not
-# detected at all -- the position anchor (CD_PREFIX_START_RE.match)
-# only looks at the absolute start of the command.
-_CD_PREFIX_CONTINUATION_RE = re.compile(r"(?:&&|;|\n)(.*)$", re.DOTALL)
+def _shape_reset(rest):
+    opts, _pos, _dd = _split_args(rest)
+    return _shape("reset --hard", []) if "--hard" in opts else None
 
 
-def _is_cd_prefix(command: str) -> bool:
-    if not CD_PREFIX_START_RE.match(command):
+def _shape_clean(rest):
+    opts, pos, dd = _split_args(rest, value_opts=("-e", "--exclude"))
+    force = "--force" in opts or _has_short(opts, "f")
+    dry = "--dry-run" in opts or _has_short(opts, "n")
+    if dry or not force or _has_short(opts, "i") or "--interactive" in opts:
+        return None
+    return _shape("clean", pos + (dd or []), view="clean", clean_d=_has_short(opts, "d"),
+                  clean_x=_has_short(opts, "x"), clean_X=_has_short(opts, "X"))
+
+
+def _shape_stash(rest):
+    opts, pos, dd = _split_args(rest, value_opts=("-m", "--message"))
+    sub = pos[0].text if pos else None
+    if sub not in (None, "push", "save"):
+        return None
+    words = list(dd or []) + (pos[1:] if sub == "push" else [])
+    inc_all = "--all" in opts or _has_short(opts, "a")
+    inc_untracked = inc_all or "--include-untracked" in opts or _has_short(opts, "u")
+    return _shape("stash", words, view="stash" if inc_untracked else "tracked", stash_ignored=inc_all)
+
+
+ROLLBACK_SHAPES = {"checkout": _shape_checkout, "switch": _shape_switch, "restore": _shape_restore,
+                   "reset": _shape_reset, "clean": _shape_clean, "stash": _shape_stash}
+_GIT_FLAG_GLOBALS = frozenset({"--no-pager", "--literal-pathspecs", "--no-optional-locks", "--paginate", "-P",
+                               "--no-replace-objects", "--glob-pathspecs", "--noglob-pathspecs"})
+
+
+def _rollback_form(args: list):
+    texts = [a.text for a in args]
+    c_chain, unresolvable, i = [], None, 0
+    while i < len(texts):
+        t = texts[i]
+        if t == "-C" and i + 1 < len(texts):
+            if args[i + 1].dynamic:
+                unresolvable = "non-literal -C directory"
+            c_chain.append(texts[i + 1])
+            i += 2
+        elif t == "-c" and i + 1 < len(texts):
+            i += 2
+        elif t in _GIT_FLAG_GLOBALS:
+            i += 1
+        elif t.startswith(("--git-dir", "--work-tree")):
+            unresolvable = "--git-dir/--work-tree"
+            i += 1 if "=" in t else 2
+        else:
+            break
+    if i >= len(texts):
+        return None
+    reader = ROLLBACK_SHAPES.get(texts[i].lower())
+    form = reader(args[i + 1:]) if reader else None
+    if form is None:
+        return None
+    form["c_chain"] = c_chain
+    form["literal_pathspecs"] = "--literal-pathspecs" in texts[:i]
+    form["unresolvable"] = form.get("unresolvable") or unresolvable or (
+        "non-literal path" if form["dynamic"] else None)
+    return form
+
+
+# --- python payload, gate grade (t-098 B1, B5) ---------------------------------------------------------
+# Gate-grade writes, exactly: (i) open(<literal>, <literal mode with w/a/x/+>) / io.open, free or in `with`;
+# (ii) Path(<literal>).write_text / write_bytes / .open(<mode with w/a/x/+>); (iii) json.dump / pickle.dump whose file is
+# an inline call of form (i). A `.write` on such a call belongs to it. STDIO and FILE-LEVEL calls are silent; every
+# other advisory-M/O call is UNCERTAIN. The advisory lists further below are NOT re-labelled: they lean toward M on
+# purpose and stay the audit's instrument (`pyc_payload`).
+_GATE_WRITE_FORMS = ("open", "io.open", "Path().write_text", "Path().write_bytes", "Path().open", "json.dump", "pickle.dump")
+_FILE_LEVEL_ATTRS = frozenset({"unlink", "rename", "replace", "mkdir", "touch", "rmdir"})
+_METHOD_MODE_RE = re.compile(r"[rwxabtU+]+")
+
+
+def _literal_str(node):
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _is_stdio(node, alias_map) -> bool:
+    d = _resolve_dotted(_dotted_call_name(node), alias_map)
+    if d is None:
         return False
-    m = _CD_PREFIX_CONTINUATION_RE.search(command)
-    if not m:
+    if d.endswith(".buffer"):
+        d = d[:-7]
+    return d in _STDIO_DOTTED
+
+
+def _path_ctor_literal(recv, alias_map):
+    """The literal of `Path('x')` (through the alias map), or None."""
+    if not isinstance(recv, ast.Call) or len(recv.args) != 1 or recv.keywords:
+        return None
+    if _resolve_dotted(_dotted_call_name(recv.func), alias_map) not in _PATH_CTORS:
+        return None
+    return _literal_str(recv.args[0])
+
+
+def _gate_open(node, alias_map):
+    """For an `open`-shaped call: ("w", literal path | None) for a certain write mode, ("r", None) for a read or a
+    non-mode, ("U", None) when the mode or the call cannot be placed."""
+    func = node.func
+    dotted = _resolve_dotted(_dotted_call_name(func), alias_map)
+    free = dotted in _FREE_OPEN_DOTTED_NAMES
+    if any(kw.arg is None for kw in node.keywords):
+        return "U", None
+    mode_index = 1 if free else 0
+    mode_node = node.args[mode_index] if len(node.args) > mode_index else next(
+        (kw.value for kw in node.keywords if kw.arg == "mode"), None)
+    if mode_node is None:
+        return "r", None
+    mode = _literal_str(mode_node)
+    if mode is None:
+        return "U", None
+    if not free and not _METHOD_MODE_RE.fullmatch(mode):
+        return "r", None          # `Image.open('a.png')`, `os.open(p, flags)`: not a mode
+    if not any(ch in mode for ch in "wax+"):
+        return "r", None
+    if free:
+        path_node = node.args[0] if node.args else next((kw.value for kw in node.keywords if kw.arg == "file"), None)
+        return "w", _literal_str(path_node) if path_node is not None else None
+    if isinstance(func, ast.Attribute):
+        return "w", _path_ctor_literal(func.value, alias_map)
+    return "U", None
+
+
+def _is_inline_open(node, alias_map) -> bool:
+    """An `open(...)`-shaped call (free, `io.open` or a method `.open`)."""
+    if not isinstance(node, ast.Call):
         return False
-    return bool(m.group(1).strip())
+    return (getattr(node.func, "attr", None) == "open"
+            or _resolve_dotted(_dotted_call_name(node.func), alias_map) in _FREE_OPEN_DOTTED_NAMES)
 
 
-def _is_python_dash_c(command: str) -> bool:
-    return bool(PY_DASH_C_RE.search(command) or PY_HEREDOC_RE.search(command))
+def _gate_call(node, alias_map):
+    """None (silent) | "U" (uncertain) | a literal path (a certain write)."""
+    func = node.func
+    attr = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else None)
+    dotted = _resolve_dotted(_dotted_call_name(func), alias_map)
+    root = dotted.split(".", 1)[0] if dotted else None
+    if dotted in _OPAQUE_BARE_NAMES or root in _OPAQUE_ROOT_MODULES:
+        return "U"
+    if root == "os" and attr and (attr in ("system", "popen") or attr.startswith(("exec", "spawn"))):
+        return "U"
+    if dotted == "fileinput.input" and any(kw.arg == "inplace" for kw in node.keywords):
+        return "U"
+    if attr == "open" or dotted in _FREE_OPEN_DOTTED_NAMES:     # an alias (`from io import open as o`) resolves
+        kind, path = _gate_open(node, alias_map)
+        if kind == "r":
+            return None
+        return path if (kind == "w" and path is not None) else "U"
+    if attr in ("write_text", "write_bytes"):
+        path = _path_ctor_literal(func.value, alias_map) if isinstance(func, ast.Attribute) else None
+        return path if path is not None else "U"
+    if dotted in ("json.dump", "pickle.dump", "csv.writer"):
+        index = 0 if dotted == "csv.writer" else 1
+        target = node.args[index] if len(node.args) > index else next(
+            (kw.value for kw in node.keywords if kw.arg in ("fp", "file", "csvfile")), None)
+        if target is not None and (_is_stdio(target, alias_map) or _is_inline_open(target, alias_map)):
+            return None           # stdout, or the inner open call yields the write
+        return "U"
+    if dotted == "os.truncate":
+        return "U"
+    if dotted in _OS_MUTATING_QUALIFIED or root == "shutil" or attr in _FILE_LEVEL_ATTRS:
+        return None
+    if attr in _PANDAS_LIKE_METHOD_NAMES:
+        return "U"
+    if attr in _WRITE_METHOD_NAMES:
+        recv = func.value if isinstance(func, ast.Attribute) else None
+        if recv is not None and (_is_inline_open(recv, alias_map) or _is_stdio(recv, alias_map)):
+            return None           # belongs to the open call that yields the write, or goes to stdout
+        return "U"
+    if dotted == "print" or attr == "print":
+        file_kw = next((kw for kw in node.keywords if kw.arg == "file"), None)
+        if file_kw is not None and not _is_stdio(file_kw.value, alias_map):
+            return "U"
+    return None
+
+
+def _gate_writes(tree):
+    """(literal write targets, uncertain) of one parsed payload."""
+    alias_map = _build_import_alias_map(tree)
+    targets, uncertain = [], False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            value = node.value
+            if isinstance(value, (ast.Name, ast.Attribute)) and _is_known_mutating_or_opaque_name(
+                    _resolve_dotted(_dotted_call_name(value), alias_map)):
+                uncertain = True
+            continue
+        if not isinstance(node, ast.Call):
+            continue
+        verdict = _gate_call(node, alias_map)
+        if verdict == "U":
+            uncertain = True
+        elif verdict is not None:
+            targets.append(verdict)
+    return targets, uncertain
+
+
+def _payload_verdict(texts: list, dynamic: bool):
+    """(literal write targets, uncertain) of one inline python payload given as candidate readings (as the shell
+    delivers it, then as written)."""
+    if dynamic or any(len(t) > PYC_PAYLOAD_LIMIT for t in texts):
+        return [], True
+    if not any(t.strip() for t in texts):
+        return [], False
+    for text in texts:
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            continue
+        try:
+            return _gate_writes(tree)
+        except Exception:
+            return [], True
+    return [], True
+
+
+def _python_payload(args: list, row):
+    """(payload word, True) for `-c <payload>`; (None, True) for `-` (stdin); (None, False) when neither."""
+    i = 0
+    while i < len(args):
+        a = args[i].text
+        if a in row["payload_flags"]:
+            return (args[i + 1], True) if i + 1 < len(args) else (None, False)
+        if a == "-":
+            return None, True
+        if a in ("-X", "-W"):
+            i += 2
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        break
+    return None, False
 
 
 # =========================================================================
-# Class (c) narrowing: certainty (BLOCK gate) + payload classification
-# (WARN-text gate). See the module docstring's "Class (c)" section for
-# the full design; the pieces below implement it.
+# Advisory payload classification ("M" mutates / "P" proven pure / "O" opaque /
+# "U" not classified). NOT read by the gate: `permission_audit` measures with
+# it (`pyc_payload`). The lists lean toward M on purpose.
 # =========================================================================
-
-# Off by default: with the switch off, class (c) NEVER promotes to
-# BLOCK, regardless of `_is_python_dash_c_certain` -- byte-identical to
-# the pre-narrowing behavior (always WARN, never BLOCK) on every
-# existing command. Flipping it on is a deliberate, separate decision
-# (owned by whoever operates this gate, not by this port) -- it is
-# wired through so the machinery exists and is tested, without being
-# live.
-PYC_DENY_ENABLED = False
-
-MSG_PYTHON_DASH_C_BLOCK = (
-    "python -c/heredoc is blocked (command hygiene point 4) -- such an "
-    "edit bypasses the normal diff-review path entirely; use the "
-    "Edit/Write tool for file edits, or a named script for a one-off "
-    "calculation/diagnostic (python <path>, including under scratchpad)"
-)
-
-# Every heredoc BODY in the command is blanked (any opener, not just a
-# git-commit one -- broader than `_strip_commit_messages` above, which
-# is git-commit-guarded). The opener line itself (groups 1+4 of
-# COMMIT_HEREDOC_RE) is kept verbatim -- a real `python - <<DELIM`
-# opener stays visible to PY_HEREDOC_RE even after this mask; only the
-# BODY (group 5) is replaced with same-length whitespace, so a
-# same-line chained command after the opener (`<<EOF && rm -rf x`)
-# also stays visible.
-def _mask_heredoc_bodies(text: str) -> str:
-    """Masks the body of every heredoc in `text` (not git-commit
-    specific): a `python -c`/`python - <<` token INSIDE a foreign
-    heredoc's body (e.g. `bash <<EOF\\npython -c "print(1)"\\nEOF`) is
-    prose to THIS command, not this command's own invocation -- the
-    outer wrapper is what actually runs, the inner text merely rides
-    along as its stdin. Masking it before the certainty check keeps
-    such wrapper forms from being treated as a certain match, the same
-    way a quoted mention already is."""
-    return COMMIT_HEREDOC_RE.sub(
-        lambda m: m.group(1) + m.group(4) + " " * len(m.group(5)), text
-    )
-
-
-# A cap on repeated, UNCLOSED heredoc openers in one command: without
-# it, `_mask_heredoc_bodies`'s regex (COMMIT_HEREDOC_RE.sub, the same
-# pattern `_strip_commit_messages` above uses) backtracks to the end of
-# the text on EVERY opener that never finds its closing delimiter --
-# quadratic in the number of such openers. The cheap prefilter below
-# (`command.count("<<")`, a plain substring count, no backtracking) is
-# checked FIRST; past the cap, the expensive regex path is skipped
-# entirely and the caller takes its CONSERVATIVE branch (certainty ->
-# False for class (c); not-a-bypass -> False for the journal-bypass
-# scrub above) -- deny/block never WIDENS from this cap, it can only
-# lose a possible (not guaranteed) block on a pathological input,
-# degrading to the same WARN/silent outcome the un-narrowed gate always
-# gave such a command. 64 is comfortably above any normal command's
-# heredoc count (0-2 is typical); a false hit on an unrelated `<<`
-# (e.g. a bit-shift literal inside a string) only makes the prefilter
-# MORE conservative, never less.
-MAX_HEREDOC_OPENERS = 64
-
-
-def _is_python_dash_c_certain(command: str) -> bool:
-    """A NARROWER signal than `_is_python_dash_c` above (which keeps its
-    existing meaning unchanged -- `permission_audit.classify_hygiene`
-    reads that key by name and must not see it redefined): True only
-    when the "python -c"/"python - <<" token survives BOTH
-    `_mask_heredoc_bodies` (a foreign heredoc's body is prose, not this
-    command's own invocation) AND `_mask_quoted_segments` (the token is
-    not sitting inside quotes as a data string, e.g. a git commit
-    message). An ordinary `python -c "code"` call stays certain: the
-    quotes there wrap the -c ARGUMENT, not the "python -c" token itself,
-    which sits before the quote and is untouched by masking it. A real
-    `python - <<DELIM` heredoc opener stays certain the same way -- the
-    mask keeps the opener line, only the body is blanked.
-
-    Guarded by `MAX_HEREDOC_OPENERS` (see its own docstring): past the
-    cap, this returns False without ever calling the expensive mask."""
-    if command.count("<<") > MAX_HEREDOC_OPENERS:
-        return False
-    masked = _mask_quoted_segments(_mask_heredoc_bodies(command))
-    return bool(PY_DASH_C_RE.search(masked) or PY_HEREDOC_RE.search(masked))
-
-
-# --- payload content classification: "M" (mutates) / "P" (proven pure) /
-# "O" (opaque to static analysis) / "U" (not classified at all) --------
-#
-# Extraction (from the RAW command, before any masking -- the argument
-# text itself is what gets parsed, quoting is just how the shell
-# delimited it): the -c argument (quoted literal or a bare token up to
-# whitespace) and/or a `python -...<<DELIM ... DELIM` heredoc body.
-# Several matches in one command are each classified separately; the
-# STRICTEST class wins (M > O > P) -- one mutating payload among several
-# is enough to keep the old WARN text, one opaque payload among
-# otherwise-pure ones is enough to switch to the opaque text.
+_PY_HEAD = (rf"\b(?:{_PYTHON_NAME})(?:\.exe)?"
+            r"(?:\s+(?:-[XW]\s+\S+|-(?![XWc]\b)[A-Za-z0-9.]+))*")
+PY_DASH_C_RE = re.compile(_PY_HEAD + r"\s+-c\b", re.IGNORECASE)
+PY_HEREDOC_RE = re.compile(_PY_HEAD + r"\s+-\s*<<", re.IGNORECASE)
 _PY_DASH_C_ARG_RE = re.compile(
-    r"\bpython\s+-c\s+"
+    _PY_HEAD + r"\s+-c\s+"
     r"(?:"
     r'"(?P<dq>(?:[^"\\]|\\.)*)"'
     r"|'(?P<sq>[^']*)'"
@@ -767,31 +932,12 @@ _PY_DASH_C_ARG_RE = re.compile(
     r")",
     re.IGNORECASE | re.DOTALL,
 )
-
 _PY_HEREDOC_EXTRACT_RE = re.compile(
-    r"\bpython\s+-\s*<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*"
+    _PY_HEAD + r"\s+-\s*<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*"
     r"\n(?P<body>.*?)^\2\s*$",
     re.IGNORECASE | re.DOTALL | re.MULTILINE,
 )
 
-# A single extracted payload over this many characters is classified
-# "O" directly, with no attempt to `ast.parse` it at all -- a size cap
-# independent of, and much smaller than, the whole-command length this
-# file otherwise stays linear against; keeps a single classification
-# call bounded regardless of how large one -c argument or heredoc body
-# gets. Measured separately from whether decide() is gated by it (it
-# is not -- see the perf test in the test suite for the actual numbers
-# on 100KB/1MB commands).
-PYC_PAYLOAD_LIMIT = 20_000
-
-MSG_PYTHON_DASH_C_OPAQUE = (
-    "the python -c/heredoc payload is opaque to static analysis "
-    "(exec/eval/subprocess/dynamic dispatch, command hygiene point 4) "
-    "-- the gate cannot prove it writes nothing; move the code into a "
-    "named script instead (python <path>, including under scratchpad)"
-)
-
-# --- closed M/O lists ----------------------------------------------------
 _PATH_MUTATING_METHOD_NAMES = {
     "write_text", "write_bytes", "unlink", "rename", "replace",
     "mkdir", "touch", "rmdir",
@@ -804,7 +950,6 @@ _DUMP_QUALIFIED = {"json.dump", "pickle.dump", "csv.writer"}
 _PANDAS_LIKE_METHOD_NAMES = {"to_csv", "to_excel"}
 _WRITE_METHOD_NAMES = {"write", "writelines"}
 _STDIO_DOTTED = {"sys.stdout", "sys.stderr"}
-
 _OPAQUE_BARE_NAMES = {
     "exec", "eval", "compile", "__import__",
     "getattr", "setattr", "globals", "locals", "vars",
@@ -813,15 +958,12 @@ _OPAQUE_ROOT_MODULES = {
     "importlib", "subprocess", "ctypes", "marshal", "socket",
     "urllib", "requests", "multiprocessing", "pty", "builtins",
 }
+# The free `open(path, mode)`/`io.open` carries its mode at index 1; the METHOD form `X.open(mode)` at index 0.
+_FREE_OPEN_DOTTED_NAMES = {"open", "io.open"}
 
 
 def _dotted_call_name(node):
-    """Rebuilds a dotted name from an ast.Attribute/ast.Name chain
-    (e.g. `os.path.remove` -> "os.path.remove"). None when the base is
-    NOT a plain Name/Attribute chain (e.g. `__import__('os').remove`:
-    the base of `.remove` is the CALL `__import__('os')`, not a Name --
-    no dotted name is built, `.remove` is not credited as `os.remove`;
-    only `__import__` itself contributes to the opaque class there)."""
+    """A dotted name from an ast.Attribute/ast.Name chain; None when the base is not a plain chain."""
     parts = []
     cur = node
     while isinstance(cur, ast.Attribute):
@@ -833,27 +975,8 @@ def _dotted_call_name(node):
     return None
 
 
-# The free function `open(path, mode)`/`io.open(path, mode)` carries
-# its mode as the 2nd positional argument (index 1, path is index 0);
-# the METHOD form `X.open(mode)` (`Path(...).open('w')`,
-# `pathlib.Path.open`, any file-like object) carries mode as the 1ST
-# argument (index 0) -- self is implicit, there is no separate "path"
-# argument at all. Distinguished ONLY by the RESOLVED dotted name
-# (after the alias map): "open"/"io.open" is the free function; ANYTHING
-# else (including None -- an unresolvable base, the common case for
-# `Path(...).open(...)` where the base is itself a call) is the method
-# form.
-_FREE_OPEN_DOTTED_NAMES = {"open", "io.open"}
-
-
 def _classify_open_call(node, dotted):
-    """Classifies ONE `open(...)`/`X.open(...)` call: mode comes from
-    the positional index above, OR the `mode` keyword (shared by both
-    forms). A `**kwargs` spread hides the mode -> "O"; a literal mode
-    string containing w/a/x/+ -> "M"; a literal mode string without
-    those characters (e.g. "r", "rb") -> None (neutral, contributes to
-    "P"); a non-literal mode (a variable, an f-string) -> "O"; no mode
-    argument at all -> None (P)."""
+    """ONE `open(...)`/`X.open(...)` call -> "M" (literal write mode), "O" (mode hidden or non-literal), None."""
     if any(kw.arg is None for kw in node.keywords):
         return "O"
     mode_index = 1 if dotted in _FREE_OPEN_DOTTED_NAMES else 0
@@ -868,15 +991,7 @@ def _classify_open_call(node, dotted):
 
 
 def _build_import_alias_map(tree) -> dict:
-    """Walks top-level `ast.Import`/`ast.ImportFrom` nodes (a full
-    `ast.walk`, so it also catches imports nested inside `if`/`try`/a
-    function body) and builds a flat "local name -> canonical path"
-    map. `import os as o` -> {"o": "os"}; `import os` (no asname) ->
-    {"os": "os"} (identity, harmless); `from os import remove` ->
-    {"remove": "os.remove"}; `from os import remove as rm` ->
-    {"rm": "os.remove"}. A relative `from . import x` (module is None)
-    is skipped -- there is no canonical path to resolve it to (an
-    honest boundary, not a crash)."""
+    """"local name -> canonical path" from every import in the tree (a relative import is skipped)."""
     alias_map = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -890,36 +1005,23 @@ def _build_import_alias_map(tree) -> dict:
             if not node.module:
                 continue
             for alias in node.names:
-                local = alias.asname or alias.name
-                alias_map[local] = f"{node.module}.{alias.name}"
+                alias_map[alias.asname or alias.name] = f"{node.module}.{alias.name}"
     return alias_map
 
 
 def _resolve_dotted(raw_dotted, alias_map):
-    """Substitutes the ROOT of a dotted chain through the alias map
-    before matching against the M/O lists -- `o.remove` (map
-    {"o":"os"}) -> "os.remove"; a bare `remove` (map
-    {"remove":"os.remove"}) -> "os.remove" whole (ImportFrom maps the
-    NAME to the FULL path, not just the root). No entry in the map ->
-    the string is unchanged (ordinary names/builtin types)."""
+    """Substitutes the ROOT of a dotted chain through the alias map."""
     if raw_dotted is None:
         return None
     parts = raw_dotted.split(".")
-    root = parts[0]
-    if root in alias_map:
-        parts[0] = alias_map[root]
+    if parts[0] in alias_map:
+        parts[0] = alias_map[parts[0]]
         return ".".join(parts)
     return raw_dotted
 
 
 def _is_known_mutating_or_opaque_name(dotted) -> bool:
-    """True when the RESOLVED (post-alias-map) dotted name `dotted`
-    itself refers to `open`, OR to any M/O name in the closed lists --
-    used ONLY to detect a reassigned callable (`w = open`, `r =
-    os.remove`) -- the assignment itself is not a call, but it makes a
-    LATER call through `w`/`r` UNTRACKABLE by this classifier ->
-    opaque, REGARDLESS of whether the original target class was M or O
-    (a reassigned callable is opaque by definition here)."""
+    """True when a resolved name is `open` or any M/O name: a reassigned callable makes a later call untrackable."""
     if dotted is None:
         return False
     if dotted == "open":
@@ -938,27 +1040,8 @@ def _is_known_mutating_or_opaque_name(dotted) -> bool:
 
 
 def _classify_single_payload(text: str) -> str:
-    """Classifies ONE extracted payload -> "M"/"P"/"O": `ast.parse` +
-    a tree walk; any parse failure -> "O"; over `PYC_PAYLOAD_LIMIT` or
-    empty/whitespace-only -> "O" without attempting to parse at all.
-    Both M and O can fire inside the SAME payload -- M wins (M > O > P).
-
-    `attr` is read from `node.func.attr`/`node.func.id` INDEPENDENTLY
-    of whether `dotted` resolves -- this is what lets a CHAINED
-    receiver (`Path('x').write_text(...)` -- the base of `.write_text`
-    is the CALL `Path('x')`, not a Name/Attribute chain, so
-    `_dotted_call_name` returns None for it) still get caught by the
-    attribute-based M checks (Path methods/`.to_csv`/`.to_excel`/
-    `.write`/`.writelines`/`open`-as-an-attribute). The
-    `sys.stdout`/`sys.stderr` exclusion for `.write`/`.writelines`
-    applies ONLY when the base resolves; an unresolvable base (e.g.
-    `io.open().write(...)` -- the base of `.write` is itself the CALL
-    `io.open()`) is NOT excluded -> "M" (the conservative default). The
-    import alias map (`_build_import_alias_map`) resolves `import os as
-    o`/`from os import remove` before matching the qualified (non-
-    attribute) M/O lists; a separate pass over `ast.Assign`/
-    `ast.AnnAssign`/`ast.NamedExpr` catches a reassigned callable
-    (`w = open`) -> "O"."""
+    """ONE extracted payload -> "M"/"P"/"O" by `ast.parse` and a tree walk (M > O > P); a parse failure, an empty text
+    or a text over PYC_PAYLOAD_LIMIT -> "O". An unresolvable base of `.write` is NOT excluded -> "M"."""
     if len(text) > PYC_PAYLOAD_LIMIT:
         return "O"
     if not text.strip():
@@ -1047,35 +1130,27 @@ def _classify_single_payload(text: str) -> str:
     return "P"
 
 
-def _classify_pyc_payload(command: str, certain: bool | None = None) -> str:
-    """"M"|"P"|"O"|"U": "U" when `_is_python_dash_c_certain` is false --
-    the classification is not attempted at all, and the caller stays on
-    the OLD unconditional WARN text (see `_classify` below) -- an
-    obfuscated/wrapped/quoted-as-data match is exactly the class this
-    gate was already unable to prove anything about, so it keeps
-    warning rather than going silent or picking a text implying more
-    confidence than the gate actually has. Any exception inside is a
-    fail-safe toward "O" (opaque), not toward crashing `_classify`
-    entirely.
+def _is_python_dash_c_certain(command: str) -> bool:
+    """True when the python `-c`/`-` token survives the heredoc-body and quote masks. Past MAX_HEREDOC_OPENERS: False."""
+    if command.count("<<") > MAX_HEREDOC_OPENERS:
+        return False
+    masked = _mask_quoted_segments(_mask_heredoc_bodies(command))
+    return bool(PY_DASH_C_RE.search(masked) or PY_HEREDOC_RE.search(masked))
 
-    `certain` is an OPTIONAL precomputed result of
-    `_is_python_dash_c_certain` (`_collect_signals` below computes it
-    once and passes it in, rather than computing it twice); the public
-    one-argument call (`_classify_pyc_payload(command)`) still works,
-    computing it itself by default."""
+
+def _classify_pyc_payload(command: str, certain: bool | None = None) -> str:
+    """"M"|"P"|"O"|"U": "U" when the match is not certain; any exception -> "O"."""
     if certain is None:
         certain = _is_python_dash_c_certain(command)
     if not certain:
         return "U"
     try:
         payloads = []
-        for m in _PY_DASH_C_ARG_RE.finditer(command):
-            if m.group("dq") is not None:
-                payloads.append(m.group("dq"))
-            elif m.group("sq") is not None:
-                payloads.append(m.group("sq"))
-            else:
-                payloads.append(m.group("bare"))
+        for k, m in enumerate(_PY_DASH_C_ARG_RE.finditer(command)):
+            if k >= _MAX_PAYLOADS_PER_COMMAND:
+                return "O"
+            payloads.append(m.group("dq") if m.group("dq") is not None
+                            else m.group("sq") if m.group("sq") is not None else m.group("bare"))
         for m in _PY_HEREDOC_EXTRACT_RE.finditer(command):
             payloads.append(m.group("body"))
         if not payloads:
@@ -1090,173 +1165,435 @@ def _classify_pyc_payload(command: str, certain: bool | None = None) -> str:
     return "P"
 
 
-def _collect_signals(command: str) -> dict:
-    """The single point of computation for ALL signals -- used both by
-    decide() (assembling the JSON response below) and by
-    permission_audit.classify_hygiene (a measurement tool must walk the
-    exact same logic the gate does) -- one computation, not two
-    independently maintained copies. Returns BOOLEAN signals (not
-    ready-made messages/ordering/deny-vs-warn -- that assembly stays
-    with decide()).
-
-      - `journal` -- class (d), on the RAW command (plus PS write
-        forms, see _has_write_form).
-      - `cd` -- ANY cd/Set-Location prefix with a real continuation
-        (newline counts as a third separator, see _is_cd_prefix) -- the
-        broader signal, useful to a measurement tool even when the
-        target isn't the repo root.
-      - `cd_to_repo_root` -- a NARROWER signal (the target IS this
-        repo's own root) -- THIS ONE decides BLOCK vs WARN for class
-        (a) below; unaffected by quote/heredoc ambiguity (class (a)'s
-        determinism comes from position, not quoting -- see the module
-        docstring).
-      - `redirect` -- ` 2>&1` present on the quote-masked text -- ANY
-        presence, for measurement.
-      - `redirect_certain` -- `redirect` AND no `<<` on that same
-        masked text -- THIS ONE decides BLOCK vs WARN for class (b).
-      - `pyc` -- class (c), on the RAW command -- the BROAD signal,
-        UNCHANGED (`permission_audit.classify_hygiene` reads this key
-        by name; its meaning does not move).
-      - `pyc_certain` -- a NARROWER signal (`_is_python_dash_c_certain`
-        -- the same quote/heredoc-body masking principle as
-        `redirect_certain`) -- decides BLOCK vs WARN for class (c),
-        and ONLY when `PYC_DENY_ENABLED` is also on (off by default,
-        see its own docstring).
-      - `pyc_payload` -- "M"/"P"/"O"/"U" (`_classify_pyc_payload`, see
-        its own docstring) -- decides the WARN TEXT for class (c) when
-        it does not block; computed from the ALREADY-computed
-        `pyc_certain` value (not recomputed a second time)."""
-    cd_hit = _is_cd_prefix(command)
-    redirect_signal = _collect_redirect_signal(command)
-    pyc_certain_value = _is_python_dash_c_certain(command)
-    return {
-        "journal": _is_journal_bypass(command),
-        "cd": cd_hit,
-        "cd_to_repo_root": cd_hit and _is_cd_to_repo_root(command),
-        "redirect": redirect_signal["present"],
-        "redirect_certain": redirect_signal["certain"],
-        "pyc": _is_python_dash_c(command),
-        "pyc_certain": pyc_certain_value,
-        "pyc_payload": _classify_pyc_payload(command, certain=pyc_certain_value),
-    }
+# =========================================================================
+# The pure signal walk
+# =========================================================================
+_CD_OPTIONS = frozenset({"-p", "-l", "-e", "-@", "-path", "-literalpath", "-pspath", "--"})
 
 
-def _classify(command: str) -> tuple[int, dict | None]:
-    """Assembles the JSON response from `_collect_signals` (see its
-    docstring for what each signal means). See the module docstring for
-    the full per-class BLOCK/WARN/silent rules.
+def _compose(prefix: tuple, target: str) -> str:
+    """`target` seen from the directory the literal `cd` chain `prefix` leads to, as a string (no filesystem): an absolute
+    component restarts the path, a relative one is appended; the caller resolves the result against the payload cwd."""
+    path = ""
+    for part in (*prefix, target):
+        path = part if (not path or _is_absolute(part)) else path.rstrip("\\/") + "/" + part
+    return path
 
-    Fixed ORDER when several classes fire at once: journal -> cd ->
-    2>&1 -> python -c/heredoc. `permissionDecisionReason` is the FIRST
-    BLOCK reason in that order; `additionalContext` (belt-and-
-    suspenders) lists ALL BLOCK reasons in that order, then all
-    remaining WARN reasons, as one string. The python -c/heredoc BLOCK
-    is placed STRICTLY LAST: for every command that already denies
-    today (journal/cd/2>&1), adding this class never changes
-    `permissionDecisionReason` (it always takes the FIRST element of
-    `deny_reasons`)."""
-    signals = _collect_signals(command)
-    journal_hit = signals["journal"]
-    cd_hit = signals["cd"]
-    cd_to_repo_root = signals["cd_to_repo_root"]
-    redirect_present = signals["redirect"]
-    redirect_certain = signals["redirect_certain"]
-    pyc_hit = signals["pyc"]
-    pyc_certain = signals["pyc_certain"]
-    payload_class = signals["pyc_payload"]
-    pyc_deny = PYC_DENY_ENABLED and pyc_certain
 
-    deny_reasons = []
-    if journal_hit:
-        deny_reasons.append(MSG_JOURNAL_BLOCK)
-    if cd_to_repo_root:
-        deny_reasons.append(MSG_CD_PREFIX)
-    if redirect_certain:
-        deny_reasons.append(MSG_REDIRECT_STDERR)
-    if pyc_deny:
-        deny_reasons.append(MSG_PYTHON_DASH_C_BLOCK)
+class _Walker:
+    """One pass over the statements of a command: fills the signal dict. Pure (no subprocess, filesystem or clock).
 
-    warn_reasons = []
-    if cd_hit and not cd_to_repo_root:
-        warn_reasons.append(MSG_CD_NON_ROOT_WARN)
-    if redirect_present and not redirect_certain:
-        warn_reasons.append(MSG_REDIRECT_STDERR)
-    # payload_class == "P" (certain AND provably clean) -> silence;
-    # "O" -> the dedicated opaque text; "M"/"U" -> the old unconditional
-    # text, verbatim (an uncertain match warns exactly as before this
-    # narrowing).
-    if pyc_hit and not pyc_deny and payload_class != "P":
-        warn_reasons.append(
-            MSG_PYTHON_DASH_C_OPAQUE if payload_class == "O" else MSG_PYTHON_DASH_C
-        )
+    `scopes` is a stack of directory scopes, one per open `( )` / `$( )` group (the entry for depth d is what the group's
+    statements run in): a tuple of the literal `cd` targets seen so far in the group (`()` = the payload cwd), or None
+    = unresolved (a non-literal cd, `cd -`, `popd`, a shell whose groups do not scope the directory). A group inherits
+    its parent's scope when it opens and loses its own when it closes, so a `cd` inside `( ... )` never leaks out."""
 
-    if deny_reasons:
-        context_parts = deny_reasons + warn_reasons
-        return 0, {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reasons[0],
-                "additionalContext": "Command hygiene: " + "; ".join(context_parts),
-            }
-        }
+    def __init__(self, command: str, tool_name: str):
+        self.cap = SHELL_CAPABILITIES.get(tool_name, SHELL_CAPABILITIES["PowerShell"])   # decide() passes only known names
+        self.rules = _RULES[self.cap["dq_escape"]]
+        self.sig = {"cd": [], "write_targets": [], "journal": False, "rollback_forms": [],
+                    "pyc_payload": "U", "payload_uncertain": False}
+        self.over_cap = command.count("<<") > MAX_HEREDOC_OPENERS
+        self.raw, self.bodies = _scan_heredocs(command)
+        masked = _mask_quoted_segments(self.raw, self.cap["dq_escape"])
+        self.raw, masked = _blank_comments(self.raw, masked)
+        if self.cap["arith_regions"]:
+            self.raw, masked = _neutralize_regions(self.raw, masked)
+        self.masked = masked
+        self.scopes = [()]
+        self.last_content = -1
+        self.payloads_seen = 0
+        self.start_res = [_START_WORD_RE] + ([_PS_ASSIGN_RE] if self.cap["assign_prefix"] else [])
 
-    if warn_reasons:
-        return 0, {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "additionalContext": (
-                    "Command hygiene (WARN, does not block): " + "; ".join(warn_reasons)
-                ),
-            }
-        }
+    # --- the statement loop
+    def run(self) -> dict:
+        for idx, st in enumerate(_split_statements(self.masked)):
+            self._enter_scope(st.depth)
+            a = self._content_start(st)
+            seg = self.raw[a:st.end]
+            if not seg.strip():
+                continue
+            self.last_content = idx
+            toks = _tokenize(seg, self.rules)
+            words = [t for t in toks if isinstance(t, _Word)]
+            k = 0
+            while k < len(words) and _ASSIGN_RE.match(words[k].text) and not words[k].text.startswith("-"):
+                k += 1
+            cmdwords = words[k:]
+            cmd = _cmd_name(cmdwords[0].text) if cmdwords else ""
+            args = cmdwords[1:]
+            self._cd_class(cmd, args, st, idx)
+            if not (self.over_cap and "<<" in self.masked[a:st.end]):
+                self._write_classes(cmd, args, [t for t in toks if isinstance(t, _Redir)], st)
+                if cmd == "git":
+                    self._rollback(args)
+        self._dotnet()
+        self._bare_return()
+        return self.sig
 
+    def _enter_scope(self, depth: int) -> None:
+        del self.scopes[depth + 1:]
+        while len(self.scopes) < depth + 1:
+            self.scopes.append(self.scopes[-1])
+
+    def _content_start(self, st) -> int:
+        a = st.start
+        moved = True
+        while moved:
+            moved = False
+            for rx in self.start_res:
+                m = rx.match(self.masked, a, st.end)
+                if m and m.end() > a:
+                    a, moved = m.end(), True
+        return a
+
+    # --- cd class
+    def _cd_class(self, cmd: str, args: list, st, idx: int) -> None:
+        hit = None
+        if cmd in _CD_VERBS:
+            tgt = [w for w in args if w.text.lower() not in ("-path", "-literalpath", "-pspath", "--")]
+            hit = {"verb": cmd, "target": tgt[0].text if tgt else "", "in_subshell": st.sub,
+                   "bare_return": False, "_n": len(tgt), "_idx": idx}
+            self._move_scope(cmd, args)
+        elif cmd == "eval" and args:
+            first = " ".join(w.text for w in args).split(None, 1)
+            if first and first[0].lower() in _CD_VERBS:
+                hit = {"verb": "eval", "target": "", "in_subshell": st.sub, "bare_return": False, "_n": 2, "_idx": idx}
+                self._move_scope("eval", args)
+        if hit is not None:
+            self.sig["cd"].append(hit)
+
+    def _move_scope(self, cmd: str, args: list) -> None:
+        """A directory move changes the scope of the group it stands in (and of the groups it opens afterwards)."""
+        if not self.cap["subshell_scopes_cwd"]:
+            self.scopes[:] = [None] * len(self.scopes)      # the move is refused anyway; nothing after it resolves
+            return
+        words = [w for w in args if w.text.lower() not in _CD_OPTIONS]
+        target = words[0] if len(words) == 1 and cmd in ("cd", "chdir", "set-location", "sl", "pushd", "push-location") \
+            else None
+        if target is None or not target.literal or target.text in ("-", ""):
+            self.scopes[-1] = None
+        elif _is_absolute(target.text):
+            self.scopes[-1] = (target.text,)
+        elif self.scopes[-1] is not None:
+            self.scopes[-1] = (*self.scopes[-1], target.text)
+
+    # --- write classes
+    def _add_target(self, form: str, target: str) -> bool:
+        """Records a literal write target as seen from the payload cwd; False (nothing recorded) when the directory the
+        statement runs in is unresolved and the target is relative."""
+        prefix = self.scopes[-1]
+        if prefix is None and not _is_absolute(target):
+            return False
+        full = _compose(prefix or (), target)
+        if _is_journal_target(full):
+            self.sig["journal"] = True
+        self.sig["write_targets"].append((form, full))
+        return True
+
+    def _write_classes(self, cmd: str, args: list, redirs: list, st) -> None:
+        for r in redirs:                                    # M1: redirects
+            path = self._redirect_path(r)
+            if path:
+                self._add_target("redirect", path)
+        for w in _path_targets(cmd, args):                  # M1: tee-likes
+            text = w.text.strip("\r ")
+            if w.literal and text and text.lower() not in _NULL_SINKS:
+                self._add_target(cmd, text)
+        reader = INPLACE_EDITORS.get(cmd)                   # M2: in-place editors
+        if reader is not None:
+            for w in reader(args):
+                if w.literal and w.text.strip("\r "):
+                    self._add_target(cmd, w.text.strip("\r "))
+        row = next((r for r in PAYLOAD_INTERPRETERS if cmd and r["name"].match(cmd)), None)
+        if row is not None and row["payload_classifier"] == "python":      # M3: interpreter payloads
+            self._payload(args, row, st)
+
+    @staticmethod
+    def _redirect_path(r):
+        if r.op not in (">", ">>", ">|", "&>", "&>>", ">&") or r.fd == "0" or r.target is None:
+            return None
+        t = r.target
+        if r.op == ">&" and re.fullmatch(r"\d+-?|-", t.text):
+            return None
+        path = t.text.strip("\r ")
+        if not path or path.lower() in _NULL_SINKS or path.startswith("/dev/") or not t.literal:
+            return None
+        return path
+
+    def _payload(self, args: list, row, st) -> None:
+        word, is_payload = _python_payload(args, row)
+        texts, dynamic, found = None, False, False
+        if word is not None:
+            texts = [word.text] + ([word.inner] if word.inner != word.text else [])
+            dynamic, found = word.dynamic, True
+        elif is_payload:
+            mine = next(((q, b) for p, q, b in self.bodies if st.start <= p < st.end), None)
+            if mine is not None:
+                texts, found = [mine[1]], True
+                dynamic = not mine[0] and bool(re.search(r"[$`]", mine[1]))   # an unquoted delimiter expands
+        if not found:
+            return
+        self.payloads_seen += 1
+        if self.payloads_seen > _MAX_PAYLOADS_PER_COMMAND:
+            self.sig["payload_uncertain"] = True
+            return
+        targets, uncertain = _payload_verdict(texts, dynamic)
+        self.sig["payload_uncertain"] = self.sig["payload_uncertain"] or uncertain
+        for t in targets:
+            t = t.strip("\r ")
+            if t and not self._add_target("payload", t):
+                self.sig["payload_uncertain"] = True
+
+    # --- rollback forms: EVERY shape in the command is kept, each with the directory it runs in
+    def _rollback(self, args: list) -> None:
+        form = _rollback_form(args)
+        if form is None:
+            return
+        prefix = self.scopes[-1]
+        if prefix is None:
+            form["unresolvable"] = form.get("unresolvable") or "the directory was changed by a cd the gate cannot follow"
+        else:
+            form["c_chain"] = [*prefix, *form["c_chain"]]
+        self.sig["rollback_forms"].append(form)
+
+    # --- after the loop
+    def _dotnet(self) -> None:
+        """.NET calls hold a `(`, which the statement split cuts at: they are read from the whole masked text."""
+        for _nm in _NET_CD_RE.finditer(self.masked):
+            self.sig["cd"].append({"verb": "SetCurrentDirectory", "target": "", "in_subshell": False,
+                                   "bare_return": False})
+        if self.over_cap:
+            return
+        moved = any(not h["bare_return"] for h in self.sig["cd"])
+        for nm in _NET_WRITE_RE.finditer(self.masked):
+            t = (_net_target(self.raw, nm.end()) or "").strip("\r ")
+            if t and not (moved and not _is_absolute(t)):
+                if _is_journal_target(t):
+                    self.sig["journal"] = True
+                self.sig["write_targets"].append(("dotnet", t))
+
+    def _bare_return(self) -> None:
+        """A bare `cd <this root>` as the LAST statement is the way back and stays legal."""
+        for h in self.sig["cd"]:
+            if (h["verb"] in _CD_RETURN_VERBS and h["_idx"] == self.last_content and not h["in_subshell"]
+                    and h["_n"] == 1
+                    and re.split(r"[\\/]", h["target"].rstrip("\\/"))[-1].lower() == _REPO_ROOT_NAME.lower()):
+                h["bare_return"] = True
+        for h in self.sig["cd"]:
+            h.pop("_n", None)
+            h.pop("_idx", None)
+
+
+def _collect_signals(command: str, tool_name: str = "Bash") -> dict:
+    """FORMS only, pure (no subprocess, no filesystem, no clock): permission_audit replays history through it.
+    `tool_name` picks the shell's capability row (quote rules, groups, arithmetic); Bash by default.
+
+      - `cd`              list of {verb, target, bare_return, in_subshell}: every directory move found
+      - `write_targets`   list of (form, literal target seen from the payload cwd): redirects, tee-likes, .NET writes,
+                          in-place editors, python payload writes; non-literal targets and relative targets of an
+                          unresolved directory are not here
+      - `journal`         a resolved write target is a journal file
+      - `rollback_forms`  list of dicts (shape, scope, view, c_chain, unresolvable ...), one per git rollback shape
+      - `pyc_payload`     advisory "M"/"P"/"O"/"U", kept for measurement
+      - `payload_uncertain` a python payload the gate cannot resolve"""
+    sig = _Walker(command, tool_name).run()
+    try:
+        sig["pyc_payload"] = _classify_pyc_payload(command)
+    except Exception:
+        sig["pyc_payload"] = "O"
+    return sig
+
+
+# =========================================================================
+# decide(): the only place that touches the filesystem or git
+# =========================================================================
+_MSYS_PATH_RE = re.compile(r"^/([A-Za-z])/(.*)$")
+
+
+def _absolute_target(target: str, cwd: str) -> str:
+    p = os.path.expanduser(target)
+    if os.name == "nt":
+        m = _MSYS_PATH_RE.match(p.replace("\\", "/"))
+        if m:
+            p = f"{m.group(1).upper()}:/{m.group(2)}"
+    if not os.path.isabs(p):
+        p = os.path.join(cwd, p)
+    return os.path.normpath(p)
+
+
+def _tree_root(path: str):
+    """The nearest ancestor of `path` holding `.git` (file or directory), by path walk; None when there is none."""
+    d = os.path.dirname(path)
+    while True:
+        if os.path.lexists(os.path.join(d, ".git")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def _tree_display(target: str, cwd: str):
+    """The root-relative path of `target` when it lies in a git working tree (not under `.git/`, not an ignore row);
+    None otherwise. A target that cannot be resolved is not in a tree."""
+    try:
+        path = _absolute_target(target, cwd)
+        root = _tree_root(path)
+        if root is None:
+            return None
+        rel = os.path.relpath(path, root).replace("\\", "/")
+    except (ValueError, OSError):
+        return None
+    low = rel.lower()
+    if low == ".git" or low.startswith(".git/") or any(low.startswith(row) for row in HYGIENE_IGNORE_ROWS):
+        return None
+    return rel
+
+
+def _parse_status(raw: bytes) -> list:
+    """`git status --porcelain=v1 -z` -> [(XY, path)]; a rename/copy carries one extra field."""
+    fields = raw.decode("utf-8", "replace").split("\0")
+    out, i = [], 0
+    while i < len(fields):
+        f = fields[i]
+        i += 1
+        if len(f) < 4:
+            continue
+        xy = f[:2]
+        if "R" in xy or "C" in xy:
+            i += 1
+        out.append((xy, f[3:]))
+    return out
+
+
+def _measure_rollback(form: dict, cwd: str):
+    """("refuse", n, dir) | ("pass",) | ("marker", reason). Never raises."""
+    try:
+        if form.get("unresolvable"):
+            return ("marker", "unresolvable: " + form["unresolvable"])
+        if os.environ.get("GIT_DIR") or os.environ.get("GIT_WORK_TREE"):
+            return ("marker", "GIT_DIR or GIT_WORK_TREE is set in the hook environment")
+        run = getattr(gitcmd, "git", None)
+        if run is None:
+            return ("marker", "gitcmd is not importable")
+        directory = cwd
+        for c in form["c_chain"]:
+            directory = _absolute_target(c, directory)      # the one resolver (MSYS paths, ~, absolute restarts)
+        if not os.path.isdir(directory):
+            return ("marker", f"addressed directory absent: {directory}")
+        scope = list(form["scope"])
+        if form["check_arg"] is not None:
+            if not os.path.exists(os.path.join(directory, form["check_arg"])):
+                return ("pass",)            # a branch switch: git itself refuses to overwrite dirty files
+        view = form["view"]
+        flags = ["--untracked-files=no"] if view == "tracked" else ["--untracked-files=normal"]
+        if view == "clean" and (form.get("clean_x") or form.get("clean_X")) or form.get("stash_ignored"):
+            flags.append("--ignored")
+        args = (["--literal-pathspecs"] if form.get("literal_pathspecs") else []) + [
+            "status", "--porcelain=v1", "-z", *flags]
+        if scope:
+            args += ["--", *scope]
+        rc, out = run(directory, *args, timeout=5)
+        if rc != 0:
+            return ("marker", f"git status did not run (rc {rc})")
+        entries = _parse_status(out)
+        if view == "clean":
+            want_untracked = not form.get("clean_X")
+            want_ignored = form.get("clean_x") or form.get("clean_X")
+            kept = []
+            for xy, path in entries:
+                if xy == "??" and want_untracked and (form.get("clean_d") or not path.endswith("/")):
+                    kept.append((xy, path))
+                elif xy == "!!" and want_ignored and (form.get("clean_d") or not path.endswith("/")):
+                    kept.append((xy, path))
+            entries = kept
+        elif not form.get("stash_ignored"):
+            entries = [e for e in entries if e[0] != "!!"]
+        if entries:
+            return ("refuse", len(entries), directory)
+        return ("pass",)
+    except Exception as exc:  # noqa: BLE001 -- never a refusal from an exception
+        return ("marker", f"{type(exc).__name__}: {str(exc)[:80]}")
+
+
+def _clip(text: str) -> str:
+    """The tail of a long path (the informative end), at most SHOWN_TARGET_CHARS characters."""
+    return text if len(text) <= SHOWN_TARGET_CHARS else "..." + text[-(SHOWN_TARGET_CHARS - 3):]
+
+
+def _decide_command(tool_name: str, command: str, payload: dict):
+    sig = _collect_signals(command, tool_name)
+    cwd = payload.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        cwd = os.getcwd()
+    deny, notes, warn = [], [], []
+    if sig["journal"]:
+        deny.append(MSG_JOURNAL_BLOCK)
+        shown = [t for _f, t in sig["write_targets"] if _is_journal_target(t)][:1]
+        if shown:
+            notes.append("journal target: " + shown[0][:120])
+    for form in sig["rollback_forms"]:          # every shape is measured; the first one that hits a dirty tree refuses
+        verdict = _measure_rollback(form, cwd)
+        if verdict[0] == "refuse":
+            deny.append(MSG_ROLLBACK.format(n=verdict[1], dir=_clip(verdict[2])))
+            break
+        if verdict[0] == "marker":
+            note = MSG_ROLLBACK_NOT_CHECKED.format(reason=verdict[1])
+            if note not in notes:
+                notes.append(note)
+    capability = SHELL_CAPABILITIES[tool_name]      # decide() lets only the two rows' tools through
+    if any(not h["bare_return"] and not (h["in_subshell"] and capability["subshell_scopes_cwd"]) for h in sig["cd"]):
+        deny.append(capability["cd_door"])
+    for _form, target in sig["write_targets"]:
+        shown = _tree_display(target, cwd)
+        if shown is not None:
+            deny.append(MSG_MUTATION.format(target=_clip(shown)))
+            break
+    if sig["payload_uncertain"]:
+        warn.append(MSG_WARN_PAYLOAD)
+    if deny:
+        return 0, {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": deny[0],
+            "additionalContext": DENY_PREFIX + "; ".join(deny + notes + warn),
+        }}
+    if notes:
+        return 0, {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": DENY_PREFIX + "; ".join(notes)
+            + ("; " + "; ".join(warn) if warn else ""),
+        }}
+    if warn:
+        return 0, {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": WARN_PREFIX + "; ".join(warn),
+        }}
     return 0, None
 
 
-# --- fail-open marker ----------------------------------------------------
-MSG_FAIL_OPEN_TEMPLATE = (
-    "hygiene_gate: internal classifier error ({exc_type}), hygiene was NOT checked"
-)
-
-
 def decide(payload: dict) -> tuple[int, dict | None]:
-    """Entry point -- validates the payload (a silent pass on empty/
-    malformed input), then classifies the command via `_classify`.
-    exit_code is ALWAYS 0, including on a BLOCK: the block is signalled
-    entirely via hookSpecificOutput.permissionDecision="deny" in the
-    JSON on stdout, never through the process return code.
-
-    Fail-open with a visible marker: ANY exception raised while
-    classifying is caught HERE (not only in main()), so a direct
-    decide() call in tests -- no subprocess -- also gets fail-open if a
-    monkeypatched helper raises. `permissionDecision` never appears on
-    this branch. See the module docstring's "Fail-open with a visible
-    marker" for why fail-closed and silent fail-open were both
-    rejected."""
+    """Entry point: a silent pass on empty or malformed input, else the classification. exit_code is ALWAYS 0 (a
+    refusal is `permissionDecision: "deny"` on stdout). Any exception while classifying fails open VISIBLY."""
     if not isinstance(payload, dict):
         return 0, None
-
     tool_name = payload.get("tool_name")
     if tool_name not in ("Bash", "PowerShell"):
         return 0, None
-
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         return 0, None
     command = tool_input.get("command")
     if not isinstance(command, str) or not command:
         return 0, None
-
     try:
-        return _classify(command)
+        return _decide_command(tool_name, command, payload)
     except Exception as exc:  # noqa: BLE001 -- intentionally broad: see module docstring
         return 0, {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "additionalContext": MSG_FAIL_OPEN_TEMPLATE.format(
-                    exc_type=type(exc).__name__
-                ),
+                "additionalContext": MSG_FAIL_OPEN_TEMPLATE.format(exc_type=type(exc).__name__),
             }
         }
 
@@ -1276,8 +1613,7 @@ def _reconfigure_stdout_utf8():
 # sys.stdin.read() directly. On a timeout, the payload degrades to "no
 # payload" (silent pass, same as empty/malformed stdin), never a hang or a
 # crash. This is a LOCAL copy of the same helper tools/session_context.py
-# carries -- by design, not an oversight: each hook stays self-contained
-# (module docstring's "Reading stdin on a deadline").
+# carries -- by design, not an oversight: each hook stays self-contained.
 # ---------------------------------------------------------------------------
 
 _STDIN_DEADLINE_DEFAULT = 10.0
@@ -1286,10 +1622,8 @@ _STDIN_DEADLINE_ENV = "OSLLM_STDIN_TIMEOUT"
 
 
 def _stdin_deadline_seconds():
-    """Seconds to wait for stdin: env override, else the default.
-    Invalid, non-numeric, <=0, or > _STDIN_DEADLINE_MAX all fall back to
-    the default -- there is deliberately NO "0 = wait forever" mode (that
-    would resurrect the exact hang this helper exists to close)."""
+    """Seconds to wait for stdin: env override, else the default. Invalid, non-numeric, <=0, or > _STDIN_DEADLINE_MAX
+    all fall back to the default -- there is deliberately NO "0 = wait forever" mode."""
     try:
         value = float(os.environ.get(_STDIN_DEADLINE_ENV, ""))
     except (TypeError, ValueError):
@@ -1300,13 +1634,9 @@ def _stdin_deadline_seconds():
 
 
 def _read_stdin_bytes_deadline():
-    """Returns (bytes, timed_out). Reads stdin to EOF, bounded by the
-    deadline above. A background daemon thread does the actual blocking
-    read; the deadline is enforced via thread.join(timeout) -- portable
-    across platforms where select/poll do not work on pipes (Windows).
-    A TTY returns b"" immediately, without reading anything. Any read
-    error degrades to b"" -- fail-open, same discipline as the rest of
-    this file."""
+    """Returns (bytes, timed_out). Reads stdin to EOF, bounded by the deadline above (a daemon thread does the
+    blocking read; `thread.join(timeout)` enforces the deadline, portable to Windows pipes). A TTY returns b""
+    immediately. Any read error degrades to b""."""
     stdin = getattr(sys, "stdin", None)
     if stdin is None:
         return b"", False
@@ -1337,26 +1667,13 @@ def _read_stdin_bytes_deadline():
 
 _STDIN_DEADLINE_MSG = "stdin deadline exceeded -- fail-open, payload discarded"
 
-# Set when a stdin read actually timed out. The reader thread above is
-# left running as a daemon (it may still be blocked deep inside a
-# platform read syscall) -- on normal interpreter shutdown, a background
-# thread blocked on the real stdin buffered reader can crash the process
-# ("Fatal Python error: _enter_buffered_busy") instead of exiting
-# cleanly. main() itself is unaffected (a plain `return`, safe
-# in-process); only the actual __main__ script-exit path below
-# escalates to os._exit() when this flag is set.
+# Set when a stdin read actually timed out: the reader thread is left running as a daemon, and a normal interpreter
+# shutdown with it blocked in a platform read can crash, so the __main__ path escalates to os._exit().
 _STDIN_DEADLINE_STATE = {"hit": False}
 
 
 def main() -> int:
     _reconfigure_stdout_utf8()
-
-    # Byte-safe, deadline-bounded stdin read: the deadline helper reads
-    # raw bytes via a background thread (bypassing the platform text-mode
-    # encoding of sys.stdin, same as the direct sys.stdin.buffer.read()
-    # this replaces), with an explicit utf-8 decode (errors="replace")
-    # that fails open on bad bytes -- now additionally bounded by
-    # OSLLM_STDIN_TIMEOUT instead of blocking forever with no EOF.
     raw_bytes, timed_out = _read_stdin_bytes_deadline()
     if timed_out:
         _STDIN_DEADLINE_STATE["hit"] = True
@@ -1365,7 +1682,7 @@ def main() -> int:
         except Exception:
             pass
         return 0
-    raw = raw_bytes.decode("utf-8", errors="replace")
+    raw = raw_bytes.decode("utf-8-sig", errors="replace")   # a UTF-8 BOM is decoded, not a parse failure
     try:
         payload = json.loads(raw)
     except Exception:
@@ -1380,11 +1697,6 @@ def main() -> int:
 if __name__ == "__main__":
     _rc = main()
     if _STDIN_DEADLINE_STATE["hit"]:
-        # A stdin-reader thread may still be blocked deep inside a
-        # platform read syscall -- normal interpreter shutdown can crash
-        # on that ("Fatal Python error: _enter_buffered_busy"). Flush
-        # both streams defensively, then exit immediately without
-        # running the normal shutdown sequence.
         try:
             sys.stdout.flush()
         except Exception:
