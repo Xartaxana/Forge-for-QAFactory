@@ -194,15 +194,15 @@ def _repo_state(ctx, name: str, record: dict, entry) -> SimpleNamespace:
     ''), `base`, `how`. The chain diff -> recorded repo id and commit (the table's matcher) -> checkout (the config's) -> commit."""
     state = SimpleNamespace(problem="", checkout=None, impl="", base="", how="")
     commit = record["implementation_commit"]
+    found, why = HC.implementation_checkout(entry, ctx.cfg, ctx.project, name)
+    state.checkout = found                                                 # kept even when the commit is unrecorded (B-355: one checkout per diff)
     if not COMMIT_RE.fullmatch(commit):
         # the table's reason as is (G1-2: one cause, ONE text in `blast_radius` and here); the `unmeasured: ` prefix is the table's, not ours
         state.problem = commit[len("unmeasured: "):] if commit.startswith("unmeasured: ") else commit
         return state
-    found, why = HC.implementation_checkout(entry, ctx.cfg, ctx.project, name)
     if found is None:
         state.problem = why
         return state
-    state.checkout = found
     present = _is_commit(found, commit)
     if present is None:
         state.problem = _timeout_text(found)
@@ -419,7 +419,8 @@ def _collect_diff(ctx, name: str, files: list, record: dict, entry, wanted: set,
     repo = record["repo"]
     listed = {f["path"]: f for f in files}
     word = ctx.cfg if isinstance(ctx.cfg, dict) and ctx.cfg else None     # the project's word, judged through this diff's own checkout (B-355)
-    checkout = HC.diff_checkout(ctx.root, name, word, ctx.project)[0] if word else None
+    state = _repo_state(ctx, name, record, entry)
+    checkout = state.checkout                                                                     # the same checkout blast_radius passes (AR-15)
     chosen = {p: f for p, f in listed.items()
               if (TF.file_kind(p) if word is None else TF.file_kind(p, root=ctx.project, word=word, checkout=checkout)) in KINDS
               or p in wanted}
@@ -427,7 +428,6 @@ def _collect_diff(ctx, name: str, files: list, record: dict, entry, wanted: set,
     chosen.update({p: None for p in sorted(wanted - set(listed))})
     if not chosen:
         return
-    state = _repo_state(ctx, name, record, entry)
     paths = sorted(chosen)
     if state.problem:                                                                             # a repository-wide failure marks only
         res.entries += [_entry(repo, p, "", "unknown", state.problem) for p in own]               # the files of this repository's diff

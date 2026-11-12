@@ -145,7 +145,7 @@ def _context(root: Path, project, cfg) -> SimpleNamespace:
         stem = name[:-len(".txt")] if name.endswith(".txt") else name
         sha = ctx.stamp.diffs.get(name)
         rec = SimpleNamespace(name=name, path=f"work/{name}", repo=stem[len("impl-diff"):].lstrip("-"), sha=sha, entry=entry,
-                              entry_why=why, state="", reason="", checkout=None, head=None, search="", search_reason="",
+                              entry_why=why, state="", reason="", checkout=None, found=None, head=None, search="", search_reason="",
                               commit=GT.commit_value(entry, name) if entry else _unmeasured(why),
                               unreadable=_one_line(unreadable[name]) if name in unreadable else ("" if sha is not None else f"{name} cannot be read"))
         rec.rid = str((entry or {}).get("repo_id") or (entry or {}).get("repo") or "").strip()
@@ -186,6 +186,7 @@ def _classify(ctx, rec) -> None:
     if found is None and not why.startswith(NO_CHECKOUT):
         rec.state, rec.reason = "unknown_repo", why
         return
+    rec.found = found                                                        # the checkout of this diff, kept when its commit is unrecorded
     if not GT.COMMIT_RE.fullmatch(rec.commit):
         rec.state, rec.reason = "no_record", rec.commit[len(UNMEASURED):] if rec.commit.startswith(UNMEASURED) else rec.commit
         return
@@ -251,7 +252,7 @@ def _kind(ctx, path: str, checkout=None) -> str:
 
 def _new_area(ctx, f: dict) -> SimpleNamespace:
     """One area per DP file record (I5): the public part `out`, and what the stages need besides."""
-    kind = _kind(ctx, f["path"], ctx.by_diff[f["diff"]].checkout)
+    kind = _kind(ctx, f["path"], ctx.by_diff[f["diff"]].found)
     a = SimpleNamespace(f=f, rec=ctx.by_diff[f["diff"]], kind=kind, change=_change(f), names=[], own=set(), gap="")
     real = [h for h in f["hunks"] if not h.get("pseudo")]
     a.added = {n for h in real for n, sign, _text in h["lines"] if sign == "+"}
@@ -507,7 +508,7 @@ def _grep(rec, names) -> tuple:
 def _file_sites(ctx, rec, raw, nameset) -> None:
     """Sort the sites of one repository's search into callers / tests / same-name definitions, per name."""
     for path, line, text in raw:
-        kind = _kind(ctx, path, rec.checkout)
+        kind = _kind(ctx, path, rec.found)
         made = DEF_RE.match(text) if path.endswith(".py") else None
         defined = made.group(1) if made else ""
         for name in _attribute(text, nameset, strict=kind == "test"):

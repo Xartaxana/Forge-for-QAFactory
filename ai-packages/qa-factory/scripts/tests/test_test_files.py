@@ -518,18 +518,37 @@ def part_sites() -> None:
                  ("blast_radius-N-usual-folder-is-a-test", kind(cfg_an, "tests/a.py", app), "test"),
                  ("blast_radius-N-no-word-is-today", kind({}, "tests/a.py", app), "test")]
         # base_slice._collect_diff (item 11): the entries of a repository whose base cannot be had name the files that matter (no git needed)
-        def chosen(cfg):
+        entry = {"repo_id": "app", "diff_path": "work/impl-diff.txt"}
+        paths3 = ("src/legacy/a.py", "tests/b.py", "src/new/c.py")
+        def chosen(cfg, entry=entry):
             res = SimpleNamespace(entries=[], failed=[])
             ctx = SimpleNamespace(root=task, project=proj, cfg=cfg)
             record = {"repo": "", "repo_id": "app", "implementation_commit": ""}
-            files = [{"path": p} for p in ("src/legacy/a.py", "tests/b.py", "src/new/c.py")]
-            BS._collect_diff(ctx, "impl-diff.txt", files, record, None, set(), res)
+            files = [{"path": p} for p in paths3]
+            BS._collect_diff(ctx, "impl-diff.txt", files, record, entry, set(), res)
             return [e["file"] for e in res.entries]
+        def blast_kept(cfg, entry=entry):
+            # blast_radius side of the same diff: the commit is unrecorded (no_record), the checkout it found is kept on the record
+            rec = SimpleNamespace(entry=entry, name="impl-diff.txt", unreadable="", commit="", entry_why="", found=None, checkout=None)
+            ctx = SimpleNamespace(cfg=cfg, project=proj, kinds={})
+            BR._classify(ctx, rec)
+            ctx.by_diff = {rec.name: rec}
+            def area(p):                                                   # blast_radius's own site: the kind of the path of one diff file
+                f = {"path": p, "diff": rec.name, "repo": "", "hunks": [], "added": 0, "removed": 0, "path_uncertain": False,
+                     "refused": False, "new": False, "deleted": False}
+                return BR._new_area(ctx, f).kind
+            return [p for p in paths3 if area(p) in BS.KINDS]
         rows += [("base_slice-R-the-record-names-a-test", chosen(cfg_ar), ["src/new/c.py", "tests/b.py"]),
                  ("base_slice-N-usual-folder-is-a-test", chosen(cfg_an), ["src/legacy/a.py", "src/new/c.py"]),
-                 ("base_slice-unreadable-is-today", chosen({}), ["src/legacy/a.py", "src/new/c.py"])]
+                 ("base_slice-unreadable-is-today", chosen({}), ["src/legacy/a.py", "src/new/c.py"]),
+                 # F-D-1: found checkout + unrecorded commit: both S3 tools keep the checkout and give one verdict under one recorded word
+                 ("twin-R-found-checkout-unrecorded-commit-base_slice", chosen(cfg_ar), ["src/new/c.py", "tests/b.py"]),
+                 ("twin-R-found-checkout-unrecorded-commit-blast_radius", blast_kept(cfg_ar), ["tests/b.py", "src/new/c.py"]),
+                 # checkout not found at all (no config repo): None -> production under a recorded word, in both tools
+                 ("twin-R-no-checkout-base_slice", chosen({"app_root": ".", "test_locations": ["src/legacy/"]}), sorted(paths3)),
+                 ("twin-R-no-checkout-blast_radius", blast_kept({"app_root": ".", "test_locations": ["src/legacy/"]}), list(paths3))]      # blast side keeps the diff's own order
         (task / "work" / "context-manifest.json").unlink()
-        rows += [("base_slice-R-unbound-is-production", chosen(cfg_ar), ["src/legacy/a.py", "src/new/c.py", "tests/b.py"])]
+        rows += [("base_slice-R-unbound-is-production", chosen(cfg_ar, None), ["src/legacy/a.py", "src/new/c.py", "tests/b.py"])]
         for row_id, got, expected in rows:
             check_eq(f"B-355 {row_id}", got, expected)
     finally:

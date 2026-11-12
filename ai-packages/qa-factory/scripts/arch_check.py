@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import assertion_detectors as AD  # noqa: E402
 import test_files as TF  # noqa: E402
+import test_locations  # noqa: E402
 from hooklib import sorted_paths  # noqa: E402
 try:
     import hooklib  # type: ignore
@@ -123,7 +124,6 @@ def check_files(files: list[Path], root: Path, cfg: dict, project_cfg: dict | No
                     # says why on stderr.
                     # B-355: where the project recorded its tests for this area, a test body is a file the record names
                     # (a folder record names every file in it: the noise side), asked as `test_place`; elsewhere `test_body`
-                    import test_locations
                     recorded = bool(project_cfg) and test_locations.recorded(project_cfg, root=root, path=rel, base=root)[0]
                     test_body = TF.is_test_for("test_place" if recorded else "test_body", rel, project_cfg or {}, base=root, root=root) is True
                 if test_body:
