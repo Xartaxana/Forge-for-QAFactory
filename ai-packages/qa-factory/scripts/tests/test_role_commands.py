@@ -811,6 +811,100 @@ def walk_examples() -> None:
         rig.done()
 
 
+def argument_refusal_table(root: Path) -> None:
+    """RC1-10: ONE table, a row per case. A call with a bad argument is refused (the script's own exit code, no traceback) and the
+    refusal quotes that script's command card (role_cli); a call whose card is missing says so and still prints the usage;
+    `critic_rollcall.py --help` is help (exit 0, nothing read), alone and next to a real file; the `runtime_provenance` card
+    names exactly what `execution_fingerprint.build()` asks for (FR-14: the card is the contract)."""
+    import os
+    import shutil
+    art = root / "qa-factory" / "artifacts" / "QA-RC"
+    (art / "proposals").mkdir(parents=True)
+    (art / "work").mkdir()
+    (art / "pipeline.json").write_text(json.dumps({"ticket": "QA-RC", "gates": {"B": {"decision": "approve"}}}), encoding="utf-8")
+    proposal = art / "proposals" / "bug-1.json"
+    proposal.write_text(json.dumps({"kind": "bug", "bug_file": "bugs/BUG-9.md", "action": "create", "fields": {}, "witness": {}}),
+                        encoding="utf-8")
+    keyed = art / "proposals" / "case-1.json"
+    keyed.write_text(json.dumps({"kind": "bug", "bug_file": "bugs/BUG-8.md", "action": "create", "fields": {}, "witness": {},
+                                 "publication_key": "k"}), encoding="utf-8")
+    records = root / "records.json"
+    records.write_text("[]", encoding="utf-8")
+    findings = root / "findings.md"
+    findings.write_text("# findings\n", encoding="utf-8")
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+    # (label, script, args, card key or None = the card is missing, what the refusal names, the script's own exit code)
+    rows = [
+        ("manual_evidence export without --output", "manual_evidence.py", ["export", "--task-root", art, "--input", records],
+         "manual_evidence.py export", "export requires --output", 2),
+        ("artifact_producer publish without --kind", "artifact_producer.py",
+         ["publish", "--task-root", art, "--path", "work/triage.json", "--input", records],
+         "artifact_producer.py publish", "--kind is required", 2),
+        ("plan_row without --task", "plan_row.py", ["--row", "TS-1"], "plan_row.py", "--task", 2),
+        ("external_writes --record without --external-id", "external_writes.py", ["--record", proposal],
+         "external_writes.py --record", "--external-id is required", 1),
+        ("external_writes --record, keyed proposal without --remote-revision", "external_writes.py",
+         ["--record", keyed, "--external-id", "X-1"], "external_writes.py --record", "--remote-revision", 1),
+        # the card is missing from the registry: the refusal says so, prints argparse's usage, and does not crash
+        ("artifact_producer validate with no card", "artifact_producer.py", ["validate", "--task-root", art], None,
+         "--input is required for validate", 2),
+        ("manual_evidence validate with no card", "manual_evidence.py", ["validate"], None,
+         "the following arguments are required: --task-root", 2),
+    ]
+    for label, script, args, key, needle, code_expected in rows:
+        result = run_script(script, *args, cwd=root, env=env)
+        code, text = seen(result)
+        check_eq(f"{label}: exit code is the script's own", code, code_expected)
+        check_not_in(f"{label}: not a traceback", "Traceback", text)
+        check_in(f"{label}: the refusal names {needle!r}", needle, text)
+        check_in(f"{label}: the usage of the parser is printed or the refusal is the script's own sentence",
+                 "usage:" if key is None else "if you cannot", text)
+        if key is not None:
+            check_in(f"{label}: quotes the card of {key}", card(key), text)
+            check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
+        else:
+            check_in(f"{label}: says the card is missing", "no command card is registered", text)
+            check_not_in(f"{label}: and quotes no card", "what to write:", text)
+
+    # critic_rollcall.py --help: help, exit 0, no attempt to read a file named --help; --help beside a real file is the same help
+    alone = run_script("critic_rollcall.py", "--help", cwd=root)
+    beside = run_script("critic_rollcall.py", "--help", findings, cwd=root)
+    short = run_script("critic_rollcall.py", "-h", cwd=root)
+    for label, result in (("--help", alone), ("--help <real file>", beside), ("-h", short)):
+        code, text = seen(result)
+        check_eq(f"critic_rollcall {label}: exit 0", code, 0)
+        check_not_in(f"critic_rollcall {label}: the flag is not read as a findings file", "no such findings file", text)
+        check_in(f"critic_rollcall {label}: it is help", "usage: critic_rollcall.py", text)
+        check_in(f"critic_rollcall {label}: it repeats the card of --store word for word",
+                 card("critic_rollcall.py --store"), result.stdout or "")
+    check_eq("critic_rollcall: --help beside a real file is the help of --help alone (the flag wins, as in argparse)",
+             beside.stdout, alone.stdout)
+
+    # runtime_provenance: the card names every key `build()` demands, and every field of the record that `build()` reads whole
+    import execution_fingerprint as EF
+    import profile_contract as PC
+    command = "execution_fingerprint.py"
+    try:
+        EF.build({})
+        asked = []
+    except ValueError as exc:
+        asked = re.findall(r"missing (\w+)", str(exc))
+    check("execution_fingerprint: build() names its required keys when refusing an empty spec", len(asked) == 6, str(asked))
+    for key in asked:
+        check(f"execution_fingerprint: the card names the key build() requires: {key}", names(command, key), card(command))
+    check(f"execution_fingerprint: the card says how many keys the spec carries ({len(asked)})",
+          f"all {['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven'][len(asked)]}" in card(command), card(command))
+    fields = [re.match(r"(\w+)", error).group(1) for error in PC.validate_runtime_provenance({})["errors"]]
+    for field in dict.fromkeys(fields):
+        check(f"execution_fingerprint: the card names the field of runtime_provenance that build() requires: {field}",
+              names(command, field), card(command))
+    for word in sorted(PC.ACCEPTS[:2]) + ["unknown", "mismatched", "not_applicable"]:
+        check(f"execution_fingerprint: the card names the result `{word}`", names(command, word), card(command))
+    check_not_in("execution_fingerprint: the card does not call runtime_provenance an interpreter identity",
+                 "interpreter identity", card(command))
+    shutil.rmtree(art, ignore_errors=True)
+
+
 def main() -> int:
     root = temp_project()
     try:
@@ -866,6 +960,7 @@ def main() -> int:
 
         # --- HF1-12: every card's own example, fed to its command, is ACCEPTED -----------------------------------
         subprocess_examples(root)
+        argument_refusal_table(root)
     finally:
         cleanup(root)
     manual_examples()

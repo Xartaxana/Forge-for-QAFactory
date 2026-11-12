@@ -102,7 +102,13 @@ class RefusingParser(argparse.ArgumentParser):
 
     def error(self, message):
         print(self.format_usage(), end="", file=sys.stderr)
-        refuse(self.refusing_command or self.prog, message)
+        command = self.refusing_command or self.prog
+        if not entry(command):
+            # `refuse` stays silent about a missing card (its callers are many); a usage error says so, because the
+            # usage above is then all the role has and `--help` of the script is the next door.
+            print(f"{command}: no command card is registered for this call, so the usage above is all the "
+                  "factory can quote; `--help` of the script lists every registered shape.", file=sys.stderr)
+        refuse(command, message)
         raise SystemExit(EXIT_REFUSED)
 
 

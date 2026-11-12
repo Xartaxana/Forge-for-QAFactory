@@ -1097,7 +1097,23 @@ def _detector_body(root) -> int:
     return 1
 
 
+def print_help() -> int:
+    """`--help` answers with help: the usage of the docstring and the registered card (what `--store` needs), word for word
+    as every other role script's epilog repeats it (RC1-10, FR-14). Nothing is read; exit 0."""
+    import argparse
+    from role_cli import epilog
+    parser = argparse.ArgumentParser(prog="critic_rollcall.py", description=__doc__, epilog=epilog("critic_rollcall.py"),
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.print_help()
+    return 0
+
+
 def main() -> int:
+    if any(a in ("--help", "-h") for a in sys.argv[1:]):
+        # argparse's precedence, stated: the help flag anywhere in the call wins over every other argument - the call is
+        # not run, and no file (a findings file, `--store`'s value) is looked at. A findings file really named `-h` or
+        # `--help` is read as `./-h`.
+        return print_help()
     args = [a for a in sys.argv[1:] if a != "--json"]
     task_root = None
     if "--task-root" in args:
