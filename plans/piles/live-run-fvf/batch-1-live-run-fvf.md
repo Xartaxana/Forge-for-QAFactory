@@ -43,6 +43,10 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 | FV1-10 | П2 | S1 не взяла выгрузку, названную в тексте стори (`findings/20261112-s1-ne-vzyala-vygruzku-nazvannuyu-v-tekste-stori.md`) | designer → builder → critic | `scripts/context_bundle.py` | — | ожидает |
 | FV1-11 | П2 | S0 останавливается на тикете без `# ` (`findings/20261112-s0-ostanovka-na-tikete-bez-zagolovka.md`) | builder → critic | `scripts/ticket_adapter.py` | — | ожидает |
 | FV1-13 | П1 | Дирижёр не исполнил выбранный вариант `go on`: судил по прежним словам, спросил в третий раз (`findings/20261112-dirizher-ne-ispolnil-vybrannyj-variant-go-on.md`) | designer → builder → critic | `scripts/driver_dispatch.py`, `scripts/question_register.py` | FV1-3 | ожидает |
+| FV1-14 | П2 | Один id строки плана и один читатель: md-план `TS-n` против JSON `P-n`; TS-only читатели S8 (`case_levels`, `traceability.plan_by_ts`, `check_delivery` `TS_IN_TEXT`/`_case_map`, `report_facts`, `handoff_check`, `validate_artifacts`, `grounding_table`) и any-form (`question_register`, `gate_brief`, `brief_pack`) — через читатель `contract`; проверка выхода S3; новая ось SIBLING_MAP (`docs/tasks/specs/reviews/t-152-fv1-1-critic.md`, F4) | designer → builder → critic | `scripts/traceability.py`, `scripts/check_delivery.py`, `scripts/contract.py` | FV1-1 | ожидает |
+| FV1-15 | П1 | Онбординг записал «вход кодом невозможен» по POST на страницу `/login`; S5 стоит на записанном отказе (`findings/20261112-onbording-zapisal-vhod-kodom-nevozmozhen-oshibochno.md`) | designer → builder → critic | `scripts/env_probe.py` | FV1-5, FV1-17 | ожидает |
+| FV1-16 | П2 | S5 спрашивает, развёрнут ли на стенде приложения коммит репозитория тестов; «current code» с S0 не доходит (`findings/20261112-s5-lichnost-stenda-sprashivaet-kommit-repo-testov.md`) | designer → builder → critic | `scripts/driver_gates.py` | — | ожидает |
+| FV1-17 | П1 | Онбординг не умеет определить, как войти на стенд проекта: POST на страницу `/login` → «вход кодом невозможен»; NextAuth-вход и `harness_command` не испробованы (`findings/20261112-onbording-ne-umeet-opredelit-kak-vojti-na-stend.md`) | designer → builder → critic | `scripts/stand_access.py`, `references/login-body-fields.json`, `skills/qa-onboarding/SKILL.md` | — | ожидает |
 | FV1-12 | П2 | Карточка S2 и реестр стадий расходятся; замысел S2 — слово владельца (`findings/20261112-s2-kartochka-i-reestr-stadij-rashodyatsya.md`) | ждёт слова владельца → builder | `skills/qa-story/phases/s2.md`, `references/stages.json` | — | ожидает |
 
 ## Ход
@@ -52,6 +56,9 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 - 12.11 19:10 — пачка открыта оператором прогона LR2-1 (сессия Opus) по слову владельца; 12 находок первых полутора часов
   прогона (17:39–19:05).
 - 12.11 19:12 — FV1-13: третья остановка плеча `factory` на S5, плечо остановлено по потолку RUN-INSTRUCTIONS §5.
+- 12.11 20:01 — FV1-1 по слову владельца («починить блокер и запустить ещё раз»): t-152 bb2bd10 + фикс-раунд t-162 5971ac0
+  (критик t-161: fit_with_fixes, F1–F3 закрыты) на ветке `worktree-agent-a02fafab496f0a9f6`, в main не слита (через ветку
+  пачки и CI). Остаток класса — FV1-14. Две строки правки наложены на копию прогона `C:\QAFactory\exp-fvf\pkg-fix1`.
 
 ## Живые доказательства
 
