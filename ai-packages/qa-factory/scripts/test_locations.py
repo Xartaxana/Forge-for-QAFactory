@@ -323,6 +323,13 @@ def _verdict(test: bool, by: str, source: str, kind: str, where: str, reason: st
 
 # --- the verdict -----------------------------------------------------------------------------------
 
+def _folder_kind(rest) -> bool:
+    """Does a pattern remainder (the part below the literal prefix, `/`-joined; "" or None when there is none) name a FOLDER?
+    True when nothing is left or its last segment is exactly `**`; otherwise it is a file shape. The one rule of
+    `_recognition`, `_config_match` and `recorded_names`."""
+    return not rest or rest.split("/")[-1] == "**"
+
+
 def _config_match(ctx: _Ctx, t_rel):
     """((entry, kind) of the first entry that counts for this target or None, the first (entry, root shown)
     that matched but covers a protected root whole that holds the target or None)."""
@@ -336,7 +343,7 @@ def _config_match(ctx: _Ctx, t_rel):
         if held:
             conflict = conflict or (entry, held[0])  # protection wins per target (F3)
             continue
-        return (entry, "folder" if segs[-1] == "**" else "file"), conflict
+        return (entry, "folder" if _folder_kind("/".join(segs)) else "file"), conflict
     return None, conflict
 
 
@@ -416,8 +423,7 @@ def _recognition(ctx: _Ctx, t: str):
             pattern = _glob_literal(prefix) + ("/" + rest if rest else "")
             # `factory_dashboard.level_for`'s two forms; `*` crosses `/`, both sides are lower-case
             if fnmatch.fnmatchcase(t, pattern) or fnmatch.fnmatchcase(t, pattern.rstrip("/") + "/*"):
-                kind = "folder" if (not rest or rest.endswith("**")) else "file"
-                return "run.levels", where, kind
+                return "run.levels", where, "folder" if _folder_kind(rest) else "file"
         elif _inside(t, prefix):
             return source, where, "folder"
     return None
@@ -508,13 +514,19 @@ def recorded_names(cfg, *, root=None) -> tuple:
             if segment and not any(c in segment for c in "*?["):
                 names.add(segment.lower())
 
-        for _shown, segs, _covered in ctx.entries():
-            if len(segs) > 1 and segs[-1] == "**":
-                keep(segs[-2])
+        for _shown, segs, covered in ctx.entries():
+            if covered or len(segs) < 2 or not _folder_kind("/".join(segs)):
+                continue    # an entry that covers a whole protected root opens nothing: no name
+            keep(segs[-2])
         for _source, _where, prefix, rest, _wild in _live_carriers(ctx):
-            if _area_of(ctx, prefix) != "project" or (rest and not rest.endswith("**")):
+            if _area_of(ctx, prefix) != "project" or not _folder_kind(rest):
                 continue
-            keep(prefix.rstrip("/").rsplit("/", 1)[-1])
+            # the value as written: its remainder (below the literal prefix) without a trailing `**`; the prefix
+            # itself is the name only when no wildcard remainder is left
+            tail = [s for s in (rest or "").split("/") if s]
+            if tail and tail[-1] == "**":
+                tail.pop()
+            keep(tail[-1] if tail else prefix.rstrip("/").rsplit("/", 1)[-1])
         return app_on and (project_on or not exists), names
     except Exception:
         return False, set()

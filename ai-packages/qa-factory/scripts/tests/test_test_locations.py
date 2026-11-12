@@ -365,6 +365,11 @@ def part_edges() -> None:
                  (found["test"], "recorded where its tests are" in found["reason"]), (False, True))
         check_eq("E16: the project's word still answers", verdict("src/__checks__/a.py", cfg, root)["test"], True)
         check_eq("E16: markers() says why", TL.markers()[1], "missing, unreadable or empty")
+        # E16 World N (A-3): the same fixture without the project's word: nothing recorded, the reason names the markers file
+        cfg_n = {k: v for k, v in cfg.items() if k != "test_locations"}
+        found_n = verdict("tests/test_x.py", cfg_n, root)
+        check_eq("E16 World N: markers missing and nothing recorded: not read, the reason names test-path-markers.json",
+                 (found_n["test"], "test-path-markers.json" in found_n["reason"]), (False, True))
         (empty / "test-path-markers.json").write_text(json.dumps(
             {"dir_names": ["Tests"], "dir_suffixes": [], "stem_prefixes": [], "stem_suffixes": [],
              "stem_camel_suffixes": ["Test"], "code_extensions": [".py"], "skip_dirs": ["x"],

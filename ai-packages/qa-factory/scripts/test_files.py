@@ -32,8 +32,10 @@ the usual names mean nothing to the commit guard, the write window and `test_cod
                the names still only KEEP a helper counted (an extra row, never a lost one)
   "test_body"  a config FILE entry only (a folder record names no body by itself)
   "test_place" v.test (unchanged)
-  "name"       with every existing area recorded: only the literal last folder segment of a live folder carrier;
-               with one unrecorded: that set AND the usual names
+  "name"       with every existing area recorded: only the literal last folder segment of a live folder carrier, as
+               written (a wildcard segment is never taken, the resolved prefix is never used); with one unrecorded:
+               that set plus the usual names. A FILE-shape carrier (`src/**/*.test.ts`) adds nothing, so a project
+               recorded only by file shapes has an empty set (the caller greps every quoted name: noise, never a skip)
 
 `markers` here means `names_a_test(p) or in_test_folder(p)`, evaluated directly on the path as written, past
 step 3 of the verdict (which hides the usual names inside application code when the project has named its
@@ -321,11 +323,14 @@ def is_test_for(consumer: str, path, cfg=None, *, base=None, root=None, word=Non
     the word judges with `(word, base=checkout)`, any other checkout keeps the caller's own `cfg` / `base`; no
     `checkout` and a word that records something in any area is None (the consumer's declared unknown: a commit is
     checked, a production file stays counted, nothing is skipped). The usual names read the path as written, never
-    the checkout's own folder name."""
+    the checkout's own folder name. The `name` consumer has no path to bind: with a `word` it judges by the word over any
+    area, with or without a `checkout` (never None for want of one)."""
     if consumer not in CONSUMERS:
         raise ValueError(f"unknown consumer {consumer!r}: one of {', '.join(CONSUMERS)}")
     try:
-        if word is not None:
+        if word is not None and consumer == "name":
+            cfg = word      # `name` has no path to bind: it judges by the word over any area and ignores `checkout`
+        elif word is not None:
             cfg, base, unknown = _bind(path, cfg, base, root, word, checkout)
             if unknown:
                 return None

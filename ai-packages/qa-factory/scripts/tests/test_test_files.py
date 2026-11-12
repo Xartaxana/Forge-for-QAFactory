@@ -378,6 +378,9 @@ def part_recorded() -> None:
     cfg_n = {"app_root": ".", "protected_app_paths": ["src"]}                                       # N: nothing recorded
     cfg_ro = {"app_root": "../app", "tests_root": "qa"}                                              # the other area only
     cfg_whole = {"app_root": ".", "protected_app_paths": ["src"], "test_locations": ["src/"]}      # an entry covering a whole root
+    cfg_mid = {"app_root": "../app", "run": {"levels": {"unit": "packages/*/checks/**"}}}           # a wildcard before the last folder
+    cfg_glob = {"app_root": "../app", "run": {"levels": {"unit": "**/checks/**"}}}                  # a wildcard first
+    cfg_whole_all = {"app_root": ".", "protected_app_paths": ["src"], "test_locations": ["src/**"]}  # `**` over a whole root
     cfg_junk = {"app_root": ".", "run": {"levels": {"unit": "**"}}, "tests_root": "."}               # carriers that record nothing
     five = ("src/integration/client.py", "src/integration/client_test.go", "fixtures/users.json", "unit_tests/a.py", "_tests/a.py")
     # (id, consumer, path, cfg, kwargs, expected); kwargs name `base` / `word` / `checkout` as the string keys below
@@ -401,6 +404,19 @@ def part_recorded() -> None:
         ("name-R-other-area-union-folder", "name", "qa", cfg_ro, {"root": proj}, True),
         ("name-R-other-area-union-usual", "name", "tests", cfg_ro, {"root": proj}, True),
         ("name-N-today", "name", "tests", cfg_n, {"root": proj}, True),
+        # the name set is the literal last folder of the value as written (critic t-184 A-1): never a wildcard, never the prefix
+        ("name-R-mid-wildcard", "name", "checks", cfg_mid, {"root": proj}, True),
+        ("name-R-mid-wildcard-prefix-is-no-name", "name", "packages", cfg_mid, {"root": proj}, False),
+        ("name-R-glob-first", "name", "checks", cfg_glob, {"root": proj}, True),
+        ("name-R-glob-first-project-folder-is-no-name", "name", "proj", cfg_glob, {"root": proj}, False),
+        ("name-R-whole-root-entry", "name", "src", cfg_whole_all, {"root": proj}, False),
+        # `name` has no path: with a word it judges over any area, the checkout is ignored, and no checkout is not None (A-2)
+        ("name-R-checkout-ignored", "name", "qa", None, {"word": cfg_ro, "checkout": app, "root": proj}, True),
+        ("name-R-checkout-ignored-other-checkout", "name", "qa", None, {"word": cfg_ro, "checkout": proj, "root": proj}, True),
+        ("name-R-word-no-checkout-judged", "name", "legacy", None, {"word": cfg_r, "root": proj}, True),
+        ("name-R-word-no-checkout-judged-usual-name", "name", "tests", None, {"word": cfg_r, "root": proj}, False),
+        # F-12 with a real config: a helper inside a recorded test place stays production (the name only keeps, never drops)
+        ("production-R-helper-in-recorded-place-kept", "production", "qa/helpers.py", cfg_ro, {"base": proj, "root": proj}, False),
         # World N: nothing recorded in the path's area -> today's answers
         ("commit-N-fixtures", "commit", "fixtures/users.json", cfg_n, {"base": proj, "root": proj}, True),
         ("commit-N-unit_tests", "commit", "unit_tests/a.py", cfg_n, {"base": proj, "root": proj}, True),
