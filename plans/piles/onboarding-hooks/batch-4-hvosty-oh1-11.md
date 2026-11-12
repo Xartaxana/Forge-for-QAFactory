@@ -1,6 +1,6 @@
 # Онбординг, установка, хуки и гард — пачка 4: хвосты OH1-11
 
-кучка: `onboarding-hooks` | статус: ожидает | взял: — | ветка: — | MR: — | стенд: не нужен | приоритет: П3 | issue: https://git.example.com/dev1/yml-text-factory/-/work_items/68
+кучка: `onboarding-hooks` | статус: в работе | взял: dev1 (Opus coord), 12.11.2026 | ветка: `pile/onboarding-hooks/batch-4` | MR: — | стенд: не нужен | приоритет: П3 | issue: https://git.example.com/dev1/yml-text-factory/-/work_items/68
 
 Открыта 02.11.2026 (Lead пачки release-next/1) по вердикту критика OH1-11: пачка 3 закрыта, новая находка кучки легла в следующую (D-0044).
 
