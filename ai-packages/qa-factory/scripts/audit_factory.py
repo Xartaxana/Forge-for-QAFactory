@@ -948,9 +948,37 @@ DRIVE_ROOTED = re.compile(r"^[A-Za-z]:[\\/]")
 # (capital `Users`, lower `home`); a URL or API segment (`https://h/users/1`, `/api/users/{id}`,
 # `GET /users/{id}`) is preceded by a host or a name, or is lower-case, and is not a home directory.
 _PATH_START = r"(?:^|[\s\"'`=(\[,])"
-PERSONAL_PATH = re.compile(
-    _PATH_START + r"(?:/Users/|/home/|~[/\\])"
-    + r"|(?i:\\Users\\|[A-Za-z]:[\\/]Users[\\/])")
+MACHINE_PATH_MARKERS = "machine-path-markers.json"  # the closed variety lives in this data file (AR-1, FR-13)
+
+
+def load_personal_path(path=None):
+    """(pattern, problem): the PERSONAL_PATH pattern built from references/machine-path-markers.json.
+    A missing, unreadable or malformed file gives a pattern that matches nothing and a problem text
+    naming the file and the door; a20_portable_paths reports it, so it is never a silent pass."""
+    path = path or ref(MACHINE_PATH_MARKERS)
+    never = re.compile(r"(?!)")
+    door = f"reinstall the qa-factory plugin (or restore references/{MACHINE_PATH_MARKERS}) and re-run the audit"
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        starts, dirs = data["path_start_prefixes"], data["windows_user_dirs"]
+        lists_ok = all(isinstance(v, list) and v and all(isinstance(s, str) and s for s in v)
+                       for v in (starts, dirs))
+        if not lists_ok:
+            raise ValueError("path_start_prefixes and windows_user_dirs must be non-empty lists of non-empty text")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return never, (f"A20 cannot judge home-directory paths: {MACHINE_PATH_MARKERS} is unreadable or "
+                       f"malformed ({type(exc).__name__}: {exc}). {door}")
+    user_dirs = "|".join(re.escape(d) for d in dirs)
+    return re.compile(
+        _PATH_START + "(?:" + "|".join(re.escape(s) for s in starts) + ")"
+        + r"|(?i:\\(?:" + user_dirs + r")\\|[A-Za-z]:[\\/](?:" + user_dirs + r")[\\/])"), None
+
+
+PERSONAL_PATH, PERSONAL_PATH_PROBLEM = load_personal_path()
+
+
+def personal_path_problems() -> list:
+    return [PERSONAL_PATH_PROBLEM] if PERSONAL_PATH_PROBLEM else []
 RELATIVE_HINT = ("replace it with a path relative to the project root (`.`, `..`, "
                  "`../testproject1`) — see references/common-rules.md, \"What a path is relative to\"")
 
@@ -1093,9 +1121,9 @@ def personal_paths_in_docs(paths) -> list:
 def a20_portable_paths() -> None:
     config_path = state_dir() / "config.json"
     if not config_path.exists():
-        report("A20 portable paths", [])
+        report("A20 portable paths", personal_path_problems())
         return
-    errors = non_portable_config_paths(load_config())
+    errors = personal_path_problems() + non_portable_config_paths(load_config())
     strategy = state_dir() / "strategy"
     docs = sorted_paths(strategy.glob("*.md")) if strategy.exists() else []
     errors.extend(personal_paths_in_docs(docs))
