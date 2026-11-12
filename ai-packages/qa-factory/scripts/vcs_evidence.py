@@ -664,8 +664,9 @@ def main():
         return code
     result = collect(args.url, full=bool(args.output))
     try:
-        story = _story_root_of(args.output)
-        record_api_receipt(story.parents[2] if story else project_root(), result)
+        # The project is the process's own (the one road `hooklib.project_root`), never derived from the story's depth:
+        # a story under a configured artifact_root sits at another depth than `<project>/qa-factory/artifacts/<T>`.
+        record_api_receipt(project_root(), result)
     except Exception:
         pass            # accounting never changes what the tool answers (FR-14)
     if args.output:

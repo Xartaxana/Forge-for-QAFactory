@@ -209,6 +209,27 @@ for label, config, stories_at, marker, output, old_too, want in ROOT_ROWS:
     finally:
         cleanup(root)
 
+# --- OF3-1d d-1: a story under a configured artifact_root keeps its API receipt (project root from hooklib, not depth) ---
+for label, config, stories_at in (("a configured root below the project", '{"artifact_root": "stories"}', "stories"),
+                                  ("the project itself as the root", '{"artifact_root": "."}', "."),
+                                  ("the default layout", '{}', "qa-factory/artifacts")):
+    root = temp_project("qa-vcs-receipt-root-")
+    harness.use_project(root)
+    try:
+        (root / "qa-factory").mkdir(exist_ok=True)
+        (root / "qa-factory" / "config.json").write_text(config, encoding="utf-8")
+        root_story(root / stories_at, "S-2")
+        vcs_evidence.collect = lambda url, read=None, full=True: {
+            "url": url, "host": "git.example", "project": "g/p", "iid": "1881", "status": "read", "required": True,
+            "api_authenticated": True, "complete": True, "error": None}
+        code, _out, err = run(root, "--url", URL_1881, "--output", str(root / stories_at / "S-2" / "work" / "x.json"))
+        names = sorted(p.name for p in (root / "qa-factory" / "state" / "host-receipts").glob("vcs-api-*.json")) \
+            if (root / "qa-factory" / "state" / "host-receipts").is_dir() else []
+        check_eq(f"d-1 story under {label} keeps its API receipt", (code, len(names), "Traceback" in err), (0, 1, False))
+    finally:
+        vcs_evidence.collect = fake_collect
+        cleanup(root)
+
 # --- the API receipt (HF8-12, W-4): what `main` keeps of one read, and what `read_api_receipts` hands back --------------
 import event_store  # noqa: E402
 import shutil  # noqa: E402
