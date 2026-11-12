@@ -1472,6 +1472,11 @@ def apply(root, plan_: dict, approval_ref: str, *, phase: str = "all", date: str
             if script == "check_coverage.py" and not RP.record(root, "coverage-map.md").is_file():
                 continue
             args = {"readiness.py": ["--write"]}.get(script, ["--root", str(root)])
+            if script == "check_coverage.py":
+                # B-248: a receipt this run's sealed retire listing names is about to be retired; it is not compared now
+                receipt_rel = RP.state_file(root, "coverage-map.receipt.json").relative_to(root).as_posix()
+                if _abs(root, receipt_rel).is_file() and receipt_rel.casefold() in {i["rel_path"].casefold() for i in listing["retire"]}:
+                    args = args + ["--ignore-receipt"]
             runs.append(_run_script(root, script, args))
         # The listed stale locks, and the lock stubs the scripts above just made themselves (a lock
         # file nobody holds is a leftover, and the next plan must not find the install's own). Only

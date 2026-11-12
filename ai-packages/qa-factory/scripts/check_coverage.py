@@ -228,6 +228,8 @@ def main() -> None:
     parser.add_argument("--root", type=Path)
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--as-of")
+    parser.add_argument("--ignore-receipt", action="store_true",
+                        help="do not compare the coverage-map receipt (a reinstall that retires it passes this)")
     args = parser.parse_args()
     root, refusal = marked_root(args.root)
     if root is None:
@@ -258,7 +260,11 @@ def main() -> None:
     fresh, sections = parse_map(text)
     errors, warnings = [], []
     receipt_path = receipt_of(root)
-    if receipt_path.exists():
+    if args.ignore_receipt and receipt_path.exists():
+        # Opt-in, given by onboard_apply only when this reinstall will retire the receipt: the comparison is skipped, the rest runs.
+        print(f"WARN: {receipt_path} is left over from an older install and was not compared with the map: this reinstall "
+              "retires it and the next coverage run writes a new one.")
+    elif receipt_path.exists():
         try:
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             if receipt.get("map_sha256") != hashlib.sha256(map_path.read_bytes()).hexdigest():
