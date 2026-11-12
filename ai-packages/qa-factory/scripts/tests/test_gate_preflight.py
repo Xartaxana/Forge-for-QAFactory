@@ -5259,6 +5259,20 @@ def test_b355_f_first_test_file_follows_the_project_record_where_it_is_recorded(
         check_eq("N: the word is about the other area (app/ is unrecorded), today's rule", Path(gate_preflight.first_test_file(root / "app", folder, root)).name, "test_app.py")
         check_eq("N: no config, today's rule", Path(gate_preflight.first_test_file(root / "app")).name, "test_app.py")
         check_eq("N: a config that is not a dict, today's rule", Path(gate_preflight.first_test_file(root / "app", ["x"], root)).name, "test_app.py")
+        # F-F-1: a recorded app_root OUTSIDE the project root is still found (the record names it through `../`)
+        outer = _tests_folder("proj/keep.txt", "app/src/cart.test.ts", "app/src/util.ts")
+        seen.append(outer)
+        outside = {"app_root": "../app", "test_locations": ["src/**/*.test.ts"]}
+        found = gate_preflight.first_test_file(outer / "app", outside, outer / "proj")
+        check_eq("R outside root: app_root ../app, the scan of app picks the recorded file",
+                 Path(found).relative_to(outer / "app").as_posix() if found else "", "src/cart.test.ts")
+        # F-F-2: a walk across areas: the held recorded candidate is not displaced by a LATER World N usual-name hit
+        # (walk order is sorted: a1tests < app, so the recorded area is met first)
+        root = _tests_folder("a1tests/checkout.py", "app/test_x.py")
+        seen.append(root)
+        mixed = {"app_root": "app", "tests_root": "a1tests"}
+        check_eq("R then N: the earlier recorded candidate beats a later World N usual name",
+                 Path(gate_preflight.first_test_file(root, mixed, root)).relative_to(root).as_posix(), "a1tests/checkout.py")
         # the caller: the how-text of an empty pick in a recorded area
         root = _tests_folder("tests/readme.md")
         seen.append(root)

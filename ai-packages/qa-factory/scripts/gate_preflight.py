@@ -910,8 +910,11 @@ def _recorded_test_place(path: Path, cfg, project) -> bool:
     file (`CODE_EXTENSION_FLOOR` when the extensions are unknown). Any failure is False: an unreadable record never makes a
     file more of a candidate than today."""
     try:
+        import os
         from test_files import CODE_EXTENSION_FLOOR, is_code_file, is_test_for
-        rel = Path(path).resolve().relative_to(Path(project).resolve()).as_posix()
+        # relpath, not relative_to: a recorded `app_root` may lie outside the project root ("../app"); the record
+        # names such a file through the `../` spelling. Different drives raise ValueError -> False (never a pick).
+        rel = os.path.relpath(Path(path).resolve(), Path(project).resolve()).replace("\\", "/")
         code = is_code_file(path.name)
         if not (code if code is not None else path.suffix.lower() in CODE_EXTENSION_FLOOR):
             return False
@@ -940,6 +943,10 @@ def first_test_file(root, cfg=None, project=None) -> str:
     preferred (an order hint, never a verdict), else the first in walk order. Nothing found in a recorded area is '' - never
     a fall back to the usual names there.
 
+    A walk that crosses areas: a recorded candidate met in walk order counts the same as a World N hit - it is not
+    displaced by a World N usual-name file met LATER (the held recorded candidate is returned instead). The usual-name
+    preference applies inside a recorded area only.
+
     Sorted at every level, so the same machine picks the same test twice and a card written
     about it means the same thing tomorrow. The trees in `REPORTER_SKIP_DIRS` are not entered."""
     import os
@@ -954,7 +961,7 @@ def first_test_file(root, cfg=None, project=None) -> str:
             spelled = _spelled_as_a_test(name)
             if not recorded_here:
                 if spelled:
-                    return str(Path(base) / name)
+                    return fallback or str(Path(base) / name)
             elif _recorded_test_place(Path(base) / name, cfg, project):
                 if spelled:
                     return str(Path(base) / name)
