@@ -292,6 +292,21 @@ def install_artifacts(root: Path, source: Path, ticket: str) -> Path:
     return target
 
 
+REGISTER_HEAD = ("## Register\n\n"
+                 "| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable |\n"
+                 "|---|---|---|---|---|---|---|\n")
+
+
+def write_register(task: Path, rows: str, head: str = REGISTER_HEAD) -> Path:
+    """Write `<task>/work/requirements-register.md` = `head` + `rows` (the one writer of a test story's register, AR-14).
+    The default head is the template's seven-column header; a caller that holds the WHOLE register text passes it as
+    `rows` with `head=""`; one with a header of its own (an `impact` column) passes it as `head`. Returns the file's path."""
+    path = task / "work" / "requirements-register.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(head + rows, encoding="utf-8")
+    return path
+
+
 def use_project(root: Path) -> None:
     """Point the hook layer at this project, inside this process. hooklib caches the project
     root per process, so the cache is cleared too — a test that moves the root and forgets

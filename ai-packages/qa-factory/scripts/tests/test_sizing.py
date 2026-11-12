@@ -20,7 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import (SCRIPTS, FIXTURES, check, check_eq, check_in, check_not_in, cleanup,  # noqa: E402
-                     finish, install_artifacts, run_script, temp_dir, temp_project, use_project)
+                     finish, install_artifacts, run_script, temp_dir, temp_project, use_project, write_register,
+                     REGISTER_HEAD)
 
 sys.path.insert(0, str(SCRIPTS))
 import contract as C  # noqa: E402
@@ -28,9 +29,6 @@ import stage_done  # noqa: E402
 import sizing  # noqa: E402
 import sizing as S  # noqa: E402
 
-REGISTER_HEAD = ("## Register\n\n"
-                 "| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable |\n"
-                 "|---|---|---|---|---|---|---|\n")
 REGISTER_HEAD_IMPACT = ("## Register\n\n"
                         "| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact |\n"
                         "|---|---|---|---|---|---|---|---|\n")
@@ -46,8 +44,7 @@ def write_sized_task(project: Path, name: str, rows: str, *, config_text: str = 
         (project / "qa-factory" / "strategy").mkdir(parents=True, exist_ok=True)
         (project / "qa-factory" / "strategy" / "test-strategy.md").write_text(strategy_text, encoding="utf-8")
     task = project / "qa-factory" / "artifacts" / name
-    (task / "work").mkdir(parents=True, exist_ok=True)
-    (task / "work" / "requirements-register.md").write_text(head + rows, encoding="utf-8")
+    write_register(task, rows, head)
     return task
 
 
@@ -281,6 +278,26 @@ def the_size_is_recorded_under_both_names() -> None:
         cleanup(work)
 
 
+def write_register_is_read_back_by_the_one_reader() -> None:
+    """`harness.write_register`: what it writes is read back by `contract.register_rows` (the register's one reader); no rows
+    leave the header alone, and `head=""` writes the text as it is."""
+    work = temp_dir("qa-write-register-")
+    try:
+        path = write_register(work, "| R-1 | First | ac | — | yes | AC-1 | diff:a.py:1 |\n"
+                                    "| R-2 | Second | ac | — | yes | AC-2 | diff:b.py:1 |\n")
+        check_eq("write_register: the file is work/requirements-register.md", path, work / "work" / "requirements-register.md")
+        read = C.register_rows(path.read_text(encoding="utf-8"))
+        check_eq("write_register: the one reader sees both rows, in order", [(r["r"], r["requirement"]) for r in read],
+                 [("R-1", "First"), ("R-2", "Second")])
+        path = write_register(work, "")
+        check_eq("write_register: no rows -> the header only", path.read_text(encoding="utf-8"), REGISTER_HEAD)
+        check_eq("write_register: ... and the reader finds no rows", C.register_rows(path.read_text(encoding="utf-8")), [])
+        path = write_register(work, "whole text\n", head="")
+        check_eq("write_register: head='' writes the text as it is", path.read_text(encoding="utf-8"), "whole text\n")
+    finally:
+        cleanup(work)
+
+
 def main() -> int:
     result = fifteen_045_the_register_as_it_stands()
     fifteen_045_run_writes_sizing_json()
@@ -289,6 +306,7 @@ def main() -> int:
     size_override_and_the_defect_cap()
     cli_wiring(result)
     the_size_is_recorded_under_both_names()
+    write_register_is_read_back_by_the_one_reader()
     size_at_the_s2_exit()
     g10_a_register_without_ac_ref_joins_by_the_observable_path()
     oh1_10_the_onboarding_form_is_what_sizing_reads()
