@@ -440,7 +440,7 @@ def key_m3(root):
     # the same name, environments[] row), not the register's probe field; `story_run.py` reads the stand's flag from the config through
     # `MC._stand_may_change`, `walk_pool.py` only names it in a docstring (the stand's flag is not consulted there)
     check_eq("K-M3 nothing downstream reads probe.safe_to_break from a register line", reads_of(r"safe_to_break", producers),
-             ["env_probe.py", "manual_capture.py", "story_run.py", "walk_pool.py"])
+             ["driver_stage_s6.py", "env_probe.py", "manual_capture.py", "walk_pool.py"])
     check_eq("K-M3 nothing downstream reads probe.environment from a register line",
              reads_of(r"probe\w*\.get\(\s*[\"']environment[\"']|probe\w*\[\s*[\"']environment[\"']\s*\]", producers), [])
     # positive control, the same shape of scan: `owner_role` of a register line IS read by the report
