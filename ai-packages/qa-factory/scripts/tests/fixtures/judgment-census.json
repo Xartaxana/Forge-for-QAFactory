@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "about": "The judgment census (t-1765 node A3, AR-29): one row per check unit of scripts/*.py outside scripts/tests/ - what it judges (class), on whose path it stands (roles), whom it serves (owner). Read by scripts/tests/test_judgment_census.py and by tools/architecture_gate.py (the `ratchet` object); not read by any project (axis 18). `blocks` is computed by the test, never written here; `blocks_override: false` (with a `note`) is the only hand mark. Classes: shape, xref, word-list, meaning-proxy, meaning, safety; owner: data, judgment, intent. Ceilings only go down. Blind spot: a subclass of `ValueError` or `StateConflict` raised by its own name is invisible to `refusal_registry.sites` (it matches the literal names); legitimate when the subclass is caught and never reaches a role, but a subclass chosen to keep a ratchet down is not seen - the critic's question 11 and calibration check 41 catch it.",
- "ratchet": {"word-list": 0, "meaning-proxy": 8, "meaning": 24, "safety": 55, "breach": 1, "blocks_overrides": 8, "blocking_per_role": {"qa-automator": 167, "qa-bug-reporter": 133, "qa-case-critic": 158, "qa-case-designer": 133, "qa-code-critic": 132, "qa-doc-scribe": 133, "qa-failure-analyst": 134, "qa-requirements-tester": 151, "qa-retro-analyst": 133, "qa-runner": 134, "qa-scout": 133, "qa-test-strategist": 165, "conductor": 472}},
+ "ratchet": {"word-list": 0, "meaning-proxy": 8, "meaning": 24, "safety": 55, "breach": 1, "blocks_overrides": 10, "blocking_per_role": {"qa-automator": 167, "qa-bug-reporter": 133, "qa-case-critic": 158, "qa-case-designer": 133, "qa-code-critic": 132, "qa-doc-scribe": 133, "qa-failure-analyst": 134, "qa-requirements-tester": 151, "qa-retro-analyst": 133, "qa-runner": 134, "qa-scout": 133, "qa-test-strategist": 165, "conductor": 472}},
  "rows": [
   {"file": "acceptance.py", "function": "stage_acceptance_errors", "class": "shape", "roles": ["qa-case-critic", "conductor"], "owner": "data"},
   {"file": "acceptance.py", "function": "validate_window", "class": "shape", "roles": ["conductor"], "owner": "data"},
@@ -25,7 +25,7 @@
   {"file": "artifact_sections.py", "function": "_plan_structure", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "assertion_detectors.py", "function": "assertion_heads", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "audit_factory.py", "function": "check_owner", "class": "shape", "roles": ["conductor"], "owner": "data"},
-  {"file": "audit_factory.py", "function": "load_personal_path", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "audit_factory.py", "function": "load_personal_path", "class": "shape", "roles": ["conductor"], "owner": "data", "blocks_override": false, "note": "its ValueError is raised and caught inside: a bad markers file becomes the problem text rule A20 reports, never a refusal to a role"},
   {"file": "audit_factory.py", "function": "personal_path_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "baseline_contract.py", "function": "_hash_ref", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "baseline_contract.py", "function": "baseline_receipt", "class": "shape", "roles": ["conductor"], "owner": "data"},
@@ -92,7 +92,7 @@
   {"file": "codex_roles.py", "function": "export", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "collect_gaps.py", "function": "read", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "collect_pack.py", "function": "refuse", "class": "shape", "roles": ["conductor"], "owner": "data"},
-  {"file": "codex_usage.py", "function": "epoch_of", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "codex_usage.py", "function": "epoch_of", "class": "shape", "roles": ["conductor"], "owner": "data", "blocks_override": false, "note": "its only raise guards the caller's `naive` argument (a programming error); a stored time it cannot read is None, never a refusal to a role"},
   {"file": "collect_stall.py", "function": "judge", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "conductor_stop.py", "function": "decide", "class": "shape", "roles": ["conductor"], "owner": "data", "ref": "A24:CS-conductor-wake"},
   {"file": "config_contract.py", "function": "_alternatives_errors", "class": "shape", "roles": ["conductor"], "owner": "data"},

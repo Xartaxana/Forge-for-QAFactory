@@ -356,7 +356,10 @@ def lane_crash_others_finish_one_seam():
     check("the crashed lane's Refusal is raised once, on this thread", err is boom, repr(err))
     check_eq("the other running lane finished and booked", d.world.done_cases(), {"TC-2"})
     check_eq("the third lane was never registered after the drain", sorted(registered(d)), ["S6-qa-runner-1", "S6-qa-runner-2"])
-    check_eq("the crashed lane's dispatch stays running for the re-entry", d.world.dispatches["S6-qa-runner-1"]["status"], "running")
+    # FR-31: the id is the booking order of the two chain threads (`len(prior) + 1` under `_book`), not the lane number, so the crashed
+    # lane's dispatch is found by its scope; under load the TC-2 chain can book first and take S6-qa-runner-1
+    crashed = [r["status"] for r in d.world.dispatches.values() if r.get("scope") == ["TC-1"]]
+    check_eq("the crashed lane's dispatch stays running for the re-entry", crashed, ["running"])
 
 
 def drained_lane_registers_no_dispatch():
