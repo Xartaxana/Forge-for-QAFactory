@@ -904,8 +904,41 @@ def _spelled_as_a_test(name: str) -> bool:
     return code if code is not None else Path(name).suffix.lower() in CODE_EXTENSION_FLOOR
 
 
-def first_test_file(root) -> str:
-    """The first file under `root` whose NAME is a usual test name (`test_files`, the one leaf), or ''.
+def _recorded_test_place(path: Path, cfg, project) -> bool:
+    """World R for ONE file (B-355 item 12): the project recorded where its tests are for the area `path` lies in, and the
+    record names this file (`test_files.is_test_for("test_place", <path relative to the project>)` is True) and it is a code
+    file (`CODE_EXTENSION_FLOOR` when the extensions are unknown). Any failure is False: an unreadable record never makes a
+    file more of a candidate than today."""
+    try:
+        from test_files import CODE_EXTENSION_FLOOR, is_code_file, is_test_for
+        rel = Path(path).resolve().relative_to(Path(project).resolve()).as_posix()
+        code = is_code_file(path.name)
+        if not (code if code is not None else path.suffix.lower() in CODE_EXTENSION_FLOOR):
+            return False
+        return is_test_for("test_place", rel, cfg, root=project) is True
+    except Exception:
+        return False
+
+
+def _area_recorded(path, cfg, project) -> bool:
+    """Did the project record its tests for the area `path` lies in? Never raises; no config or no project is False (World N)."""
+    if not isinstance(cfg, dict) or project is None:
+        return False
+    try:
+        from test_locations import recorded
+        return bool(recorded(cfg, root=project, path=str(path))[0])
+    except Exception:
+        return False
+
+
+def first_test_file(root, cfg=None, project=None) -> str:
+    """The first file under `root` the rehearsal may run as the one test, or ''.
+
+    World N (no `cfg`/`project`, or the file's area unrecorded): the first file whose NAME is a usual test name
+    (`test_files`, the one leaf), exactly as before. World R (the project recorded its tests for the file's area): only a
+    code file the record names is a candidate (`test_place`); among candidates one whose name is also a usual test name is
+    preferred (an order hint, never a verdict), else the first in walk order. Nothing found in a recorded area is '' - never
+    a fall back to the usual names there.
 
     Sorted at every level, so the same machine picks the same test twice and a card written
     about it means the same thing tomorrow. The trees in `REPORTER_SKIP_DIRS` are not entered."""
@@ -913,12 +946,20 @@ def first_test_file(root) -> str:
     root = Path(root)
     if not root.is_dir():
         return ""
+    fallback = ""
     for base, dirs, files in os.walk(root):
         dirs[:] = sorted(d for d in dirs if d not in REPORTER_SKIP_DIRS and not d.startswith("."))
+        recorded_here = _area_recorded(Path(base), cfg, project)
         for name in sorted(files):
-            if _spelled_as_a_test(name):
-                return str(Path(base) / name)
-    return ""
+            spelled = _spelled_as_a_test(name)
+            if not recorded_here:
+                if spelled:
+                    return str(Path(base) / name)
+            elif _recorded_test_place(Path(base) / name, cfg, project):
+                if spelled:
+                    return str(Path(base) / name)
+                fallback = fallback or str(Path(base) / name)
+    return fallback
 
 
 def first_collected_node(stdout: str, under: str = "") -> str:
@@ -3653,13 +3694,16 @@ class Rehearsal:
             chosen = first_collected_node(self.collect_stdout, prefix)
             how ="the first test of the profile's own tests the gate's collect found"
         if not chosen:
-            found = first_test_file(tests_dir if tests_dir is not None else cwd)
+            scan = tests_dir if tests_dir is not None else cwd
+            found = first_test_file(scan, self.config, root)
             if found:
                 try:
                     chosen = os.path.relpath(found, cwd).replace("\\", "/")
                 except ValueError:
                     chosen = found
                 how = "the first test file under " + str(spec.get("cwd") or ".")
+            elif _area_recorded(scan, self.config, root):
+                how = (f"none of the files under {spec.get('cwd') or '.'} lies in the project's recorded test places")
         counts = self._collect_counts(tests_dir, root, pytest_shaped)
         if chosen:
             return chosen, how, "", counts
