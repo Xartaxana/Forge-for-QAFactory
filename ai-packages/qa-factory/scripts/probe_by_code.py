@@ -7,8 +7,9 @@ one command and nothing in the record is typed by a role:
 
   1. the test function is located by AST (`<file>::[Class::]<func>[<param>]`, class methods too);
   2. its FIRST check is mutated — `invert`: `assert not (<expr>)` (hamcrest `assert_that(actual,
-     matcher)` gets `is_not(matcher)`; every form is a row of `assertion_probes_ast.python.forms`). The mutated check carries a marker message `probe-<IID> ...` so the
-     failure that fires is attributable, and the statement keeps its line count;
+     matcher)` gets `is_not(matcher)`; every form is a row of `assertion_probes_ast.python.forms`). When the form takes a message, the mutated check carries the
+     factory's marker `qa-probe-<token>` (joined at run time) so the failure that fires is attributable, and the statement keeps its line
+     count; the human text `probe-<IID> invert: ...` is the record's `expected_reason`, not the proof;
   3. exactly that node runs through `run_suite.py --request` with a typed `red_probe` request
      this script writes under `work/probe-requests/probe-<IID>.json` (built by the same code
      `--mine` uses; `red_probe` writes no run block, so the mutated red never reaches the
@@ -57,15 +58,17 @@ first assertion and the one inverted form of it, and which failure that inverted
 read by the language's lexer (comments and strings never hold a head), the test is found by its declaration
 (exactly one match, or `--at <line>` picks), the first head of its body is inverted by one `find -> replace`
 pair at one position (`--mutation invert` only), and the run's own report decides: the inverted statement
-failed AT its lines AND with the factory's own marker or its `fires_as` message is `intended_failure`; anything the
-tool cannot read - a frame it cannot resolve, an error row, a launcher that may not rebuild, a
-`--at` among two candidates that passed - is `incomplete` (exit 1, no receipt, `cause: tooling`): a factory gap
-is never a verdict on the test (FR-59). A language with no entry, or a table that cannot be read, is a
+failed and the factory's own marker, the exact token, is read in a failed row's failure or error text is `intended_failure`
+(`proved_by: marker`); one rule for every language. Neither the place, the line nor the library's wording (`fires_as`) proves.
+A failure with text and no token is `incomplete`, `cause: judgment` (exit 1, no receipt): the place, the frame and the library
+wording are facts in `judgment_facts` for the code critic. `cause: tooling` stays only for what the tool cannot read at all - a
+row with no text, a pass whose body is unknown (`--at` among two candidates, or the manifest's id), a compiled launcher that may not rebuild, a
+row that is not bound to the test: a factory gap is never a verdict on the test (FR-59). A language with no entry, or a table that cannot be read, is a
 refusal that says it is a gap of the factory's data and names the row to add (exit 2, nothing changed in the
 author's tree). A refusal of the TOOL (`ToolRefusal`) leaves one record, `refused: tool`, when the manifest proves the test is
 the instance's (`_record_tool_refusal`); a refusal of the CALL leaves none. A record that says `incomplete`, or that no row of
 the report could be bound to the test, also says `language` and `cause: tooling` (`proof_level.tooling_gap_key` reads it); the one
-exception is a failure AT the mutated statement whose text neither the marker nor the row reads (E15, t-1968): `cause: judgment`
+exception is a failed or error row with text and no marker (E15, t-1968): `cause: judgment`
 with `judgment_facts` (the statement, the frame, the whole message and the failure text, cut). That record is the code critic's to judge:
 
   probe_by_code.py --task T --dispatch ID --judge "<instance>" --verdict fires|other_failure|cannot_judge
@@ -110,8 +113,8 @@ the conftest chain and the modules it imports; the mutation then lives in that f
 length of the probe and is restored with it, and the record says where it went. Deeper than one
 hop is named by hand with `--oracle`.
 
-Verdicts: `intended_failure` (the run failed by assertion at the mutated statement with the
-marker reason), `no_failure` (the mutated test passed — the assert never fired), `wrong_location`
+Verdicts: `intended_failure` (the probe's marker was read in the failure, `proved_by: marker`, or the code critic
+judged `fires`, `proved_by: critic`), `no_failure` (the mutated test passed — the assert never fired), `wrong_location`
 (it failed elsewhere, or for another reason; `actual_location`/`actual_reason` say where),
 `not_executed` (nothing ran; `notes` say why), `incomplete` (the run happened but the tool could not read
 it well enough to judge the test: `notes` say what it could not read; a tooling finding). Exit 0 for the
@@ -3034,8 +3037,9 @@ def _location_hits(location: str, spec: dict, detail: dict) -> bool:
 # proves a failure by ONE thing, the probe's own marker read in the failure's text; a failure without it is not proved by
 # its place or by the library's wording (a throw inside the statement's arguments is at the same line, a foreign
 # `AssertionError` from a helper has the same type) - it is the code critic's, with the facts. Anything the tool did not read
-# well enough (an error row, an unresolvable frame, a launcher that may not rebuild) is `incomplete`, never a verdict on the
-# test (FR-59, E15, E26). The alternative reading (t-2064 P5) walks the same road and is judged by the same row judge.
+# well enough (a row with no text, a pass whose body is unknown, a launcher that may not rebuild) is `incomplete`, `cause: tooling`,
+# never a verdict on the test (FR-59, E15, E26); an error row or an unresolvable frame, with its text, goes to the critic.
+# The alternative reading (t-2064 P5) walks the same road and is judged by the same row judge.
 
 def text_head(text: str, entry: dict) -> str:
     """The failure's text above its first stack frame or skipped line."""
@@ -4026,7 +4030,7 @@ def _receipt_core(record: dict, iid: str, facts: dict, restoration: str) -> dict
         # another line never proves the obligation (`proof_level.receipt_off_target`, the one reader)
         core["target"] = record["target"]
     if record.get("proved_by") and record.get("verdict") == "intended_failure":
-        core["proved_by"] = record["proved_by"]     # t-1968 N1: `marker` | `fires_as` | `critic`; the window block carries it (window_record)
+        core["proved_by"] = record["proved_by"]     # t-1968 N1: `marker` | `critic` (a stored `fires_as` from an older package still reads, t-2064 Q5); the window block carries it (window_record)
         judgment = record.get("judgment")
         if record["proved_by"] == "critic" and isinstance(judgment, dict) and judgment.get("quote"):
             core["judgment_quote"] = judgment["quote"]      # t-1968 N2: the line of the stored text the critic quoted as the firing
