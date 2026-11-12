@@ -292,7 +292,7 @@ TOOLING = {
         MANIFEST_VIEW,
     ],
     "qa-bug-reporter": [
-        "artifact_producer.py prepare --kind bug --task-root <task root> - the bug skeleton; the file goes to project bugs/",
+        "artifact_producer.py prepare --kind bug --task-root <task root> - the bug skeleton; the file goes to <task root>/bugs/ (publish accepts only <task root>/bugs/ and <task root>/work/)",
         "artifact_producer.py validate-batch --task-root <task root> --input <batch.json> - checks every selected bug as one unit; batch.json is {\"artifacts\": [{\"kind\": \"bug\", \"path\": \"bugs/BUG-<id>.md\", \"data\": <the artifact object>}]}",
         "artifact_producer.py publish --kind bug --task-root <task root> --path bugs/BUG-<id>.md --input <file> [--expected-hash <sha256>] - the publication of each bug (--expected-hash only over a file that exists)",
         "external writes are NOT yours: a proposal file under work/proposals/ (external-writes.md); external_writes.py runs after gate B",

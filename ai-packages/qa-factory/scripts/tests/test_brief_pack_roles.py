@@ -303,6 +303,28 @@ def charter_card_checks() -> None:
         [["bug_records.py", "bug_snapshot.py"], True])
 
 
+def bug_publish_path_checks(root: Path) -> None:
+    """OH5-9 (B-315, FR-37): the bug reporter's card and charter name the folder `publish` accepts for a bug
+    (`<task root>/bugs/`), not the project's `qa-factory/bugs/`. Killed by: putting `qa-factory/bugs/` back into the
+    card's `--path` or the charter's write-path sentence (the rows below name which)."""
+    import artifact_producer as AP
+    card = [x for x in brief_pack.TOOLING["qa-bug-reporter"] if x.startswith("artifact_producer.py publish")][0]
+    path = re.search(r"--path (\S+)", card).group(1).replace("<id>", "7")
+    charter = (harness.PLUGIN_ROOT / "agents" / "qa-bug-reporter.md").read_text(encoding="utf-8")
+    sentence = [x for x in charter.splitlines() if "comes first" in x][0]
+    try:
+        AP.publish(root, "bug", {"frontmatter": {"id": "BUG-8"}}, path)    # a wrong id: refused AFTER the folder check
+        refusal = ""
+    except ValueError as exc:
+        refusal = str(exc)
+    check_eq("OH5-9: the path the card hands to publish passes publish's folder check", "under task/work" in refusal, False)
+    for name, text in (("card", card), ("charter", sentence)):
+        check_eq(f"OH5-9: the {name} does not send a bug to the project's qa-factory/bugs/",
+                 "qa-factory/bugs" in text.replace("never the project's `qa-factory/bugs/`", ""), False)
+        check_in(f"OH5-9: the {name} names the story's own bugs folder", "<task root>/bugs/" if name == "charter" else "bugs/BUG-",
+                 text)
+
+
 def byte_checks(rich: bool) -> None:
     """K7 (E13): the card the node adds does not push a no-Bash brief over the cap, and never empties the file list."""
     fixture = "rich" if rich else "plain"
@@ -452,6 +474,7 @@ def main() -> None:
         bash_pin_checks()
         card_literal_checks()
         charter_card_checks()
+        bug_publish_path_checks(root)
         byte_checks(rich=False)
         replay_checks(root)
     finally:
