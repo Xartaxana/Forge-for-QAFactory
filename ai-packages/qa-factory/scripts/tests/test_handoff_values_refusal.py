@@ -833,8 +833,44 @@ def a_field_held_by_a_later_row_is_offered_at_that_row() -> None:
              handoff.template("s3-strategist-to-designer").nodes), "inputs_read[0].path")
 
 
+def a_near_miss_is_offered_only_at_a_row_the_writer_takes() -> None:
+    """K-HO1 (F9 class at `_near`, FR-2): `rows` is a line of the SECOND `inputs_read` row of the s8 template. A near miss
+    - no index, the index of the row that does not hold it, the index of the row that does - is offered at that row, and the
+    offered path is written (applied 1). A homogeneous list keeps the person's row; a field no row holds and a template that
+    cannot be read give no path."""
+    contract = "s8-scribe-to-gate-b"
+    for typed in ("inputs_read.rows", "inputs_read[0].row", "inputs_read[1].row"):
+        _d, applied, bad, _n = H.apply_values(handoff.template(contract), contract, [(typed, "w", 1, "")])
+        check_eq(f"K-HO1 {typed}: refused, offered the row that holds it", (applied, [b.fix for b in bad]),
+                 (0, ["inputs_read[1].rows: <value>"]))
+        _d, got, again, _n = H.apply_values(handoff.template(contract), contract, [("inputs_read[1].rows", "w", 1, "")])
+        check_eq(f"K-HO1 {typed}: the offered path is written", (got, again), (1, []))
+    _d, applied, bad, notes = H.apply_values(handoff.template(contract), contract, [("inputs_read[0].rows", "w", 1, "")])
+    check_eq("K-HO1 control: the old offer `inputs_read[0].rows` is written by nothing (a note, no refusal)",
+             (applied, bad, len(notes)), (0, [], 1))
+    _d, applied, bad, _n = H.apply_values(handoff.template(S4C), S4C, [("scope[0].reasn", "w", 1, "")])
+    check_eq("K-HO1 control: a homogeneous list keeps the person's row", [b.fix for b in bad], ["scope[0].reason: <value>"])
+    nodes, doc = handoff.template(contract).nodes, handoff.template(contract)
+    check_eq("K-HO1 a field no row of the template holds gives no path", H._near_row("inputs_read[].nothing", [0], nodes, doc), "")
+    check_eq("K-HO1 a template that cannot be read gives no path", H._near_row("inputs_read[].rows", [0], None, doc), "")
+    check_eq("K-HO1 a path with no row index needs no template", H._near_row("header.verdict", [], None, doc), "header.verdict")
+
+
+def a_line_the_writer_drops_with_a_note_is_not_echoed() -> None:
+    """K-HO2 (FR-2): `_writable_lines` leaves out a line the next apply drops with a note only
+    (`inputs_read[0].rows`, written by nothing) as well as a refused one; a line it writes stays (control: header.window,
+    `inputs_read[1].rows`)."""
+    contract = "s8-scribe-to-gate-b"
+    pairs = [("inputs_read[0].rows", "x", 1, "inputs_read[0].rows: x"), ("inputs_read[1].rows", "y", 2, "inputs_read[1].rows: y"),
+             ("no_such.field", "z", 3, "no_such.field: z"), ("header.window", "w", 4, "header.window: w")]
+    check_eq("K-HO2: only the lines the writer takes are kept, in order",
+             H._writable_lines(handoff.template(contract), contract, pairs), ["inputs_read[1].rows: y", "header.window: w"])
+
+
 # split: runner piece 1
 if __name__ == "__main__":
+    a_near_miss_is_offered_only_at_a_row_the_writer_takes()
+    a_line_the_writer_drops_with_a_note_is_not_echoed()
     a_dotted_index_is_refused_with_the_indexed_row_form()
     a_list_of_objects_is_refused_with_the_first_row_lines()
     a_block_yaml_list_is_refused_with_the_headers_list()

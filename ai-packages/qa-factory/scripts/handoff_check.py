@@ -2455,16 +2455,32 @@ def _path_order(path: str) -> list:
             for token in re.findall(r"[A-Za-z_][\w\-]*|\d+", path)]
 
 
-def _near(path: str, spec: dict, doc) -> str:
-    """The closest path the contract or the form knows, for an unknown one; "" when nothing is close."""
+def _held_in(candidate: str, nodes, doc) -> bool:
+    """True when the form or the template holds a line at `candidate` (or at an item of it: a list of values)."""
+    return any(node == candidate or node.startswith(candidate + "[") for held in (nodes, doc.nodes) for node in held)
+
+
+def _near_row(generic: str, held: list, nodes, doc) -> str:
+    """The path of `generic` (a spec path, `[]` for each row index) the writer takes (HO1, the F9 rule of `_concrete`):
+    the row indexes the person wrote when the form or the template holds a line there, else the first row of the
+    template that holds the field (`_concrete_head`); "" when no row holds it. A trailing `[]` (a list of values) is
+    taken off: that list is written whole."""
+    if "[]" not in generic:
+        return generic
+    if nodes is None:                                   # no template to ask: no row index is guessed (the general text)
+        return ""
+    own = _concrete_head(generic, nodes, held)
+    return own if own and _held_in(own, nodes, doc) else _concrete_head(generic, nodes)
+
+
+def _near(path: str, spec: dict, doc, contract: str = "") -> str:
+    """The closest path the contract or the form knows, for an unknown one; "" when nothing is close. A path with row
+    indexes is one the writer takes: a field no row of the template holds, or one the template cannot be read for, gives
+    no hint (HO1)."""
     generic = INDEXED.sub("[]", path)
     near = difflib.get_close_matches(generic, [p for p in spec if not handoff.owned_by_contract(p)], n=1, cutoff=0.6)
     if near:
-        guess = near[0]
-        for index in INDEXED.findall(path):
-            guess = guess.replace("[]", f"[{index}]", 1)
-        guess = guess.replace("[]", "[0]")
-        return guess[:guess.rindex("[")] if guess.endswith("]") else guess   # a list of values is written whole
+        return _near_row(near[0], [int(i) for i in INDEXED.findall(path)], _template_nodes(contract), doc)
     near = difflib.get_close_matches(path, [p for p in doc.nodes if not handoff.owned_by_contract(p)], n=1, cutoff=0.6)
     return near[0] if near else ""
 
@@ -2516,7 +2532,7 @@ def _apply_one(doc, contract: str, spec: dict, path: str, value, raw: bool) -> t
         handoff.set_value(doc, path, value)
         return (handoff.parse(doc.text()), True, None,
                 f"`{path}` is not in `{contract}` any more; written as the form holds it")
-    guess = _near(path, spec, doc)
+    guess = _near(path, spec, doc, contract)
     return refuse(f"`{path}` is not a field of `{contract}`" + (f" - did you mean `{guess}`?" if guess else ""),
                   f"{guess}: <value>" if guess else FILE_FIX)
 
@@ -2559,14 +2575,14 @@ def _text_of(label: str, read) -> tuple:
 def _writable_lines(doc, contract: str, pairs: list) -> list:
     """The raw lines of `pairs` that the writer takes: each pair goes through `apply_values` on a COPY of `doc` (in path
     order, so rows open one after the other) and a pair it refuses is left out (HF8-28: the refusal's skeleton never
-    gives back a line the next apply refuses, FR-2). The order of `pairs` is kept. When the copy cannot be made or a
+    gives back a line the next apply refuses, FR-2; nor one it drops with a note, HO2). The order of `pairs` is kept. When the copy cannot be made or a
     pair raises, every line is kept as before - the error direction is the general skeleton, never a lost line."""
     try:
         trial = handoff.parse(doc.text())
         refused = set()
         for pair in sorted(pairs, key=lambda pair: _path_order(pair[0])):
-            trial, _count, found, _notes = apply_values(trial, contract, [pair])
-            if found:
+            trial, count, found, _notes = apply_values(trial, contract, [pair])
+            if found or not count:                    # refused, or dropped with a note only (HO2): nothing the next apply writes
                 refused.add(pair[0])
     except Exception:
         return [raw for _path, _value, _line, raw in pairs]
