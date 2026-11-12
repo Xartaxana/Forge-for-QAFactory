@@ -2596,11 +2596,14 @@ def _target_of(ctx, at, oracle: str, test_bytes: bytes) -> dict:
 
 # --- the checks that stand before the first write (R6, E10) ----------------------------------------------
 
+_STAND_IN_ROOT = Path(tempfile.gettempdir()) / "qa-factory-stand-in-project"   # `_in_test_root` reads a project-relative path; never touched on disk
+
+
 def _in_test_root(cfg: dict, rel: str) -> bool:
-    """E10, the interim rule: `rel` (project-relative, POSIX) lies under a profile's `roots.test` (or the
-    config's `tests_root`) and under no `protected_app_paths` entry (those are relative to `app_root`). The
-    seam B-415 widens: `test_locations.is_test_path(rel, cfg).by == "config"` will also pass; `markers` alone
-    never does. Invariant: the product tree is never touched knowingly.
+    """E10: `rel` (project-relative, POSIX) lies under a profile's `roots.test` (or the config's `tests_root`), as
+    `test_locations.is_test_path(rel, cfg)` reads them (`by == "config"`, source `roots.test` / `tests_root`), and under no
+    `protected_app_paths` entry (those are relative to `app_root`). `markers` and `test_locations` alone never pass.
+    Invariant: the product tree is never touched knowingly.
 
     EP1-12 (AR-13, AR-15): every path here is spelled by `execution_request._path_key` and compared by
     `execution_request.path_under` - the pair `profiles_owning` uses - so `./tests`, `tests\\x` and `tests/a/../x`
@@ -2615,10 +2618,22 @@ def _in_test_root(cfg: dict, rel: str) -> bool:
     key = ER._path_key(text)
     if not key or key == ".." or key.startswith("../"):
         return False
-    roots = [ER._path_key((p.get("roots") or {}).get("test")) for p in cfg.get("profiles") or [] if isinstance(p, dict)]
-    roots.append(ER._path_key(cfg.get("tests_root")))
-    if not any(r and not (r == ".." or r.startswith("../")) and ER.path_under(key, r) for r in roots):
+    # B-355 node I: the roots are read through the one reader (`test_locations.is_test_path`), `by == "config"` from
+    # `roots.test` / `tests_root` only: a value it ignores (`"."`, at or above the root) is ignored here too, and where
+    # the project recorded its tests for the area only the record decides. The path is project-relative, so the root
+    # it is read against is a fixed stand-in; `markers` never passes here, and `test_locations` passes only for a path
+    # that ALSO lies under a `roots.test` / `tests_root` carrier (read from the reader's own live carrier list).
+    import test_locations as TL
+    cfg = cfg if isinstance(cfg, dict) else {}
+    verdict = TL.is_test_path(key, cfg, root=_STAND_IN_ROOT)
+    if verdict.get("by") != "config":
         return False
+    if verdict.get("source") not in ("roots.test", "tests_root"):
+        ctx = TL._Ctx(cfg, _STAND_IN_ROOT)
+        t = TL._target(ctx, key, None)
+        if not any(source in ("roots.test", "tests_root") and TL._inside(t, prefix)
+                   for source, _where, prefix, _rest, _wild in TL._live_carriers(ctx, t)):
+            return False
     app = str(cfg.get("app_root") or ".").replace("\\", "/")
     for protected in cfg.get("protected_app_paths") or []:
         base = ER._path_key(posixpath.join(app, str(protected).replace("\\", "/")))
