@@ -1,0 +1,1 @@
+- A time stored without a zone is read as UTC by the hook-journal and driver-runs readers, the way every writer stores it and the driver journal's reader reads it; the runner charter's probe rule is worded for any SDK.
