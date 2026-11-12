@@ -997,6 +997,7 @@
         "scripts/tests/test_selftest_shard.py",
         "scripts/tests/test_selftest_ran_nothing.py",
         "scripts/audit_factory.py",
+        "references/machine-path-markers.json",
         "scripts/install_smoke.py",
         "scripts/arch_check.py",
         "scripts/benchmark_compare.py",
