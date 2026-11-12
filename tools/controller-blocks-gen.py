@@ -361,6 +361,10 @@ BY_SEGMENT = {
     "(StateConflict, closed)": ("command", "`--operation reopen_story --dispatch <held ids> --words-file <file>` for work that never started; `--operation rework --stage <Sn> --role <role> --cases <ids> --words-file <file>` for new work; the retro (S9) needs no word"),
     # ONE site: `build_resume_request` passes a status's refusal (`_resume_status_problems`) on whole as the call's error class.
     "(ValueError, status_problem)": ("command","a status's own refusal of `resume`, passed on whole: it names the door of that status (`next`, `recover`, `rework`, `finish`)"),
+    # ONE site each (t-147 H3 moved the literal into a helper; the route of the former literal rows is kept): `_resume_status_problems`
+    # for an incomplete dispatch, and `_resume_stop_problems` for a story-budget stop.
+    "(StateConflict, self._incomplete_problem(d))": ("command", "the door `_incomplete_problem` names: the retry packet `--operation recover` prints when it lists the dispatch, the person's word on the story budget for a budget stop, `--operation next` otherwise"),
+    "(StateConflict, self._budget_words(did))": ("command", "a person's word on the story budget, or fresh work with a new input hash"),
     # ONE site: `validate`'s E-B11 gate (X2-5, `acceptance.stage_acceptance_refusal`): a stage with `acceptance_by` does not close without an accept record of its critic.
     "raise StateConflict(refusal)": ("command", "dispatch the stage critic (`story_step.py start --stage <Sn> --role <acceptance_by role, e.g. qa-case-critic>`) and record its verdict with `stage_done.py --task <key> --stage <Sn> --acceptance work/handoffs/<its dispatch>.yaml`; or the person's word with `waiver.py --stage <Sn> --block \"stage acceptance\"`"),
     'raise StateConflict(f"current Gate {gate} decision required")': ("command", "`gate-decision --words-file <file>` records the person's approval of that gate"),
