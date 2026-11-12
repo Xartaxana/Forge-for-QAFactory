@@ -831,7 +831,7 @@ def validate_table(package_root=None, table: dict | None = None) -> dict:
                            f"reader {r['reader']!r} does not contain {_key_of(r)!r}, the key of {r['glob']!r}; name the "
                            "script that does (grep the package), or set the row's `key`"})
     errors.extend(_basis_errors(table, package_root, {e["glob"] for e in errors if e["code"] == "shape"}))
-    nones =[r for r in rules if r.get("reader") == "none"]
+    nones = [r for r in rules if r.get("reader") == "none"]
     if nones:
         control = next((r for r in readers if _key_of(r).casefold() in (_read_lower(_reader_path(package_root, r["reader"])) or "")), None)
         if control is not None:

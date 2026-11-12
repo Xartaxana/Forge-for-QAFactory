@@ -1277,6 +1277,20 @@ def render(p: dict) -> str:
 
 # --- apply ---------------------------------------------------------------------------------------
 
+def _listed_kind(root, item: dict) -> tuple:
+    """How a LISTED file differs from the summary now -> (kind, sha256 read now); kind is None when the file is gone
+    (a first attempt may have removed it) or has the bytes it was listed with (no drift)."""
+    path = _abs(root, item["rel_path"])
+    if not os.path.lexists(path):
+        return None, None
+    if os.path.islink(path) or not path.is_file():
+        return "not_a_file", None
+    sha = _sha_or_none(path)
+    if sha is None:
+        return "unreadable", None
+    return (None, sha) if sha == item["sha256"] else ("changed", sha)
+
+
 def summary_drift(root, listing_retire: list, now_retire: list | None = None, table: dict | None = None) -> dict:
     """What differs from the summary, settled by class (OH3-9). -> {refuse[], settled[]}, always both keys.
 
@@ -1300,24 +1314,9 @@ def summary_drift(root, listing_retire: list, now_retire: list | None = None, ta
         c = I.classify(rel, table=table)
         if c["class"] == "carried" or c["hook_written"]:
             continue
-        sha = None
-        if is_new:
-            kind = "new"
-        else:
-            path = _abs(root, rel)
-            if not os.path.lexists(path):
-                continue
-            if os.path.islink(path) or not path.is_file():
-                kind = "not_a_file"
-            else:
-                try:
-                    sha = I.sha256_file(path)
-                except OSError:
-                    kind = "unreadable"
-                else:
-                    if sha == item["sha256"]:
-                        continue
-                    kind = "changed"
+        kind, sha = ("new", None) if is_new else _listed_kind(root, item)
+        if kind is None:
+            continue
         if not I.in_home(rel, table):
             refuse.append(rel)
             continue
@@ -1406,16 +1405,16 @@ def _retire(root, listing: dict, date: str, approval_ref: str, proposal_hash: st
     results = []
     for item in listing["retire"]:
         rel, path = item["rel_path"], _abs(root, item["rel_path"])
-        row = dict(item, result="")
+        row, cls = dict(item, result=""), I.classify(rel, table=table)
         if "fold_receipt" in item.get("requires", []) and not fold_ok:
             row["result"] = "waits for the fold"
         elif rel == OLD_READINESS_REL and not _abs(root, READINESS_REL).is_file():
             row["result"] = "kept: its replacement (state/readiness.json) was not built"
         elif not os.path.lexists(path):
             row["result"] = "already gone"
-        elif I.classify(rel, table=table)["hook_written"]:
+        elif cls["hook_written"]:
             row["result"] = "kept: rewritten by a running session"       # t-298: never retired, whatever an older listing says
-        elif I.classify(rel, table=table)["class"] == "carried":
+        elif cls["class"] == "carried":
             row["result"] = "kept: the factory keeps it"                  # OH3-9: carried NOW, whatever an older listing says (twin of t-298)
         elif os.path.islink(path) or not path.is_file():
             row["result"] = "kept: no longer a plain file"
@@ -1466,7 +1465,9 @@ def apply(root, plan_: dict, approval_ref: str, *, phase: str = "all", date: str
           checkpoint=None, after_summary=None) -> dict:
     """Carry out an approved plan. -> {applied, phase, nothing_to_do, steps[], retired[], record, manifest, after_summary[]}.
 
-    `after_summary` (keyword): the `new` rows `main` computed with `summary_drift` (candidates the summary did not list).
+    `after_summary` (keyword): the rows `main` computed with `summary_drift`. Only the items of `new` rows are taken
+    (candidates the summary did not list) and they are judged again here by `summary_drift`; rows of any other kind are
+    ignored, because the sealed listing re-derives them.
 
     Refuses BEFORE writing anything when: a writer is live (E1) after LIVE_TRIES looks, LIVE_WAIT_S apart
     (a lease is not waited for; this session's own writer is not a writer in this sense); the sealed proposal's hash is not
@@ -1510,10 +1511,12 @@ def apply(root, plan_: dict, approval_ref: str, *, phase: str = "all", date: str
     listing = proposal.get("listing") or {"retire": [], "write": [], "regenerate": []}
     settled = []
     if phase in ("all", "final"):
-        drift = summary_drift(root, listing["retire"], None, table)
+        # the caller's rows are candidates, not verdicts: `new` ones are re-judged here; any other kind is
+        # re-derived from the sealed listing (a library call does not go round the gate)
+        drift = summary_drift(root, listing["retire"], [r["item"] for r in (after_summary or []) if r.get("kind") == "new"], table)
         if drift["refuse"]:
             raise ApplyRefused(changed_message(drift["refuse"]))
-        settled = drift["settled"] + list(after_summary or [])
+        settled = drift["settled"]
 
     def step(name, detail=None):
         out["steps"].append({"step": name, **({"detail": detail} if detail is not None else {})})

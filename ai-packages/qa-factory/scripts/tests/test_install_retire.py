@@ -447,6 +447,7 @@ class AfterSummaryWorld:
 
     def __init__(self, entry: str, also=(), prep=None):
         self.entry, self.also = entry, list(also)
+        self.after = None            # rows a library caller hands `apply` as `after_summary` (the untrusted-input rows set it)
         self.side = temp_dir("qa-after-side-")
         if entry == "cli":
             self.root, self.sealed, _ = hook_project(self.side, also, prep)
@@ -481,7 +482,7 @@ class AfterSummaryWorld:
             code, out, err = cli("--root", self.root, "--proposal", self.sealed, "--apply", "--approval-ref", self.ref, "--phase", phase, *extra)
             return code, (json.loads(out) if out.strip().startswith("{") else {}), err
         try:
-            return 0, OA.apply(self.root, self.made, self.ref, phase=phase, date=DATE), ""
+            return 0, OA.apply(self.root, self.made, self.ref, phase=phase, date=DATE, after_summary=self.after), ""
         except OA.ApplyRefused as exc:
             return 1, {}, str(exc)
 
@@ -532,7 +533,23 @@ def _old_listing_names_evidence(world):
          "source": "table", "generation": None, "requires": []}))
 
 
+def _caller_rows(*rows):
+    """A library caller's `after_summary` rows: (rel, kind, retire_mode, sha256 or None for a file that does not exist)."""
+    def hand(w):
+        w.after = [{"rel_path": rel, "kind": kind, "action": "delete",
+                    "item": {"rel_path": rel, "retire_mode": mode, "sha256": digest or sha(w.root, rel)}} for rel, kind, mode, digest in rows]
+    return hand
+
+
 AFTER_SUMMARY = [
+    # a library caller's rows are candidates, judged again: an outside-home `new` row refuses the apply (nothing written); a listed
+    # move-mode file offered as `changed/delete` is still moved with its bytes (never deleted), and no row is reported for it
+    ("apply-untrusted-after-summary-outside", "apply", (), None, _caller_rows((OLD_MD, "new", "delete", "0" * 64)), "all", (),
+     lambda w, code, res, err, snap: ((code, "the project changed since the summary: " + OLD_MD in err, snapshot(w.root) == snap), (1, True, True))),
+    ("apply-untrusted-after-summary-listed", "apply", (), None, _caller_rows((NOTES, "changed", "delete", None)), "all", (),
+     lambda w, code, res, err, snap: ((code, _retired(res, NOTES), NOTES in _rows(res), os.path.exists(w.root / NOTES),
+                                       sha(w.root, f"qa-factory/state/retired/{DATE}/{NOTES}")),
+                                      (0, "moved", False, False, hashlib.sha256(b"my own notes\n").hexdigest()))),
     ("new-evidence-file", "cli", (), None, lambda w: put(w.root, REHEARSALS, "the proof the report check wrote\n"), "final", (),
      lambda w, code, res, err, snap: ((code, res.get("applied"), sha(w.root, REHEARSALS), REHEARSALS in _rows(res)),
                                       (0, True, hashlib.sha256(b"the proof the report check wrote\n").hexdigest(), False))),

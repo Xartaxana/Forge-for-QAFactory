@@ -89,7 +89,7 @@
     {"glob": "qa-factory/state/coverage-map.receipt.json", "class": "carried", "machine_local": true, "reader": "check_coverage.py", "key": ".receipt.json", "note": "the binding receipt check_coverage.py --write leaves; the install runs check_coverage without --write, so it never rebuilds it: kept in place, never retired (owner, 22.10.2026)"},
 
     {"glob": "qa-factory/state/readiness.json", "class": "regenerated", "machine_local": true, "reader": "readiness.py"},
-    {"glob": "qa-factory/install-manifest.json", "class": "regenerated", "reader": "install_paths.py", "rebuilt_by": "install_paths.py", "note": "the install record: every apply writes it again (install_paths.write_manifest); a missing one is read as no manifest (onboard_apply.py:1496-1497), as on a fresh install: no test run, no money, no question"},
+    {"glob": "qa-factory/install-manifest.json", "class": "regenerated", "reader": "install_paths.py", "rebuilt_by": "install_paths.py", "note": "the install record: every apply writes it again (install_paths.write_manifest); a missing one is read as no manifest (`apply` reads it with `read_manifest`; None is a fresh install), as on a fresh install: no test run, no money, no question"},
     {"glob": "qa-factory/state/factory-dashboard.html", "class": "regenerated", "machine_local": true, "reader": "factory_dashboard.py"},
     {"glob": "qa-factory/state/dashboard-dirty.json", "class": "regenerated", "machine_local": true, "hook_written": true, "reader": "dashboard_refresh.py"},
     {"glob": "qa-factory/state/dashboard-refresh.json", "class": "regenerated", "machine_local": true, "hook_written": true, "reader": "dashboard_refresh.py"},
