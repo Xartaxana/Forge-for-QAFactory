@@ -40,6 +40,7 @@ PLAN = f"qa-factory/artifacts/{TICKET}/work/test-plan.json"
 STRATEGIST = "qa-test-strategist"
 BASH_ROLE = "qa-automator"
 FRAGMENT = harness.PLUGIN_ROOT / "changelog.d" / "codex-1-cx1-5-one-tokenizer.md"
+NOTE_MARKER = "The two command guards read a command with one tokenizer"  # the first words of this note in CHANGELOG.md
 # Row 74 of the child rollout, decoded: the cmd of the refused exec_command, byte for byte.
 REAL = f"""rg -n -A 8 -B 2 '"id":"TS-(1|2|3|4|8)"' '{PLAN}'"""
 
@@ -256,13 +257,16 @@ def the_nine_forms_of_g1() -> None:
 
 def the_changelog_fragment_names_the_change() -> None:
     # a release folds the fragment into CHANGELOG.md (changelog_assemble.py): after it the text lives there, under the version
-    folded = not FRAGMENT.is_file()
-    text = (harness.PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8") if folded else FRAGMENT.read_text(encoding="utf-8")
-    check("K5 the changelog fragment exists", bool(text.strip()), str(FRAGMENT))
+    try:
+        text, why = harness.release_note(FRAGMENT, NOTE_MARKER), ""
+    except ValueError as err:
+        text, why = "", str(err)
+    check("K5 the release note exists (the fragment, or its CHANGELOG.md block)", bool(text.strip()),
+          why or f"neither {FRAGMENT.name} nor a CHANGELOG.md block carrying {NOTE_MARKER!r}")
     for needle in ("_is_one_plain_read", "hooklib.command_segments", "SHELL_OPAQUE_BAN", "TP2-2406", "FB-25",
                    "FB-40", "--pre"):
         check_in(f"K5 the fragment names {needle}", needle, text)
-    check("K5 it holds no heading line", folded or not re.search(r"(?m)^#{1,6}(\s|$)", text))
+    check("K5 it holds no heading line", not re.search(r"(?m)^#{1,6}(\s|$)", text))
     check("K5 it is free of Cyrillic", not re.search("[\u0400-\u04ff]", text))
 
 

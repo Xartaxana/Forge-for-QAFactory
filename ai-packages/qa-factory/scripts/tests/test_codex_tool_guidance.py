@@ -70,6 +70,7 @@ PLAN = f"qa-factory/artifacts/{TICKET}/work/test-plan.json"
 PLAN_MD = f"qa-factory/artifacts/{TICKET}/work/test-plan.md"
 BRIEF = f"qa-factory/artifacts/{TICKET}/work/briefs/S3-qa-test-strategist-4.md"
 FRAGMENT = harness.PLUGIN_ROOT / "changelog.d" / "codex-1-cx1-06-no-shell-roles.md"
+NOTE_MARKER = "A role without Bash is never sent to a command its guard refuses"  # the first words of this note in CHANGELOG.md
 HEADING = "\n\n# Factory role instructions: "
 GUIDE_HEAD = "# Your tools on Codex Desktop\n"
 # The connector refusal of `main` for a caller the constant does not speak to (written out here, not computed).
@@ -423,13 +424,16 @@ def ways_checks() -> None:
 
 def the_changelog_fragment() -> None:
     # a release folds the fragment into CHANGELOG.md (changelog_assemble.py): after it the text lives there, under the version
-    folded = not FRAGMENT.is_file()
-    text = (harness.PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8") if folded else FRAGMENT.read_text(encoding="utf-8")
-    check("K5 the changelog fragment exists", bool(text.strip()), str(FRAGMENT))
+    try:
+        text, why = harness.release_note(FRAGMENT, NOTE_MARKER), ""
+    except ValueError as err:
+        text, why = "", str(err)
+    check("K5 the release note exists (the fragment, or its CHANGELOG.md block)", bool(text.strip()),
+          why or f"neither {FRAGMENT.name} nor a CHANGELOG.md block carrying {NOTE_MARKER!r}")
     for needle in ("CODEX_DESKTOP_TOOLS", "TP2-2406", "tools.exec_command", "tools.apply_patch", "NO_SHELL_HEAD",
                    "inject_context.py", "open_in_codex"):
         check_in(f"K5 the fragment names {needle}", needle, text)
-    check("K5 it holds no heading line", folded or not re.search(r"(?m)^#{1,6}(\s|$)", text))
+    check("K5 it holds no heading line", not re.search(r"(?m)^#{1,6}(\s|$)", text))
     check("K5 it is free of Cyrillic", not re.search("[" + chr(0x0400) + "-" + chr(0x04FF) + "]", text))
 
 

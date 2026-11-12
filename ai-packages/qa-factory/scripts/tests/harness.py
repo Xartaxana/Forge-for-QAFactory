@@ -118,6 +118,32 @@ def check(name: str, ok: bool, detail: str = "") -> bool:
     return bool(ok)
 
 
+def release_note(fragment: Path, marker: str, changelog: Path | None = None) -> str:
+    """The text of one release note: the fragment while the file exists, else the CHANGELOG.md block that carries `marker`.
+
+    A release folds changelog.d/ fragments into CHANGELOG.md (changelog_assemble.py); the block (lines up to the next blank line)
+    holding `marker` is then the note. Returns "" when the fragment is gone and no block carries the marker, or the changelog
+    cannot be read - the caller's check goes red on the empty text. Two blocks carrying the marker raise ValueError naming both.
+    """
+    if fragment.is_file():
+        return fragment.read_text(encoding="utf-8")
+    path = changelog or PLUGIN_ROOT / "CHANGELOG.md"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    blocks, start = [], 0
+    for i, line in enumerate(lines + [""]):
+        if not line.strip():
+            if i > start:
+                blocks.append((start + 1, "\n".join(lines[start:i])))
+            start = i + 1
+    hits = [(first, text) for first, text in blocks if marker in text]
+    if len(hits) > 1:
+        raise ValueError(f"the marker {marker!r} is carried by two blocks of {path.name}: lines {hits[0][0]} and {hits[1][0]}")
+    return hits[0][1] if hits else ""
+
+
 def check_eq(name: str, got, expected) -> bool:
     return check(name, got == expected, f"expected {expected!r}, got {got!r}")
 
