@@ -5683,8 +5683,8 @@ def story_sides(pipeline, cfg=None, env_name=None, root=None) -> dict:
             print("sides: " + read["problem"] + "; the sides read as unknown", file=sys.stderr)
             return {name: {**row, "reality": ""} for name, row in out.items()}
         if read["sides"]:
-            if read["product_rows"]:
-                out = {}                                # once a `product.sides` row exists `product` is not implied
+            if not product_implied(read["sides"]):
+                out = {}                                # a real side of this team is named: `product` is not implied (PC2-7)
             for name, row in read["sides"].items():
                 out[name] = {**row, "deliverable": True if row["deliverable"] is None else row["deliverable"]}
             return out
@@ -5694,16 +5694,30 @@ def story_sides(pipeline, cfg=None, env_name=None, root=None) -> dict:
     return out
 
 
+def product_implied(sides) -> bool:
+    """THE one condition under which the implicit side `product` (real, deliverable, source default) is carried beside a story's sides
+    (PC2-7, t-043; the owner's word 12.11.2026): when NO entry of `sides` (`{name: {reality, deliverable, ...}}`, as the registry, the
+    launch and the person's answers merge them) is real AND this team's - `deliverable` true or absent (reads true: only `False` is
+    another team's). An entry whose reality is empty or missing (unknown) is not real, and neither is an entry
+    that is not a dict. It never reads history or provenance. Called by `story_sides`, `Driver.s0_sides_sets` and `Driver.sides_reread`,
+    so the three say the same thing (axis 35). Error direction: it decides a name, not a proof - a wrong True adds a name beside sides
+    that are all non-real or unknown (their proofs stay `on_substitute`, an unknown side keeps `sides_unknown`), a wrong False leaves
+    the real part unnamed (more items left with the person). `product_implied({})` is True; no caller reaches it with no record owed."""
+    entries = sides.values() if isinstance(sides, dict) else ()
+    return not any(isinstance(entry, dict) and entry.get("reality") == "real" and entry.get("deliverable") is not False
+                   for entry in entries)
+
+
 def registry_sides(root, env_name=None) -> dict:
     """The registry leg of the sides, read ONLY through `project_knowledge.subjects` and `state` (never the file):
     `{"sides": {name: {reality, deliverable (None = no row says), settles_by, reference, source: registry, registry_key}},
-    "names": [every side name any row of the three keys holds, all stands], "problem": str, "unreadable": bool,
-    "product_rows": bool}`. `product.sides` rows give the project's sides (`reality: real` unless a stand row says otherwise),
+    "names": [every side name any row of the three keys holds, all stands], "problem": str, "unreadable": bool}`. `product.sides` rows
+    give the project's sides (`reality: real` unless a stand row says otherwise),
     `environments.sides` rows of the stand `env_name` (exact; none when None) give the reality, `environments.reference_for` rows of
     ALL stands give the reference. A side's `registry_key` is the key that set its reality (the stand row), else `product.sides`,
     else `environments.reference_for`. A row that is not of its key's shape or not `known` reads that side with reality ""
     (unknown) and fills `problem`; two stands naming one side's reference do the same. Never raises, never writes."""
-    out = {"sides": {}, "names": [], "problem": "", "unreadable": False, "product_rows": False}
+    out = {"sides": {}, "names": [], "problem": "", "unreadable": False}
     try:
         import project_knowledge as PK
         words = side_realities().get("realities")
@@ -5727,7 +5741,6 @@ def registry_sides(root, env_name=None) -> dict:
                 entry["reality"] = ""
                 problems.append(f"the row {row and row.get('id')} of {PK.SIDES_KEY} for `{element}` is malformed")
                 continue
-            out["product_rows"] = True
             entry.update(deliverable=value["deliverable"], settles_by=value.get("settles_by", ""))
             entry["registry_key"] = entry["registry_key"] or PK.SIDES_KEY
         if env_name:
@@ -5765,7 +5778,7 @@ def registry_sides(root, env_name=None) -> dict:
         for entry in out["sides"].values():             # a side named by a malformed row alone keeps a key too
             entry["registry_key"] = entry["registry_key"] or PK.SIDES_KEY
     except Exception as exc:    # the registry could not be read at all: never `real` (S12)
-        out.update(sides={}, names=[], unreadable=True, product_rows=False,
+        out.update(sides={}, names=[], unreadable=True,
                    problem=f"the project's record of sides could not be read ({str(exc)[:160]})")
     return out
 

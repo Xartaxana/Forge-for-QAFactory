@@ -8455,8 +8455,7 @@ class Driver(DriverChains):
             answer_note="To give the change: start the story again with --mr <link>, --branch <name> or --commit <sha>.")
 
     def _sides_entries(self, env=None) -> dict:
-        """`{"entries": {side name: {reality, source[, deliverable][, settles_by][, reference]}}, "problem": str, "names": [...],
-        "product_rows": bool}`.
+        """`{"entries": {side name: {reality, source[, deliverable][, settles_by][, reference]}}, "problem": str, "names": [...]}`.
         `entries` is what the registry (t-2181 PC-1b: `contract.registry_sides`, for the stand SELECTED at S0 (`env`), else the one
         the launch named with `--env`; later wins) and the person's launch words name, or {} when nothing makes a record owed (S13: an all-real launch with no reference
         writes nothing, and every reader derives the default). `problem` is why the registry leg could not be read or holds a
@@ -8488,7 +8487,7 @@ class Driver(DriverChains):
                 entries[name].update(deliverable=bool(ours), source="person")
         if not any(entry["reality"] != self.SIDE_REAL or entry.get("reference") for entry in entries.values()):
             entries = {}
-        return {"entries": entries, "problem": read["problem"], "names": read["names"], "product_rows": read["product_rows"]}
+        return {"entries": entries, "problem": read["problem"], "names": read["names"]}
 
     def s0_write_sides(self, environment=None) -> None:
         """t-2181 PC-2: the question of the story's sides - `sides.deliverable` for a non-real side whose `deliverable` nothing says,
@@ -8543,8 +8542,11 @@ class Driver(DriverChains):
         (`stage_done.apply_facts`) BEFORE `pipeline.json` is written, so the file is born with its sides in ONE write and S0 is never
         recorded done without them: a refused value is a `Refusal` there and S0 replays whole (INVARIANT: a side the person marked
         non-real is recorded before any stage after S0 can read it, never recorded as real by this function, AR-28).
-        When the launch names a side and does not name `product`, the record also carries `product: real, deliverable: true,
-        source: default` so no reader loses the implicit side (the Lead's call, t-2378 (b))."""
+        When a record is owed and the merged entries do not name `product`, the record also carries `product: real, deliverable: true,
+        source: default` exactly when no entry is a real side of this team (`contract.product_implied`: `deliverable` true or absent;
+        an entry with no reality is not real; PC2-7, t-043): whatever earlier stories recorded and with or without `--no-trace`, so no
+        reader loses the implicit side (the Lead's call, t-2378 (b))."""
+        import contract
         import stage_done
         got = self._sides_entries(environment)
         entries, sets, now = got["entries"], {}, _now()
@@ -8558,7 +8560,7 @@ class Driver(DriverChains):
                 raise Refusal(f"the story's sides cannot be recorded: {exc}") from exc
         if not entries:
             return sets
-        if not got["product_rows"]:     # once a `product.sides` row exists `product` is not implied (as story_sides(root=) reads it)
+        if contract.product_implied(entries):   # no entry is a real side of this team: `product` is implied (PC2-7; as story_sides(root=) reads it)
             entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "source": "default"})
         try:
             for name in sorted(entries):
@@ -18199,7 +18201,8 @@ class Driver(DriverChains):
         Nothing happens for a story that is not marked (no `pipeline.json`, or no mark). The registry is read for the story's own stand
         (`pipeline.environment`); a read that still fails or holds a malformed row keeps the mark and says why in one line. A clean
         read clears the mark and, when the story has no `pipeline.sides` yet, records the registry's non-real or referenced sides
-        (`source: registry`) in the SAME `stage_done` call, so the clear and the record land together. The Thens proven while the mark
+        (`source: registry`), and the implicit `product` (`source: default`) when `contract.product_implied`, in the SAME
+        `stage_done` call, so the clear and the record land together. The Thens proven while the mark
         stood keep their stamp (PC-5 owns that). INVARIANT: an unreadable registry is never read as real, and the mark never clears
         without a clean read."""
         if not (self.task_root / "pipeline.json").is_file():
@@ -18219,10 +18222,11 @@ class Driver(DriverChains):
                 if row["reality"] and (row["reality"] != self.SIDE_REAL or row["reference"]):
                     entries[name] = row
             if entries:
-                if not read["product_rows"]:
-                    entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "settles_by": "", "reference": None})
+                if contract.product_implied(read["sides"]):     # over the registry's sides, never the filtered `entries`
+                    entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "settles_by": "", "reference": None,
+                                                   "source": "default"})
                 for name, row in entries.items():
-                    attrs = {"reality": row["reality"], "source": "registry", "at": now}
+                    attrs = {"reality": row["reality"], "source": row["source"], "at": now}
                     if row["deliverable"] is not None:
                         attrs.update(deliverable="true" if row["deliverable"] else "false")
                         if row.get("settles_by"):
