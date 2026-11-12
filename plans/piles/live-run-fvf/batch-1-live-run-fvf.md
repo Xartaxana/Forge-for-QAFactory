@@ -47,7 +47,8 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 | FV1-15 | П1 | Онбординг записал «вход кодом невозможен» по POST на страницу `/login`; S5 стоит на записанном отказе (`findings/20261112-onbording-zapisal-vhod-kodom-nevozmozhen-oshibochno.md`) | designer → builder → critic | `scripts/env_probe.py` | FV1-5, FV1-17 | ожидает |
 | FV1-16 | П2 | S5 спрашивает, развёрнут ли на стенде приложения коммит репозитория тестов; «current code» с S0 не доходит (`findings/20261112-s5-lichnost-stenda-sprashivaet-kommit-repo-testov.md`) | designer → builder → critic | `scripts/driver_gates.py` | — | ожидает |
 | FV1-17 | П1 | Онбординг не умеет определить, как войти на стенд проекта: POST на страницу `/login` → «вход кодом невозможен»; NextAuth-вход и `harness_command` не испробованы (`findings/20261112-onbording-ne-umeet-opredelit-kak-vojti-na-stend.md`) | designer → builder → critic | `scripts/stand_access.py`, `references/login-body-fields.json`, `skills/qa-onboarding/SKILL.md` | — | ожидает |
-| FV1-18 | П1 | Контракт селекторов не может стать «проверенным»: онбординг не репетирует `one_test`, запись пробы ≠ форма, которую читает `selectors_verified` (`findings/20261112-kontrakt-selektorov-nikogda-ne-proveren.md`) | designer → builder → critic | `scripts/onboarding_probe.py`, `scripts/profile_contract.py` | — | ожидает |
+| FV1-18 | П1 | Регрессия: без проверенного контракта селекторов `run_suite` отказывает запускать тесты автоматора (раньше работало); селекторы собирает раннер первого взгляда, его запись не читается `selectors_verified` (`findings/20261112-kontrakt-selektorov-nikogda-ne-proveren.md`) | designer → builder → critic | `scripts/execution_request.py`, `scripts/profile_contract.py`, `scripts/onboarding_probe.py` | — | ожидает |
+| FV1-19 | П1 | S5 требует `obligation_refs`, а `manifest_from_tests.py` читает маркер только из Python — для `.spec.ts` поле не произвести (FR-5, P31); проверка при этом пропустила рукописное значение без хэша (окно 2); починка «not a question for the person» ставится человеку exit_limit (`findings/20261112-pochinka-ne-vopros-cheloveku-dohodit-do-cheloveka.md`) | designer → builder → critic | `scripts/manifest_from_tests.py`, `scripts/s5_precheck.py`, `scripts/story_run.py` | — | ожидает |
 | FV1-12 | П2 | Карточка S2 и реестр стадий расходятся; замысел S2 — слово владельца (`findings/20261112-s2-kartochka-i-reestr-stadij-rashodyatsya.md`) | ждёт слова владельца → builder | `skills/qa-story/phases/s2.md`, `references/stages.json` | — | ожидает |
 
 ## Ход
@@ -60,6 +61,13 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 - 12.11 20:01 — FV1-1 по слову владельца («починить блокер и запустить ещё раз»): t-152 bb2bd10 + фикс-раунд t-162 5971ac0
   (критик t-161: fit_with_fixes, F1–F3 закрыты) на ветке `worktree-agent-a02fafab496f0a9f6`, в main не слита (через ветку
   пачки и CI). Остаток класса — FV1-14. Две строки правки наложены на копию прогона `C:\QAFactory\exp-fvf\pkg-fix1`.
+- 12.11 21:05 — FV1-19: окно 2 S5 прошло после второго `round`, окно 1 встало на exit_limit тем же классом (24 места).
+- 12.11 21:12 — FV1-19 переписана (читатель маркера только Python; окно 2 прошло рукописным значением — помощь оператора);
+  FV1-13 третий экземпляр: `go on` на exit_limit не записывается (заглушка в строке проверки). Окно 1 третий раз на одном месте —
+  плечо остановлено по потолку RUN-INSTRUCTIONS §5.
+- 12.11 21:23 — FV1-13 (третий экземпляр, `go on` на exit_limit) по слову владельца «чинить и продолжить»: t-180 8eb20e4 на ветке
+  `worktree-agent-aaf518a792f694a7e` (в main не слита), правка наложена на копию `pkg-fix1`; плечо перезапущено. Первые два
+  экземпляра FV1-13 (жетон в бэктиках, слова при `round`) не тронуты.
 
 ## Живые доказательства
 
