@@ -32,7 +32,7 @@ B_SCRIPTS = ("artifact_packet artifact_producer artifact_supersede branch_accoun
              "delivery_summary exploratory_findings grounding_section handoff_check investigation investigation_probe judge_cases judge_code judge_diff judge_plan judge_requirements "
              "judge_results judge_run manual_capture manual_evidence migrate_artifacts plan_row red_sandbox "
              "regression_scope render_case_appendix report_facts runtime_paths runtime_probe s5_precheck s7_reorder stage_status story_progress "
-             "story_version ticket_adapter tms_publication traceability").split() + ["bug_records", "product_gaps"] + ["walk_session", "walk_timing", "place_answers", "driver_timing", "bug_neighbours"]   # bug_neighbours: t-2187 N6; t-1782 (leftover of t-1781); the walker (t-1957): exact flags + story_of / story_cli
+             "story_version ticket_adapter tms_publication traceability").split() + ["bug_records", "product_gaps"] + ["walk_session", "walk_timing", "place_answers", "driver_timing", "bug_neighbours"] + ["readiness"]   # readiness: OH5-3 (exact_options + story_cli); bug_neighbours: t-2187 N6; t-1782 (leftover of t-1781); the walker (t-1957): exact flags + story_of / story_cli
 A_REST = "handoff_init stand_gaps gate_preflight sizing".split()         # converted by A-rest, not by this half
 UNCONVERTED = ["person_owned", "app_card", "interim_packet", "reference_snapshot", "first_look"]
 # interim_packet (t-2181 PC-7), reference_snapshot (PC-9a) and first_look (t-2277 FL-2) arrived on plain argparse, no exact_options / story gate; named so the census
