@@ -673,6 +673,16 @@ def check_test_places(cfg: dict, root: Path) -> dict:
                    areas={}, unreachable=[])
 
 
+def published_test_places(row: dict) -> dict:
+    """The part of `check_test_places` the doctor document carries: only `uncovered` / `unknown` areas and the
+    `unreachable` entries. Empty when nothing is left to say; a row that is itself `unknown` (the check crashed,
+    so it has no areas) is still published, never silenced (AR-28)."""
+    areas = {k: v for k, v in (row.get("areas") or {}).items() if v.get("status") in ("uncovered", UNKNOWN)}
+    if not areas and not row.get("unreachable") and row.get("status") != UNKNOWN:
+        return {}
+    return dict(row, areas=areas)
+
+
 def check_vcs(root: Path, probe_remote: bool = False) -> dict:
     if not shutil.which("git"):
         return cap(MISSING, "user", "git is not on PATH")
@@ -1250,7 +1260,10 @@ def compute(cfg: dict, root: Path, selected_profiles: list[str] | None = None,
     # capability block is pinned key-for-key to references/templates/readiness.json, and a
     # project must not have to re-onboard to be told its execution is unconfigured.
     data["execution_profile"] = check_execution_profile(cfg)
-    data["test_places"] = check_test_places(cfg, root)
+    # The key exists only when there is something to say (like `surfaces`): `ok` and `not_recorded` areas are dropped.
+    placed = published_test_places(check_test_places(cfg, root))
+    if placed:
+        data["test_places"] = placed
     # What the project tests on that an agent's hands cannot reach, or has no stand for (EP1-41a): the key exists only when
     # there is something to say, so a web or API project's document is unchanged. A broken table is `unknown`, never a crash
     # and never silence (AR-28).

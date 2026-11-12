@@ -1105,8 +1105,19 @@ def test_places_check() -> None:
         row = R.check_test_places(dict(outside, test_locations=[]), only)
         check_eq("K-14 unreachable: with no word recorded nothing is unreachable", row["unreachable"], [])
         data = json.loads(cli(root, "--json").stdout)
-        check_eq("K-14: the doctor document carries the row", data["test_places"]["areas"]["app"]["status"] in
-                 ("not_recorded", "ok", "uncovered", "unknown"), True)
+        check_eq("K-14: nothing recorded (not_recorded) -> the doctor document has no test_places key",
+                 "test_places" in data, False)
+        ok_a = {"status": "ok", "note": "n"}
+        unc = {"status": "uncovered", "note": "u", "places": ["x"]}
+        check_eq("K-14 publish: all areas ok -> nothing to say, key absent",
+                 R.published_test_places({"status": "ok", "areas": {"app": ok_a, "project": ok_a}, "unreachable": []}), {})
+        check_eq("K-14 publish: one uncovered + one ok -> only the uncovered area",
+                 list(R.published_test_places({"status": "uncovered", "areas": {"app": ok_a, "project": unc},
+                                               "unreachable": []})["areas"]), ["project"])
+        check_eq("K-14 publish: a crashed check (unknown, no areas) still publishes, never silence",
+                 R.published_test_places({"status": "unknown", "areas": {}, "unreachable": []})["status"], "unknown")
+        check_eq("K-14 publish: an unreachable entry alone still publishes",
+                 bool(R.published_test_places({"status": "unreachable", "areas": {"app": ok_a}, "unreachable": ["r"]})), True)
     finally:
         cleanup(root)
 
