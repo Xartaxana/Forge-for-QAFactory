@@ -22,7 +22,8 @@ re-derived by hand:
 4. **Where every story is** — reads every `qa-factory/artifacts/<TICKET>/pipeline.json`
    and reports, per ticket, the last completed stage, any stage currently running or
    halted, both gate decisions, and every unresolved halt.
-5. **Dashboard rebuild** (`factory_dashboard.py`) — the only file this skill writes.
+5. **Dashboard rebuild** (`factory_dashboard.py`) — written last, with the skill's receipts in
+   `qa-factory/state/` and, after onboarding, the factory's own block in `.gitignore`.
 
 Then it prints **exactly one** recommended next action, chosen by priority: a broken
 install outranks everything else, then "this isn't a git repo", then "no config — run
@@ -58,5 +59,8 @@ that is clean does it suggest starting or continuing a story.
 - Does not create or repair `qa-factory/config.json` — that is `qa-onboarding`
 - Does not run tests
 - Does not answer a gate or resolve a halt on your behalf — it names which one is open
-- Does not modify any file other than `qa-factory/state/factory-dashboard.html`
-- Never asks a question
+- Does not modify any file other than the dashboard, its own receipts in `qa-factory/state/`
+  and the factory's `.gitignore` block (after onboarding); on your explicit word it also
+  archives or recovers a story
+- Asks only after the report: whether to archive a story that has stood still, whether anybody
+  is working on a story it could repair, and the price-table question

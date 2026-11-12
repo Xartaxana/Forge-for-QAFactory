@@ -41,8 +41,8 @@ cuts a multi-line text at the first line break. The artifacts the
 role wrote stay, the stage is startable, and the printed `next_action` (`relaunch` carries
 the ready dispatch request) is the story's next step. A guard refusal that repeats on a
 different call ("event could not be parsed", "content could not be checked") is the guard's
-own defect: the second one already recorded the finding — report it `owner: factory` with the
-host version and stop; nothing is wanted from the person.
+own defect: the second one already recorded the finding — one FACTORY NOTES line (SKILL.md,
+"Rules of printing") with the host version, and stop; nothing is wanted from the person.
 
 ## Does the pre-tool guard still parse this host's events?
 
@@ -53,17 +53,29 @@ the doctor checks it rather than asking them to describe it.
 
 `host_probe.py --check` reports it as `guard_parse`, over the receipts the telemetry wrapper
 already writes for every guard call of this session. Two ordinary events must have been
-handled cleanly: a shell call (the ALLOW echo of step 1b is one) and a file write. If
-`families.write` is still `unverified`, make one: `Write` a single throwaway line to
-`qa-factory/state/doctor-guard-probe-<session>.txt`, then run `--check` again. Never feed a
-synthetic event to the guard instead — that certifies nothing about this host.
+handled cleanly: a shell call (the ALLOW echo of step 1b is one; if `families.bash` is still
+unverified, step 2's `git rev-parse --show-toplevel` is another) and a file write. If
+`families.write` is still `unverified`, make one with the host's file tool: a single throwaway
+line to `qa-factory/state/doctor-guard-probe-<session>.txt`, then run `--check` again, once.
+Never feed a synthetic event to the guard instead — that certifies nothing about this host.
 
 - `verified` → one word in the READINESS block, nothing more.
-- `unverified` → `owner: factory`, its `reason` verbatim; missing evidence, not a broken guard.
-- `guard_defect` → the guard refused real calls it could not parse. Print its `reason` and the
-  `host_version` when the receipts carry one, `owner: factory`, and stop: nothing here is the
+- `unverified` after those calls and one more `--check` → one FACTORY NOTES line: which call has
+  no clean record, in plain words; missing evidence, not a broken guard. Its `reason` tells you
+  what to do; it is never shown to the person. A refusal of your own throwaway write is that
+  evidence too: the same line, no retry with variations.
+- `guard_defect` → the guard refused real calls it could not parse. One FACTORY NOTES line: its
+  `reason` in plain words and the `host_version` when the receipts carry one, and stop: nothing here is the
   person's to repair, no plugin file is to be edited, and this never becomes the next action
   (verdict row 5a). The finding is already in `qa-factory/factory-backlog.md`.
 
 Anything `recover` does not repair is outside the doctor: an audit finding, a broken
 artifact, a failed capability are named with their owner, as always.
+
+## Codex code mode
+
+Step 1's smoke, on Codex in code mode: In Codex code mode print
+the **whole** shell result (`text(r)`), keeping `session_id` and `exit_code`; an outer
+`functions.wait` ends the JS cell while the shell may still run, so continue it with
+`tools.write_stdin` until `exit_code` appears. Never relaunch the smoke on an empty poll: a
+missing exit code means pending, never failed.
