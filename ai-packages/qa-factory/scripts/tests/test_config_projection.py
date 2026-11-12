@@ -357,6 +357,19 @@ def artifact_root_rows(root: Path) -> None:
         finally:
             er.load_run_budget = saved_budget
         check_eq("OF3-1 item 7 broken config: the budget's job-store path raises ValueError", got, "ValueError")
+        # the budget's store path under a configured root: a job completed there is found (kept), not charged or launched again
+        proj = project("budget-configured", b'{"artifact_root": "stories"}')
+        er.JobStore(proj / "stories" / "S-1" / "state" / "execution-jobs").write(
+            {"idempotency_key": "key-1", "job_id": "job0", "status": "completed", "execution_status": "passed"})
+        er.load_run_budget = lambda path=None: ({"stub": 1}, "")
+        saved_verdict, charged = er.request_verdict, []
+        er.request_verdict = lambda *a, **k: charged.append(a) or {"action": "refuse", "message": "charged again"}
+        try:
+            kept, budget_rows = es._apply_budget(list(plan["requests"]), proj)
+        finally:
+            er.load_run_budget, er.request_verdict = saved_budget, saved_verdict
+        check_eq("OF3-1 item 7 configured root: the budget finds the completed job in the configured store (kept)",
+                 (kept, budget_rows, charged), (plan["requests"], [], []))
     finally:
         es.prepare_schedule, es.subprocess.Popen = saved
 

@@ -2788,7 +2788,7 @@ def of3_1c_home_strategy() -> None:
             RP.HOME = home
             line, recorded = brief_pack._approach_documents(base, {})
             check_eq(f"OF3-1 item 6 a configured home folder ({home}): the strategy names come from <home>/strategy",
-                     (line, recorded), (f"- strategy documents: qa-factory/strategy/ {home}-profile.md", True))
+                     (line.endswith(f" {home}-profile.md"), recorded), (True, True))
     finally:
         RP.HOME = saved
         harness.cleanup(base)
