@@ -89,7 +89,7 @@ This is the fill that makes the proposal's `proposed_config` at phase 3 for a pr
 configuration; the proofs at the end of this step run on the config once `--phase early` has
 written it. Start from `references/templates/config.json`; keep `schema_version: 1`. Fill from
 discovery + interview: `app_root`, `code_repos`, `protected_app_paths`, `test_locations`
-(topic 1c's answer, as given, relative to `app_root`; `[]` when none were named), `tests_root`,
+(topic 1c's answer for the application code, relative to `app_root`; `[]` when none were named), and 1c's answer for a test repository in `tests_root` / the profile's `roots.test` / `run.levels`, `tests_root`,
 `cases_root` (phase 1's case-store candidate as topic 1b confirmed it, relative to the
 project root; empty when the project keeps no case library and cases stay per story),
 `case_id_form` (the id form phase 1 noted in the store's file names, as topic 1b confirmed it:
@@ -362,11 +362,12 @@ give a local path → `code_repos: []` **plus** a `[DEFERRED: application repo p
 marker in `project-profile.md` and its `factory-backlog.md` row; never `app_root: "."`
 left standing as if the application were here.
 
-**Test locations inside the application code.** After `test_locations` is written, run
+**Test locations (the application code and a test repository).** After `test_locations` is written, run
 `python "${CLAUDE_PLUGIN_ROOT}/scripts/test_locations.py" --root . --check --json`. An entry
 with a `problem` (a grammar fault, or one that covers a whole protected folder) is fixed or
 asked again before the phase goes on: an entry that opens nothing is a silent hole. After
-`--check`, name once each `--suggest` candidate that no recorded carrier of its area covers.
+`--check`, name once each `--suggest` candidate that no recorded carrier of its area covers; whether a candidate is covered is shown by
+`python "${CLAUDE_PLUGIN_ROOT}/scripts/test_locations.py" --root . --check --candidate "<p>" --json`.
 
 ## 2. `strategy/test-strategy.md`
 

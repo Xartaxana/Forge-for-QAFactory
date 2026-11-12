@@ -116,7 +116,7 @@ one, which is what makes this rule a check rather than a hope.
    The answer becomes `config.cases_root`, relative to this repository's root (audit A20),
    and it may not point inside `protected_app_paths`: the factory does not write into
    application code, and a config key cannot grant what P-00 refuses.
-1c. **Where this project's tests live.** Asked ALWAYS, including on a Single root, where
+1c. **Where this project's tests live.** Asked always when nothing is recorded for that area yet, including on a Single root, where
    topic 1 itself is skipped; it goes into topic 1's batch when there is one, otherwise it is
    its own short batch. With no candidate, ask where this project's tests live: a test
    repository, a folder outside the application code, or inside it. Record the answer
@@ -124,7 +124,8 @@ one, which is what makes this rule a check rather than a hope.
    profile's `roots.test` or a `run.levels` pattern for a test repository. Where helpers
    sit beside tests, record the test FILE shape (`tests/**/test_*.py`,
    `src/**/*.spec.ts`) rather than the folder: a folder record makes every file there a test
-   for the commit guard but claims none for a write window. "We have no tests" records
+   for the commit guard but claims none for a write window; a file shape goes into `test_locations` or a
+   `run.levels` pattern; `tests_root` and `roots.test` name a folder. "We have no tests" records
    nothing. A recorded answer is the project's word and is never re-asked. When phase 1
    found candidates inside the application folders, show each candidate with its counts from `test_locations.py --root . --app-root <cand> --protected
    <cand>... --check --candidate "<p>" --json` (phase 1's own `--app-root`/`--protected`: no config
@@ -132,7 +133,8 @@ one, which is what makes this rule a check rather than a hope.
    without a usual test name" ("at least" when `truncated`), and ask
    whether there are other places (inside the application folders or elsewhere) where tests live under
    other names. The project's answer is its own word: any name the team uses is accepted.
-   The answer becomes `config.test_locations` (entries relative to `app_root`, written like
+   The answer is recorded in the carrier of its area (above): a place inside the application code becomes
+   `config.test_locations` (entries relative to `app_root`, written like
    `protected_app_paths`; audit A20). An entry that covers a whole application folder is asked
    once more, naming what it would unprotect.
 2. **Environments and credentials** — the `environment` block per `references/environments.md`:
