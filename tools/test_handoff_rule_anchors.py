@@ -1,11 +1,11 @@
 """Anchors of the hand-back carrier rule texts (t-744 / t-754, F5-1 N1, feature F19): the rule "the report is a FILE at the
-dispatch's `handoff:` path, the final message is its digest of at most 25 lines" sits in the numbered rule that check 28 (a)
+dispatch's `handoff:` path, the final message is its pointer plus a per-item status of at most 2,000 characters and 3 + N lines" sits in the numbered rule that check 28 (a)
 of PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md anchors (critic 16, builder 7, designer 5), scout.md carries only its one extraction
 sentence (F-1 B: no Write, no 25-line rule), judge.md is untouched (E-25), check 28 (d) carries its
 key, and the brief and builder-rules carry a POINTER to the role file (F6-33, t-1206: one owner per aspect) and no copy of the
 rule.
 
-The keys K1, K2 are quoted VERBATIM from spec t-744 section 3.3 ("the file at `handoff:`", "at most 25 lines"); K3 is the
+The keys K1, K2 are quoted VERBATIM from spec t-744 section 3.3 ("the file at `handoff:`", "at most 25 lines"; replaced by the 2,000-character cap, spec fg-context-and-hygiene B1); K3 is the
 pointer of builder-rules rule 11 (t-1206 section 2 E1d), K4 from t-744 section 6 ("(d) Hand-back carrier"); the line definition (F-7 B, `ceil(len/200)`) from section L; the
 fallback ("never lost, never shortened") from section 3.3. The scout keys are the F-1 B sentence of section L.
 Run from the repo root: python -m pytest tools/test_handoff_rule_anchors.py -q
@@ -21,12 +21,12 @@ REAL = pathlib.Path(__file__).resolve().parent.parent
 ROOT = pathlib.Path(os.environ.get("HANDOFF_ANCHORS_ROOT") or REAL)
 
 K1 = "the file at `handoff:`"
-K2 = "at most 25 lines"
+K2 = "at most 2,000 characters"
 K3 = "правило 7 `.claude/agents/builder.md`"
 K4 = "(d) Hand-back carrier"
 K_LINE = "ceil(len/200)"
 K_BRIEF = "`.claude/agents/critic.md` rules 16-17"
-RESTATED = [K2, K_LINE, "не длиннее 25 строк"]
+RESTATED = [K2, K_LINE, "не длиннее 25 строк", "2 000 символов", "2000 символов"]
 K_FALLBACK = "never lost, never shortened"
 K_SCOUT = ("`tools/handback_extract.py`", "`docs/tasks/specs/reports/`")
 
@@ -119,7 +119,7 @@ def test_builder_rules_p11():
 def test_calibration_check_28_has_d():
     text = read(PROTOCOL)
     assert missing_keys(text, [K4]) == []
-    assert text.index("28. **Completeness of workers' final messages.**") < text.index(K4) < text.index("29. **Upgrade delivery")
+    assert text.index("28. **Completeness of hand-backs: the report file and the short digest.**") < text.index(K4) < text.index("29. **Upgrade delivery")
 
 
 def test_scout_has_the_extraction_sentence_and_no_file_rule():
@@ -127,6 +127,7 @@ def test_scout_has_the_extraction_sentence_and_no_file_rule():
     text = read(SCOUT)
     assert missing_keys(text, list(K_SCOUT)) == []
     assert "25 lines" not in text and "Write" not in text.split("---", 2)[1]
+    assert K2 not in squash(text)
 
 
 def test_judge_untouched_by_the_rule():
@@ -156,7 +157,7 @@ def test_scout_rule_10_teaches_the_digest_form_v1():
     block = rule_block(read(SCOUT), 10)
     assert block is not None, "scout.md has no rule 10"
     assert missing_keys(block, list(K_SCOUT_FORM)) == []
-    assert "25 lines" not in squash(block)
+    assert "25 lines" not in squash(block) and K2 not in squash(block)
 
 
 def test_negative_control_scout_form_key_absent_from_a_copy():
@@ -167,5 +168,5 @@ def test_negative_control_scout_form_key_absent_from_a_copy():
 
 def test_negative_control_restatement_in_a_pointer_copy():
     """The old brief paragraph pasted back into a copy of the brief -> restated() names the keys (a check that cannot fail is not a check)."""
-    copy = read(BRIEF) + "\nanswer in chat with at most 25 lines; a line over 200 characters counts as ceil(len/200)\n"
+    copy = read(BRIEF) + "\nanswer in chat with at most 2,000 characters; a line over 200 characters counts as ceil(len/200)\n"
     assert restated(copy) == [K2, K_LINE]

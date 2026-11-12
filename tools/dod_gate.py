@@ -78,12 +78,26 @@ docstring for the full class-of-bug rationale: an early code edit used
 to void the doc-only exemption forever, even after a green run and a
 purely doc-only tail).
 
+Handoff missing (B2, spec fg-context-and-hygiene): for EVERY stopping
+agent, BEFORE the "no-edits" return, the worker's dispatch is read
+(handoff_gate's readers; no second parser). When exactly one `handoff:`
+path lies in a HANDOFF_DIRS folder and the track holds no Write/Edit by
+THIS agent_id matching it (equal normcase(realpath), or equal trailing
+segments from the folder down), the stop is blocked ONCE
+(per_agent[<agent>]["handoff_missing_blocked"], separate from
+consecutive_blocks, never reset; the block counts toward the safety
+valve). Error direction: any doubt -- unreadable dispatch, import
+failure, degraded cut, two or more candidates -- PASSES, never a second
+block. main() saves the track when this block fires even if it did not
+exist before.
+
 Fail-open: a missing session_id, or an unparseable payload, exits 0
 without side effects, same as the rest of this file set.
 """
 
 import json
 import os
+import re
 import sys
 import threading
 from datetime import datetime
@@ -119,11 +133,22 @@ def _default_gate_state() -> dict:
 BLOCK_MESSAGE = (
     "Stop blocked: there is no green verification run after the last "
     "edit. Run your DoD check (pytest / your verification command) "
-    "and stop on green. Re-submission = a COMPLETE final report all "
-    "over again (only your LAST message reaches the coordinator -- "
-    "earlier text in this session is not delivered to it; a reference "
-    "back to it is not a substitute)."
+    "and stop on green. Re-submission = repeat the path and the digest "
+    "whole (or, with no handoff path, the full report); only your LAST "
+    "message reaches the coordinator -- earlier text in this session is "
+    "not delivered to it; a reference back to it is not a substitute)."
 )
+
+HANDOFF_MISSING_MESSAGE = (
+    "HANDOFF MISSING: your dispatch names {path} and you did not write it. "
+    "Write the report there; if the Write was refused, put the full report "
+    "in your final message -- this block will not repeat."
+)
+
+# Once-key of the "handoff missing" block (B2): lives in the agent's own
+# per_agent dict, SEPARATE from consecutive_blocks, never reset by a
+# passing stop.
+HANDOFF_ONCE_KEY = "handoff_missing_blocked"
 
 SAFETY_SKIP_MESSAGE = (
     "dod_gate: safety valve triggered -- 2 consecutive blocks already "
@@ -247,19 +272,168 @@ def evaluate(track: dict, agent_id: str | None = None) -> tuple[bool, str]:
     return True, "green-before-last-edit"
 
 
-def decide(track: dict, agent_id: str | None = None) -> tuple[int, str, dict]:
+def _segments(hg, path: str) -> list:
+    return [os.path.normcase(s) for s in hg.SEGMENT_SPLIT_RE.split(path) if s]
+
+
+def _written_paths(hg, track: dict, agent_id, base: str) -> list:
+    """(real, path) of every Write/Edit record of THIS agent (the same
+    per-agent filter as evaluate())."""
+    out = []
+    for e in track.get("edits") or []:
+        mine = e.get("agent_id") == agent_id if agent_id else bool(e.get("agent_id"))
+        fp = e.get("file_path")
+        if mine and isinstance(fp, str) and fp:
+            out.append((hg._real(fp, base), fp))
+    return out
+
+
+def handoff_written(track: dict, agent_id, candidate: tuple, base: str) -> bool:
+    """True when this agent wrote the one candidate (path, folder, ...):
+    equal normcase(realpath) values, OR equal trailing segments from the
+    HANDOFF_DIRS folder down to the file name (a worktree copy matches the
+    dispatch's path in the main clone). handoff_gate's own _real and
+    SEGMENT_SPLIT_RE are the one reader (no copy); an unusable import
+    -> True (pass)."""
+    try:
+        hg = _import_readers()[0]
+    except Exception:
+        return True
+    path, folder = candidate[0], candidate[1]
+    real = hg._real(path, base)
+    tail = _segments(hg, folder) + _segments(hg, path)[-1:]
+    for wreal, fp in _written_paths(hg, track, agent_id, base):
+        if wreal == real:
+            return True
+        segs = _segments(hg, fp)
+        if len(segs) >= len(tail) and segs[-len(tail):] == tail:
+            return True
+    return False
+
+
+def _file_fresh(candidate: tuple, base: str) -> bool:
+    """B-1: the candidate file exists and was modified no earlier than the
+    worker's dispatch (candidate[2], epoch seconds; None = the start could
+    not be read -> the file merely existing is enough)."""
+    try:
+        mtime = os.path.getmtime(os.path.join(base, candidate[0]))
+    except OSError:
+        return False
+    start = candidate[2] if len(candidate) > 2 else None
+    return start is None or mtime >= start
+
+
+def _start_time(worker_file):
+    """Epoch seconds of the first record's `timestamp` of the worker
+    transcript, None when unreadable."""
+    try:
+        with open(worker_file, "r", encoding="utf-8") as fh:
+            ts = json.loads(fh.readline()).get("timestamp")
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def _import_readers():
+    """(handoff_gate, dispatch_manifest) with their own imports checked;
+    raises when a reader is not usable (the caller passes, B2 error
+    direction)."""
+    tools_dir = str(Path(__file__).resolve().parent)
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    import handoff_gate
+    import dispatch_manifest
+    if handoff_gate.transcripts is None or handoff_gate.dispatch_manifest is None:
+        raise RuntimeError("transcripts/dispatch_manifest did not import")
+    return handoff_gate, dispatch_manifest
+
+
+def named_handoffs(payload: dict, base: str) -> list:
+    """The ONE handoff candidate of the stopping worker's dispatch as
+    [(path, folder, start_epoch_or_None)], else []. Reads the dispatch through the readers
+    handoff_gate uses (no second parser). May err toward [] (= pass):
+    unreadable dispatch, import failure, degraded cut, two or more
+    candidates -- with a stderr line where something failed."""
+    try:
+        agent_id = payload.get("agent_id")
+        if not (isinstance(agent_id, str) and agent_id):
+            return []
+        tp = payload.get("transcript_path")
+        atp = payload.get("agent_transcript_path")
+        if not (isinstance(tp, str) and tp) and not (isinstance(atp, str) and atp):
+            return []  # no transcript named: nothing to read, nothing failed
+        hg, dm = _import_readers()
+        if isinstance(atp, str) and atp:
+            worker_file = Path(atp)  # the host names the worker's own file
+        else:
+            worker_file = hg._worker_file(tp, agent_id)
+        text = hg._dispatch_text(worker_file)
+        if text is None:
+            sys.stderr.write("dod_gate: handoff check skipped -- dispatch unreadable\n")
+            return []
+        cut = dm.section_cut(text)
+        if cut is None or cut.degraded:
+            sys.stderr.write("dod_gate: handoff check skipped -- dispatch cut degraded\n")
+            return []
+        named = {}
+        for p in dm.handoff_paths(cut):
+            for folder in dm.HANDOFF_DIRS.values():
+                if hg._in_folder(p, folder):
+                    named.setdefault(hg._real(p, base), (p, folder))
+                    break
+        cands = list(named.values())
+        if len(cands) != 1:
+            return []
+        start = _start_time(worker_file)
+        return [(cands[0][0], cands[0][1], start)]
+    except Exception as exc:
+        sys.stderr.write("dod_gate: handoff check skipped -- %s: %s\n" % (type(exc).__name__, exc))
+        return []
+
+
+def _handoff_block(track, agent_id, agent_state, handoffs, base):
+    """The path to report when the once-block is due, else None."""
+    if not handoffs or len(handoffs) != 1 or agent_state.get(HANDOFF_ONCE_KEY):
+        return None
+    if agent_state.get("consecutive_blocks", 0) >= CONSECUTIVE_BLOCK_LIMIT:
+        return None  # the safety valve is spent: the normal path decides
+    if handoff_written(track, agent_id, handoffs[0], base):
+        return None
+    if _file_fresh(handoffs[0], base):
+        return None  # B-1: written outside the track's cwd (a worktree worker, the main-clone path)
+    return handoffs[0][0]
+
+
+def decide(track: dict, agent_id: str | None = None, handoffs=None,
+           base: str | None = None) -> tuple[int, str, dict]:
     """Pure decision logic after the track is loaded. agent_id passes
     straight through to evaluate() (see its docstring for the filter
     semantics) AND is used here for per-agent consecutive_blocks (see
     the _FALLBACK_AGENT_KEY docstring above). Returns (exit_code,
     stderr_message, updated_track); updated_track carries the updated
     gate_state/an appended gate_log event -- writing it to disk is
-    main()'s job."""
-    violation, reason = evaluate(track, agent_id)
+    main()'s job.
+
+    handoffs: [(path, folder)] from named_handoffs() -- the worker's
+    dispatch handoff candidates ([] / None = no check). The "handoff
+    missing" check runs BEFORE evaluate() (so before its "no-edits"
+    return): when the one candidate was not written by this agent, block
+    ONCE (HANDOFF_ONCE_KEY, separate from consecutive_blocks, never
+    reset); the block counts toward the safety valve."""
     gate_state = track.setdefault("gate_state", _default_gate_state())
     gate_state.setdefault("per_agent", {})
     key = _agent_state_key(agent_id)
     agent_state = gate_state["per_agent"].setdefault(key, {"consecutive_blocks": 0})
+    missing = _handoff_block(track, agent_id, agent_state, handoffs, base or os.getcwd())
+    if missing is not None:
+        agent_state[HANDOFF_ONCE_KEY] = True
+        agent_state["consecutive_blocks"] = agent_state.get("consecutive_blocks", 0) + 1
+        track.setdefault("gate_log", []).append(
+            {"action": "handoff_missing", "reason": missing, "ts": _now_iso(), "agent_id": agent_id}
+        )
+        return 2, HANDOFF_MISSING_MESSAGE.format(path=missing), track
+
+    violation, reason = evaluate(track, agent_id)
     consecutive = agent_state.get("consecutive_blocks", 0)
 
     if not violation:
@@ -419,15 +593,21 @@ def main() -> int:
     track = _load_track(path)
 
     agent_id = _extract_agent_id_from_payload(payload)
-    exit_code, message, updated_track = decide(track, agent_id)
+    handoffs = named_handoffs(payload, cwd)
+    exit_code, message, updated_track = decide(track, agent_id, handoffs, cwd)
 
     # "No edits -> pass" (see evaluate()): if the track file didn't
     # exist before AND this call adds no edits, do nothing at all --
     # a scout/critic-class subagent that never touched a file should
     # not grow an empty .claude/dod_track/<session_id>.json. If the
     # file already existed (dod_track.py created it earlier), always
-    # write, to keep gate_state/gate_log consistent.
-    if existed_before or updated_track.get("edits"):
+    # write, to keep gate_state/gate_log consistent. Exception (B2): a
+    # "handoff missing" block must persist its once-key even on a track
+    # that did not exist.
+    once_fired = bool(
+        updated_track["gate_state"]["per_agent"].get(_agent_state_key(agent_id), {}).get(HANDOFF_ONCE_KEY)
+    )
+    if existed_before or updated_track.get("edits") or once_fired:
         _save_track(path, updated_track)
 
     if message:

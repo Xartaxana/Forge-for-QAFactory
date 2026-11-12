@@ -54,8 +54,17 @@ you.
    draft WHOLE — the spec + the forks list + the small choices you
    closed + the reading trail — to that one path (the file at
    `handoff:` is what the coordinator reads at acceptance), then end
-   with a final message of at most 25 lines: the path, the forks by
-   id with one line each, and "needed beyond the manifest". A line is
+   with a final message of at most 2,000 characters and at most 4 + N
+   lines (N = the numbered requirements of the brief; a dispatch whose
+   spec is a pointer counts the node it points to, and when you cannot
+   tell, N = 0; the stricter cap decides). The form is always four
+   lines: the path (`report: <path>`), one status line (per item
+   `1 drafted | 2 fork | 3 not drafted -- <one clause>`; more than 20
+   items: ranges; with N = 0 the status line is one of `done` / `not
+   done -- <one clause>` / `question`),
+   `questions: none | 1) <fork by id, one clause>`, and `needed beyond
+   the manifest: none | <paths>`. No tables, logs or file lists in the
+   message: they are in the file. A line is
    text split at "\n" — blank lines and fence lines count, and a line
    over 200 characters counts as ceil(len/200) lines. Every closing
    message of a submitting turn — a resubmission after a hook block or
@@ -63,7 +72,7 @@ you.
    above" loses the submission. When the dispatch names no such path,
    or the Write is refused (the hook says why), the draft WHOLE goes
    into the final message as before — never lost, never shortened, and
-   the 25-line limit does not apply. Acceptance of the draft belongs
+   the cap does not apply. Acceptance of the draft belongs
    to the Lead; spec defects found in an accepted draft are journaled
    with `failure_class=spec` against the designer.
 6. One action, one road (PROJECT.md P31, the owner's word 06.11.2026). A spec

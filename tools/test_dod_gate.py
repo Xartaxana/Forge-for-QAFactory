@@ -8,9 +8,12 @@ Run from the repo root: python -m pytest tools/test_dod_gate.py
 """
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -1124,6 +1127,146 @@ def test_echo_json_malformed_json_fails_open():
     )
     assert result.returncode == 0
     assert result.stderr == ""
+
+
+# ---------------------------------------------------------------------
+# B2: "handoff missing" -- one table (spec fg-context-and-hygiene, B2).
+# A worker transcript under tmp_path holds the dispatch; the stop
+# payload's transcript_path points at the session file next to it.
+# ---------------------------------------------------------------------
+
+HANDOFFS = "docs/tasks/handoffs"
+
+
+def _dispatch_with(handoff_lines: str) -> str:
+    parts = ["Do the work.", "given: docs/x.md", "owns:", "C:/nowhere/x.py", "non-goals: none"]
+    if handoff_lines:
+        parts.append(handoff_lines)
+    parts += ["edges: none -- x", "DoD: `python -m pytest -q`"]
+    return "\n".join(parts) + "\n"
+
+
+def _worker(tmp_path: Path, dispatch: str, agent_id: str = "w1", ts: str | None = None) -> Path:
+    main = tmp_path / "proj" / "sess.jsonl"
+    sub = tmp_path / "proj" / "sess" / "subagents"
+    sub.mkdir(parents=True, exist_ok=True)
+    record = {"type": "user", "message": {"role": "user", "content": dispatch}}
+    if ts:
+        record["timestamp"] = ts
+    (sub / ("agent-%s.jsonl" % agent_id)).write_text(json.dumps(record) + "\n", encoding="utf-8")
+    return main
+
+
+def _hp(tmp_path: Path, *parts) -> str:
+    return str(tmp_path.joinpath(*parts))
+
+
+def _edit(path, agent_id="w1"):
+    return {"ts": "2026-07-16T10:00:00.000000", "tool_name": "Write", "agent_id": agent_id, "file_path": path}
+
+
+def _rows():
+    one = lambda t: "handoff: %s -- the report" % _hp(t, HANDOFFS, "r.md")
+    return [
+        # id: dispatch lines, edits, stops, expected exit codes per stop
+        ("written-by-this-agent", one, lambda t: [_edit(_hp(t, HANDOFFS, "r.md"))], 1, [0]),
+        ("not-written-blocks-once", one, lambda t: [], 1, [2]),
+        ("second-stop-after-block-passes", one, lambda t: [], 2, [2, 0]),
+        ("no-handoff-line", lambda t: "", lambda t: [], 1, [0]),
+        ("path-outside-handoff-dirs", lambda t: "handoff: %s" % _hp(t, "tools", "r.md"), lambda t: [], 1, [0]),
+        ("two-candidates",
+         lambda t: "handoff:\n%s\n%s" % (_hp(t, HANDOFFS, "a.md"), _hp(t, HANDOFFS, "b.md")), lambda t: [], 1, [0]),
+        ("written-by-main-blocks-once", one, lambda t: [_edit(_hp(t, HANDOFFS, "r.md"), agent_id=None)], 1, [2]),
+        ("worktree-copy-of-the-path", one,
+         lambda t: [_edit(_hp(t, ".claude", "worktrees", "agent-x", HANDOFFS, "r.md"))], 1, [0]),
+        ("case-and-slash-direction", one,
+         lambda t: [_edit(_hp(t, HANDOFFS, "r.md").replace("\\", "/").swapcase() if os.name == "nt"
+                          else _hp(t, HANDOFFS, "r.md").replace("/", "//"))], 1, [0]),
+        # the two rows that need another carrier: readers that do not import; the real hook on a track that
+        # does not exist (no edits at all)
+        ("readers-import-fails", one, lambda t: [], 1, [0]),
+        ("no-edit-critic-no-track-file", one, lambda t: [], 2, [2, 0]),
+        # B-1: the file exists on disk (a worktree worker wrote the dispatch's main-clone path: no track edit)
+        ("file-fresh-not-in-track", one, lambda t: [], 1, [0]),
+        ("file-older-than-dispatch", one, lambda t: [], 1, [2]),
+        ("file-exists-start-unreadable", one, lambda t: [], 1, [0]),
+        # F-4: the handoff block counts toward consecutive_blocks; at 2 the check is skipped (the valve)
+        ("valve-counts-the-handoff-block", one, lambda t: [_edit(_hp(t, "src", "x.py"))], 3, [2, 2, 0]),
+    ]
+
+
+# dispatch timestamp (first record of the worker transcript) and whether the handoff file exists, per row
+_FILE_ROWS = {
+    "file-fresh-not-in-track": ("2000-01-01T00:00:00Z", True),
+    "file-older-than-dispatch": ("2999-01-01T00:00:00Z", True),
+    "file-exists-start-unreadable": (None, True),
+}
+_NO_GREEN_ROWS = ("valve-counts-the-handoff-block",)
+
+
+@pytest.mark.parametrize("row", _rows(), ids=[r[0] for r in _rows()])
+def test_handoff_missing_table(tmp_path, row, monkeypatch, capsys):
+    _id, handoff_for, edits_for, stops, expected = row
+    ts, exists = _FILE_ROWS.get(_id, (None, False))
+    main = _worker(tmp_path, _dispatch_with(handoff_for(tmp_path)), ts=ts)
+    if exists:
+        report = tmp_path.joinpath(*HANDOFFS.split("/"), "r.md")
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("report", encoding="utf-8")
+    if _id == "no-edit-critic-no-track-file":
+        payload = _stop_payload(str(tmp_path), "sess-hm", agent_id="w1")
+        payload["transcript_path"] = str(main)
+        track_file = tmp_path / ".claude" / "dod_track" / "sess-hm.json"
+        first = _run_hook(payload, cwd=tmp_path)
+        assert first.returncode == 2 and "HANDOFF MISSING" in first.stderr
+        saved = json.loads(track_file.read_text(encoding="utf-8"))
+        assert saved["gate_state"]["per_agent"]["w1"]["handoff_missing_blocked"] is True
+        assert _run_hook(payload, cwd=tmp_path).returncode == 0
+        return
+    if _id == "readers-import-fails":
+        def _boom():
+            raise ImportError("transcripts gone")
+        monkeypatch.setattr(dod_gate, "_import_readers", _boom)
+    runs = [] if _id in _NO_GREEN_ROWS else [{"ts": "2026-07-16T10:00:05.000000", "outcome": "green",
+                                              "agent_id": "w1"}]
+    track = {"edits": edits_for(tmp_path), "runs": runs}
+    payload = {"agent_id": "w1", "transcript_path": str(main)}
+    codes = []
+    for _ in range(stops):
+        handoffs = dod_gate.named_handoffs(payload, str(tmp_path))
+        code, message, track = dod_gate.decide(track, "w1", handoffs, str(tmp_path))
+        codes.append(code)
+        if code == 2 and "HANDOFF" in message[:20]:
+            assert message.startswith("HANDOFF MISSING:") and "will not repeat" in message
+    assert codes[-len(expected):] == expected
+    state = track["gate_state"]["per_agent"]["w1"]
+    if _id in _NO_GREEN_ROWS:
+        actions = [g["action"] for g in track["gate_log"]]
+        assert actions[:3] == ["handoff_missing", "blocked", "skipped_after_2_blocks"]
+        assert actions.count("handoff_missing") == 1
+    elif 2 in codes:
+        assert state["handoff_missing_blocked"] is True
+        assert [g["action"] for g in track["gate_log"]] == ["handoff_missing"]
+    if _id == "readers-import-fails":
+        assert "handoff check skipped" in capsys.readouterr().err
+
+
+def test_handoff_check_skipped_when_the_valve_is_already_spent(tmp_path):
+    """F-4: consecutive_blocks already >= 2 -> the handoff check is skipped (pass direction)."""
+    main = _worker(tmp_path, _dispatch_with("handoff: %s" % _hp(tmp_path, HANDOFFS, "r.md")))
+    handoffs = dod_gate.named_handoffs({"agent_id": "w1", "transcript_path": str(main)}, str(tmp_path))
+    assert handoffs
+    track = {"edits": [], "runs": [], "gate_state": {"per_agent": {"w1": {"consecutive_blocks": 2}}}}
+    code, _message, track = dod_gate.decide(track, "w1", handoffs, str(tmp_path))
+    assert code == 0 and "handoff_missing" not in [g["action"] for g in track.get("gate_log", [])]
+
+
+def test_no_handoff_no_track_file_still_writes_nothing(tmp_path):
+    main = _worker(tmp_path, _dispatch_with(""))
+    payload = _stop_payload(str(tmp_path), "sess-nh", agent_id="w1")
+    payload["transcript_path"] = str(main)
+    assert _run_hook(payload, cwd=tmp_path).returncode == 0
+    assert not (tmp_path / ".claude" / "dod_track" / "sess-nh.json").exists()
 
 
 # ---- BLOCK_MESSAGE carries a re-submission hint ----

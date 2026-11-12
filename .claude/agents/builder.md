@@ -69,16 +69,23 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    accept). When the dispatch names an absolute path on its `handoff:`
    line, write point 4's FULL report, witness included, to that one
    path (the file at `handoff:` is what the coordinator reads at
-   acceptance), then end with a final message of at most 25 lines: the
-   path, DONE / PARTIAL / NOT DONE per spec item and the closing lines
-   of the witness, and "needed beyond the manifest". A line is text
-   split at "\n" — blank lines and fence lines count, and a line over
-   200 characters counts as ceil(len/200) lines. Every closing message
-   — a resubmission after a hook block or a question included —
-   repeats the path and the digest WHOLE, the closing lines of the
-   witness included; "see above" is forbidden. When the dispatch names
+   acceptance), then end with a final message of at most 2,000
+   characters and at most 4 + N lines (N = the numbered items of the
+   spec node the dispatch names; a dispatch whose spec is a pointer
+   counts the node it points to, and when you cannot tell, N = 0; the
+   stricter cap decides). The form is always four lines: the path
+   (`report: <path>`), one status line `1 done | 2 done | 3 not done --
+   <one clause> | 4 question` (more than 20 items: ranges, `1-12 done`;
+   with N = 0 the status line is one of `done` / `not done -- <one
+   clause>` / `question`), `questions: none | 1) <question>`, and
+   `needed beyond the manifest: none | <paths>`. No witness lines, tables, logs or file lists in the
+   message: they are in the file. A line is text split at "\n" — blank
+   lines and fence lines count, and a line over 200 characters counts
+   as ceil(len/200) lines. Every closing message — a resubmission after
+   a hook block or a question included — repeats the path and the
+   digest WHOLE; "see above" is forbidden. When the dispatch names
    no such path, or the Write is refused (the hook says why), the FULL
    report, witness included, goes into the final message as before —
-   never lost, never shortened, and the 25-line limit does not apply.
+   never lost, never shortened, and the cap does not apply.
    An empty or truncated final message counts as work not delivered,
    no matter how much was actually done.

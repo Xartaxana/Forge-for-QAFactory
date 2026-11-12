@@ -825,9 +825,10 @@ the source's own number.
     combination never occurred) is noted explicitly — "no truncated
     status claims".
 
-28. **Completeness of workers' final messages.** Mechanism: the rule
+28. **Completeness of hand-backs: the report file and the short digest.** Mechanism: the rule
     "the report is a FILE at the dispatch's `handoff:` path and the
-    final message is its digest of at most 25 lines — the FULL
+    final message is its digest of at most 2,000 characters and at most
+    4 + N lines (N = the numbered items the dispatch asks) — the FULL
     report/digest/verdict goes into the final message only when no
     path is named or the Write is refused — and a resubmission
     restates it from scratch" (F5-1, t-744; the anchors' wording is
@@ -836,19 +837,22 @@ the source's own number.
     the report, extracted by the Lead) lives in the role files
     (`.claude/agents/builder.md` point 7, `scout.md` point 9,
     `critic.md` point 16, `designer.md` point 5, `judge.md` point 3)
-    plus the resubmission hint in `tools/dod_gate.py`'s
-    `BLOCK_MESSAGE` (substring "COMPLETE final report"). Window check:
-    (a) liveness — the five anchors are in place (a point lookup); (b)
-    failure — window events marked with a content re-request ("repeat
+    plus the code layer on SubagentStop: `tools/dod_gate.py` blocks
+    once, with "HANDOFF MISSING", a worker whose dispatch names a
+    `handoff:` path it did not write after its start. Window check:
+    (a) liveness — the five anchors are in place (a point lookup; the
+    cap key is "at most 2,000 characters"); (b)
+    failure — `gate_log` entries `handoff_missing` of `dod_gate` in the
+    window (each is a worker that skipped its file), hand-back messages
+    over the cap (see (d)), AND window events marked with a content re-request ("repeat
     the report", "re-requested", "prior messages not delivered") in
     journal notes, AND/OR a usage-record sidechain with a large volume
     of work whose final message is empty or truncated, is a leak of
     the rule — a finding. The first window that measures this records
     its OWN baseline (rate per day/week); later windows compare
-    against it — growth is grounds to revise the mechanism's form (a
-    candidate: a code layer on SubagentStop, the same class dod_gate
-    already applies on Stop), a decline toward zero is the healthy
-    direction. (c) siblings — every role file on Axis 1 of
+    against it — growth is grounds to revise the mechanism's form, a
+    decline toward zero is the healthy direction; the first window
+    after the short-digest form (12.11.2026) records a NEW baseline. (c) siblings — every role file on Axis 1 of
     `docs/SIBLING_MAP.md` carries the rule; a new tier/role file added
     later gets the same line in the same commit (Axis 1's own
     same-commit maintenance duty) — a role file missing it is a
@@ -859,8 +863,9 @@ the source's own number.
     dispatch named a `handoff:` path: who wrote the file — a Write/Edit `tool_use` with that `file_path` in the worker's
     `subagents/agent-<id>.jsonl` (its `worker_ref`) = the worker; a Write of it in the main session transcript = RETYPED by
     the Lead (a leak, target 0); a `tools/handback_extract.py` Bash call in the main transcript = extracted by code
-    (legal, counted). Also count: journal notes saying "transcribed by hand"/"retyped"; hand-back messages over 25 lines
-    (`handback_extract.py` prints the count); read-role dispatches with no `handoff:` path. The first window records the
+    (legal, counted). Also count: journal notes saying "transcribed by hand"/"retyped"; hand-back messages over the cap of 2,000
+    characters or 4 + N lines (`handback_extract.py` prints `lines=` and `bytes=`; bytes over-count non-ASCII text, so a
+    message near the cap is read by hand); read-role dispatches with no `handoff:` path. The first window records the
     baseline.
 
 29. **Upgrade delivery by delta-per-revision — the REDISTRIBUTOR
