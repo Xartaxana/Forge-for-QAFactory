@@ -238,16 +238,20 @@ def _change(f: dict) -> str:
     return "uncertain" if pseudo == "unknown" else "modified"
 
 
-def _kind(ctx, path: str) -> str:
-    """`TF.file_kind(path)`, once per path (a verdict costs milliseconds and a search can name thousands of sites)."""
-    if path not in ctx.kinds:
-        ctx.kinds[path] = TF.file_kind(path)
-    return ctx.kinds[path]
+def _kind(ctx, path: str, checkout=None) -> str:
+    """`TF.file_kind(path, word=<the project's config>, checkout=<the folder of the path's own diff>)`, once per path and checkout (a
+    verdict costs milliseconds and a search can name thousands of sites). With nothing recorded the answer is today's `file_kind(path)`;
+    a path of a diff whose checkout is not known, under a recorded word, is counted as production (B-355, the leaf's unknown)."""
+    word = ctx.cfg if isinstance(ctx.cfg, dict) and ctx.cfg else None
+    key = (path, str(checkout)) if word and checkout is not None else path
+    if key not in ctx.kinds:
+        ctx.kinds[key] = TF.file_kind(path) if word is None else TF.file_kind(path, root=ctx.project, word=word, checkout=checkout)
+    return ctx.kinds[key]
 
 
 def _new_area(ctx, f: dict) -> SimpleNamespace:
     """One area per DP file record (I5): the public part `out`, and what the stages need besides."""
-    kind = _kind(ctx, f["path"])
+    kind = _kind(ctx, f["path"], ctx.by_diff[f["diff"]].checkout)
     a = SimpleNamespace(f=f, rec=ctx.by_diff[f["diff"]], kind=kind, change=_change(f), names=[], own=set(), gap="")
     real = [h for h in f["hunks"] if not h.get("pseudo")]
     a.added = {n for h in real for n, sign, _text in h["lines"] if sign == "+"}
@@ -503,7 +507,7 @@ def _grep(rec, names) -> tuple:
 def _file_sites(ctx, rec, raw, nameset) -> None:
     """Sort the sites of one repository's search into callers / tests / same-name definitions, per name."""
     for path, line, text in raw:
-        kind = _kind(ctx, path)
+        kind = _kind(ctx, path, rec.checkout)
         made = DEF_RE.match(text) if path.endswith(".py") else None
         defined = made.group(1) if made else ""
         for name in _attribute(text, nameset, strict=kind == "test"):

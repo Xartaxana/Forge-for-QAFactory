@@ -418,7 +418,11 @@ def _collect_diff(ctx, name: str, files: list, record: dict, entry, wanted: set,
     rows) not listed in it."""
     repo = record["repo"]
     listed = {f["path"]: f for f in files}
-    chosen = {p: f for p, f in listed.items() if TF.file_kind(p) in KINDS or p in wanted}
+    word = ctx.cfg if isinstance(ctx.cfg, dict) and ctx.cfg else None     # the project's word, judged through this diff's own checkout (B-355)
+    checkout = HC.diff_checkout(ctx.root, name, word, ctx.project)[0] if word else None
+    chosen = {p: f for p, f in listed.items()
+              if (TF.file_kind(p) if word is None else TF.file_kind(p, root=ctx.project, word=word, checkout=checkout)) in KINDS
+              or p in wanted}
     own = sorted(chosen)                                                                          # the files THIS diff lists
     chosen.update({p: None for p in sorted(wanted - set(listed))})
     if not chosen:

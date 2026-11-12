@@ -354,6 +354,70 @@ def c_unreadable() -> None:
         harness.cleanup(base)
 
 
-for step in (r1_local_shape, r2_to_r5_call_sites, r6_table, r9_pins, b_brief, b5_site_names, n1_neighbours, c_closure, c_unreadable):
+def b355_word() -> None:
+    """B-355 item 9: the code files of a story are production by the project's word where it recorded where its tests are, judged through the
+    checkout each path is relative to (`handoff_check.diff_checkout`); with nothing recorded the usual names decide, as before. ONE table, ids
+    `<route>-<world>-<case>` (R: `test_locations ["src/legacy/"]` in the application checkout `../app`; N: nothing recorded; unbound: no manifest
+    entry binds the diff; unreadable: a config that cannot be read)."""
+    plain = ["const a = 1;"]
+    app_files = {p: plain for p in ("src/legacy/a.ts", "src/legacy/d.ts", "tests/b.ts", "tests/e.ts", "src/new/c.ts")}
+    facts = [("App/src/legacy/a.ts", None), ("App/tests/b.ts", None), ("src/legacy/d.ts", None), ("tests/e.ts", None), ("src/new/c.ts", None)]
+    diff = "".join(f"diff --git a/{p} b/{p}\nnew file mode 100644\n--- /dev/null\n+++ b/{p}\n@@ -0,0 +1 @@\n+const a = 1;\n"
+                   for p in ("src/legacy/a.ts", "tests/b.ts", "src/new/c.ts"))
+    worlds = {"R": {"app_root": "../app", "test_locations": ["src/legacy/"]}, "N": {"app_root": "../app"}}
+
+    def built(world_name, bound=True, git=False, app=None, facts_=None):
+        base, proj, task = world(app or app_files, facts_ or facts, git=git)
+        path = proj / "qa-factory" / "config.json"
+        if world_name == "unreadable":
+            path.write_text("{ not json", encoding="utf-8")
+        else:
+            cfg = json.loads(path.read_text(encoding="utf-8"))
+            cfg.update(worlds[world_name])
+            path.write_text(json.dumps(cfg), encoding="utf-8")
+        (task / "work" / "impl-diff.txt").write_text(diff, encoding="utf-8")
+        if bound:
+            (task / "work" / "context-manifest.json").write_text(
+                json.dumps({"implementations": [{"repo_id": "App", "diff_path": "work/impl-diff.txt"}]}), encoding="utf-8")
+        return base, proj, task
+
+    today_diff, today_bundle = ["src/legacy/a.ts", "src/new/c.ts"], ["App/src/legacy/a.ts", "src/legacy/d.ts", "src/new/c.ts"]
+    rows = [("diff-R-the-record-names-a-test", "R", True, ["src/new/c.ts", "tests/b.ts"], ["App/tests/b.ts", "src/new/c.ts", "tests/e.ts"]),
+            ("diff-N-nothing-recorded-is-today", "N", True, today_diff, today_bundle),
+            ("diff-R-unbound-counts-as-production", "R", False, ["src/legacy/a.ts", "src/new/c.ts", "tests/b.ts"], None),
+            ("diff-unreadable-config-is-today", "unreadable", True, today_diff, None)]   # no config, no checkout: no bundle file is reachable
+    for row_id, world_name, bound, want_diff, want_bundle in rows:
+        base, proj, task = built(world_name, bound)
+        try:
+            got = UPF._diff_files(task, proj)
+            check_eq(f"B-355 {row_id}", sorted(got), want_diff)
+            if want_bundle is not None:
+                check_eq(f"B-355 bundle{row_id[4:]}", [label for label, _p in UPF._bundle_files(task, proj)["files"]], want_bundle)
+        finally:
+            harness.cleanup(base)
+    for world_name, want in (("R", ["App/tests/b.ts"]), ("N", ["App/src/legacy/a.ts"])):
+        base, proj, task = built(world_name)
+        try:
+            out = {"unmeasured": [], "files": {}}
+            UPF._places(["current-code:App/src/legacy/a.ts:1", "current-code:App/tests/b.ts:1"], proj, 1, out)
+            check_eq(f"B-355 places-{world_name}: a register place is kept when it is production by the word of its own checkout",
+                     sorted(out["files"]), want)
+        finally:
+            harness.cleanup(base)
+    pages = {**APP, "src/pages/AddToCart.tsx": ["const add = () => fetch('/api/cart', { method: 'POST' })"]}
+    for world_name, record, want_in in (("N", None, True), ("R", ["src/pages/CartPage.tsx", "src/pages/LoginPage.tsx"], False)):
+        worlds["P"] = {"app_root": "../app", **({"test_locations": record} if record else {})}
+        base, proj, task = built("P", app=pages, git=True, facts_=[("App/src/pages/AddToCart.tsx", "called from LoginPage.tsx:8")])
+        try:
+            files = UPF.code_files(task, proj, True)["files"]
+            check_eq(f"B-355 neighbour-{world_name}: the cart page joins as a neighbour only while no record names it a test",
+                     CART in files, want_in)
+            check_eq(f"B-355 fact-note-{world_name}: a file a note names joins only while no record names it a test",
+                     LOGIN in files, want_in)
+        finally:
+            harness.cleanup(base)
+
+
+for step in (r1_local_shape, r2_to_r5_call_sites, r6_table, r9_pins, b_brief, b5_site_names, n1_neighbours, b355_word, c_closure, c_unreadable):
     step()
 finish("flow requests")

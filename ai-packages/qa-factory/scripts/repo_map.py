@@ -240,8 +240,12 @@ def test_roots(cfg: dict, project: Path) -> list:
 
 
 def _is_test_file(path: Path, cfg: dict, project: Path) -> bool:
-    """A test body by the one leaf (`test_files`, "test_body"); unreadable names mean "not a test" (advice only)."""
-    return test_files.is_test_for("test_body", _rel(path, project), cfg, root=project) is True
+    """A test body by the one leaf (`test_files`, "test_body"); unreadable names mean "not a test" (advice only). B-355: where the
+    project recorded its tests for the area the file lies in, every file of a recorded place is a test (`test_place`, the noise side:
+    a folder record names no body by one); elsewhere `test_body` as before."""
+    rel = _rel(path, project)
+    recorded = bool(cfg) and test_locations.recorded(cfg, root=project, path=rel)[0]
+    return test_files.is_test_for("test_place" if recorded else "test_body", rel, cfg, root=project) is True
 
 
 def _is_util_file(path: Path, root: Path, cfg: dict, project: Path, is_test) -> bool:
