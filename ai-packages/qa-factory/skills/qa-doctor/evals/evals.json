@@ -56,7 +56,7 @@
     {
       "id": 4,
       "prompt": "Ask what files qa-doctor creates or modifies when it runs.",
-      "expected_output": "States that qa-doctor writes the dashboard, activity telemetry, its smoke and host-probe receipts, the guard-probe file and the factory's own .gitignore block (after onboarding), and only on a person's explicit word archives a story or runs recover or release; that it never writes config, strategy, or artifact files (the words file of a release excepted), never answers a gate, and asks only the questions after its report (archive offer, is anybody working on this story, price table).",
+      "expected_output": "States that qa-doctor writes the dashboard, activity telemetry, its smoke and host-probe receipts, the guard-probe file and the factory's own .gitignore block (after onboarding), and only on a person's explicit word archives a story or runs recover or release; that it never writes config, strategy, or artifact files (the words file of a release excepted), never answers a gate, and asks only the questions after its report (archive offer, is anybody working on this story, price table); plus, once before it, step 2b's sample ticket when no story supplies one.",
       "files": [],
       "assertions": [
         {

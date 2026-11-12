@@ -244,7 +244,7 @@ applies, stop.
 | 5a | a capability is not `ok` with `remedy.owner: factory` - an unreachable host, an unrun probe, a factory defect | NOT an action: print it, own it, next row. Never ask a person to fix the factory or turn a dropped network into a credentials errand |
 | 5b | a required capability is `not_configured` or `unknown` with `remedy.owner: user` | that `remedy`; distinguish an unrun probe, inconclusive evidence and a session-only check |
 | 6 | a story has an unresolved `halts[]` entry | that halt's own instruction, for that ticket, in plain words - never a script name |
-| 6a | a closed story still carries a running/halted stage or an open dispatch (the STALE line) | the stale tail of `<T>`: the doctor repairs it (`phases/repair.md`, which asks first) |
+| 6a | a closed story still carries a running/halted stage or an open dispatch (the STALE line) | the stale tail of `<T>`: ask "is anybody working on `<T>`?", then `phases/repair.md` |
 | 7 | a story sits at `gates.A` or `gates.B` with no `decision` recorded | "answer gate A/B for `<ticket>`" |
 | 8 | step 3 found any violation | the first `<check>` line, verbatim |
 | 9 | otherwise | `/qa-factory:qa-story <ticket>` - the latest touched open ticket; none named when every story is closed |
