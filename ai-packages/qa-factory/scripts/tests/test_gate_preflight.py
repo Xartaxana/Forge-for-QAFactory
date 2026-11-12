@@ -795,7 +795,6 @@ def test_repo_words_a_failing_hook_is_undone_and_a_rewriting_hook_asks_again() -
     nothing passed); a hook that waits is killed with its tree at the timeout: HEAD unmoved, the problem says so and names the lock or
     the restored index, the factory deletes no lock."""
     import repo_words
-    import sys
 
     def hook(root, body):
         path = root / ".git" / "hooks" / "pre-commit"
