@@ -1453,7 +1453,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                     continue
                 problems.append(Problem(
                     section, "no rows. One row per item in scope: the id, a state and a reason "
-                             f"of at most 80 characters. {_row_sentence(row_form(spec, section)[1])}",
+                             f"of at most 80 characters. {_row_sentence(row_form(spec, section, _template_nodes(contract))[1])}",
                     "write the rows as index lines in the values file, then run this check again"))
     # F4 (AR-10, AR-28, AR-29): a verdict that sends the window back owes the sections the contract's `rows_owed_when`
     # lists; an empty one (nothing, or only the template row) is a presence gap returned to the role. Only the
@@ -1463,7 +1463,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         rows = doc.data.get(section)
         if not (_is_empty_section(doc, spec, section) or (isinstance(rows, list) and all(handoff.only_template(r) for r in rows))):
             continue
-        keys = row_form(spec, section)[1]               # this contract's own row paths: S2-S4 rows are not S5 rows
+        keys = row_form(spec, section, _template_nodes(contract))[1]               # this contract's own row paths: S2-S4 rows are not S5 rows
         cause = f"; cause is one of {', '.join(handoff.allowed('repair_causes'))}" if any(k.endswith(".cause") for k in keys) else ""
         problems.append(Problem(
             section, f"no rows. The verdict {verdict_word} sends the window back, so each thing the author must change "
@@ -2094,12 +2094,53 @@ def _flat(value) -> bool:
     return not isinstance(value, list) or all(not isinstance(v, (dict, list)) for v in value)
 
 
-def _row_lists(spec: dict) -> dict:
+def _template_nodes(contract: str):
+    """The node paths of the contract's own template, or None when it cannot be read (the hint then says `[0]`)."""
+    try:
+        return handoff.template(contract).nodes if contract else None
+    except Exception:
+        return None
+
+
+def _concrete(generic: str, nodes, held=()) -> str:
+    """The path of `generic` the form can be written at (HF8-28, F9). Every `[]` becomes the index of the FIRST row of the
+    contract's template (`nodes`) that holds the field: rows of a list are not always alike (`inputs_read[1].rows`).
+    `held` are the indexes the caller already named for the first `[]`s (a nested list of row 3 keeps 3). `nodes` None
+    (no template to read): every `[]` is `[0]`, as before. A field no row of the template holds gives `""`: no hint."""
+    parts = generic.split("[]")
+    if nodes is None:
+        return "[0]".join(parts)
+    found = []
+    for k in range(len(parts) - 1):
+        pattern = ""
+        for j in range(k):
+            pattern += re.escape(parts[j]) + (r"\[\d+\]" if j < len(held) else r"\[" + str(found[j]) + r"\]")
+        pattern += re.escape(parts[k]) + r"\[(\d+)\]" + r"\[\d+\]".join(re.escape(part) for part in parts[k + 1:])
+        hits = [int(m.group(1)) for node in nodes if (m := re.fullmatch(pattern, node))]
+        if not hits:
+            return ""
+        found.append(held[k] if k < len(held) else min(hits))
+    return "".join(part + (f"[{found[i]}]" if i < len(found) else "") for i, part in enumerate(parts))
+
+
+def _concrete_head(generic: str, nodes, held=()) -> str:
+    """`_concrete` of a path that may end in `[]` (a list of values in a row): the path of the list itself, without the
+    trailing index - read from the template's own list line, or from its first item line when the list is written out."""
+    if not generic.endswith("[]"):
+        return _concrete(generic, nodes, held)
+    head = _concrete(generic[:-2], nodes, held)
+    if head or nodes is None:
+        return head
+    return re.sub(r"\[\d+\]$", "", _concrete(generic, nodes, held))
+
+
+def _row_lists(spec: dict, nodes=None) -> dict:
     """`{list name: [paths of its row 0]}` of the lists of ROWS in a contract's spec, in the spec's order (HF8-7).
 
     A list of rows is the prefix before the first `[].` of a path (`scope[].id` -> `scope`; a nested prefix such as
     `environment.preconditions_accepted_as_blocked[].case` is kept whole); `blocked.tried[]` is a list of values, not
-    of rows. Every `[]` of a path reads `[0]`; a leaf list of values keeps its index (`execution[0].preconditions[0]`).
+    of rows. Every `[]` of a path reads the first row of the template that holds it (`_concrete`; `[0]` with no
+    template); a leaf list of values keeps its index (`execution[0].preconditions[0]`).
     A path the contract writes itself (`owned_by_contract`) or code fills (`_code_fills`) is not the role's: it is left
     out, and a list with nothing left is not a list of rows (the role is never shown a path it cannot write)."""
     out = {}
@@ -2107,7 +2148,9 @@ def _row_lists(spec: dict) -> dict:
         head, sep, _rest = generic.partition("[].")
         if not sep or handoff.owned_by_contract(generic) or _code_fills(generic):
             continue
-        out.setdefault(head, []).append(generic.replace("[]", "[0]"))
+        path = _concrete_head(generic, nodes)
+        if path:
+            out.setdefault(head, []).append(path + "[0]" if generic.endswith("[]") else path)
     return out
 
 
@@ -2116,13 +2159,13 @@ def _list_key(name: str) -> str:
     return re.sub(r"(?:\[\d+\])+$", "", name or "")
 
 
-def row_form(spec: dict, name: str = "") -> tuple:
+def row_form(spec: dict, name: str = "", nodes=None) -> tuple:
     """`(list name, paths of its row 0)`: the ONE hint of how a row of a list is written (HF8-7, AR-13/AR-15).
 
     The list is `name` (indexes taken off) when it is a list of rows; else the first of `handoff.REQUIRED_LISTS` the
     contract has; else the first by the spec's order. No list of rows -> `("", [])`. The contract decides which list
     and which fields (AR-1); code only shows the form of the line."""
-    lists = _row_lists(spec)
+    lists = _row_lists(spec, nodes)
     key = _list_key(name)
     if key not in lists:
         key = next((n for n in handoff.REQUIRED_LISTS if n in lists), next(iter(lists), ""))
@@ -2153,11 +2196,12 @@ def _row_sentence(paths: list, depth: int = 1) -> str:
     return f'a row of a list is written one line per key: `"{first}": <value>`, the next row `"{later}"`'
 
 
-def _nested_rows(spec: dict, name: str) -> tuple:
+def _nested_rows(spec: dict, name: str, nodes=None) -> tuple:
     """`(paths of one row, depth)` of a list INSIDE a row, named by `name` with its own indexes (`rounds[0].changed`):
     the row's paths keep the indexes of `name`, so the next row of that list is `rounds[0].changed[1].file`, not the
     next row of the outer list (HF8-28, F8). A name with no index, or one that is no list of rows, gives `([], 0)`;
-    a path the contract writes itself or code fills is left out, as in `_row_lists`."""
+    a path the contract writes itself or code fills is left out, as in `_row_lists`; the indexes after those of `name`
+    are the template's (`_concrete`)."""
     key = _list_key(name)
     held = INDEXED.findall(key)
     if not held:
@@ -2167,10 +2211,9 @@ def _nested_rows(spec: dict, name: str) -> tuple:
     for generic in spec:
         if not generic.startswith(prefix) or handoff.owned_by_contract(generic) or _code_fills(generic):
             continue
-        path = generic
-        for index in held:
-            path = path.replace("[]", f"[{index}]", 1)
-        paths.append(path.replace("[]", "[0]"))
+        path = _concrete_head(generic, nodes, [int(i) for i in held])
+        if path:
+            paths.append(path + "[0]" if generic.endswith("[]") else path)
     return paths, len(held) + 1
 
 
@@ -2182,6 +2225,11 @@ class _ValuesHints:
     def __init__(self, contract: str):
         self.contract = contract
         self._memo = {}
+
+    def nodes_once(self):
+        if "nodes" not in self._memo:
+            self._memo["nodes"] = _template_nodes(self.contract)
+        return self._memo["nodes"]
 
     def spec_once(self) -> dict:
         if "spec" not in self._memo:
@@ -2197,11 +2245,11 @@ class _ValuesHints:
         key = ("hint", name, strict)
         if key not in self._memo:
             spec = self.spec_once()
-            if strict and spec and _list_key(name) not in _row_lists(spec):
-                nested, depth = _nested_rows(spec, name)
+            if strict and spec and _list_key(name) not in _row_lists(spec, self.nodes_once()):
+                nested, depth = _nested_rows(spec, name, self.nodes_once())
                 self._memo[key] = (_row_sentence(nested, depth), tuple(nested)) if nested else ("", ())
             else:
-                _list, paths = row_form(spec, name)
+                _list, paths = row_form(spec, name, self.nodes_once())
                 self._memo[key] = (_row_sentence(paths), tuple(paths))
         return self._memo[key]
 
@@ -2662,6 +2710,7 @@ def values_skeleton(problems: list, contract: str, role: str, *, kept=()) -> str
     spec = handoff.spec(contract)
     vocab = handoff.vocabulary()
     sections = handoff.sections(contract)
+    nodes = _template_nodes(contract)
     lines = {}
 
     def quoted(path):
@@ -2689,10 +2738,12 @@ def values_skeleton(problems: list, contract: str, role: str, *, kept=()) -> str
                 for g in spec:
                     if not g.startswith(path + "[].") or handoff.owned_by_contract(g) or _code_fills(g):
                         continue                         # the role cannot write it (M-9): code fills it
-                    if g.endswith("[]"):                 # a list of values in a row: one line, written whole (FR-2)
-                        whole(g.replace("[]", "[0]")[:-3], g)
-                    else:
-                        add(g.replace("[]", "[0]"), g)
+                    leaf = g.endswith("[]")              # a list of values in a row: one line, written whole (FR-2)
+                    where = _concrete_head(g, nodes)                     # the row of the template that holds it (F9)
+                    if where and leaf:
+                        whole(where, g)
+                    elif where:
+                        add(where, g)
             elif path == problem.path:
                 lines.setdefault("# " + path, f"# {path}: {problem.fix or problem.text}")
     return "\n".join(lines.values())

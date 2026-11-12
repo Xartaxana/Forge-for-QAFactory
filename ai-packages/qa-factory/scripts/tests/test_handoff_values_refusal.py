@@ -806,6 +806,33 @@ def a_line_the_writer_refuses_is_not_echoed_in_the_skeleton() -> None:
         cleanup(root)
 
 
+def a_field_held_by_a_later_row_is_offered_at_that_row() -> None:
+    """K-HF8-28c (F9, FR-2): rows of a list are not always alike - `existing_candidates_considered` is a line of the SECOND
+    `inputs_read` row of the s3 template. The hint and the section skeleton offer `inputs_read[1].<field>` (the first row of
+    the template that holds it), and the OFFERED path is written by `apply_values` (applied > 0), not `[0]`. A homogeneous
+    list keeps `[0]`; a field no row holds gets no path."""
+    cases = (("s3-strategist-to-designer", "existing_candidates_considered", "qa-test-strategist"),
+             ("s6-runner-to-analyst", "manual_cases_handed", "qa-runner"),
+             ("s8-scribe-to-gate-b", "rows", "qa-analyst"),
+             ("s9-retro-to-project", "decisions_folded", "qa-scout"))
+    for contract, field, role in cases:
+        nodes = handoff.template(contract).nodes
+        offered = [p for p in H.row_form(handoff.spec(contract), "inputs_read", nodes)[1] if p.endswith("." + field)]
+        check_eq(f"K-HF8-28c {contract}: the hint offers the row that holds it", offered, [f"inputs_read[1].{field}"])
+        _doc4, applied, bad, _notes = H.apply_values(handoff.template(contract), contract, [(offered[0], "w", 1, "")])
+        check_eq(f"K-HF8-28c {contract}: the offered path is written", (applied, [b.path for b in bad]), (1, []))
+        sketch = _skeleton([H.Problem("inputs_read", "no rows", "fix")], contract, role)
+        check_in(f"K-HF8-28c {contract}: the section skeleton has it at that row", f'"inputs_read[1].{field}": <', sketch)
+        check_not_in(f"K-HF8-28c {contract}: and not at row 0", f"inputs_read[0].{field}", sketch)
+    nodes = handoff.template(S4C).nodes
+    check("K-HF8-28c control: a homogeneous list keeps [0]",
+          all(p.startswith("scope[0].") for p in H.row_form(handoff.spec(S4C), "scope", nodes)[1]), "")
+    check_eq("K-HF8-28c control: the same without a template reads [0]", H._concrete("inputs_read[].x", None), "inputs_read[0].x")
+    check_eq("K-HF8-28c a field no row holds gets no path", H._concrete("inputs_read[].nothing_here", nodes), "")
+    check_eq("K-HF8-28c a field of several rows is offered at the first", H._concrete("inputs_read[].path",
+             handoff.template("s3-strategist-to-designer").nodes), "inputs_read[0].path")
+
+
 # split: runner piece 1
 if __name__ == "__main__":
     a_dotted_index_is_refused_with_the_indexed_row_form()
@@ -826,6 +853,7 @@ if __name__ == "__main__":
     a_skeleton_of_every_refusal_reads_back_blank()
     a_list_inside_a_row_is_taught_the_index_of_its_own_list()
     a_line_the_writer_refuses_is_not_echoed_in_the_skeleton()
+    a_field_held_by_a_later_row_is_offered_at_that_row()
     one_refusal_block_one_command()
     a_role_with_bash_is_shown_the_heredoc_and_the_file_door()
     a_role_without_bash_is_shown_the_file_door_only()
