@@ -31,6 +31,11 @@ Refusals (exit 2, nothing written; each line says what, what was expected and th
   R16 a private (mangled) name in class code that is cut
   R17 a name some code rebinds through `global` is read bare from another home (a `from <part> import <name>` would
       read stale: the facade module refuses it at install)
+  R18 a carrier of a class-qualified form (reader, py-tuple) that does not declare `class_key` (`assembled`: the row keeps
+      the split class's own name and only its file changes; `mixin`: the row names the mixin class that holds the member)
+P6 also RUNS the `verify` entries of every tool carrier (package-relative script, or {args, absent}) on the would-be tree:
+exit 0, the closing line quoted, a timeout (`verify_timeout`, 120 s) or an `absent` text in the output is a failed proof;
+a carrier with no `verify` says so in one line.
 The map is a carrier of its own cut (T-1b): the would-be map gets a `names` row for every mixin class, the
 `source_readers`/`source_mentions` rows of every test file the carrier pass rewrote are recomputed (a row at zero is
 dropped, a missing row is added), and `family.installed` becomes true when the header holds that key (not with --homes);
@@ -96,7 +101,10 @@ DOORS = {
     "R15": "rename the module-level definition or the imported name",
     "R16": "use one leading underscore (no name mangling) for the name, or keep every user of it in one class",
     "R17": "move the reader into the name's home, or read the name through the facade module (`<facade>.<name>`)",
+    "R18": "declare `class_key` (`assembled` or `mixin`) on the carrier in tools/source-split-carriers.json, from what the carrier's own reader keys by",
 }
+CLASS_KEYS = ("assembled", "mixin")
+CLASS_KEYED_FORMS = ("reader", "py-tuple")     # the carrier forms whose rows name `<Class>.<member>`: they must declare which class
 
 
 class Cannot(Exception):
@@ -1661,6 +1669,12 @@ def _c_guard(ctx: CarrierCtx, car: dict, text: str) -> str:
     return re.sub(r'"' + re.escape(ctx.ffile) + r'::([^"]+)"', sub, text)
 
 
+def _keyed_class(car: dict, cls: str, home: str) -> str:
+    """The class a moved `<Class>.<member>` row names after the cut, by the carrier's declared `class_key`: the split class's
+    own name (`assembled`: its reader folds every mixin to it) or the mixin class of the member's home (`mixin`)."""
+    return camel(home) if car["class_key"] == "mixin" else cls
+
+
 def _c_reader(ctx: CarrierCtx, car: dict, text: str) -> str:
     def sub(m):
         key = f"{ctx.cls}.{m.group(1)}"
@@ -1670,8 +1684,9 @@ def _c_reader(ctx: CarrierCtx, car: dict, text: str) -> str:
         home = ctx.rows[key]["home"]
         if key not in ctx.moving:
             return m.group(0)
-        ctx.out_rows.append(f"carrier {car['id']} {car['file']}: {ctx.facade}:{key} -> {home}:{camel(home)}.{m.group(1)}")
-        return f'"{home}:{camel(home)}.{m.group(1)}"'
+        new_cls = _keyed_class(car, ctx.cls, home)
+        ctx.out_rows.append(f"carrier {car['id']} {car['file']}: {ctx.facade}:{key} -> {home}:{new_cls}.{m.group(1)}")
+        return f'"{home}:{new_cls}.{m.group(1)}"'
     return re.sub(r'"' + re.escape(ctx.facade) + ":" + re.escape(ctx.cls) + r'\.([A-Za-z_]\w*)"', sub, text)
 
 
@@ -1695,7 +1710,7 @@ def _py_tuple_line(ctx: CarrierCtx, car: dict, line: str, pat) -> str:
         return line
     if key not in ctx.moving:
         return line
-    new_qn = f"{camel(home)}.{qn.split('.', 1)[1]}" if method else qn
+    new_qn = f"{_keyed_class(car, ctx.cls, home)}.{qn.split('.', 1)[1]}" if method else qn
     ctx.out_rows.append(f"carrier {car['id']} {car['file']}: ({ctx.ffile}, {qn}) -> ({home}.py, {new_qn})")
     return m.group(1) + m.group(2) + home + ".py" + m.group(2) + m.group(3) + m.group(4) + new_qn + m.group(4) + line[m.end():]
 
@@ -1752,13 +1767,84 @@ def _c_covers(ctx: CarrierCtx, car: dict, text: str) -> str:
     return json.dumps(obj, indent=layout[0], ensure_ascii=layout[1]) + layout[2]
 
 
+def _c_py_triple(ctx: CarrierCtx, car: dict, text: str) -> str:
+    """A list/set-literal row `('<file>', '<function>', '<tag>'),`: the FILE changes. A run of rows (comment-only lines
+    between them allowed; a comment block belongs to the row BELOW it and travels with it) that was sorted before is sorted
+    after, because a reader may compare it with `sorted(...)`; a run that was not sorted keeps its order."""
+    pat = re.compile(r"^(\s*\(\s*)(['\"])" + re.escape(ctx.ffile) + r"\2(\s*,\s*)(['\"])([^'\"]+)\4(\s*,)")
+    row = re.compile(r"^\s*\(\s*(['\"])[^'\"]*\1\s*,\s*(['\"])[^'\"]*\2\s*,\s*(['\"])[^'\"]*\3\s*\)\s*,")
+
+    def rewrite(line: str) -> str:
+        m = pat.match(line)
+        if not m:
+            return line
+        home, key = ctx.home_of(m.group(5))
+        if home is None:
+            ctx.unresolved.append(f"{car['file']}: {ctx.ffile} {m.group(5)} names no map row")
+            return line
+        if key not in ctx.moving:
+            return line
+        ctx.out_rows.append(f"carrier {car['id']} {car['file']}: ({ctx.ffile}, {m.group(5)}) -> ({home}.py, {m.group(5)})")
+        return m.group(1) + m.group(2) + home + ".py" + line[m.end(2) + len(ctx.ffile):]      # the rest starts at the closing quote
+
+    def key_of(line: str):
+        try:
+            return ast.literal_eval(re.match(r"^\s*(\(.*\))\s*,", line).group(1))
+        except Exception:                             # noqa: BLE001
+            return None
+
+    lines = text.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        if not (row.match(lines[i]) or lines[i].lstrip().startswith("#")):
+            out.append(lines[i])
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and (row.match(lines[j]) or lines[j].lstrip().startswith("#")):
+            j += 1
+        items, pending = [], []
+        for line in lines[i:j]:
+            if row.match(line):
+                items.append((pending, line))
+                pending = []
+            else:
+                pending.append(line)
+        keys = [key_of(x[1]) for x in items]
+        was_sorted = None not in keys and keys == sorted(keys)
+        new_items = [(c, rewrite(r)) for c, r in items]
+        if was_sorted and any(a[1] != b[1] for a, b in zip(items, new_items)):
+            new_keys = [key_of(x[1]) for x in new_items]
+            if None not in new_keys:
+                new_items = [x for _k, x in sorted(zip(new_keys, new_items), key=lambda p: p[0])]
+        for c, r in new_items:
+            out.extend(c)
+            out.append(r)
+        out.extend(pending)
+        i = j
+    return "\n".join(out)
+
+
 CARRIER_FORMS = {"json-file-function": _c_json_file_function, "guard": _c_guard, "reader": _c_reader,
-                 "py-tuple": _c_py_tuple, "covers-append": _c_covers}
+                 "py-tuple": _c_py_tuple, "py-triple": _c_py_triple, "covers-append": _c_covers}
+
+
+def _class_key_refusals(plan: Plan) -> bool:
+    """R18: a tool carrier of a class-qualified form with no (or an unknown) `class_key` is refused; True when any was."""
+    bad = False
+    for car in plan.cfg["carriers"]:
+        if car.get("who") == "tool" and car.get("form") in CLASS_KEYED_FORMS and car.get("class_key") not in CLASS_KEYS:
+            plan.refuse("R18", f"{CARRIERS_FILE.name} carrier {car.get('id')} {car.get('file')}",
+                        f"form {car['form']} has class_key {car.get('class_key')!r}", f"one of {list(CLASS_KEYS)}")
+            bad = True
+    return bad
 
 
 def _carrier_pass(plan: Plan, cls: str) -> None:
     st, cfg = plan.stats, plan.cfg
     pkg, repo = st["pkg"], Path(plan.args.repo).resolve()
+    if _class_key_refusals(plan):
+        return
     ctx = CarrierCtx(plan.facade + ".py", plan.facade, cls, st["rows"], {n for u in st["moving"] for n in u.names},
                      sorted({u.home for u in st["moving"]}))
     for car in cfg["carriers"]:
@@ -1886,6 +1972,72 @@ def _p6(plan: Plan) -> None:
     plan.proofs.append(("P6", not bad, f"P6 carrier pass: {n} carrier lines, {len(plan.carrier_view)} carriers rescanned, unresolved or left behind {bad or 0}"))
 
 
+def _verify_entry(entry) -> tuple:
+    """(args, absent text) of one `verify` entry: a package-relative script (a string) or {"args": [...], "absent": "<text>"}."""
+    if isinstance(entry, str):
+        return [entry], ""
+    return list(entry["args"]), entry.get("absent", "")
+
+
+def _run_verify(plan: Plan, pkg_after: Path, car: dict, entry, cache: dict) -> tuple:
+    """(ok, one line) of one verify command on the would-be tree: `python -B <args>` from the package root of the tree."""
+    args, absent = _verify_entry(entry)
+    limit = (entry.get("verify_timeout") if isinstance(entry, dict) else None) or plan.cfg.get("verify_timeout", 120)
+    shown = " ".join(args)[:90]
+    head = f"verify carrier {car['id']} {car['file']}: python -B {shown}"
+    if not args[0].startswith("-") and not (pkg_after / args[0]).is_file():
+        return False, f"{head} -> the script is not in the would-be tree"
+    argv = [sys.executable, "-B"] + ([str(pkg_after / args[0])] + args[1:] if not args[0].startswith("-") else args)
+    key = tuple(argv)
+    if key not in cache:
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=pkg_after, env=env, timeout=limit)
+            cache[key] = (r.returncode, (r.stdout or "") + (r.stderr or ""))
+        except subprocess.TimeoutExpired:
+            cache[key] = (None, "")
+        except OSError as exc:
+            cache[key] = (-1, f"cannot start: {exc}")
+    code, out = cache[key]
+    if code is None:
+        return False, f"{head} -> timed out after {limit} s (a timeout is a failed proof)"
+    tail = [x for x in out.splitlines() if x.strip()]
+    closing = tail[-1].strip()[:160] if tail else "(no output)"
+    if code != 0:
+        fails = [x.strip()[:400] for x in out.splitlines() if x.lstrip().startswith("FAIL")][:3]
+        return False, f"{head} -> exit {code}; closing line: {closing}" + "".join(f"\n      {x}" for x in fails)
+    if absent and absent in out:
+        return False, f"{head} -> exit 0 but the output holds {absent!r}; closing line: {closing}"
+    return True, f"{head} -> exit 0; closing line: {closing}"
+
+
+def _p6_verify(plan: Plan, after: Path) -> None:
+    """P6, the proof the carriers still work: every `verify` of a tool carrier is RUN on the would-be tree, and the line of
+    each (or of its absence) is appended to P6. A carrier whose file is absent in the tree has nothing to prove."""
+    pkg_after, lines, bad, cache = after / plan.cfg["package_root"], [], [], {}
+    for car in plan.cfg["carriers"]:
+        if car.get("who") != "tool":
+            continue
+        path = plan.stats["pkg"] / car["file"] if car.get("root") != "repo" else Path(plan.args.repo).resolve() / car["file"]
+        if not path.is_file():
+            lines.append(f"verify carrier {car['id']} {car['file']}: the carrier file is absent in this tree, nothing to run")
+        elif not car.get("verify"):
+            lines.append(f"verify carrier {car['id']} {car['file']}: no verify declared")
+        else:
+            for entry in car["verify"]:
+                ok, line = _run_verify(plan, pkg_after, car, entry, cache)
+                lines.append(line)
+                if not ok:
+                    bad.append(line)
+    text = "\n    " + "\n    ".join(lines) if lines else ""
+    at = next((i for i, p in enumerate(plan.proofs) if p[0] == "P6"), None)
+    if at is None:
+        plan.proofs.append(("P6", not bad, "P6 carrier verify:" + text))
+    else:
+        _id, ok, old = plan.proofs[at]
+        plan.proofs[at] = ("P6", ok and not bad, old + text)
+
+
 def _long(path: Path) -> str:
     """An absolute path in the extended-length form on Windows (no 260-character limit), unchanged elsewhere."""
     s = str(Path(path).resolve())
@@ -1908,6 +2060,13 @@ def _build_trees(plan: Plan, tmp: Path) -> tuple:
             target = after / path.relative_to(repo)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(text.encode("utf-8"))
+        if plan.map_text is not None:                  # the would-be map is a carrier of its own cut: a verify command reads it
+            try:
+                target = after / Path(plan.args.map_path).resolve().relative_to(repo)
+            except ValueError:
+                target = None
+            if target is not None:
+                target.write_bytes(plan.map_text.encode("utf-8"))
     except (OSError, shutil.Error) as exc:
         raise Cannot(f"cannot build the proof trees under {tmp}: {exc}")
     return before, after
@@ -2069,6 +2228,7 @@ def _tree_proofs(plan: Plan, cls: str) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="ss"))
     try:
         before, after = _build_trees(plan, tmp)
+        _p6_verify(plan, after)
         _p3(plan, cls, before, after, tmp)
         _p5(plan, after)
         _p7(plan, before, after)
@@ -2604,7 +2764,7 @@ def _cases_carriers(t: T) -> None:
         plan = t.proven(tmp, pkg_files=_carrier_files(t))
         got = {p.name: x for p, x in plan.carriers.items()}
         want = {"gate-registry.json": f'"file": "{core}.py"', "null-outcomes.json": f'"{core}.py::helper"', "block-names.json": f'"{dialog}:{camel(dialog)}.top"',
-                "audit_factory.py": f'("{core}.py", "{camel(core)}.low")', "test-layers.json": f'"{core}.py"'}
+                "audit_factory.py": f'("{core}.py", "{cls}.low")', "test-layers.json": f'"{core}.py"'}
         for name, needle in want.items():
             t.ok(f"carrier form of {name}: the moved row is rewritten ({needle})", needle in got.get(name, ""), got.get(name, "not rewritten")[:200])
         t.ok("carrier pass: unmoved rows stay, P6 passes with every carrier rescanned",
@@ -2621,6 +2781,114 @@ def _cases_carriers(t: T) -> None:
         plan = t.proven(tmp)
         t.ok("a tree with no carrier files: P6 reports 0 carriers rescanned and passes", t.proof(plan, "P6") is True and "0 carriers rescanned" in
              [p[2] for p in plan.proofs if p[0] == "P6"][0], [p[2][:200] for p in plan.proofs if p[0] == "P6"])
+
+
+@contextlib.contextmanager
+def _carriers_with(mutate):
+    """The tool's carriers file replaced for a block by a copy that `mutate(cfg)` has edited (the selftest's way to ask
+    'what if the data said ...'); the file is put back on leaving."""
+    global CARRIERS_FILE
+    real = CARRIERS_FILE
+    cfg = json.loads(real.read_text(encoding="utf-8"))
+    mutate(cfg)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        CARRIERS_FILE = Path(d) / real.name
+        CARRIERS_FILE.write_text(json.dumps(cfg), encoding="utf-8")
+        try:
+            yield cfg
+        finally:
+            CARRIERS_FILE = real
+
+
+def _carrier(cfg: dict, file: str) -> dict:
+    return next(c for c in cfg["carriers"] if c["file"] == file)
+
+
+def _cases_class_key(t: T) -> None:
+    core, cls, ff = t.core, t.cls, t.facade + ".py"
+    files = {"scripts/audit_factory.py": f'NO_MOVE = {{\n    ("{ff}", "{cls}.low"): 1,\n    ("{ff}", "helper"): 3,\n}}\n',
+             "scripts/tests/test_bug_records.py": f'KEPT = {{\n    ("{ff}", "{cls}.low"): 1,\n    ("{ff}", "helper"): 3,\n}}\n',
+             "references/block-names.json": json.dumps({"names": [f"{t.facade}:{cls}.low"]}) + "\n",
+             "scripts/tests/test_gate_registry.py": f'SITES = [\n    ("other.py", "helper", "g3"),\n    ("{ff}", "helper", "g1"),\n    # the note of main\n    ("{ff}", "main", "g2"),\n]\n'}
+    with t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=files)
+        got = {p.name: x for p, x in plan.carriers.items()}
+        by = _carrier(t.cfg, "scripts/audit_factory.py")["class_key"], _carrier(t.cfg, "scripts/tests/test_bug_records.py")["class_key"]
+        t.ok("F1 the shipped carriers declare their keys: audit_factory (A27 folds every mixin to the class) assembled, test_bug_records (the census walks the real class) mixin",
+             by == ("assembled", "mixin"), by)
+        t.ok("F1 an `assembled` carrier keeps the split class's name and changes only the file", f'("{core}.py", "{cls}.low")' in got.get("audit_factory.py", "") and camel(core) not in got.get("audit_factory.py", ""),
+             got.get("audit_factory.py"))
+        t.ok("F1 a `mixin` carrier gets the mixin class name of the member's home", f'("{core}.py", "{camel(core)}.low")' in got.get("test_bug_records.py", ""), got.get("test_bug_records.py"))
+        t.ok("F1 the reader carrier (block-names, mixin) names `<part>:<Mixin>.<m>`", f'"{core}:{camel(core)}.low"' in got.get("block-names.json", ""), got.get("block-names.json"))
+        t.ok("F2 a py-triple row `(<facade file>, <function>, <tag>)` changes its file and, in a sorted run, moves to its sorted place (a reader compares with sorted()); "
+             "the comment above the row below it stays with that row; an unmoved name and another file stay",
+             got.get("test_gate_registry.py") == f'SITES = [\n    ("{core}.py", "helper", "g1"),\n    ("other.py", "helper", "g3"),\n    # the note of main\n    ("{ff}", "main", "g2"),\n]\n',
+             got.get("test_gate_registry.py"))
+        ctx = CarrierCtx(ff, t.facade, cls, {"helper": {"home": core}}, {"helper"}, [core])
+        unsorted = f'S = [\n    ("{ff}", "helper", "g1"),\n    ("a.py", "x", "g0"),\n]\n'
+        t.ok("F2 a py-triple run that was NOT sorted keeps its order: the file is rewritten in place",
+             _c_py_triple(ctx, {"id": 0, "file": "x"}, unsorted) == unsorted.replace(f'("{ff}"', f'("{core}.py"'), _c_py_triple(ctx, {"id": 0, "file": "x"}, unsorted))
+        t.ok("F1 P6 passes on the cut with both declared keys", t.proof(plan, "P6") is True, [p[2][:300] for p in plan.proofs if p[0] == "P6"])
+    with _carriers_with(lambda c: _carrier(c, "scripts/audit_factory.py").pop("class_key")):
+        with t.tree() as tmp:
+            plan = t.plan(tmp, pkg_files=files)
+            hit = [r for r in plan.refusals if r.code == "R18" and "audit_factory.py" in r.line()]
+            t.ok("F1 a class-qualified carrier with no class_key is refused (R18, by file), not guessed", hit and not plan.carriers, [r.line()[:200] for r in plan.refusals[:2]])
+    with _carriers_with(lambda c: _carrier(c, "scripts/audit_factory.py").update(class_key="both")):
+        with t.tree() as tmp:
+            plan = t.plan(tmp, pkg_files=files)
+            t.ok("F1 a class_key the tool does not know ('both') is refused too", any(r.code == "R18" and "'both'" in r.line() for r in plan.refusals), [r.line()[:200] for r in plan.refusals[:2]])
+
+
+def _cases_verify(t: T) -> None:
+    ok_script = "print('first')\nprint('=== vok: 3/3 ok ===')\n"
+    fail_script = "import sys\nprint('=== vbad: 2/3 ok ===')\nsys.exit(1)\n"
+    files = {"references/gate-registry.json": json.dumps({"rows": [{"file": t.facade + ".py", "function": "helper"}]}, indent=1) + "\n",
+             "references/null-outcomes.json": json.dumps({"guards": [f"{t.facade}.py::main"]}, indent=1) + "\n",
+             "scripts/tests/vok.py": ok_script, "scripts/tests/vbad.py": fail_script,
+             "scripts/tests/vslow.py": "import time\ntime.sleep(5)\n", "scripts/tests/vtext.py": "print('no scenario or keep row covers x')\n"}
+
+    def verify(*entries, timeout=None):
+        def edit(cfg):
+            _carrier(cfg, "references/gate-registry.json")["verify"] = list(entries)
+            if timeout:
+                cfg["verify_timeout"] = timeout
+        return edit
+    p6 = lambda plan: [p[2] for p in plan.proofs if p[0] == "P6"][0] if any(p[0] == "P6" for p in plan.proofs) else ""    # noqa: E731
+    with _carriers_with(verify("scripts/tests/vok.py")), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=files)
+        t.ok("F1b a verify command that exits 0 passes P6 and its closing line is quoted", t.proof(plan, "P6") is True and "=== vok: 3/3 ok ===" in p6(plan) and "exit 0" in p6(plan),
+             p6(plan)[-400:])
+        t.ok("F1b a present carrier with no verify says so in one line (here the guard carrier, null-outcomes)",
+             p6(plan).count("carrier 2 references/null-outcomes.json: no verify declared") == 1, p6(plan)[-400:])
+        t.ok("F1b the verify line names the carrier and the command it ran",
+             "carrier 1 references/gate-registry.json: python -B scripts/tests/vok.py" in p6(plan), p6(plan)[-300:])
+    with _carriers_with(verify("scripts/tests/vbad.py")), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=files)
+        t.ok("F1b a verify command that exits 1 makes P6 FAIL, the exit code and the closing line named, and the run refuses", t.proof(plan, "P6") is False
+             and "exit 1" in p6(plan) and "=== vbad: 2/3 ok ===" in p6(plan) and failed(plan), p6(plan)[-300:])
+    with _carriers_with(verify("scripts/tests/vslow.py", timeout=1)), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=files)
+        t.ok("F1b a verify command over verify_timeout is a failed proof, named", t.proof(plan, "P6") is False and "timed out after 1 s" in p6(plan), p6(plan)[-300:])
+    with _carriers_with(verify({"args": ["scripts/tests/vslow.py"], "verify_timeout": 30}, timeout=1)), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=dict(files, **{"scripts/tests/vslow.py": "import time\ntime.sleep(2)\nprint('slept')\n"}))
+        t.ok("F1b a per-entry verify_timeout overrides the file's (1 s file cap, 30 s entry cap: a 2 s command passes)",
+             t.proof(plan, "P6") is True and "slept" in p6(plan), p6(plan)[-300:])
+    with _carriers_with(verify({"args": ["scripts/tests/vtext.py"], "absent": "no scenario or keep row covers"})), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=files)
+        t.ok("F1b an `absent` text in the output of an exit-0 command fails P6", t.proof(plan, "P6") is False and "no scenario or keep row covers" in p6(plan), p6(plan)[-300:])
+    with _carriers_with(verify("scripts/tests/nothere.py")), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=files)
+        t.ok("F1b a verify script absent from the would-be tree is a failed proof, not a silent skip", t.proof(plan, "P6") is False and "not in the would-be tree" in p6(plan), p6(plan)[-300:])
+    unmoved = dict(files, **{"references/gate-registry.json": json.dumps({"rows": [{"file": t.facade + ".py", "function": "main"}]}, indent=1) + "\n"})
+    with _carriers_with(verify("scripts/tests/vok.py")), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files=unmoved)
+        t.ok("F1b a carrier file with no row for the moved names still has its verify run once (it proves the carrier intact)",
+             p6(plan).count("gate-registry.json: python -B scripts/tests/vok.py -> exit 0") == 1 and t.proof(plan, "P6") is True, p6(plan)[-300:])
+    with _carriers_with(verify("scripts/tests/vok.py")), t.tree() as tmp:
+        plan = t.proven(tmp, pkg_files={"scripts/tests/vok.py": ok_script})
+        t.ok("F1b a carrier file absent in the tree has nothing to run: one line says so, no failure",
+             "gate-registry.json: the carrier file is absent in this tree" in p6(plan) and t.proof(plan, "P6") is True, p6(plan)[-300:])
 
 
 def _cases_apply(t: T) -> None:
@@ -2861,12 +3129,14 @@ def _cases_t1b_imports_global(t: T) -> None:
 
 def selftest() -> int:
     t = T()
-    for group in (_cases_refusals, _cases_r13, _cases_hazards, _cases_proofs, _cases_trees, _cases_p7_p8, _cases_carriers, _cases_apply, _cases_misc,
-                  _cases_t1b_map, _cases_t1b_installed, _cases_t1b_facade_k7, _cases_t1b_imports_global):
-        try:
-            group(t)
-        except Exception as exc:                  # noqa: BLE001 - a case group that crashes is a failed case, never silent
-            t.ok(f"{group.__name__} ran to the end", False, f"{type(exc).__name__}: {exc}")
+    strip = lambda cfg: [c.pop("verify", None) for c in cfg["carriers"]]      # noqa: E731 - the fixtures hold no test files of the real carriers
+    with _carriers_with(strip):
+        for group in (_cases_refusals, _cases_r13, _cases_hazards, _cases_proofs, _cases_trees, _cases_p7_p8, _cases_carriers, _cases_class_key,
+                      _cases_verify, _cases_apply, _cases_misc, _cases_t1b_map, _cases_t1b_installed, _cases_t1b_facade_k7, _cases_t1b_imports_global):
+            try:
+                group(t)
+            except Exception as exc:                  # noqa: BLE001 - a case group that crashes is a failed case, never silent
+                t.ok(f"{group.__name__} ran to the end", False, f"{type(exc).__name__}: {exc}")
     bad = 0
     for label, ok, detail in t.results:
         print(("PASS " if ok else "FAIL ") + label + ("" if ok else f" -- {detail}"))

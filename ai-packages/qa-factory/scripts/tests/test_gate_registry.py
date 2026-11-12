@@ -907,6 +907,7 @@ D13_TRIPLES = [
     ("contract.py", "then_oracle_errors", "then_oracle"),
     ("coverage_contract.py", "validate_manual_current", "provenance_acceptance"),
     ("delivery_verdict.py", "decide", "delivery"),
+    ("driver_stage_build.py", "build_outcome", "stand_identity"),
     ("environment_preparation.py", "_facts", "environment_preparation"),
     ("environment_preparation.py", "_run_step", "provenance_acceptance"),
     ("execution_fingerprint.py", "build", "provenance_acceptance"),
@@ -953,7 +954,6 @@ D13_TRIPLES = [
     # TQ1-1 (t-684): the four row-word comparisons of the S5 exit gate (`== 'settled'` twice, `== 'invalid'`, `== 'open'`) - one new site
     ("s5_precheck.py", "check_open_oracle_asserted", "s5_open_oracle_asserted"),
     ("source_preflight.py", "assess_freshness", "source_freshness"),
-    ("story_run.py", "build_outcome", "stand_identity"),
     # RH1-5 (t-1433, 0b53cc33): `finish` splits an exit-gate record of kind `unreadable` from the refusals - two comparisons
     # (`kind == 'unreadable'` and `kind != 'unreadable'`) at the site finish_exit_gate already registers; no new site, no new row.
     ("story_step.py", "_finish_gate", "finish_exit_gate"),

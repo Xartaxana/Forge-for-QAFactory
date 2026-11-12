@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import harness  # noqa: E402
 from harness import SCRIPTS, check, check_eq, check_in, check_not_in, finish  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
@@ -118,8 +119,8 @@ def walk_account_keys_missing_asked_once_then_go_on():
 
 def walk_account_both_triggers_one_constant():
     check_eq("the constant holds the two triggers, in the spec's order", SR.WALK_ACCOUNT_TRIGGERS, ("no_pair", "short_distinct"))
-    source = Path(SR.__file__).read_text(encoding="utf-8")
-    check_eq("one definition in the module", source.count("\nWALK_ACCOUNT_TRIGGERS = "), 1)
+    source = harness.driver_text()
+    check_eq("one definition in the driver", source.count("\nWALK_ACCOUNT_TRIGGERS = "), 1)
     for name in ("walk_account_text", "walk_account_person", "_answer_walk_account"):
         body = inspect.getsource(getattr(SR.Driver, name))
         check_not_in(f"`{name}` names neither trigger (the raise sites read the constant)", "no_pair", body)

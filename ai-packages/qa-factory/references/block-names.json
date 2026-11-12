@@ -35,7 +35,7 @@
     },
     {
       "block": "question threshold",
-      "reader": "story_run:Driver.question_threshold",
+      "reader": "driver_dispatch:DriverDispatch.question_threshold",
       "stages": ["S2", "S3", "S4"]
     },
     {
@@ -45,32 +45,32 @@
     },
     {
       "block": "stand not confirmed",
-      "reader": "story_run:Driver.stand_check",
+      "reader": "driver_stage_build:DriverStageBuild.stand_check",
       "stages": ["S5", "S6"]
     },
     {
       "block": "stand login missing",
-      "reader": "story_run:Driver.stand_login_gate",
+      "reader": "driver_stage_s6:DriverStageS6.stand_login_gate",
       "stages": ["S6"]
     },
     {
       "block": "gate A recorded dry",
-      "reader": "story_run:Driver.manual_gate_note",
+      "reader": "driver_stage_s6:DriverStageS6.manual_gate_note",
       "stages": ["S6"]
     },
     {
       "block": "grounding coverage stop <digest>",
-      "reader": "story_run:Driver.grounding_stop",
+      "reader": "driver_stage_plan:DriverStagePlan.grounding_stop",
       "stages": ["S3"]
     },
     {
       "block": "grounding refactoring stop <digest>",
-      "reader": "story_run:Driver.grounding_stop",
+      "reader": "driver_stage_plan:DriverStagePlan.grounding_stop",
       "stages": ["S3"]
     },
     {
       "block": "journal rows not written",
-      "reader": "story_run:Driver.owed_rows_step",
+      "reader": "driver_conductor:DriverConductor.owed_rows_step",
       "stages": ["*"]
     }
   ]

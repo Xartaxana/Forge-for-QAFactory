@@ -544,7 +544,7 @@ def block_names_row() -> None:
     """B-2: the block is a row of references/block-names.json whose reader exists, so the loader accepts it."""
     import waiver
     row = waiver.block_name_row(BLOCK, "S3")
-    check_eq("B-2: the table names the block, for every stage", row and (row["reader"], row["stages"]), ("story_run:Driver.owed_rows_step", ("*",)))
+    check_eq("B-2: the table names the block, for every stage", row and (row["reader"], row["stages"]), ("driver_conductor:DriverConductor.owed_rows_step", ("*",)))
 
 
 # --- C1-7b: the gate steps (G), the legitimate no (L), the trace (T), the readiness record (R3), the Halts map --------------------
@@ -1247,7 +1247,7 @@ def k26_continue_over_a_registered_dispatch_keeps_its_lines() -> None:
 def k27_one_writer_of_the_running_record() -> None:
     """K27 (F-3 of t-1252, AR-15): `record_running` is the ONLY writer of a `--status running` stage record in the driver. The scan has its
     positive control: the same scan finds the `halted` writers (more than one), so an empty result is not a miscall of the pattern."""
-    source = (Path(story_run.__file__).resolve()).read_text(encoding="utf-8")
+    source = harness.driver_text()      # the whole driver set: the facade and its parts (one reader, AR-13)
     running = [i for i, line in enumerate(source.splitlines(), 1) if '"--status", "running"' in line]
     halted = [i for i, line in enumerate(source.splitlines(), 1) if '"--status", "halted"' in line]
     check("K27 control: the scan finds the `halted` writers", len(halted) >= 2)

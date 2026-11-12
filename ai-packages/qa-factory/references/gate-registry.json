@@ -12,7 +12,7 @@
         {"file": "runtime_probe.py", "function": "finish", "role": "produce"},
         {"file": "gate_preflight.py", "function": "_derive_probe", "role": "dispatch"},
         {"file": "gate_preflight.py", "function": "named_container_said", "role": "dispatch"},
-        {"file": "story_run.py", "function": "build_outcome", "role": "dispatch"}
+        {"file": "driver_stage_build.py", "function": "build_outcome", "role": "dispatch"}
       ],
       "field": "result",
       "words": ["matched", "mismatched", "unknown", "not_applicable", "person_confirmed"],
@@ -443,7 +443,7 @@
       "id": "stand_login_gate", "inventory": "F9", "vocabulary": "code",
       "decides": "before any block that opens the product's screens: the stand's test account can be read, else the person is asked (kind stand_login)",
       "sites": [
-        {"file": "story_run.py", "function": "stand_login_gate", "role": "dispatch"}
+        {"file": "driver_stage_s6.py", "function": "stand_login_gate", "role": "dispatch"}
       ],
       "field": null,
       "words": ["matched", "unknown"],
@@ -463,7 +463,7 @@
       "id": "stand_check", "inventory": "F9", "vocabulary": "code",
       "decides": "before S5/S6 puts anything on a stand: one is confirmed for this story, else the person is asked",
       "sites": [
-        {"file": "story_run.py", "function": "stand_check", "role": "dispatch"}
+        {"file": "driver_stage_build.py", "function": "stand_check", "role": "dispatch"}
       ],
       "field": null,
       "words": ["matched", "unknown"],
@@ -506,7 +506,7 @@
       "sites": [
         {"file": "gate_preflight.py", "function": "_rehearse_reporter", "role": "accept"},
         {"file": "gate_preflight.py", "function": "_read_probe_report", "role": "measure"},
-        {"file": "story_run.py", "function": "hand_to_conductor", "role": "accept"}
+        {"file": "driver_gates.py", "function": "hand_to_conductor", "role": "accept"}
       ],
       "field": null,
       "words": ["matched", "mismatched", "unknown"],

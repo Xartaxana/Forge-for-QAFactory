@@ -141,7 +141,7 @@ def main() -> None:
                 *, isolated: bool = False) -> None:
             nonlocal ok
             child_env = dict(env)
-            # Twin of story_run.py:613-616: every child's text is decoded as utf-8 below. Only
+            # Twin of the driver's own child reader (`Driver.py` in the driver set): every child's text is decoded as utf-8 below. Only
             # run() children; the hook and probe children keep the harness's own environment.
             child_env["PYTHONIOENCODING"] = "utf-8"
             child_cwd = proj

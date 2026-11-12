@@ -267,7 +267,7 @@ def k1_the_class_travels() -> None:
     """B-1: every driver-road `waiver.py` recording call carries `*self.waiver_road(...)` (`--by driver`, plus `--why-person <id>` when the
     asked question named a class); the class survives `ask()` and `held_question`; `m-1`: the delivery prompt asks for `why_person`."""
     import re
-    source = (Path(story_run.__file__)).read_text(encoding="utf-8")
+    source = harness.driver_text()
 
     def bare_lines(text):
         """(recording call sites, the lines of those that do not carry `waiver_road(` before the next call or 900 characters)."""
@@ -281,7 +281,11 @@ def k1_the_class_travels() -> None:
             if "waiver_road(" not in window:
                 lines.append(text.count("\n", 0, at) + 1)
         return found, lines
-    recording, bare = bare_lines(source)
+    recording, bare = [], []
+    for path, text in harness.driver_sources():
+        found, lines = bare_lines(text)
+        recording += found
+        bare += [f"{path.name}:{n}" for n in lines]
     check_eq("K1 positive control: the seven recording call sites", len(recording), 7)
     check_eq("K1 every recording call carries `waiver_road` (the lines that do not)", bare, [])
     check_eq("K1 negative control: one call site with the flag dropped is named (mutation of a copy)",

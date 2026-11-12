@@ -379,9 +379,9 @@ KEPT = {
     ("judge_results.py", "<module>"): "the module docstring names the folder in prose",
     ("place_answers.py", "_bug_list"): "the refusal text names the folder (FR-1); the listing is `BR.draft_listing`",
     ("validate_artifacts.py", "check_bug_form"): "the refusal text names the folder (FR-1); the draft itself is resolved by the caller through `BR._draft_of` (t-2187 N4)",
-    ("story_run.py", "Driver.s7_place_lines"): "prose to the role (a message naming the folder), not a read",
-    ("story_run.py", "Driver.role_lines"): "prose to the role (a message), not a read",
-    ("story_run.py", "Driver.s0"): "the writer's side: the folder is created here",
+    ("driver_dispatch.py", "DriverDispatch.s7_place_lines"): "prose to the role (a message naming the folder), not a read",
+    ("driver_stage_plan.py", "DriverStagePlan.role_lines"): "prose to the role (a message), not a read",
+    ("driver_s0.py", "DriverS0.s0"): "the writer's side: the folder is created here",
     ("story_step.py", "_post_work"): "mtime of the folder against the judge's file (a staleness probe, not a listing)",
 }
 # Scopes that pair a draft with its triage row read the draft's `triage_ref` AND a row's `instance_id`/`attempt_id`:

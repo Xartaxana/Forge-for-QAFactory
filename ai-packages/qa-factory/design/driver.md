@@ -230,7 +230,7 @@ does (`exit_gate.all_errors`: artifact validators, stage detectors, the witness 
 digest form, required outputs; a waiver passes what the person passed).
 
 The known-refusal table is tried first. It lives in the script, once
-(`KNOWN_REFUSALS` in `scripts/story_run.py`, regex → action, one comment per row): a copy of it
+(`KNOWN_REFUSALS` in the driver set, `scripts/story_run.py` and `scripts/driver_*.py`, regex → action, one comment per row): a copy of it
 here is a second list to keep in step, and the factory has paid for that habit already. What
 the actions mean: a FORM refusal (the handoff form, the handover form, a missing required key)
 resumes the ROLE with the refusal, because the answer is the role's own; a `story_step finish`

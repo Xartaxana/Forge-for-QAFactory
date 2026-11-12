@@ -192,7 +192,7 @@
       "why": "every writer here writes its OWN receipt file, never another's"
     },
     "state/driver-timings.jsonl": {
-      "writer": "story_run.py",
+      "writer": "driver_runner.py",
       "machinery": [
         "driver_timing.py"
       ],

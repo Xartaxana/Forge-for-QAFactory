@@ -656,7 +656,7 @@ def the_driver_reads_the_shared_functions():
     def shared(plan_src, gate_src, done_src, prepare_src, whole):
         return ("walk_lanes(" in plan_src and "manual_blocks(" in gate_src and "manual_done_cases(" in done_src
                 and "prepare_for_block(" in prepare_src and "i:i + size" not in whole and "_case_obligation_mapping(" not in whole)
-    whole = Path(story_run.__file__).read_text(encoding="utf-8")
+    whole = harness.driver_text()
     check_eq("K-T2: the driver calls the shared split, done set and prepare; no inline copy is left",
              shared(inspect.getsource(Driver.manual_plan), inspect.getsource(Driver.stand_login_gate),
                     inspect.getsource(Driver.manual_done), inspect.getsource(Driver.manual_prepare), whole), True)

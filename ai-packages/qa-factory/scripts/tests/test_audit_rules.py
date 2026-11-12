@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import (  # noqa: E402
-    PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir,
+    PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, driver_sources, finish, temp_dir,
     temp_project, use_project,
 )
 
@@ -1040,18 +1040,28 @@ def tree_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
+def person_home() -> str:
+    """The file of the driver set that DEFINES `class Person`, found by search over the ONE reader (harness.driver_sources), never by
+    name: A27 binds the driver classes only in a module whose body defines them, so a planted site goes there."""
+    homes = [p.name for p, text in driver_sources() if re.search(r"^class Person\b", text, re.MULTILINE)]
+    check_eq("A27 planted copy: exactly one file of the driver set defines `class Person` (the plant target)", len(homes), 1)
+    return homes[0] if homes else ""
+
+
 def test_a27_planted_copy() -> None:
     tmp = temp_dir("qa-factory-a27-planted-")
     try:
         dst = tmp / "plugin" / "scripts"
         dst.mkdir(parents=True)
+        home = person_home()
         for path in sorted((PLUGIN_ROOT / "scripts").glob("*.py")):
             if path.name != A.DRIVER_ENTRY and not fnmatch.fnmatch(path.name, "driver_*.py"):
                 continue          # the scan reads the driver set only (F3): the other 200 scripts would only be copied
             text = path.read_text(encoding="utf-8")
-            if path.name == "story_run.py":
+            if path.name == home:
                 text += PLANTED
             (dst / path.name).write_text(text, encoding="utf-8")
+        check_in("A27 planted copy: the entry file of the driver set is in the copy", "story_run.py", " ".join(sorted(p.name for p in dst.glob("*.py"))))
         root = tmp / "plugin"
         before = tree_hash(root)
         scan = A.a27_scan(root)
@@ -1084,11 +1094,13 @@ def test_a27_b3_planted_copy() -> None:
     try:
         dst = tmp / "plugin" / "scripts"
         dst.mkdir(parents=True)
+        home = person_home()
         for path in sorted((PLUGIN_ROOT / "scripts").glob("*.py")):
             if path.name != A.DRIVER_ENTRY and not fnmatch.fnmatch(path.name, "driver_*.py"):
                 continue
             text = path.read_text(encoding="utf-8")
-            (dst / path.name).write_text(text + (PLANTED_B3 if path.name == "story_run.py" else ""), encoding="utf-8")
+            (dst / path.name).write_text(text + (PLANTED_B3 if path.name == home else ""), encoding="utf-8")
+        check_in("K15 planted copy: the entry file of the driver set is in the copy", "story_run.py", " ".join(sorted(p.name for p in dst.glob("*.py"))))
         root = tmp / "plugin"
         scan = A.a27_scan(root)
         found = A.a27_findings(root, scan)

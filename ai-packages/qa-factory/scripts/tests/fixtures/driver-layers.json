@@ -1,5 +1,5 @@
 {"schema": 1,
- "family": {"facade": "story_run", "prefix": "driver_", "class": "Driver", "cut": "mixins", "installed": false},
+ "family": {"facade": "story_run", "prefix": "driver_", "class": "Driver", "cut": "mixins", "installed": true},
  "setup_import": "hooklib",
  "l8_skip": ["driver_golden.py", "driver_trace.py", "test_driver_golden.py"],
  "allowed_importers": [
@@ -1031,7 +1031,22 @@
   {"name": "Driver.walk_gap_role", "kind": "method", "home": "driver_stage_s6", "note": "TR3-10 D3b-2: the role a lane that cannot walk lacks a pair for (trigger no_pair), else ''; walk_refuse_gaps calls it"},
   {"name": "Driver.walk_account_raise", "kind": "method", "home": "driver_stage_s6", "note": "TR3-10 D3b-2: one walk_account question per role after the cases were closed (walk_ask_once + walk_account_person, defer_question); walk_refuse_gaps calls it"},
   {"name": "Driver.refuse_case", "kind": "method", "home": "driver_dialog", "row": 44, "note": "TR4-3: the one writer of a case's refused record in request.json; deferred_decision (dialog), walk_refuse_gaps (dispatch), stand_login_gate and manual_close (stages) call it; home = the lowest layer of its callers (dialog), it calls only _write_json (core) and manual_evidence"},
-  {"name": "Driver.file_passed_over", "kind": "method", "home": "driver_stage_s6", "note": "TR1-9 B4: files the passed-over findings; its one caller close_by_code is in the stages"}
+  {"name": "Driver.file_passed_over", "kind": "method", "home": "driver_stage_s6", "note": "TR1-9 B4: files the passed-over findings; its one caller close_by_code is in the stages"},
+  {"name": "DriverCore", "kind": "class", "home": "driver_core"},
+  {"name": "DriverRunner", "kind": "class", "home": "driver_runner"},
+  {"name": "DriverDialog", "kind": "class", "home": "driver_dialog"},
+  {"name": "DriverConductor", "kind": "class", "home": "driver_conductor"},
+  {"name": "DriverDispatch", "kind": "class", "home": "driver_dispatch"},
+  {"name": "DriverS0", "kind": "class", "home": "driver_s0"},
+  {"name": "DriverSources", "kind": "class", "home": "driver_sources"},
+  {"name": "DriverStagePlan", "kind": "class", "home": "driver_stage_plan"},
+  {"name": "DriverStageBuild", "kind": "class", "home": "driver_stage_build"},
+  {"name": "DriverStageS5", "kind": "class", "home": "driver_stage_s5"},
+  {"name": "DriverStageS6", "kind": "class", "home": "driver_stage_s6"},
+  {"name": "DriverStageS7", "kind": "class", "home": "driver_stage_s7"},
+  {"name": "DriverStageS8s9", "kind": "class", "home": "driver_stage_s8s9"},
+  {"name": "DriverGates", "kind": "class", "home": "driver_gates"},
+  {"name": "DriverMachine", "kind": "class", "home": "driver_machine"}
  ],
  "attributes": [
   {"name": "_in_no_move", "owner": "driver_core", "set_in_init": true, "note": "C1-1: the re-entry guard of the seam"},

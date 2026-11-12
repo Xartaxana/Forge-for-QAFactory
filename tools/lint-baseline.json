@@ -1,8 +1,44 @@
 {
   "generated_by": "python tools/lint_ratchet.py --update (pyflakes; identity = path + class + arguments, no line)",
   "pyflakes_version": "3.2.0",
-  "total": 30,
+  "total": 36,
   "rows": [
+    {
+      "path": "ai-packages/qa-factory/scripts/driver_dialog.py",
+      "class": "UnusedImport",
+      "args": "hooklib",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/driver_gates.py",
+      "class": "RedefinedWhileUnused",
+      "args": "hooklib, <line>",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/driver_gates.py",
+      "class": "UnusedImport",
+      "args": "hooklib",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/driver_machine.py",
+      "class": "UnusedImport",
+      "args": "hooklib",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/driver_stage_s5.py",
+      "class": "UnusedImport",
+      "args": "hooklib",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/driver_stage_s8s9.py",
+      "class": "UnusedImport",
+      "args": "hooklib",
+      "count": 1
+    },
     {
       "path": "ai-packages/qa-factory/scripts/factory_dashboard.py",
       "class": "UnusedImport",
