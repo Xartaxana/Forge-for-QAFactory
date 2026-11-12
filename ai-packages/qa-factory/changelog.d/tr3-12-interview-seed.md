@@ -1,1 +1,0 @@
-- Onboarding interview: one new plain-words question asks whether the project's build or test runner compiles the whole test folder every time (so a half-written test file in one window could break another's run). A yes records `dispatch.parallel_windows: 1`; no answer keeps the default of 3 and records nothing.

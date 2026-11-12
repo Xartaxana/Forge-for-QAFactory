@@ -1,1 +1,0 @@
-- Test harness: the role-text rule pins of six more test files (host probe shapes, launch check, login body fields, manual actor, manual evidence, manual observe) became 25 rows of `design/role-rules.json`, read by `scripts/role_rules.py` (wave 3 of 6); no behaviour check changed.

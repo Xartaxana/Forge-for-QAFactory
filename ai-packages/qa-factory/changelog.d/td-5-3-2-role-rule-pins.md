@@ -1,1 +1,0 @@
-- Test harness: the role-text rule pins of nine more test files (config revert, controller resume, d1 gate words, delivery ownership, env access onboarding, evidence not delivered, gate A settled forks, gate brief attachments, gate shown) became 25 rows of `design/role-rules.json`, read by `scripts/role_rules.py` (wave 2 of 6); no behaviour check changed.

@@ -1,2 +1,0 @@
-- Walker slice 1 is integrated: the session server (`walk_session.py`), the walk charter of the runner and the app card (`app_card.py`) are on one branch, and the audit knows `app_card` as a command-line script.
-- The explore charter no longer points at the runner's removed "error guessing from the code facts" text; it points at the runner's hypothesis rule.

@@ -1,1 +1,0 @@
-- Integration of the manual-lane doors: every copy of the probe-gap door now names the case key (`probe gap: <case key>`) from one constant, and a named `--attempt` on an old env_blocked row with no sign-in evidence says what the gate does (capture into a new attempt) instead of the halt wording.

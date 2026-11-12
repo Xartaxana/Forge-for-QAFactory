@@ -1,1 +1,0 @@
-- Plan contract: the strategist's slice now says every plan row carries `schema_version: 2` (the example row carries it), and the refusal of a row that is not on schema version 2 names the exact key and the number 2, and says so when the row holds a look-alike key such as `coverage_schema_version`; the refusal of a plan was 20 rows long on a key the role had never been told.

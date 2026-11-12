@@ -1,6 +1,6 @@
 # qa-factory
 
-QA Factory **0.10.9** keeps closed variety in data files a project can extend, not in code: launch forms, test
+QA Factory **0.11.0** keeps closed variety in data files a project can extend, not in code: launch forms, test
 locations, dependency files, adapter forms and a probe's language are rows; a story's price is one number from
 two sources that must agree; the fixes of a legacy Codex run are home.
 QA Factory **0.8.1** lets a red run outrank the manifest: a test that failed is never shown as passing in

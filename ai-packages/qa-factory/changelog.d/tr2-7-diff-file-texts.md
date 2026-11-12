@@ -1,1 +1,0 @@
-- The S1 and S2 handoff forms, the S2 phase file and the S2 brief now say the implementation diff file is absent for source `current-code` as well as `ungrounded`, matching the S1 exit.

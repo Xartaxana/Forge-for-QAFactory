@@ -1,2 +1,0 @@
-- stages S6 and S7 are accepted by the role that consumes their output (`stages.json` `acceptance_by`): the failure analyst accepts or returns the run with a quote of the artifact, the scribe does the
-  same for the analyst's work, and the next stage opens for that role only when the acceptance record exists (`stage_done.py`, `stage_guard.py`, `story_run.py`); a return repeats the author within `repair_cycles`.

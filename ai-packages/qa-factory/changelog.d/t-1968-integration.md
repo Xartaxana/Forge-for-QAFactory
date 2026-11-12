@@ -1,2 +1,0 @@
-- Mutation probe: the receipt's `target` and `proved_by` now reach the window's probe block, so a probe of another line than the obligation's check raises the `semantic_sensitivity` gap from a real receipt; the `--at` door is shown only for that cause.
-- Mutation probe: a probe whose target could not be compared with the obligation's assertion is now said in the window verdict notes instead of passing silently.

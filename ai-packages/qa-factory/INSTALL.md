@@ -1,6 +1,6 @@
 # Installing qa-factory
 
-QA Factory 0.10.9 ships separate Claude and Codex hook manifests. Project state lives under `qa-factory/`; native Codex role export also creates explicitly managed `.codex/agents/*.toml` profiles.
+QA Factory 0.11.0 ships separate Claude and Codex hook manifests. Project state lives under `qa-factory/`; native Codex role export also creates explicitly managed `.codex/agents/*.toml` profiles.
 
 ## Codex
 

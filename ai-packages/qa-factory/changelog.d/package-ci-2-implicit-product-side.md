@@ -1,1 +1,0 @@
-A story whose sides hold no real part of this team now always carries the implicit `product` side, whatever earlier stories recorded and with or without `--no-trace`; a story's own answer about another team's side no longer drops it. A reference-only story (every side real) no longer gets the implicit `product` side.
