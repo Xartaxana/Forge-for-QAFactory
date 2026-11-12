@@ -85,6 +85,7 @@ layout, a Single root included), run `python "${CLAUDE_PLUGIN_ROOT}/scripts/test
 --root . --app-root <cand> --protected <cand>... --suggest --json` and record the candidates
 with their counts for topic 1c: it names folders and files that carry a usual test name, so
 the team confirms or corrects them; it decides nothing, and `truncated: true` means "at least".
+The candidates are the factory's hint; the team's answer in 1c is the decision every later stage reads.
 
 ## How the stand is reached — two lists, never one
 

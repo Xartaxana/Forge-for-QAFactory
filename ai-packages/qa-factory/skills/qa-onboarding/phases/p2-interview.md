@@ -118,7 +118,13 @@ one, which is what makes this rule a check rather than a hope.
    application code, and a config key cannot grant what P-00 refuses.
 1c. **Tests inside the application code.** Asked whenever phase 1's `--suggest` found
    candidates - including on a Single root, where topic 1 itself is skipped; it goes into
-   topic 1's batch when there is one, otherwise it is its own short batch. Show each
+   topic 1's batch when there is one, otherwise it is its own short batch. Record the answer
+   in the carrier of THAT area: `test_locations` for the application code; `tests_root`, the
+   profile's `roots.test` or a `run.levels` pattern for a test repository. Where helpers
+   sit beside tests, record the test FILE shape (`tests/**/test_*.py`,
+   `src/**/*.spec.ts`) rather than the folder: a folder record makes every file there a test
+   for the commit guard but claims none for a write window. "We have no tests" records
+   nothing. A recorded answer is the project's word and is never re-asked. Show each
    candidate with its counts from `test_locations.py --root . --app-root <cand> --protected
    <cand>... --check --candidate "<p>" --json` (phase 1's own `--app-root`/`--protected`: no config
    exists yet, and an unreadable count says so in `unreadable`, it is not "0 files"): "<N> files, <M>

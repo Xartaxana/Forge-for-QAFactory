@@ -365,7 +365,8 @@ left standing as if the application were here.
 **Test locations inside the application code.** After `test_locations` is written, run
 `python "${CLAUDE_PLUGIN_ROOT}/scripts/test_locations.py" --root . --check --json`. An entry
 with a `problem` (a grammar fault, or one that covers a whole protected folder) is fixed or
-asked again before the phase goes on: an entry that opens nothing is a silent hole.
+asked again before the phase goes on: an entry that opens nothing is a silent hole. After
+`--check`, name once each `--suggest` candidate that no recorded carrier of its area covers.
 
 ## 2. `strategy/test-strategy.md`
 
