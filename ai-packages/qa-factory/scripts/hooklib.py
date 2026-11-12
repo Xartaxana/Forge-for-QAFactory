@@ -175,6 +175,26 @@ def state_dir(event: dict | None = None) -> Path:
 EXIT_NO_PROJECT = 3
 
 
+def require_project_at(root, purpose: str) -> Path:
+    """The `qa-factory/` directory of `root`, or a refusal on stderr and exit EXIT_NO_PROJECT.
+
+    The ONE refusal every writer that must not bring a `qa-factory/` tree into existence uses
+    (OH3-37, AR-15); `require_project` is the same rule for the ambient root. The marker is
+    `qa-factory/config.json` (`_carries_project`): a `qa-factory/` folder without it is not a
+    project. Nothing is read or written here."""
+    root = Path(root)
+    if _carries_project(root):
+        return root / "qa-factory"
+    print(f"{purpose}: no qa-factory/config.json under {root} - refusing to create one.\n"
+          f"This is either a project that was never onboarded (run "
+          f"/qa-factory:qa-onboarding), or a wrong project root: the factory looks for "
+          f"qa-factory/config.json in the current directory and its ancestors. Run the "
+          f"command from inside the project, point --root at it where the command has that "
+          f"option, or set CLAUDE_PROJECT_DIR to it.",
+          file=sys.stderr)
+    sys.exit(EXIT_NO_PROJECT)
+
+
 def require_project(purpose: str, event: dict | None = None) -> Path:
     """The state directory of an onboarded project, or a refusal on stderr.
 
@@ -184,16 +204,7 @@ def require_project(purpose: str, event: dict | None = None) -> Path:
     state tree at a monorepo root, and nobody learned of it until a human read the journal
     (TP1-14336). A resolved root with no `qa-factory/config.json` means the resolution
     is wrong or the project is not onboarded; either way it is not a place to write."""
-    root = project_root(event)
-    if _carries_project(root):
-        return root / "qa-factory"
-    print(f"{purpose}: no qa-factory/config.json under {root} — refusing to create one.\n"
-          f"This is either a project that was never onboarded (run "
-          f"/qa-factory:qa-onboarding), or a wrong project root: the factory looks for "
-          f"qa-factory/config.json in the current directory and its ancestors. Run the "
-          f"command from inside the project, or set CLAUDE_PROJECT_DIR to it.",
-          file=sys.stderr)
-    sys.exit(EXIT_NO_PROJECT)
+    return require_project_at(project_root(event), purpose)
 
 
 def ref(rel: str) -> Path:
@@ -2179,7 +2190,7 @@ def needs_guard(command: str, cfg: dict, event: dict | None = None) -> bool:
 
 
 def session_has_factory_activity(session_id: str, event: dict | None = None) -> bool:
-    """True when this session ever opened a doctor/onboarding/story activity: the guard's
+    """True when this session ever opened a factory activity (`activity_capture.is_factory_activity`): the guard's
     read-size limit and turn counter apply only inside real factory work, never to a session
     that merely sits with its cwd inside the project (a Git Bash `cd`, an unrelated analysis
     session) — that was exactly what left `state/cost/` and `state/turns/` files behind for
@@ -2191,15 +2202,14 @@ def session_has_factory_activity(session_id: str, event: dict | None = None) -> 
     if not session_id:
         return False
     try:
-        from activity_capture import activity_path, load
+        from activity_capture import activity_path, is_factory_activity, load
     except Exception:
         return False
     try:
         doc = load(activity_path(event, session_id), session_id)
     except Exception:
         return False
-    return any(isinstance(a, dict) and a.get("type") in ("doctor", "onboarding", "story")
-               for a in doc.get("activities") or [])
+    return is_factory_activity(doc.get("activities"))
 
 
 _SUBAGENT_ROLE_RE = re.compile(r"You are\s+([\w-]+)")
