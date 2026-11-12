@@ -422,6 +422,7 @@
       "globs": [
         "scripts/gate_brief.py",
         "scripts/gate_preflight.py",
+        "scripts/repo_words.py",
         "scripts/critic_rollcall.py",
         "scripts/tests/test_case_merges.py",
         "scripts/human_text.py",
