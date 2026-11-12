@@ -430,14 +430,15 @@ def _get(url: str, expect: list) -> dict:
 
 
 def _env_values(project_root, cfg: dict) -> dict:
-    """The env file laid over the process environment - the values `_targets` and the remedy line read."""
+    """The env files laid over the process environment, in the order config lists them - the values `_targets` and the remedy
+    line read. The file list is the gate's own reading (`gate_preflight.configured_env_files`: `env_files`, else `env_file`)."""
     import os
     import env_probe
+    import gate_preflight
     values = dict(os.environ)
-    rel = str(cfg.get("env_file") or "").strip()
-    if rel:
+    for path in gate_preflight.configured_env_files(cfg, project_root)[0]:
         try:
-            values.update(env_probe.parse_env_file(Path(project_root) / rel))
+            values.update(env_probe.parse_env_file(path))
         except OSError:
             pass
     return values
