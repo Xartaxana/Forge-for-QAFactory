@@ -1,12 +1,16 @@
 # Онбординг, контекст ролей и форж — пачка 1 (П2): онбординг и доктор, читатели контекста ролей, процесс и тесты форджа
 
-кучка: `onboarding-forge` | статус: ожидает | взял: — | ветка: — | MR: — | стенд: не нужен (CI + эталоны) | приоритет: П2 | issue: https://git.example.com/dev1/yml-text-factory/-/issues/61
+кучка: `onboarding-forge` | статус: в работе | взял: dev1 (Opus coord), 12.11.2026 | ветка: `pile/onboarding-forge/batch-1` | MR: — | стенд: не нужен (CI + эталоны) | приоритет: П2 | issue: https://git.example.com/dev1/yml-text-factory/-/issues/61
 
 Собрана пересборкой бэклога 01.11.2026 (слово владельца; `docs/tasks/specs/reports/backlog-audit-20261101/`).
 
 Правило готовности: пачка закрыта, когда каждый узел «принято», свидетели узлов — в журнале взявшего, а каждая строка «Остатков» закрыта хэшем или подтверждённым переносом; узлы с пометкой «перепроверить» сначала сверяются с кодом (закрыть хэшем, если уже сделано).
 
 Пути «Пишет в»: пакета — от `ai-packages/qa-factory/`.
+очередь: onboarding-forge/1 → github-move/3
+очередь: onboarding-forge/1 → onboarding-forge/3
+очередь: onboarding-hooks/4 → onboarding-forge/1
+очередь: onboarding-forge/1 → onboarding-forge/2
 
 ## Бриф
 
