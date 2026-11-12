@@ -1828,10 +1828,16 @@ def selftest() -> int:
 # --- cli ---------------------------------------------------------------------------------------
 
 def resolve(task: str, root: str | None, task_root: str | None) -> tuple:
-    if task_root:
-        artifacts = Path(task_root).resolve()
-        return (artifacts.parents[1], artifacts)
+    """(bugs_root, artifacts). The bugs root is `<project>/qa-factory` for BOTH forms (N-r5, AR-13): `--task` reads the project from
+    `--root` or the process and the story under `hooklib.artifact_root`; `--task-root` finds its project by the one walk
+    (`runtime_paths.nearest_project`), so a story under a custom `artifact_root` reads the same folder. A story folder under no
+    project keeps the old arithmetic (two levels up): it has no config to read. A broken config raises on both forms, as before."""
     from hooklib import artifact_root, project_root
+    if task_root:
+        from runtime_paths import nearest_project
+        artifacts = Path(task_root).resolve()
+        project = nearest_project(artifacts)
+        return (project / "qa-factory" if project else artifacts.parents[1], artifacts)
     project = Path(root).resolve() if root else project_root()
     return (project / "qa-factory", artifact_root(root=project) / task)
 
