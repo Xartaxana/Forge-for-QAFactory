@@ -122,10 +122,13 @@ REGISTRY: list[dict] = [
      "call": "stopped_text",
      "refuses": "SendMessage to an agent of this story whose only open dispatch is stopped (blocked/paused), while `resume` would open "
                "(SC2-17): the refusal names `story_step.py resume --task T --dispatch-id D` (with --agent-id when the record holds "
-               "no agent); it is given only when the controller's own resume check passes for that request",
+               "no agent); it is given only when the controller's own resume check passes for that request. The same call also refuses "
+               "a message to the agent of an `incomplete` dispatch (DC1-28): the refusal says `Controller.incomplete_words` and names "
+               "`controller.py --task-root T --operation recover`, and it is given only when `Controller.retry_packets` lists the "
+               "dispatch (a story-budget stop and a later record of the same stage and role print no packet: ALLOW)",
      "override": "",
      "unpassable_because": "one command opens it and is named in the text; a person's word has nothing to pass: a message after "
-     "the resume carries that word",
+     "the resume carries that word; for an incomplete dispatch `recover` prints the retry packet that carries it",
      "test": "scripts/tests/test_resume_stopped.py"},
     {"id": "SG-resume-ambiguous", "file": "stage_guard.py", "function": "_unidentified_resume",
      "call": "resume story identity is missing or ambiguous",

@@ -52,11 +52,13 @@ def _binding(request: dict) -> dict:
 
 
 def _trusted_producer(root: Path, profile_id: str) -> dict:
-    config_path = root / "qa-factory" / "config.json"
+    import config_contract
     try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        config = config_contract.read_config_file(root)
+    except (config_contract.ConfigUnreadable, OSError) as exc:
         raise ImportError(f"configured external receipt adapter is unavailable: {exc}") from exc
+    if config is None:
+        raise ImportError("configured external receipt adapter is unavailable: qa-factory/config.json does not exist")
     matches = [p for p in config.get("profiles", []) if isinstance(p, dict)
                and p.get("profile_id") == profile_id]
     if len(matches) != 1:

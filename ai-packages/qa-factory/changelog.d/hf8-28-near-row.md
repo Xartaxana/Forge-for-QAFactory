@@ -1,0 +1,1 @@
+- The values writer's "did you mean" hint now names only a path it can write: a near miss on a row field is offered at the row of the form's template that holds the field (never a row that does not), a field no row holds gets no hint, and a refusal's skeleton no longer gives back a line the writer would drop with a note.

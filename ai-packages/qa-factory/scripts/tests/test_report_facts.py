@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import (check, check_eq, check_in, check_not_in, cleanup, finish, repaste_appendix, run_script,  # noqa: E402
-                     temp_dir, temp_project, use_project)
+                     temp_dir, temp_project, use_project, write_register)
 from harness import SCRIPTS  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
@@ -136,7 +136,7 @@ def story(pipeline=None, with_bug=True, with_ledger=True, extra_ledger=None, siz
     root = temp_project("qa-report-facts-")
     task = root / "qa-factory" / "artifacts" / "T-1"
     work = task / "work"
-    write(work / "requirements-register.md", REGISTER)
+    write_register(work.parent, REGISTER, head="")
     write(task / "test-plan.md", PLAN)
     write(work / "test-cases" / "billing" / "TC-001.md", CASE.format(cid="TC-001", title="Cancel", req="R-1", ts="TS-1"))
     write(work / "test-cases" / "billing" / "TC-002.md", CASE.format(cid="TC-002", title="Paid period", req="R-2", ts="TS-2"))
@@ -380,7 +380,7 @@ def the_cut() -> None:
     task = story(with_bug=False)
     try:
         long = "word " * 80
-        write(task / "work" / "requirements-register.md", REGISTER.replace("Access lasts to the end of the paid period", long.strip()))
+        write_register(task, REGISTER.replace("Access lasts to the end of the paid period", long.strip()), head="")
         v = RF.build(task)["verdict"]
         check("the verdict's reason in a real story is cut to the limit", len(v["first_reason"]) <= 200 and v["first_reason"].endswith(RF.ELLIPSIS), v["first_reason"])
         check("the full text is kept in the facts", len(v["first_reason_full"]) > 200)
@@ -782,7 +782,7 @@ def every_source_absent() -> None:
         check_eq("nothing in any block is cut or empty", all(body.strip() for body in blocks.values()), True)
         check_eq("no work/ path anywhere", any("work/" in body for body in blocks.values()), False)
         (task / "work").mkdir()
-        (task / "work" / "requirements-register.md").write_text("## Register\n\n| R | Requirement |\n|---|---|\n", encoding="utf-8")
+        write_register(task, "## Register\n\n| R | Requirement |\n|---|---|\n", head="")
         facts = RF.build(task)
         v = RF.render(facts)["verdict"]
         check_in("a register that exists and is empty is a fact: 0 requirements, and the register is empty", "(the register is empty)", v)
@@ -1066,7 +1066,7 @@ def factory_owned_left_items() -> None:
         write(work / "test-cases" / "lift" / "TC-102.md", lift_case("TC-102", "R-102", "TS-102"))
         write(work / "run-report.json", LIFT_RUN)
         write(work / "automation-manifest.json", {"tests": [], "unresolved": []})
-        write(work / "requirements-register.md", REGISTER.replace("R-1 ", "R-101 ").replace("R-2 ", "R-102 "))
+        write_register(work.parent, REGISTER.replace("R-1 ", "R-101 ").replace("R-2 ", "R-102 "), head="")
         write(task / "pipeline.json", {"ticket": "T-2", "gates": {}})
         use_project(root)
         import check_delivery as CD
@@ -2485,8 +2485,8 @@ def shaped_12586(verdicts=None, handed=()) -> Path:
     ids = range(1, 10)
     rows = [test_row(f"test_{n}", reason="handed" if f"TC-00{n}" in handed else "unmeasured") for n in ids]
     task = story(with_bug=False, extra_ledger=ledger(rows))
-    write(task / "work" / "requirements-register.md", REGISTER.split("| R-1")[0]
-          + "".join(f"| R-{n} | Requirement {n} | ac | - | yes | AC-{n} |\n" for n in ids))
+    write_register(task, REGISTER.split("| R-1")[0]
+                   + "".join(f"| R-{n} | Requirement {n} | ac | - | yes | AC-{n} |\n" for n in ids), head="")
     write(task / "test-plan.md", PLAN.split("| TS-1")[0] + "".join(
         f"| TS-{n} | thing {n} | R-{n} | state @ {n} | degraded | P2 | diff:src/a.py:{n} | requirement:R-{n} | `automate` - core | new "
         "| api | decision table |\n" for n in ids) + "\n## Recommended regression\n\n1. run the billing suite\n")

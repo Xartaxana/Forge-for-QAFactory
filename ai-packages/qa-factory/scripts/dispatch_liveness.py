@@ -54,7 +54,7 @@ import json
 import math
 import time
 from pathlib import Path
-from codex_usage import first_row, stamp
+from codex_usage import epoch_of, first_row, iso_of
 from hooklib import read_json, sorted_paths
 
 ALIVE = "alive"
@@ -250,21 +250,15 @@ def _row_time(row) -> float | None:
 
     Only an ISO string that CARRIES A ZONE counts (the host writes `...Z`): a zone-less date reads as local time
     here and as UTC there, a bare number (`20261013`) parses as a date, and a time nobody can place decides nothing -
-    the node errs only toward "not returned" (`codex_usage.stamp` is read as it is; the guard lives here)."""
+    the node errs only toward "not returned" (`codex_usage.epoch_of(naive="none")` reads it; the guard on the type lives here)."""
     value = row.get("timestamp") if isinstance(row, dict) else None
     if not isinstance(value, str):
         return None
-    when = stamp(value)
-    if when is None or when.tzinfo is None:
-        return None
-    try:
-        return _usable_time(when.timestamp())
-    except (OverflowError, OSError, ValueError):
-        return None
+    return _usable_time(epoch_of(value, naive="none", numbers=False))
 
 
 def _iso(epoch) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+    return iso_of(epoch, z=True)
 
 
 def _tail(path):
@@ -569,7 +563,6 @@ def _stop_records(project_root) -> list:
         path = RP.record(project_root, "journal.jsonl")
         if not path.is_file():
             return []
-        from datetime import datetime
         stops = []
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
@@ -578,10 +571,7 @@ def _stop_records(project_root) -> list:
                 continue
             if not isinstance(record, dict) or record.get("event") != "subagent_stop":
                 continue
-            try:
-                when = datetime.fromisoformat(str(record.get("ts"))).timestamp()
-            except (TypeError, ValueError, OverflowError, OSError):
-                when = None
+            when = epoch_of(record.get("ts"), naive="utc", numbers=False)   # hooklib writes the journal UTC-aware; no zone reads as UTC
             stops.append({"agent": str(record.get("agent") or ""), "task": str(record.get("task") or ""),
                           "dispatch": str(record.get("dispatch") or ""),
                           "dispatch_receipt": str(record.get("dispatch_receipt") or ""),
@@ -800,7 +790,6 @@ def driver_session_end(project_root, ticket, identifier):
     path = Path(project_root) / "qa-factory" / "artifacts" / str(ticket) / "state" / "driver-runs.jsonl"
     if not identifier or not path.is_file():
         return None
-    from datetime import datetime
     last = None
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
@@ -811,10 +800,7 @@ def driver_session_end(project_root, ticket, identifier):
             continue
         if row.get("exit_code") is None:
             continue                      # a row without an exit code says nothing about ending
-        try:
-            when = datetime.fromisoformat(str(row.get("ts"))).timestamp()
-        except (TypeError, ValueError):
-            when = None
+        when = epoch_of(row.get("ts"), naive="utc", numbers=False)   # driver_core writes UTC-aware; no zone reads as UTC, as driver_journal.parse_ts does
         last = (when, row.get("exit_code"))
     return last
 
@@ -889,19 +875,9 @@ REUSE_SLACK_S = 2.0
 
 
 def _epoch(value):
-    """Seconds since the epoch of an entry's `started_at` (a number, or the driver's ISO string); None when unreadable."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str) and value.strip():
-        from datetime import datetime, timezone
-        try:
-            when = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        return (when if when.tzinfo else when.replace(tzinfo=timezone.utc)).timestamp()
-    return None
+    """Seconds since the epoch of an entry's `started_at` (a number, or the driver's ISO string; a zone-less string
+    is UTC); None when unreadable."""
+    return epoch_of(value, naive="utc")
 
 
 def process_created_at(pid):

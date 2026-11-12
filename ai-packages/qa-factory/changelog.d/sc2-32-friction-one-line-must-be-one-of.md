@@ -1,0 +1,1 @@
+- The friction measurer now counts a single-line `<field> must be one of ...` refusal as validator friction, like the multi-line compound refusals; the spelling is one more row in `references/friction-markers.json`.

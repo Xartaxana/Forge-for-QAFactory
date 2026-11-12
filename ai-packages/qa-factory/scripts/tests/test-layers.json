@@ -740,7 +740,9 @@
     "dependency_drift.py",
     "onboard_apply.py",
     "profile_contract.py",
+    "project_knowledge.py",
     "readiness.py",
+    "references/config-keys.json",
     "runtime_paths.py",
     "runtime_probe.py",
     "surfaces.py",
@@ -2918,6 +2920,7 @@
    "replaced_by": null,
    "covers": [
     "coverage_contract.py",
+    "env_probe.py",
     "execution_request.py",
     "gate_preflight.py",
     "manual_capture.py",
@@ -2926,6 +2929,7 @@
     "references/common-rules.md",
     "run_suite.py",
     "runtime_probe.py",
+    "stand_health.py",
     "stand_identity.py",
     "tests/harness.py",
     "tests/test_http_client.py"
@@ -3935,6 +3939,14 @@
     "tests/harness.py"
    ]
   },
+  "test_project_decisions_doc_ref_form.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): document ref forms of project_decisions field_refs",
+   "covers": [
+    "project_decisions.py",
+    "tests/harness.py"
+   ]
+  },
   "test_project_knowledge.py": {
    "layer": "register",
    "why": "PK0-1: the project's answer registry keys, error direction toward asking (AR-13, AR-14, AR-25, AR-28)",
@@ -4072,12 +4084,17 @@
    "why": "AR-13 axis 16: facts read through the one reader",
    "covers": [
     "archive_task.py",
+    "check_coverage.py",
+    "environment_record.py",
     "execution_request.py",
     "exit_gate.py",
     "gate_preflight.py",
+    "grammar.py",
     "guard_app_under_test.py",
     "handoff.py",
     "hooklib.py",
+    "import_test_receipt.py",
+    "report_adapt.py",
     "retro_numbers.py",
     "s5_precheck.py",
     "sizing.py",
@@ -4087,6 +4104,8 @@
     "stand_gaps.py",
     "story_budget.py",
     "story_run.py",
+    "test_locations.py",
+    "test_novelty.py",
     "driver_conductor.py",
     "driver_core.py",
     "driver_dialog.py",

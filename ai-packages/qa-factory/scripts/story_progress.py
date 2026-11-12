@@ -39,12 +39,12 @@ import argparse
 import json
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hooklib  # noqa: E402
+from codex_usage import epoch_of, iso_of  # noqa: E402
 
 LINE_MAX = 160
 # The stage whose dispatches are windows (author + critic over a bounded case list).
@@ -115,19 +115,11 @@ def _jsonl(path: Path) -> list:
 
 def _epoch(value):
     """Epoch seconds from an epoch number or an ISO string (a zone-less one is read as UTC), else None."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        when = datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None
-    return (when if when.tzinfo else when.replace(tzinfo=timezone.utc)).timestamp()
+    return epoch_of(value, naive="utc")
 
 
 def _iso(epoch):
-    return None if epoch is None else datetime.fromtimestamp(epoch, timezone.utc).isoformat(timespec="seconds")
+    return iso_of(epoch)
 
 
 def _hhmm(epoch) -> str:

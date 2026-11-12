@@ -13,6 +13,7 @@ from event_store import atomic_json, content_hash
 import contract as C
 import runtime_paths as RP
 from hooklib import sorted_paths
+from activity_capture import is_factory_activity
 
 REF = Path(__file__).resolve().parents[1] / "references"
 CATALOGUE = json.loads((REF / "metrics/catalogue.json").read_text(encoding="utf-8"))
@@ -441,24 +442,22 @@ def compute(data, now=None):
 def _has_factory_activity(s):
     """A session counts as factory work when `has_factory_activity` says so, or — for a file
     written before that field existed — when its own `by_activity` already shows a
-    doctor/onboarding/story type (the same rule cost_capture.py itself uses to compute the
-    field). `by_activity` missing entirely means no signal at all (not even the shape
+    factory activity type (`activity_capture.is_factory_activity`, the ONE predicate cost_capture.py
+    itself uses to compute the field). `by_activity` missing entirely means no signal at all (not even the shape
     cost_capture.py has always written) — that keeps the old conservative default, True, so
     an in-flight story is never refused because an artifact lacks a field
     (test_has_factory_activity_false_excluded_from_every_metric pins exactly this for a
     session with no field and no by_activity at all). A session whose `by_activity` IS
-    present but names no doctor/onboarding/story type — session 79152e1f, cwd
+    present but names no factory activity type — session 79152e1f, cwd
     merely inside the project — does not count just because `has_factory_activity` itself is
-    absent. Mirrors factory_dashboard._has_factory_activity — kept as two small copies rather
-    than a shared import so each dashboard/metrics module stays self-contained."""
+    absent. Same fallback as factory_dashboard._has_factory_activity; the predicate itself is the shared one."""
     v = s.get('has_factory_activity')
     if v is not None:
         return bool(v)
     by_activity = s.get('by_activity')
     if not isinstance(by_activity, dict):
         return True
-    return any(isinstance(a, dict) and a.get('type') in ('doctor', 'onboarding', 'story')
-               for a in by_activity.values())
+    return is_factory_activity(by_activity.values())
 
 
 def project(root, tasks, bugs, sessions, journal, estimates, cfg, registry=None, health=None, write=True):

@@ -8,6 +8,7 @@ bytes that are not UTF-8, a nesting the parser gives up on, a path that is not a
 Runnable on its own: `python -B scripts/tests/test_read_json.py`."""
 import ast
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,6 +36,16 @@ import story_version  # noqa: E402
 import tracker_write  # noqa: E402
 import turn_budget  # noqa: E402
 import window_budget  # noqa: E402
+import check_coverage  # noqa: E402
+import config_contract  # noqa: E402
+import environment_record  # noqa: E402
+import grammar  # noqa: E402
+import import_test_receipt  # noqa: E402
+import probe_by_code  # noqa: E402
+import report_adapt  # noqa: E402
+import runtime_paths  # noqa: E402
+import test_locations  # noqa: E402
+import test_novelty  # noqa: E402
 
 GOOD = '{"a": 1}'
 VALUE = {"a": 1}
@@ -406,7 +417,6 @@ KEPT = {
     "cost_capture._read_pending": QUEUED,
     "factory_dashboard.is_archived_task": QUEUED,
     "factory_dashboard.project_config": QUEUED,
-    "grammar.load_overrides": QUEUED,
     "inject_context.load_map": QUEUED,
     "judge_sources._read": QUEUED,
     "manual_capture._env_blocked_row": QUEUED,
@@ -420,7 +430,6 @@ KEPT = {
     "stand_health._read": QUEUED,
     "stand_lease._read": QUEUED,
     "story_step._read_pipeline": QUEUED,
-    "test_locations._config_of": QUEUED,
     "ticket_adapter._holds_inventory": QUEUED,
     "window_record._load": QUEUED,
 }
@@ -587,6 +596,104 @@ def test_the_census(scripts_dir: Path, scratch: Path) -> None:
     check("G5 every KEPT row carries a reason or a queue pointer", all(str(v).strip() for v in KEPT.values()))
 
 
+# --- GW1-38: the seven project-config readers read through the one reader, each with the error direction it had (OF3-1 b) --------
+CONFIG = {"cases_root": "cases", "profiles": [{"profile_id": "p", "adapter_id": "a", "adapter_version": "1",
+          "extensions": {"external_receipts": {"enabled": True, "producer_id": "pid", "system": "ci"}}}]}
+TRUSTED = {"id": "pid", "system": "ci", "adapter_id": "a", "adapter_version": "1"}
+REFUSED = "refused: configured external receipt adapter is unavailable"
+# the config states: the bytes written to qa-factory/config.json (None = no file)
+CONFIG_STATES = {
+    "good": json.dumps(CONFIG).encode("utf-8"),
+    "bom": BOM + json.dumps(CONFIG).encode("utf-8"),
+    "absent": None,
+    "empty": b"",
+    "invalid": b"{not json",
+    "list": b"[1, 2]",
+    "empty_list": b"[]",
+}
+
+
+def _site_check_coverage(root: Path):
+    got = check_coverage.project_cases_root(root)
+    return None if got is None else got.relative_to(root).as_posix()
+
+
+def _site_environment_record(root: Path):
+    story = root / "qa-factory" / "artifacts" / "S-1"
+    story.mkdir(parents=True, exist_ok=True)
+    saved = hooklib.artifacts_dir, runtime_paths.project_for_task
+    hooklib.artifacts_dir, runtime_paths.project_for_task = (lambda task, event=None: story), (lambda task_root, hint=None: root)
+    try:
+        return environment_record._story_context("S-1")[2]
+    finally:
+        hooklib.artifacts_dir, runtime_paths.project_for_task = saved
+
+
+def _site_report_adapt(root: Path):
+    saved = hooklib.project_root
+    hooklib.project_root = lambda event=None: root
+    try:
+        return report_adapt._context()[1]
+    finally:
+        hooklib.project_root = saved
+
+
+def _site_test_novelty(root: Path):
+    saved = probe_by_code._profile_cwd
+    probe_by_code._profile_cwd = lambda cfg, file, profile_id="": "sub"    # "profile" only when a config with profiles was read
+    try:
+        return test_novelty.resolve_run_cwd(root, "t.py")[1]
+    finally:
+        probe_by_code._profile_cwd = saved
+
+
+def _site_test_locations(root: Path):
+    return test_locations._config_of(root)
+
+
+def _site_grammar(root: Path):
+    return grammar.load_overrides(root / "qa-factory" / "config.json")
+
+
+def _site_import_test_receipt(root: Path):
+    try:
+        return import_test_receipt._trusted_producer(root, "p")
+    except import_test_receipt.ImportError as exc:
+        return "refused: " + str(exc)[:len("configured external receipt adapter is unavailable")]
+
+
+READ = {"good": CONFIG, "bom": CONFIG, "absent": {}, "empty": {}, "invalid": {}, "list": {}, "empty_list": {}}
+# site -> (driver, expected per config state); the expected values are the F-7 "today" column, the BOM row and the two crash
+# cells (check_coverage non-empty list -> None, import_test_receipt non-object -> refusal) being the only changes
+SITES = {
+    "check_coverage": (_site_check_coverage, {"good": "cases", "bom": "cases", "absent": None, "empty": None, "invalid": None,
+                                              "list": None, "empty_list": None}),
+    "environment_record": (_site_environment_record, READ),
+    "report_adapt": (_site_report_adapt, READ),
+    "test_novelty": (_site_test_novelty, {"good": "profile", "bom": "profile", "absent": "project_root", "empty": "project_root",
+                                          "invalid": "project_root", "list": "project_root", "empty_list": "project_root"}),
+    "test_locations": (_site_test_locations, READ),
+    "grammar": (_site_grammar, READ),
+    "import_test_receipt": (_site_import_test_receipt, {"good": TRUSTED, "bom": TRUSTED, "absent": REFUSED, "empty": REFUSED,
+                                                        "invalid": REFUSED, "list": REFUSED, "empty_list": REFUSED}),
+}
+
+
+def test_the_config_readers(scratch: Path) -> None:
+    for site, (driver, expected) in SITES.items():
+        for state, content in CONFIG_STATES.items():
+            root = scratch / f"{site}-{state}"
+            (root / "qa-factory").mkdir(parents=True)
+            if content is not None:
+                (root / "qa-factory" / "config.json").write_bytes(content)
+            check_eq(f"GW1-38 {site} x {state}", driver(root), expected[state])
+        check_eq(f"GW1-38 {site}: a BOM config reads as the same config without one",
+                 driver(scratch / f"{site}-bom"), driver(scratch / f"{site}-good"))
+    check_eq("GW1-38 every site has a row per state", sorted(len(e) for _, e in SITES.values()), [len(CONFIG_STATES)] * len(SITES))
+    check("GW1-38 config_contract.read_config_file is the reader import_test_receipt takes",
+          hasattr(config_contract, "read_config_file") and hasattr(config_contract, "ConfigUnreadable"))
+
+
 if __name__ == "__main__":
     root = temp_dir("qa-read-json-")
     try:
@@ -596,6 +703,7 @@ if __name__ == "__main__":
         test_the_copies_are_gone()
         test_c5_characterisation(files, root / "c5")
         test_the_census(Path(__file__).resolve().parents[1], root / "g5")
+        test_the_config_readers(root / "gw138")
     finally:
         cleanup(root)
     finish("read_json")

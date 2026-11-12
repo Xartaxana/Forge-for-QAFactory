@@ -315,11 +315,8 @@ def resolve_run_cwd(project_root, test_rel, run_cwd=None, cfg=None):
     if run_cwd not in (None, ""):
         return Path(os.path.abspath(os.path.join(str(root), str(run_cwd)))), "given"
     if cfg is None:
-        try:
-            import json
-            cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
-        except Exception:
-            cfg = {}
+        import hooklib
+        cfg = hooklib.read_json(root / "qa-factory" / "config.json", {}, errors=Exception)
     if isinstance(cfg, dict) and cfg.get("profiles"):
         try:
             import probe_by_code

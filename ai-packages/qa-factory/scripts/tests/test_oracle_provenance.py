@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import (  # noqa: E402
     PLUGIN_ROOT, SCRIPTS, check, check_eq, check_in, cleanup, finish, run_script, temp_dir, temp_project, use_project,
+    write_register,
 )
 
 sys.path.insert(0, str(SCRIPTS))
@@ -625,7 +626,7 @@ def _t271_story(*, bound_then_4: bool = True, oracles: str = T271_ORACLES, readi
     work = task / "work"
     (work / "test-cases" / "workflow-visual-diff").mkdir(parents=True)
     (task / "state").mkdir(parents=True)
-    (work / "requirements-register.md").write_text(REGISTER, encoding="utf-8")
+    write_register(task, REGISTER, head="")
     (work / "requirements-readiness.json").write_text(readiness, encoding="utf-8")
     (task / "test-plan.md").write_text(T271_PLAN, encoding="utf-8")
     text = TC015.replace("updated: 2026-10-01", "updated: 2026-10-02").replace("TP1-15045_TC_015", "TC-015")
@@ -667,12 +668,12 @@ def test_t271_f1_an_unreadable_date_is_never_a_silent_off() -> None:
     import coverage_contract as CC
     project, task, _ = _t271_story()
     try:
-        (task / "work" / "requirements-register.md").write_text(REGISTER.replace("created: 2026-10-01", "created: yesterday"), encoding="utf-8")
+        write_register(task, REGISTER.replace("created: 2026-10-01", "created: yesterday"), head="")
         (task / "work" / "test-plan.json").write_text(json.dumps({"rows": []}), encoding="utf-8")
         doc = CC.coverage_projection(task, {"current_results": []}, {})
         check_in("F1: the coverage projection names the unreadable `created` instead of switching the rule off", "`created` is 'yesterday'",
                  doc.get("oracle_date_problem", ""))
-        (task / "work" / "requirements-register.md").write_text(REGISTER, encoding="utf-8")
+        write_register(task, REGISTER, head="")
         check_eq("F1 control: a legacy register (created 2026-10-01) adds no key to the projection",
                  "oracle_date_problem" in CC.coverage_projection(task, {"current_results": []}, {}), False)
     finally:
@@ -1042,7 +1043,7 @@ def test_g2_12_the_grammar_and_the_gates() -> None:
         task = project / "qa-factory" / "artifacts" / "X-1"
         (task / "work").mkdir(parents=True)
         reg = _g212_register(G212_ROWS, G212_MATRIX)
-        (task / "work" / "requirements-register.md").write_text(reg, encoding="utf-8")
+        write_register(task, reg, head="")
         # the register check names the grammar in the new words (AR-22: form, template, charter, refusal together)
         errors: list = []
         VA.check_register(task / "work" / "requirements-register.md", errors)
@@ -1144,7 +1145,7 @@ def test_pc9a_the_case_gate_wires_the_snapshot_and_parity() -> None:
         use_project(project)
         task = project / "qa-factory" / "artifacts" / "X-1"
         (task / "work").mkdir(parents=True)
-        (task / "work" / "requirements-register.md").write_text(register, encoding="utf-8")
+        write_register(task, register, head="")
         got = run(case("reference:cart-total"))
         check("PC-9a F2: with no snapshot file the reference form is refused with the true cause", len(got) == 1 and "no reference snapshot" in got[0], str(got))
         check_eq("PC-9a F2: a `base:` precedent is unchanged with no snapshot", run(case("base:b9c0c4e:src/a/b.py:989", "history:old")), [])
@@ -1211,7 +1212,7 @@ def test_pc9b_a_snapshot_the_runner_wrote_is_read_by_the_case_gate() -> None:
         use_project(project)
         task = project / "qa-factory" / "artifacts" / "X-1"
         (task / "work").mkdir(parents=True)
-        (task / "work" / "requirements-register.md").write_text(register, encoding="utf-8")
+        write_register(task, register, head="")
         got = run("reference:cart-total")
         check("PC-9b: no snapshot written yet - refused with the true cause", len(got) == 1 and "no reference snapshot" in got[0], str(got))
         items = project / "items.json"

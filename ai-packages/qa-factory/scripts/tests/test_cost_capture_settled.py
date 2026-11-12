@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -103,9 +104,102 @@ def page_of(root, *flags):
     return html.unescape(out.read_text(encoding="utf-8"))
 
 
+def one_predicate_for_factory_activity() -> None:
+    """CD1-11 / t-141 B2, F9: every reader of "is this factory activity" answers the same, row for row, for every type:
+    hooklib.session_has_factory_activity (the guard), cost_capture (likely_factory, has_factory_activity -- both call
+    activity_capture.is_factory_activity), factory_dashboard._has_factory_activity and metrics_projection._has_factory_activity
+    (the fallbacks for a cost file written before the field existed). Junk (None, empty, non-dict, non-string type) is False."""
+    import unittest.mock as mock
+    import activity_capture as AC
+    import metrics_projection as MP
+    check_eq("P1 the set is every named type but `unclassified`", AC.REAL_FACTORY_TYPES, AC.FACTORY_TYPES - {"unclassified"})
+    rows = {"doctor": True, "onboarding": True, "story": True, "collect": True, "environment-maintenance": True,
+            "unclassified": False, "": False, None: False, "made-up": False, 5: False,
+            (): False}
+    junk_types = ([], {}, ["story"], {"story": 1})        # unhashable: must give False, not raise (F9)
+    for kind, expected in list(rows.items()) + [(repr(j), False) for j in junk_types]:
+        entry_type = next((j for j in junk_types if repr(j) == kind), kind)
+        items = [{"type": entry_type}, "junk", None, 7, []]
+        doc = {"activities": items}
+        with mock.patch("activity_capture.load", return_value=doc), mock.patch("activity_capture.activity_path", return_value=Path("x.json")):
+            got_guard = HL.session_has_factory_activity("s1", {})
+        by_activity = {"a1": {"type": entry_type}, "a2": "junk", "a3": None}
+        got = (got_guard, AC.is_factory_activity(items), AC.is_factory_activity(by_activity.values()),
+               D._has_factory_activity({"by_activity": by_activity}), MP._has_factory_activity({"by_activity": by_activity}))
+        check_eq(f"P1 type {kind!r}: guard, predicate (list), predicate (values), dashboard fallback, metrics fallback", got, (expected,) * 5)
+    for empty in (None, [], (), {}.values()):
+        check_eq(f"P2 {empty!r} is False", AC.is_factory_activity(empty), False)
+    explicit = {"has_factory_activity": True, "by_activity": {"a1": {"type": "unclassified"}}}
+    check_eq("P3 the explicit field wins over by_activity in both fallback readers",
+             (D._has_factory_activity(explicit), MP._has_factory_activity(explicit)), (True, True))
+    check_eq("P3 no by_activity at all keeps the conservative default True in both readers",
+             (D._has_factory_activity({}), MP._has_factory_activity({})), (True, True))
+
+
+def bare_root_writes_nothing() -> None:
+    """OH3-37 / t-141 F4, F6: the dashboard CLI, the cost_capture hook (both forms) and run_suite.refresh_dashboard leave a root
+    without qa-factory/config.json untouched, and a project (or a --read-only render) still works."""
+    tmp = temp_dir("bare-root-")
+    try:
+        bare, half, proj = tmp / "bare", tmp / "half", temp_project("bare-root-proj-")
+        bare.mkdir()
+        (half / "qa-factory").mkdir(parents=True)              # a qa-factory/ folder with no config.json is no project
+        transcript = write_rows(tmp / "t.jsonl", [usage_row()], age=7200)
+        elsewhere = tmp / "elsewhere"
+        elsewhere.mkdir()
+
+        def tree(root):
+            return sorted(p.relative_to(root).as_posix() for p in Path(root).rglob("*"))
+
+        def env():
+            e = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_PROJECT_DIR", "QA_FACTORY_SKIP_DASHBOARD_REFRESH")}
+            e.update(PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(Path(C.__file__).resolve().parent))
+            return e
+
+        def run(script_args, cwd, stdin=""):
+            return subprocess.run([sys.executable, "-B", *script_args], cwd=cwd, env=env(), input=stdin, capture_output=True,
+                                  text=True, encoding="utf-8", timeout=120)
+        dash = str(Path(D.__file__).resolve())
+        cases = {"bare cwd": (bare, ()), "qa-factory/ without config.json": (half, ()),
+                 "--root bare from a project cwd": (proj, ("--root", str(bare))),
+                 "explicit --out, not read-only": (bare, ("--out", str(elsewhere / "p.html")))}
+        for name, (cwd, args) in cases.items():
+            before = tree(tmp)
+            r = run([dash, *args], cwd)
+            check_eq(f"B-dash {name}: refused with exit 3 and the tree is byte-identical", (r.returncode, tree(tmp) == before), (3, True))
+            check_in(f"B-dash {name}: the refusal names the marker", "qa-factory/config.json", r.stderr)
+        page = elsewhere / "ro.html"
+        r = run([dash, "--read-only", "--out", str(page)], bare)
+        check_eq("B-dash --read-only --out on a bare root works and writes nothing under it", (r.returncode, page.is_file(), tree(bare)), (0, True, []))
+        r = run([dash, "--root", str(proj)], bare)
+        check_eq("B-dash control: --root project from a bare cwd writes the project's page",
+                 (r.returncode, (proj / "qa-factory" / "state" / "factory-dashboard.html").is_file()), (0, True))
+
+        event = json.dumps({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": str(transcript), "cwd": str(bare)})
+        for form in ((), ("--debounced",)):
+            before = tree(tmp)
+            r = run([str(Path(C.__file__).resolve()), *form], bare, event)
+            check_eq(f"B-hook cost_capture {form or 'plain'} on a bare root: exit 0, no stderr, nothing created",
+                     (r.returncode, r.stderr.strip(), tree(tmp) == before), (0, "", True))
+        event_proj = json.dumps({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": str(transcript), "cwd": str(proj)})
+        r = run([str(Path(C.__file__).resolve())], proj, event_proj)
+        check_eq("B-hook control: a project root captures as before",
+                 (r.returncode, (proj / "qa-factory" / "state" / "cost" / "s1.json").is_file()), (0, True))
+
+        probe = ("import os, sys; sys.path.insert(0, %r); import run_suite; run_suite.refresh_dashboard(); print('returned')"
+                 % str(Path(C.__file__).resolve().parent))
+        before = tree(tmp)
+        r = run(["-c", probe], bare)
+        check_eq("B-suite run_suite.refresh_dashboard on a bare cwd returns, escapes no SystemExit, writes nothing",
+                 (r.returncode, r.stdout.strip(), tree(tmp) == before), (0, "returned", True))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        cleanup(proj)
+
+
 def main() -> None:
     # --- K4 (B2): one stamp ------------------------------------------------------------------------------------------
-    check("K4 the stamp is not the old one and names this release", C.READER_STAMP != "iterations-1" and C.READER_STAMP == "capture-0.10.7")
+    check("K4 the stamp is not the old one and names this release", C.READER_STAMP != "iterations-1" and C.READER_STAMP == "capture-0.10.8")
 
     root = temp_project()
     use_project(root)
@@ -159,6 +253,12 @@ def main() -> None:
         check("K2 and the file is byte for byte as it was", ghost_path.read_bytes() == before)
         check_eq("K2 control: the same file WITH a transcript is flagged",
                  C._stale_kind(dict(ghost, transcript=str(main_t)), activity, limits=LIMITS)[0], "logic")
+        # t-141 B3 (CD1-11): the stamp that preceded the one-predicate change no longer counts as current, so a collect or
+        # environment-maintenance file captured before it is reclassified on the next read
+        check_eq("K2 a file stamped capture-0.10.7 (before CD1-11) is of an older logic",
+                 C._stale_kind(dict(ghost, transcript=str(main_t), capture_logic="capture-0.10.7"), activity, limits=LIMITS)[0], "logic")
+        check("K2 control: the same file stamped with the current READER_STAMP is not of an older logic",
+              C._stale_kind(dict(ghost, transcript=str(main_t), capture_logic=C.READER_STAMP), activity, limits=LIMITS)[0] != "logic")
         check_eq("K2 no `transcript` key at all is not an exception", C._stale_kind({k: v for k, v in ghost.items() if k != "transcript"}, activity, limits=LIMITS), ("", ""))
         check_eq("K2 `transcript: null` is not an exception either", C._stale_kind(dict(ghost, transcript=None), activity, limits=LIMITS), ("", ""))
 
@@ -456,6 +556,8 @@ def main() -> None:
         os.environ.pop("QA_FACTORY_SKIP_DASHBOARD_REFRESH", None)
         shutil.rmtree(work, ignore_errors=True)
         cleanup(root)
+    one_predicate_for_factory_activity()
+    bare_root_writes_nothing()
     finish("test_cost_capture_settled")
 
 

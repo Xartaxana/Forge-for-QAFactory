@@ -904,8 +904,10 @@ def refresh_dashboard() -> None:
     if os.environ.get("QA_FACTORY_SKIP_DASHBOARD_REFRESH") == "1":
         return
     try:
-        from factory_dashboard import main as dashboard_main
-        dashboard_main([])
+        # t-141 F6: the ONE chokepoint (it returns `not_configured` on a root without config.json and writes nothing);
+        # the old direct call let require_project_at's SystemExit(3) escape this best-effort refresh.
+        from dashboard_refresh import refresh_project
+        refresh_project(project_root())
     except Exception:
         pass
 

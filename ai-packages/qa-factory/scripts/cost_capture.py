@@ -63,7 +63,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hooklib import state_dir, read_event, load_config, load_ref_json, read_json, ref, project_root, role_name
+from hooklib import state_dir, read_event, load_config, load_ref_json, read_json, ref, project_root, role_name, _carries_project
 import runtime_paths as RP
 from event_store import atomic_json, content_hash, EventStore, StateConflict
 
@@ -988,7 +988,7 @@ def forms_fingerprint(forms) -> str:
 # READER_STAMP is the version of what a capture derives from a transcript (usage, task markers, person turns, gaps):
 # a checkpoint or a cost file of another value is rebuilt once; bump it with any change to what a scan or a capture
 # writes. It is kept in every scan checkpoint, in `capture_key` and in the cost document (`capture_logic`).
-READER_STAMP = "capture-0.10.7"
+READER_STAMP = "capture-0.10.8"
 _COUNT_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 
 
@@ -1919,7 +1919,7 @@ def _capture(event) -> bool:
 
     sub_dir = tpath.parent / tpath.stem / "subagents"
     files = [tpath] + (sorted(sub_dir.glob("agent-*.*")) if sub_dir.exists() else [])
-    from activity_capture import activity_path as resolve_activity_path, close_pending
+    from activity_capture import activity_path as resolve_activity_path, close_pending, is_factory_activity
     from codex_usage import metadata as codex_metadata
     close_pending(event, session_id)
     activity_path = resolve_activity_path(event, session_id)
@@ -1937,10 +1937,9 @@ def _capture(event) -> bool:
     activities, stop_kept = attribution_activities(activities)
     # likely_factory decides the SCANNING strategy below, before has_factory_activity (the
     # WRITE-time flag, computed later from by_activity) exists. It is exactly equivalent:
-    # by_activity can only ever carry a doctor/onboarding/story type when `activities`
+    # by_activity can only ever carry a factory activity type (activity_capture.is_factory_activity) when `activities`
     # already carries one, so a False here guarantees has_factory_activity ends up False too.
-    likely_factory = any(isinstance(a, dict) and a.get("type") in ("doctor", "onboarding", "story")
-                         for a in activities)
+    likely_factory = is_factory_activity(activities)
     binding = {}
     if event.get('host_binding'):
         binding = json.loads(Path(event['host_binding']).read_text(encoding='utf-8'))
@@ -2230,10 +2229,9 @@ def _capture(event) -> bool:
 
     # has_factory_activity : a session whose cwd merely sat inside an
     # onboarded project (factory development, run analysis) still gets a cost file — do not
-    # stop capturing it — but it never ran doctor/onboarding/story, so the dashboard (package
+    # stop capturing it — but it never ran a factory activity, so the dashboard (package
     # G) must be able to tell it apart from a session that actually did factory work.
-    has_factory_activity = any(v.get("type") in ("doctor", "onboarding", "story")
-                               for v in by_activity.values())
+    has_factory_activity = is_factory_activity(by_activity.values())
 
     out_dir = state_dir(event) / "state" / "cost"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -3786,6 +3784,11 @@ def main() -> None:
     if "--recapture" in sys.argv or "--all-stale" in sys.argv:
         return _cli_recapture()
     event = read_event() or {}
+    # OH3-37 (t-141 F4): the hook fires in projects that are not onboarded yet (the onboarding session itself).
+    # Without `qa-factory/config.json` there is nothing to capture into: leave quietly, BEFORE the "started" marker and
+    # the session lock, which would each create `qa-factory/state/...`. Exit 0: telemetry does not stop the pipeline.
+    if not _carries_project(project_root(event)):
+        return
     _choose_subagent_transcript(event)
     tpath = Path(event.get("transcript_path", "") or "")
     if tpath.is_file():

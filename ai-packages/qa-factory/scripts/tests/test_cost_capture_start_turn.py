@@ -32,7 +32,7 @@ from harness import temp_project, cleanup, check, check_eq, finish
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "synthetic-start-turn"
 MONEY_KEYS = {"cost", "subtotal_usd", "total_cost_usd", "priced_subtotal_usd", "priced_subtotal_exact_usd"}
 DOLLAR_DIGIT = re.compile(r"\$\s?\d")
-PERSONAL_PATH = re.compile(r"C:\\Users\\|/Users/|/home/", re.IGNORECASE)
+from audit_factory import PERSONAL_PATH  # the one pattern of rule A20, built from references/machine-path-markers.json
 CHAT, ONBOARDING = "synthetic-start-turn-chat", "synthetic-start-turn-onboarding"
 
 

@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "note": "The closed variety of 'somebody's home directory' that audit rule A20 (scripts/audit_factory.py, PERSONAL_PATH) looks for in free text and shell commands; no role loads this file. path_start_prefixes are matched case-sensitively and only where a file-system path STARTS (line start, whitespace, a quote, a backtick, '=', a bracket), so a URL or API segment such as https://h/users/1 or /api/users/{id} is not flagged. windows_user_dirs are directory names matched case-insensitively between backslashes (\\Users\\) or after a drive letter (X:\\Users\\, X:/Users/). A project does not add to this list; a new machine layout is one more entry here, never a pattern in code. A missing or unreadable file makes rule A20 report that and name this file.",
+  "path_start_prefixes": ["/Users/", "/home/", "~/", "~\\"],
+  "windows_user_dirs": ["Users"]
+}

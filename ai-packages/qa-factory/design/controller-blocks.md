@@ -274,11 +274,11 @@ every edit above it. Rows are in source order.
 | `_resume_status_problems` | `StateConflict` | finish or pause {retry[-1]} | `command` | finish or pause the retry, which the message names (`story_step.py finish` / `pause`) |
 | `_resume_status_problems` | `StateConflict` | {did} is superseded: this work was set aside; {door}next` prints what holds the | `command` | `--operation next` prints what holds the stage now |
 | `_resume_status_problems` | `StateConflict` | {did} is {status}: it is not stopped; `story_step.py finish --task {self._ticket()} | `command` | `story_step.py finish` or `pause` takes the dispatch as it is |
-| `_resume_status_problems` | `StateConflict` | {did} is incomplete: it stopped with work left, not for a person's answer, so no | `command` | the retry packet `--operation recover` prints |
+| `_resume_status_problems` | `StateConflict` | (StateConflict, self._incomplete_problem(d)) | `command` | the door `_incomplete_problem` names: the retry packet `--operation recover` prints when it lists the dispatch, the person's word on the story budget for a budget stop, `--operation next` otherwise |
 | `_resume_status_problems` | `StateConflict` | {did} is {status}: it never reached an agent, or a person set it free, so no agent | `command` | the relaunch packet `--operation next` prints |
 | `_resume_status_problems` | `StateConflict` | {did} is {status}: its work is closed; going back over it is {door}rework` | `command` | `--operation rework` |
 | `_resume_status_problems` | `StateConflict` | {did} is {status}: only a dispatch stopped for a person (blocked or paused) is resumed; | `command` | `--operation next` prints what the story does now |
-| `_resume_stop_problems` | `StateConflict` | {did} stopped on the story budget ({BUDGET_EXHAUSTED}): hard quota exhaustion | `command` | a person's word on the story budget, or fresh work with a new input hash |
+| `_resume_stop_problems` | `StateConflict` | (StateConflict, self._budget_words(did)) | `command` | a person's word on the story budget, or fresh work with a new input hash |
 | `_resume_stop_problems` | `StateConflict` | {did} has no recorded agent and the request names none: a resume names the | `command` | `--agent-id <the id the Agent call returned>`, or the retry packet when that agent is gone |
 | `_resume_stop_problems` | `StateConflict` | {did} is held by agent {mine}, the request names {theirs}: a different agent | `command` | the retry packet `--operation recover` prints |
 | `_resume_stop_problems` | `StateConflict` | stale stop: the request retires the stop at sequence {p.get('stop_sequence')}, | `command` | `story_step.py resume` builds the request again from the journal |

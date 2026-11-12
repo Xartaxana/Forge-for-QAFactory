@@ -29,9 +29,9 @@
     "qa-case-critic": 15929,
     "qa-automator": 18614,
     "qa-code-critic": 17566,
-    "qa-runner": 14433,
+    "qa-runner": 14432,
     "qa-failure-analyst": 16336,
-    "qa-bug-reporter": 13919,
+    "qa-bug-reporter": 13918,
     "qa-doc-scribe": 16954,
     "qa-retro-analyst": 13206
   },

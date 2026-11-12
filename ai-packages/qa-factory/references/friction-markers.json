@@ -6,7 +6,7 @@
   "usage_regex": "usage: [a-z_]+\\.py [-\\[]",
   "validator_head_phrases": [
     "is not ready", "unsupported value", "missing required", "missing source_sha",
-    "is refused", "refuses", "file does not exist"
+    "is refused", "refuses", "file does not exist", "must be one of"
   ],
   "validator_head_chars": 300,
   "listing_prefix": "1\t",

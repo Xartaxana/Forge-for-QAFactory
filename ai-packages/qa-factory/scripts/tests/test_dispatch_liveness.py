@@ -981,6 +981,73 @@ def a_time_nobody_can_place_is_no_evidence():
         cleanup(root)
 
 
+def one_reader_of_a_stored_time_names_what_a_naive_time_means():
+    """CX2-12: `codex_usage.epoch_of` is the one reader; each reader names its reading of a time with no zone."""
+    import calendar
+    import codex_usage
+    from datetime import datetime
+    local = datetime(2026, 10, 13, 12, 0, 0).timestamp()
+    utc = float(calendar.timegm((2026, 10, 13, 10, 0, 0)))
+    cases = [  # (label, value, naive, numbers, expected)
+        ("zone Z, utc reading", "2026-10-13T10:00:00Z", "utc", True, utc),
+        ("zone Z, local reading", "2026-10-13T10:00:00Z", "local", True, utc),
+        ("zone Z, none reading", "2026-10-13T10:00:00Z", "none", True, utc),
+        ("offset zone", "2026-10-13T12:00:00+02:00", "none", True, utc),
+        ("naive, utc reading", "2026-10-13T10:00:00", "utc", True, utc),
+        ("naive, local reading", "2026-10-13T12:00:00", "local", True, local),
+        ("naive, none reading", "2026-10-13T10:00:00", "none", True, None),
+        ("number read", 1700000000, "none", True, 1700000000.0),
+        ("number refused", 1700000000, "utc", False, None),
+        ("bool", True, "utc", True, None),
+        ("empty", "  ", "utc", True, None),
+        ("garbage", "not a time", "utc", True, None),
+        ("None", None, "utc", True, None),
+    ]
+    for label, value, naive, numbers, expected in cases:
+        check_eq(f"epoch_of: {label}", codex_usage.epoch_of(value, naive=naive, numbers=numbers), expected)
+    check_eq("the liveness reader of a started_at is the utc reading", LIVE._epoch("2026-10-13T10:00:00"), utc)
+    check_eq("the rollout row reader: no zone, no evidence", LIVE._row_time({"timestamp": "2026-10-13T10:00:00"}), None)
+    check_eq("iso_of: whole seconds, offset form", codex_usage.iso_of(utc + 0.9), "2026-10-13T10:00:00+00:00")
+    check_eq("iso_of: Z form (what `_iso` prints)", LIVE._iso(utc), "2026-10-13T10:00:00Z")
+    check_eq("iso_of: None stays None", codex_usage.iso_of(None), None)
+    try:
+        codex_usage.epoch_of("2026-10-13", naive="guess")
+    except ValueError:
+        check("an unknown reading is refused by name", True)
+    else:
+        check("an unknown reading is refused by name", False)
+
+
+def a_zone_less_time_in_a_journal_row_is_read_as_utc():
+    """CX2-12 S1: the hook journal and driver-runs rows are written UTC-aware, and `driver_journal.parse_ts` reads a
+    zone-less stamp as UTC; both liveness readers of the field read it the same way, never as the machine's clock."""
+    import calendar
+    utc = float(calendar.timegm((2026, 10, 13, 10, 0, 0)))
+    root = temp_dir("qa-live-naive-utc-")
+    try:
+        project(root)
+        without_hooklib()
+        state_dir = root / "qa-factory" / "artifacts" / TICKET / "state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        # a mixed file: zone-less, zoned, empty, None and garbage stamps, one row each
+        stamps = [("2026-10-13T10:00:00", utc), ("2026-10-13T10:00:00Z", utc), ("2026-10-13T12:00:00+02:00", utc),
+                  ("", None), (None, None), ("not a time", None), (20261013, None)]
+        runs = state_dir / "driver-runs.jsonl"
+        for index, (stamp_value, expected) in enumerate(stamps):
+            runs.write_text(json.dumps({"ts": stamp_value, "dispatch": "S1-x-1", "exit_code": 0}) + "\n", encoding="utf-8")
+            check_eq(f"driver_session_end, row {index} ({stamp_value!r})",
+                     LIVE.driver_session_end(root, TICKET, "S1-x-1"), (expected, 0))
+        import runtime_paths as RP
+        journal = RP.record(root, "journal.jsonl")
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        for index, (stamp_value, expected) in enumerate(stamps):
+            journal.write_text(json.dumps({"ts": stamp_value, "event": "subagent_stop", "agent": "a", "task": TICKET,
+                                           "dispatch": "S1-x-1"}) + "\n", encoding="utf-8")
+            check_eq(f"_stop_records, row {index} ({stamp_value!r})", LIVE._stop_records(root)[0]["ts"], expected)
+    finally:
+        cleanup(root)
+
+
 def two_receipts_of_one_dispatch_are_read_together():
     """F-1: a running second receipt of the dispatch is never read as returned because the first one is."""
     other = NATIVE[:-1] + "2"
@@ -1934,6 +2001,8 @@ def main():
     a_terminal_receipt_with_a_completed_rollout_keeps_its_own_path()
     the_rollout_reader_reads_ends_only()
     a_time_nobody_can_place_is_no_evidence()
+    one_reader_of_a_stored_time_names_what_a_naive_time_means()
+    a_zone_less_time_in_a_journal_row_is_read_as_utc()
     two_receipts_of_one_dispatch_are_read_together()
     every_rollout_of_one_path_is_asked()
     a_tail_being_written_holds_the_return_back()

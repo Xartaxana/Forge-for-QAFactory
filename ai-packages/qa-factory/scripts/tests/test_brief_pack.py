@@ -3198,7 +3198,7 @@ def main() -> None:
         check("and so is a stage folder that does not exist yet",
               any("work/test-cases/" in x and "not written yet" in x for x in absent), str(absent))
         (tmp / "work").mkdir()
-        (tmp / "work" / "requirements-register.md").write_text("# register", encoding="utf-8")
+        harness.write_register(tmp, "# register", head="")
         there = brief_pack.file_lines(["work/requirements-register.md"], tmp, tmp)
         check("once it exists the line is the file, not a promise",
               any("work/requirements-register.md" in x and "not written yet" not in x for x in there), str(there))

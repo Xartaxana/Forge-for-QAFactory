@@ -10,16 +10,13 @@ functions: the controller's gate-decision operation and `manual_evidence.prepare
 The fixture `fixtures/run-12586-manual/TP1-12586` is the recorded run's task root cut at the event before the
 gate A decision (README.txt there: sources and what was changed).
 """
-import contextlib
-import io
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import SCRIPTS, check, check_eq, check_in, finish, temp_project, cleanup  # noqa: E402
+from harness import SCRIPTS, check, check_eq, check_in, finish, run_controller_inprocess, temp_project, cleanup  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 import controller as CTL  # noqa: E402
@@ -48,25 +45,10 @@ def obligations(task):
 
 def decide(root, task, *extra):
     """`controller.py --operation gate-decision --gate A --as-is` in-process; (exit code, parsed stdout)."""
-    argv = ["controller.py", "--task-root", str(task), "--operation", "gate-decision", "--gate", "A", "--as-is",
+    argv = ["--task-root", str(task), "--operation", "gate-decision", "--gate", "A", "--as-is",
             "--words-file", str(task / "state" / "words" / "gate-a-decision.txt"), *extra]
-    out, err, code = io.StringIO(), io.StringIO(), 0
-    old_argv, old_env = sys.argv, os.environ.get("CLAUDE_PROJECT_DIR")
-    sys.argv, os.environ["CLAUDE_PROJECT_DIR"] = argv, str(root)
-    try:
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            try:
-                CTL.main()
-            except SystemExit as exc:
-                code = exc.code if isinstance(exc.code, int) else 1
-    finally:
-        sys.argv = old_argv
-        if old_env is None:
-            os.environ.pop("CLAUDE_PROJECT_DIR", None)
-        else:
-            os.environ["CLAUDE_PROJECT_DIR"] = old_env
-    text = out.getvalue().strip()
-    return code, (json.loads(text) if text.startswith("{") else {"stdout": text, "stderr": err.getvalue()})
+    code, text, err = run_controller_inprocess(argv, root)     # the tests' one in-process run, with the root cache reset (DC1-27)
+    return code, (json.loads(text) if text.startswith("{") else {"stdout": text, "stderr": err})
 
 
 def pass_alone(task) -> list:

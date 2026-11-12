@@ -605,21 +605,9 @@ class Credentials:
 
 
 def _env_values(path: Path) -> dict:
-    out = {}
-    for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        key = key[7:].strip() if key.startswith("export ") else key
-        if not key:
-            continue        # `=x` names nothing: it must never answer a key whose configured name is empty
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        out[key] = value
-    return out
+    """The values of one env file: `env_probe.parse_env_file`, the one reading (AR-13, OH3-42)."""
+    import env_probe
+    return env_probe.parse_env_file(path)
 
 
 def _env_files_state(files) -> tuple:

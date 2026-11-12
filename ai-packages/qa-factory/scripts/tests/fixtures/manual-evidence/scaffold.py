@@ -366,7 +366,7 @@ def make_task(*, claims=False, cfg=None, manual=("ui",), readiness=True):
     register = register.replace("| R-13 |", R7_R14 + "| R-13 |", 1)
     if claims:
         register += CLAIMS
-    (task / "work" / "requirements-register.md").write_text(register, encoding="utf-8")
+    harness.write_register(task, register, head="")
     if readiness:
         shutil.copyfile(oracle / "requirements-readiness.json", task / "work" / "requirements-readiness.json")
     rows = json.loads((HERE / "test-plan-rows.json").read_text(encoding="utf-8"))["rows"]
