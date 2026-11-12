@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, temp_project  # noqa: E402
+from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, run_controller_inprocess, temp_project  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 import contract as C  # noqa: E402
@@ -68,34 +68,10 @@ class Story:
 
     def decide(self, words: str, *extra, project_env: bool = True) -> tuple:
         """`controller.py --operation gate-decision --gate B` in-process: (exit code, the answer's JSON or {"stderr": ...})."""
-        argv = ["controller.py", "--task-root", str(self.task), "--operation", "gate-decision", "--gate", "B",
+        argv = ["--task-root", str(self.task), "--operation", "gate-decision", "--gate", "B",
                 "--words-file", str(self.words(words)), *extra]
-        out, err, code = io.StringIO(), io.StringIO(), 0
-        old_argv, old_env = sys.argv, os.environ.get("CLAUDE_PROJECT_DIR")
-        sys.argv = argv
-        if project_env:
-            os.environ["CLAUDE_PROJECT_DIR"] = str(self.root)
-        else:
-            os.environ.pop("CLAUDE_PROJECT_DIR", None)
-        import hooklib
-        hooklib._PROJECT_ROOT_CACHE = None      # the root is cached per process (see `run_controller`)
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                try:
-                    CTL.main()
-                except SystemExit as exc:
-                    code = exc.code if isinstance(exc.code, int) else 1
-                except ValueError as exc:       # what `controller.py`'s own entry turns into exit 2 and the refusal's text
-                    code = 2
-                    print(str(exc), file=sys.stderr)
-        finally:
-            sys.argv = old_argv
-            if old_env is None:
-                os.environ.pop("CLAUDE_PROJECT_DIR", None)
-            else:
-                os.environ["CLAUDE_PROJECT_DIR"] = old_env
-        text = out.getvalue().strip()
-        return code, (json.loads(text) if text.startswith("{") else {"stdout": text, "stderr": err.getvalue()})
+        code, text, err = run_controller_inprocess(argv, self.root if project_env else None)
+        return code, (json.loads(text) if text.startswith("{") else {"stdout": text, "stderr": err})
 
     def pipeline(self) -> dict:
         return json.loads((self.task / "pipeline.json").read_text(encoding="utf-8"))
@@ -431,34 +407,10 @@ def register_row(qid: str) -> dict:
 
 def run_controller(root: Path, argv_tail: list, project_env: bool = True) -> tuple:
     """`controller.py <argv_tail>` in-process: (exit code, stdout JSON or {}, stderr's last JSON line or {"stderr": text})."""
-    out, err, code = io.StringIO(), io.StringIO(), 0
-    old_argv, old_env = sys.argv, os.environ.get("CLAUDE_PROJECT_DIR")
-    sys.argv = ["controller.py", *argv_tail]
-    if project_env:
-        os.environ["CLAUDE_PROJECT_DIR"] = str(root)
-    else:
-        os.environ.pop("CLAUDE_PROJECT_DIR", None)
-    import hooklib
-    hooklib._PROJECT_ROOT_CACHE = None      # hooklib caches the project root per process: an earlier case's root must not answer for this one (d5b)
-    try:
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            try:
-                CTL.main()
-            except SystemExit as exc:
-                code = exc.code if isinstance(exc.code, int) else 1
-            except ValueError as exc:
-                code = 2
-                print(str(exc), file=sys.stderr)
-    finally:
-        sys.argv = old_argv
-        if old_env is None:
-            os.environ.pop("CLAUDE_PROJECT_DIR", None)
-        else:
-            os.environ["CLAUDE_PROJECT_DIR"] = old_env
-        hooklib._PROJECT_ROOT_CACHE = None
-    text, lines =out.getvalue().strip(), [x for x in err.getvalue().splitlines() if x.strip()]
+    code, text, err = run_controller_inprocess(argv_tail, root if project_env else None)     # the tests' one in-process run (harness, DC1-27)
+    lines = [x for x in err.splitlines() if x.strip()]
     last = lines[-1] if lines else ""
-    return code, brief_aware(text, argv_tail), (json.loads(last) if last.startswith("{") else {"stderr": err.getvalue()})
+    return code, brief_aware(text, argv_tail), (json.loads(last) if last.startswith("{") else {"stderr": err})
 
 
 def brief_aware(text: str, argv_tail: list) -> dict:
@@ -891,7 +843,41 @@ def d15_the_text_says_it() -> None:
             check_in(f"d15 {name} holds `{key}`", key, text)
 
 
+def d17_one_carrier_each() -> None:
+    """DC1-27 (FR-54, AR-13, AR-19; t-147 H1): the gate's two shared words have ONE carrier and every reader reads it.
+    (1) the mark `Earlier answer at this gate:` is `question_register.EARLIER_ANSWER_MARK`; the driver's `Driver.EARLIER_ANSWER` is that
+    very object and no other script holds the literal. (2) the owners of an answer rework are `controller.ANSWER_REWORK_OWNERS`; an owner
+    added there is accepted by BOTH roads - the controller's owed-rework reading and the driver's `merge_answer_rework`."""
+    import story_run
+    check("D1: the driver's mark IS the register's (one object)", story_run.Driver.EARLIER_ANSWER is QR.EARLIER_ANSWER_MARK)
+    literal = '"\\n\\nEarlier answer at this gate:\\n"'
+    holders = sorted(p.name for p in SCRIPTS.glob("*.py") if literal in p.read_text(encoding="utf-8"))
+    check_eq("D1: the literal of the mark stands in one script", holders, ["question_register.py"])
+    third = {"scribe": ("S9", "qa-doc-scribe", "--cases")}
+    original = dict(CTL.ANSWER_REWORK_OWNERS)
+    entry = {"owner": "scribe", "where": "TC-1", "question": "Q1", "answer": "a", "record_at": "t1"}
+    for label, owners in (("the two shipped owners", original), ("a third owner added in the one table", {**original, **third})):
+        CTL.ANSWER_REWORK_OWNERS.clear()
+        CTL.ANSWER_REWORK_OWNERS.update(owners)
+        try:
+            parts, _doors = CTL._owed_rework_parts(Path("T"), [entry])
+            fake = object.__new__(story_run.Driver)
+            fake.state, fake.state_dir = {}, Path("no-such-state-dir")
+            fake.question_branch_findings = lambda: []
+            fake.save_state = lambda: None
+            fake.answer_item_words = lambda item: ""
+            merged = story_run.Driver.merge_answer_rework(fake, [entry])
+        finally:
+            CTL.ANSWER_REWORK_OWNERS.clear()
+            CTL.ANSWER_REWORK_OWNERS.update(original)
+        accepted = "scribe" in owners
+        check_eq(f"D2 [{label}]: the controller's reading names the owner exactly when the table holds it",
+                 any("the scribe must rework TC-1" in part for part in parts), accepted)
+        check_eq(f"D2 [{label}]: the driver's merge takes the owner's rework exactly when the table holds it", merged, accepted)
+
+
 def main() -> None:
+    d17_one_carrier_each()
     h3_the_adversarial_list()
     h8_damaged_records()
     h11_a_reader_prints_the_reason()

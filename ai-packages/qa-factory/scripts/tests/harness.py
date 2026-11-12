@@ -292,6 +292,22 @@ def install_artifacts(root: Path, source: Path, ticket: str) -> Path:
     return target
 
 
+REGISTER_HEAD = ("## Register\n\n"
+                 "| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable |\n"
+                 "|---|---|---|---|---|---|---|\n")
+
+
+def write_register(task: Path, rows: str, head: str = REGISTER_HEAD) -> Path:
+    """Write `<task>/work/requirements-register.md` = `head` + `rows` (the one writer of a test story's register, AR-14).
+    The default head is the template's seven-column header; a caller that holds the WHOLE register text passes it as
+    `rows` with `head=""`; one with a header of its own (an `impact` column) passes it as `head`. Returns the file's path."""
+    path = task / "work" / "requirements-register.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:   # one byte form on every OS: LF, never CRLF
+        handle.write(head + rows)
+    return path
+
+
 def use_project(root: Path) -> None:
     """Point the hook layer at this project, inside this process. hooklib caches the project
     root per process, so the cache is cleared too — a test that moves the root and forgets
@@ -300,6 +316,45 @@ def use_project(root: Path) -> None:
     sys.path.insert(0, str(SCRIPTS))
     import hooklib
     hooklib._PROJECT_ROOT_CACHE = None
+
+
+def run_controller_inprocess(argv_tail: list, root: Path | None = None) -> tuple:
+    """`controller.py <argv_tail>` run in THIS process: `(exit code, stdout text, stderr text)` (DC1-27, FR-54: the ONE in-process
+    controller run of the tests; `Story.decide` and `run_controller` of test_gate_words_road.py and `decide` of
+    test_gate_decision_manual_pass.py were three copies).
+
+    `root` is the project the run belongs to (`CLAUDE_PROJECT_DIR`); `None` runs with the variable unset. `hooklib` caches the project root
+    per process, so the cache is cleared BEFORE the run (an earlier case's root must not answer for this one) and AFTER it (this run's root
+    must not answer for the next); `sys.argv` and the variable are restored. A `ValueError` is what `controller.py`'s own entry turns into
+    exit 2 and the refusal's text on stderr; a non-int `SystemExit` code is 1. Callers parse the text. Needs `scripts/` on `sys.path`."""
+    import io
+    import controller as CTL
+    import hooklib
+    out, err, code = io.StringIO(), io.StringIO(), 0
+    old_argv, old_env = sys.argv, os.environ.get("CLAUDE_PROJECT_DIR")
+    sys.argv = ["controller.py", *argv_tail]
+    if root is not None:
+        os.environ["CLAUDE_PROJECT_DIR"] = str(root)
+    else:
+        os.environ.pop("CLAUDE_PROJECT_DIR", None)
+    hooklib._PROJECT_ROOT_CACHE = None
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                CTL.main()
+            except SystemExit as exc:
+                code = exc.code if isinstance(exc.code, int) else 1
+            except ValueError as exc:
+                code = 2
+                print(str(exc), file=sys.stderr)
+    finally:
+        sys.argv = old_argv
+        if old_env is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = old_env
+        hooklib._PROJECT_ROOT_CACHE = None
+    return code, out.getvalue().strip(), err.getvalue()
 
 
 @contextlib.contextmanager

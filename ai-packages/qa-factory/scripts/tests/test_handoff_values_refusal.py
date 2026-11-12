@@ -752,8 +752,125 @@ def a_skeleton_of_every_refusal_reads_back_blank() -> None:
         check(f"K13: {text[:24]!r}: every value is blank", all(H._blank_value(p[1]) for p in pairs), f"{pairs}")
 
 
+def a_list_inside_a_row_is_taught_the_index_of_its_own_list() -> None:
+    """K-HF8-28a (F8, FR-1, FR-2): a nested object on the list INSIDE a row (`rounds[0].changed`, `open_questions[0].readings`)
+    names the row form of THAT list - the next row of `rounds[0].changed` is `rounds[0].changed[1].file`, not
+    `rounds[1].changed[0].file` - and every path the hint offers is written by `apply_values` (not by the text). The outer
+    list keeps its own text (control), and a name with no index of a list in a row still gets no hint (K5)."""
+    cases = (("s7-automator-to-analyst", "rounds[0].changed", "rounds[0].changed[0].file", "rounds[0].changed[1].file"),
+             ("s7-automator-to-analyst", "rounds[1].changed", "rounds[1].changed[0].file", "rounds[1].changed[1].file"),
+             ("s2-tester-to-strategist", "open_questions[0].readings", "open_questions[0].readings[0].id",
+              "open_questions[0].readings[1].id"))
+    for contract, name, first, later in cases:
+        problem = _problems(f"{name}: [{{a: 1}}]", contract)[0]
+        check_in(f"K-HF8-28a {name}: the first row of its own list", f'"{first}"', problem.text)
+        check_in(f"K-HF8-28a {name}: the next row of its own list", f'"{later}"', problem.text)
+        check_in(f"K-HF8-28a {name}: the row's paths ride in `also`", first, problem.also)
+        paths = [path for path in problem.also if not path.endswith("]")]
+        check(f"K-HF8-28a {name}: every path keeps the indexes of the name", all(path.startswith(name + "[0].") for path in paths), f"{paths}")
+        doc, applied, bad, _notes = H.apply_values(handoff.template(contract), contract,
+                                                   [(path, "word", 1, "") for path in paths] + [(later, "word", 2, "")])
+        check_eq(f"K-HF8-28a {name}: the paths and the next row are written", (applied, [b.path for b in bad]),
+                 (len(paths) + 1, []))
+        check_in(f"K-HF8-28a {name}: the skeleton unfolds the row", f'"{first}": <', _skeleton([problem], contract, "qa-automator"))
+    outer = _problems("rounds: [{id: 1}]", "s7-automator-to-analyst")[0]
+    check_in("K-HF8-28a control: the outer list keeps the index of the outer list", '"rounds[0].id"', outer.text)
+    check_in("K-HF8-28a control: and its next row", '"rounds[1].id"', outer.text)
+    check_eq("K-HF8-28a a nested name the contract does not know has no hint",
+             _problems("rounds[0].nothing: [{a: 1}]", "s7-automator-to-analyst")[0].also, ())
+
+
+def a_line_the_writer_refuses_is_not_echoed_in_the_skeleton() -> None:
+    """K-HF8-28b (the `kept` echo, FR-2): a block YAML whose indented `state: approve` is a path of no field is refused for the
+    shape of its other lines, and `state: approve` is NOT given back as a line to keep - the next apply would refuse it; a line
+    the writer takes still comes back (control), by both doors (`values_report`, `_apply_text`)."""
+    root = temp_project("qa-values-hf828-")
+    try:
+        art = _story(root)
+        form = _form4(art)
+        good = "header.window: TP1-13877"
+        for label, text in (("block yaml", f"scope:\n  - id: TC-1\n    state: approve\n{good}\n"),
+                            ("one line", f"scope.0.id: TC-1\nstate: approve\n{good}\n"),
+                            ("quoted path", f'"state": approve\n{good}\nthis has no colon\n')):
+            problems, role, kept = H.values_report(form, text)[:3]
+            check("K-HF8-28b %s: the text is refused for its shape" % label, bool(problems), "")
+            check_not_in(f"K-HF8-28b {label}: the refused line is not kept", "state: approve", "\n".join(kept))
+            check_in(f"K-HF8-28b {label}: the writer's line is kept", good, kept)
+            check_not_in(f"K-HF8-28b {label}: and not in the skeleton", "state: approve",
+                         H.refusal_text(form, S4C, problems, role, kept=kept))
+            doc = _doc(form)
+            got = H._apply_text(doc, S4C, "values", lambda text=text: text.encode("utf-8"))
+            check_eq(f"K-HF8-28b {label}: the other door agrees", (got[4], got[5]), (False, kept))
+        check_eq("K-HF8-28b nothing parsed, nothing kept", H.values_report(form, "no colon here\n")[2], [])
+    finally:
+        cleanup(root)
+
+
+def a_field_held_by_a_later_row_is_offered_at_that_row() -> None:
+    """K-HF8-28c (F9, FR-2): rows of a list are not always alike - `existing_candidates_considered` is a line of the SECOND
+    `inputs_read` row of the s3 template. The hint and the section skeleton offer `inputs_read[1].<field>` (the first row of
+    the template that holds it), and the OFFERED path is written by `apply_values` (applied > 0), not `[0]`. A homogeneous
+    list keeps `[0]`; a field no row holds gets no path."""
+    cases = (("s3-strategist-to-designer", "existing_candidates_considered", "qa-test-strategist"),
+             ("s6-runner-to-analyst", "manual_cases_handed", "qa-runner"),
+             ("s8-scribe-to-gate-b", "rows", "qa-analyst"),
+             ("s9-retro-to-project", "decisions_folded", "qa-scout"))
+    for contract, field, role in cases:
+        nodes = handoff.template(contract).nodes
+        offered = [p for p in H.row_form(handoff.spec(contract), "inputs_read", nodes)[1] if p.endswith("." + field)]
+        check_eq(f"K-HF8-28c {contract}: the hint offers the row that holds it", offered, [f"inputs_read[1].{field}"])
+        _doc4, applied, bad, _notes = H.apply_values(handoff.template(contract), contract, [(offered[0], "w", 1, "")])
+        check_eq(f"K-HF8-28c {contract}: the offered path is written", (applied, [b.path for b in bad]), (1, []))
+        sketch = _skeleton([H.Problem("inputs_read", "no rows", "fix")], contract, role)
+        check_in(f"K-HF8-28c {contract}: the section skeleton has it at that row", f'"inputs_read[1].{field}": <', sketch)
+        check_not_in(f"K-HF8-28c {contract}: and not at row 0", f"inputs_read[0].{field}", sketch)
+    nodes = handoff.template(S4C).nodes
+    check("K-HF8-28c control: a homogeneous list keeps [0]",
+          all(p.startswith("scope[0].") for p in H.row_form(handoff.spec(S4C), "scope", nodes)[1]), "")
+    check_eq("K-HF8-28c control: the same without a template reads [0]", H._concrete("inputs_read[].x", None), "inputs_read[0].x")
+    check_eq("K-HF8-28c a field no row holds gets no path", H._concrete("inputs_read[].nothing_here", nodes), "")
+    check_eq("K-HF8-28c a field of several rows is offered at the first", H._concrete("inputs_read[].path",
+             handoff.template("s3-strategist-to-designer").nodes), "inputs_read[0].path")
+
+
+def a_near_miss_is_offered_only_at_a_row_the_writer_takes() -> None:
+    """K-HO1 (F9 class at `_near`, FR-2): `rows` is a line of the SECOND `inputs_read` row of the s8 template. A near miss
+    - no index, the index of the row that does not hold it, the index of the row that does - is offered at that row, and the
+    offered path is written (applied 1). A homogeneous list keeps the person's row; a field no row holds and a template that
+    cannot be read give no path."""
+    contract = "s8-scribe-to-gate-b"
+    for typed in ("inputs_read.rows", "inputs_read[0].row", "inputs_read[1].row"):
+        _d, applied, bad, _n = H.apply_values(handoff.template(contract), contract, [(typed, "w", 1, "")])
+        check_eq(f"K-HO1 {typed}: refused, offered the row that holds it", (applied, [b.fix for b in bad]),
+                 (0, ["inputs_read[1].rows: <value>"]))
+        _d, got, again, _n = H.apply_values(handoff.template(contract), contract, [("inputs_read[1].rows", "w", 1, "")])
+        check_eq(f"K-HO1 {typed}: the offered path is written", (got, again), (1, []))
+    _d, applied, bad, notes = H.apply_values(handoff.template(contract), contract, [("inputs_read[0].rows", "w", 1, "")])
+    check_eq("K-HO1 control: the old offer `inputs_read[0].rows` is written by nothing (a note, no refusal)",
+             (applied, bad, len(notes)), (0, [], 1))
+    _d, applied, bad, _n = H.apply_values(handoff.template(S4C), S4C, [("scope[0].reasn", "w", 1, "")])
+    check_eq("K-HO1 control: a homogeneous list keeps the person's row", [b.fix for b in bad], ["scope[0].reason: <value>"])
+    nodes, doc = handoff.template(contract).nodes, handoff.template(contract)
+    check_eq("K-HO1 a field no row of the template holds gives no path", H._near_row("inputs_read[].nothing", [0], nodes, doc), "")
+    check_eq("K-HO1 a template that cannot be read gives no path", H._near_row("inputs_read[].rows", [0], None, doc), "")
+    check_eq("K-HO1 a path with no row index needs no template", H._near_row("header.verdict", [], None, doc), "header.verdict")
+
+
+def a_line_the_writer_drops_with_a_note_is_not_echoed() -> None:
+    """K-HO2 (FR-2): `_writable_lines` leaves out a line the next apply drops with a note only
+    (`inputs_read[0].rows`, written by nothing) as well as a refused one; a line it writes stays (control: header.window,
+    `inputs_read[1].rows`)."""
+    contract = "s8-scribe-to-gate-b"
+    pairs = [("inputs_read[0].rows", "x", 1, "inputs_read[0].rows: x"), ("inputs_read[1].rows", "y", 2, "inputs_read[1].rows: y"),
+             ("no_such.field", "z", 3, "no_such.field: z"), ("header.window", "w", 4, "header.window: w")]
+    check_eq("K-HO2: only the lines the writer takes are kept, in order",
+             H._writable_lines(handoff.template(contract), contract, pairs), ["inputs_read[1].rows: y", "header.window: w"])
+
+
 # split: runner piece 1
 if __name__ == "__main__":
+    a_near_miss_is_offered_only_at_a_row_the_writer_takes()
+    a_line_the_writer_drops_with_a_note_is_not_echoed()
     a_dotted_index_is_refused_with_the_indexed_row_form()
     a_list_of_objects_is_refused_with_the_first_row_lines()
     a_block_yaml_list_is_refused_with_the_headers_list()
@@ -770,6 +887,9 @@ if __name__ == "__main__":
     an_empty_list_and_a_flat_list_of_rows_are_taught_the_index()
     the_battery_never_raises_and_the_hint_names_only_real_paths()
     a_skeleton_of_every_refusal_reads_back_blank()
+    a_list_inside_a_row_is_taught_the_index_of_its_own_list()
+    a_line_the_writer_refuses_is_not_echoed_in_the_skeleton()
+    a_field_held_by_a_later_row_is_offered_at_that_row()
     one_refusal_block_one_command()
     a_role_with_bash_is_shown_the_heredoc_and_the_file_door()
     a_role_without_bash_is_shown_the_file_door_only()

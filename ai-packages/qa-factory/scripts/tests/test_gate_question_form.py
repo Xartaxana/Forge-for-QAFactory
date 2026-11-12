@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir, SCRIPTS  # noqa: E402
+from harness import check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir, write_register, SCRIPTS  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -65,7 +65,7 @@ def story(prefix: str, questions=None, pipeline_extra=None) -> Path:
     (task_root / "work").mkdir(parents=True)
     (task_root / "state").mkdir(parents=True)
     (base / "config.json").write_text("{}", encoding="utf-8")
-    (task_root / "work" / "requirements-register.md").write_text(REGISTER, encoding="utf-8")
+    write_register(task_root, REGISTER, head="")
     (task_root / "work" / "test-plan.json").write_text(json.dumps(PLAN), encoding="utf-8")
     (task_root / "work" / "requirements-readiness.json").write_text(
         json.dumps({"verdict": "ready", "open_questions": questions or []}), encoding="utf-8")
@@ -232,7 +232,7 @@ def gate_story(prefix: str, questions: list, rows=None, cases=None, pipeline=Non
         (task_root / "work" / "requirements-readiness.json").write_text(
             json.dumps({"verdict": "ready", "open_questions": questions}), encoding="utf-8")
     if with_register_md:
-        (task_root / "work" / "requirements-register.md").write_text(REGISTER, encoding="utf-8")
+        write_register(task_root, REGISTER, head="")
     (task_root / "work" / "test-plan.json").write_text(json.dumps(rows or []), encoding="utf-8")
     for number, text in (cases or {}).items():
         (task_root / "work" / "test-cases" / "webhook" / f"{full_id(number)}.md").write_text(

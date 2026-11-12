@@ -293,7 +293,7 @@ again, and only then continue. This is the factory's own defect, not a repair to
 hand the person: "add these four keys" for keys no test needs is exactly the halt this step
 exists to prevent. When the person's answer is that a key stays anyway, that is their word
 and it passes — record it with `project_decisions.py --root . add --field-ref
-/environment/integrations --essence "environment integrations kept by the person's word: config.json" --asked
+doc:config.json#/environment/integrations --essence "environment integrations kept by the person's word: config.json" --asked
 "<the question as it was put>"` and write the key where they said it belongs, with its `required_by` or `read_at`.
 
 Two cases of a failed login. (a) `login.refusal: body_shape` is a config problem, not a stand
@@ -595,7 +595,7 @@ doc:strategy/test-strategy.md#risk-and-impact-scale
 --essence "risk areas not named: strategy/test-strategy.md (Risk and impact scale), strategy/aspect-profile.md"
 --asked "batch <id>: <the risk-areas question as it was put>" --trigger-type story_count --trigger-value 3` (it
 comes due after three sized stories, `project_decisions.due`). The field ref is a document ref
-(`doc:<path under qa-factory>[#<anchor>]`): the hole is a paragraph, not a key of `config.json`. Its later resolution names
+(`doc:<path under qa-factory>[#<anchor>]`, a relative path with no `:` or `..`; `./` and an empty `#` are dropped): the hole is a paragraph, not a key of `config.json`. Its later resolution names
 both files and gives no value: `project_decisions.py --root . resolve --id <DD-n> --words-file <file> --resolution-ref
 <evidence> --marker-file qa-factory/strategy/test-strategy.md --marker-file qa-factory/strategy/aspect-profile.md
 --marker-text "[DEFERRED: risk areas not named]"`. Write the paragraphs into both files with the marker line left where it stands;

@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import SCRIPTS, check, check_eq, check_in, cleanup, finish, run_script, temp_project  # noqa: E402
+from harness import SCRIPTS, check, check_eq, check_in, cleanup, finish, run_script, temp_project, write_register  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
 import detector_verdict as DV  # noqa: E402
@@ -74,7 +74,7 @@ class Story:
         if diff is not None:
             self.diff(diff)
         if register is not None:
-            (self.task / "work" / "requirements-register.md").write_text(register, encoding="utf-8")
+            write_register(self.task, register, head="")
         if manifest is not None:
             (self.task / "work" / "context-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         if blast is not None:                                   # the index file the driver would have built (R8 reads THIS, not the table)
@@ -301,7 +301,7 @@ s = Story()
 s.skeleton()
 s.edit(lambda d: d["requirements"][0].update(state="implemented", hunks=[d["hunks"][0]["id"]], where=""))
 s.edit(lambda d: d["requirements"][1].update(state="unknown", question="what is meant?"))
-(s.task / "work" / "requirements-register.md").write_text(REG.replace("| R-3 | Third thing", "| R-9 | Third thing").replace("First thing", "First thing, reworded"), encoding="utf-8")
+write_register(s.task, REG.replace("| R-3 | Third thing", "| R-9 | Third thing").replace("First thing", "First thing, reworded"), head="")
 s.run("--refresh")
 after = s.data()
 check_eq("a reworded requirement goes to orphans (requirement_changed), its line is empty again",
@@ -384,10 +384,10 @@ check("R2: unknown with no question", any("no `question`" in t for t in find(s, 
 s.edit(lambda d: d["requirements"][-1].update(state="unknown", question="what?"))
 check_eq("R2: unknown with a question passes", find(s, "R2"), [])
 reg = REG.replace("| R-3 |", "| R-3a |")
-(s.task / "work" / "requirements-register.md").write_text(reg, encoding="utf-8")
+write_register(s.task, reg, head="")
 s.edit(lambda d: d.update(register_sha256=hashlib.sha256(reg.encode("utf-8")).hexdigest()))
 check("R2: a register row the id reader drops (R-3a) is named", any("R-3a" in t for t in find(s, "R2")))
-(s.task / "work" / "requirements-register.md").write_text(REG, encoding="utf-8")
+write_register(s.task, REG, head="")
 s.edit(lambda d: d.update(register_sha256=hashlib.sha256(REG.encode("utf-8")).hexdigest()))
 s.done()
 s = Story()
@@ -453,7 +453,7 @@ check_eq("R4 (F-11): tied hunk passes", [t for t in find(s, "R4") if "no impleme
 s.done()
 # R5
 for name, act, words in (("the diff moved", lambda s: s.diff(BASE + "\n" + diff_text(section("n.py", hunk(1, ["+n"])))), "moved"),
-                         ("the register changed", lambda s: (s.task / "work" / "requirements-register.md").write_text(REG + "\nmore\n", encoding="utf-8"), "register changed"),
+                         ("the register changed", lambda s: write_register(s.task, REG + "\nmore\n", head=""), "register changed"),
                          ("the source changed", lambda s: s.edit(lambda d: d.update(implementation_source="current-code")), "implementation_source"),
                          ("a hunk record was removed", lambda s: s.edit(lambda d: d["hunks"].pop()), "was edited"),
                          ("a hunk record was edited", lambda s: s.edit(lambda d: d["hunks"][0].update(file="other.py")), "was edited")):
