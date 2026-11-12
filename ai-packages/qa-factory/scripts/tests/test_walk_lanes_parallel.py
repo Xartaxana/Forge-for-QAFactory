@@ -277,20 +277,55 @@ def one_lane_old_body():
     check("a single settling lane takes the old body at one at a time", err is None and registered(d) == ["S6-qa-runner-2"], repr(err))
 
 
-def same_account_lanes_in_turn():
-    cases = ["TC-1", "TC-2"]
-    seen = Overlap()
+GRACE = 0.5     # how long the holder waits for the other lane to wrongly enter; a wait for an event that must NOT come, never a proof of one
+
+
+def hold_first_lane(keys, cases):
+    """Two lanes whose holds meet: the first lane to enter its session HOLDS on an event until a watcher thread releases it, and the
+    watcher first gives the other lane `GRACE` seconds to (wrongly) enter. Returns `(driver, error, order, entered_while_held, stuck)`:
+    `order` the cases in the order their sessions began, `entered_while_held` True when the second session began before the release,
+    `stuck` True when the watcher did not finish within `WAIT`. The release sits in a `finally`, so a lane that raises never hangs this."""
+    lock, order = threading.Lock(), []
+    holding, release, second = threading.Event(), threading.Event(), threading.Event()
+    box = {"early": False}
 
     def session(did, scope):
-        with seen.at_work():
-            pass
-    d = make(cases, {"TC-1": "stand_account:admin", "TC-2": "stand_account:admin"}, session=session)
-    err, _said = enter(d, cases)
-    check("two lanes on one account never overlap, and both ran", err is None and seen.most == 1 and d.world.done_cases() == set(cases), repr(err))
-    d = make(["TC-1", "TC-2", "TC-3"], {"TC-1": "", "TC-2": "", "TC-3": "stand_account:user"}, session=session)
-    seen.most = 0
-    err, _said = enter(d, ["TC-1", "TC-2", "TC-3"])
-    check("guest beside guest is in turn too (`account:guest`)", err is None and d.world.done_cases() == {"TC-1", "TC-2", "TC-3"})
+        with lock:
+            order.append(scope[0])
+            first = len(order) == 1
+            if first:
+                holding.set()
+            else:
+                box["early"] = not release.is_set()
+                second.set()
+        if first:
+            release.wait(WAIT)
+
+    def watcher():
+        try:
+            if holding.wait(WAIT):
+                second.wait(GRACE)
+        finally:
+            release.set()
+    d = make(cases, keys, session=session)
+    thread = threading.Thread(target=watcher)
+    thread.start()
+    try:
+        err, _said = enter(d, cases)
+    finally:
+        release.set()
+        thread.join(WAIT)
+    return d, err, order, box["early"], thread.is_alive()
+
+
+def same_account_lanes_in_turn():
+    cases = ["TC-1", "TC-2"]
+    d, err, order, early, stuck = hold_first_lane({"TC-1": "stand_account:admin", "TC-2": "stand_account:admin"}, cases)
+    check("the holding watcher finished (no hang)", not stuck and err is None, repr(err))
+    check("two lanes on one account: the second does not enter while the first holds", early is False, repr(order))
+    check_eq("both lanes ran, the second after the first left", (sorted(order), d.world.done_cases()), (sorted(cases), set(cases)))
+    # Guests: since TR3-10 guest lanes run side by side when their data is disjoint (key `guest_lanes_side_by_side_when_data_disjoint`);
+    # the old "guest beside guest in turn" half asserted nothing about order and is gone.
 
 
 def overlapping_part_sets_in_turn():
@@ -300,15 +335,10 @@ def overlapping_part_sets_in_turn():
     check_eq("a lane of one part holds that part", d.s6_lane_holds(["TC-2"]), {"case:TC-2", "account:stand_account:user"})
     check_eq("a guest holds `account:guest`", make(["G"], {"G": ""}).s6_lane_holds(["G"]), {"case:G", "account:guest"})
     check_eq("a key that cannot be read holds `account:?<case>`", make(["U"], {}).s6_lane_holds(["U"]), {"case:U", "account:?U"})
-    seen = Overlap()
-
-    def session(did, scope):
-        with seen.at_work():
-            pass
-    err, _said = enter(d, ["TC-1", "TC-2"])
-    d = make(["TC-1", "TC-2"], {"TC-1": "stand_account:admin+stand_account:user", "TC-2": "stand_account:user"}, session=session)
-    err, _said = enter(d, ["TC-1", "TC-2"])
-    check("lanes whose part sets meet run in turn, not side by side", err is None and seen.most == 1 and d.world.done_cases() == {"TC-1", "TC-2"}, repr(err))
+    d, err, order, early, stuck = hold_first_lane({"TC-1": "stand_account:admin+stand_account:user", "TC-2": "stand_account:user"}, ["TC-1", "TC-2"])
+    check("the holding watcher finished (no hang)", not stuck and err is None, repr(err))
+    check("lanes whose part sets meet: the second does not enter while the first holds", early is False, repr(order))
+    check_eq("both lanes ran", (sorted(order), d.world.done_cases()), (["TC-1", "TC-2"], {"TC-1", "TC-2"}))
 
 
 def lane_crash_others_finish_one_seam():

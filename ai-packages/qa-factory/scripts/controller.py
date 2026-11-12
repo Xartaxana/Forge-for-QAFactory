@@ -4971,7 +4971,8 @@ class Controller:
     def _holder_would_refuse(self, operation, request, current):
         """Would a `running` row of `current` REFUSE this holding operation (the only case in which `apply` may close a dead one)?
         `revise_plan`, `semantic_reopen` and `invalidate`: any running row. `dispatch` and `resume`: a running row that the S5 window
-        clause (`_window_beside_running`, the same call `validate` and `_resume_problems` make) does not admit beside the request;
+        clause (`_window_beside_running`) or its S6 twin (`_lane_beside_running`) - the same two calls `validate` and
+        `_resume_problems` make - does not admit beside the request;
         a resume of an unknown id has no holder to blame (its own refusal stands). Error direction: when in doubt it says True (the
         repair is guarded by the revision and by the row's status, so a needless attempt costs a read, never a wrong write)."""
         dispatches = [d for d in (current.get("dispatches") or {}).values() if isinstance(d, dict)]
@@ -4986,13 +4987,15 @@ class Controller:
                 # the repair must not close the very row the replay names. A recorded id under a FRESH key is no replay: the
                 # prelude runs as for any dispatch and `validate` refuses it ("resume existing dispatch")
                 return False
-            return not self._window_beside_running(request, current, running)
+            return not (self._window_beside_running(request, current, running)
+                        or self._lane_beside_running(request, current, running))
         if operation == "resume":
             target = (current.get("dispatches") or {}).get(request.get("id")) if isinstance(request.get("id"), str) else None
             if not isinstance(target, dict):
                 return False
             beside = [d for d in running if d is not target]
-            return bool(beside) and not self._window_beside_running(target, current, beside, flagged=False)
+            return bool(beside) and not (self._window_beside_running(target, current, beside, flagged=False)
+                                         or self._lane_beside_running(target, current, beside, flagged=False))
         return True
 
     def apply(self, operation, request):

@@ -94,6 +94,32 @@ def two_lanes_disjoint_distinct_accounts_admitted():
         cleanup(root)
 
 
+def admitted_lane_never_runs_close_settled():
+    """TR4-7 B1 for S6: a lane `validate` admits beside a running one must not make `apply` run the dead-holder repair over its
+    siblings. The liveness reader is made to say "the session is over" for every row, so a repair that ran WOULD close L1."""
+    import dispatch_liveness
+    root, c = with_one()
+    try:
+        asked = []
+
+        def over(project, dispatch, now=None):
+            asked.append(dispatch.get("id"))
+            return {"state": dispatch_liveness.RETURNED, "evidence": ["probe: the session is over"]}
+
+        c._liveness = over
+        before = dict(rec(c, "L1"))
+        c.apply("dispatch", lane("L2", ["TC-2"], "bob"))
+        check_eq("an admitted second lane: the first lane's row is untouched", rec(c, "L1"), before)
+        check_eq("both lanes run", running(c), ["L1", "L2"])
+        check_eq("liveness was never asked about a sibling of an admitted lane", asked, [])
+        # control: a request that no clause admits still gets the repair (the clause only widens the admitted case)
+        refused = refusal(lambda: c.apply("dispatch", lane("L3", ["TC-2", "TC-3"], "carol")))
+        check("control: a lane that shares a case is NOT admitted, so the repair ran (liveness asked) and the rows closed",
+              asked and rec(c, "L1")["status"] != "running", (asked, refused))
+    finally:
+        cleanup(root)
+
+
 def shared_case_refused():
     root, c = with_one()
     try:
@@ -365,6 +391,7 @@ def config_walkers_absent_bad_bool_zero():
 
 def main():
     two_lanes_disjoint_distinct_accounts_admitted()
+    admitted_lane_never_runs_close_settled()
     shared_case_refused()
     same_account_refused()
     guest_beside_guest_refused()
