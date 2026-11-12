@@ -286,6 +286,20 @@ def home_of(table: dict) -> str:
     return str(table.get("home") or "qa-factory")
 
 
+def in_home(path, table: dict, fold: bool | None = None) -> bool:
+    """True when `path` is the factory's home or lies under it (the home is the table's `home`, never a literal).
+
+    The same test as scan_tree's inline one. A path that does not normalise is NOT in the home: the
+    caller refuses it, the safe side (a trailing dot or space in the home segment is not the home here)."""
+    rel, why = normalize_rel(path)
+    if why is not None:
+        return False
+    fold = _fold_default() if fold is None else fold
+    h = _key(home_of(table), fold)
+    k = _key(rel, fold)
+    return k == h or k.startswith(h + "/")
+
+
 def gitignore_lines(table: dict | None = None) -> list:
     """[{line, generation}]: `.gitignore` lines an earlier generation wrote (onboard_apply owns
     the `.gitignore` edit; the line text lives here, in the table, not in that code)."""
@@ -583,6 +597,15 @@ def _shape_errors(table) -> list:
                 elif isinstance(glob, str) and glob and any(_match(o.split("/"), glob.split("/"), False) for o in _step_outputs(table)):
                     bad("a `hook_written` glob must not cover an output of a `regenerate_step`: flagging it would drop a file the "
                         "install rebuilds from the manifest and from the reinstall-equals-fresh comparison")
+        if "rebuilt_by" in rule:
+            # OH3-9: the basis of a regenerated row that no step, flag, lock or condition covers (one error per row).
+            rb = rule["rebuilt_by"]
+            if not isinstance(rb, str) or not rb.strip() or "/" in rb or _BACKSLASH in rb or ".." in rb or rb.strip().casefold() == "none":
+                bad("`rebuilt_by` must be ONE script name under scripts/ (no path, not `none`: a file nothing rebuilds is not regenerated)")
+            elif rule.get("class") != "regenerated":
+                bad("`rebuilt_by` belongs on a regenerated row only")
+            elif not isinstance(rule.get("note"), str) or not rule["note"].strip():
+                bad("a `rebuilt_by` row carries a `note` saying why its absence costs no test run, no money and no question")
         if "before_install" in rule:
             # B-411: the flag only SUBTRACTS (a flagged path is not counted as a trace of an install), so every
             # shape that could make it hide a real trace is refused here: a value that is not a real bool, a row
@@ -694,6 +717,46 @@ def _layout_errors(table: dict) -> list:
     return errors
 
 
+_BASIS_WAYS = ("Give it one: an output of a `regenerate_step`, `hook_written: true`, a `lock_kind`, a `discard_when`, or "
+               "`rebuilt_by: <script under scripts/>` with a `note` saying why its absence costs no test run, no money and "
+               "no question. If its absence costs any of these, the row is `carried`.")
+
+
+def _basis_errors(table: dict, package_root: Path, shaped: set) -> list:
+    """OH3-9: every `regenerated` row states a basis, or a reinstall would delete it as a leftover nothing rebuilds.
+    A basis: a `regenerate_step` output, `hook_written: true`, a `lock_kind`, a well-formed `discard_when`, or
+    `rebuilt_by` naming a script under scripts/ that contains the row's key. A row that already has a `shape`
+    error is skipped (one error per row). May err only toward refusing."""
+    errors = []
+    outputs = _step_outputs(table)
+    for r in table["rules"]:
+        if not (isinstance(r, dict) and isinstance(r.get("glob"), str) and r["glob"] and r.get("class") == "regenerated"):
+            continue
+        glob = r["glob"]
+        if glob in shaped:
+            continue
+        cond = r.get("discard_when")
+        if (any(_match(o.split("/"), glob.split("/"), False) for o in outputs)
+                or r.get("hook_written") is True
+                or r.get("lock_kind") in LOCK_KINDS
+                or (isinstance(cond, dict) and isinstance(cond.get("json_field"), str) and isinstance(cond.get("differs_from"), str))):
+            continue
+        name = r.get("rebuilt_by")
+        if name is None:
+            msg = (f"regenerated row {glob!r} states no basis: a reinstall would delete it as a leftover nothing rebuilds. "
+                   + _BASIS_WAYS)
+        else:
+            text = _read_lower(_reader_path(package_root, name))
+            if text is None:
+                msg = f"`rebuilt_by` {name!r} of {glob!r} is not in the package (scripts/{name}). " + _BASIS_WAYS
+            elif _key_of(r).casefold() not in text:
+                msg = f"`rebuilt_by` {name!r} does not contain {_key_of(r)!r}, the key of {glob!r}. " + _BASIS_WAYS
+            else:
+                continue
+        errors.append({"code": "regenerated_without_basis", "glob": glob, "message": msg})
+    return errors
+
+
 def validate_table(package_root=None, table: dict | None = None) -> dict:
     """Refuse a table that contradicts itself or the package. -> {ok, rules, errors[], grep{}}.
 
@@ -704,7 +767,8 @@ def validate_table(package_root=None, table: dict | None = None) -> dict:
     folder_mismatch (a record in the ignored folder, a machine-local file in the tracked one, or a
     `moved_to` that does not land in a tracked folder), regenerate_script_missing / regenerate_output_unrowed
     (a `regenerate_step` script that is not in the package, or an output the table does not know as
-    regenerated or carried).
+    regenerated or carried), regenerated_without_basis (a regenerated row with no basis, or a
+    `rebuilt_by` script that is absent or lacks the row's key).
 
     G4: `reader: none` is VERIFIED, not declared. The grep that finds no reader must first find a
     known one -- the control is the first declared reader's key through the SAME function and the
@@ -766,7 +830,8 @@ def validate_table(package_root=None, table: dict | None = None) -> dict:
             errors.append({"code": "reader_key_absent", "glob": r["glob"], "message":
                            f"reader {r['reader']!r} does not contain {_key_of(r)!r}, the key of {r['glob']!r}; name the "
                            "script that does (grep the package), or set the row's `key`"})
-    nones = [r for r in rules if r.get("reader") == "none"]
+    errors.extend(_basis_errors(table, package_root, {e["glob"] for e in errors if e["code"] == "shape"}))
+    nones =[r for r in rules if r.get("reader") == "none"]
     if nones:
         control = next((r for r in readers if _key_of(r).casefold() in (_read_lower(_reader_path(package_root, r["reader"])) or "")), None)
         if control is not None:

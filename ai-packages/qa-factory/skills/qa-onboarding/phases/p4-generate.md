@@ -28,9 +28,13 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/onboard_apply.py" --root . --proposal <sea
   kept in `qa-factory/state/` into `qa-factory/records/` (bytes unchanged, before anything is removed);
   removes lock files nobody holds, rebuilds
   readiness and the dashboard (step 9), deletes the factory's own technical data and sets aside what
-  the summary listed, and writes the install record last. It reads every listed file again first;
-  if one differs from what the summary showed it refuses, names the paths and writes nothing: make
-  the summary again. A session that is running refuses it too, with the way out.
+  the summary listed, and writes the install record last. It reads every listed file again first.
+  A file under `qa-factory/` that changed or appeared after the summary is settled by its class and
+  named in `after_summary`: the factory's own machine-local technical data is deleted and named in the
+  removal record; anything else is kept as it is and the next summary lists it. Only a path outside
+  `qa-factory/` that differs from what the summary showed refuses the apply: it names the paths and
+  writes nothing; make the summary again. Never ask the person what to do with a file under `qa-factory/`: relay the `after_summary` lines in the digest.
+  A session that is running refuses it too, with the way out.
 - The old `strategy/product-passport.md` goes only behind this run's fold receipt. After folding it
   (step 3) record the fold: `config_contract.py --root . --record-approval <sealed.json> --approval-ref
   <ref> --evidence-ref <ref> --fold`. Without the receipt the final half keeps the file and says it

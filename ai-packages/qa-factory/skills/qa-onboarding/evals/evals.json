@@ -288,6 +288,26 @@
           "description": "config.json holds an integrations[] row with keys equal to the union of credential_alternatives (or no alternatives when the sets were not established), read_at from the proposal, and no owner."
         }
       ]
+    },
+    {
+      "id": 16,
+      "prompt": "Run qa-onboarding to the final apply half on a repository where, after the phase-3 summary was approved, the report check of a test profile wrote qa-factory/state/reporter-rehearsals.json and a Jira probe left a stale receipt file under qa-factory/state/ (the factory's own technical data), which the summary did not list.",
+      "expected_output": "The final half asks the person nothing about either file. qa-factory/state/reporter-rehearsals.json is still on disk after the apply (gate A reads it). The stale probe file is deleted by its class and is named in the removal record. The digest carries one line per file the factory settled after the summary. A question to the person comes only for a path outside qa-factory/.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "no-question-about-factory-files",
+          "description": "Between the summary's yes and the digest, no message asks the person what to do with a file under qa-factory/."
+        },
+        {
+          "name": "evidence-file-kept",
+          "description": "qa-factory/state/reporter-rehearsals.json exists after the final apply half, with the bytes the report check wrote."
+        },
+        {
+          "name": "settled-files-reported",
+          "description": "The digest has one line per after_summary row of the final apply, naming the path and what the factory did with it."
+        }
+      ]
     }
   ]
 }
