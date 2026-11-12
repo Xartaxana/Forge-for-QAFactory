@@ -596,6 +596,54 @@ def main() -> None:
         tracker_write.probe = held_probe
         cleanup(root)
 
+    # 9b. B-153 (P8, FR-59): the run's own record (`pipeline.no_trace`, read through `external_writes.closed_by_run`)
+    #     closes the tracker check when readiness is told the story (`--task-root`), with no `--no-trace` flag; one
+    #     table. Closed if EITHER the record or the flag says closed; an unreadable record is unknown and never polls.
+    root = temp_project("qa-factory-readiness-record-")
+    held_probe, probes = tracker_write.probe, []
+    try:
+        cfg_path = root / "qa-factory" / "config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg["external_writes"] = {"bugs": "jira", "cases": "markdown",
+                                  "channels": {"jira": {"method": "agent", "invoke": "jira-assistant"}}}
+        cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+        def fake_probe_record(*args, **kwargs):
+            probes.append(kwargs.get("where"))
+            return {"status": "unverified", "reason": "nobody asked", "ask": "may it create issues?",
+                    "invoke": "jira-assistant"}
+        tracker_write.probe = fake_probe_record
+        stories = Path(root) / "record-stories"
+        bodies = {"yes": '{"no_trace": true}', "absent": '{"stage": "S0"}', "unreadable": "{not json",
+                  "false": '{"no_trace": false}'}
+        for kind, body in bodies.items():
+            (stories / f"R-{kind}").mkdir(parents=True)
+            (stories / f"R-{kind}" / "pipeline.json").write_text(body, encoding="utf-8")
+        # (record, flag, task given, polled?, tracker_write status)
+        rows = [("yes", False, True, False, "not_configured"),
+                ("yes", True, True, False, "not_configured"),
+                ("absent", False, True, True, "unknown"),
+                ("absent", True, True, False, "not_configured"),
+                ("false", False, True, True, "unknown"),
+                ("unreadable", False, True, False, "unknown"),
+                ("unreadable", True, True, False, "not_configured"),
+                ("yes", False, False, True, "unknown"),       # no task given: today's behaviour, the flag decides
+                ("yes", True, False, False, "not_configured")]
+        for record, flag, given, polled, status in rows:
+            probes.clear()
+            argv = ["--json"] + (["--no-trace"] if flag else []) + (
+                ["--task-root", str(stories / f"R-{record}")] if given else [])
+            caps = json.loads(cli(root, *argv).stdout)["capabilities"]
+            label = f"record {record}, flag {flag}, task {given}"
+            check_eq(f"{label}: tracker probed", bool(probes), polled)
+            check_eq(f"{label}: tracker_write status", caps["tracker_write"]["status"], status)
+        probes.clear()
+        caps = json.loads(cli(root, "--json", "--task-root", str(stories / "R-unreadable")).stdout)["capabilities"]
+        check_in("an unreadable record is named in the note", "cannot be read", caps["tracker_write"]["note"])
+    finally:
+        tracker_write.probe = held_probe
+        cleanup(root)
+
     # 10. t-232 F1 (Lead's decision after t-260): the tracker-write receipt is a probe cache in state/; the
     #     person's answer is carried in the approvals log. The doctor's row reads the receipt's own `answered`,
     #     else the log's latest line, else asks. Both worlds: an old receipt with `answered` and no log line.

@@ -35,6 +35,7 @@ CLI:
   readiness.py --json                print readiness.json to stdout
   readiness.py --write               write <project>/qa-factory/state/readiness.json
   readiness.py --require a,b         exit 1 listing what is missing and who owns it
+  readiness.py --task <KEY>          also read that story's no-trace record (closed -> the tracker is not probed)
 
 No qa-factory/config.json (the project was never onboarded) -> silent exit 0: the plugin's
 hooks fire in every repository on the machine and must stay quiet outside factory projects.
@@ -814,15 +815,38 @@ def closed_for_run() -> dict:
                        "verify": "the bug files in this repository are the record"})
 
 
-def check_tracker_write(cfg: dict, root: Path, no_trace: bool = False) -> dict:
+def run_record_state(task_root) -> str:
+    """What the run's own record says about an experiment: "closed", "open" or "unreadable" (B-153, P8).
+
+    Read through `external_writes.closed_by_run`, the one reader every other consumer shares (AR-13):
+    its default form answers "closed" for a record that says so; its `unreadable_closes=True` form also
+    answers for a pipeline that cannot be read. No task given -> "open" here means "the record says
+    nothing", and the CLI flag alone decides (today's behaviour)."""
+    if task_root is None:
+        return "open"
+    import external_writes
+    if external_writes.closed_by_run(task_root):
+        return "closed"
+    if external_writes.closed_by_run(task_root, unreadable_closes=True):
+        return "unreadable"
+    return "open"
+
+
+def check_tracker_write(cfg: dict, root: Path, no_trace: bool = False,
+                        record: str = "open") -> dict:
     """Not "is a bugs channel configured" but "may it CREATE an issue". TP2-2534: a good
     run whose findings never reached Jira, because the channel was read-only and nobody asked.
 
     `no_trace`: an experiment asks nothing of the tracker - the probe is not called at all
     (a probe of a tracker is itself a call to it, and FR-36 forbids probing what the run's
     standing decision forbids)."""
-    if no_trace:
+    if no_trace or record == "closed":
         return closed_for_run()
+    if record == "unreadable":
+        # FR-59: the run's record cannot be read, so whether this is an experiment is unknown; the tracker is not asked.
+        return cap(UNKNOWN, "factory",
+                   "the run's record (pipeline.json) cannot be read, so it is unknown whether this run may "
+                   "ask the tracker; nothing was probed")
     try:
         import tracker_write
         r = tracker_write.probe(cfg, root, where="doctor")
@@ -1061,8 +1085,12 @@ def _config_schema_status(cfg: dict) -> dict:
 
 def compute(cfg: dict, root: Path, selected_profiles: list[str] | None = None,
             selected_repos: set[str] | None = None, probe_vcs: bool = False,
-            no_trace: bool = False) -> dict:
+            no_trace: bool = False, task_root=None) -> dict:
     original_cfg = cfg
+    # Closed if EITHER the run's record or the flag says closed; the record never re-opens polling (B-153, P8).
+    record = run_record_state(task_root)
+    if record == "closed":
+        no_trace = True
     cfg = effective_config(cfg)
     data = {
         "schema_version": REQUIRED_SCHEMA_VERSION,
@@ -1078,7 +1106,7 @@ def compute(cfg: dict, root: Path, selected_profiles: list[str] | None = None,
             "vcs": check_vcs(root, probe_vcs),
             "environment": check_environment(cfg, root),
             "external_writes": closed_for_run() if no_trace else check_external_writes(cfg, root),
-            "tracker_write": check_tracker_write(cfg, root, no_trace),
+            "tracker_write": check_tracker_write(cfg, root, no_trace, record),
             "project_dependencies": check_project_dependencies(cfg, root),
             "config_schema": check_config_schema(cfg),
         },
@@ -1196,16 +1224,25 @@ def main() -> None:
     ap.add_argument("--no-trace", action="store_true", dest="no_trace",
                     help="experiment run: the tracker-write and external-writes checks are closed "
                          "for this run and nothing is probed (P8)")
-    args = ap.parse_args()
+    ap.add_argument("--task", default=None,
+                    help="the story key: its recorded no-trace decision (pipeline.no_trace) closes the "
+                         "tracker check too, so a repeated run without --no-trace never polls the tracker")
+    ap.add_argument("--task-root", default=None, dest="task_root",
+                    help="the story's folder, instead of --task")
+    from hooklib import exact_options, story_cli
+    args = exact_options(ap).parse_args()
 
     if not config_path().exists():
         sys.exit(0)  # not an onboarded project — say nothing
 
+    task_root = None
+    if args.task is not None or args.task_root is not None:
+        task_root = story_cli("readiness.py", key=args.task, root=args.task_root)
     root = project_root()
     selected_profiles = [p.strip() for p in args.profiles.split(",") if p.strip()] or None
     selected_repos = set(filter(None, (part.strip() for part in args.repos.split(","))))
     data = compute(load_config(), root, selected_profiles, selected_repos, args.probe_vcs,
-                   args.no_trace)
+                   args.no_trace, task_root)
 
     if args.write:
         target = RP.readiness_write(root)       # qa-factory/state/readiness.json: regenerated, machine-local
