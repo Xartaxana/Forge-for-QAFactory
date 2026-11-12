@@ -13,9 +13,9 @@ repository's history and run data are kept in a bundle outside GitHub (decisions
 
 ## Current Task
 
-Finish the move: pile `github-move` (`plans/PILES.md`) — the first runs of `forge-check`, `nightly` and `canon` on GitHub,
-the first release PR in `QAFactory`, the live run on the MyBooks stand (`docs/RUNBOOK.md` §11), and the transfer of the
-experiment branch with the same tools.
+Release 0.11.0 is out in `QAFactory` (tag `v0.11.0`, 12.11.2026). Next: the owner's test story run on it; the live run
+on the MyBooks stand (`docs/RUNBOOK.md` §11). `main` carries FG7-8 part B (the words commit / stash / go on), which is
+NOT in 0.11.0; read the canon on `main` first (`docs/tasks/compact-snapshots/2026-11-12-1315-lead.md`, top section).
 
 The journal starts anew in this repository (`journal_created`); task ids continue from the highest t-NNNN of the old journal (the history bundle), and the first `journal_created` of the new repository carries the field `continues_from: t-NNNN`.
 
