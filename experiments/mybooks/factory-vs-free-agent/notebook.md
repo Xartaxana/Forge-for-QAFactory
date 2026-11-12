@@ -97,7 +97,13 @@
 
 ## Открыто — ждёт владельца
 
-1. **Релиз фабрики** — после него: заморозка пакета и онбординг плеча `factory` (инструкция, условия 1 и 4).
+1. (сделано 12.11.2026 ≈ 17:05) **Релиз фабрики 0.11.0**: PR `Xartaxana/QAFactory#1` слит владельцем
+   (`5e55e30f893b0d086b5f3b04aabd2cfa8d1b685d`), тег `v0.11.0`, GitHub Release. **Пакет заморожен** (решила сама:
+   на теге релизного репозитория, а не на `main` форджа — там уже `d3b312d`, которого в релизе нет):
+   `C:\QAFactory\exp-fvf\pkg` — рабочее дерево `C:\QAFactory\QAFactory` на `v0.11.0`; `rev-parse HEAD` → `5e55e30…`,
+   `release_fingerprint.py --check` → «ok - the tree matches references/release-fingerprint.json (version 0.11.0)».
+   Пакет драйвера — `C:\QAFactory\exp-fvf\pkg\qa-factory`. Строка «на 12.11 `main` — `688ae28`, пакет 0.10.9» выше
+   устарела. Осталось: онбординг плеча `factory` (инструкция, условие 4), репетиция, прогон — оператору на Opus.
 2. (сделано владельцем 12.11.2026 ≈ 14:25) **Вход `claude`**: `claude auth status` → `"loggedIn": true`,
    `"authMethod": "claude.ai"`; проба `claude.cmd -p --model sonnet --output-format json` в пустой папке → выход 0,
    `result=OK`, модель `claude-sonnet-5-5`. Форма запуска с MCP-браузером по-прежнему не проверена (репетиция).

@@ -43,11 +43,15 @@
 
 ## 2. Условия старта — проверить все семь, каждое записать в «Подготовку» тетради
 
-1. **Релиз фабрики вышел, и пакет заморожен.** Владелец называет тег или коммит релиза. Заморозка — неподвижное рабочее
-   дерево вне репозитория:
-   `git -C C:\QAFactory\forge-repo worktree add --detach C:\QAFactory\exp-fvf\pkg <коммит релиза>`;
-   пакет драйвера — `C:\QAFactory\exp-fvf\pkg\ai-packages\qa-factory`. Проверка: `git -C C:\QAFactory\exp-fvf\pkg rev-parse HEAD`
-   равен названному коммиту; `Test-Path` на `...\scripts\story_run.py` и `...\.claude-plugin\plugin.json`.
+1. **Релиз фабрики вышел, и пакет заморожен — СДЕЛАНО 12.11.2026.** Релиз 0.11.0: PR `Xartaxana/QAFactory#1` слит
+   владельцем (`5e55e30f893b0d086b5f3b04aabd2cfa8d1b685d`), тег `v0.11.0` на нём же, GitHub Release «QA Factory 0.11.0».
+   Заморозка — неподвижное рабочее дерево РЕЛИЗНОГО репозитория на теге (не `main` форджа: там после релиза уже лёг
+   `d3b312d`, которого в релизе нет):
+   `git -C C:\QAFactory\QAFactory worktree add --detach C:\QAFactory\exp-fvf\pkg v0.11.0`;
+   пакет драйвера — `C:\QAFactory\exp-fvf\pkg\qa-factory`. Проверка перед стартом (повторить): `git -C C:\QAFactory\exp-fvf\pkg
+   rev-parse HEAD` → `5e55e30…`; `python -B C:\QAFactory\exp-fvf\pkg\qa-factory\scripts\release_fingerprint.py --check` →
+   «ok - the tree matches … (version 0.11.0)», выход 0; `Test-Path` на `...\scripts\story_run.py` и
+   `...\.claude-plugin\plugin.json`. В этом дереве ничего не правится.
 2. **Стенд жив и чист.**
    `powershell -NoProfile -ExecutionPolicy Bypass -File experiments\mybooks\factory-vs-free-agent\stand\stand.ps1 -Action status`
    — PostgreSQL слушает, оба приложения отвечают `{"status":"ok","db":"up"}`, оба Mailpit слушают. Не так —
@@ -96,7 +100,7 @@
 ## 3. Репетиция (обязательна; ролей фабрики не запускает)
 
 1. Сухой прогон драйвера:
-   `python C:\QAFactory\exp-fvf\pkg\ai-packages\qa-factory\scripts\story_run.py --task LOCAL-1 --env <имя среды из config.json> --model sonnet --no-trace --plugin-dir C:\QAFactory\exp-fvf\pkg\ai-packages\qa-factory --project C:\QAFactory\mybooks-stand\arm-factory\test-automation-framework --dry-run`
+   `python C:\QAFactory\exp-fvf\pkg\qa-factory\scripts\story_run.py --task LOCAL-1 --env <имя среды из config.json> --model sonnet --no-trace --plugin-dir C:\QAFactory\exp-fvf\pkg\qa-factory --project C:\QAFactory\mybooks-stand\arm-factory\test-automation-framework --dry-run`
    — печатает, что сделал бы; ошибок нет.
 2. Проба формы запуска `free` на пустой папке `C:\QAFactory\exp-fvf\smoke` (создать): та же команда, что в шаге 4.2, но
    промт — файл с одной строкой `Open http://localhost:3001 in the browser, read the page title, write it to out/title.txt, then stop.`
@@ -122,7 +126,7 @@
 ```powershell
 $env:PYTHONUNBUFFERED = "1"
 Start-Process -FilePath python -WorkingDirectory "C:\QAFactory\mybooks-stand\arm-factory\test-automation-framework" `
-  -ArgumentList "C:\QAFactory\exp-fvf\pkg\ai-packages\qa-factory\scripts\story_run.py","--task","LOCAL-1","--env","<имя среды>","--model","sonnet","--no-trace","--plugin-dir","C:\QAFactory\exp-fvf\pkg\ai-packages\qa-factory" `
+  -ArgumentList "C:\QAFactory\exp-fvf\pkg\qa-factory\scripts\story_run.py","--task","LOCAL-1","--env","<имя среды>","--model","sonnet","--no-trace","--plugin-dir","C:\QAFactory\exp-fvf\pkg\qa-factory" `
   -RedirectStandardOutput "C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\runs\factory-1.log" `
   -RedirectStandardError "C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\runs\factory-1.err" -PassThru
 ```
