@@ -12,6 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness  # noqa: E402
+import story_run_common  # noqa: E402
 from story_run_common import (  # noqa: E402
     check, check_in, check_not_in, d2_answer, d2_pipeline, d2_seed, driver_for, eq, run_scenarios, s0_state,
 )
@@ -49,8 +50,7 @@ def loop(driver, world, actions, seen):
             for dispatch_id in sorted(set(world.dispatches) - before):
                 world.accept(dispatch_id)
                 # X7-6c: S6 closes only over the consumer's (failure analyst's) record for the author's last dispatch; the analyst has judged it
-                import test_controller_state as BASE
-                BASE.record_stage_acceptance(driver.task_root, "S6", dispatch_id)
+                story_run_common.accept_record(driver.task_root, "S6", dispatch_id)
     driver.dispatch_action = act
 
 

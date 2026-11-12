@@ -3649,7 +3649,7 @@ def sd_head_lines(task_root: Path, stage: str, role: str, dispatch_id: str, name
         shown -= 1
         lines = lines_for(kept, shown)
     if lines and head_bytes(lines + [""]) > SD_HEAD_MAX_BYTES:
-        lines = lines + [f"head: — (head over cap: {head_bytes(lines + [''])} B)"]
+        lines = lines + [f"head: — (head over cap: {head_bytes(lines + [''])} budget B)"]
     return lines + [""] if lines else []
 
 
@@ -4529,8 +4529,8 @@ def main() -> int:
     sides = [k for k, v in result["sides"].items() if v]
     over = [r for r in result["over_ceiling"] if r in ("words at level 1", "doors only")]      # the budget reasons, not sd head / SLICE
     print(f"brief: {result['path']} ({result['bytes']:,} B"
-          + (f", {result['budget_bytes']:,} B against the ceiling" if result["budget_bytes"] != result["bytes"] else "")
-          + (f", over the {BRIEF_MAX_BYTES} B ceiling after every cut: {', '.join(over)}" if over else "")      # PC2-6: the conductor's note
+          + (f", {result['budget_bytes']:,} budget B against the ceiling" if result["budget_bytes"] != result["bytes"] else "")
+          + (f", over the {BRIEF_MAX_BYTES} budget B ceiling after every cut: {', '.join(over)}" if over else "")      # PC2-6: the conductor's note
           + (f", side files: {', '.join(sides)}" if sides else "")
           + (", not written" if ns.dry_run else "") + ")")
     return 0

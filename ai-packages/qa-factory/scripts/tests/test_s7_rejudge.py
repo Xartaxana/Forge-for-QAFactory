@@ -32,6 +32,7 @@ import delivery_verdict as DV  # noqa: E402
 import manual_evidence as M  # noqa: E402
 import s7_pretriage as S  # noqa: E402
 import story_run  # noqa: E402
+from story_run_common import awaits  # noqa: E402
 from test_story_run_s7 import LIFE, LimitRig, quietly, write  # noqa: E402
 
 WORD = C.TRIAGE_MISREAD_VERDICT
@@ -327,7 +328,6 @@ def q9c_a_fall() -> None:
         d.manual_plan = lambda scope, skip=(): {"blocks": [], "refused": []}
         record = {"id": "S6-qa-runner-2", "execution_kind": "manual", "scope": ["TC-1"]}
         # X7-6: the S6 rule is "the runner's finish that would close S6 awaits the consumer" (the open-work word), no longer a bare True
-        awaits = lambda result: getattr(result, "unresolved", result)       # noqa: E731
         check_eq("Q9c a record that is not ours takes the S6 rule (nothing left to run: it would close, so it awaits the consumer)",
                  awaits(d.completion_for("S6", "qa-runner", record)), "stage_awaits_acceptance")
         d.state["s7_rejudge"] = {"TC-1|a9": ["S6-qa-runner-2"]}

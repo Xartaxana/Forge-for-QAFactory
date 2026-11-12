@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures"))
 import synthetic_corpus  # noqa: E402
 import harness  # noqa: E402
 from harness import PLUGIN_ROOT, check, check_eq, check_in, finish  # noqa: E402
+import story_run_common  # noqa: E402
 from story_run_common import driver_for  # noqa: E402
 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
@@ -227,10 +228,7 @@ class Replay:
             pipeline_path = replay.task_root / "pipeline.json"
             pipeline = json.loads(pipeline_path.read_text(encoding="utf-8")) if pipeline_path.is_file() else {}
             if author and not acceptance.accepted_for(pipeline, "S7", author):
-                pipeline.setdefault("acceptance", {})["S7"] = [{"stage": "S7", "role": "qa-failure-analyst", "acceptor": "qa-doc-scribe",
-                                                                "reviewed_dispatch": author, "verdict": "accept", "failure_class": None, "quote": "",
-                                                                "witness_paths": [], "at": "t"}]
-                pipeline_path.write_text(json.dumps(pipeline), encoding="utf-8")
+                story_run_common.accept_record(replay.task_root, "S7", author)
             return real_await(d, person_words)
         story_run.Driver.s7_await_scribe = await_scribe
         story_run.Driver.run_role = wrapped(lambda d, stage, role, **kw: f"run_role:{stage}:{role}:{kw.get('purpose')}", self.saved["run_role"])

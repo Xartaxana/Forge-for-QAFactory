@@ -454,6 +454,7 @@ def _brief_ceiling(role=None, plugin_root=PLUGIN_ROOT) -> int:
     brief carries outside the body (t-1765 X1 fix-4, F3): the head is a layer of the load, seen by A22 / F-1."""
     import brief_pack
     import charter
+    # the ceiling is compared in budget bytes (the brief counted with the plugin root as a token), the unit "budget B" of brief_pack's labels
     ceiling = int(brief_pack.BRIEF_MAX_BYTES)
     try:
         text = (Path(plugin_root) / "agents" / f"{role}.md").read_text(encoding="utf-8-sig", errors="replace")

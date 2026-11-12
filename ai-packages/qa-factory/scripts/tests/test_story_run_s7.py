@@ -30,7 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness  # noqa: E402
 from harness import PLUGIN_ROOT, check, check_eq, check_in, check_not_in, finish  # noqa: E402
-from story_run_common import driver_for, seed  # noqa: E402
+from story_run_common import awaits, driver_for, seed  # noqa: E402
 from test_s7_pretriage import Verdict, check_row, report, result  # noqa: E402
 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
@@ -931,7 +931,7 @@ def ts5_edges_of_the_close() -> None:
         handoff.null_outcomes = lambda contract: {}
         kept = rig_.driver.s7_open_work()
         check_eq("T-S5 E8: a declaration that cannot be read at the analyst's finish KEEPS S7 open (OpenWork, never None)",
-                 (type(kept).__name__, getattr(kept, "unresolved", None)), ("OpenWork", "repairs_pending"))
+                 (type(kept).__name__, awaits(kept)), ("OpenWork", "repairs_pending"))
         raised, _ = rig_.run()
         check_in("T-S5 E8: ...and the entry refuses naming the key", "null_outcome.scope.params.repair_verdicts", str(raised))
     finally:
@@ -963,7 +963,8 @@ def e9_the_s7_rule_stands_before_rework_of() -> None:
         check_eq("E9: with a repair row a reworked analyst's finish is OpenWork (S7 stays open)", type(ruled(complete)).__name__, "OpenWork")
         write(rig_.task_root, triage={"triage": [{"case": "TC-1", "instance_id": "inst_1", "verdict": "APP_BUG"}]})
         # X7-6: with nothing to repair the finish is not "today's road" (None) any more: it awaits the consumer (the scribe), never closes S7
-        check_eq("E9: with nothing to repair the same call awaits the scribe's acceptance (X7-6)", getattr(ruled(complete), "unresolved", None), "stage_awaits_acceptance")
+        check_eq("E9: with nothing to repair the same call awaits the scribe's acceptance (X7-6)",
+                 (type(ruled(complete)).__name__, awaits(ruled(complete))), ("OpenWork", "stage_awaits_acceptance"))
         check_eq("E9 control: another stage's rework still answers False", rig_.driver.completion_for("S5", "qa-automator", {"rework_of": "x"}), False)
     finally:
         rig_.done()

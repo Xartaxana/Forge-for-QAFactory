@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import mark_project, s5_window_form
+from story_run_common import accept_record
 import controller as controller_module
 from controller import Controller, validate_manual_runner_block
 from event_store import StateConflict, content_hash
@@ -37,19 +38,8 @@ def check(name, ok, detail=""):
 
 
 def record_stage_acceptance(root, stage, reviewed_dispatch=""):
-    """X2-7: a stage that has an acceptor (`acceptance_by` in stages.json) closes over the acceptor's `accept` record; the fixtures that close
-    S2-S4 in one move write that record the way `stage_done.py --acceptance` would (the real writer is proved in test_controller_stage_acceptance)."""
-    import json
-    import contract
-    entry = contract._stage_entry(stage)
-    if not entry.get("acceptance_by"):
-        return
-    path = root / "pipeline.json"
-    pipeline = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    pipeline.setdefault("acceptance", {})[stage] = [{
-        "stage": stage, "role": entry["roles"][0], "acceptor": entry["acceptance_by"], "reviewed_dispatch": reviewed_dispatch, "verdict": "accept",
-        "failure_class": None, "quote": "", "witness_paths": [], "at": "t"}]
-    path.write_text(json.dumps(pipeline), encoding="utf-8")
+    """X2-7: the name the ~25 callers use; the writer is `story_run_common.accept_record` (the one writer of the record)."""
+    accept_record(root, stage, reviewed_dispatch)
 
 
 def accept_stage(controller, root, stage):

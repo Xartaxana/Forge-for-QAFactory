@@ -292,6 +292,28 @@ def set_control(root: Path, data: dict) -> None:
     (root / "stub-control.json").write_text(json.dumps(data), encoding="utf-8")
 
 
+def accept_record(root, stage, dispatch=""):
+    """X2-7: a stage that has an acceptor (`acceptance_by` in stages.json) closes over the acceptor's `accept` record; the fixtures that close
+    S2-S4 in one move, and the S6 rigs that stand for an analyst's verdict, write that record the way `stage_done.py --acceptance` would (the
+    real writer is proved in test_controller_stage_acceptance). The ONE writer of the record in the KEPT tests: `dispatch` is the `reviewed_dispatch`."""
+    import contract
+    entry = contract._stage_entry(stage)
+    if not entry.get("acceptance_by"):
+        return
+    path = root / "pipeline.json"
+    pipeline = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    pipeline.setdefault("acceptance", {})[stage] = [{
+        "stage": stage, "role": entry["roles"][0], "acceptor": entry["acceptance_by"], "reviewed_dispatch": dispatch, "verdict": "accept",
+        "failure_class": None, "quote": "", "witness_paths": [], "at": "t"}]
+    path.write_text(json.dumps(pipeline), encoding="utf-8")
+
+
+def awaits(value):
+    """The open-work word of a `complete` that awaits a consumer's acceptance: `value.unresolved` of an `OpenWork`; a plain string, None or
+    any object without that attribute comes back as itself. The ONE NORMALISER of the word: a site that must be strict reads the attribute itself, with a type check."""
+    return getattr(value, "unresolved", value)
+
+
 def stub_calls(root: Path) -> list:
     path = root / "stub-log.jsonl"
     return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []

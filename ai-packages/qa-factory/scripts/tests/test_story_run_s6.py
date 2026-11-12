@@ -20,7 +20,7 @@ class _Awaits:
     S6 by its own finish); this compares equal to that word, whatever its reason text."""
 
     def __eq__(self, other):
-        return getattr(other, "unresolved", None) == "stage_awaits_acceptance"
+        return type(other).__name__ == "OpenWork" and story_run_common.awaits(other) == "stage_awaits_acceptance"
 
     def __repr__(self):
         return "<awaits the consumer>"
@@ -28,6 +28,7 @@ class _Awaits:
 
 AWAITS = _Awaits()
 import harness  # noqa: E402
+import story_run_common  # noqa: E402
 from story_run_common import (  # noqa: E402
     run_scenarios,
     D1Evidence,
@@ -352,8 +353,7 @@ def manual_rig(root, env, task, cases, refused=(), world=None, auto_dispatches=(
 def record_failure_analyst_accept(driver, dispatch_id):
     """X7-6c: S6 closes only over the consumer's (failure analyst's) `accept` record for the author's last dispatch, never on the runner's own
     word; the rig's accepted runner dispatch has been judged by the analyst (the record written the way `stage_done.py --acceptance` writes it)."""
-    import test_controller_state as BASE
-    BASE.record_stage_acceptance(driver.task_root, "S6", dispatch_id)
+    story_run_common.accept_record(driver.task_root, "S6", dispatch_id)
 
 
 def enter_manual(driver, world, cases, accept=True):
@@ -2333,7 +2333,11 @@ def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
     """K3 + invariant (i): stale RUNS -> the runner as today, launched with `complete=False` when stale live checks are owed, no
     probe before it (a probe is never next to code with no run on its current bytes); on its return (`auto_done`) the proofs, the
     reduction and the close at `s6.reprobed`; once per life of S6; the second life (no mark of ours) probes only when every run
-    stands. MUTATIONS: `the probe before the runs` -> the first check; `complete=True with stale probes` -> the complete check."""
+    stands. MUTATIONS: `the probe before the runs` -> the first check; `complete=True with stale probes` -> the complete check;
+    `the no-consumer window owes nothing` (driver_stage_s6.py `not owed` -> `owed`) -> the no-consumer check; `the consumer's record is
+    not written` -> the re-entry key after the record."""
+    import story_run
+    from unittest import mock
     task = "QA-9"
     two = {"test_a": ("stale", "", D1_SAME), "test_b": ("result", "failed", "")}
     answer = {"test_a": row(("stale", WHY_RUN), stale_probe(REPLAY_A)), "test_b": row(("fresh", ""), stale_probe(REPLAY_B))}
@@ -2355,7 +2359,23 @@ def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
         both_open = dict(ACCEPTED_S6, **{"S6-probe-1": dict(RUNNING_S6["S6-qa-runner-1"], id="S6-probe-1")})
         fresh_runs = {"test_a": row(("fresh", ""), stale_probe(REPLAY_A)), "test_b": row(("unknown", "the run recorded no per-test identity"),
                                                                                             stale_probe(REPLAY_B))}
-        driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open, mark="S6-qa-runner-1")
+        # PC2-3: the FIRST re-entry runs with the consumer ON: the runner's entry carries its `role` (a scenario-local copy: `ACCEPTED_S6` is
+        # shared with a reader that must not change colour), so `acceptance.stage_author_dispatch` names it as the author. The stage closes only
+        # AFTER the consumer's record exists (driver_stage_s6.py X7-6 comment: the proofs run in `s6_reentry` "after the record, whose close
+        # site finds it"): before the record the close is REFUSED naming it, nothing proved, nothing closed; after it, the close follows.
+        authored = dict(both_open, **{k: dict(v, role="qa-runner") for k, v in ACCEPTED_S6.items()})
+        driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=authored, mark="S6-qa-runner-1")
+        refused = ""
+        with D1Evidence(d1_answer(two)), Staleness(fresh_runs):
+            try:
+                driver.stage_S6()
+            except story_run.Refusal as refusal:
+                refused = refusal.text
+        eq("K3 re-entry before the consumer's record: refused, naming the record; no proof, no reduction, no close",
+           (refused.startswith("S6 cannot be closed at s6_reentry: no accept record of qa-failure-analyst stands for S6-qa-runner-1"),
+            moves, sites), (True, [], []))
+        record_failure_analyst_accept(driver, "S6-qa-runner-1")      # the analyst's verdict now stands for the runner's dispatch
+        driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=authored, mark="S6-qa-runner-1")
         with D1Evidence(d1_answer(two)) as evidence, Staleness(fresh_runs):
             driver.stage_S6()
         eq("K3 re-entry: no evidence asked, no runner, the proofs, THEN the reduction, the receipt, the close",
@@ -2364,32 +2384,35 @@ def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
         check_in("K3 the digest", "re-proved 2 probes after the tests changed (", close_digest(moves))
         check_not_in("K3 the close is the stage's own: the mark is gone", "s6_probe_after", json.dumps(driver.state))
 
-        # once per life: the same entry again finds nothing stale and owes nothing
-        driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open)
-        with D1Evidence(d1_answer(two)), Staleness({"test_a": row(), "test_b": row()}):
-            driver.stage_S6()
-        eq("K3 once per life of S6: nothing stale and no mark -> no probe, no close, nothing asked", (moves, sites, launched), ([], [], []))
+        # The rigs below run with NO consumer for S6 (`acceptance.consumer_of` answers "", the same patch as the no-consumer check at the end):
+        # they pin the re-probe logic of a later life, and `both_open` names no author; the consumer-on world is the two re-entry keys above.
+        with mock.patch("acceptance.consumer_of", lambda stage, table=None: ""):
+            # once per life: the same entry again finds nothing stale and owes nothing
+            driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open)
+            with D1Evidence(d1_answer(two)), Staleness({"test_a": row(), "test_b": row()}):
+                driver.stage_S6()
+            eq("K3 once per life of S6: nothing stale and no mark -> no probe, no close, nothing asked", (moves, sites, launched), ([], [], []))
 
-        # the runner is back but a run STILL has no current bytes (it was not run): no probe next to it; the close is owed all the same
-        driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open, mark="S6-qa-runner-1")
-        with D1Evidence(d1_answer(two)), Staleness({"test_a": row(("stale", WHY_RUN), stale_probe(REPLAY_A)), "test_b": row()}):
-            driver.stage_S6()
-        check_in("invariant (i) a stale run at the return: the proof is skipped and says why",
-                 "re-probe skipped: 1 tests have no run on their current bytes (test_a)", close_digest(moves))
-        eq("invariant (i) ...no probe, and the stage is still closed by code (the runner was told not to)", (probes, sites), ([], ["s6.reprobed"]))
+            # the runner is back but a run STILL has no current bytes (it was not run): no probe next to it; the close is owed all the same
+            driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open, mark="S6-qa-runner-1")
+            with D1Evidence(d1_answer(two)), Staleness({"test_a": row(("stale", WHY_RUN), stale_probe(REPLAY_A)), "test_b": row()}):
+                driver.stage_S6()
+            check_in("invariant (i) a stale run at the return: the proof is skipped and says why",
+                     "re-probe skipped: 1 tests have no run on their current bytes (test_a)", close_digest(moves))
+            eq("invariant (i) ...no probe, and the stage is still closed by code (the runner was told not to)", (probes, sites), ([], ["s6.reprobed"]))
 
-        # the second life of S6 (`invalidate` leaves earlier dispatches accepted): no mark of ours.
-        # `unknown` runs do NOT license a probe there - nothing says the runner ran in this life
-        driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open)
-        with D1Evidence(d1_answer(two)), Staleness(fresh_runs):
-            driver.stage_S6()
-        eq("second life, a run `unknown` and no mark: nothing is probed or closed (invariant (i))", (moves, sites), ([], []))
-        # ...while runs that are fresh everywhere do
-        driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open)
-        with D1Evidence(d1_answer(two)), Staleness({"test_a": row(("fresh", ""), stale_probe(REPLAY_A)), "test_b": row(("fresh", ""))}):
-            driver.stage_S6()
-        eq("second life, every run fresh: the stale live check is proved, then the close",
-           ([m[0] for m in moves], sites), (["probe", "finalize", "code_only", "stage_done"], ["s6.reprobed"]))
+            # the second life of S6 (`invalidate` leaves earlier dispatches accepted): no mark of ours.
+            # `unknown` runs do NOT license a probe there - nothing says the runner ran in this life
+            driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open)
+            with D1Evidence(d1_answer(two)), Staleness(fresh_runs):
+                driver.stage_S6()
+            eq("second life, a run `unknown` and no mark: nothing is probed or closed (invariant (i))", (moves, sites), ([], []))
+            # ...while runs that are fresh everywhere do
+            driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=both_open)
+            with D1Evidence(d1_answer(two)), Staleness({"test_a": row(("fresh", ""), stale_probe(REPLAY_A)), "test_b": row(("fresh", ""))}):
+                driver.stage_S6()
+            eq("second life, every run fresh: the stale live check is proved, then the close",
+               ([m[0] for m in moves], sites), (["probe", "finalize", "code_only", "stage_done"], ["s6.reprobed"]))
 
         # a manual half: the runner never closes the stage, so no mark is owed and nothing here changes
         driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches={}, manual=("TC-9",))
@@ -2397,6 +2420,17 @@ def hf2_11b_stale_runs_go_to_the_runner_and_the_proofs_follow() -> None:
             driver.stage_S6()
         eq("a manual half pending: the runner goes as today (complete=False), no mark, no probe",
            ([e["complete"] for e in launched], "s6_probe_after" in driver.state, probes), ([False], False, []))
+
+        # no consumer: a stage table where S6 has no `acceptance_by` (older pipelines). The runner window is the identity of today: it closes
+        # S6 itself (`complete` True) unless live checks are owed, which only the driver's own close can prove (`complete` False, the
+        # mark set; driver_stage_s6.py "the runner does NOT close the stage" / `consumer_awaits` "the identity with no consumer")
+        completes = []
+        for stale_rows in (answer, {"test_a": row(("stale", WHY_RUN)), "test_b": row()}):      # owed probes / none owed
+            driver, launched, moves, probes, sites = reprobe_rig(root, env, task, dispatches=RUNNING_S6)
+            with mock.patch("acceptance.consumer_of", lambda stage, table=None: ""), D1Evidence(d1_answer(two)), Staleness(stale_rows):
+                driver.stage_S6()
+            completes.append([e["complete"] for e in launched])
+        eq("no consumer of S6: the runner window owing live checks is not complete; the control with none owed is", completes, [[False], [True]])
     finally:
         unpin_project(pin)
         harness.cleanup(root)
