@@ -51,7 +51,7 @@ def write_sized_task(project: Path, name: str, rows: str, *, config_text: str = 
     return task
 
 
-def main() -> int:
+def fifteen_045_the_register_as_it_stands() -> dict:
     # --- real data: TP1-15045 as the register stands today, no impact column ---
     project_15045 = FIXTURES / "sizing-15045" / "qa-factory"
     task_15045 = project_15045 / "stories" / "TP1-15045"
@@ -99,7 +99,11 @@ def main() -> int:
     check_eq("15045: sizing.json records the areas' state: read, one named, eight left to the role (B-2)",
              (result["areas"]["state"], result["areas"]["register_read"], len(result["areas"]["named"]), len(result["areas"]["no_surface"])),
              ("areas", True, 1, 8))
+    return result
 
+
+def fifteen_045_run_writes_sizing_json() -> None:
+    task_15045 = FIXTURES / "sizing-15045" / "qa-factory" / "stories" / "TP1-15045"
     # run() WRITES work/sizing.json, so it never runs against the tracked fixture directly
     # (harness.py's own GOOD/BAD workspace exists for the same reason) — a private copy first.
     project = temp_project()
@@ -117,6 +121,9 @@ def main() -> int:
     finally:
         cleanup(project)
 
+
+def fifteen_045_weighted(result: dict) -> None:
+    """The same story with a hand-added impact column; `result` is the unweighted run to compare with."""
     # --- the same story, weighted: an impact column added by hand, one class per row ---
     project_weighted = FIXTURES / "sizing-15045-weighted" / "qa-factory"
     task_weighted = project_weighted / "stories" / "TP1-15045"
@@ -146,6 +153,8 @@ def main() -> int:
     check("weighted: overage is shown, never silently trimmed",
           weighted["overage"] > 0 and weighted["recommended_budget"] == weighted["cap"])
 
+
+def tolerance_of_the_documented_gaps() -> None:
     # --- tolerance: every one of the documented gaps still produces a result ---
     project = temp_project()
     try:
@@ -171,6 +180,8 @@ def main() -> int:
     finally:
         cleanup(project)
 
+
+def size_override_and_the_defect_cap() -> None:
     # --- size_override survives a re-run that supplies none (decision #7) ---
     project = temp_project()
     try:
@@ -201,6 +212,9 @@ def main() -> int:
     finally:
         cleanup(project)
 
+
+def cli_wiring(result: dict) -> None:
+    """`result` is the library call the CLI answer is compared with."""
     # --- CLI wiring: --task through hooklib, --selftest, JSON on stdout ---
     proc = run_script("sizing.py", "--selftest")
     check_eq("sizing.py --selftest exits 0", proc.returncode, 0)
@@ -233,6 +247,8 @@ def main() -> int:
     finally:
         cleanup(project)
 
+
+def the_size_is_recorded_under_both_names() -> None:
     # --- both ends of the size, under the names the dashboard reads -------------------------
     # TP1-15045: S9 wrote `forecast.size`, the Precedents block asked for
     # `size_initial`/`size_final`, and the block stood empty on every story.
@@ -264,6 +280,15 @@ def main() -> int:
     finally:
         cleanup(work)
 
+
+def main() -> int:
+    result = fifteen_045_the_register_as_it_stands()
+    fifteen_045_run_writes_sizing_json()
+    fifteen_045_weighted(result)
+    tolerance_of_the_documented_gaps()
+    size_override_and_the_defect_cap()
+    cli_wiring(result)
+    the_size_is_recorded_under_both_names()
     size_at_the_s2_exit()
     g10_a_register_without_ac_ref_joins_by_the_observable_path()
     oh1_10_the_onboarding_form_is_what_sizing_reads()
@@ -772,7 +797,7 @@ def _pipeline(task):
     return json.loads((task / "pipeline.json").read_text(encoding="utf-8"))
 
 
-def size_at_the_s2_exit():
+def s2_exit_records_the_size() -> None:
     # the role's override beats the formula's size; both ends of the size exist after it
     project, task = _s2_story({"size": "XL", "size_override": "L", "size_override_reason": "one shared popup fixture"})
     try:
@@ -816,6 +841,8 @@ def size_at_the_s2_exit():
     finally:
         cleanup(project)
 
+
+def s2_exit_without_a_readable_sizing() -> None:
     # sizing.json absent: one line, S2 closes, nothing written (P1)
     project, task = _s2_story(None)
     try:
@@ -839,6 +866,8 @@ def size_at_the_s2_exit():
         finally:
             cleanup(project)
 
+
+def s2_exit_unknown_sizes_and_other_stages() -> None:
     # an override that is not one of the known sizes: not written, printed, S2 closes; no quiet fallback
     for label, sizing_json in (("override beyond the list", {"size": "M", "size_override": "XXXL"}),
                                ("lowercase override", {"size": "M", "size_override": "xl"}),
@@ -860,6 +889,12 @@ def size_at_the_s2_exit():
         check_eq("S2 running and another stage's exit record nothing", _pipeline(task).get("size"), None)
     finally:
         cleanup(project)
+
+
+def size_at_the_s2_exit() -> None:
+    s2_exit_records_the_size()
+    s2_exit_without_a_readable_sizing()
+    s2_exit_unknown_sizes_and_other_stages()
 
 
 if __name__ == "__main__":
