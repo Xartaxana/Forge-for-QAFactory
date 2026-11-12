@@ -1701,12 +1701,12 @@ def decisions(pipeline: dict, stage: str, role: str, task: str = "", project: Pa
             full.append(line)
             halt_lines.append((_short(line, DECISION_CHARS), _short(line, DECISION_CHARS_MIN)))
     shown = [pair[0] for pair in gate_lines + warning_lines + override_lines + halt_lines + answer_lines]
-    minimal = [pair[1] for pair in gate_lines + warning_lines + halt_lines + answer_lines]
+    # PC2-6 K1 (AR-24, FR-8): a waiver of THIS stage keeps its own line at level 1, in the order `shown` uses; a count line in its
+    # place would be the person's words traded for bytes. The whole text of every decision is in the side file either way.
+    minimal = [pair[1] for pair in gate_lines + warning_lines + override_lines + halt_lines + answer_lines]
     if any(line.endswith("...") for line in shown) or others:
         # A shortened decision is a pointer, never the decision: the whole text is one file away.
         shown.append("- every decision in full: <decisions>")
-    if override_lines:
-        minimal.append(f"- {len(override_lines)} waiver(s) of {stage} are in the side file (each names its block and the words that passed it)")
     if others:
         shown.append(f"- {others} recorded decision(s) of other stages are in the side file")
     return shown, minimal, full
@@ -4207,9 +4207,14 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         head += exploration_lines(task_root, task, dispatch_id, briefs_dir, write and output is None)   # t-1765 X3: the first manual window explores; the head is never shrunk
     shell = role_has_bash(role)   # the one reader of the question: host_adapter.role_has_bash, which the guard also asks
     files = file_lines(names, task_root, project, shell)
+    # PC2-6 B6: the category of a line that is NOT an ordinary named input, set where the line is built (never read back from its
+    # text); the last resort pops by it. The RENDERED order of `files` is unchanged: only the pop priority uses the tags.
+    kind_of = {}
     if stage == "S5" and role == "qa-automator" and not own_file:
         # the glob that stood here named every window's findings; with no critic of this window yet the role is told so, not left to hunt
-        files.append("- critic findings: none yet - no critic has reviewed this dispatch's window, so there is no findings file to read")
+        none_yet = "- critic findings: none yet - no critic has reviewed this dispatch's window, so there is no findings file to read"
+        files.append(none_yet)
+        kind_of[none_yet] = "none_yet"
     if "work/ticket-snapshot.json" in names:
         # Right under the snapshot's own line, where the scout reads it first, and the last to be trimmed.
         # The person's exclusions, then what the story's text points at and nobody read (t-267): both are "not read".
@@ -4228,12 +4233,17 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
                  for line in files]
     for rel in cases[:8]:
         files.append(f"- qa-factory/artifacts/{task}/{rel} ({_size(task_root / rel)})")
+        kind_of[files[-1]] = "case"
     if len(cases) > 8:
         files.append(f"- ... and {len(cases) - 8} more case files of the scope, same folder")
+        kind_of[files[-1]] = "case"
     tests = scope_tests(task_root, scope) if role in ("qa-code-critic", "qa-runner", "qa-failure-analyst") else []
     for rel in tests[:6]:
         files.append(f"- {rel} ({_size(project / rel)}) - the test file of the window")
-    files += source_material(task, task_root, role)
+        kind_of[files[-1]] = "test"
+    source = source_material(task, task_root, role)
+    kind_of.update({line: "source" for line in source})
+    files += source
     if s5_kind == "window" and role == "qa-automator" and piece is not None:
         code_text, _left = window_code_file(project, plan_doc, piece["tests"], dispatch_id, task_root)
         side_files[f"{dispatch_id}-code.md"] = code_text
@@ -4303,10 +4313,13 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     trimmed_files = []      # the lines the last resort took off `files`, in their original order (N4: they go to <ID>-files.md)
     map_body = repo["markdown"].splitlines()[2:] if repo and not repo.get("error") else []
 
-    def render(inline_map: int, dec_level: int, inline_digests: bool, side: dict, ap_level: int = 2, note: str = "") -> tuple:
+    def render(inline_map: int, dec_level: int, inline_digests: bool, side: dict, ap_level: int = 2, note: str = "",
+               over_line: str = "") -> tuple:
         """-> (text, omitted). RC1-14 N4, the order is the priority: the head, the person's words (never cut), `Not in the brief`,
         then what gives first-to-last from the bottom up (the map is the first under the knife); the digest template is the LAST
-        section and outside the budget (F-4). `omitted` is one line per thing the ceiling took out (E16): no silent trim."""
+        section and outside the budget (F-4). `omitted` is one line per thing the ceiling took out (E16): no silent trim.
+        `over_line` (PC2-6) is the one line that says the brief stays over its budget: the FIRST line of `Not in the brief`, which
+        it opens when nothing else did; it is not in `omitted`, and the caller never measures a text that carries it as a budget."""
         omitted = []
         if repo and inline_map == 0 and map_body:
             omitted.append(f"- the repository map head - read {repo['path']}")
@@ -4325,11 +4338,11 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         elif dec_level == 2:
             parts += [line.replace("<decisions>", side["decisions"]) for line in shown]
         elif dec_level == 1:
-            parts += minimal + [f"- every decision in full: {side['decisions']}"]
+            parts += minimal       # PC2-6 O-c: the pointer to the side file is `Not in the brief`'s line, once
         else:       # only the probe of `over_ceiling` asks for it: no brief is built at this level (N4, F-3)
             parts.append(f"- {len(full)} recorded decision(s): {side['decisions']}")
-        if omitted:
-            parts += ["", "## Not in the brief", ""] + omitted
+        if omitted or over_line:
+            parts += ["", "## Not in the brief", ""] + ([over_line] if over_line else []) + omitted
         if approach[ap_level]:
             parts += [""] + approach[ap_level]
         parts += ["", "## What earlier roles produced", ""]
@@ -4387,13 +4400,20 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
 
     text, omitted, chosen = "", [], attempts[-1]
     truncated = any("<decisions>" in line for line in shown)
+    before = None       # the render of the attempt before this one (PC2-6 O-d)
     for chosen in attempts:
         inline_map, dec_level, inline_dig, ap_level = chosen
         text, omitted = render(inline_map, dec_level, inline_dig, side, ap_level)
+        if dec_level == 1 and before is not None and budget_of(text) >= budget_of(before[0]):
+            # PC2-6 O-d (AR-24): the words rung is taken only when it makes the brief strictly smaller; a rung that costs the
+            # person's words and saves nothing is not taken, and the last resort below pops files from the form that is kept.
+            text, omitted, chosen = before
+            inline_map, dec_level, inline_dig, ap_level = chosen
         sides_needed = {"decisions": bool(full) and (dec_level < 2 or truncated),
                         "digests": not inline_dig and bool(digest_full)}
         if budget_of(text) <= BRIEF_MAX_BYTES:
             break
+        before = (text, omitted, chosen)
     if budget_of(text) > BRIEF_MAX_BYTES:
         # the last resort: the card is the one thing that cannot go, the file list is trimmed from its end - and a DOOR never
         # goes (SC1-10). A door is a line of a `project:`/`plugin:` name in ROLE_FILES: a document the role is no longer
@@ -4401,7 +4421,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         # computed from the same `file_lines` that produced `files`, so each door line matches its entry byte for byte.
         # Only doors left -> the loop ends and the brief goes out over the ceiling: a long brief is a cost, a lost door a defect.
         # `## The stand` (HF5-5) is a door of the same kind and is never in `files`: it is rendered, not trimmed (test_brief_pack_manual K3).
-        # The person's words are NOT a door to trim: they stay at level 1 and the brief goes over (F-3, AR-24).
+        # The person's words are NOT a door to trim: they stay at their kept level (1, or 2 when level 1 is not strictly smaller) and the brief goes over (F-3, AR-24).
         doors = set(file_lines([n for n in ROLE_FILES.get(role, []) if n.startswith(("project:", "plugin:"))],
                                task_root, project, shell))
         # t-1776: the S5 plan-slice lines (`plan_files`: the plan and its window slices) are doors too: the slice is what the automator acts on, so they are never trimmed.
@@ -4412,26 +4432,37 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         # t-1765 CI fix C: the automation manifest's line carries its door (`manifest_view.py`, never a whole read), so it is a door
         # too: the optional tail (the other input files) goes first, this line stays whatever the head weighs (FR-2).
         doors |= {line for line in files if "work/automation-manifest.json" in line}
-        chosen = (0, 1, False, -1)
+        # PC2-6 O-d: `chosen` is the words form the ladder KEPT (level 1, or level 2 when level 1 was not strictly smaller).
+        # PC2-6 B6: the POP PRIORITY (first to last): the "critic findings: none yet" line, the source material, the other named
+        # inputs (their masks with them), the case files ("... and N more" first, then the last case first), the window's test file
+        # (CI fix G8: the file the critic reads and probes goes last and still yields when nothing else is left). The RENDERED
+        # order of `files` never changes, so a brief that pops nothing is byte-identical and `trimmed_files` keeps that order.
+        priority = ("none_yet", "source", "named", "case", "test")
+        rendered_order = list(files)
         while budget_of(text) > BRIEF_MAX_BYTES:
-            # CI fix G8: the window's test file line (the file the critic reads and probes) goes last of the optional lines, so the
-            # lines X7-11 added to the critic's list (the advice file) do not push it into the side file; it still yields when nothing else is left.
-            last = next((i for i in range(len(files) - 1, -1, -1)
-                         if files[i] not in doors and not files[i].endswith(" - the test file of the window")), None)
-            if last is None:
-                last = next((i for i in range(len(files) - 1, -1, -1) if files[i] not in doors), None)
+            last = next((i for kind in priority for i in range(len(files) - 1, -1, -1)
+                         if files[i] not in doors and kind_of.get(files[i], "named") == kind), None)
             if last is None:
                 break
-            trimmed_files.insert(0, files.pop(last))
+            files.pop(last)
+            trimmed_files = [line for line in rendered_order if line not in files]
             text, omitted = render(*chosen[:3], side, chosen[3])
     over_ceiling = []
-    if budget_of(text) > BRIEF_MAX_BYTES:
-        # Which part kept the brief over: the words (level 1 is longer than a pointer) and/or the doors and the card.
+    over_line = ""
+    budget_bytes = budget_of(text)      # PC2-6 B1: measured on the render WITHOUT the over line, which is outside the budget
+    if budget_bytes > BRIEF_MAX_BYTES:
+        # Which part kept the brief over: the words (at their shortest kept form) and/or the doors and the card.
         probe = budget_of(render(chosen[0], 0, chosen[2], side, chosen[3])[0])
-        if full and chosen[1] == 1 and budget_of(text) > probe:
+        if full and chosen[1] >= 1 and budget_bytes > probe:
             over_ceiling.append("words at level 1")
         if probe > BRIEF_MAX_BYTES or not over_ceiling:
             over_ceiling.append("doors only")
+        # PC2-6 (AR-22, FR-4): the brief stays over after every cut and SAYS so, first line of `Not in the brief`. No size of the
+        # brief in it (no fixed point); a run that writes no side file says so, as the code-file line does.
+        over_line = (f"- the brief stays over its {BRIEF_MAX_BYTES} B budget after every cut ({', '.join(over_ceiling)}): "
+                     "what it names is here whole or one named file away"
+                     + ("" if write and output is None else " (side files not written in this run)"))
+        text, omitted = render(*chosen[:3], side, chosen[3], over_line=over_line)
     if head_bytes(sd_head) > SD_HEAD_MAX_BYTES:
         over_ceiling.append("sd head")      # fix-4: the head is over its hard cap even after every cut (its overflow is in the budget)
     if len(text.encode("utf-8")) > SLICE_BYTES:
@@ -4441,7 +4472,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         for _ in range(4):
             note = (f"This brief is {size} B, over the 30 KB whole-read limit: read it by range (offset/limit), "
                     "the person's words first")
-            text, omitted = render(*chosen[:3], side, chosen[3], note)
+            text, omitted = render(*chosen[:3], side, chosen[3], note, over_line)
             if len(text.encode("utf-8")) == size:
                 break
             size = len(text.encode("utf-8"))
@@ -4470,7 +4501,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
                 written.append(str(p))
     return {"task": task, "stage": stage, "role": role, "dispatch": dispatch_id, "scope": scope,
             "path": brief_rel if output is None else str(output), "bytes": len(text.encode("utf-8")),
-            "budget_bytes": budget_of(text), "omitted": omitted, "over_ceiling": over_ceiling,
+            "budget_bytes": budget_bytes, "omitted": omitted, "over_ceiling": over_ceiling,
             "files": files, "sides": sides_needed, "written": written,
             "repo_map": (repo or {}).get("path"), "markdown": text}
 
@@ -4496,8 +4527,10 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0
     sides = [k for k, v in result["sides"].items() if v]
+    over = [r for r in result["over_ceiling"] if r in ("words at level 1", "doors only")]      # the budget reasons, not sd head / SLICE
     print(f"brief: {result['path']} ({result['bytes']:,} B"
           + (f", {result['budget_bytes']:,} B against the ceiling" if result["budget_bytes"] != result["bytes"] else "")
+          + (f", over the {BRIEF_MAX_BYTES} B ceiling after every cut: {', '.join(over)}" if over else "")      # PC2-6: the conductor's note
           + (f", side files: {', '.join(sides)}" if sides else "")
           + (", not written" if ns.dry_run else "") + ")")
     return 0
