@@ -14,6 +14,27 @@ Accepted as the plan for critic-on-plan. Corrections and decisions of the Lead; 
 - **Forks, all decided by the Lead on the recommendation** (technical; the owner may cancel any): F-A1 keep 300K; F-A2 wait for F6-36; F-B1 at most 2,000 characters and 3 + N lines; F-B2 builder, critic, designer; F-B3 file check only, the reader queued; F-B4 keep the anchor test, queue the registry; F-C1 by C0's measurement (alters `$?` only -> allow everywhere); F-C2 one short WARN; F-C3 content writes only, ignore row `ci-out/`; F-C4 own masks, convergence queued on axis 11; F-C5 the rollback class includes `git reset --hard` and `git clean -f`; F-C6 three findings in `forge`; F-D1 both; F-E1 Lead-only; F-E2 queued; F-E3 owns + numbered items outside the sections; F-E4 refusal with a door (the owner's words 4 and 6); F-E5 hook + RUNBOOK; F-E6 `test_driver_layers.py` stays out.
 - **Two false refusals met by the Lead the same hour** (evidence for C1's rows): a read-only `grep … logs/journal/*.jsonl … 2>/dev/null` refused as a journal write (the F10 class, with `2>/dev/null`), and `grep … 2>&1 | head` refused for the trailing-redirect class. Both are rows of C1's table and must pass.
 
+### Lead acceptance of the revision t-103 (12.11.2026, dev1)
+
+The revision is accepted: §13 answers every finding of t-098, and the Lead read §4 (error direction, the classes, the
+texts) and §9 against the verdict. No second critic pass on the plan: the revision does what the verdict prescribed
+and adds no architecture of its own (PROJECT.md, new idea step 6); the code critic of each node reads the spec.
+Forks decided (technical, by the Lead; the owner may cancel any):
+
+- **F-A2 = (a)**: a named open limit with detector check 32 and the existing duty "sessions open in the clone root".
+  The earlier "wait for F6-36" is withdrawn. (b) — hooks in the operator's user-level settings — is the owner's own
+  file and is offered to her, never done by a builder.
+- **F-A3 = (a)**, **F-C7 = (a)**, **F-C8 = (a)** (stash / stash push with a dirty scope join the rollback class as
+  one data row in C1; `stash drop` / `clear` a named residual).
+- **F-E7 = (b), narrowed**: `dod` leaves `ITEM_EXCLUDED_SECTIONS` (numbered acceptance criteria are spec items,
+  rule 2); `edges` STAYS excluded — an edge enumeration is not a list of spec items. The earlier F-E3 decision is
+  corrected by this line.
+- The designer's closed choices of §9 stand, `checkout -f` and `switch --discard-changes` included.
+- Told to the owner as "решила сама": the brief's §D sentence is narrowed (§5) — the "worktree guard" of t-084 is
+  most likely `hygiene_gate` class (a); D0 measures it and D1 exists only on another outcome.
+- At C2's acceptance the Lead reads CLAUDE.md hygiene point 1 as rewritten and strikes anything that reads as the
+  removed permission rule.
+
 ## 0. Facts this draft rests on (read in the carrier; see "Reading trail")
 
 | # | Fact | Carrier |
