@@ -478,6 +478,14 @@ def _register_ids(text: str) -> list:
     return ids
 
 
+def story_home(task_root) -> Path:
+    """`<project>/qa-factory` of the story at `task_root`: the project by the one walk (`runtime_paths.nearest_project`), so a story
+    under a custom `artifact_root` reads the same folder; a story under no project keeps the old arithmetic (two levels up)."""
+    import runtime_paths
+    project = runtime_paths.nearest_project(task_root)
+    return project / "qa-factory" if project else Path(task_root).parents[1]
+
+
 def _first_event_day(task_root):
     """The UTC day of the first event of `state/events.jsonl` (`created_at`, epoch seconds), or None."""
     try:
@@ -2332,7 +2340,7 @@ def _branch_records(root, text, branches, qmap) -> list:
         if not manual_cache:
             try:
                 import traceability as T
-                manual_cache.append(T.Story(Path(root).parents[1], root))
+                manual_cache.append(T.Story(story_home(root), root))
             except Exception:
                 manual_cache.append(None)
         story = manual_cache[0]
