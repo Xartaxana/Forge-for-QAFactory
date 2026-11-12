@@ -2774,7 +2774,28 @@ def pc8_scenarios() -> None:
     sides_lines_marked_and_given_to_code_critic()
 
 
+def of3_1c_home_strategy() -> None:
+    """OF3-1 item 6: the strategy names of the brief come from `<home>/strategy`, the home folder `runtime_paths` names."""
+    import runtime_paths as RP
+    base = harness.temp_dir("qa-brief-home-strategy-")
+    saved = RP.HOME
+    try:
+        for home in ("qa-factory", "elsewhere-home"):
+            RP.HOME = home
+            (base / home / "strategy").mkdir(parents=True, exist_ok=True)
+            (base / home / "strategy" / f"{home}-profile.md").write_text("x", encoding="utf-8")
+        for home in ("qa-factory", "elsewhere-home"):
+            RP.HOME = home
+            line, recorded = brief_pack._approach_documents(base, {})
+            check_eq(f"OF3-1 item 6 a configured home folder ({home}): the strategy names come from <home>/strategy",
+                     (line.endswith(f" {home}-profile.md"), recorded), (True, True))
+    finally:
+        RP.HOME = saved
+        harness.cleanup(base)
+
+
 def main() -> None:
+    of3_1c_home_strategy()
     not_established_label()
     root = harness.temp_project("qa-brief-pack-")
     env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
