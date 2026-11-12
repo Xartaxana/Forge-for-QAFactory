@@ -61,7 +61,7 @@
       "assertions": [
         {
           "name": "dashboard-is-only-write",
-          "description": "The writes named are exactly the charter's: dashboard, telemetry, receipts, guard-probe file, the factory's .gitignore block, and word-gated archive and recover or release; qa-onboarding and qa-story are cited as owning every other write, and the questions named are the three after the report."
+          "description": "The writes named are exactly the charter's: dashboard, telemetry, receipts, guard-probe file, the factory's .gitignore block, and word-gated archive and recover or release; qa-onboarding and qa-story are cited as owning every other write, and the questions named are the three after the report plus the sample ticket of step 2b, asked once before it when no story supplies one."
         }
       ]
     },

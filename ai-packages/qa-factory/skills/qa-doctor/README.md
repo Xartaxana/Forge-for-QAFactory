@@ -62,5 +62,6 @@ that is clean does it suggest starting or continuing a story.
 - Does not modify any file other than the dashboard, its own receipts in `qa-factory/state/`
   and the factory's `.gitignore` block (after onboarding); on your explicit word it also
   archives or recovers a story
-- Asks only after the report: whether to archive a story that has stood still, whether anybody
-  is working on a story it could repair, and the price-table question
+- Asks after the report: whether to archive a story that has stood still, whether anybody
+  is working on a story it could repair, and the price-table question; before it, once, for a
+  sample ticket when no story supplies one

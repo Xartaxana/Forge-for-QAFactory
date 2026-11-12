@@ -74,7 +74,7 @@ artifact, a failed capability are named with their owner, as always.
 
 ## Codex code mode
 
-Step 1's smoke, on Codex in code mode: In Codex code mode print
+Step 1's smoke, on Codex in code mode: print
 the **whole** shell result (`text(r)`), keeping `session_id` and `exit_code`; an outer
 `functions.wait` ends the JS cell while the shell may still run, so continue it with
 `tools.write_stdin` until `exit_code` appears. Never relaunch the smoke on an empty poll: a
