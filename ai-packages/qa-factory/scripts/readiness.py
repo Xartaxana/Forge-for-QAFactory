@@ -635,6 +635,9 @@ def check_test_places(cfg: dict, root: Path) -> dict:
             elif walk_notes or truncated:
                 why = "; ".join(walk_notes) or f"the walk stopped at {TL.DEFAULT_MAX_FILES} files"
                 areas[name] = _places_row(UNKNOWN, "no unrecorded place was found, but the search was not complete: " + why)
+            elif name == "project":
+                areas[name] = _places_row(OK, f"recorded ({', '.join(carriers)}); places outside the record are not searched "
+                                          "in the test repository")
             else:
                 areas[name] = _places_row(OK, f"recorded ({', '.join(carriers)}); no place with a usual test name lies outside it")
         unreachable = []

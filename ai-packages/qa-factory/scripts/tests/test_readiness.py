@@ -1064,6 +1064,13 @@ def test_places_check() -> None:
         row = R.check_test_places(dict(base, test_locations=["src/tests/"]), only)
         check_eq("K-14 World R: recorded and nothing outside it -> ok", (row["status"], row["areas"]["app"]["status"]),
                  ("ok", "ok"))
+        # a recorded test-repository area is not walked: ok, and the note does not claim the places were checked
+        split = root / "split"
+        (split / "app" / "src").mkdir(parents=True)
+        row = R.check_test_places({"app_root": "app", "protected_app_paths": ["src"], "tests_root": "tests"}, split)
+        check_eq("K-14 project area: recorded, not walked -> ok with the honest note",
+                 (row["areas"]["project"]["status"], row["areas"]["project"]["note"]),
+                 ("ok", "recorded (tests_root); places outside the record are not searched in the test repository"))
         # World R with unrecorded places named: at most 5 and `+N more`
         row = R.check_test_places(dict(base, test_locations=["src/other/"]), root)
         area = row["areas"]["app"]
