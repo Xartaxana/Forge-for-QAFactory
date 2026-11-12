@@ -58,7 +58,7 @@ a rule.
    (enforcement-file review rule) — otherwise unreviewed code gates work ahead of its own review.
 
    DRAFTING → designer BY DEFAULT: a WRITING dispatch whose spec carries 3 OR MORE numbered items, OR touches 3 or
-   more files, is DRAFTED by the designer from a Lead intent brief (the draft's form, edge invariants and the error
+   more files (counted by `dispatch_manifest.designer_threshold`), is DRAFTED by the designer from a Lead intent brief (the draft's form, edge invariants and the error
    direction of a reused function included: `.claude/agents/designer.md` rule 1); the Lead self-drafting it anyway
    is legal ONLY with a `dispatch_skipped` event (agent = designer, reason mandatory). The motive is
    CONTEXT ISOLATION — an independent drafting context, not model price — so the event is owed whatever the tiers
@@ -232,7 +232,7 @@ a rule.
    | R11 | when | duty |
    |---|---|---|
    | m | a WRITING dispatch's "given" manifest | executed as a MARKED declaration: an inline enumeration, OR a pointer to a persisted spec that itself carries the enumeration, ONE hop away — no marker, no manifest; `owns` itself is always given INLINE, never by pointer |
-   | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks); `tools/dispatch_manifest.py` refuses it otherwise and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
+   | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks), `siblings:` (entries, or `none -- <why>`) and, over rule 2's threshold, `designer:` (the accepted draft's absolute path, `skip -- <reason>`, or `resubmission <task_id>`); `tools/dispatch_manifest.py` refuses it otherwise and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
    | h | critic/designer dispatch | report path on `handoff:`, never `owns:`; `tools/handoff_gate.py` lets it write only that file |
 
 11a. Question routing (question-routing rule): questions route UP, work routes DOWN; the apex of the hierarchy is the

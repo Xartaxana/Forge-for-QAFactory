@@ -59,6 +59,8 @@ _FORM_TAIL = (
     "handoff: a short report\n"
     "edges: none -- nothing to limit\n"
     "DoD: `python -m pytest tools/x.py -q`\n"
+    "siblings: none -- a test fixture\n"
+    "designer: skip -- a test fixture\n"
 )
 
 

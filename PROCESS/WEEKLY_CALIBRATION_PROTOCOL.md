@@ -41,8 +41,12 @@ for the period, and diffs to DECISIONS.md.
    (c) DISPATCHER THRESHOLD OF THE DESIGNER (the detector for rule 2's
    designer-drafting threshold clause): every WRITING `delegated` of
    the window whose spec carries 3 OR MORE numbered items, OR touches
-   3 or more files (counted from the dispatch's `owns` line and from
-   the diff of the accepted work), is obligated to carry EITHER a
+   3 or more files (counted by `dispatch_manifest.designer_threshold`
+   on the dispatch text — the gate refuses such a dispatch without a
+   `designer:` line; a `designer: skip` line without a matching
+   `dispatch_skipped(agent=designer)` is the violation; a pointer-spec
+   dispatch, count 0 by construction, is judged from the diff of the
+   accepted work), is obligated to carry EITHER a
    paired `delegated(designer)` before it, OR a
    `dispatch_skipped(agent=designer)` with a named reason. Neither of
    the two = a silent absorption of the function by the coordinator —

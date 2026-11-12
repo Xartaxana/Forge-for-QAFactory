@@ -288,7 +288,7 @@ def test_dod_only_in_fence_warns():
 
 _FORM_NO_DOD = (
     "given: the whole repo\nowns: Z:/f/x.py\nnon-goals: none\nhandoff: a report\n"
-    "edges: none -- nothing to limit\n"
+    "edges: none -- nothing to limit\nsiblings: none -- a test fixture\n"
 )
 
 

@@ -37,7 +37,8 @@ def owned(prompt):
 # ---- A1-A13 ---------------------------------------------------------------------------------
 
 
-_REST = ("given: x", "non-goals: none", "handoff: r", "edges: none -- x", "DoD: `python -m pytest x.py -q`")
+_REST = ("given: x", "non-goals: none", "handoff: r", "edges: none -- x", "DoD: `python -m pytest x.py -q`",
+         "siblings: none -- standalone")
 
 
 def registered(eol, tmp_path, *lines):
@@ -217,7 +218,7 @@ def test_P2c_a_typo_path_beside_a_marked_one_on_a_continuation_line_is_refused(t
     prompt = "\n".join(["given: x", "owns:",
                         "%s/tools/missing.py -- rewrite; see %s/tools/new.py (new)" % (root, root),
                         "non-goals: none", "handoff: r", "edges: none -- x",
-                        "DoD: `python -m pytest x.py -q`"]) + "\n"
+                        "DoD: `python -m pytest x.py -q`", "siblings: none -- standalone"]) + "\n"
     d = dispatch_gate.decide_full({"tool_name": "Task", "cwd": str(tmp_path),
                                    "tool_input": {"prompt": prompt, "description": "sonnet: t"}})
     assert d.code == 2 and "missing.py" in d.message
@@ -270,6 +271,31 @@ def test_P23_given_never_crosses_the_next_header(eol):
 def test_P10_given_stops_at_the_first_blank_line_and_skips_quoted_lines(eol):
     prompt = text(eol, "given: tools/a.py", "> tools/quoted.py", "tools/c.py", "", "tools/after_blank.py")
     assert [g.path for g in dm.given_paths(dm.section_cut(prompt), TOP)] == ["tools/a.py", "tools/c.py"]
+
+
+# ---- section_extent and the stop at siblings / designer (t-098 B3, F11) -----------------------------
+
+
+def test_section_extent_ends_at_the_first_blank_line_never_past_the_next_header(eol):
+    # (prompt lines, section item, expected last line of the extent of its first section)
+    rows = [
+        (("siblings: a", "b", "", "c", "DoD: `x y`"), "siblings", 1),        # the blank line ends it
+        (("siblings: a", "b", "c", "DoD: `x y`"), "siblings", 2),            # the next header ends it
+        (("siblings:", "", "text"), "siblings", 0),                          # a blank right under the header
+        (("given: g", "x", "> quoted", "y", "", "z"), "given", 3),           # quoted lines are inside the extent
+        (("owns: D:/r/a.py",), "owns", 0),                                   # last line of the text
+    ]
+    for lines, item, last in rows:
+        cut = dm.section_cut(text(eol, *lines))
+        assert dm.section_extent(cut, cut.sections[item][0]) == last, lines
+
+
+def test_stop_at_siblings_keeps_the_owned_paths_above_it(eol):
+    prompt = text(eol, "owns:", "- D:/r/a.py", "- D:/r/b.py", "Siblings of the change: tools/x.py", "- D:/r/not_owned.py")
+    assert owned(prompt) == ["D:/r/a.py", "D:/r/b.py"]
+    assert owns_gate.extract_owns_paths(prompt) == ["D:/r/a.py", "D:/r/b.py"]
+    for key in ("siblings", "Neighbours", "neighbors", "Designer"):
+        assert dm.SECTION_STOP_RE.match(key + ": x"), key
 
 
 def test_cut_raises_nothing_on_non_string_and_empty_input():

@@ -44,6 +44,7 @@ PARTS = {
     "handoff": "handoff: a short report",
     "edges": "edges: none -- pure function",
     "dod": "DoD: `python -m pytest tools/x.py -q`",
+    "siblings": "siblings: none -- a new standalone file",
 }
 
 
@@ -78,7 +79,8 @@ def missing_text(message):
 def test_K1_t083_attempt1_is_blocked_with_five_items():
     code, msg, note = run(_fixture("K1"))
     assert code == 2 and note == ""
-    assert missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges"]
+    # K1 carries 3+ numbered spec items and no designer line: the designer check names itself too
+    assert missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "siblings", "designer"]
     assert msg.startswith("DISPATCH INCOMPLETE (CLAUDE.md rule 11): this builder dispatch does not go out.")
     assert "owns (no line)" in msg
 
@@ -88,7 +90,9 @@ def test_K2_K3_relative_owns_paths_are_blocked_on_owns_only(name):
     code, msg, note = run(_fixture(name))
     assert code == 2 and note == ""
     assert "owns" in missing_names(msg)
-    assert missing_names(msg) == ["owns"]
+    # neither carries a siblings line; K3's prose bullet "- neighbours once at the end: ..." is NOT a header
+    # (t-113 F1: a new key's header is a bare declaration), so its DoD keeps its command as before E1
+    assert missing_names(msg) == ["owns", "siblings"]
     assert "owns (no absolute path could be read)" in msg
 
 
@@ -97,12 +101,13 @@ def test_K4_scout_is_not_checked():
 
 
 def test_K5_K1_plus_a_valid_skip_line_goes_out_with_a_skip_note():
-    prompt = _fixture("K1") + "\nmanifest-skip: given, owns, non-goals, handoff, edges -- old-form dispatch, sent on purpose\n"
+    prompt = (_fixture("K1") + "\nmanifest-skip: given, owns, non-goals, handoff, edges, siblings, designer "
+              "-- old-form dispatch, sent on purpose\n")
     code, msg, note = run(prompt)
     assert (code, msg) == (0, "")
     assert note.startswith("MANIFEST-SKIP:")
     assert note == (
-        'MANIFEST-SKIP: dispatch sent without given, owns, non-goals, handoff, edges on purpose: '
+        'MANIFEST-SKIP: dispatch sent without given, owns, non-goals, handoff, edges, siblings, designer on purpose: '
         '"old-form dispatch, sent on purpose" -- the line stays in the prompt as the record.'
     )
 
@@ -114,7 +119,7 @@ def test_K6_unknown_skip_item_is_refused():
     assert msg == (
         "MANIFEST-SKIP REFUSED: 'manifest-skip: given, colour -- because' -- unknown item 'colour'. "
         "Expected: manifest-skip: <item>[, <item>] -- <reason>; items: given, owns, non-goals, "
-        "handoff, edges, dod; the reason is not empty."
+        "handoff, edges, dod, siblings, designer; the reason is not empty."
     )
 
 
@@ -126,7 +131,10 @@ def test_K6_empty_reason_is_refused():
 
 
 def test_K7_t091_written_in_the_form_passes_unchanged():
-    assert run(_fixture("K7")) == (0, "", "")
+    # K7 predates the siblings line: it is refused for that line alone, and passes with one appended
+    # (K7 also carries 3+ numbered items, so the designer line is owed too)
+    assert missing_names(run(_fixture("K7"))[1]) == ["siblings", "designer"]
+    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-91\n") == (0, "", "")
 
 
 def test_K8_critic_prompt_with_numbered_owns_overlap_is_not_checked():
@@ -141,13 +149,17 @@ def test_K8_critic_prompt_with_numbered_owns_overlap_is_not_checked():
 _EXPECTED_INCOMPLETE = (
     "DISPATCH INCOMPLETE (CLAUDE.md rule 11): this builder dispatch does not go out. "
     "Missing: given (no line), owns (no line), non-goals (no line), handoff (no line), "
-    "edges (no line), DoD (no line). Expected, each as its own line outside code fences and "
+    "edges (no line), DoD (no line), siblings (no line). Expected, each as its own line outside code fences and "
     "quotes, starting with its name and a colon: given: (files/data the worker gets; a pointer "
     "to a persisted spec is allowed), owns: (the absolute paths the worker may write, never by "
     "pointer; on the owns line itself or on the lines right under it, with no blank line and no "
     "heading marks; a path with spaces in backticks), non-goals:, handoff:, edges: (the "
     "behavior at each limit, empty input and conflicting pair, or 'edges: none -- <why>'), "
-    "DoD: (with the exact verification command in backticks, two words or more). To send it "
+    "DoD: (with the exact verification command in backticks, two words or more), "
+    "siblings: (the neighbours the change must also touch or check: paths or 'axis N', or "
+    "'siblings: none -- <why>' with the reason on the same line), "
+    "designer: (required only from 3 owned paths or 3 numbered items: the absolute path of the accepted "
+    "draft, 'designer: skip -- <reason>' or 'designer: resubmission t-<id>'). To send it "
     "anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>"
 )
 
@@ -163,7 +175,7 @@ def test_unchecked_note_text_is_verbatim():
     assert note == (
         "MANIFEST-UNCHECKED: this dispatch was not checked for completeness (quoted regions "
         "could not be read reliably) -- it went out; check given, owns, non-goals, handoff, "
-        "edges and DoD by eye."
+        "edges, DoD, siblings and designer by eye."
     )
 
 
@@ -177,9 +189,10 @@ def test_missing_labels_no_line_empty_no_path_no_command():
     code, msg, note = run(prompt)
     assert code == 2
     assert missing_text(msg) == (
-        "given (empty), owns (no absolute path could be read), DoD (no command in backticks)"
+        "given (empty), owns (no absolute path could be read), DoD (no command in backticks), "
+        "siblings (no line)"
     )
-    code, msg, note = run("owns:\n\nnon-goals: a\nhandoff: b\nedges: c\nDoD: `x y`\ngiven: g\n")
+    code, msg, note = run("owns:\n\nnon-goals: a\nhandoff: b\nedges: c\nDoD: `x y`\ngiven: g\nsiblings: none -- x\n")
     assert missing_text(msg) == "owns (empty)"
 
 
@@ -206,15 +219,15 @@ def test_absent_tool_input_raises():
 
 
 @pytest.mark.parametrize("prompt", [None, 123, ["x"], b"bytes", ""])
-def test_builder_with_empty_or_odd_prompt_gets_all_six_items(prompt):
+def test_builder_with_empty_or_odd_prompt_gets_all_seven_items(prompt):
     code, msg, note = run(prompt)
     assert code == 2 and note == ""
-    assert missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "DoD"]
+    assert missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "DoD", "siblings"]
 
 
-def test_builder_with_absent_prompt_key_gets_all_six_items():
+def test_builder_with_absent_prompt_key_gets_all_seven_items():
     code, msg, note = dm.check({"tool_input": {"subagent_type": "builder"}})
-    assert code == 2 and len(missing_names(msg)) == 6
+    assert code == 2 and len(missing_names(msg)) == 7
 
 
 @pytest.mark.parametrize("prompt", [None, 123, ""])
@@ -241,7 +254,7 @@ def test_non_builder_with_absolute_owns_is_a_writing_dispatch():
     prompt = "owns:\n- C:\\work\\x\\a.py\nsome text\n"
     code, msg, note = run(prompt, "general-purpose")
     assert code == 2 and "this writing dispatch does not go out" in msg
-    assert missing_names(msg) == ["given", "non-goals", "handoff", "edges", "DoD"]
+    assert missing_names(msg) == ["given", "non-goals", "handoff", "edges", "DoD", "siblings"]
     assert run(build(), "general-purpose") == (0, "", "")
 
 
@@ -326,12 +339,12 @@ def test_section_ends_at_next_header():
 
 def test_manifest_inside_a_fence_is_not_a_manifest():
     code, msg, note = run(fence(build()))
-    assert code == 2 and missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "DoD"]
+    assert code == 2 and missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "DoD", "siblings"]
 
 
 def test_manifest_inside_a_blockquote_is_not_a_manifest():
     code, msg, note = run(quote(build()))
-    assert code == 2 and len(missing_names(msg)) == 6
+    assert code == 2 and len(missing_names(msg)) == 7
 
 
 def test_one_header_quoted_the_rest_prose():
@@ -474,7 +487,7 @@ def test_owns_continuation_limit_40_passes_41_is_unreadable():
     def owns(n):
         return "owns:\n" + "\n".join("- C:\\work\\f%d.py" % i for i in range(n))
 
-    assert run(build(owns=owns(40))) == (0, "", "")
+    assert run(build(owns=owns(40), designer="designer: resubmission t-1")) == (0, "", "")
     code, msg, note = run(build(owns=owns(41)))
     assert code == 2 and missing_text(msg) == "owns (no absolute path could be read)"
 
@@ -599,12 +612,13 @@ def test_text_over_the_scanner_limit_is_unchecked_not_blocked():
 # =========================================================================
 
 
-def test_skip_all_six_at_once_is_legal():
-    prompt = "words only\nmanifest-skip: given, owns, non-goals, handoff, edges, dod -- spike, no worker needed\n"
+def test_skip_all_seven_at_once_is_legal():
+    prompt = ("words only\nmanifest-skip: given, owns, non-goals, handoff, edges, dod, siblings "
+              "-- spike, no worker needed\n")
     code, msg, note = run(prompt)
     assert (code, msg) == (0, "")
     assert note == (
-        'MANIFEST-SKIP: dispatch sent without given, owns, non-goals, handoff, edges, DoD on purpose: '
+        'MANIFEST-SKIP: dispatch sent without given, owns, non-goals, handoff, edges, DoD, siblings on purpose: '
         '"spike, no worker needed" -- the line stays in the prompt as the record.'
     )
 
@@ -980,3 +994,202 @@ def test_f626_an_unclosed_backtick_span_is_left_whole():
     assert dm._cut_note("`C:\\x\\y.py (f1") == "`C:\\x\\y.py (f1"
     assert dm._cut_note("`C:\\x\\y.py` (f1") == "`C:\\x\\y.py`"
     assert dm._cut_note("`C:\\x\\y.py`(f1") == "`C:\\x\\y.py`(f1"          # no space before the bracket: not the note form
+
+
+# =========================================================================
+# E1 (fg-context-and-hygiene): the siblings form and the designer line -- ONE table, FORM only
+# =========================================================================
+
+OWNS3 = "owns:\n- C:\\w\\a.py\n- C:\\w\\b.py\n- C:\\w\\c.py"
+OWNS2 = "owns:\n- C:\\w\\a.py\n- C:\\w\\b.py"
+SPEC_BODY = "\nSpec:\n1. first\n2. second\n3. third\n"
+THREE_NUMBERED = "\n1. a\n2. b\n3. c"
+
+# (id, prompt, expected missing names; [] = goes out)
+FORM_ROWS = [
+    # --- siblings ---
+    ("sib-paths", build(siblings="siblings: tools/owns_gate.py, tools/handoff_gate.py"), []),
+    ("sib-none-dashes", build(siblings="siblings: none -- standalone"), []),
+    ("sib-none-emdash", build(siblings="siblings: none \u2014 standalone"), []),
+    ("sib-none-dot", build(siblings="siblings: none. standalone"), []),
+    ("sib-none-bracket", build(siblings="siblings: none (standalone)"), []),
+    ("sib-bare-none", build(siblings="siblings: none"), ["siblings"]),
+    ("sib-bare-none-dot", build(siblings="siblings: none."), ["siblings"]),
+    ("sib-bare-none-dashes", build(siblings="siblings: none --"), ["siblings"]),
+    ("sib-bare-none-emdash", build(siblings="siblings: none \u2014"), ["siblings"]),
+    ("sib-none-then-prose", build(siblings="siblings: none\nit is a standalone tool"), ["siblings"]),
+    ("sib-none-then-bullet", build(siblings="siblings: none\n- tools/x.py"), ["siblings"]),
+    ("sib-empty-blank-prose", build(siblings="siblings:\n\nsome prose after the blank"), ["siblings"]),
+    ("sib-empty-plain-prose", build(siblings="siblings:\nthe usual ones"), ["siblings"]),
+    ("sib-empty-bullet", build(siblings="siblings:\n- the usual ones"), []),
+    ("sib-empty-path-line", build(siblings="siblings:\nC:\\w\\x.py is the twin"), []),
+    ("sib-empty-axis-line", build(siblings="siblings:\nsee axis 13"), []),
+    ("sib-empty-numbered", build(siblings="siblings:\n1. tools/x.py"), []),
+    ("sib-absent", build(siblings=None), ["siblings"]),
+    ("sib-skip-line", build(siblings=None) + "manifest-skip: siblings -- measured: no neighbours\n", []),
+    ("sib-case-upper", build(siblings="SIBLINGS: tools/x.py"), []),
+    ("sib-neighbours", build(siblings="Neighbours: tools/x.py"), []),
+    ("sib-neighbors-bullet", build(siblings="- neighbors: tools/x.py"), []),
+    ("sib-in-fence", build(siblings=None) + fence("siblings: tools/x.py"), ["siblings"]),
+    ("sib-in-quote", build(siblings=None) + quote("siblings: tools/x.py"), ["siblings"]),
+    ("sib-quoted-continuation-only", build(siblings="siblings:\n> - tools/x.py"), ["siblings"]),
+    # t-113 F1: "Siblings of X:" is prose, not a header -- the owned paths above it stay, and no siblings line exists
+    ("sib-prose-after-owns-paths", build(owns="owns:\n- C:\\w\\a.py\n- C:\\w\\b.py\nSiblings of X: tools/y.py",
+                                         siblings=None), ["siblings"]),
+    # --- t-113 B2: repo-relative path tokens on the continuation line are entries; prose stays refused ---
+    ("sib-empty-relative-path-line", build(siblings="siblings:\ntools/owns_gate.py, tools/handoff_gate.py"), []),
+    ("sib-empty-relative-path-line-spaces", build(siblings="siblings:\ntools/owns_gate.py tools/x.py"), []),
+    ("sib-empty-relative-path-line-backticked",
+     build(siblings="siblings:\n`tools/owns_gate.py`, `tools/handoff_gate.py`"), []),
+    ("sib-empty-relative-folder-line", build(siblings="siblings:\ndocs/tasks/ and its readers"), []),
+    ("sib-empty-prose-with-slash-word", build(siblings="siblings:\nthe usual and/or the obvious ones"), ["siblings"]),
+    ("sib-empty-prose-dir-without-ext", build(siblings="siblings:\nsee tools/x mostly"), ["siblings"]),
+    # --- t-113 F1: a new key's header is a bare declaration (markup or a parenthetical only before the colon) ---
+    ("sib-bullet-prose-inside-dod-not-a-header",
+     build(dod="DoD:\n- neighbours once at the end: run the reader tests\n`python -m pytest tools/x.py -q`"), []),
+    ("sib-header-with-parenthetical", build(siblings="Siblings (axis 13): tools/x.py"), []),
+    ("sib-header-bold", build(siblings="**siblings**: tools/x.py"), []),
+    ("des-prose-key-not-a-header", build(owns=OWNS3, designer="designer said once: skip -- x"), ["designer"]),
+    ("des-header-with-parenthetical", build(owns=OWNS3, designer="Designer (accepted draft): C:\\x\\d.md"), []),
+    # --- t-113 F6: a no-siblings answer carries a reason with a word character; bare synonyms are refused ---
+    ("sib-bare-na", build(siblings="siblings: n/a"), ["siblings"]),
+    ("sib-bare-na-upper-dot", build(siblings="siblings: N/A."), ["siblings"]),
+    ("sib-bare-hyphen", build(siblings="siblings: -"), ["siblings"]),
+    ("sib-bare-emdash", build(siblings="siblings: \u2014"), ["siblings"]),
+    ("sib-none-reason-no-word", build(siblings="siblings: none -- -"), ["siblings"]),
+    ("sib-none-empty-bracket", build(siblings="siblings: none ()"), ["siblings"]),
+    ("sib-hyphen-then-path", build(siblings="siblings: - tools/x.py"), []),
+    # --- designer: below / at / beyond the threshold ---
+    ("des-2-owns-no-check", build(owns=OWNS2), []),
+    ("des-3-owns-no-line", build(owns=OWNS3), ["designer"]),
+    ("des-3-owns-skip-dashes", build(owns=OWNS3, designer="designer: skip -- tiny edit"), []),
+    ("des-3-owns-skip-emdash", build(owns=OWNS3, designer="designer: skip \u2014 tiny edit"), []),
+    ("des-3-owns-skip-no-reason", build(owns=OWNS3, designer="designer: skip"), ["designer"]),
+    ("des-3-owns-skip-empty-reason", build(owns=OWNS3, designer="designer: skip --"), ["designer"]),
+    ("des-3-owns-resubmission", build(owns=OWNS3, designer="designer: resubmission t-97"), []),
+    ("des-3-owns-resubmission-no-id", build(owns=OWNS3, designer="designer: resubmission"), ["designer"]),
+    ("des-3-owns-path", build(owns=OWNS3, designer="designer: C:\\x\\draft.md"), []),
+    ("des-3-owns-path-backticked", build(owns=OWNS3, designer="designer: `C:\\x y\\draft.md`"), []),
+    ("des-3-owns-relative-path", build(owns=OWNS3, designer="designer: docs/tasks/specs/draft.md"), ["designer"]),
+    ("des-3-owns-empty", build(owns=OWNS3, designer="designer:"), ["designer"]),
+    ("des-3-owns-path-on-next-line", build(owns=OWNS3, designer="designer:\nC:\\x\\draft.md"), []),
+    ("des-3-owns-in-fence", build(owns=OWNS3, designer=None) + fence("designer: skip -- x"), ["designer"]),
+    ("des-3-owns-manifest-skip", build(owns=OWNS3) + "manifest-skip: designer -- measured\n", []),
+    ("des-line-below-threshold-not-checked", build(owns=OWNS2, designer="designer: nonsense"), []),
+    # --- designer: numbered items (F-E7: DoD counts, edges does not) ---
+    ("des-3-items-spec-body", build() + SPEC_BODY, ["designer"]),
+    ("des-2-items-spec-body", build() + "\nSpec:\n1. first\n2) second\n", []),
+    ("des-3-items-only-in-dod", build(dod="DoD: `python -m pytest tools/x.py -q`" + THREE_NUMBERED), ["designer"]),
+    ("des-3-items-only-in-edges", build(edges="edges: none -- pure" + THREE_NUMBERED), []),
+    ("des-3-items-only-in-given", build(given="given: docs/x.md" + THREE_NUMBERED), []),
+    ("des-3-items-only-in-owns-ext", build(owns="owns:\n- C:\\w\\a.py" + THREE_NUMBERED), []),
+    ("des-3-items-quoted", build() + "\n" + fence("1. a\n2. b\n3. c"), []),
+    ("des-3-items-spec-body-skip", build() + SPEC_BODY + "designer: skip -- x\n", []),
+    ("des-pointer-spec-no-items", build(given="given: docs/tasks/specs/big-spec.md"), []),
+]
+
+
+@pytest.mark.parametrize("case", FORM_ROWS, ids=[r[0] for r in FORM_ROWS])
+def test_form_table_siblings_and_designer(case):
+    _id, prompt, expected = case
+    code, msg, note = run(prompt)
+    if expected:
+        assert code == 2 and missing_names(msg) == expected, (msg, note)
+    else:
+        assert (code, msg) == (0, ""), msg
+
+
+def test_prose_siblings_line_after_owns_paths_keeps_every_owned_path():
+    prompt = "owns:\n- C:\\w\\a.py\n- C:\\w\\b.py\nSiblings of X: tools/y.py\n- C:\\w\\c.py\n"
+    assert [o.path for o in dm.owned_paths(dm.section_cut(prompt))] == ["C:\\w\\a.py", "C:\\w\\b.py"]
+
+
+def test_non_writing_dispatches_get_neither_check():
+    for type_ in ("scout", "critic", "designer"):
+        assert run("handoff: C:\\w\\report.md\nsiblings: none\n" + SPEC_BODY, type_) == (0, "", "")
+        assert run("do the survey\n", type_) == (0, "", "")
+
+
+def test_designer_skip_goes_out_with_the_owed_event_in_the_note():
+    code, msg, note = run(build(owns=OWNS3, designer="designer: skip -- tiny edit"))
+    assert (code, msg) == (0, "")
+    assert "dispatch_skipped" in note and "tiny edit" in note and "rule 2" in note
+    assert run(build(owns=OWNS3, designer="designer: resubmission t-5"))[2] == ""
+
+
+def test_degraded_cut_is_unchecked_note_never_a_refusal_for_the_new_items():
+    code, msg, note = run(build(owns=OWNS3, siblings=None, given="given: " + "`a b` " * 201))
+    assert (code, msg) == (0, "") and note.startswith("MANIFEST-UNCHECKED:")
+
+
+def test_designer_threshold_counts():
+    cut = dm.section_cut(build(owns=OWNS2) + SPEC_BODY)
+    assert dm.designer_threshold(cut) == (2, 3)
+    cut = dm.section_cut(build(owns=OWNS3, dod="DoD: `python -m pytest x.py -q`" + THREE_NUMBERED))
+    assert dm.designer_threshold(cut) == (3, 3)  # numbered items inside DoD count (F-E7)
+    cut = dm.section_cut(build(edges="edges: none -- x" + THREE_NUMBERED))
+    assert dm.designer_threshold(cut) == (1, 0)  # edges is excluded
+
+
+def test_module_constants_of_the_form_check():
+    assert dm.DISPATCH_FORM_REFUSES is True
+    assert set(dm.ITEM_EXCLUDED_SECTIONS) == {"given", "owns", "non-goals", "handoff", "edges", "siblings", "designer"}
+    assert "dod" not in dm.ITEM_EXCLUDED_SECTIONS
+
+
+def test_form_switch_off_still_checks_both_items_and_notes_them(monkeypatch):
+    # t-113 F3: off = a note, never a silent pass (was: `== (0, "", "")`)
+    monkeypatch.setattr(dm, "DISPATCH_FORM_REFUSES", False)
+    code, msg, note = run(build(owns=OWNS3, siblings=None))
+    assert (code, msg) == (0, "")
+    assert note == (
+        "SIBLINGS/DESIGNER NOT ENFORCED (DISPATCH_FORM_REFUSES is off): this dispatch went out missing "
+        "siblings (no line), designer (no line; over the threshold by 3 owned paths); add the line(s) in the form "
+        "the INCOMPLETE text names."
+    )
+    # the six older items are still refused, and the refusal names only them
+    code, msg, note = run(build(owns=OWNS3, siblings=None, edges=None))
+    assert code == 2 and missing_names(msg) == ["edges"]
+    # a complete dispatch: no note
+    assert run(build(owns=OWNS3, designer="designer: skip -- x"))[:2] == (0, "")
+    assert "NOT ENFORCED" not in run(build(owns=OWNS3, designer="designer: skip -- x"))[2]
+    # a manifest-skip still waives: the skip note, not the not-enforced note
+    note = run(build(siblings=None) + "manifest-skip: siblings -- measured\n")[2]
+    assert note.startswith("MANIFEST-SKIP:") and "NOT ENFORCED" not in note
+
+
+def test_designer_refusal_names_the_triggering_count_and_the_three_forms():
+    # t-113 F5: which count triggered the line; F4: the threshold in the text comes from the constant
+    msg = run(build(owns=OWNS3))[1]
+    assert "designer (no line; over the threshold by 3 owned paths)" in msg
+    msg = run(build() + "\n1. a\n2. b\n3. c\n4. d\n5. e\n")[1]
+    assert "designer (no line; over the threshold by 5 numbered items)" in msg
+    msg = run(build(owns=OWNS3) + SPEC_BODY)[1]
+    assert "designer (no line; over the threshold by 3 owned paths and 3 numbered items)" in msg
+    msg = run(build(owns=OWNS3, designer="designer: skip"))[1]
+    assert "designer (no absolute path, 'skip -- <reason>' or 'resubmission t-<id>'; over the threshold" in msg
+    t = dm.DESIGNER_THRESHOLD
+    assert "from %d owned paths or %d numbered items" % (t, t) in msg
+    for form in ("the absolute path of the accepted draft", "'designer: skip -- <reason>'",
+                 "'designer: resubmission t-<id>'"):
+        assert form in msg, form
+
+
+def test_the_siblings_door_names_the_none_with_reason_form():
+    # t-113 F6: a bare synonym is refused with the door 'none -- <why>' in the text
+    msg = run(build(siblings="siblings: n/a"))[1]
+    assert "siblings (bare none)" in msg and "'siblings: none -- <why>'" in msg
+
+
+def test_templates_list_every_item_and_keep_their_first_sentence():
+    assert dm.ITEMS == ("given", "owns", "non-goals", "handoff", "edges", "dod", "siblings", "designer")
+    for name in ("given:", "owns:", "non-goals:", "handoff:", "edges:", "DoD:", "siblings:", "designer:"):
+        assert name in dm.INCOMPLETE_TEMPLATE, name
+    for item in dm.ITEMS:
+        assert item in dm.SKIP_REFUSED_TEMPLATE, item
+    assert "siblings and designer by eye" in dm.UNCHECKED_NOTE_TEMPLATE
+    assert dm.INCOMPLETE_TEMPLATE.startswith(
+        "DISPATCH INCOMPLETE (CLAUDE.md rule 11): this {kind} dispatch does not go out. Missing: {items}.")
+    assert dm.SKIP_REFUSED_TEMPLATE.startswith("MANIFEST-SKIP REFUSED: '{line}' -- {why}. Expected:")
+    assert dm.UNCHECKED_NOTE_TEMPLATE.startswith(
+        "MANIFEST-UNCHECKED: this dispatch was not checked for completeness ({what}) -- it went out; check ")

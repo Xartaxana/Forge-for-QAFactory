@@ -264,6 +264,7 @@ def test_decide_normal_declaration_registers_and_no_warn(tmp_path):
         # B-201: the premise "a passing dispatch" kept; the fixture gets the full form
         "non-goals: none\nhandoff: a short report\nedges: none -- nothing to limit\n"
         "DoD: `python -m pytest tools/x.py -q`\n"
+        "siblings: none -- a test fixture\n"
         "Edit the files."
     )
     exit_code, output = m.decide(_writing_payload(prompt), registry_path=registry, now=_NOW)

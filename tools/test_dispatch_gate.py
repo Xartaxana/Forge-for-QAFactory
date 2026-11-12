@@ -55,7 +55,8 @@ _DOD_LINE = "DoD: `python -m pytest tools/test_dispatch_gate.py -q`"
 
 
 def _manifest(given="the whole repo", owns=_OWNED_PATH, non_goals="none", handoff="a short report",
-              edges="none -- nothing to limit", dod=_DOD_LINE, prefix="", suffix=""):
+              edges="none -- nothing to limit", dod=_DOD_LINE, prefix="", suffix="",
+              siblings="none -- a test fixture", designer="skip -- a test fixture"):
     lines = []
     if given is not None:
         lines.append(f"given: {given}")
@@ -69,6 +70,10 @@ def _manifest(given="the whole repo", owns=_OWNED_PATH, non_goals="none", handof
         lines.append(f"edges: {edges}")
     if dod is not None:
         lines.append(dod)
+    if siblings is not None:
+        lines.append(f"siblings: {siblings}")
+    if designer is not None:
+        lines.append(f"designer: {designer}")
     text = "\n".join(lines)
     return (prefix + "\n" if prefix else "") + text + ("\n" + suffix if suffix else "")
 
@@ -114,6 +119,20 @@ def test_builder_with_dod_literal_passes_check1():
     )
     assert exit_code == 0
     assert message == ""
+
+
+def test_builder_without_siblings_line_is_refused_end_to_end_and_passes_with_it():
+    # t-113 F2: the E1 form check reaches the gate -- a complete builder dispatch WITHOUT `siblings:` is refused
+    # with the INCOMPLETE text naming siblings; the same dispatch with the line goes out
+    exit_code, message = dispatch_gate.decide(
+        _builder_payload(_manifest(prefix="Fix the typo.", siblings=None), description="sonnet: fix")
+    )
+    assert exit_code == 2
+    assert message.startswith("DISPATCH INCOMPLETE (CLAUDE.md rule 11): this builder dispatch does not go out.")
+    assert "Missing: siblings (no line)." in message
+    assert dispatch_gate.decide(
+        _builder_payload(_manifest(prefix="Fix the typo."), description="sonnet: fix")
+    ) == (0, "")
 
 
 def test_builder_with_acceptance_criteria_en_no_longer_a_dod_header():
@@ -508,6 +527,7 @@ _CYRILLIC_MANIFEST_PAYLOAD = {
             "handoff: краткий отчёт\n"
             "edges: none -- границ нет\n"
             "DoD: критерии приёмки — тест зелёный, `python -m pytest tools/x.py -q`\n"
+            "siblings: none -- a test fixture\n"
         ),
         "description": "sonnet: fix",
     },
@@ -1636,7 +1656,7 @@ def test_given_path_warn_layer_exception_is_swallowed_exit_0(monkeypatch):
 import dispatch_manifest  # noqa: E402
 
 _SKIP_LINE = (
-    "manifest-skip: given, owns, non-goals, handoff, edges, dod -- a throwaway probe, "
+    "manifest-skip: given, owns, non-goals, handoff, edges, dod, siblings -- a throwaway probe, "
     "nothing is written"
 )
 
@@ -2962,7 +2982,7 @@ def _race_sandbox(tmp_path, n_workers):
 
 
 def _race_payload(root, kind, tool_use_id):
-    prompt = "given: none\nowns: %s (new)\nnon-goals: none\nhandoff: report\nedges: none\nDoD: `python -m pytest x -q`\nWrite." % (
+    prompt = "given: none\nowns: %s (new)\nnon-goals: none\nhandoff: report\nedges: none\nDoD: `python -m pytest x -q`\nsiblings: none -- a test fixture\nWrite." % (
         root / "x.py")
     payload = {"tool_name": "Agent", "cwd": str(root), "session_id": "sid1",
                "transcript_path": str(root / "home" / "x.jsonl"),

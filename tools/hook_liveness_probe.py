@@ -632,7 +632,8 @@ def _case_0_agent_budget_worker_stop():
 
 def _complete_builder_prompt(owns_path: str) -> str:
     """A COMPLETE builder dispatch (B-201): the gate refuses (exit 2, nothing registered) a builder dispatch
-    missing any of given, owns, non-goals, handoff, edges, DoD (with a command in backticks), and since t-796
+    missing any of given, owns, non-goals, handoff, edges, DoD (with a command in backticks), siblings (t-113 E1;
+    one owned path is below the designer threshold, so no designer line is owed), and since t-796
     the trace readers run only on an ALLOWED dispatch -- so the cases that prove the in-process trace road
     need a non-refused payload. B-245: an owns path absent under the cwd is refused unless marked (new)."""
     return (
@@ -643,6 +644,7 @@ def _complete_builder_prompt(owns_path: str) -> str:
         "handoff: a short report\n"
         "edges: none -- a probe fixture, nothing to limit\n"
         "DoD: the probe feature is implemented; `python -m pytest tools/test_dispatch_gate.py -q` green.\n"
+        "siblings: none -- a probe fixture\n"
     )
 
 
