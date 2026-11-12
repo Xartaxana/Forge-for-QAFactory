@@ -31,6 +31,7 @@ Imports, nested functions and the `__main__` block are excluded.
 """
 
 import ast
+import gc
 import json
 import re
 import sys
@@ -123,7 +124,7 @@ def read_modules(root: Path, fam: dict, exempt=()) -> dict:
     out = {}
     for path in paths:
         text = path.read_text(encoding="utf-8")
-        out[path.stem] = (path, text, ast.parse(text, str(path)))
+        out[path.stem] = (path, text, _parse(text, str(path)))
     return out
 
 
@@ -458,8 +459,7 @@ def _imports_of(tree):
             out.extend((a.name.split(".")[0], node.lineno) for a in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             out.append((node.module.split(".")[0], node.lineno))
-        elif isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant) \
-                and isinstance(node.args[0].value, str):
+        elif isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant)                 and isinstance(node.args[0].value, str):
             func = node.func
             name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
             if name in ("import_module", "__import__"):
@@ -467,10 +467,33 @@ def _imports_of(tree):
     return out
 
 
-def _parse_script(path: Path):
-    """(tree, None) of a script, read as Python reads it (a BOM is allowed), or (None, the reason) when it cannot be parsed."""
+# What the checks read of the rig's scripts and tests is derived ONCE per source text (the key is the text, so a fixture that
+# changes a file gets its own entry) and the tree is dropped at once: the scripts are 17 MB and the tests 28 MB of source.
+_SCRIPT_IMPORTS: dict = {}
+_MENTIONS: dict = {}
+
+
+def _parse(text: str, filename: str = "<unknown>"):
+    """ast.parse with the cycle collector paused: building a tree allocates millions of container nodes and the collector,
+    woken by every few thousand of them, walks all live ones again and again (half of the parse time on the rig's tests)."""
+    was = gc.isenabled()
+    gc.disable()
     try:
-        return ast.parse(path.read_text(encoding="utf-8-sig"), str(path)), None
+        return ast.parse(text, filename)
+    finally:
+        if was:
+            gc.enable()
+
+
+def _script_imports(path: Path):
+    """(imports, None) of a script, read as Python reads it (a BOM is allowed) - `_imports_of` of its tree - or (None, the
+    reason) when it cannot be parsed."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+        key = (str(path), text)
+        if key not in _SCRIPT_IMPORTS:
+            _SCRIPT_IMPORTS[key] = _imports_of(_parse(text, str(path)))
+        return _SCRIPT_IMPORTS[key], None
     except (SyntaxError, ValueError) as exc:
         return None, f"{type(exc).__name__}: {exc}"
 
@@ -510,11 +533,11 @@ def facade_importer_problems(root: Path, facades: set) -> list:
     for path in sorted((Path(root) / "scripts").glob("*.py")):
         if path.stem == "module_facade" or path.stem in facades:
             continue
-        tree, why = _parse_script(path)
-        if tree is None:
+        found, why = _script_imports(path)
+        if found is None:
             out.append(f"scripts/{path.name} cannot be parsed ({why}): fix the file; an unreadable script hides whether it "
                        f"installs a facade.")
-        elif any(module == "module_facade" for module, _line in _imports_of(tree)):
+        elif any(module == "module_facade" for module, _line in found):
             out.append(f"scripts/{path.name} imports module_facade but is the facade of no family map: add "
                        f"fixtures/<prefix>-layers.json for it (its `family.facade` is `{path.stem}`), or stop installing it "
                        f"(a misnamed map is invisible to the glob).")
@@ -533,12 +556,12 @@ def l11_problems(root: Path, mp: dict, fam: dict, mods: dict, rank: dict, rows: 
     for path in sorted(scripts.glob("*.py")):
         if path.name in family_files:
             continue
-        tree, why = _parse_script(path)
-        if tree is None:
+        found, why = _script_imports(path)
+        if found is None:
             probs.append(f"scripts/{path.name} cannot be parsed ({why}): fix the file; an unreadable script may import a "
                          f"part, and the check cannot tell.")
             continue
-        for module, line in _imports_of(tree):
+        for module, line in found:
             if module in part_stems:
                 if (path.name, module) in allowed:
                     matched.add((path.name, module))
@@ -958,11 +981,11 @@ def analyse(root: Path, mp: dict, tests_dir: Path | None = None, map_name: str =
             if path.name in skip:
                 continue
             try:
-                tree = ast.parse(path.read_text(encoding="utf-8"))
+                table = _mention_table(path.read_text(encoding="utf-8"), family_file_names)
             except SyntaxError:
                 continue
             for fname in family_file_names:
-                for function, line, count in _literal_mentions(tree, fname):
+                for function, line, count in _literal_mentions(table, fname):
                     census_l8.setdefault((path.name, function), []).append((line, count))
     readers = {(r["file"], r["function"]): r for r in mp.get("source_readers", [])}
     mentions = {}
@@ -990,7 +1013,7 @@ def analyse(root: Path, mp: dict, tests_dir: Path | None = None, map_name: str =
     for (file, function), row in sorted(readers.items()):
         path = tests / file
         if path.is_file():
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = _parse(path.read_text(encoding="utf-8"))
             if not _function_reads(tree, function):
                 probs["L8"].append(f"source_readers row {file}::{function} names a function with no read_text/read_bytes: "
                                    f"a row for command text belongs in `source_mentions`.")
@@ -1016,8 +1039,9 @@ def analyse(root: Path, mp: dict, tests_dir: Path | None = None, map_name: str =
     return {"problems": probs, "info": info}
 
 
-def _literal_mentions(tree, needle: str):
-    """[(enclosing def name, line, occurrences)] for each non-docstring string constant that holds `needle`."""
+def _string_table(tree) -> list:
+    """[(enclosing def name, line, value)] for every non-docstring string constant of a tree, in walk order: ONE walk of the
+    tree, however many needles are then looked for (the rig's tests are about 800 files, the family about 17 names)."""
     docstrings = set()
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -1033,11 +1057,27 @@ def _literal_mentions(tree, needle: str):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 fn = child.name
             if isinstance(child, ast.Constant) and isinstance(child.value, str) and id(child) not in docstrings:
-                if needle in child.value:
-                    out.append((fn, child.lineno, child.value.count(needle)))
+                out.append((fn, child.lineno, child.value))
             walk(child, fn)
     walk(tree, "<module>")
     return out
+
+
+def _literal_mentions(table: list, needle: str):
+    """[(enclosing def name, line, occurrences)] for each non-docstring string constant of `table` that holds `needle`."""
+    return [(fn, line, value.count(needle)) for fn, line, value in table if needle in value]
+
+
+def _mention_table(text: str, needles: list) -> list:
+    """`_string_table` of the tree of `text`, built only when some string constant of it holds a needle (one flat walk says
+    so; a tree with none has no mention to report, docstring or not), kept per (text, needles). Raises SyntaxError."""
+    key = (text, tuple(needles))
+    if key not in _MENTIONS:
+        tree = _parse(text)
+        found = re.compile("|".join(re.escape(x) for x in needles)).search if needles else (lambda _v: None)
+        hit = any(type(n) is ast.Constant and type(n.value) is str and found(n.value) for n in ast.walk(tree))
+        _MENTIONS[key] = _string_table(tree) if hit else []
+    return _MENTIONS[key]
 
 
 def _function_reads(tree, function: str) -> bool:
