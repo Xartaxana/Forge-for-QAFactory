@@ -66,6 +66,27 @@ The revision is accepted. Forks of §5, decided by the Lead on the designer's re
 Order from here: B0-2 (measurement) and the critic on §3.7/B6 run now, side by side; B1 and B6 start when both are
 accepted; then B2 and B3; one code critic for the topic.
 
+### Lead decision on the critic's verdict on §3.7/B6 (12.11.2026, t-119, `reviews/t-119-fg7-8-b6-plan.md`)
+
+The verdict (`fit_with_fixes`, 4 blocking) stands and changes the order, not the words' executor:
+
+1. **OW-2 leaves this spec's build path and becomes its own node, waiting for the owner.** B-4: `check_vcs` runs
+   only at gate A, before S5 writes a test, so on a first pass the story's own record is empty; the factory's files a
+   person sees then are an EARLIER story's (or an earlier pass's), which §3.7 calls the person's. Which files the
+   owner meant is her reading (rule 11a). B-1/B-2/B-3 (a person's edit absorbed by a later factory Edit; the
+   orchestrator's writes on the skill road; no role attribution on the skill road) need a pre-image chain and a
+   per-road attribution — a mechanism of its own, with its own critic on the plan.
+2. **B6 is NOT built now. `factory_origin` is NOT built in B1.** B1 builds `vcs_changes` with `person` = every entry
+   outside the factory home and `factory` = `[]` (the "no record" world of F12's note: today's behaviour, never the
+   unsafe side). The digest, the list, the cap and the blockers are computed over `person` exactly as written, so the
+   later node adds one reader and no caller changes. Every sentence of §3.7 rules 1–3, of B1's `factory_origin` rows
+   and of F13 is DEFERRED to that node; B1's builder skips them.
+3. Fact correction F-1 is taken: manifest rows carry the whole test-file sha256 (`trace_binding.test_content_sha`),
+   so F0-30's "no content record anywhere" is false for test bodies; F12 is re-decided inside the deferred node.
+4. Owner questions carried by the Lead: (Q-1) product code under `commit`/`stash`; (Q-2) "files the factory left in
+   your repository from an earlier story or an earlier pass — the factory's (not shown, not taken) or yours?".
+   OW-1 (the reminder in the chat) is unaffected and is built now.
+
 ---
 
 ## §0 Facts (read in the carrier, file:line; re-read 12.11.2026 for t-115 where marked *)
