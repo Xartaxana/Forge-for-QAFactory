@@ -2129,21 +2129,49 @@ def row_form(spec: dict, name: str = "") -> tuple:
     return (key, lists[key]) if key else ("", [])
 
 
-def row_pair(paths: list) -> tuple:
+def row_pair(paths: list, depth: int = 1) -> tuple:
     """`(first, next)`: the first path of a row that is not a list of values, and the same path in the next row (the
-    first index plus one); `("", "")` when there is none. The one place the two samples are made."""
+    `depth`-th index plus one: the index of THE list being shown, 1 for a top-level list, 2 for a list inside a row);
+    `("", "")` when there is none. The one place the two samples are made."""
     first = next((p for p in paths if not p.endswith("]")), "")
     if not first:
         return "", ""
-    return first, INDEXED.sub(lambda m: "[" + str(int(m.group(1)) + 1) + "]", first, count=1)
+    seen = [0]
+
+    def bump(found):
+        seen[0] += 1
+        return f"[{int(found.group(1)) + 1}]" if seen[0] == depth else found.group(0)
+
+    return first, INDEXED.sub(bump, first)
 
 
-def _row_sentence(paths: list) -> str:
+def _row_sentence(paths: list, depth: int = 1) -> str:
     """The sentence that names the indexed form of a row; the general form when the contract names no row."""
-    first, later = row_pair(paths)
+    first, later = row_pair(paths, depth)
     if not first:
         return 'a row of a list is written by its index: `"<list>[0].<field>": <value>`'
     return f'a row of a list is written one line per key: `"{first}": <value>`, the next row `"{later}"`'
+
+
+def _nested_rows(spec: dict, name: str) -> tuple:
+    """`(paths of one row, depth)` of a list INSIDE a row, named by `name` with its own indexes (`rounds[0].changed`):
+    the row's paths keep the indexes of `name`, so the next row of that list is `rounds[0].changed[1].file`, not the
+    next row of the outer list (HF8-28, F8). A name with no index, or one that is no list of rows, gives `([], 0)`;
+    a path the contract writes itself or code fills is left out, as in `_row_lists`."""
+    key = _list_key(name)
+    held = INDEXED.findall(key)
+    if not held:
+        return [], 0
+    prefix = INDEXED.sub("[]", key) + "[]."
+    paths = []
+    for generic in spec:
+        if not generic.startswith(prefix) or handoff.owned_by_contract(generic) or _code_fills(generic):
+            continue
+        path = generic
+        for index in held:
+            path = path.replace("[]", f"[{index}]", 1)
+        paths.append(path.replace("[]", "[0]"))
+    return paths, len(held) + 1
 
 
 class _ValuesHints:
@@ -2170,7 +2198,8 @@ class _ValuesHints:
         if key not in self._memo:
             spec = self.spec_once()
             if strict and spec and _list_key(name) not in _row_lists(spec):
-                self._memo[key] = ("", ())
+                nested, depth = _nested_rows(spec, name)
+                self._memo[key] = (_row_sentence(nested, depth), tuple(nested)) if nested else ("", ())
             else:
                 _list, paths = row_form(spec, name)
                 self._memo[key] = (_row_sentence(paths), tuple(paths))
@@ -2479,17 +2508,34 @@ def _text_of(label: str, read) -> tuple:
         return "", Problem(label, f"cannot be read as UTF-8 text ({exc})", "write it again as plain UTF-8 text")
 
 
+def _writable_lines(doc, contract: str, pairs: list) -> list:
+    """The raw lines of `pairs` that the writer takes: each pair goes through `apply_values` on a COPY of `doc` (in path
+    order, so rows open one after the other) and a pair it refuses is left out (HF8-28: the refusal's skeleton never
+    gives back a line the next apply refuses, FR-2). The order of `pairs` is kept. When the copy cannot be made or a
+    pair raises, every line is kept as before - the error direction is the general skeleton, never a lost line."""
+    try:
+        trial = handoff.parse(doc.text())
+        refused = set()
+        for pair in sorted(pairs, key=lambda pair: _path_order(pair[0])):
+            trial, _count, found, _notes = apply_values(trial, contract, [pair])
+            if found:
+                refused.add(pair[0])
+    except Exception:
+        return [raw for _path, _value, _line, raw in pairs]
+    return [raw for path, _value, _line, raw in pairs if path not in refused]
+
+
 def _apply_text(doc, contract: str, label: str, read) -> tuple:
     """`(document, applied, problems, notes, parsed, kept)` for one values source. A text with a line that does not parse
     applies NOTHING (its problems come back with their line numbers); `parsed` is False then, and `kept` holds the
-    lines that DID parse, verbatim - the refusal's skeleton gives them back, so the role rewrites its file whole and
-    loses no good line (SC1-2 A2, M-4)."""
+    lines that DID parse and that the writer takes, verbatim - the refusal's skeleton gives them back, so the role
+    rewrites its file whole and loses no good line (SC1-2 A2, M-4); a line the writer refuses is not echoed (HF8-28)."""
     text, unread = _text_of(label, read)
     if unread:
         return doc, 0, [unread], [], False, []
     pairs, problems = parse_values(text, label, contract=contract)
     if problems:
-        return doc, 0, problems, [], False, [raw for _p, _v, _n, raw in pairs]
+        return doc, 0, problems, [], False, _writable_lines(doc, contract, pairs)
     doc, applied, problems, notes = apply_values(doc, contract, pairs)
     return doc, applied, problems, notes, True, []
 
@@ -2734,7 +2780,7 @@ def values_report(form_path, values_text: str, *, artifacts_root=None) -> Values
     role = str(doc.get("header.role") or doc.get("from_role") or "")
     pairs, problems = parse_values(values_text, contract=contract)
     if problems:
-        return ValuesReport(problems, role, [raw for _path, _value, _line, raw in pairs], contract, False)
+        return ValuesReport(problems, role, _writable_lines(doc, contract, pairs), contract, False)
     written = []
     for pair in sorted(pairs, key=lambda pair: _path_order(pair[0])):
         doc, count, found, _notes = apply_values(doc, contract, [pair])

@@ -752,6 +752,60 @@ def a_skeleton_of_every_refusal_reads_back_blank() -> None:
         check(f"K13: {text[:24]!r}: every value is blank", all(H._blank_value(p[1]) for p in pairs), f"{pairs}")
 
 
+def a_list_inside_a_row_is_taught_the_index_of_its_own_list() -> None:
+    """K-HF8-28a (F8, FR-1, FR-2): a nested object on the list INSIDE a row (`rounds[0].changed`, `open_questions[0].readings`)
+    names the row form of THAT list - the next row of `rounds[0].changed` is `rounds[0].changed[1].file`, not
+    `rounds[1].changed[0].file` - and every path the hint offers is written by `apply_values` (not by the text). The outer
+    list keeps its own text (control), and a name with no index of a list in a row still gets no hint (K5)."""
+    cases = (("s7-automator-to-analyst", "rounds[0].changed", "rounds[0].changed[0].file", "rounds[0].changed[1].file"),
+             ("s7-automator-to-analyst", "rounds[1].changed", "rounds[1].changed[0].file", "rounds[1].changed[1].file"),
+             ("s2-tester-to-strategist", "open_questions[0].readings", "open_questions[0].readings[0].id",
+              "open_questions[0].readings[1].id"))
+    for contract, name, first, later in cases:
+        problem = _problems(f"{name}: [{{a: 1}}]", contract)[0]
+        check_in(f"K-HF8-28a {name}: the first row of its own list", f'"{first}"', problem.text)
+        check_in(f"K-HF8-28a {name}: the next row of its own list", f'"{later}"', problem.text)
+        check_in(f"K-HF8-28a {name}: the row's paths ride in `also`", first, problem.also)
+        paths = [path for path in problem.also if not path.endswith("]")]
+        check(f"K-HF8-28a {name}: every path keeps the indexes of the name", all(path.startswith(name + "[0].") for path in paths), f"{paths}")
+        doc, applied, bad, _notes = H.apply_values(handoff.template(contract), contract,
+                                                   [(path, "word", 1, "") for path in paths] + [(later, "word", 2, "")])
+        check_eq(f"K-HF8-28a {name}: the paths and the next row are written", (applied, [b.path for b in bad]),
+                 (len(paths) + 1, []))
+        check_in(f"K-HF8-28a {name}: the skeleton unfolds the row", f'"{first}": <', _skeleton([problem], contract, "qa-automator"))
+    outer = _problems("rounds: [{id: 1}]", "s7-automator-to-analyst")[0]
+    check_in("K-HF8-28a control: the outer list keeps the index of the outer list", '"rounds[0].id"', outer.text)
+    check_in("K-HF8-28a control: and its next row", '"rounds[1].id"', outer.text)
+    check_eq("K-HF8-28a a nested name the contract does not know has no hint",
+             _problems("rounds[0].nothing: [{a: 1}]", "s7-automator-to-analyst")[0].also, ())
+
+
+def a_line_the_writer_refuses_is_not_echoed_in_the_skeleton() -> None:
+    """K-HF8-28b (the `kept` echo, FR-2): a block YAML whose indented `state: approve` is a path of no field is refused for the
+    shape of its other lines, and `state: approve` is NOT given back as a line to keep - the next apply would refuse it; a line
+    the writer takes still comes back (control), by both doors (`values_report`, `_apply_text`)."""
+    root = temp_project("qa-values-hf828-")
+    try:
+        art = _story(root)
+        form = _form4(art)
+        good = "header.window: TP1-13877"
+        for label, text in (("block yaml", f"scope:\n  - id: TC-1\n    state: approve\n{good}\n"),
+                            ("one line", f"scope.0.id: TC-1\nstate: approve\n{good}\n"),
+                            ("quoted path", f'"state": approve\n{good}\nthis has no colon\n')):
+            problems, role, kept = H.values_report(form, text)[:3]
+            check("K-HF8-28b %s: the text is refused for its shape" % label, bool(problems), "")
+            check_not_in(f"K-HF8-28b {label}: the refused line is not kept", "state: approve", "\n".join(kept))
+            check_in(f"K-HF8-28b {label}: the writer's line is kept", good, kept)
+            check_not_in(f"K-HF8-28b {label}: and not in the skeleton", "state: approve",
+                         H.refusal_text(form, S4C, problems, role, kept=kept))
+            doc = _doc(form)
+            got = H._apply_text(doc, S4C, "values", lambda text=text: text.encode("utf-8"))
+            check_eq(f"K-HF8-28b {label}: the other door agrees", (got[4], got[5]), (False, kept))
+        check_eq("K-HF8-28b nothing parsed, nothing kept", H.values_report(form, "no colon here\n")[2], [])
+    finally:
+        cleanup(root)
+
+
 # split: runner piece 1
 if __name__ == "__main__":
     a_dotted_index_is_refused_with_the_indexed_row_form()
@@ -770,6 +824,8 @@ if __name__ == "__main__":
     an_empty_list_and_a_flat_list_of_rows_are_taught_the_index()
     the_battery_never_raises_and_the_hint_names_only_real_paths()
     a_skeleton_of_every_refusal_reads_back_blank()
+    a_list_inside_a_row_is_taught_the_index_of_its_own_list()
+    a_line_the_writer_refuses_is_not_echoed_in_the_skeleton()
     one_refusal_block_one_command()
     a_role_with_bash_is_shown_the_heredoc_and_the_file_door()
     a_role_without_bash_is_shown_the_file_door_only()
