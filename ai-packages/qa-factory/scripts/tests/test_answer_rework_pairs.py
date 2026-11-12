@@ -11,6 +11,7 @@ replaced is taken out, never sent. Keys S1-S6.
 Both are pure and need no driver, no task root and no network.
 """
 import copy
+import inspect
 import sys
 from pathlib import Path
 
@@ -142,9 +143,44 @@ def supersession() -> None:
              ["t2"])
 
 
+def one_carrier_each() -> None:
+    """DC1-27 (FR-54, AR-13, AR-19): the gate's two shared words have ONE carrier and every reader reads it.
+    (1) the mark `Earlier answer at this gate:` is `question_register.EARLIER_ANSWER_MARK`; the driver's `Driver.EARLIER_ANSWER` is that
+    very object and no other script holds the literal. (2) the owners of an answer rework are `controller.ANSWER_REWORK_OWNERS`; an owner
+    added there is accepted by BOTH roads - the controller's owed-rework reading and the driver's `merge_answer_rework`."""
+    import question_register as QR
+    import controller as C
+    check("D1: the driver's mark IS the register's (one object)", story_run.Driver.EARLIER_ANSWER is QR.EARLIER_ANSWER_MARK)
+    literal = '"\\n\\nEarlier answer at this gate:\\n"'
+    holders = sorted(p.name for p in Path(story_run.__file__).resolve().parent.glob("*.py") if literal in p.read_text(encoding="utf-8"))
+    check_eq("D1: the literal of the mark stands in one script", holders, ["question_register.py"])
+    third = {"scribe": ("S9", "qa-doc-scribe", "--cases")}
+    original = dict(C.ANSWER_REWORK_OWNERS)
+    entry = {"owner": "scribe", "where": "TC-1", "question": "Q1", "answer": "a", "record_at": "t1"}
+    for label, owners in (("the two shipped owners", original), ("a third owner added in the one table", {**original, **third})):
+        C.ANSWER_REWORK_OWNERS.clear()
+        C.ANSWER_REWORK_OWNERS.update(owners)
+        try:
+            parts, _doors = C._owed_rework_parts(Path("T"), [entry])
+            fake = object.__new__(story_run.Driver)
+            fake.state, fake.state_dir = {}, Path("no-such-state-dir")
+            fake.question_branch_findings = lambda: []
+            fake.save_state = lambda: None
+            fake.answer_item_words = lambda item: ""
+            merged = story_run.Driver.merge_answer_rework(fake, [entry])
+        finally:
+            C.ANSWER_REWORK_OWNERS.clear()
+            C.ANSWER_REWORK_OWNERS.update(original)
+        accepted = "scribe" in owners
+        check_eq(f"D2 [{label}]: the controller's reading names the owner exactly when the table holds it",
+                 any("the scribe must rework TC-1" in part for part in parts), accepted)
+        check_eq(f"D2 [{label}]: the driver's merge takes the owner's rework exactly when the table holds it", merged, accepted)
+
+
 if __name__ == "__main__":
     pairs_owed()
     supersession()
-    check("the two functions are static (callable with no driver)", isinstance(story_run.Driver.__dict__["answer_pairs_owed"], staticmethod)
-          and isinstance(story_run.Driver.__dict__["answer_supersede"], staticmethod))
+    one_carrier_each()
+    check("the two functions are static (callable with no driver)", isinstance(inspect.getattr_static(story_run.Driver, "answer_pairs_owed"), staticmethod)
+          and isinstance(inspect.getattr_static(story_run.Driver, "answer_supersede"), staticmethod))
     harness.finish("test_answer_rework_pairs")
