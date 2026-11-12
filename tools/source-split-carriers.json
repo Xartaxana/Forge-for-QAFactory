@@ -1,0 +1,38 @@
+{
+ "schema": 1,
+ "about": "Data of tools/source_split.py (AR-1: no module or file name of the package is written in the tool's code). package_root = where the package lives under --repo; every other path below is relative to the package (root: pkg) or to --repo (root: repo). `carriers` are the registries keyed by a file name, `file:function` or a class-qualified name (spec td-11a section 3, the shared-registry protocol): who `tool` rows are rewritten by the carrier pass, `hand` rows are only listed in the report. `censuses` is the answer, one row per glob census over the package scripts, to: is it keyed by file name (then it has a carrier row) or not.",
+ "package_root": "ai-packages/qa-factory",
+ "tests_dir": "scripts/tests",
+ "layer_test": {"file": "scripts/tests/test_driver_layers.py", "entry": "analyse"},
+ "k7": {"file": "scripts/tests/test_console_encoding.py", "entry": "residue"},
+ "facade": {"module": "module_facade", "call": "install"},
+ "preamble_calls": ["sys.path.insert"],
+ "section_marker": "^#\\s*---.*---\\s*$",
+ "selftest": {"source": "scripts/story_run.py", "class": "Driver", "prefix": "driver_"},
+ "census_test": {"file": "scripts/tests/test_judgment_census.py", "entry": "analyse", "data": "scripts/tests/fixtures/judgment-census.json"},
+ "carriers": [
+  {"id": 1, "file": "references/gate-registry.json", "form": "json-file-function", "who": "tool"},
+  {"id": 2, "file": "references/null-outcomes.json", "form": "guard", "who": "tool"},
+  {"id": 3, "file": "references/block-names.json", "form": "reader", "who": "tool"},
+  {"id": 4, "file": "scripts/audit_factory.py", "form": "py-tuple", "who": "tool"},
+  {"id": 5, "file": "scripts/tests/fixtures/judgment-census.json", "form": "json-file-function", "who": "tool"},
+  {"id": 6, "file": "scripts/tests/test-layers.json", "form": "covers-append", "who": "tool", "section": "keep", "list": "covers"},
+  {"id": 23, "file": "scripts/tests/test_bug_records.py", "form": "py-tuple", "who": "tool", "note": "KEPT: dict literal keyed ('<file>', '<Class>.<m>'); found by the census review of test_bug_records.py:472"},
+  {"id": 8, "file": "references/artifact-writers.json", "form": "hand", "who": "hand", "note": "writer of the timing journal: the module of the member that writes it"},
+  {"id": 9, "file": "scripts/tests/fixtures/env-facts-baseline.json", "form": "hand", "who": "hand", "note": "line anchors in prose: anchor becomes <Class>.<member>"},
+  {"id": 10, "file": "design/architecture.md", "form": "hand", "who": "hand", "note": "line anchors in prose"},
+  {"id": 12, "file": "references/collect-loops.json", "form": "hand", "who": "hand", "note": "prose naming the facade file as the location of a moved name"},
+  {"id": 15, "file": "tools/lint-baseline.json", "form": "hand", "who": "integrator", "root": "repo", "note": "python tools/lint_ratchet.py --update in the cut commit"},
+  {"id": 16, "file": "tools/dup-baseline.json", "form": "hand", "who": "integrator", "root": "repo", "note": "python tools/dup_ratchet.py --update in the cut commit"}
+ ],
+ "censuses": [
+  {"id": "K7", "site": "scripts/tests/test_console_encoding.py residue()", "keyed_by_file": false, "carrier_row": null, "verdict": "run by the tool on the would-be parts (dry-run report, lines K7); a flagged part gets the setup import named by the map key setup_import"},
+  {"id": "C1", "site": "scripts/gate_registry.py:411 scan_package", "keyed_by_file": true, "carrier_row": 1, "verdict": "result keyed by file name; rows of gate-registry.json carry file+function: rewritten by the carrier pass"},
+  {"id": "C2", "site": "scripts/audit_factory.py:338 module closure", "keyed_by_file": false, "carrier_row": null, "verdict": "a set of stems reached by literal imports from the entry script; new parts are reached through the facade's literal import lines the tool writes (nothing to enter)"},
+  {"id": "C3", "site": "scripts/tests/test_conductor_doors.py:800 K15 sites", "keyed_by_file": false, "carrier_row": null, "verdict": "union over every script of one regex; not keyed"},
+  {"id": "C4", "site": "scripts/tests/test_codex_tool_guidance.py:509 no_second_reader", "keyed_by_file": false, "carrier_row": null, "verdict": "expects no hit anywhere; a hit would be reported as <file>:<line> only"},
+  {"id": "C5", "site": "scripts/tests/test_case_versions_scope.py:612 T12", "keyed_by_file": true, "carrier_row": null, "verdict": "keyed by the file names of the controller and of the case-versions script, not by the split driver file; nothing to rewrite at a driver cut; owned by the cut of the file it names"},
+  {"id": "C6", "site": "scripts/tests/test_bug_records.py:472 census_of_package", "keyed_by_file": true, "carrier_row": 23, "verdict": "KEPT rows are keyed ('<file>', '<Class>.<m>'): py-tuple carrier row 23, rewritten by the tool"},
+  {"id": "C7", "site": "scripts/tests/test_artifact_writers.py:35 haystack", "keyed_by_file": false, "carrier_row": 8, "verdict": "the glob is a haystack (not keyed), but the OWNERS writer field names a file and is checked by is_file: hand row 8"}
+ ]
+}
