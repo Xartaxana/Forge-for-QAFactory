@@ -8,6 +8,7 @@
   python tools/test_quarantine.py judge FILE --pipeline ID --verdict stale|real_catch|flaky --by TIER --reason TEXT
   python tools/test_quarantine.py land FILE --pipeline ID --commit SHA
   python tools/test_quarantine.py drop-keep FILE --reason TEXT
+  python tools/test_quarantine.py split-keep OLD --into P1,P2[,...] [--shim [--importers A,B]] --reason TEXT
   python tools/test_quarantine.py pull [--pipeline ID]       (read the watch pipelines from CI into watch.jsonl)
   python tools/test_quarantine.py ci-summary --from GLOB [--out FILE]   (the CI job that merges the watch shards)
   python tools/test_quarantine.py purge --cohort ID --owner-word "<who, date>" [--dry-run] [--registries-done]
@@ -1426,9 +1427,91 @@ def cmd_drop_keep(args, ctx):
     return 0
 
 
+SPLIT_WHY = " (part of %s split, TD-11c)"
+
+
+def _split_refusal(why, expected):
+    return Refusal(f"split-keep refused: {why} -- {expected}")
+
+
+def _split_common(old):
+    """(covers entry, file name) of the helper file the split tool writes for OLD: <stem without the test_ prefix>_common.py."""
+    stem = Path(old).stem
+    stem = stem[5:] if stem.startswith("test_") else stem
+    return f"tests/{stem}_common.py", f"{stem}_common.py"
+
+
+def cmd_split_keep(args, ctx):
+    """One keep row becomes N part rows (TD-11c, F3): the one writer of the rows of a split. Everything is checked before anything is
+    written; a refusal leaves the registry and the message file as they were."""
+    old, root = args.old, Path(ctx.root)
+    layers = _layers(ctx.root)
+    reason = (args.reason or "").strip()
+    parts = [p.strip() for p in (args.into or "").split(",")]
+    if not (args.into or "").strip() or any(not p for p in parts):
+        raise _split_refusal("--into is empty or holds an empty name", "give --into P1,P2 (the part files, comma-separated, no empty name)")
+    if len(set(parts)) != len(parts):
+        raise _split_refusal("--into names a part twice", "name every part once")
+    if not reason:
+        raise _split_refusal("the reason is empty", "give --reason TEXT, it goes into the commit message")
+    if old not in layers["keep"]:
+        raise _split_refusal(f"{old} is not a keep row", "name a file of the keep section (python tools/test_quarantine.py status lists them)")
+    prefix = Path(old).stem + "_"
+    for p in parts:
+        if p == old:
+            raise _split_refusal(f"part {p} is the old file itself", "a part has a new name; keep the old name only as a shim with --shim")
+        if p in layers["quarantine"]:
+            raise _split_refusal(f"part {p} is a quarantine name -- a quarantined file never returns",
+                                 "give the part another name; put the case in a scenario or table row")
+        for sec in ("keep", "quarantine", "pin_holds"):
+            if p in layers[sec]:
+                raise _split_refusal(f"part {p} is already a row of {sec}", "name only new files; a row that exists is not made twice")
+        if not (p.startswith(prefix) and p.endswith(".py")):
+            raise _split_refusal(f"part {p} is not named {prefix}<topic>.py", f"a part carries the old file's stem: {prefix}<topic>.py")
+        if not (root / TESTS_REL / p).is_file():
+            raise _split_refusal(f"part {p} is not on disk under {TESTS_REL}", "create the part files in this change first, then run split-keep")
+    on_disk = (root / TESTS_REL / old).is_file()
+    if args.shim and not on_disk:
+        raise _split_refusal(f"--shim is given but {old} is not on disk", "write the shim file in this change, or run without --shim")
+    if not args.shim and on_disk:
+        raise _split_refusal(f"{old} is still on disk and no --shim is given", "delete the old file in this change or pass --shim")
+
+    common_rel, common_name = _split_common(old)
+    importers = [i.strip() for i in (getattr(args, "importers", None) or "").split(",") if i.strip()]
+
+    def mutate(raw):
+        keep, row, rebuilt = raw["keep"], raw["keep"][old], {}
+        for name, val in keep.items():
+            if name != old:
+                rebuilt[name] = val
+                continue
+            if args.shim:
+                shim = dict(row)
+                shim["layer"] = "data_join"
+                shim["why"] = f"split shim: re-exports for {', '.join(importers) or 'importers'}; checks live in " + ", ".join(parts)
+                shim["covers"] = [common_rel]                   # the helper file as T-3 writes it (no test_ prefix)
+                shim["named_by"] = []                           # the shim is never the named proof (E4)
+                rebuilt[old] = shim
+            for p in parts:
+                new = dict(row)
+                new["why"] = str(row.get("why", "")) + SPLIT_WHY % old
+                if (root / TESTS_REL / common_name).is_file() and common_rel not in (row.get("covers") or []):
+                    new["covers"] = list(row.get("covers") or []) + [common_rel]
+                rebuilt[p] = new
+        keep.clear()
+        keep.update(rebuilt)
+    _write_layers(ctx.root, mutate)
+    _say(f"split-keep: {old} -> {', '.join(parts)}" + (" (old row rewritten as a shim)" if args.shim else " (old row removed)"))
+    _say(_write_msg(ctx.root, "keep-split-msg.txt", [f"keep-split: {old} -> {', '.join(parts)} -- {reason}"] + _gate_lines(
+        "AR-14", "a keep row is split only by split-keep, the one writer, with the reason in this message", "the person gave the reason "
+        "(--reason); the tool copied the row to each part and judged nothing")))
+    return 0
+
+
 # --- check (K5) -----------------------------------------------------------------------------------------------------
 
 _DOORS = {
+    "split": re.compile(r"^keep-split:\s*(\S+)\s*->\s*(.+?)\s*--\s*\S", re.M),
     "edit": re.compile(r"^quarantine-edit:\s*(\S+)\s*--\s*\S", re.M),
     "purge": re.compile(r"^quarantine-purge:\s*\S", re.M),
     "enter": re.compile(r"^quarantine-enter:\s*\S", re.M),
@@ -1550,6 +1633,37 @@ def _merge_edits(root, sec, sha, parents, new, msg, flagged):
     return out
 
 
+def _split_problems(root, sha, sold, parts, old, new, gone):
+    """What is wrong with a `keep-split: OLD -> P1, P2 -- why` line in the commit SHA, judged on that commit's tree (rule 15): every part is
+    a keep row ADDED here, named <OLD stem>_*, on disk in the tree, inheriting OLD's layer; and OLD is either absent from the tree with
+    its row removed, or present with its row replaced by a shim row (named_by empty, 'split shim' why). [] = the line is honest."""
+    fix = "(python tools/test_quarantine.py split-keep writes the rows)"
+    orow, prefix = old["keep"].get(sold), Path(sold).stem + "_"
+    if orow is None:
+        return [f"keep-split line names {sold}, which is not a keep row in the parent -- name a kept file {fix}"]
+    for p in parts:
+        if p not in new["keep"] or p in old["keep"]:
+            return [f"keep-split line for {sold} names part {p} which is not a keep row added by this commit -- {fix} or fix the line"]
+        if not (p.startswith(prefix) and p.endswith(".py")):
+            return [f"keep-split line for {sold} names part {p}, not named {prefix}<topic>.py -- a part carries the old file's stem"]
+        if _blob_id(root, sha, f"{TESTS_REL}/{p}") is None:
+            return [f"keep-split line for {sold} names part {p}, which is not in this commit's tree under {TESTS_REL} -- add the file"]
+        if new["keep"][p].get("layer") != orow.get("layer"):
+            return [f"keep-split line for {sold}: part {p} has layer {new['keep'][p].get('layer')}, the old row had {orow.get('layer')} -- a part inherits the layer"]
+    if _blob_id(root, sha, f"{TESTS_REL}/{sold}") is None:
+        if sold not in gone["keep"]:
+            return [f"keep-split line names {sold}, whose file is gone but whose row stays -- remove the row ({fix})"]
+        return []
+    srow = new["keep"].get(sold)
+    if srow is None:
+        return [f"keep-split line names {sold}, whose row was removed while the file is still in this commit's tree -- "
+                f"delete the old file or keep it as a shim row (split-keep --shim)"]
+    if srow.get("named_by") or not str(srow.get("why", "")).startswith("split shim"):
+        return [f"keep-split line names {sold}, which is still on disk but its row is not a shim row (named_by empty, why 'split shim: ...') -- "
+                f"run split-keep --shim or delete the old file"]
+    return []
+
+
 def check_history(root):
     """[(sha, what is wrong and the door)] for every commit since test-layers.json appeared, accepted ones removed."""
     rc, txt = _git(root, "log", "--diff-filter=A", "--format=%H", "--", LAYERS_REL)
@@ -1586,9 +1700,18 @@ def check_history(root):
         for n in sorted(set(new["quarantine"]) - set(old["quarantine"])):
             if not _DOORS["enter"].search(msg):
                 found.append(f"quarantine row {n} was added -- expected 'quarantine-enter: <what>' in this commit message")
+        split_ok = set()
+        for sold, plist in _DOORS["split"].findall(msg):
+            problems = _split_problems(root, sha, sold, re.split(r"\s*,\s*", plist.strip()), old, new, gone)
+            found += problems
+            if not problems:
+                split_ok.add(sold)
+        split_named = {s for s, _ in _DOORS["split"].findall(msg)}
         for n in sorted(gone["keep"]):
             dropped = n in _DOORS["drop"].findall(msg) and any(s.startswith("D") and f"{TESTS_REL}/{n}" in ps for s, ps in touched)
-            if not (_DOORS["enter"].search(msg) or dropped):
+            if n in split_named and n not in split_ok and not (_DOORS["enter"].search(msg) or dropped):
+                continue                                    # the split line's own refusal above names the part
+            if not (_DOORS["enter"].search(msg) or dropped or n in split_ok):
                 found.append(f"keep row {n} was removed -- expected 'quarantine-enter:' (moved) or 'keep-drop: {n} -- <reason>' with the file deleted in this commit")
         ever_q |= set(old["quarantine"]) | set(new["quarantine"])
         for n in sorted((set(new["keep"]) - set(old["keep"])) & ever_q):
@@ -2170,6 +2293,12 @@ def build_parser():
     dk = add("drop-keep", cmd_drop_keep)
     dk.add_argument("file")
     dk.add_argument("--reason", required=True)
+    sk = add("split-keep", cmd_split_keep)
+    sk.add_argument("old")
+    sk.add_argument("--into", required=True)
+    sk.add_argument("--shim", action="store_true")
+    sk.add_argument("--importers", default="")
+    sk.add_argument("--reason", required=True)
     return ap
 
 

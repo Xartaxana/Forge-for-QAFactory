@@ -860,6 +860,141 @@ def test_drop_keep_and_held_by_import(tmp_path, capsys):
     assert msg.startswith("keep-drop: test_k.py -- dup of a table row\n") and gate_words(msg) == GATE_WORDS
 
 
+ROW = {"layer": "detector", "why": "AR-25 proof", "named_by": ["design/state-exits.md:34"], "replaced_by": None, "covers": ["tests/story_step_common.py"]}
+
+
+def split_world(tmp_path, disk=("test_k_a.py", "test_k_b.py"), old_on_disk=False):
+    """A plain folder: a keep section [test_first.py, test_k.py (the full row), test_last.py], one pin row, two quarantine rows."""
+    root = tmp_path / "s"
+    doc = json.loads(layers_json(keep=("test_first.py", "test_last.py"), pins={"test_pin.py": "role pin"}))
+    doc["keep"] = {"test_first.py": {"layer": "table", "why": "x"}, "test_k.py": dict(ROW), "test_last.py": {"layer": "table", "why": "x"}}
+    W(root, tq.LAYERS_REL, json.dumps(doc, indent=1) + "\n")
+    for n in ("test_pin.py",) + disk + (("test_k.py",) if old_on_disk else ()):
+        W(root, T + n, f"# {n}\n")
+    return root
+
+
+SPLIT_REFUSALS = {                  # name: (argv tail after OLD, disk, old on disk, text of the refusal)
+    "old-not-a-keep-row": (["test_zz.py", "--into", "test_zz_a.py"], ("test_zz_a.py",), False, "test_zz.py is not a keep row"),
+    "old-is-a-quarantine-row": (["test_q1.py", "--into", "test_q1_a.py"], ("test_q1_a.py",), False, "test_q1.py is not a keep row"),
+    "old-is-a-pin-row": (["test_pin.py", "--into", "test_pin_a.py"], ("test_pin_a.py",), False, "test_pin.py is not a keep row"),
+    "part-is-a-keep-row": (["test_k.py", "--into", "test_k_a.py,test_first.py"], ("test_k_a.py", "test_first.py"), False, "part test_first.py is already a row of keep"),
+    "part-is-a-pin-row": (["test_k.py", "--into", "test_k_a.py,test_pin.py"], ("test_k_a.py", "test_pin.py"), False, "part test_pin.py is already a row of pin_holds"),
+    "part-not-on-disk": (["test_k.py", "--into", "test_k_a.py,test_k_gone.py"], ("test_k_a.py",), False, "part test_k_gone.py is not on disk"),
+    "part-is-quarantined": (["test_k.py", "--into", "test_k_a.py,test_q1.py"], ("test_k_a.py", "test_q1.py"), False, "quarantine name"),
+    "part-equals-old": (["test_k.py", "--into", "test_k_a.py,test_k.py"], ("test_k_a.py",), True, "part test_k.py is the old file itself"),
+    "part-not-old-stem": (["test_k.py", "--into", "test_k_a.py,test_brand_new.py"], ("test_k_a.py", "test_brand_new.py"), False,
+                          "part test_brand_new.py is not named test_k_<topic>.py"),
+    "into-empty": (["test_k.py", "--into", ""], (), False, "--into is empty"),
+    "into-empty-name": (["test_k.py", "--into", "test_k_a.py,,test_k_b.py"], ("test_k_a.py", "test_k_b.py"), False, "--into is empty"),
+    "into-duplicate": (["test_k.py", "--into", "test_k_a.py,test_k_a.py"], ("test_k_a.py",), False, "names a part twice"),
+    "reason-blank": (["test_k.py", "--into", "test_k_a.py", "--reason", "  "], ("test_k_a.py",), False, "the reason is empty"),
+    "no-shim-old-on-disk": (["test_k.py", "--into", "test_k_a.py"], ("test_k_a.py",), True, "delete the old file in this change or pass --shim"),
+    "shim-old-missing": (["test_k.py", "--into", "test_k_a.py", "--shim"], ("test_k_a.py",), False, "not on disk"),
+}
+
+
+@pytest.mark.parametrize("case", SPLIT_REFUSALS)
+def test_split_keep_refusals_write_nothing(tmp_path, capsys, case):
+    tail, disk, old_on_disk, text = SPLIT_REFUSALS[case]
+    root = split_world(tmp_path, disk, old_on_disk)
+    layers_before = Path(root, tq.LAYERS_REL).read_bytes()
+    argv = ["split-keep", tail[0], "--root", str(root)] + tail[1:] + ([] if "--reason" in tail else ["--reason", "why"])
+    assert tq.main(argv) == 1
+    out = capsys.readouterr().out
+    assert text in out and out.startswith("split-keep refused:")
+    assert Path(root, tq.LAYERS_REL).read_bytes() == layers_before and not Path(root, "ci-out").exists()
+
+
+def test_split_keep_without_shim_inherits_removes_old_and_writes_the_message(tmp_path, capsys):
+    root = split_world(tmp_path)
+    assert tq.main(["split-keep", "test_k.py", "--into", "test_k_a.py,test_k_b.py", "--reason", "slow file", "--root", str(root)]) == 0
+    keep = json.loads(Path(root, tq.LAYERS_REL).read_text())["keep"]
+    assert list(keep) == ["test_first.py", "test_k_a.py", "test_k_b.py", "test_last.py"]                  # in the old row's place
+    for p in ("test_k_a.py", "test_k_b.py"):
+        assert keep[p] == dict(ROW, why="AR-25 proof (part of test_k.py split, TD-11c)") and list(keep[p]) == list(ROW)
+    msg = Path(root, "ci-out/keep-split-msg.txt").read_text()
+    assert msg.startswith("keep-split: test_k.py -> test_k_a.py, test_k_b.py -- slow file\n") and gate_words(msg) == GATE_WORDS
+    assert tq.main(["split-keep", "test_k.py", "--into", "test_k_a.py", "--reason", "again", "--root", str(root)]) == 1      # the row is gone
+
+
+def test_split_keep_with_shim_rewrites_the_old_row(tmp_path, capsys):
+    root = split_world(tmp_path, old_on_disk=True)
+    assert tq.main(["split-keep", "test_k.py", "--into", "test_k_a.py,test_k_b.py", "--shim", "--importers", "test_x.py,test_y.py",
+                    "--reason", "importers", "--root", str(root)]) == 0
+    keep = json.loads(Path(root, tq.LAYERS_REL).read_text())["keep"]
+    assert list(keep) == ["test_first.py", "test_k.py", "test_k_a.py", "test_k_b.py", "test_last.py"]
+    # the pinned value: the helper as T-3 writes it, tests/<stem without test_>_common.py; named_by empty (E4)
+    assert keep["test_k.py"] == dict(ROW, layer="data_join", covers=["tests/k_common.py"], named_by=[],
+                                     why="split shim: re-exports for test_x.py, test_y.py; checks live in test_k_a.py, test_k_b.py")
+    assert keep["test_k_a.py"]["covers"] == ROW["covers"] and keep["test_k_b.py"]["layer"] == "detector"
+
+
+def test_split_keep_adds_the_common_file_to_part_covers_when_on_disk(tmp_path, capsys):
+    root = split_world(tmp_path)
+    W(root, T + "k_common.py", "# helper\n")
+    assert tq.main(["split-keep", "test_k.py", "--into", "test_k_a.py,test_k_b.py", "--reason", "slow", "--root", str(root)]) == 0
+    keep = json.loads(Path(root, tq.LAYERS_REL).read_text())["keep"]
+    assert keep["test_k_a.py"]["covers"] == ROW["covers"] + ["tests/k_common.py"] == keep["test_k_b.py"]["covers"]
+
+
+# --- split-keep door of K5 --------------------------------------------------------------------------------------------
+
+LINE = "split\n\nkeep-split: test_k.py -> test_k_a.py, test_k_b.py -- slow"
+SHIM_ROW = {"layer": "data_join", "why": "split shim: re-exports for importers; checks live in parts", "named_by": [], "covers": ["tests/k_common.py"]}
+
+
+def _split_commit(msg, parts=("test_k_a.py", "test_k_b.py"), pop=True, add=True, old_file=False, shim=False, layer="table", on_disk=True):
+    """One commit: the part files and rows; the old row removed (pop) or rewritten as a shim; the old file deleted unless old_file."""
+    def run(root):
+        for p in parts if on_disk else ():
+            W(root, T + p, f"# {p}\n")
+        if not old_file:
+            G(root, "rm", "-q", T + "test_k.py")
+
+        def mutate(d):
+            if shim:
+                d["keep"]["test_k.py"] = dict(SHIM_ROW)
+            elif pop:
+                d["keep"].pop("test_k.py")
+            for p in parts if add else parts[:1]:
+                d["keep"][p] = {"layer": layer, "why": "x"}
+        relayers(root, msg, mutate)
+    return run
+
+
+SPLIT_CHECK = {
+    "keep-split-accepted": (_split_commit(LINE), 0, "0 violation"),
+    "keep-split-shim-accepted": (_split_commit(LINE, old_file=True, shim=True), 0, "0 violation"),
+    "keep-split-part-not-in-keep": (_split_commit(LINE, add=False), 1, "names part test_k_b.py which is not a keep row added by this commit"),
+    "keep-split-part-file-not-in-tree": (_split_commit(LINE, on_disk=False), 1, "part test_k_a.py, which is not in this commit's tree"),
+    "keep-split-part-is-an-older-row": (_split_commit("split\n\nkeep-split: test_k.py -> test_k_a.py, test_last.py -- x", parts=("test_k_a.py",)), 1,
+                                        "part test_last.py which is not a keep row added by this commit"),
+    "keep-split-part-not-old-stem": (_split_commit("split\n\nkeep-split: test_k.py -> test_k_a.py, test_other.py -- x",
+                                                   parts=("test_k_a.py", "test_other.py")), 1, "part test_other.py, not named test_k_<topic>.py"),
+    "keep-split-part-layer-differs": (_split_commit(LINE, layer="scenario"), 1, "part test_k_a.py has layer scenario, the old row had table"),
+    "keep-split-old-row-removed-file-stays-no-shim": (_split_commit(LINE, old_file=True), 1,
+                                                      "whose row was removed while the file is still in this commit's tree"),
+    "keep-split-old-file-stays-row-not-a-shim": (_split_commit(LINE, old_file=True, pop=False), 1, "its row is not a shim row"),
+    "keep-split-old-file-gone-row-stays": (_split_commit(LINE, pop=False), 1, "whose file is gone but whose row stays"),
+    "keep-split-old-not-a-keep-row": (_split_commit("split\n\nkeep-split: test_nope.py -> test_nope_a.py -- x", parts=("test_nope_a.py",), old_file=True, pop=False),
+                                      1, "test_nope.py, which is not a keep row in the parent"),
+    "bare-removal-still-refused": (_split_commit("split"), 1, "keep row test_k.py was removed"),
+    "returns-from-quarantine-plain-new-file-still-refused": (lambda r: _returns(r), 1, "keep row test_q2.py returns a file that was in quarantine"),
+    "keep-drop-still-accepted": (lambda r: _keep_dropped(r), 0, "0 violation"),        # helpers of the K5 section below, bound at call time
+    "layer-change-without-line-is-as-before": (lambda r: relayers(r, "retype", lambda d: d["keep"]["test_k.py"].update(layer="scenario")), 0, "0 violation"),
+}
+
+
+@pytest.mark.parametrize("case", SPLIT_CHECK)
+def test_check_keep_split_door(tmp_path, capsys, case):
+    root = base_repo(tmp_path)
+    action, rc, text = SPLIT_CHECK[case]
+    action(root)
+    assert tq.main(["check", "--root", str(root)]) == rc
+    assert text in capsys.readouterr().out
+
+
 def test_stubs_and_no_layers(tmp_path, capsys):
     assert tq.main(["check", "--root", str(tmp_path)]) == 0 and "no test-layers.json" in capsys.readouterr().out
     assert tq.main(["enter", "--pipeline", "1", "--coverage-pipeline", "2", "--root", str(tmp_path)]) == 1
