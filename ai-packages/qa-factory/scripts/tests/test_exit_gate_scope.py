@@ -661,16 +661,22 @@ try:
 
     for case, config, bound, want_names, want_clause in (
             ("R", recorded7, True, ["src/b.py", "tests/test_c.py"], False),
-            ("R-bound-no-clause", recorded7, True, ["src/b.py", "tests/test_c.py"], False),
             ("N", nothing7, True, ["unit/a.py", "src/b.py"], False),
-            ("N-no-clause", nothing7, True, ["unit/a.py", "src/b.py"], False),
-            ("R-unbound-list", recorded7, False, ALL3, True),
-            ("R-unbound-clause", recorded7, False, ALL3, True),
+            ("R-unbound", recorded7, False, ALL3, True),
             ("N-unbound", nothing7, False, ["unit/a.py", "src/b.py"], False),
             ("absent-config", None, True, ["unit/a.py", "src/b.py"], False)):
         got_names, got_text = s2_run(config, bound)
         check(f"item 7 {case}: list", got_names == want_names, str(got_names))
         check(f"item 7 {case}: clause {'present' if want_clause else 'absent'}", (CLAUSE in got_text) is want_clause, got_text[-220:])
+    # config unreadable: hooklib.load_config yields {} (artifact_root hardening is queued, OF4-10) -> today's list, no clause
+    real_load_config = hooklib.load_config
+    hooklib.load_config = lambda *a, **k: {}
+    try:
+        got_names, got_text = s2_run(recorded7, False)
+    finally:
+        hooklib.load_config = real_load_config
+    check("item 7 config-unreadable: list", got_names == ["unit/a.py", "src/b.py"], str(got_names))
+    check("item 7 config-unreadable: clause absent", CLAUSE not in got_text, got_text[-220:])
     check("item 7 bare: new_production_files(diff) is today's", exit_gate.new_production_files(diff_text) == ["unit/a.py", "src/b.py"],
           str(exit_gate.new_production_files(diff_text)))
 finally:
