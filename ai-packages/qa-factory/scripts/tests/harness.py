@@ -303,7 +303,8 @@ def write_register(task: Path, rows: str, head: str = REGISTER_HEAD) -> Path:
     `rows` with `head=""`; one with a header of its own (an `impact` column) passes it as `head`. Returns the file's path."""
     path = task / "work" / "requirements-register.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(head + rows, encoding="utf-8")
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:   # one byte form on every OS: LF, never CRLF
+        handle.write(head + rows)
     return path
 
 
