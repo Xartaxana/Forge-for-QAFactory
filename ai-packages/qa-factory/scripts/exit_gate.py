@@ -1528,15 +1528,18 @@ def awaiting_source_review(agent: str, task: str) -> bool:
         return False
 
 
-def new_production_files(diff_text: str) -> list:
+def new_production_files(diff_text: str, *, cfg=None, base=None, root=None, word=None, checkout=None) -> list:
     """The production modules the diff creates: code the requirements never spelled
     out lives there (limits, rejected inputs, guards). The diff is read by `diff_pass.scan` (a new file is
-    `new file mode` or `--- /dev/null` right above `+++`) and the kind is `test_files.file_kind` (the one rule),
-    asked without the project's word: the gate does not know the implementation checkout."""
+    `new file mode` or `--- /dev/null` right above `+++`) and the kind is `test_files.file_kind` (the one rule). A bare
+    call asks without the project's word. `word` / `checkout` (B-355) are `test_files`': the project's config and the
+    folder the diff's paths are relative to; a path whose area the word records is judged by the record alone, nothing
+    recorded there -> the bare answer, no `checkout` under a word that records anything -> every code file is listed
+    (never fewer than the bare answer)."""
     import diff_pass
     import test_files
     created = [entry.path for entry in diff_pass.scan(diff_text or "") if "new" in entry.facts and not entry.combined]
-    return test_files.production_files(created, {"production"})
+    return test_files.production_files(created, {"production"}, cfg, base=base, root=root, word=word, checkout=checkout)
 
 
 # diff_pass names "say in the handoff" as a door; this gate does not read the handoff, so an unread record
@@ -1562,7 +1565,13 @@ def grounding_errors(agent: str, task: str = "") -> list:
     if not register.is_file():
         return []
     import diff_pass
-    created, unread = [], []
+    import hooklib
+    try:
+        cfg = hooklib.load_config() or {}                   # read once; unreadable -> {}: today's list, never MORE "test"
+        project = project_root()
+    except Exception:  # noqa: BLE001
+        cfg, project = {}, None
+    created, unread, unbound_only, all_today = [], [], {}, set()
     for diff in sorted_paths(root.glob("impl-diff*.txt")):
         try:
             text = diff_pass.read_diff(diff)
@@ -1571,7 +1580,20 @@ def grounding_errors(agent: str, task: str = "") -> list:
             continue
         entries = diff_pass.scan(text, diff.name)
         unread += [f"{entry.refused} {S2_DIFF_UNREAD_DOOR}" for entry in entries if entry.refused]   # a combined diff, a file with no name
-        created += new_production_files(text)
+        today = new_production_files(text)
+        found = None
+        if cfg:
+            try:
+                import handoff_check
+                found = handoff_check.diff_checkout(root.parent, diff.name, cfg, project)[0]
+            except Exception:  # noqa: BLE001 - an unbindable diff is unbound
+                found = None
+        listed = new_production_files(text, word=cfg or None, checkout=found, root=project) if cfg else today
+        created += listed
+        all_today.update(today)
+        extra = [name for name in listed if name not in today] if cfg and found is None else []
+        if extra:                                    # listed only because this diff is unbound under a recorded word
+            unbound_only[diff.name] = set(extra)
     if not created:
         return unread
     try:
@@ -1583,13 +1605,17 @@ def grounding_errors(agent: str, task: str = "") -> list:
                if not any(name.rsplit("/", 1)[-1] in row for row in rows)]
     if not missing:
         return unread
+    # FR-1/FR-2: a module listed only because its diff is unbound under a recorded word says so, with the door.
+    unbound = [name for name, mods in unbound_only.items() if any(m in missing and m not in all_today for m in mods)]
+    clause = (f" (counted as production: the checkout of {', '.join(unbound)} is not configured - "
+              f"implementation_repos[].local_path or code_repos[].path; a person's word passes this check)") if unbound else ""
     return unread + [f"requirements-register.md derives nothing from the new module(s) the implementation adds: "
             f"{', '.join(missing)} - no `derived` row cites it. Read every hunk of work/impl-diff*.txt "
             f"(Read with offset/limit, not Grep alone) and add the requirements that code carries: "
             f"limits, rejected inputs and validation, error and failure paths, guards; source `derived` "
             f"with its `derived_from` (for example `invariant:<what>`), observable `diff:<file>:<line>`. "
             f"A `derived` row no ticket source speaks to is implementation-only: the register check then "
-            f"asks for its row under \"{C.CLAIM_HEADING}\" (your key page and `## Behaviour claims` of the register template)."]
+            f"asks for its row under \"{C.CLAIM_HEADING}\" (your key page and `## Behaviour claims` of the register template)." + clause]
 
 
 CASE_FILE_ID_RE = re.compile(r"^id:\s*(\S+)\s*$", re.M)
