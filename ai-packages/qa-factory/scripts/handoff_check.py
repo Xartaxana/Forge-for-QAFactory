@@ -244,6 +244,27 @@ def implementation_checkout(entry, cfg: dict, project: Path, diff_name: str) -> 
     return found, ""
 
 
+def diff_checkout(task_root, diff_name: str, cfg: dict, project: Path) -> tuple:
+    """`(checkout folder, "")` or `(None, reason)`: the checkout the paths of the diff `work/<diff_name>` are relative to (B-355, axis
+    10: the one «diff -> checkout» survivor). The entry is the one `grounding_table.manifest_entry_for` names for the diff (by the
+    basename of its `diff_path`, else `impl-diff-<x>.txt` -> repo id x); else, when the manifest holds EXACTLY ONE entry (whatever
+    the number of diffs), that entry; then `implementation_checkout`. No manifest, an unreadable one, two entries naming one diff,
+    an entry with no id, a configured path that is not a folder: `(None, reason)`. A diff is never bound to another repository's
+    checkout."""
+    import grounding_table                     # lazy: grounding_table imports this module at its top
+    try:
+        manifest = handoff.load_json(Path(task_root) / "work" / "context-manifest.json")
+    except Exception:  # noqa: BLE001 - an unreadable manifest binds nothing
+        manifest = None
+    entries = implementation_entries(manifest)
+    entry, why = grounding_table.manifest_entry_for(diff_name, entries)
+    if entry is None and len(entries) == 1 and isinstance(entries[0], dict):
+        entry = entries[0]
+    if entry is None:
+        return None, why
+    return implementation_checkout(entry, cfg or {}, Path(project), diff_name)
+
+
 def _impl_checkout(art):
     """The folder the diff's paths are relative to: the checkout of the one implementation repository the manifest
     names, through the PROJECT's config (the manifest's own `local_path` is a hint from some machine and is never
@@ -252,9 +273,7 @@ def _impl_checkout(art):
     entries = implementation_entries(art.json("work/context-manifest.json"))
     if len(entries) != 1 or not isinstance(entries[0], dict):
         return None
-    repo_id = str(entries[0].get("repo_id") or entries[0].get("repo") or "").strip()   # `repo` as source_exclusions reads it
-    found = _checkout_path(repo_id, art.config, art.project) if repo_id else None
-    return found if found is not None and found.is_dir() else None
+    return diff_checkout(art.root, "", art.config, art.project)[0]
 
 
 # The production rule behind the S1 count `implementation.diff.production_files` and its edges (B-407 A, G1-1; the question is
@@ -272,10 +291,31 @@ def _impl_checkout(art):
 #   that is not wholly tests: a file under it leaves the count only with a usual name of its own; a classic folder or an
 #   agreeing name-and-folder pair (`test_files._production_names`) is what excludes without the config.
 def _production_files(files: list, cfg: dict, art) -> list:
+    """The paths among `files` of kind production or config, each once (first wins). An item is a path (str: bound by the
+    single-entry `_impl_checkout`, today's call) or a diff record `{path, diff}` (bound by `diff_checkout` for ITS diff; a record
+    with no `diff` (or an empty one) is the main impl diff, diff ""). The today call (`cfg`/`base` only when `_impl_checkout`
+    binds, else `{}`/None) is the whole call of a path item and the fallback of a record: a record also passes the project's word
+    (`word=cfg`), so a recorded area is judged through the record's own checkout, an unbound record under a recorded word is
+    counted (World R), nothing recorded -> today's figure (World N)."""
     import test_files
     base = _impl_checkout(art)
-    return test_files.production_files(files, {"production", "config"}, cfg if base is not None else {},
-                                       base=base, root=art.project)
+    today = cfg if base is not None else {}
+    bound: dict = {}
+    out: list = []
+    for item in files:
+        extra: dict = {}
+        if isinstance(item, dict):
+            path, diff = item.get("path"), str(item.get("diff") or "")
+            if diff not in bound:
+                bound[diff] = diff_checkout(art.root, diff, art.config, art.project)[0]
+            extra = {"word": cfg or None, "checkout": bound[diff]}
+        else:
+            path = item                      # a bare path: exactly today's call, bound by the single-entry checkout
+        if not isinstance(path, str) or path in out:     # a path counted once; judged again per diff when an earlier diff excluded it
+            continue
+        if test_files.file_kind(path, today, base=base, root=art.project, **extra) in ("production", "config"):
+            out.append(path)
+    return out
 
 
 def _diff_counts(kind):
@@ -294,7 +334,7 @@ def _diff_counts(kind):
             return None, source               # a diff nobody could read has files nobody counted
         if kind == "files":
             return len(records), source
-        return len(_production_files([record["path"] for record in records], art.config, art)), source
+        return len(_production_files(records, art.config, art)), source
     return derive
 
 
@@ -875,7 +915,7 @@ def _claim_grounding_share(art):
     policy, why = PC.grounding_policy()
     if policy is None:
         return (None, f"the policy cannot be read: {why}")
-    computed = GT.share(doc.data, policy, GT.check(art.root))
+    computed = GT.share(doc.data, policy, GT.check(art.root), root=art.root)
     if computed != stored:
         off = sorted(str(k) for k in set(computed) | set(stored) if computed.get(k) != stored.get(k))
         return (False, f"`refactoring_share` differs from grounding_table.share in {', '.join(off[:4])}: "

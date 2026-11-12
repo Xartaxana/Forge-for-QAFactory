@@ -355,6 +355,38 @@ def assign_ids(shas: list) -> list:
     return out
 
 
+def diff_name_of(repo: str) -> str:
+    """The diff file a hunk's `repo` names (the inverse of `diff_pass.rich`): "" -> `impl-diff.txt`, `x` -> `impl-diff-x.txt`."""
+    return f"impl-diff-{repo}.txt" if repo else "impl-diff.txt"
+
+
+def _kind_reader(root):
+    """`kind(diff_name, path, repo_cache)`: `TF.file_kind` of a diff's path through the checkout of THAT diff
+    (`HC.diff_checkout`, B-355) with the project's word. Nothing recorded in the path's area (or no config) is today's bare call;
+    a recorded word with no findable checkout is the declared unknown (the file stays production). One verdict per (diff, path):
+    the same path in two diffs may lie in two checkouts. `root` None: the pure call, no word."""
+    if root is None:
+        return lambda name, path, cache: cache.setdefault(("", path), TF.file_kind(path))
+    task = Path(root)
+    event = {"cwd": str(task)}
+    try:
+        cfg, project = hooklib.load_config(event), hooklib.project_root(event)
+    except Exception:  # noqa: BLE001 - an unreadable config is today's reading, never more "test"
+        cfg, project = None, None
+    cfg = cfg if isinstance(cfg, dict) and cfg and project is not None else None
+
+    def kind(name, path, cache):
+        key = (name, path)
+        if key not in cache:                                # file_kind costs ~10 ms a call: once per (diff, file), not per hunk
+            if cfg is None:
+                cache[key] = TF.file_kind(path)
+            else:
+                found = HC.diff_checkout(task, name, cfg, project)[0]
+                cache[key] = TF.file_kind(path, word=cfg, checkout=found, root=project)
+        return cache[key]
+    return kind
+
+
 def index_hunks(root) -> tuple:
     """`(hunks, refusals, no_body)`: the hunks of every recorded diff with their table records, recomputed from disk. A hunk
     record is a SimpleNamespace(rec, diff, old_start, new_start)."""
@@ -369,12 +401,11 @@ def index_hunks(root) -> tuple:
             raw.append((f, h, _digest(text)))
     if no_body:
         return [], found["refusals"], True
-    hunks, kinds = [], {}
+    hunks, kinds, kind_of = [], {}, _kind_reader(root)
     for pos, (f, h, sha), ident in zip(range(1, len(raw) + 1), raw, assign_ids([r[2] for r in raw])):
         lines = h.get("lines") or []
-        if f["path"] not in kinds:                           # file_kind costs ~10 ms a call: once per file, not per hunk
-            kinds[f["path"]] = TF.file_kind(f["path"])
-        rec = {"id": ident, "short": f"H-{pos}", "repo": f["repo"], "file": f["path"], "kind": kinds[f["path"]],
+        kind = kind_of(f["diff"], f["path"], kinds)
+        rec = {"id": ident, "short": f"H-{pos}", "repo": f["repo"], "file": f["path"], "kind": kind,
                "old": f"{h.get('old_start', 0)},{h.get('old_count', 0)}", "new": f"{h['new_start']},{h.get('new_count', 0)}",
                "function": h.get("header", ""), "added": sum(1 for x in lines if x[1] == "+"),
                "removed": sum(1 for x in lines if x[1] == "-"), "sha256": sha, "pseudo": h.get("pseudo", "")}
@@ -1216,14 +1247,15 @@ def _tenths(part: int, whole: int) -> str:
     return f"{tenths // 10}.{tenths % 10}"
 
 
-def share(data, policy, findings, policy_why: str = "") -> dict:
+def share(data, policy, findings, policy_why: str = "", *, root=None) -> dict:
     """The refactoring share of a readable table, pure (writes nothing; the caller hands the findings of `check`, so the table is
     not judged twice). T = changed lines of the hunks whose file `TF.file_kind` calls production (the table's own `kind` is not
     believed); W = T lines of the hunks every row of which carries a label of `policy["numerator_labels"]`; a pseudo-hunk (a pure
     rename, a mode change) weighs 0 lines and its file is named. The road compares integers only, `100*W > percent*T`, strictly:
     a share of exactly the threshold is not past it. What cannot be measured is `unknown` with the reason, never `none` and
     never `stop` (FR-41, FR-59): no policy, a finding that says the table is not whole or not the diff's, a production hunk
-    with no label. The thresholds and label words come from the policy only."""
+    with no label. The thresholds and label words come from the policy only. With `root` (the task root) a hunk's file is judged through
+    the checkout of its own diff and the project's word (B-355: `diff_name_of(hunk["repo"])`); without it, the pure call."""
     out = {"measure": "", "refactoring": None, "unclassified": None, "total": None, "percent": "n/a", "road": "unknown",
            "policy": {}, "mixed_hunks": [], "outside_files": [], "pseudo_files": [], "reason": ""}
     if not isinstance(policy, dict):
@@ -1242,16 +1274,14 @@ def share(data, policy, findings, policy_why: str = "") -> dict:
         mark = row.get("label")
         for ident in expand_hunk_refs(row.get("hunks"), index)[0]:
             labels_of.setdefault(ident, []).append(mark if isinstance(mark, str) else "")
-    numerator, kinds = policy["numerator_labels"], {}
+    numerator, kinds, kind_of = policy["numerator_labels"], {}, _kind_reader(root)
     total = whole = tally_unclassified = 0
     for h in hunks:
         name = str(h.get("file", ""))
         added, removed = h.get("added"), h.get("removed")
         if any(type(n) is not int or n < 0 for n in (added, removed)):
             return _share_unknown(out, f"hunk {h.get('id')} has a changed-line count that is not a whole number")
-        if name not in kinds:
-            kinds[name] = TF.file_kind(name)
-        if kinds[name] != "production":
+        if kind_of(diff_name_of(str(h.get("repo", ""))), name, kinds) != "production":
             if added + removed and name not in out["outside_files"]:
                 out["outside_files"].append(name)
             continue
@@ -1375,8 +1405,8 @@ def share_of(root) -> dict:
     policy, why = PC.grounding_policy()
     doc, problem = PC.read_grounding(root)
     if doc is None:
-        return share(None, policy, [Finding("R0", str(problem), "conductor")], why)       # R0: the table cannot be read, so no measure
-    return share(doc.data, policy, check(root), why)
+        return share(None, policy, [Finding("R0", str(problem), "conductor")], why, root=root)       # R0: the table cannot be read, so no measure
+    return share(doc.data, policy, check(root), why, root=root)
 
 
 def _hex12(parts: list) -> str:
@@ -1427,7 +1457,7 @@ def r6_findings(root, data: dict, found: list) -> list:
     root = Path(root)
     pipeline = hooklib.read_json(root / "pipeline.json", None, kind=dict)
     policy, why = PC.grounding_policy()
-    cov, result = coverage_of(root), share(data, policy, found, why)
+    cov, result = coverage_of(root), share(data, policy, found, why, root=root)
     out: list = []
     for name, fresh in (("requirement coverage", cov), ("refactoring share", result)):
         if fresh["road"] == "unknown":
@@ -1788,7 +1818,7 @@ def _cmd_share(root: Path) -> list:
         return [f"share: road unknown - R0, {_sentence(problem)} Nothing was written (a measure is not written on a table that cannot be "
                 "read)."]
     policy, policy_why = PC.grounding_policy()
-    result = share(doc.data, policy, check(root), policy_why)
+    result = share(doc.data, policy, check(root), policy_why, root=root)
     write_key(root, "refactoring_share", result)
     cov = coverage_of(root)
     write_key(root, "requirement_coverage", cov)
