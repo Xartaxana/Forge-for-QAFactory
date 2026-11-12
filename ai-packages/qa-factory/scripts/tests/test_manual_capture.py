@@ -1988,6 +1988,8 @@ def of3_1e_one_env_file_parse():
         ("mismatched quotes kept", "A=\"x'", {"A": "\"x'"}),
         ("a lone quote kept", 'A="', {"A": '"'}),
         ("empty name skipped", "=x", {}),
+        ("export with empty name skipped", "export =x", {}),
+        ("a name `export` with no space is a name", "export=x", {"export": "x"}),
         ("comment skipped", "#A=1", {}),
         ("a line without = skipped", "just words", {}),
         ("empty value", "A=", {"A": ""}),
@@ -2010,7 +2012,7 @@ def of3_1e_one_env_file_parse():
             check_eq(f"parse_env_file: {label}", env_probe.parse_env_file(env), want)
             check_eq(f"manual_capture._env_values: {label}", MC._env_values(env), want)
             got = stand_health._env_values(t.project, {"env_file": "harness/.env"})
-            check_eq(f"stand_health._env_values: {label}", {k: got.get(k) for k in ("A", "B") if k in want}, want)
+            check_eq(f"stand_health._env_values: {label}", {k: got.get(k) for k in ("A", "B", "export") if k in want}, want)
             check_eq(f"stand_health._env_values: {label}: a name the file did not hold stays out",
                      [k for k in ("A", "B") if k not in want and k in got and k not in os.environ], [])
         # two files: `env_files` lists them, the later wins; stand_health and brief_pack both see them

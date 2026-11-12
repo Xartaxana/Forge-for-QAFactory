@@ -110,8 +110,7 @@ def parse_env_file(path: Path) -> dict:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        key = key.strip()
-        key = key[7:].strip() if key.startswith("export ") else key
+        key = key[7:].strip() if key.startswith("export ") else key.strip()   # `export ` first, so `export =x` has an empty name
         if not key:
             continue        # `=x` names nothing: it must never answer a key whose configured name is empty
         value = value.strip()
