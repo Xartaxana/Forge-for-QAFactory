@@ -2391,6 +2391,15 @@
     "window_record.py"
    ]
   },
+  "test_module_facade.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): the forwarding facade, read/write/patch/main/dir rows",
+   "covers": [
+    "module_facade.py",
+    "run_py_entry.py",
+    "tests/harness.py"
+   ]
+  },
   "test_no_move_seam.py": {
    "layer": "detector",
    "why": "AR-17 detector: no-move seam",

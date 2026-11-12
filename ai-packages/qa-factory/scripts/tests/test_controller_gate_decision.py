@@ -757,24 +757,6 @@ def rn1_20_k_d1_designer_after_critic_voids_the_review():
         cleanup(root)
 
 
-def rn1_20_k_d2_the_driver_reads_the_controllers_order():
-    """`Driver.accept_order` has no body of its own: one definition with a body, in the controller (AR-13)."""
-    import re
-    for name, bodied in (("controller.py", 1), ("story_run.py", 0)):
-        text = (SCRIPTS / name).read_text(encoding="utf-8")
-        match = re.search(r"def accept_order\(self\)[^\n]*\n(.*?)(?=\n    def |\nclass |\Z)", text, re.S)
-        body = re.sub(r'""".*?"""', "", match.group(1), flags=re.S) if match else ""
-        lines = [l for l in body.splitlines() if l.strip() and not l.strip().startswith("#")]
-        check(f"K-D2: {name} has one accept_order", len(re.findall(r"def accept_order\(self\)", text)) == 1)
-        if bodied:
-            # (re-pinned, Q1 t-1752: the reader is the store's verified `read()`, no longer a line parser over the log file)
-            check("K-D2: the controller's is the reader (it reads the events through the store's own `read()`)",
-                  any("self.store.read()" in l for l in lines) and not any("json.loads" in l for l in lines))
-        else:
-            check_eq("K-D2: story_run's only delegates", [l.strip() for l in lines],
-                     ["from controller import Controller", "return Controller(self.task_root).accept_order()"])
-
-
 def rn1_20_k_d3_the_packet_line_for_a_stale_review():
     import gate_brief
     root = temp_project("qa-gate-stale-")
@@ -1471,7 +1453,6 @@ def main():
     the_design_review_verdict_is_the_critics_own()
     gate_a_overrides_are_marked_by_code()
     rn1_20_k_d1_designer_after_critic_voids_the_review()
-    rn1_20_k_d2_the_driver_reads_the_controllers_order()
     rn1_20_k_d3_the_packet_line_for_a_stale_review()
     rn1_20_k_d4_q2_a_row_patched_by_an_answer_after_the_critic_is_no_refusal()
     finish("test_controller_gate_decision")

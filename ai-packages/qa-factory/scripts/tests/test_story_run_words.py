@@ -15,7 +15,7 @@ What is proved, each in its own scenario:
   * a failed write is the driver's own `Stop(EXIT_ERROR)`, never a fall back to inline words - also through the loop,
     where it leaves the question open;
   * the conductor's prompt names the file that holds the answer (one sentence), and not the tool list wider;
-  * no other site of story_run.py hands the words over inline (the count, with its negative control); upstream's own
+  * no other site of the driver set hands the words over inline (the count, with its negative control); upstream's own
     inline `--decision` waiver calls are a named, counted exemption (L5), and the one door text upstream wrote inline near
     `s0_list_too_late` is rendered by `person_words.door()` (L4).
 
@@ -389,16 +389,16 @@ def words_the_conductor_prompt_names_the_file() -> None:
 def words_no_other_site_hands_the_words_over_inline() -> None:
     """The problem, not the helper (FR-17): no other site hands the words over inline.
 
-    `"--words"` is spelled in two kinds of place in `story_run.py`. The CARRIER of inline words (`words_args`, the empty case)
+    `"--words"` is spelled in two kinds of place in the driver set. The CARRIER of inline words (`words_args`, the empty case)
     must stay ONE: that is the pin. The other kind is the flag NAME that `person_words.read(None, <file>, "--words")` takes -
     a file READER (`original_words`, C2-6 attempt 2, t-856; the same call story_step, environment_record and onboarding_notes
     make): inline is None there, so nothing is handed over inline and the name is never even printed (it shapes only the refusal
     of an inline value). It is a different road the carrier helper cannot cover, so it is counted apart, by its exact shape
     (`read(None, ..., "--words")`): any other spelling of the option - a list element, `read(<inline>, ...)` - is a carrier."""
-    source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-    check_eq("story_run.py names the inline words option in exactly one place, the helper's empty case",
+    source = harness.driver_text()
+    check_eq("the driver set names the inline words option in exactly one place, the helper's empty case",
              inline_option_sites(source), 1)
-    check_eq("story_run.py reads a words FILE with the option's name in exactly one place, `original_words`",
+    check_eq("the driver set reads a words FILE with the option's name in exactly one place, `original_words`",
              len(FILE_READER.findall(source)), 1)
     check_eq("negative control: a second carrier is counted",
              inline_option_sites(source + '\nx = ["--words", w]\n'), 2)
@@ -407,7 +407,7 @@ def words_no_other_site_hands_the_words_over_inline() -> None:
     check_eq("negative control: a further file reader is counted apart, not as a carrier",
              (inline_option_sites(source + '\nx = person_words.read(None, f, "--words")\n'),
               len(FILE_READER.findall(source + '\nx = person_words.read(None, f, "--words")\n'))), (1, 2))
-    check_eq("story_run.py names the inline decision option only in upstream's driver waiver calls (L5, a named exemption)",
+    check_eq("the driver set names the inline decision option only in upstream's driver waiver calls (L5, a named exemption)",
              count_sites(source, '"--decision"'), UPSTREAM_INLINE_DECISION_SITES)
     check_eq("negative control: a third inline decision site is counted",
              count_sites(source + '\nx = ["--decision", w]\n', '"--decision"'), UPSTREAM_INLINE_DECISION_SITES + 1)
@@ -416,21 +416,6 @@ def words_no_other_site_hands_the_words_over_inline() -> None:
           "person_words.door(" in source and '--gate A --words \\"' not in source)
     check("negative control: the inline spelling is found when it is there",
           '--gate A --words \\"' in source + 'details = "--gate A --words \\"<their words>\\""')
-
-
-def words_the_arrival_road_hands_no_words_over_inline() -> None:
-    """t-2181 PC-7 (AR-24): the arrival road carries the person's WORD about the code (`--branch`, `--side`) in the kept launch record,
-    never as inline words to a command; the stop of a wait is the controller's own `stop_waiting --words-file`, which the driver
-    never calls, so no function of the road names the inline option. The stopped line quotes the person's words, bounded."""
-    source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-    bodies = {}
-    for name in ("arrival_keep", "arrival_record", "arrival_rework_step", "_act_await_implementation", "_act_awaiting_stopped"):
-        start = source.find(f"    def {name}(")
-        bodies[name] = source[start:].split("\n    def ")[0]
-        check(f"{name} exists in the driver", start >= 0)
-        check_eq(f"{name} names no inline words option", ('"--words"' in bodies[name], '"--reason"' in bodies[name]), (False, False))
-    check_in("the stopped line cuts the quoted words at a bound", "[:200]", bodies["_act_awaiting_stopped"])
-    check_eq("negative control: an inline option in a body would be seen", '"--words"' in bodies["arrival_record"] + '\nx=["--words", w]', True)
 
 
 def _answer_file(root: Path, text: str) -> Path:
@@ -516,7 +501,6 @@ def words_continue_command_drops_the_absent_pair_of_a_waited_side() -> None:
 
 def main() -> None:
     run_scenarios([], [
-        words_the_arrival_road_hands_no_words_over_inline,
         words_arrival_not_waiting_tokens_have_an_executor,
         words_s1_not_built_yet_records_the_side_like_the_s0_twin,
         words_continue_command_drops_the_absent_pair_of_a_waited_side,

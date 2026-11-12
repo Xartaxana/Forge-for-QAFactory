@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "about": "The judgment census (t-1765 node A3, AR-29): one row per check unit of scripts/*.py outside scripts/tests/ - what it judges (class), on whose path it stands (roles), whom it serves (owner). Read by scripts/tests/test_judgment_census.py and by tools/architecture_gate.py (the `ratchet` object); not read by any project (axis 18). `blocks` is computed by the test, never written here; `blocks_override: false` (with a `note`) is the only hand mark. Classes: shape, xref, word-list, meaning-proxy, meaning, safety; owner: data, judgment, intent. Ceilings only go down. Blind spot: a subclass of `ValueError` or `StateConflict` raised by its own name is invisible to `refusal_registry.sites` (it matches the literal names); legitimate when the subclass is caught and never reaches a role, but a subclass chosen to keep a ratchet down is not seen - the critic's question 11 and calibration check 41 catch it.",
- "ratchet": {"word-list": 0, "meaning-proxy": 8, "meaning": 24, "safety": 54, "breach": 1, "blocks_overrides": 8, "blocking_per_role": {"qa-automator": 167, "qa-bug-reporter": 133, "qa-case-critic": 158, "qa-case-designer": 133, "qa-code-critic": 132, "qa-doc-scribe": 133, "qa-failure-analyst": 134, "qa-requirements-tester": 151, "qa-retro-analyst": 133, "qa-runner": 134, "qa-scout": 133, "qa-test-strategist": 165, "conductor": 471}},
+ "ratchet": {"word-list": 0, "meaning-proxy": 8, "meaning": 24, "safety": 54, "breach": 1, "blocks_overrides": 8, "blocking_per_role": {"qa-automator": 167, "qa-bug-reporter": 133, "qa-case-critic": 158, "qa-case-designer": 133, "qa-code-critic": 132, "qa-doc-scribe": 133, "qa-failure-analyst": 134, "qa-requirements-tester": 151, "qa-retro-analyst": 133, "qa-runner": 134, "qa-scout": 133, "qa-test-strategist": 165, "conductor": 472}},
  "rows": [
   {"file": "acceptance.py", "function": "stage_acceptance_errors", "class": "shape", "roles": ["qa-case-critic", "conductor"], "owner": "data"},
   {"file": "acceptance.py", "function": "validate_window", "class": "shape", "roles": ["conductor"], "owner": "data"},
@@ -564,6 +564,7 @@
   {"file": "migrate_coverage.py", "function": "_version", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "migrate_coverage.py", "function": "migrate", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "migrate_coverage.py", "function": "plan", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "module_facade.py", "function": "_prepare", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "native_context.py", "function": "stage", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "no_move.py", "function": "check_args", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "no_move.py", "function": "site_check", "class": "shape", "roles": ["conductor"], "owner": "data"},

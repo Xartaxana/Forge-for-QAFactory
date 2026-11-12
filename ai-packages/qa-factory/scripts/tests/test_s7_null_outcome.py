@@ -32,7 +32,7 @@ import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import (PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, finish,  # noqa: E402
+from harness import (PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, driver_sources, finish,  # noqa: E402
                      run_script, temp_dir, temp_project, use_project)
 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
@@ -1021,17 +1021,34 @@ def one_definition_no_local_set_building() -> None:
     scripts = PLUGIN_ROOT / "scripts"
     pattern = re.compile(r"result_status\(.*[\(\{]\s*\"failed\",\s*\"error\"")
 
-    def hits(path: Path, functions=None) -> list:
-        text = path.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        if functions is None:
-            spans = [(1, len(lines))]
-        else:
-            spans = [(n.lineno, n.end_lineno) for n in ast.walk(ast.parse(text))
-                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in functions]
-            check(f"the sentinel found the functions {sorted(functions)} in {path.name}", len(spans) == len(functions),
-                  str(spans))
-        return [(path.name, no) for lo, hi in spans for no in range(lo, hi + 1) if pattern.search(lines[no - 1])]
+    DRIVER = "the driver set"        # a `path` that is this string stands for every file of `harness.driver_sources()`
+
+    def label(path) -> str:
+        return path if isinstance(path, str) else path.name
+
+    def texts_of(path) -> list:
+        if isinstance(path, str):
+            return [(p.name, text) for p, text in driver_sources()]
+        return [(path.name, path.read_text(encoding="utf-8"))]
+
+    def scan_lines(regex, path, functions=None, what="the sentinel") -> list:
+        """[(file name, line no)] of `regex` over the whole file, or over the named functions only (each must be found)."""
+        found, rows = 0, []
+        for name, text in texts_of(path):
+            lines = text.splitlines()
+            if functions is None:
+                spans = [(1, len(lines))]
+            else:
+                spans = [(n.lineno, n.end_lineno) for n in ast.walk(ast.parse(text))
+                         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in functions]
+                found += len(spans)
+            rows += [(name, no) for lo, hi in spans for no in range(lo, hi + 1) if regex.search(lines[no - 1])]
+        if functions is not None:
+            check(f"{what} found the functions {sorted(functions)} in {label(path)}", found == len(functions), str(found))
+        return rows
+
+    def hits(path, functions=None) -> list:
+        return scan_lines(pattern, path, functions)
 
     # `reduce` keeps one such line for another question (an evidence error on a red row, :472 - not a triage
     # set), so for it the sentinel is positive: its triage reason asks `triage_targets`.
@@ -1042,9 +1059,9 @@ def one_definition_no_local_set_building() -> None:
     check("sentinel: finalize_task.reduce decides its triage `reason` through contract.triage_targets",
           "C.triage_targets(report)" in reduce_source)
     for path, functions in ((scripts / "finalize_task.py", {"refresh"}),
-                            (scripts / "story_run.py", {"failures_to_triage"}),
+                            (DRIVER, {"failures_to_triage"}),
                             (scripts / "handoff_check.py", None)):
-        check_eq(f"sentinel: no local failed/error set-building in {path.name} {sorted(functions or ['<whole file>'])}",
+        check_eq(f"sentinel: no local failed/error set-building in {label(path)} {sorted(functions or ['<whole file>'])}",
                  hits(path, functions), [])
     # t-311 moved check_delivery's reading onto the one definition too; the tuple now lives only in
     # contract.triage_targets, which is the positive control of the scan.
@@ -1058,15 +1075,8 @@ def one_definition_no_local_set_building() -> None:
     # swept now over the readers that decide triage: a `status ... in ("failed", "error")` tuple (or set / list).
     raw = re.compile(r"status[^\n]*\bin\s*[\(\{\[]\s*[\"']failed[\"'],\s*[\"']error[\"']")
 
-    def raw_hits(path: Path, functions=None) -> list:
-        text = path.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        spans = ([(1, len(lines))] if functions is None else
-                 [(n.lineno, n.end_lineno) for n in ast.walk(ast.parse(text))
-                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in functions])
-        check(f"the raw sentinel found {sorted(functions or ['<whole file>'])} in {path.name}",
-              functions is None or len(spans) == len(functions), str(spans))
-        return [(path.name, no) for lo, hi in spans for no in range(lo, hi + 1) if raw.search(lines[no - 1])]
+    def raw_hits(path, functions=None) -> list:
+        return scan_lines(raw, path, functions, "the raw sentinel")
 
     check("raw sentinel positive control: the SAME pattern finds the tuple in contract.triage_targets",
           len(raw_hits(scripts / "contract.py", {"triage_targets"})) == 1)
@@ -1075,8 +1085,8 @@ def one_definition_no_local_set_building() -> None:
     for path, functions in ((scripts / "judge_results.py", None), (scripts / "ledger.py", None),
                             (scripts / "traceability.py", None), (scripts / "handoff_check.py", None),
                             (scripts / "finalize_task.py", {"refresh"}), (scripts / "check_delivery.py", {"_triage_failures", "_bind_triage", "triage_reasons"}),
-                            (scripts / "story_run.py", {"failures_to_triage"})):
-        check_eq(f"raw sentinel: no raw failed/error tuple in {path.name} {sorted(functions or ['<whole file>'])}",
+                            (DRIVER, {"failures_to_triage"})):
+        check_eq(f"raw sentinel: no raw failed/error tuple in {label(path)} {sorted(functions or ['<whole file>'])}",
                  raw_hits(path, functions), [])
     # t-323 A1: the BINDING of rows to failures is one too (`contract.bind_triage`); the six readers call it - the
     # check names the problem (a local `same_id(` over failure names), with the SAME pattern finding it in contract.py

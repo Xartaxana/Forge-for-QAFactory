@@ -22,7 +22,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import (  # noqa: E402
-    FIXTURES, PLUGIN_ROOT, SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, run_script,
+    FIXTURES, PLUGIN_ROOT, SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, driver_sources, finish, run_script,
     temp_dir, temp_project, use_project,
 )
 
@@ -1816,9 +1816,10 @@ def part_normalized_input() -> None:
         p = get("bom.md", "\ufeff\n  \n" + json.dumps(base))
         check_eq("a BOM and blank lines before the brace: exit 0", p.returncode, 0)
         # FR-29: the BOM is written as an escape in the sources, never as the invisible character.
-        for source in ("ticket_adapter.py", "story_run.py", "tests/test_ticket_adapter.py"):
-            check_eq(f"no literal U+FEFF inside {source}",
-                     chr(0xFEFF) in (SCRIPTS / source).read_text(encoding="utf-8"), False)
+        bom_sources = {source: (SCRIPTS / source).read_text(encoding="utf-8") for source in ("ticket_adapter.py", "tests/test_ticket_adapter.py")}
+        bom_sources.update({f"{path.name} (driver set)": text for path, text in driver_sources()})
+        for source, text in bom_sources.items():
+            check_eq(f"no literal U+FEFF inside {source}", chr(0xFEFF) in text, False)
 
         # ONE reader of a ticket file (t-428, 0.8.1's `parse_ticket_json` / `read_ticket_file`): a key the schema
         # names and the file lacks is accepted with the markdown parser's default - links included, which is the

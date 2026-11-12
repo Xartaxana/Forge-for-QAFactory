@@ -32,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import (PLUGIN_ROOT, SCRIPTS, check, check_eq, check_in, check_not_in,  # noqa: E402
-                     cleanup, finish, run_script, s5_apply, temp_dir, temp_project, use_project)
+                     cleanup, driver_sources, finish, run_script, s5_apply, temp_dir, temp_project, use_project)
 
 sys.path.insert(0, str(SCRIPTS))
 import person_words  # noqa: E402
@@ -70,6 +70,7 @@ INLINE_DOOR = re.compile(
 # `stand_gaps.py` are not here: their cards are upstream's renderer now (a person answers
 # `<id>: <word>`, no script), and the scan finds nothing in them.
 PENDING_REASON = "upstream 0.8.1 door, queued B-387"
+DRIVER_KEY = "scripts/story_run.py"  # the one key of the whole driver set (the entry file and its driver_*.py parts)
 PENDING = {
     # The remedy of a tracker route that is not proven: upstream's text, kept by decision (spec
     # t-428: the readiness texts name no script of ours, so ours' `door(..., for_person=True)` is
@@ -78,7 +79,7 @@ PENDING = {
     # The driver's own texts, upstream's, shown to a person or put to the conductor: the note about a
     # stand-gap line it could not read; the mode-switch question (`{self.scripts / 'waiver.py'}` is read
     # as `waiver.py`: `_placeholder`, the blind spot of the first version); the two stand questions.
-    "scripts/story_run.py": ('waiver.py --task <T> --stage <stage> --block "<block>" --decision "',
+    DRIVER_KEY: ('waiver.py --task <T> --stage <stage> --block "<block>" --decision "',
                              'waiver.py" --task {} --stage {} --block "mode switch" --decision "',
                              ),      # C1-6b took off the two stand questions: their free-words prompts hand the words by `--words-file`
     "skills/qa-story/phases/s5.md": ('waiver.py --task <TICKET> --stage S5 --block "stand not confirmed" --decision "',),
@@ -98,7 +99,7 @@ PENDING_PINNED_REASON = "upstream 0.8.1 door pinned by an upstream test, queued 
 # and the check below fails if the exemption no longer names one (a stale exemption is a lie).
 # `waiver.py` and `person_words.read` keep accepting an inline `--decision` for them (spec t-428 L5).
 EXEMPT = {
-    "scripts/story_run.py": "upstream's driver waiver calls: list argv, no shell, one card line (the "
+    DRIVER_KEY: "upstream's driver waiver calls: list argv, no shell, one card line (the "
                             "`take_stand_gap_answers` family)",
 }
 DOC_DIRS = ("skills", "references", "design", "handoffs", "agents")
@@ -191,19 +192,29 @@ def python_texts(source: str) -> list:
     return out
 
 
+def script_units(plugin_root: Path) -> list:
+    """[(key, text)] of every script the inventory reads. The files of the driver set (`harness.driver_sources`) all
+    carry the one key DRIVER_KEY, so a door that moves between the driver's parts keeps its entry."""
+    in_driver = {path: text for path, text in driver_sources(plugin_root)}
+    units = [(DRIVER_KEY, text) for text in in_driver.values()]
+    for path in sorted((plugin_root / "scripts").glob("*.py")):
+        if path in in_driver or path.name == "person_words.py":
+            continue  # person_words: the reader and the renderer, they name the inline option to refuse it
+        units.append((path.relative_to(plugin_root).as_posix(), path.read_text(encoding="utf-8")))
+    return units
+
+
 def scan(plugin_root: Path = PLUGIN_ROOT) -> dict:
     """{path relative to the package: [inline doors found]} over everything the detector reads."""
     found: dict = {}
-    for path in sorted((plugin_root / "scripts").glob("*.py")):
-        if path.name == "person_words.py":
-            continue  # the reader and the renderer: they name the inline option to refuse it
+    for key, source in script_units(plugin_root):
         try:
-            texts = python_texts(path.read_text(encoding="utf-8"))
+            texts = python_texts(source)
         except SyntaxError:
             continue  # another builder's unfinished edit: the syntax error is that node's to report
         hits = [hit for text in texts for hit in hits_in(text)]
         if hits:
-            found[path.relative_to(plugin_root).as_posix()] = hits
+            found.setdefault(key, []).extend(hits)
     for directory in DOC_DIRS:
         for path in sorted((plugin_root / directory).rglob("*")):
             if path.is_file() and path.suffix in DOC_SUFFIXES:
@@ -239,29 +250,27 @@ def converted_doors(plugin_root: Path = PLUGIN_ROOT) -> dict:
     finds only the problem, so this is its positive control: a scan that finds nothing is read
     together with the files that were converted."""
     out: dict = {}
-    for path in sorted((plugin_root / "scripts").glob("*.py")):
-        if path.name == "person_words.py":
-            continue
+    for key, source in script_units(plugin_root):
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = ast.parse(source)
         except SyntaxError:
             continue
         count = sum(1 for node in ast.walk(tree) if _is_door_call(node))
         if count:
-            out[path.relative_to(plugin_root).as_posix()] = count
+            out[key] = out.get(key, 0) + count
     return out
 
 
 def driver_inline_calls(plugin_root: Path = PLUGIN_ROOT) -> list:
-    """The line numbers of the calls `X("waiver.py", ..., "--decision", value, ...)` in story_run.py: a
+    """The `file:line` of the calls `X("waiver.py", ..., "--decision", value, ...)` in the driver set (`harness.driver_sources`): a
     list argv with the words as one argument (the named exemption)."""
-    tree = ast.parse((plugin_root / "scripts" / "story_run.py").read_text(encoding="utf-8"))
     lines = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            consts = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
-            if consts[:1] == ["waiver.py"] and "--decision" in consts:
-                lines.append(node.lineno)
+    for path, text in driver_sources(plugin_root):
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.Call):
+                consts = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+                if consts[:1] == ["waiver.py"] and "--decision" in consts:
+                    lines.append(f"{path.name}:{node.lineno}")
     return sorted(lines)
 
 
@@ -363,7 +372,7 @@ def part_detector() -> None:
         (fake / "scripts" / "new_door.py").write_text(
             'MSG = \'waiver.py --task T --stage S1 --block "x" --decision "<their words>"\'\n', encoding="utf-8")
         (fake / "scripts" / "story_run.py").write_text(
-            'A = \'' + PENDING["scripts/story_run.py"][0] + '<w>"\'\n'
+            'A = \'' + PENDING[DRIVER_KEY][0] + '<w>"\'\n'
             'B = \'waiver.py --task T --stage S2 --block "other" --decision "<w>"\'\n', encoding="utf-8")
         (fake / "scripts" / "file_form.py").write_text(
             'import person_words\nMSG = person_words.door(\'waiver.py --task T --stage S1 --block "x"\')\n'
@@ -372,12 +381,12 @@ def part_detector() -> None:
             '`waiver.py --task <T> --stage S1 --block "x" --decision "<their words>"`\n', encoding="utf-8")
         synthetic = scan(fake)
         check_eq("negative control: a synthetic package is scanned (script, pending file, document; not the file form)",
-                 sorted(synthetic), ["scripts/new_door.py", "scripts/story_run.py", "skills/s.md"])
+                 sorted(synthetic), ["scripts/new_door.py", DRIVER_KEY, "skills/s.md"])
         check_eq("negative control: an inline door in a new script and a new document is unlisted",
-                 sorted(path for path in unlisted_of(synthetic) if path != "scripts/story_run.py"),
+                 sorted(path for path in unlisted_of(synthetic) if path != DRIVER_KEY),
                  ["scripts/new_door.py", "skills/s.md"])
         check_eq("negative control: a pending file lists its own text only; a NEW door in it is unlisted",
-                 ["other" in hit for hit in unlisted_of(synthetic).get("scripts/story_run.py", [])],
+                 ["other" in hit for hit in unlisted_of(synthetic).get(DRIVER_KEY, [])],
                  [True])
 
     found = scan()
@@ -392,8 +401,8 @@ def part_detector() -> None:
     check("the doors in the file form are listed: " + ", ".join(f"{p.split('/')[-1]} {n}" for p, n in sorted(converted.items())),
           len(converted) >= len(expected), str(converted))
     calls = driver_inline_calls()
-    check("the named exemption names real calls: " + EXEMPT["scripts/story_run.py"] + f" ({len(calls)} at lines "
-          + ", ".join(map(str, calls)) + ")", len(calls) >= 1, "story_run.py holds no waiver call with an inline --decision: "
+    check("the named exemption names real calls: " + EXEMPT[DRIVER_KEY] + f" ({len(calls)} at lines "
+          + ", ".join(map(str, calls)) + ")", len(calls) >= 1, "the driver set holds no waiver call with an inline --decision: "
           "remove the exemption")
     check_eq("no inline door outside the exemption and the pending list (B-387)", unlisted, {})
     for path, texts in sorted(PENDING.items()):

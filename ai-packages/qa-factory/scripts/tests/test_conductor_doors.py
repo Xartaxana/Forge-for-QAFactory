@@ -921,15 +921,14 @@ def the_conductor_never_records_a_gate_itself() -> None:
 
 
 def c26_the_rework_option_carries_args_and_a_chosen_call_may_decide() -> None:
-    """t-722 C2-6 (§4.2, §4.3, §L-5): the form the conductor answers in names `args` in all three places it reads (the role file, the
-    prompt of the driver, the `rework_stage` row), and the role file names the one-option answer of a chosen call."""
+    """t-722 C2-6 (§4.2, §4.3, §L-5): the form the conductor answers in names `args` in the places it reads that are data (the role file,
+    the `rework_stage` row; the prompt of the driver was a source pin, deleted), and the role file names the one-option answer of a chosen call."""
     text = CONDUCTOR.read_text(encoding="utf-8")
     check_in("C26: conductor.md 'Your answer' names args in the option form", '"args": {"stage", "role", "cases"|"rows", "cause"}', text)
     check_in("C26: conductor.md names the one-option answer of a chosen call (L-5)", "ask_person may carry exactly ONE option", text)
     row = next(m for m in json.loads(ACTIONS.read_text(encoding="utf-8"))["moves"] if m["id"] == "rework_stage")
     check_in("C26: the rework_stage row names args", '"args"', row["run"])
-    source = (PLUGIN_ROOT / "scripts" / "story_run.py").read_text(encoding="utf-8")
-    check_in("C26: the driver's prompt carries the args form of the answer", '"args": {"stage": "S<n>", "role": "<role>"', source)
+    # the third place, the driver's prompt (`Driver.conductor`), was a source pin of one member: deleted by TD-11 phase 0 (F3)
     import no_move
     check_in("C26: the moves section renders the closed list", '"args" from these values only', no_move.moves_section(
         no_move.data(), ["rework_stage"], {"rework_stages": ["S5"], "rework_roles": {"S5": ["qa-automator"]}, "scope": ["TC-1"], "causes": ["test_defect"]}))

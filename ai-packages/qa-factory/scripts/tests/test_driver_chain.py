@@ -1100,8 +1100,14 @@ def scheduler_module_knows_no_stage():
     check_eq("a docstring that says S5 is not reported", stage_problems('"""S5."""\n\n\ndef f():\n    """S6."""\n'), [])
     for name in ("_CHAIN", "ChainKind", "DriverChains", "ThreadSlot"):   # the names story_run reads itself (t-2164 CI fix)
         check(f"story_run.{name} is the object of driver_chains, not a copy", getattr(SR, name) is getattr(DC, name))
+    # after the cut every mixin member is outside `Driver.__dict__`, so the old `not in Driver.__dict__` is vacuous: ask the MRO instead.
+    # (1) the attribute `Driver.run_chains` resolves to the very function of DriverChains; (2) its defining module is driver_chains;
+    # (3) of every class on Driver's MRO, exactly DriverChains holds a `run_chains` in its own namespace (a definition in Driver or in
+    # any other part of the driver set fails (1)-(3))
     check("Driver inherits run_chains from DriverChains and does not redefine it", SR.Driver.run_chains is DC.DriverChains.run_chains
-          and "run_chains" not in SR.Driver.__dict__)
+          and SR.Driver.run_chains.__module__ == DC.__name__
+          and [klass.__name__ for klass in SR.Driver.__mro__ if "run_chains" in vars(klass)] == ["DriverChains"],
+          str([(klass.__name__, klass.__module__) for klass in SR.Driver.__mro__ if "run_chains" in vars(klass)]))
     check_eq("the S5 kind keeps its words and the [W<n>] tag", (SR.Driver.__new__(SR.Driver).s5_chain_kind().label, DC.ChainKind().tag,
                                                               SR.Driver.__new__(SR.Driver).s5_chain_kind().noun), ("S5", "W", "window"))
 

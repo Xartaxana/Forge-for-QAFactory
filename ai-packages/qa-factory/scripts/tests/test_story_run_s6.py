@@ -248,9 +248,8 @@ def d1_texts() -> None:
     """D2: what the roles are told. The texts sit inside long methods, so they are read from the source as
     the string constants they are (an f-string is its literal parts) - a pin on the words, not on the layout."""
     import ast
-    source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
     texts, parts = [], set()
-    nodes = list(ast.walk(ast.parse(source)))
+    nodes = [node for _path, source in harness.driver_sources() for node in ast.walk(ast.parse(source))]      # every file of the driver set, parsed apart
     for node in nodes:
         if isinstance(node, ast.JoinedStr):
             parts.update(id(p) for p in node.values)      # its literal pieces are counted once, whole
@@ -1679,7 +1678,7 @@ def t329_b270_g_the_manual_block_size_has_one_source() -> None:
     import controller
     import story_run
     eq("T329-g the driver's size is the controller's window constant", story_run.Driver.MANUAL_BLOCK_MAX, controller.MANUAL_WINDOW_CASES)
-    source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
+    source = harness.driver_text()
     check("T329-g and the source holds no literal for it", not re.search(r"(?m)^\s*MANUAL_BLOCK_MAX\s*=\s*\d", source))
     check("T329-g it is read from the controller", "MANUAL_BLOCK_MAX = MANUAL_WINDOW_CASES" in source
           and "from controller import MANUAL_WINDOW_CASES" in source)
@@ -2036,7 +2035,8 @@ def c16b_fix_round_one_words_door_one_token_table() -> None:
        (command + " --words-file <file>", command + " --words-file <file with your words>"))
     eq("B-F3: the seam's own tokens are NM.TOKEN_MOVES, whole", {t: m for t, m in story_run.Driver.SITE_MOVES.items() if t in NM.TOKEN_MOVES}, NM.TOKEN_MOVES)
     eq("B-F3: ...and the site adds only its two words", sorted(set(story_run.Driver.SITE_MOVES) - set(NM.TOKEN_MOVES)), ["by hand", "reapprove"])
-    check("B-F3: the table is built from NM.TOKEN_MOVES, not copied", "{**NM.TOKEN_MOVES," in inspect.getsource(story_run.Driver).split("SITE_MOVES = ", 1)[1].split("\n", 1)[0])
+    table_lines = [part.split("\n", 1)[0] for part in harness.driver_text().split("SITE_MOVES = ")[1:]]      # every assignment of the table, in the whole driver set
+    check("B-F3: the table is built from NM.TOKEN_MOVES, not copied", len(table_lines) >= 1 and all("{**NM.TOKEN_MOVES," in line for line in table_lines), str(table_lines))
 
 
 # --- HF2-11b: the live checks of the tests that changed after their run are proved again by code, before S6 closes -------

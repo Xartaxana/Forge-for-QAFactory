@@ -45,7 +45,6 @@ def _install() -> None:
     import importlib.machinery
     import json
     import subprocess
-    import tempfile  # noqa: F401  (imported so the audit event comes from the stdlib's own call)
     import threading
     import time
 

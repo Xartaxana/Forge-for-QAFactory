@@ -24,6 +24,7 @@ import io
 import itertools
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -31,6 +32,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import harness  # noqa: E402
 from harness import SCRIPTS, check, check_eq, check_in, finish  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
@@ -660,9 +662,10 @@ def request_carries_walk_lane_and_actor():
 
 
 def story_run_makes_no_new_thread_site():
-    text = (Path(SCRIPTS) / "story_run.py").read_text(encoding="utf-8")
-    check_eq("AR-15: `story_run.py` has ONE `threading.Thread(` site (the timing watcher) and none for lanes", text.count("threading.Thread("), 1)
-    check("and the lane code names no thread", "run_chains(items" in text and text.count("run_chains(") >= 2)
+    sites = [(path.name, text.count("\n", 0, at.start()) + 1) for path, text in harness.driver_sources()
+             for at in re.finditer(r"threading\.Thread\(", text)]
+    check("AR-15: the driver set has TWO `threading.Thread(` sites (the chain scheduler and the timing watcher) and none for lanes: "
+          + ", ".join(f"{name}:{line}" for name, line in sites), len(sites) == 2, f"{sites}")
 
 
 def consumer_refused_case_still_awaits():

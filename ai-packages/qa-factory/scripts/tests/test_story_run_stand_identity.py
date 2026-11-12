@@ -957,27 +957,8 @@ def k37_positions_and_the_flag() -> None:
         eq("K37 a dispatch with an EMPTY scope probes nothing and asks nothing: the role starts", (len(rig.calls()) - before, started), (0, [("S6", "qa-runner")]))
     finally:
         rig.done()
-    # the order in the source: build_check follows stand_check at all four sites; a swapped copy fails the same check
-    source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-
-    def order_ok(text: str) -> bool:
-        calls = re.findall(r"^\s+self\.stand_check\(", text, re.M)
-        # t-2133: five sites since TR3-6 (the chain's own two checks in `s5_window_chain` are the fifth). t-2113: the S5 site times each check (TR3-2): `with self.timed("build_check", ...):` may stand between the two calls
-        follows = re.findall(r"self\.stand_check\([^\n]*\n(?:\s*with self\.timed\(\"build_check\"[^\n]*\n)?\s*self\.build_check\(", text)
-        return len(calls) == 5 and len(follows) == 5
-    check("K37 source order: all five stand_check sites are followed at once by build_check", order_ok(source))
-    swapped = re.sub(r"(self\.stand_check\([^\n]*\n)(\s*)(self\.build_check\([^\n]*\n)", r"\3\2\1", source, count=1)
-    check("K37 source order NEGATIVE CONTROL: a copy with the first pair swapped FAILS the same check", swapped != source and not order_ok(swapped))
-    # t-366 F5 (the same source read): no code-built console line carries an exception name - it goes to stderr - and no
-    # f-string console line is left in the build code: every line is `question.lines`
-    region = source[source.index("    def build_check("):source.index("    def s5_window_files(")]   # t-2133: the scheduler (TR3-6) stands after the build code; TR3-9a moved its generic part and the `# --- the S5 window scheduler` comment to driver_chains.py, so the first scheduler method left in story_run.py ends the build code
-    check("F5: no `type(exc).__name__` on the console in the build check / answer code (it goes to stderr)",
-          all("file=sys.stderr" in ln for ln in region.splitlines() if "__name__" in ln), str([ln for ln in region.splitlines() if "__name__" in ln]))
-    check("F5: no f-string `print(f\"{stage}:` is left in the build code - every console line is `question.lines`",
-          'print(f"{stage}:' not in region and "print(f'{stage}:" not in region)
-    check("F5 NEGATIVE CONTROL: the same check FAILS on a region that prints the exception's name",
-          "__name__" in 'print(f"{stage}: could not be checked ({type(exc).__name__})")' and
-          not all("file=sys.stderr" in ln for ln in ['print(f"{stage}: could not be checked ({type(exc).__name__})")'] if "__name__" in ln))
+    # the source-order check (build_check follows stand_check at every site) and the F5 console-line check over the region of
+    # `build_check` were source pins of named members: deleted by TD-11 phase 0 (F3)
 
 
 # --- K38 / K39 / K40 / K44 -------------------------------------------------------------------------------------------

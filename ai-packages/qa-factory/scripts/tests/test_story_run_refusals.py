@@ -464,7 +464,7 @@ def refusal_every_action_has_a_move() -> None:
     step_src = (harness.SCRIPTS / "story_step.py").read_text(encoding="utf-8")
     actions = sorted(set(re.findall(r'"action":\s*"(\w+)"', body))
                      | set(re.findall(r'"action":\s*"(\w+)"', step_src)))
-    driver_src = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
+    driver_src = harness.driver_text()
     handled = set(re.findall(r'kind == "(\w+)"', driver_src))
     handled |= {name for group in re.findall(r'kind in \(([^)]*)\)', driver_src)
                 for name in re.findall(r'"(\w+)"', group)}
@@ -474,19 +474,8 @@ def refusal_every_action_has_a_move() -> None:
     missing = [a for a in actions if a not in handled]
     check("and the driver has a branch for every one of them", not missing,
           f"no branch for {missing}")
-    # t-667 D15 (M2): the branches of `dispatch_action` that moved into one handler per kind keep the LITERAL `kind == "..."` form
-    # this census reads - a branch rewritten as a lookup or a `kind in (...)` would still pass the check above for some kinds and
-    # silently drop the literal for the rest (the census above also accepts `kind in (...)` and `action.get("action") ==`)
-    # the literal form is read from the body of `dispatch_action` ONLY (t-697 F1): the whole-file read let a `kind == "..."` in a handler
-    # or in `describe()` satisfy the pin while the branch itself was rewritten
-    start = driver_src.find("def dispatch_action(")
-    dispatch_body = driver_src[start:].split("\n    def ")[0] if start >= 0 else ""
-    literal = set(re.findall(r'kind == "(\w+)"', dispatch_body))
-    moved = {"prepare_stage", "await_gate", "closed", "wait_existing_job", "resume_checkpoint", "relaunch", "resolve_return",
-             "execute_gate_b", "await_implementation", "awaiting_implementation", "awaiting_stopped"}
-    check("and the eleven kinds with their own handler keep the literal `kind == \"...\"` form inside `dispatch_action`",
-          start >= 0 and moved <= literal,
-          "no `def dispatch_action(` in the driver source" if start < 0 else f"no literal form for {sorted(moved - literal)}")
+    # the former tail of this function pinned the literal `kind == "..."` form inside the body of ONE member (`dispatch_action`):
+    # a source pin of one named member, deleted by TD-11 phase 0 (F3, docs/TESTING.md l.94); the census above is the form census
 
 
 def refusal_active_dispatch() -> None:
@@ -3123,14 +3112,14 @@ CC9_SITE_FREE = {"record_close", "close_by_code", "code_close_step"}      # retr
 CC9_SITE_ARG = {"close_receipt": 0, "record_close": 0}                    # the position of `site` where it is positional; close_by_code: keyword only
 
 
-def cc9_findings(source: str, sites) -> list:
-    """THE predicate of CC9 (used by the census of story_run.py AND by the planted controls): what is wrong in `source`.
+def cc9_findings(source, sites) -> list:
+    """THE predicate of CC9 (used by the census of the driver set AND by the planted controls): what is wrong in `source` (a text, or a list of texts).
     (1) a watched function that does not exist; (2) in a watched function a bare `self.code_only(` or `self.py("stage_done.py", ... "--status")`;
     (3) anywhere, a `close_by_code` / `close_receipt` / `record_close` call whose `site` is not a LITERAL non-empty key of `sites`
     (except inside `CC9_SITE_FREE`)."""
     import ast
-    tree = ast.parse(source)
-    functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    texts = [source] if isinstance(source, str) else list(source)      # one text, or the text of every file of the driver set (parsed apart)
+    functions = [n for text in texts for n in ast.walk(ast.parse(text)) if isinstance(n, ast.FunctionDef)]
     problems = [f"missing:{name}" for name in sorted(CC9_WATCHED - {f.name for f in functions})]
     owner = {}
     for fn in functions:                                         # BFS: the outermost function owns a nested call
@@ -3160,9 +3149,9 @@ def refusal_cc9_every_close_of_s6_s7_s9_goes_through_the_one_record() -> None:
     `site` that is a key of `CODE_CLOSE_SITES` (an unmarked refusal would go to the conductor in silence). The watched names must exist."""
     import story_run
     sites = set(story_run.CODE_CLOSE_SITES)
-    source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
+    source = harness.driver_text()
     check_eq("CC9: no close of S6/S7/S9 by code bypasses record_close / close_receipt, every call carries its site, every watched name exists",
-             cc9_findings(source, sites), [])
+             cc9_findings([text for _path, text in harness.driver_sources()], sites), [])
     check_eq("F-3: the after-close line lives in the one helper, and its four callers call it",
              (source.count("is done already; recording the words and going on"), source.count("self.after_close(")), (1, 4))
     # the negative controls: the SAME predicate sees each planted defect (and passes the planted good call)

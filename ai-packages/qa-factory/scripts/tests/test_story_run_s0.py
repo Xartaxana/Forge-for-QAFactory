@@ -684,12 +684,12 @@ def k5_the_agent_is_never_called() -> None:
                  "record the tracker's address and token for this project (onboarding does it)", ask)
     finally:
         harness.cleanup(root)
-    src = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
+    src = harness.driver_text()
     pattern = r"ticket_incomplete|ticket_by_agent|TICKET_SHAPE|\"ticket_agent\"|ticket_problems|check_ticket"
     found = sorted(set(re.findall(pattern, src)))
-    eq("K5: grep of story_run.py: the removed names have 0 hits, and the same pattern finds the surviving `ticket_incomplete` (positive control)",
+    eq("K5: grep of the driver set: the removed names have 0 hits, and the same pattern finds the surviving `ticket_incomplete` (positive control)",
        found, ["ticket_incomplete"])
-    print(f"K5: grep -E '{pattern}' story_run.py -> {sorted(set(re.findall(pattern, src)))} ({len(re.findall(pattern, src))} hits, all of them the control)")
+    print(f"K5: grep -E '{pattern}' driver set -> {sorted(set(re.findall(pattern, src)))} ({len(re.findall(pattern, src))} hits, all of them the control)")
 
 
 def k6_ticket_read_question() -> None:
@@ -850,9 +850,7 @@ def k6_retry_after_and_other_failures() -> None:
             driver.s0_ticket_read_question(3, said, {"owner": "tracker", "status": 503, "retry_at": None, "message": "x", "file": None, "from_object": True})
         except story_run.Person as person:
             check_not_in("F3 negative control: the time in the SENTENCE is not read when the object names none", "2026-10-01T12:30:00Z", person.text)
-        src = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-        check("F3: RETRY_AT_RE is deleted from the driver (control of the same form: the object reader is there)",
-              "RETRY_AT_RE" not in src and "def ticket_failure" in src and not hasattr(story_run.Driver, "RETRY_AT_RE"))
+        # (the source check that RETRY_AT_RE is gone and `def ticket_failure` stands was a source pin of one member: deleted by TD-11 phase 0, F3)
     finally:
         jira.stop()
         harness.cleanup(root)
@@ -2142,10 +2140,7 @@ def s0_owners_of_a_failed_read() -> None:
         eq("K-F4: and the paste read names the same folder beside --ticket-file", paste_call, ["get", task, "--ticket-file", "a-paste.md", *flags, "--json"])
         check("K-F4: the folder is the story's work/ticket-raw",
               flags[0] == "--raw-dir" and Path(flags[1]).resolve() == (task_root / "work" / "ticket-raw").resolve(), str(flags))
-        # K-F10: the driver calls the public name of the adapter's check (the private one stays an alias for a release)
-        src = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-        check("K-F10: the driver calls `has_usable_direct_api` and not the private name (control of the same form: the public call is found)",
-              "ticket_adapter.has_usable_direct_api(" in src and "_has_usable_direct_api" not in src)
+        # K-F10: the source check that the driver calls the public name of the adapter's check was a source pin: deleted by TD-11 phase 0 (F3)
         eq("K-F10: and the check still answers through the driver", driver.direct_api_usable(), True)
     finally:
         harness.cleanup(root)
@@ -2665,10 +2660,7 @@ def s0_unread_road_units() -> None:
         eq("F4: `s0_doors` never replaces a door held under `stop` (a stand named `Stop`)",
            story_run.Driver.s0_doors({"stop": "Stop", "go on": "go on"}), {"stop": "Stop", "go on": "go on"})
         eq("F4: and adds `stop` when the block holds none", story_run.Driver.s0_doors({"retry": "retry"}), {"stop": "stop", "retry": "retry"})
-        source = (harness.SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-        sites = re.findall(r"^( *)(.*)self\.s0_read_word\(\)(.*)$", source, re.M)
-        check("G1: the two callers (`s0`, `s0_source_list`) use `s0_read_word()` as a bare statement: None is 'nothing decided, run the step'",
-              len(sites) == 2 and all(not before.strip() and not after.strip() for _, before, after in sites), str(sites))
+        # (the source check that the two callers use `s0_read_word()` as a bare statement was a source pin: deleted by TD-11 phase 0, F3)
     finally:
         harness.cleanup(root)
 

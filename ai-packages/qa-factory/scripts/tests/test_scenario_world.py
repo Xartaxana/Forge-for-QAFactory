@@ -416,8 +416,7 @@ def row_a_reset_that_raises_marks_the_world_dead():
 
     def go():
         try:
-            with SW.world(tiny, "x1", mode="mutates") as made:
-                first = made[0]
+            with SW.world(tiny, "x1", mode="mutates"):
                 shutil.copytree = refuse
                 raise KeyError("the scenario's own failure")
         finally:

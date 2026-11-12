@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import (SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish,  # noqa: E402
+from harness import (SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, driver_sources, finish,  # noqa: E402
                      run_script, s5_apply, temp_dir, temp_project, use_project)
 
 sys.path.insert(0, str(SCRIPTS))
@@ -1582,8 +1582,9 @@ def a_word_nothing_reads_is_printed_and_changes_nothing():
                  long_words.strip(), notes_for("review is missing", "  " + long_words.replace(" ", " \n "))[0])
 
         # S10: the old sentence lives in the fixtures and in nothing the driver reads
-        sources = {name: (SCRIPTS / name).read_text(encoding="utf-8") for name in ("window_record.py", "story_run.py")}
-        check_eq("S10: `word still passes` is in neither window_record.py nor story_run.py",
+        sources = {"window_record.py": (SCRIPTS / "window_record.py").read_text(encoding="utf-8")}
+        sources.update({path.name: text for path, text in driver_sources()})
+        check_eq("S10: `word still passes` is in neither window_record.py nor any file of the driver set",
                  [name for name, text in sources.items() if "word still passes" in text], [])
         control = (Path(__file__).resolve().parent / "test_story_run_loop_b.py").read_text(encoding="utf-8")
         check("S10 positive control: the SAME pattern finds the fixture's own copy in test_story_run_loop_b.py",

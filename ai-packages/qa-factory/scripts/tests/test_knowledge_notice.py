@@ -225,17 +225,39 @@ def test_in_flight_form_values_not_refused(proj):
     assert len(proj.notice()) == 1 and proj.rows()[0]["state"] == "noticed_unconfirmed"
 
 
-def test_gate_repair_calls_notice_after_kept_answer_branch():
-    source = (HERE.parent / "story_run.py").read_text(encoding="utf-8")
-    body = source[source.index("    def gate_repair(self, gate: str)"):source.index("    def gate_repair_would(")]
-    call = body.index("project_knowledge.notice_from_handoff(")
-    assert body.count("notice_from_handoff(") == 1
-    # F2: the story id is the project-wide `pipeline.ticket or <folder>`; F3: the import sits inside the never-raise envelope
-    assert 'str(self.pipeline().get("ticket") or self.task))' in body[call:call + 200]
-    assert body.index("try:", body.index('if gate == "A":\n            # t-2142')) < body.index("import project_knowledge") < call
-    assert body.index('self.apply_question_answers("A")["opened"]') < call < body.index("self.gate_entry_steps(gate)")
-    assert body.index("kept = self.kept_answer(gate)") < call
-    assert body.index("return dict(shown, ran=True)", body.index('self.apply_question_answers("A")')) < call
+def drive_gate_repair(monkeypatch, kept) -> list:
+    """`Driver.gate_repair("A")` on a stub `self` that records each step it reaches; the real method decides the order. `kept` is
+    the answer `kept_answer` returns ({} = none). The spy replaces `project_knowledge.notice_from_handoff`."""
+    import story_run
+    order = []
+    monkeypatch.setattr(PK, "notice_from_handoff", lambda *args: order.append(("notice", args)) or [])
+
+    def entry(gate):
+        order.append(("entry", gate))
+
+    def rehearse(gate):
+        raise RuntimeError("stop here")                          # the gate is shown without the rehearsal: the call returns
+
+    me = type("Rig", (), {})()
+    me.dry, me.state, me.project, me.task_root, me.task = False, {}, "P", "TR", "T-1"
+    me.pipeline = lambda: {"ticket": TICKET}
+    me.old_kept_answer = lambda gate: ""
+    me.kept_answer = lambda gate: kept
+    me.record_by_code = lambda *a, **k: order.append(("recorded", k.get("again"))) or True
+    me.save_state = lambda: None
+    me.apply_question_answers = lambda stage: {"opened": False}
+    me.gate_entry_steps, me.rehearse = entry, rehearse
+    story_run.Driver.gate_repair(me, "A")
+    return order
+
+
+def test_gate_a_notices_after_the_kept_answer_branch_and_before_the_entry_steps(monkeypatch):
+    """The wiring the source pin guarded, by behaviour: with no kept answer the notice is called once, with the handoff's project,
+    task root and ticket, BEFORE `gate_entry_steps`; with a kept answer the decision is recorded again and nothing is noticed."""
+    order = drive_gate_repair(monkeypatch, {})
+    assert order == [("notice", ("P", "TR", TICKET)), ("entry", "A")]
+    order = drive_gate_repair(monkeypatch, {"words": "go on"})
+    assert order == [("recorded", True)]                         # nothing is written once the person has spoken
 
 
 if __name__ == "__main__":

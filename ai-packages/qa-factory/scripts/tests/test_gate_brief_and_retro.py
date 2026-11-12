@@ -2351,10 +2351,7 @@ def test_t409_h3_the_conductor_relay_and_the_phase_say_the_words_per_card() -> N
     phase = (SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s4.md").read_text(encoding="utf-8")
     check_in("H3: the s4 phase says the words are per card and names the reporter card's three", "takes `myself`, `run` and `accept` only (never `change`", phase)
     check_in("H3: and that a word the card does not list is not recorded, the person told the words that apply", "a word the card does not list is not recorded - tell the person the words that apply to", phase)
-    driver = (SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-    check_in("H3: the driver's relay note tells the conductor to record nothing for a word the card does not take", "record nothing for another word", driver)
-    check_in("H3: and to tell the person the words that apply to that card", "that apply to that card): ", driver)
-    check_in("H3: and builds each gap's line through the one function", "gate_brief.relay_card_line(", driver)
+    # the three checks of the driver's relay note (`Driver.take_stand_gap_answers`) were a source pin of one member: deleted by TD-11 phase 0 (F3)
 
 
 def test_t667_d17_the_relay_note_reads_one_context_and_the_stage_default_reaches_the_lines() -> None:

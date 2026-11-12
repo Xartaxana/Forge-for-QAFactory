@@ -9,7 +9,7 @@ Expectations are the spec's (docs/tasks/specs/t-2222-tr4-10-11-s5-windows-leftov
       No story folder -> nothing written; a failed write -> one note, still re-raised; a second Ctrl-C while writing -> no traceback past
       `run`, a record already written is kept; an interrupt inside a run-level handler (funnel) writes it too (F-3).
       `collect_stall` clears exactly the rows in `cut` (round trip with a real `Driver`; the id form is a twin of K3's, tied here).
-11.2  `_append_jsonl` is `hooklib.append_jsonl_line`: a torn tail is repaired, no private `open(..., "a")` is left in story_run.py,
+11.2  `_append_jsonl` is `hooklib.append_jsonl_line`: a torn tail is repaired, no private `open(..., "a")` is left in the driver set,
       a journal of mixed CRLF / LF lines (the Windows text-mode rows of before) is read whole by every reader of the file (F-8).
 
 Nothing here reaches the network, a model or a subprocess.
@@ -26,6 +26,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import harness  # noqa: E402
 from harness import SCRIPTS, check, check_eq, cleanup, finish, temp_dir  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
@@ -320,9 +321,9 @@ def story_run_has_no_private_appender():
              len(APPEND_OPEN.findall(fixture)), 5)
     check_eq("story_run_has_no_private_appender (negative control): a read mode is not matched",
              len(APPEND_OPEN.findall('with open(p, mode="r") as h:\n    pass\nwith open(p, "r") as h:\n    pass\n')), 0)
-    source = (SCRIPTS / "story_run.py").read_text(encoding="utf-8")
-    found = [(source.count("\n", 0, m.start()) + 1, m.group(0)) for m in APPEND_OPEN.finditer(source)]
-    check("story_run_has_no_private_appender: story_run.py opens no file for append", found == [], str(found))
+    sources = harness.driver_sources()
+    found = [(path.name, text.count("\n", 0, m.start()) + 1, m.group(0)) for path, text in sources for m in APPEND_OPEN.finditer(text)]
+    check("story_run_has_no_private_appender: no file of the driver set opens a file for append", found == [], str(found))
 
 
 def mixed_line_endings_are_read_whole(tmp):
