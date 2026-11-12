@@ -1,0 +1,33 @@
+{
+  "card": 18,
+  "title": "Устаревшая вкладка: призрак строки (XPANBFLFA-174)",
+  "lane": "C",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:34:45",
+  "ended_at": "2026-11-05T20:35:08",
+  "seconds": 23,
+  "steps_done": [
+    "вход; /books/3 (1984) qty \"2\" Add; /books/12 (Last Copy) qty по умолчанию (1) Add",
+    "вкладка B (тот же контекст): /cart; в B нажал Remove у 1984",
+    "вкладка A (устаревшая): в поле количества 1984 выделил всё и набрал \"3\""
+  ],
+  "observed": [
+    "корзина до: [[928,3,2],[929,12,1]]; вкладка A: 2 titles, 3 copies; бейдж 3",
+    "после удаления в B: GET /api/cart [{\"id\":929,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":344,}]",
+    "сеть вкладки A: PUT /api/cart/928 req={\"quantity\":3} -> 404 {\"error\":\"Cart item not found\",\"code\":\"CART_ITEM_NOT_FOUND\"} || GET /api/cart  -> 200 [{\"id\":929,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":344,}]",
+    "экран A: Shopping Cart 2 titles, 3 copies 01 1984 George Orwell $13.99 each QUANTITY Subtotal: $27.98 Remove 02 Last Copy Anonymous $20.00 each QUANTITY Subtotal: $20.00 Remove Order Summary Items (3) $47.98 Subtotal $47.98 Shipp; бейдж 3; тосты [\"Cart item not found\"]",
+    "сервер GET /api/cart: [{\"id\":929,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":344,}]",
+    "1984 на экране A после правки: true",
+    "корзина очищена: []"
+  ],
+  "expected_from_card": "корзина = серверному состоянию (TF-012; Jira 174)",
+  "evidence": [
+    "card18-tabB-after-remove.png",
+    "card18-tabA-after-edit.png"
+  ],
+  "oddities": [
+    "Карточка пишет, что страница перечитывает корзину после 404; здесь в сети вкладки A после PUT 404 нет собственного GET /api/cart приложения (единственный GET — мой контрольный вызов), экран остался прежним.",
+    "Тост «Cart item not found» показан, но призрак строки 1984 и «2 titles, 3 copies», $47.98, бейдж 3 остались, при сервере: только Last Copy x1."
+  ],
+  "tool_calls": 4
+}

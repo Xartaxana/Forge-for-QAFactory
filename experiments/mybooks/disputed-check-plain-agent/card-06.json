@@ -1,0 +1,39 @@
+{
+  "card": "06",
+  "title": "Корзина: сбой чтения корзины, смены количества, удаления",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:32:38",
+  "ended_at": "2026-11-05T20:33:00",
+  "steps_done": [
+    "Свой пользователь lane-b-06-*; корзина: Ariel x1 (item 921), Moby-Dick x2 (item 922).",
+    "Попытка A: page.route на GET /api/cart -> 500 (только GET, одна попытка), открыт /cart.",
+    "Попытка B: GET /api/cart -> route.abort (обрыв), открыт /cart.",
+    "Попытка C: PUT /api/cart/922 -> 500 (только PUT), в поле количества Moby-Dick выделено всё и набрано \"3\" посимвольно.",
+    "Попытка D: DELETE /api/cart/921 -> 500, нажато Remove у Ariel.",
+    "Каждая подмена снималась (unroute) перед следующей. В конце DELETE /api/cart (корзина пуста)."
+  ],
+  "observed": {
+    "A_get500": "Страница /cart показывает \"Your cart is empty.\" / \"0 ITEMS\" / \"Your cart is empty. Browse the catalog...\" + кратко тост \"Failed to load cart\"; бейдж корзины в шапке пропал (хотя на сервере 2 строки, 3 копии). Консоль: \"Error loading cart: TypeError: e.map is not a function\". Сеть: GET /api/cart 500 (два-три GET).",
+    "B_getAbort": "То же: \"Your cart is empty.\" + тост \"Failed to load cart\", бейджа нет. Консоль: Error loading cart: TypeError: Failed to fetch; \"Error updating cart count: Failed to fetch\".",
+    "C_put500": "PUT /api/cart/922 {\"quantity\":3} -> 500. Тост \"Internal Server Error\" (текст из тела подменённого ответа), поле вернулось к 2, строки/итог/бейдж 3 прежние ($47.97). Сервер: количество 2 не изменилось.",
+    "D_delete500": "DELETE /api/cart/921 -> 500. Тост \"Failed to remove item\", строка Ariel осталась, итог $47.97, бейдж 3. Сервер: строка 921 на месте.",
+    "verdict_note": "B (чтение корзины) карточка называет проблемой: сбой чтения выдаётся за пустую корзину. C и D ведут себя как ожидание карточки (ошибка, строка осталась)."
+  },
+  "expected_from_card": "B R-14 (производное правило, не из требований): сбой чтения корзины не должен выдаваться за пустую корзину (\"неуспех не выдаётся за успех\"); при сбое смены количества/удаления - \"ошибка, строка осталась\". Источник требований у R-14 - нет.",
+  "evidence": [
+    "card06-A-cart-get-500.png",
+    "card06-B-cart-get-abort.png",
+    "card06-C-put-500.png",
+    "card06-D-delete-500.png",
+    "печать: \"Your cart is empty. | 0 ITEMS\" при RES 500 GET /api/cart; RES 500 PUT /api/cart/922; RES 500 DELETE /api/cart/921"
+  ],
+  "oddities": [
+    "Исход BUG_CONFIRMED относится только к части \"чтение корзины\" (A, B) против R-14; часть C/D (PUT/DELETE) - как ожидалось. Сама R-14 не из требований - человеку стоит подтвердить.",
+    "При пустом показе нет кнопки повтора; остаются \"Browse Books\". Тост \"Failed to load cart\" кратковременный.",
+    "При сбое чтения бейдж в шапке исчез (не 3, а пусто), хотя на сервере 3 копии.",
+    "Текст тоста при PUT 500 берётся из поля error ответа сервера (у меня \"Internal Server Error\" из подмены)."
+  ],
+  "tool_calls": 4,
+  "lane": "B",
+  "seconds": 22
+}

@@ -558,6 +558,13 @@ npm --prefix <mybooks-stand>/MyBooks run db:seed        # сброс данны�
 
 Прод-сборка, а не `npm run dev`, — по уроку прежнего стенда (§1): dev-сервер слишком медленный для e2e.
 
+**Стенд без Docker (машина владельца, 12.11.2026).** Docker нужен приложению только ради PostgreSQL 16 и Mailpit. Где Docker
+нет, стенд поднимает `experiments/mybooks/factory-vs-free-agent/stand/stand.ps1` (действия — в шапке файла): портативный
+PostgreSQL на том же `localhost:5433` и по отдельной базе, почтовому ящику, копии приложения и копии тестов на каждое плечо
+сравнительного прогона (`<mybooks-stand>\arm-<плечо>\`, приложения на `:3000` и `:3001`). После перезагрузки —
+`-Action services`, затем `-Action start -Arm <плечо>`. Что поставлено и ловушка «распаковщик браузеров Playwright зависает
+на Node 26» — `experiments/mybooks/factory-vs-free-agent/notebook.md`.
+
 **Ловушки тестового репозитория (замер 31.10.2026):**
 - Профили `local`, `dev`, `qa` в `core/config/env/*.ts` включают `useHarMocks: true`: тесты идут в мок-сервер на 3100, а не в
   приложение, и «зелёный» прогон ничего не говорит о стенде. На живое приложение смотрит только `NODE_ENV=prod`:

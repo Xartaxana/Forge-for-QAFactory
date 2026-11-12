@@ -1,0 +1,34 @@
+{
+  "card": "14",
+  "title": "Истечение сессии при добавлении (XPANBFLFA-166)",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:36:28",
+  "ended_at": "2026-11-05T20:36:51",
+  "steps_done": [
+    "Свой пользователь lane-b-14-*; вход через форму /login; на главной поиск \"Ariel\" (карточка Ariel id 36).",
+    "Удалена cookie `next-auth.session-token` только в моём контексте (context.clearCookies), страница НЕ перезагружалась.",
+    "Один клик Add to Cart на карточке Ariel.",
+    "Проверены: URL, тост, бейдж, шапка, GET /api/auth/session, GET /api/cart, затем переход на /cart.",
+    "Уборка: DELETE /api/cart (гостевая корзина), повторный вход тем же пользователем - его собственная корзина [], DELETE /api/cart."
+  ],
+  "observed": {
+    "add": "POST /api/cart {\"bookId\":36,\"quantity\":1} -> 201; тост \"Book added to cart\"; бейдж 1; URL остался /?query=Ariel (перехода на /login нет).",
+    "header_right_after": "Шапка сразу после клика по-прежнему \"Wishlist | Profile | Logout\" (выглядит вошедшим); после перехода на /cart шапка уже \"Login\".",
+    "session": "GET /api/auth/session -> {} (сессии нет).",
+    "cart": "GET /api/cart -> одна строка {id 932, bookId 36, quantity 1, sessionId \"5be394f7-...\", userId null} - гостевая корзина; в аккаунте пользователя строки нет (после повторного входа корзина [])."
+  },
+  "expected_from_card": "Jira TC-017: \"extends the session or asks for login, product added after re-authentication\"; L2 `Q9: b` (слово человека): потребовать вход. Третий исход (тихий переход в гостя) в кейсе не описан; ATC (кейс 166) считает гостевое добавление нормой.",
+  "evidence": [
+    "card14-after-add.png",
+    "card14-cart-page.png",
+    "печать: RES 201 POST /api/cart; GET /api/auth/session -> {}; cart item userId:null sessionId:5be394f7...; badge 1; header \"Logout\" сразу после клика"
+  ],
+  "oddities": [
+    "Повтор TF-020: тихий переход в гостя, тост успеха; книга ушла в гостевую корзину, а не в аккаунт - пользователь этого не узнает.",
+    "Шапка устаревшая до навигации (Logout при отсутствии сессии).",
+    "Исход выбран по слову человека Q9:b; по ATC (гость - норма) мог бы быть AS_REQUIRED - расхождение источников, решение за владельцем."
+  ],
+  "tool_calls": 3,
+  "lane": "B",
+  "seconds": 23
+}

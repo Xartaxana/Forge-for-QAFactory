@@ -1,0 +1,42 @@
+{
+  "card": 9,
+  "title": "Вход: слияние гостевой корзины не удалось",
+  "lane": "C",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:30:19",
+  "ended_at": "2026-11-05T20:30:55",
+  "seconds": 36,
+  "steps_done": [
+    "[500] гость: /books/13 (Dune), выделил поле количества, набрал \"2\" посимвольно, Add to Cart",
+    "[500] page.route на POST /api/cart/merge: ответ 500; вход через /login",
+    "[hang] гость: /books/13 (Dune), выделил поле количества, набрал \"2\" посимвольно, Add to Cart",
+    "[hang] page.route на POST /api/cart/merge: ответ не отдаётся (висит); вход через /login"
+  ],
+  "observed": [
+    "[500] гость до входа: GET /api/cart 200 [{\"id\":911,\"bookId\":13,\"quantity\":2,\"sessionId\":\"ae98a696-1e63-476b-8bc5-0f9275d6861f\",\"userId\":null,\"createdAt\":\"2026-11-05T19:30:27.548Z\",\"updatedAt\":\"2026-11-05T19:30:27.548Z\"}]; бейдж 2",
+    "[500] после входа: URL /; тосты [\"Successfully logged in!\"]; бейдж (no badge); GET /api/cart (без подмены) 200 []",
+    "[500] страница /cart: bookstore Home Cart Wishlist Profile Logout 02 / CART Shopping Cart Your cart is empty. 0 ITEMS Your cart is empty Browse the catalog and add the books you would like to order. Browse Books bookstore A curated catalog of books, delivered. © 2026 Bookstore. All rights reserved.",
+    "[500] сеть: GET /api/auth/session  -> 200 {} || GET /api/auth/session  -> 200 {} || GET /api/cart  -> 200 [{\"id\":911,\"bookId\":13,\"quantity\":2,\"sessionId\":\"ae98a696-1e63-476b-8bc5-0f9275d6861f\",\"userId\":null,\"createdAt\":\"2026-11-05T19:30:27.548Z\",\"updatedAt\":\"2026-11-05T19:30:27.548Z\"}] || GET /api/cart  -> 200 [{\"id\":911,\"bookId\":13,\"quantity\":2,\"sessionId\":\"ae98a696-1e63-476b-8bc5-0f9275d6861f\",\"userId\":null,\"createdAt\":\"2026-11-05T19:30:27.548Z\",\"updatedAt\":\"2026-11-05T19:30:27.548Z\"}] || GET /api/auth/providers  -> 200 {\"credentials\":{\"id\":\"credentials\",\"name\":\"Credentials\",\"type\":\"credentials\",\"signinUrl\":\"http://localhost:3000/api/auth/signin/credentials\",\"callbackUrl\":\"http://localhost:3000/api/auth/callback/cred || GET /api/auth/providers  -> 200 {\"credentials\":{\"id\":\"credentials\",\"name\":\"Credentials\",\"type\":\"credentials\",\"signinUrl\":\"http://localhost:3000/api/auth/signin/credentials\",\"callbackUrl\":\"http://localhost:3000/api/auth/callback/cred || POST /api/auth/callback/credentials req=email=<hidden>&password=<hidden>&redirect=false&csrfToken=f0186 -> 200 {\"url\":\"http://localhost:3000/login\"} || POST /api/auth/callback/credentials req=email=<hidden>&password=<hidden>&redirect=false&csrfToken=f0186 -> 200 {\"url\":\"http://localhost:3000/login\"} || GET /api/auth/session  -> 200 {\"user\":{\"name\":\"Lane C 09500\",\"email\":\"lane-c-09500-kxvkth@example.test\",\"id\":\"332\",\"role\":\"USER\"},\"expires\":\"2026-12-05T19:30:31.282Z\"} || GET /api/auth/session  -> 200 {\"user\":{\"name\":\"Lane C 09500\",\"email\":\"lane-c-09500-kxvkth@example.test\",\"id\":\"332\",\"role\":\"USER\"},\"expires\":\"2026-12-05T19:30:31.282Z\"} || CONSOLE.error: Failed to load resource: the server responded with a status of 500 (Internal Server Error) || CONSOLE.error: Failed to load resource: the server responded with a status of 500 (Internal Server Error) || GET /api/cart  -> 200 [] || GET /api/cart  -> 200 []",
+    "[500] корзина очищена: []",
+    "[hang] гость до входа: GET /api/cart 200 [{\"id\":914,\"bookId\":13,\"quantity\":2,\"sessionId\":\"7bf0cd1b-c581-47e8-986e-cfdd45ebde8e\",\"userId\":null,\"createdAt\":\"2026-11-05T19:30:43.944Z\",\"updatedAt\":\"2026-11-05T19:30:43.944Z\"}]; бейдж 2",
+    "[hang] после входа: URL /login; тосты []; бейдж (no badge); GET /api/cart (без подмены) 200 []",
+    "[hang] страница /cart: bookstore Home Cart 2 Wishlist Profile Logout 02 / CART Shopping Cart 1 title, 2 copies 01 Dune Frank Herbert $16.99 each QUANTITY Subtotal: $33.98 Remove Order Summary Items (2) $33.98 Subtotal $33.98 Shipping, promo codes and tax are added at checkout. Proceed to Checkout Continue Shopping booksto",
+    "[hang] сеть: GET /api/auth/session  -> 200 {} || GET /api/auth/session  -> 200 {} || GET /api/cart  -> 200 [{\"id\":914,\"bookId\":13,\"quantity\":2,\"sessionId\":\"7bf0cd1b-c581-47e8-986e-cfdd45ebde8e\",\"userId\":null,\"createdAt\":\"2026-11-05T19:30:43.944Z\",\"updatedAt\":\"2026-11-05T19:30:43.944Z\"}] || GET /api/cart  -> 200 [{\"id\":914,\"bookId\":13,\"quantity\":2,\"sessionId\":\"7bf0cd1b-c581-47e8-986e-cfdd45ebde8e\",\"userId\":null,\"createdAt\":\"2026-11-05T19:30:43.944Z\",\"updatedAt\":\"2026-11-05T19:30:43.944Z\"}] || GET /api/auth/providers  -> 200 {\"credentials\":{\"id\":\"credentials\",\"name\":\"Credentials\",\"type\":\"credentials\",\"signinUrl\":\"http://localhost:3000/api/auth/signin/credentials\",\"callbackUrl\":\"http://localhost:3000/api/auth/callback/cred || GET /api/auth/providers  -> 200 {\"credentials\":{\"id\":\"credentials\",\"name\":\"Credentials\",\"type\":\"credentials\",\"signinUrl\":\"http://localhost:3000/api/auth/signin/credentials\",\"callbackUrl\":\"http://localhost:3000/api/auth/callback/cred || POST /api/auth/callback/credentials req=email=<hidden>&password=<hidden>&redirect=false&csrfToken=d7bf -> 200 {\"url\":\"http://localhost:3000/login\"} || POST /api/auth/callback/credentials req=email=<hidden>&password=<hidden>&redirect=false&csrfToken=d7bf -> 200 {\"url\":\"http://localhost:3000/login\"} || GET /api/auth/session  -> 200 {\"user\":{\"name\":\"Lane C 09hang\",\"email\":\"lane-c-09hang-6lebph@example.test\",\"id\":\"335\",\"role\":\"USER\"},\"expires\":\"2026-12-05T19:30:46.719Z\"} || GET /api/auth/session  -> 200 {\"user\":{\"name\":\"Lane C 09hang\",\"email\":\"lane-c-09hang-6lebph@example.test\",\"id\":\"335\",\"role\":\"USER\"},\"expires\":\"2026-12-05T19:30:46.719Z\"} || GET /api/cart  -> 200 [] || GET /api/cart  -> 200 [] || GET /api/cart  -> 200 [] || GET /api/cart  -> 200 []",
+    "[hang] корзина очищена: []",
+    "ВЫВОД: при сбое слияния (500) вход проходит, тост только «Successfully logged in!», сообщения о сбое слияния нет, корзина аккаунта пуста (0 ITEMS), гостевой Dune x2 не виден пользователю. При «не отвечает» страница остаётся на /login, без тоста и без бейджа (6 с ожидания), GET /api/cart после входа = []."
+  ],
+  "expected_from_card": "ATC Q3 «пользователь должен узнать?»; B Q13: a (сказать словами при сбое слияния); C1 правило Q1 «если код не даёт сделать задуманное — это баг»",
+  "evidence": [
+    "card09-500-after-login.png",
+    "card09-500-cart.png",
+    "card09-hang-after-login.png",
+    "card09-hang-cart.png"
+  ],
+  "oddities": [
+    "В варианте hang после снятия подмены (unroute) висевший запрос слияния ушёл на сервер и Dune x2 появился в корзине — артефакт моей подмены, не поведение приложения.",
+    "В консоли браузера: Failed to load resource 500 (единственная диагностика, пользователю не показана).",
+    "В варианте 500 гостевая строка (id 911, sessionId) осталась в БД, пользователь её не видит.",
+    "Дважды в логе POST /api/auth/callback/credentials и GET /api/auth/session — дубли записи логов (хук на context и на page), не запросы приложения."
+  ],
+  "tool_calls": 8
+}

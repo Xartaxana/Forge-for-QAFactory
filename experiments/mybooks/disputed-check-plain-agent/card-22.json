@@ -1,0 +1,25 @@
+{
+  "title": "Перенос из вишлиста, когда книга уже в корзине (+1)",
+  "outcome": "REQUIREMENT_SILENT",
+  "steps_done": [
+    "1984 x2 в корзине (API), 1984 в вишлисте (кнопка на странице книги)",
+    "Нажал Move to cart"
+  ],
+  "observed": [
+    "вишлист после клика сердца: [{\"addedAt\":\"2026-11-05T19:37:21.224Z\",\"book\":{\"id\":3,\"title\":\"1984\",\"author\":\"George Orwell\",\"isbn\":\"978-0-452-28423-4\",\"description\":\"A dystopian so",
+    "Move to cart: запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":1}\",\"REQ DELETE /api/wishlist/3 \",\"REQ GET /api/cart \",\"RES 201 /api/cart {\\\"id\\\":933,\\\"bookId\\\":3,\\\"quantity\\\":3,\\\"sessionId\\\":null,\\\"userId\\\":350,\\\"createdAt\\\":\\\"2026-11-05T19:37:20.963Z\\\",\\\"updatedAt\\\":\\\"2026-1\",\"RES 200 /api/cart [{\\\"id\\\":933,\\\"bookId\\\":3,\\\"quantity\\\":3,\\\"sessionId\\\":null,\\\"userId\\\":350,\\\"createdAt\\\":\\\"2026-11-05T19:37:20.963Z\\\",\\\"updatedAt\\\":\\\"2026-\",\"RES 200 /api/wishlist/3 {\\\"message\\\":\\\"Removed from wishlist\\\"}\"]; тосты=[\"Moved to cart\"]; бейдж=3; корзина=[{\"b\":3,\"q\":3}]; вишлист на экране пуст=1"
+  ],
+  "expected_from_card": "Требования молчат; B Q3 по умолчанию «a»: +1 (принято по умолчанию, не человеком)",
+  "evidence": [
+    "card22-after-move.png"
+  ],
+  "tool_calls": 2,
+  "lane": "A",
+  "started_at": "2026-11-05T19:37:13.884Z",
+  "ended_at": "2026-11-05T19:37:23.940Z",
+  "seconds": 10,
+  "card": 22,
+  "oddities": [
+    "Перенос: количество 2 стало 3 (+1), вишлист очищен, тост «Moved to cart»"
+  ]
+}

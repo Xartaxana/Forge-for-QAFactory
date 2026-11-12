@@ -1,0 +1,34 @@
+{
+  "card": 11,
+  "title": "Слияние урезает строку аккаунта до остатка",
+  "lane": "C",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:37:31",
+  "ended_at": "2026-11-05T20:37:56",
+  "seconds": 25,
+  "steps_done": [
+    "админ (admin@bookstore.com через /login): PUT /api/books/12 {stockQuantity:4} -> 200",
+    "пользователь: /books/12 набрал \"4\", Add to Cart",
+    "админ: PUT /api/books/12 {stockQuantity:2} -> 200",
+    "гость (отдельный контекст): /books/12, количество 1 (по умолчанию), Add to Cart",
+    "вход гостя как этот пользователь через /login"
+  ],
+  "observed": [
+    "Last Copy ДО: price=20, stock=1",
+    "аккаунт: [{\"id\":934,\"bookId\":12,\"quantity\":4,\"sessionId\":null,\"userId\":351,}]",
+    "во время: Last Copy {\"price\":20,\"stockQuantity\":2}",
+    "гость: [{\"id\":935,\"bookId\":12,\"quantity\":1,\"sessionId\":\"79a46e1b-f3f6-4f35-bb9f-55d1a9af55fd\",\"userId\":null,}]",
+    "после слияния: POST /api/cart/merge  -> 200 {\"merged\":1}; GET /api/cart [{\"id\":934,\"bookId\":12,\"quantity\":2,\"sessionId\":null,\"userId\":351,}]; страница: Shopping Cart 1 title, 2 copies 01 Last Copy Anonymous $20.00 each QUANTITY Subtotal: $40.00 Remove Order Summary Items (2) $40.00 Subtotal $40.00 Shi; бейдж 2",
+    "строка аккаунта: было 4 (стоп=2 при слиянии), стало 2",
+    "корзины очищены: []",
+    "ВОССТАНОВЛЕНИЕ: PUT {\"price\":20,\"stockQuantity\":1} -> 200; read-back: price=20, stock=1; ВОССТАНОВЛЕНО"
+  ],
+  "expected_from_card": "ATC AC-11 «корзина не урезает строки» (T1634 H4: «likely bug»)",
+  "evidence": [
+    "card11-after-merge.png"
+  ],
+  "oddities": [
+    "Ничего лишнего. Тот же бейдж/страница показывают 2 после слияния (строка аккаунта x4 урезана до остатка 2 без сообщения). Гостевая x1 в слияние не добавилась (max(1,4)=4, затем ограничено остатком 2)."
+  ],
+  "tool_calls": 6
+}

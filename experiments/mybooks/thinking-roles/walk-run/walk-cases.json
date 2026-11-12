@@ -1,0 +1,424 @@
+{
+  "_comment": "Data of the 23 walk cases (t-2006 sec 1-2). Text comes from each card's steps-by-hand and expected-with-source fields only (R1); the cards' seen/who/status fields and SUMMARY.md are never copied here. {LOGIN:<actor>} expands to the sign-in sentence of worked example C. Ids: LOCAL-1_TC_1NN, NN = card number.",
+  "ticket": "LOCAL-1",
+  "updated": "2026-11-05",
+  "cases": [
+    {
+      "card": 1, "lane": "G1", "title": "Book page - quantity 0, -1, 1.5 and text",
+      "covers": ["R-2", "R-6"], "defect_class": "boundary", "actors": [], "login": [],
+      "given": "A guest session. The book \"1984\"; read its stock on its page first.",
+      "steps": [
+        "Open the book page of \"1984\".",
+        "Select the whole quantity field, key 0 one character at a time, click Add to Cart.",
+        "Read the field, the message on the page and the cart badge; open /cart and read the lines. Empty the cart again.",
+        "Do the last two steps for -1, then 1.5, then abc (paste the value if the field does not take the keys)."
+      ],
+      "thens": [
+        {"text": "Quantity 0 is rejected with a clear message and nothing is added to the cart.", "source": "spec", "ref": "Jira XPANBFLFA-140"},
+        {"text": "-1, 1.5 and abc are each rejected the same way and nothing is added to the cart.", "source": "person", "ref": "owner, gate A 02.11: R-8 a, R-9 a, R-10 a, Q1 a (reject)"}
+      ],
+      "teardown": [],
+      "row": {"what": "quantity 0, -1, 1.5, text on the book page", "technique": "boundary values", "oracle": "spec:Jira XPANBFLFA-140",
+              "scenarios": ["quantity 0", "-1", "1.5", "text"], "behavior": "the book page refuses a bad quantity with a message and adds nothing",
+              "boundary": "live stand: field, message, badge, cart lines", "completion": "each value keyed and its result recorded"},
+      "dropped": "Card step 5 (a POST /api/cart control call expecting 400): the step vocabulary has no POST (F4)."
+    },
+    {
+      "card": 2, "lane": "G1", "title": "Book page - clearing and re-keying the quantity field",
+      "covers": ["R-2", "R-6"], "defect_class": "input", "actors": [], "login": [], "silent": true,
+      "given": "A guest session. The book \"1984\".",
+      "steps": [
+        "Open the book page of \"1984\".",
+        "Select the whole quantity field, press Backspace; read the field.",
+        "Key 1, read the field; key 5, read the field. Click Add to Cart and open /cart; read the line and its quantity. Empty the cart.",
+        "On the book page select the whole quantity field, press Backspace, key 7; read the field."
+      ],
+      "observe": "the field after each key, the quantity of the cart line that results, and the field after the second erase and key 7",
+      "teardown": [],
+      "row": {"what": "clear and re-key the quantity on the book page", "technique": "exploratory charter", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["erase the field", "key 1 then 5", "erase and key 7"], "behavior": "the book page quantity field behaves as a person keys it",
+              "boundary": "live stand: field and cart lines", "completion": "each keying done and the field and the line recorded"},
+      "dropped": ""
+    },
+    {
+      "card": 3, "lane": "G1", "title": "Cart - keying 12 into the quantity field of a line",
+      "covers": ["R-10"], "defect_class": "input", "actors": [], "login": [],
+      "given": "A guest session. The book \"1984\" (stock 15 on the seed; read it on the book page first). Start quantities as parameters: 2, 1, 3, 5, 10.",
+      "steps": [
+        "Put \"1984\" in the cart with the first start quantity (book page, quantity, Add to Cart); open /cart.",
+        "Click the line's quantity field, select the whole value, key 1 and then 2, one character at a time (never a paste); watch the requests the page sends after each key.",
+        "Read the field, the focus, and the line's quantity; reload /cart and read the line again.",
+        "Do the last three steps for each of the other start quantities (1, 3, 5, 10). Empty the cart."
+      ],
+      "thens": [
+        {"text": "A number such as 12 can be keyed into the quantity field of a cart line: the field ends holding 12 and the line's quantity is 12, also after a reload, from every start quantity.", "source": "person", "ref": "owner, gate A: Q3 a (a failure is a bug; a number such as 12 can be keyed), experiments/mybooks/cart-1-run-problems.md B-1; R-10"}
+      ],
+      "teardown": [],
+      "row": {"what": "key 12 into the cart quantity field from several start quantities", "technique": "boundary values", "oracle": "person:Q3",
+              "scenarios": ["start quantity 2", "start quantity 1", "start quantities 3, 5, 10"], "behavior": "a two-digit quantity can be keyed into a cart line",
+              "boundary": "live stand: field, focus, requests, line quantity", "completion": "12 keyed from each start and the line read after reload"},
+      "dropped": ""
+    },
+    {
+      "card": 4, "lane": "G2", "title": "Cart - clearing the quantity field of a line",
+      "covers": ["R-10"], "defect_class": "input", "actors": [], "login": [], "silent": true,
+      "given": "A guest session. The book \"1984\".",
+      "steps": [
+        "Put \"1984\" in the cart with quantity 2 (book page, quantity, Add to Cart); open /cart.",
+        "Click the line's quantity field, select the whole value, press Backspace; watch the request the page sends.",
+        "Read what the page shows (field, messages) and the line's quantity; reload /cart and read the quantity. Empty the cart."
+      ],
+      "observe": "the body of the request sent when the field is cleared, what the page shows, and the quantity after a reload",
+      "teardown": [],
+      "row": {"what": "clear the quantity field of a cart line", "technique": "exploratory charter", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["clear the cart quantity field"], "behavior": "clearing the cart quantity field is handled",
+              "boundary": "live stand: request, page, line quantity", "completion": "the field cleared and the request, page and reload recorded"},
+      "dropped": ""
+    },
+    {
+      "card": 5, "lane": "G2", "title": "Cart - the read of a book fails",
+      "covers": ["R-14"], "defect_class": "failure", "actors": [], "login": [], "silent": true,
+      "given": "A guest session. Two books, \"1984\" and \"Dune\". The book read is the request GET /api/books/<id> (the cart page reads each line's book).",
+      "steps": [
+        "Put \"1984\" and \"Dune\" in the cart (quantity 1 each) and leave the book pages.",
+        "fail_request the book read (glob */api/books/*) with status 500 from now on.",
+        "Open /cart; read what the page shows (look and read the lines and prices).",
+        "restore_request the book read; reload /cart and read the lines. Empty the cart."
+      ],
+      "observe": "what the cart page shows while the read of a book answers 500 (page text, lines, prices, any message)",
+      "teardown": ["restore_request */api/books/* (the book read answers as before).", "Empty the cart."],
+      "row": {"what": "book read fails while the cart page loads", "technique": "failure injection", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["book read answers 500 on the cart page"], "behavior": "the cart page under a failed book read",
+              "boundary": "live stand: the cart page text", "completion": "the failure injected and the page recorded"},
+      "dropped": ""
+    },
+    {
+      "card": 6, "lane": "G2", "title": "Cart - the cart read, a quantity change and a removal fail",
+      "covers": ["R-14"], "defect_class": "failure", "actors": [], "login": [], "silent": true,
+      "given": "A guest session. Two books, \"1984\" and \"Dune\".",
+      "steps": [
+        "Put \"1984\" and \"Dune\" in the cart (quantity 1 each).",
+        "fail_request the cart read (glob */api/cart) with status 500 from now on; open /cart; read what the page shows. restore_request.",
+        "fail_request the quantity change (glob */api/cart/*) with status 500; on /cart change a quantity; read the page and the line; restore_request.",
+        "fail_request the removal (glob */api/cart/*) with status 500; click remove on a line; read the page and the lines; restore_request. Empty the cart."
+      ],
+      "observe": "what the cart page shows in each of the three failures: the failed cart read, the failed quantity change, the failed removal",
+      "teardown": ["restore_request for every failure set in the steps.", "Empty the cart."],
+      "row": {"what": "cart read, quantity change and removal fail", "technique": "failure injection", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["cart read fails", "quantity change fails", "removal fails"], "behavior": "the cart page under failed cart calls",
+              "boundary": "live stand: the cart page text and lines", "completion": "each failure injected and the page recorded"},
+      "dropped": "The card names PUT and DELETE separately; the recorder's fail_request takes one URL glob, so the change and the removal both use */api/cart/*."
+    },
+    {
+      "card": 12, "lane": "G3", "title": "Catalog - a quick view of a book",
+      "covers": ["R-1"], "defect_class": "missing-feature", "actors": [], "login": [],
+      "given": "A guest session.",
+      "steps": [
+        "Open the catalog, then a category, then the search; on each page hover the book cards.",
+        "Look for a quick-view control (an eye icon or the words Quick view) on a card.",
+        "Open a card and read whether it goes to the book page or to a quick view."
+      ],
+      "thens": [
+        {"text": "A shopper can open a quick view of a book from the catalog and add the book to the cart from it.", "source": "spec", "ref": "Jira XPANBFLFA-160 (Add product from quick view)"}
+      ],
+      "teardown": [],
+      "row": {"what": "add a product from a quick view", "technique": "exploratory charter", "oracle": "spec:Jira XPANBFLFA-160",
+              "scenarios": ["find the quick view on the catalog, a category and the search"], "behavior": "the catalog offers a quick view that adds to the cart",
+              "boundary": "live stand: the catalog pages", "completion": "the three listing pages searched for a quick view"},
+      "dropped": ""
+    },
+    {
+      "card": 15, "lane": "G3", "title": "Book page - the add is dropped by the network",
+      "covers": ["R-2"], "defect_class": "failure", "actors": [], "login": [],
+      "given": "A guest session. The book \"1984\".",
+      "steps": [
+        "Open the book page of \"1984\".",
+        "fail_request the add (glob */api/cart) with timeout from now on; click Add to Cart; read the message, the badge and whether the button works again.",
+        "restore_request the add; wait a few seconds without clicking; open /cart and read the lines (how many copies of \"1984\")."
+      ],
+      "thens": [
+        {"text": "When the add fails the page shows an error and recovers (the button works again) or tells the shopper to retry.", "source": "spec", "ref": "Jira TC-016"},
+        {"text": "After the network returns the system completes the action: the book is in the cart, exactly once, without a further click.", "source": "person", "ref": "owner, gate A 02.11: Q8 a (the system completes the action after the network returns)"}
+      ],
+      "teardown": ["restore_request */api/cart (the add answers as before).", "Empty the cart."],
+      "row": {"what": "the add is dropped by the network", "technique": "failure injection", "oracle": "spec:Jira TC-016",
+              "scenarios": ["add request times out", "network returns"], "behavior": "a dropped add is reported and completed",
+              "boundary": "live stand: message, badge, cart lines", "completion": "the failure injected, restored, and the cart read"},
+      "dropped": "Card step 'DevTools Offline' becomes fail_request with timeout (the vocabulary has no offline switch)."
+    },
+    {
+      "card": 16, "lane": "G3", "title": "Catalog - a book with stock 0",
+      "covers": ["R-1", "R-7"], "defect_class": "state", "actors": [], "login": [],
+      "given": "A guest session. The book \"Out of Print Classic\" (stock 0 on the seed; read its stock on its page first).",
+      "steps": [
+        "Open the catalog and find the card of \"Out of Print Classic\".",
+        "Read the state and the text of the card's Add button; try to click it; read any message and the badge.",
+        "Open /cart and read the lines."
+      ],
+      "thens": [
+        {"text": "The card shows the book as out of stock to the shopper.", "source": "spec", "ref": "AC-2 Jira XPANBFLFA-44 (out of stock is shown); Jira 143"},
+        {"text": "A disabled Add button is enough: the book cannot be added, and the cart stays as it was.", "source": "person", "ref": "owner, gate A 02.11: Q5 a (a disabled button is enough)"}
+      ],
+      "teardown": [],
+      "row": {"what": "a book with stock 0 on the catalog card", "technique": "boundary values", "oracle": "spec:AC-2 XPANBFLFA-44",
+              "scenarios": ["stock 0 on the catalog card"], "behavior": "a book with no stock cannot be added from the catalog",
+              "boundary": "live stand: card state, text, cart lines", "completion": "the card read and the cart read"},
+      "dropped": "Card step 'POST /api/cart with that bookId gives 400 OUT_OF_STOCK': no POST in the step vocabulary (F4)."
+    },
+    {
+      "card": 17, "lane": "G4", "title": "Book page - quantity above the stock and the maximum",
+      "covers": ["R-2", "R-7"], "defect_class": "boundary", "actors": [], "login": [],
+      "given": "A guest session. The book \"1984\"; read its stock on its page first (N below).",
+      "steps": [
+        "Open the book page of \"1984\".",
+        "Key 999 into the quantity field, click Add to Cart; read the message and /cart.",
+        "Key N+1, click Add to Cart; read the message and /cart.",
+        "Key N, click Add to Cart; read the message and /cart. Empty the cart."
+      ],
+      "thens": [
+        {"text": "999 and N+1 are each refused whole: a message says so and the cart stays as it was.", "source": "person", "ref": "owner, gate A 02.11: Q2 a (refuse whole), Q3 a (maximum = stock)"},
+        {"text": "N is added: the cart line holds N.", "source": "spec", "ref": "Jira TC-010"}
+      ],
+      "teardown": [],
+      "row": {"what": "quantity above the stock and 999", "technique": "boundary values", "oracle": "person:Q2,Q3",
+              "scenarios": ["999", "stock + 1", "stock"], "behavior": "a quantity above the stock is refused whole; the stock itself is added",
+              "boundary": "live stand: message and cart lines", "completion": "the three values keyed and the cart read"},
+      "dropped": ""
+    },
+    {
+      "card": 21, "limited": true, "lane": "G4", "title": "Guest cart after registration and the first sign-in",
+      "covers": ["R-4", "R-9"], "defect_class": "state", "actors": [], "login": [],
+      "given": "A guest session. The book \"Dune\". Limit of this run: no step of the recorder creates a new account (the new-account step is Slice 2). Walk up to the registration page, read the form, and give the Then `inconclusive` with the limitation \"new-account step is Slice 2 (not in this recorder)\".",
+      "steps": [
+        "Put \"Dune\" in the cart with quantity 2 as a guest; read the badge.",
+        "Open /register and read the form (look); stop there."
+      ],
+      "thens": [
+        {"text": "After the guest registers and signs in for the first time with the new account, the account cart holds \"Dune\" x2 (the guest cart is carried over).", "source": "person", "ref": "owner, gate A 31.10: Q2 a (in scope); R-4 states the carry-over"}
+      ],
+      "teardown": ["Empty the cart."],
+      "row": {"what": "guest cart after registration and first sign-in", "technique": "exploratory charter", "oracle": "person:Q2",
+              "scenarios": ["guest cart before registration", "registration page"], "behavior": "the guest cart is carried into a new account",
+              "boundary": "live stand: badge and the registration form", "completion": "the walk reaches /register and says what it could not do"},
+      "dropped": "Registration and the first sign-in cannot be driven (F4, card 21 per sec 2): the case ends inconclusive by design."
+    },
+    {
+      "card": 23, "lane": "G4", "title": "Cart - multi-digit keying and the badge and totals",
+      "covers": ["R-10", "R-11"], "defect_class": "state", "actors": [], "login": [],
+      "given": "A guest session. The book \"1984\".",
+      "steps": [
+        "Put \"1984\" in the cart with quantity 1; read the badge, the line's subtotal and the cart total.",
+        "On /cart key 1 then 2 into the line's quantity field, one character at a time; without reloading read the badge, the subtotal and the total.",
+        "Reload /cart and read the badge, the subtotal and the total. Empty the cart."
+      ],
+      "thens": [
+        {"text": "A multi-digit quantity such as 12 can be keyed into a cart line and is kept.", "source": "spec", "ref": "Jira XPANBFLFA-200"},
+        {"text": "The badge, the line subtotal and the cart total show the new numbers right after the change, without a reload (badge = sum of quantities, total = sum of price x quantity).", "source": "spec", "ref": "Jira XPANBFLFA-201"}
+      ],
+      "teardown": [],
+      "row": {"what": "multi-digit keying and the badge and totals", "technique": "exploratory charter", "oracle": "spec:Jira XPANBFLFA-200,201",
+              "scenarios": ["key 12 in the cart", "badge and totals without reload"], "behavior": "a multi-digit change updates the badge and the totals",
+              "boundary": "live stand: field, badge, subtotal, total", "completion": "12 keyed and the numbers read before and after a reload"},
+      "dropped": "Card 23 has no steps-by-hand field; the steps are the multi-digit keying of card 3 and the read of badge, subtotal and total named by the two Jira bugs (R-11)."
+    },
+    {
+      "card": 7, "lane": "U1", "title": "Wishlist - Move to cart while the wishlist removal fails",
+      "covers": ["R-13"], "defect_class": "failure", "actors": [{"stand_account": "user"}], "login": ["user"], "silent": true,
+      "given": "The signed-in user. The book \"1984\".",
+      "steps": [
+        "Put \"1984\" in the wishlist (the wishlist control on its page or card); open the wishlist and read it.",
+        "fail_request the wishlist removal (glob */api/wishlist/*) with status 500 from now on.",
+        "Click Move to cart on \"1984\"; read the message and the wishlist; open /cart and read the lines; reload the wishlist and read it.",
+        "restore_request the wishlist removal."
+      ],
+      "observe": "the message shown after Move to cart, what the wishlist holds and what the cart holds, before and after a reload",
+      "teardown": ["restore_request */api/wishlist/* (the removal answers as before).", "Empty the wishlist and the cart."],
+      "row": {"what": "Move to cart while the wishlist removal fails", "technique": "failure injection", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["wishlist removal answers 500 on Move to cart"], "behavior": "Move to cart under a failed removal",
+              "boundary": "live stand: message, wishlist, cart", "completion": "the failure injected and wishlist and cart recorded"},
+      "dropped": ""
+    },
+    {
+      "card": 8, "lane": "U1", "title": "Wishlist - the network drops an add, a removal or the read",
+      "covers": ["R-13"], "defect_class": "failure", "actors": [{"stand_account": "user"}], "login": ["user"], "silent": true,
+      "given": "The signed-in user. The book \"1984\".",
+      "steps": [
+        "Put \"1984\" in the wishlist; open the wishlist.",
+        "fail_request the cart add (glob */api/cart) with timeout; click Move to cart; read the page and the wishlist; restore_request.",
+        "fail_request the wishlist removal (glob */api/wishlist/*) with timeout; click Remove; read the page and the wishlist; restore_request.",
+        "fail_request the wishlist read (glob */api/wishlist) with status 500, reload the wishlist and read the page; restore_request, reload and read the page."
+      ],
+      "observe": "what the page shows after each of the three failures: Move to cart, Remove and the wishlist read",
+      "teardown": ["restore_request for every failure set in the steps.", "Empty the wishlist and the cart."],
+      "row": {"what": "the network drops a wishlist add, removal or read", "technique": "failure injection", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["Move to cart drops", "Remove drops", "wishlist read fails"], "behavior": "the wishlist page under dropped calls",
+              "boundary": "live stand: the wishlist page text", "completion": "each failure injected and the page recorded"},
+      "dropped": "Card step 'DevTools Offline' becomes fail_request with timeout (no offline switch in the vocabulary)."
+    },
+    {
+      "card": 9, "lane": "U1", "title": "Sign-in - the merge of the guest cart fails",
+      "covers": ["R-4", "R-12"], "defect_class": "failure", "actors": [{"stand_account": "user"}], "login": [], "reset_cart": false,
+      "given": "The seed user (the account cart empty: sign in, open /cart, remove every line, sign out first). The book \"Dune\".",
+      "steps": [
+        "Make sure you are signed out. As a guest put \"Dune\" in the cart with quantity 2.",
+        "fail_request the merge (glob */api/cart/merge) with status 500 from now on. {LOGIN:user} Read the page, any message, and the cart; sign out; restore_request.",
+        "As a guest put \"Dune\" in the cart with quantity 2 again. fail_request the merge with timeout from now on. {LOGIN:user} Read the page, any message, and the cart; restore_request."
+      ],
+      "thens": [
+        {"text": "When the merge answers 500 the shopper is told in words that the guest cart could not be carried over (or the guest items are not lost silently); a signed-in page with an empty cart and no word is not acceptable.", "source": "person", "ref": "owner, gate A 05.11: Q13 a (say it in words); R-12"},
+        {"text": "When the merge gets no answer the shopper is told in words and is not left on the sign-in form with no word.", "source": "person", "ref": "owner, gate A 05.11: Q13 a (say it in words); R-12"}
+      ],
+      "teardown": ["restore_request */api/cart/merge (the merge answers as before).", "Signed in, remove every line of the cart."],
+      "row": {"what": "the merge of the guest cart fails at sign-in", "technique": "failure injection", "oracle": "person:Q13",
+              "scenarios": ["merge answers 500", "merge does not answer"], "behavior": "a failed merge is told in words",
+              "boundary": "live stand: page, message, cart", "completion": "both failures injected and the page and cart recorded"},
+      "dropped": ""
+    },
+    {
+      "card": 10, "lane": "U2", "title": "Sign-in - the merge keeps the higher quantity",
+      "covers": ["R-4"], "defect_class": "state", "actors": [{"stand_account": "user"}], "login": ["user"],
+      "given": "The seed user and the book \"1984\" (stock 15).",
+      "steps": [
+        "Signed in, put \"1984\" in the account cart with quantity 1; sign out.",
+        "As a guest put \"1984\" in the cart with quantity 3; {LOGIN:user} Open /cart and read the line of \"1984\".",
+        "Remove the line; sign out. Signed in again put \"1984\" with quantity 3 in the account cart; sign out. As a guest put \"1984\" with quantity 2 in the cart; {LOGIN:user} Open /cart and read the line."
+      ],
+      "thens": [
+        {"text": "Guest 3 and account 1 give one line of \"1984\" with quantity 3 (the higher quantity wins, not the sum 4).", "source": "spec", "ref": "MyBooks/docs/AUTH.md:8 (higher quantity wins)"},
+        {"text": "Guest 2 and account 3 give one line of \"1984\" with quantity 3.", "source": "spec", "ref": "MyBooks/docs/AUTH.md:8 (higher quantity wins)"}
+      ],
+      "teardown": ["Signed in, remove every line of the cart."],
+      "row": {"what": "the merge keeps the higher quantity", "technique": "boundary values", "oracle": "spec:AUTH.md:8",
+              "scenarios": ["guest 3 + account 1", "guest 2 + account 3"], "behavior": "the merge keeps the higher quantity of the same book",
+              "boundary": "live stand: the cart lines after sign-in", "completion": "both pairs merged and the line read"},
+      "dropped": ""
+    },
+    {
+      "card": 14, "limited": true, "lane": "U2", "title": "Add after the session ends",
+      "covers": ["R-2", "R-9"], "defect_class": "state", "actors": [{"stand_account": "user"}], "login": ["user"],
+      "given": "The seed user and the book \"1984\". Limit of this run: no step of the recorder deletes a session cookie. Walk up to the point and give the Then `inconclusive` with the limitation \"no step can delete a session cookie\".",
+      "steps": [
+        "Open the book page of \"1984\"; read the header (who is signed in) and the Add to Cart button.",
+        "Stop before the add: the session cannot be ended by any step."
+      ],
+      "thens": [
+        {"text": "When the session has ended, adding a book asks the shopper to sign in (or extends the session) and the product is added only after that; the book is not added to a guest cart while the header still shows a signed-in user.", "source": "spec", "ref": "Jira TC-017; owner, gate A 02.11: Q9 b (require sign-in)"}
+      ],
+      "teardown": [],
+      "row": {"what": "add after the session ends", "technique": "exploratory charter", "oracle": "spec:Jira TC-017",
+              "scenarios": ["signed-in page before the add"], "behavior": "an add after a session end asks for sign-in",
+              "boundary": "live stand: header and book page", "completion": "the walk reaches the point and says what it could not do"},
+      "dropped": "Card steps 2-4 (delete the session cookie, press Add, read GET /api/auth/session and GET /api/cart): no step deletes a cookie (F4); the case ends inconclusive by design."
+    },
+    {
+      "card": 22, "lane": "U2", "title": "Wishlist - Move to cart of a book already in the cart",
+      "covers": ["R-3", "R-5"], "defect_class": "state", "actors": [{"stand_account": "user"}], "login": ["user"], "silent": true,
+      "given": "The signed-in user. The book \"1984\".",
+      "steps": [
+        "Put \"1984\" in the cart with quantity 2 and in the wishlist; read the cart line.",
+        "Open the wishlist, click Move to cart on \"1984\"; open /cart and read the line of \"1984\" and the wishlist."
+      ],
+      "observe": "the quantity of the cart line after Move to cart (from 2) and what the wishlist holds",
+      "teardown": ["Empty the wishlist and the cart."],
+      "row": {"what": "Move to cart of a book already in the cart", "technique": "exploratory charter", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["move a book that is already in the cart"], "behavior": "Move to cart of a book already in the cart",
+              "boundary": "live stand: cart line and wishlist", "completion": "the move done and cart and wishlist read"},
+      "dropped": ""
+    },
+    {
+      "card": 18, "lane": "UU", "title": "Two browsers on one cart - an edit after a removal elsewhere",
+      "covers": ["R-9", "R-10"], "defect_class": "state",
+      "actors": [{"stand_account": "user"}, {"env": "USER_EMAIL"}], "login": ["user"],
+      "given": "The seed user in two browsers: the first actor `user`, the second actor the same user by `--as env:USER_EMAIL/USER_PASSWORD` (the names of the variables, never values). The books \"1984\" and \"Dune\".",
+      "steps": [
+        "In the first browser put \"1984\" and \"Dune\" in the cart (quantity 1 each); open /cart and leave it open.",
+        "In the second browser (second actor) sign in, open /cart and remove the line of \"1984\"; read /cart.",
+        "In the first browser (without reloading) change the quantity of \"1984\" to 2; read the page; open /api/cart in the first browser and read what the server holds."
+      ],
+      "thens": [
+        {"text": "After the edit the first browser's cart page shows exactly the lines and quantities the server holds (the cart equals the server state); the line removed in the second browser is not shown as present.", "source": "spec", "ref": "Jira XPANBFLFA-174"}
+      ],
+      "teardown": ["Empty the cart (any browser)."],
+      "row": {"what": "an edit in a stale browser after a removal in another", "technique": "state transition", "oracle": "spec:Jira XPANBFLFA-174",
+              "scenarios": ["remove in browser two", "edit in browser one"], "behavior": "the page equals the server cart after a stale edit",
+              "boundary": "live stand: cart page and GET /api/cart", "completion": "both browsers acted and the page compared to the server"},
+      "dropped": "Card 'two tabs of /cart' becomes two browsers (second actor, --as): the owner's reading of the card."
+    },
+    {
+      "card": 19, "lane": "UU", "title": "Badge after the cart is emptied elsewhere",
+      "covers": ["R-11"], "defect_class": "state", "silent": true,
+      "actors": [{"stand_account": "user"}, {"env": "USER_EMAIL"}], "login": ["user"],
+      "given": "The seed user in two browsers (first actor `user`, second actor the same user by `--as env:USER_EMAIL/USER_PASSWORD`). The book \"1984\".",
+      "steps": [
+        "In the first browser put \"1984\" in the cart (quantity 1) and open /cart; read the badge.",
+        "In the second browser (second actor) sign in, open /cart and remove every line; read the page.",
+        "In the first browser (without reloading) read the badge; then reload and read the badge."
+      ],
+      "observe": "the badge of the first browser before and after the reload, with the second browser having emptied the cart",
+      "teardown": [],
+      "row": {"what": "the badge after the cart is emptied in another browser", "technique": "state transition", "oracle": "spec:requirements silent, observation only (P20)",
+              "scenarios": ["empty the cart in browser two", "read the badge in browser one"], "behavior": "the badge after an outside change",
+              "boundary": "live stand: the badge", "completion": "both browsers acted and the badge read before and after a reload"},
+      "dropped": "Card 'fetch DELETE /api/cart from the console' becomes removal in a second browser (the owner's reading, no console in the vocabulary)."
+    },
+    {
+      "card": 11, "lane": "AU", "title": "Sign-in merge when the stock fell below the account line",
+      "covers": ["R-4", "R-7"], "defect_class": "state",
+      "actors": [{"stand_account": "admin"}, {"stand_account": "user"}], "login": ["user"],
+      "given": "Two actors: `user` (the seed user) and `admin` (the second actor, `--as admin`). The book \"Ariel\" (stock 5 on the seed; read its stock on its page first and keep the number: the teardown puts it back).",
+      "steps": [
+        "As the user put \"Ariel\" in the account cart with quantity 4; sign out.",
+        "As the second actor (admin) set the stock of \"Ariel\" to 2 in the admin books page; read it back.",
+        "As a guest put \"Ariel\" in the cart with quantity 1; {LOGIN:user} Open /cart and read the line of \"Ariel\"."
+      ],
+      "thens": [
+        {"text": "After sign-in the account line of \"Ariel\" is cut to the stock: it holds 2, never more than the stock.", "source": "person", "ref": "owner 05.11 about 21:10: trimming the merged line to the stock is right"}
+      ],
+      "teardown": ["As admin set the stock of \"Ariel\" back to the number read first; read it back.", "Signed in as the user, remove every line of the cart."],
+      "row": {"what": "the merge when the stock fell below the account line", "technique": "boundary values", "oracle": "person:owner 05.11",
+              "scenarios": ["account 4, stock 2, guest 1"], "behavior": "the merge cuts the line to the stock",
+              "boundary": "live stand: cart line after sign-in", "completion": "stock changed, merge done, line read, stock restored"},
+      "dropped": ""
+    },
+    {
+      "card": 13, "lane": "AU", "title": "Cart price after the admin changes the price",
+      "covers": ["R-11"], "defect_class": "money",
+      "actors": [{"stand_account": "admin"}, {"stand_account": "user"}], "login": ["user"],
+      "given": "Two actors: `user` (the seed user) and `admin` (the second actor, `--as admin`). The book \"1984\". Read its price on its page first and keep it: the teardown puts it back. This case changes data of the stand.",
+      "steps": [
+        "As the user put \"1984\" in the cart with quantity 1; read the line price and the total on /cart.",
+        "As admin change the price of \"1984\" (add one dollar) in the admin books page; read it back.",
+        "As the user reload /cart and read the line price and the total; open /checkout and read the price in the order summary."
+      ],
+      "thens": [
+        {"text": "The line price, the total and the checkout summary show the price as the admin set it last (the price follows the book).", "source": "person", "ref": "owner 05.11 about 21:10: the price follows the book"}
+      ],
+      "teardown": ["As admin set the price of \"1984\" back to the number read first; read it back.", "Signed in as the user, remove every line of the cart."],
+      "row": {"what": "the cart price after the admin changes it", "technique": "state transition", "oracle": "person:owner 05.11",
+              "scenarios": ["price changed while the book is in the cart"], "behavior": "the cart shows the changed price",
+              "boundary": "live stand: line price, total, checkout summary", "completion": "price changed, cart and checkout read, price restored"},
+      "dropped": "The reading of 'the price follows' as 'the cart shows the current price' is the coordinator's to confirm (returned as a question in the report)."
+    },
+    {
+      "card": 24, "lane": "AU", "title": "Never-run cart rules - a guest line out of stock, stock fallen, the last copy in two carts",
+      "covers": ["R-4", "R-7"], "defect_class": "state",
+      "actors": [{"stand_account": "admin"}, {"stand_account": "user"}], "login": [], "reset_cart": false,
+      "given": "Start signed out, as a guest. Two actors: `user` (the seed user) and `admin` (the second actor, `--as admin`; for the last-copy rule admin also shops as a second customer). Books \"Moby-Dick\" (stock 4), \"Ariel\" (stock 5) and \"Last Copy\" (stock 1); read each stock first and keep it: the teardown puts it back. The test card for the checkout is 4242424242424242. This case changes data of the stand.",
+      "steps": [
+        "As a guest put \"Moby-Dick\" in the cart (quantity 1). As the second actor (admin) set the stock of \"Moby-Dick\" to 0. {LOGIN:user} Open /cart and read the lines and the badge.",
+        "As the user put \"Ariel\" in the cart with quantity 4. As admin set the stock of \"Ariel\" to 2. As the user open /cart and read the line; proceed to checkout and place the order with the test card; read the answer. Then set the quantity of \"Ariel\" to 2 in the cart and read the answer.",
+        "As the user put \"Last Copy\" in the cart (quantity 1); as the second actor (admin, shopping) put \"Last Copy\" in its cart (quantity 1). As the user place the order; then as the second actor place the order; read both answers."
+      ],
+      "thens": [
+        {"text": "At sign-in the guest line of \"Moby-Dick\" (stock now 0) is dropped: it is not in the cart, the badge is absent or 0.", "source": "spec", "ref": "add-to-cart-cases.md AC-09"},
+        {"text": "With the stock of \"Ariel\" fallen to 2 the cart keeps the line x4; the order is refused (\"Insufficient stock\" for Ariel), no order is created, the stock stays 2; after the quantity is set to 2 it is accepted.", "source": "spec", "ref": "add-to-cart-cases.md AC-11"},
+        {"text": "The first order for \"Last Copy\" is created (stock becomes 0); the second is refused for insufficient stock and no order is created for it.", "source": "spec", "ref": "add-to-cart-cases.md AC-12"}
+      ],
+      "teardown": ["As admin set the stock of \"Moby-Dick\", \"Ariel\" and \"Last Copy\" back to the numbers read first; read each back.", "Remove every line of the user's and of admin's cart."],
+      "row": {"what": "never-run cart rules (AC-09, AC-11, AC-12)", "technique": "state transition", "oracle": "spec:ATC AC-09,AC-11,AC-12",
+              "scenarios": ["guest line out of stock at sign-in", "stock fallen after adding", "last copy in two carts"], "behavior": "the cart and checkout keep stock rules",
+              "boundary": "live stand: cart lines, checkout answers", "completion": "the three rules walked and the stocks restored"},
+      "dropped": "AC-13 (a book deleted while it is in a cart) stays out: it needs a book deleted. AC-11 steps 5 (cart empty after a successful order) not walked: it needs an order that succeeds."
+    }
+  ]
+}

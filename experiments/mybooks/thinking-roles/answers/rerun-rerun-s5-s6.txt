@@ -1,0 +1,1 @@
+Rerun after the factory fix batch. S5: write the tests of TC_001 and TC_002 again; the critic's earlier rejections named no typed finding, so treat them as unreviewed. Then S6 again: the manual-agent cases TC_014, TC_015 and TC_016 were never walked because their preparation failed; walk each of them this time. Gate A stays as approved.

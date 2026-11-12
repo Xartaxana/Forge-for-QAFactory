@@ -1,0 +1,35 @@
+{
+  "card": "05",
+  "title": "Корзина при ошибке чтения книги (GET /api/books/{id} -> 500)",
+  "outcome": "REQUIREMENT_SILENT",
+  "started_at": "2026-11-05T20:30:19",
+  "ended_at": "2026-11-05T20:30:35",
+  "steps_done": [
+    "Зарегистрирован свой пользователь lane-b-05-*@example.test через POST /api/register, вход через форму /login (посимвольный ввод).",
+    "POST /api/cart: Ariel (id 36) x1, Moby-Dick (id 7) x2 -> оба 201.",
+    "Контроль без подмены: /cart показывает \"2 titles, 3 copies\", обе строки с ценами, итог $47.97.",
+    "page.route(\"**/api/books/36\") -> fulfill 500 {\"error\":\"Internal Server Error\"} (подменён ОДИН запрос-маршрут, только GET книги Ariel); /api/books/7 шёл нормально; открыт /cart.",
+    "В конце корзина пользователя очищена (DELETE /api/cart)."
+  ],
+  "observed": {
+    "page": "Страница /cart заменена общей страницей ошибки (data-testid=error-page): текст \"Error / Something went wrong. / Please try again. If the problem continues, come back later.\" и кнопка \"Try again\" (error-retry-button). Ни строк корзины, ни \"$NaN\", ни пустой страницы.",
+    "header": "Шапка (Navigation) осталась, бейдж корзины = 3.",
+    "toasts": "тостов нет",
+    "network": "GET /api/cart 200; GET /api/books/36 -> 500 (подмена); GET /api/books/7 -> 200; затем ещё GET /api/cart 200 (повтор после ошибки).",
+    "console": "TypeError: Cannot read properties of undefined (reading 'toFixed') в app/cart/page chunk (два раза) - исключение при отрисовке строки с book=undefined; плюс 'Failed to load resource 500'.",
+    "which_of_three": "Совпало с описанием (b) (Lead, CP Б-2): вся страница \"Something went wrong\", корзины нет. Не (a) \"$NaN\" и не (c) \"ничего для строк\". Причина (b): падает отрисовка (toFixed of undefined) и срабатывает error boundary."
+  },
+  "expected_from_card": "B: \"error text or the cart lines\" (R-14, норма \"неуспех не выдаётся за успех\"; в источниках требований нет, R-14 \"unknown\"). Требований нет.",
+  "evidence": [
+    "card05-books-500.png",
+    "печать: BODY TEXT \"Error Something went wrong. Please try again...\"; testids: error-page, error-retry-button; badge 3; RES 500 GET /api/books/36"
+  ],
+  "oddities": [
+    "При сбое одной книги показывается страница ошибки целиком, хотя вторая строка (Moby-Dick) прочиталась.",
+    "Бейдж в шапке 3 при отсутствии видимой корзины.",
+    "Два исключения toFixed в консоли."
+  ],
+  "tool_calls": 8,
+  "lane": "B",
+  "seconds": 16
+}

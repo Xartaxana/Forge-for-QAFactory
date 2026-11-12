@@ -32,6 +32,12 @@ id: — | кучка: `live-runs` | от: слово владельца 12.11.20
 5. **Источники прошлого сравнения возвращаются в дерево.** `experiments/mybooks/disputed-check-plain-agent/SUMMARY.md` и
    `experiments/mybooks/thinking-roles/walker-vs-plain-agent.md` цитируются спеками и карточкой `thinking-roles`, но в этом клоне их нет
    (остались в связке истории старого репозитория, решения O2, O3) — перенести в `experiments/` тем же способом, что остальной перенос.
+   Сделано 12.11.2026: дерево `experiments/mybooks/` возвращено из связки (ветка `main-merged`, без `thinking-roles/runs/`).
+
+Подготовка прогона (12.11.2026, слово владельца «готовь всё для параллельных прогонов плеч»): папка
+`experiments/mybooks/factory-vs-free-agent/` — инструкция оператору `RUN-INSTRUCTIONS.md`, тетрадь `notebook.md` (что поднято
+и что ждёт владельца), таблица сверки с правдой о 24 местах `factory-vs-free-agent.md`, черновик промта
+`free-agent-prompt.md`, ответы `answers/`, скрипт двух стендов без Docker `stand/stand.ps1`.
 
 6. **Условия честного опыта и счёт** (план `docs/tasks/specs/20261112-plan-fabrika-protiv-svobodnogo-agenta.md`, фаза 0): плеч ДВА —
    фабрика и свободный агент с хорошим промтом, одна стори MyBooks, по одному запуску (владелец, 12.11.2026; плечо «один агент с

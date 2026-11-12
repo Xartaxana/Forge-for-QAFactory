@@ -1,0 +1,35 @@
+{
+  "title": "Страница книги: количество 0, −1, 1.5, abc молча становится 1",
+  "outcome": "BUG_CONFIRMED",
+  "steps_done": [
+    "Открыл /books/3 (1984), выделил поле, набрал посимвольно \"0\", нажал Add to Cart",
+    "Открыл /books/3 (1984), выделил поле, набрал посимвольно \"-1\", нажал Add to Cart",
+    "Открыл /books/3 (1984), выделил поле, набрал посимвольно \"1.5\", нажал Add to Cart",
+    "Открыл /books/3 (1984), выделил поле, набрал посимвольно \"abc\", нажал Add to Cart",
+    "Контроль API quantity 0"
+  ],
+  "observed": [
+    "ввод \"0\" -> поле после набора=\"1\"; тосты=[\"Book added to cart\"]; бейдж=1; корзина API=[{\"id\":907,\"bookId\":3,\"quantity\":1,\"sessionId\":null,\"userId\":330,\"createdAt\":\"2026-11-05T19:28:42.852Z\",\"updatedAt\":\"2026-11-05T19:28:42.852Z\"}]; запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":1}\",\"REQ GET /api/cart \",\"RES 200 /api/cart [{\\\"id\\\":907,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:42.852Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:42.852Z\\\"}]\",\"RES 201 /api/cart {\\\"id\\\":907,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:42.852Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:42.852Z\\\"}\"]",
+    "ввод \"-1\" -> поле после набора=\"11\"; тосты=[\"11 copies added to cart\"]; бейдж=11; корзина API=[{\"id\":908,\"bookId\":3,\"quantity\":11,\"sessionId\":null,\"userId\":330,\"createdAt\":\"2026-11-05T19:28:44.744Z\",\"updatedAt\":\"2026-11-05T19:28:44.744Z\"}]; запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":11}\",\"REQ GET /api/cart \",\"RES 200 /api/cart [{\\\"id\\\":908,\\\"bookId\\\":3,\\\"quantity\\\":11,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:44.744Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:44.744Z\\\"}]\",\"RES 201 /api/cart {\\\"id\\\":908,\\\"bookId\\\":3,\\\"quantity\\\":11,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:44.744Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:44.744Z\\\"}\"]",
+    "ввод \"1.5\" -> поле после набора=\"1\"; тосты=[\"Book added to cart\"]; бейдж=1; корзина API=[{\"id\":909,\"bookId\":3,\"quantity\":1,\"sessionId\":null,\"userId\":330,\"createdAt\":\"2026-11-05T19:28:46.851Z\",\"updatedAt\":\"2026-11-05T19:28:46.851Z\"}]; запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":1}\",\"REQ GET /api/cart \",\"RES 200 /api/cart [{\\\"id\\\":909,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:46.851Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:46.851Z\\\"}]\",\"RES 201 /api/cart {\\\"id\\\":909,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:46.851Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:46.851Z\\\"}\"]",
+    "ввод \"abc\" -> поле после набора=\"1\"; тосты=[\"Book added to cart\"]; бейдж=1; корзина API=[{\"id\":910,\"bookId\":3,\"quantity\":1,\"sessionId\":null,\"userId\":330,\"createdAt\":\"2026-11-05T19:28:48.947Z\",\"updatedAt\":\"2026-11-05T19:28:48.947Z\"}]; запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":1}\",\"REQ GET /api/cart \",\"RES 200 /api/cart [{\\\"id\\\":910,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:48.947Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:48.947Z\\\"}]\",\"RES 201 /api/cart {\\\"id\\\":910,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":330,\\\"createdAt\\\":\\\"2026-11-05T19:28:48.947Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:28:48.947Z\\\"}\"]",
+    "контроль POST /api/cart {bookId:3,quantity:0} -> 400 {\"error\":\"Quantity must be at least 1\",\"code\":\"VALIDATION_ERROR\",\"details\":[{\"path\":\"quantity\",\"message\":\"Quantity must be at least 1\"}]}"
+  ],
+  "expected_from_card": "Jira XPANBFLFA-140: «Quantity of 0 is rejected with a clear message and nothing is added»; слово человека 02.11: R-8/R-9/R-10/Q1 = a («отклонять»)",
+  "evidence": [
+    "card01-0.png",
+    "card01-m1.png",
+    "card01-1.5.png"
+  ],
+  "tool_calls": 6,
+  "lane": "A",
+  "started_at": "2026-11-05T19:28:18.745Z",
+  "ended_at": "2026-11-05T19:28:50.305Z",
+  "seconds": 32,
+  "card": 1,
+  "oddities": [
+    "Ввод -1 даёт 11 (минус превращается в 1, затем набирается 1): добавлено 11 копий, тост «11 copies added to cart», бейдж 11",
+    "Поле type=number не принимает буквы: «abc» набрать нельзя, поле остаётся 1 (значение берётся как 1)",
+    "Для 0 и 1.5 тост «Book added to cart» без предупреждения о смене значения"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "card": 21,
+  "title": "Гостевая корзина после «регистрация → вход»",
+  "lane": "C",
+  "outcome": "NOT_REPRODUCED",
+  "started_at": "2026-11-05T20:33:18",
+  "ended_at": "2026-11-05T20:33:32",
+  "seconds": 14,
+  "steps_done": [
+    "гость: /books/13 (Dune), выделил поле, набрал \"2\" посимвольно, Add to Cart",
+    "регистрация через /register (имя, e-mail, пароль, подтверждение — посимвольно)",
+    "вход через /login этим же пользователем в том же контексте"
+  ],
+  "observed": [
+    "гость: GET /api/cart [{\"id\":924,\"bookId\":13,\"quantity\":2,\"sessionId\":\"dbea27e7-0403-45f6-b22b-a4001090cd40\",\"userId\":null,}]; бейдж 2",
+    "после регистрации: URL /login; тосты [\"Registration successful! Please log in. We sent you an email to verify your address.\"]; бейдж 2",
+    "после входа: POST /api/cart/merge  -> 200 {\"merged\":1}; GET /api/cart [{\"id\":924,\"bookId\":13,\"quantity\":2,\"sessionId\":null,\"userId\":340,}]; страница: Shopping Cart 1 title, 2 copies 01 Dune Frank Herbert $16.99 each QUANTITY Subtotal: $33.98 Remove Order Summary Items (2) $33.98 ; бейдж 2",
+    "корзина очищена: []"
+  ],
+  "expected_from_card": "гость «Dune» x2 → регистрация → вход → «Dune» x2 в аккаунте (CP §1 «ok»); C1 R-9 «источники молчат»; гейт A: Q2: a (в объёме)",
+  "evidence": [
+    "card21-after-register.png",
+    "card21-cart-after-login.png"
+  ],
+  "oddities": [
+    "После регистрации приложение остаётся на /login с тостом «Registration successful! Please log in. We sent you an email to verify your address.», гостевой бейдж 2 сохранён."
+  ],
+  "tool_calls": 4
+}

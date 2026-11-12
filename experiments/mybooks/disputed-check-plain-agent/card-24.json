@@ -1,0 +1,36 @@
+{
+  "card": 24,
+  "title": "Ни разу не запускавшееся (AC-09, AC-11, AC-12, AC-13)",
+  "lane": "C",
+  "outcome": "AS_REQUIRED",
+  "started_at": "2026-11-05T20:44:23",
+  "ended_at": "2026-11-05T20:45:49",
+  "seconds": 86,
+  "steps_done": [],
+  "observed": [
+    "Last Copy ДО: price=20, stock=1",
+    "AC-09: AC-09 (адаптация: «Last Copy» вместо «Moby-Dick», т.к. менять остаток разрешено только ему): гость добавил Last Copy x1 -> [{\"id\":956,\"bookId\":12,\"quantity\":1,\"sessionId\":\"c6b84206-a477-4676-844b-797026590d24\",\"userId\":null,}]; бейдж 1 | админ PUT stockQuantity:0 -> 200 | после входа: GET /api/cart []; страница: Shopping Cart Your cart is empty. 0 ITEMS Your cart is empty Browse the catalog and add th; бейдж (no badge) => как ожидалось (строка отброшена)",
+    "AC-11: AC-11 (адаптация: «Last Copy», остаток 4 -> 2) админ stock=4 -> 200 | пользователь добавил Last Copy x4: [{\"id\":957,\"bookId\":12,\"quantity\":4,\"sessionId\":null,\"userId\":365,}] | админ stock=2 -> 200 | шаг2 корзина: Shopping Cart 1 title, 4 copies 01 Last Copy Anonymous $20.00 each QUANTITY Subtotal: $80.00 Remove Order Summ; GET /api/cart [{\"id\":957,\"bookId\":12,\"quantity\":4,\"sessionId\":null,\"userId\":365,}] | шаг3 оформление x4 при остатке 2: URL /checkout; тосты [\"Insufficient stock for book: Last Copy\"]; payment-error: -; запросы: POST /api/checkout/quote req={\"shippingMethod\":\"STANDARD\"} -> 400 {\"error\":\"Insufficient stock for book: Last Copy\",\"code\":\"ORDER_REJECTED\"} || POST /api/orders req={\"customerName\":\"Lane C\",\"customerEmail\":\"lane-c-24a11-nnvi4m@example.test\",\"customerAddress\":\"1 Tes -> 400 {\"error\":\"Insufficient stock for book: Last Copy\",\"code\":\"ORDER_REJECTED\"} || GET /api/orders  -> 200 []; заказы пользователя: []; остаток сейчас 2 | шаг4 количество в корзине \"2\": GET /api/cart [{\"id\":957,\"bookId\":12,\"quantity\":2,\"sessionId\":null,\"userId\":365,}] | шаг4 повторное оформление: URL /; тосты [\"Order placed successfully! Order ID: 1\"]; payment-error: -; заказы: [{\"id\":1,\"userId\":365,\"customerName\":\"Lane C\",\"customerEmail\":\"lane-c-24a11-nnvi4m@example.test\",\"customerAddress\":\"1 Test Street, Testville 12345\",\"orderDate\":; остаток после заказа 0 | шаг5 корзина после заказа: GET /api/cart []; бейдж (no badge)",
+    "AC-12: админ stock=1 -> 200 | A добавил x1: [{\"id\":958,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":366,}]; тосты [\"Book added to cart\"] | B добавил x1: [{\"id\":959,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":367,}]; тосты [\"Book added to cart\"] | A оформил: URL /; тосты [\"Order placed successfully! Order ID: 2\"]; заказы A: [{\"id\":2,\"userId\":366,\"customerName\":\"Lane C A\",\"customerEmail\":\"lane-c-24a12a-qwesj5@example.test\",\"customerAddress\":\"1 Test Street, Testvi; остаток 0 | B оформил: URL /checkout; тосты [\"Insufficient stock for book: Last Copy\"]; payment-error: -; запросы: POST /api/orders req={\"customerName\":\"Lane C B\",\"customerEmail\":\"lane-c-24a12b-ggoqxp@example.test\",\"customerAddress\":\"1  -> 400 {\"error\":\"Insufficient stock for book: Last Copy\",\"code\":\"ORDER_REJECTED\"}; заказы B: []; остаток 0 | корзина B после отказа: [{\"id\":959,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":367,}]",
+    "AC-13: NOT_CHECKED — сценарий требует удалить книгу (DELETE /api/books/:id); правила полосы запрещают удалять книги (временную «QA Temp Book» пришлось бы создавать, а менять данные разрешено только для «Last Copy»). Нужно: разрешение владельца создать и удалить временную книгу.",
+    "ВОССТАНОВЛЕНИЕ: PUT {\"price\":20,\"stockQuantity\":1} -> 200; read-back: price=20, stock=1; ВОССТАНОВЛЕНО",
+    "ИТОГ по подпунктам: AC-09 — как ожидалось (строка отброшена, корзина пуста, бейджа нет); AC-11 — как ожидалось (строка x4 осталась, оформление отказано «Insufficient stock for book: Last Copy», заказа нет, остаток 2; после правки до 2 заказ прошёл, корзина пуста, бейджа нет); AC-12 — как ожидалось (A заказ id 2, остаток 0; B отказ 400 ORDER_REJECTED, заказа B нет); AC-13 — NOT_CHECKED."
+  ],
+  "expected_from_card": "ATC: AC-09 строка без остатка отбрасывается при входе; AC-11 корзина не урезает строки, оформление отказывает «Insufficient stock for book»; AC-12 первый заказ выигрывает, второй отказ без заказа; AC-13 удалённая книга — страница корзины грузится",
+  "evidence": [
+    "card24-ac09-cart.png",
+    "card24-ac11-cart-after-stock-drop.png",
+    "card24-ac11-checkout-refusal.png",
+    "card24-ac11-after-order.png",
+    "card24-ac12-B-refusal.png"
+  ],
+  "oddities": [
+    "Первый прогон скрипта (20:42) не дошёл до заказа: мой ввод срока карты \"1230\" отклонён («Enter the expiry date as MM/YY»); заказов он не создал, остаток Last Copy восстановлен. Результаты — второго прогона (20:44).",
+    "Создано 2 тестовых заказа (id 1 пользователя lane-c-24a11 на 2 экз. Last Copy; id 2 пользователя lane-c-24a12a на 1 экз.) — они остаются в БД; остаток Last Copy восстановлен PUT.",
+    "AC-11: открытие /checkout при остатке 2 и корзине x4 уже даёт POST /api/checkout/quote -> 400 «Insufficient stock for book: Last Copy» (до нажатия «оформить»), потом POST /api/orders -> 400 с тем же текстом, тост «Insufficient stock for book: Last Copy». Предупреждения на странице корзины нет (вопрос к владельцу из ATC).",
+    "AC-12: возврат списания у B проверить не удалось (в заказ B запрос отказан 400, заказ не создан; следов списания на экране нет).",
+    "AC-13 NOT_CHECKED: нужно удаление книги.",
+    "Адаптации: AC-09 и AC-11 выполнены на «Last Copy» вместо «Moby-Dick»/«Ariel» (менять остаток разрешено только ему); AC-11 шаг 3 — остаток 2, в корзине 4."
+  ],
+  "tool_calls": 8
+}

@@ -1,0 +1,37 @@
+{
+  "card": "08",
+  "title": "Вишлист: обрыв сети - нет ошибки",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:34:11",
+  "ended_at": "2026-11-05T20:34:34",
+  "steps_done": [
+    "Свой пользователь lane-b-08-*; через POST /api/wishlist положены Ariel (36) и Moby-Dick (7) (оба 201).",
+    "1) Открыт /wishlist, page.route POST /api/cart -> abort; нажато \"Move to cart\" у Ariel (запрос POST /api/cart {\"bookId\":36,\"quantity\":1} оборван).",
+    "2) Свежая загрузка /wishlist, route DELETE /api/wishlist/7 -> abort; нажато \"Remove\" у Moby-Dick.",
+    "3) route GET /api/wishlist -> fulfill 500; перезагрузка /wishlist.",
+    "4) route GET /api/wishlist -> abort; перезагрузка /wishlist.",
+    "Каждая подмена снималась перед следующей. В конце вишлист и корзина очищены."
+  ],
+  "observed": {
+    "move_abort": "Тоста нет вообще; обе книги остались в вишлисте; бейджа корзины нет, корзина на сервере []. Консоль: pageerror \"TypeError: Failed to fetch\" (необработанное исключение).",
+    "remove_abort": "Тоста нет; Moby-Dick остался в списке; pageerror \"TypeError: Failed to fetch\".",
+    "read_500": "Страница показывает \"0 BOOKS / Nothing saved yet / Use Save for later...\" (как пустой вишлист), ни тоста ошибки, ни текста; на сервере 2 книги.",
+    "read_abort": "Тоже \"0 BOOKS / Nothing saved yet\" плюс тост \"Failed to load wishlist\"."
+  },
+  "expected_from_card": "B R-13/R-14 (производные правила, не из требований): неуспех действия не должен проходить молча / сбой чтения не выдаётся за пустой список. Карточка: \"обрыв POST /api/cart при Move to cart - ошибки нет; обрыв DELETE при Remove - нет текста; сбой чтения: при 500 нет ошибки, при обрыве текст пустого вишлиста\".",
+  "evidence": [
+    "card08-1-move-abort.png",
+    "card08-2-remove-abort.png",
+    "card08-3-read-500.png",
+    "card08-4-read-abort.png",
+    "печать: FAILED POST /api/cart net::ERR_FAILED, toasts [] ; FAILED DELETE /api/wishlist/7, toasts [] ; GET wishlist 500 -> \"Nothing saved yet\"; abort -> toast \"Failed to load wishlist\""
+  ],
+  "oddities": [
+    "Результат полностью совпадает с описанием карточки. Источник ожидания - производные правила B, не требования: подтверждение человека желательно.",
+    "При обрыве чтения вишлиста тост есть, но экран при этом утверждает \"Nothing saved yet\" (ложное пустое состояние); при 500 нет и тоста.",
+    "Необработанные исключения (pageerror Failed to fetch) при обрыве Move/Remove."
+  ],
+  "tool_calls": 3,
+  "lane": "B",
+  "seconds": 23
+}

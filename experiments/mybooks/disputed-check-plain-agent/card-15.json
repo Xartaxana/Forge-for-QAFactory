@@ -1,0 +1,31 @@
+{
+  "card": "15",
+  "title": "Обрыв сети при добавлении с карточки (XPANBFLFA-165)",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:35:16",
+  "ended_at": "2026-11-05T20:35:36",
+  "steps_done": [
+    "Свой пользователь lane-b-15-*; вход через форму; на главной в поиск посимвольно набрано \"Ariel\", Enter (URL /?query=Ariel), видна карточка Ariel (id 36) с кнопкой \"Add to Cart\".",
+    "context.setOffline(true) (аналог DevTools Offline), один клик по Add to Cart -> POST /api/cart {\"bookId\":36,\"quantity\":1} оборван (net::ERR_INTERNET_DISCONNECTED).",
+    "context.setOffline(false), ожидание 6 с без действий; затем reload страницы; проверка GET /api/cart.",
+    "Корзина в конце пуста (DELETE /api/cart)."
+  ],
+  "observed": {
+    "offline_click": "тост \"Failed to add book to cart\"; бейджа нет; кнопка снова \"Add to Cart\", не disabled. Один запрос POST /api/cart (оборван).",
+    "after_network_back_6s": "никаких новых POST (только GET /api/cart на мой собственный контроль); бейджа нет; GET /api/cart = []. Книга сама не добавилась.",
+    "after_reload": "бейджа нет, корзина на сервере []."
+  },
+  "expected_from_card": "Jira TC-016: \"shows an error and recovers or tells user to retry\" - выполнено (тост ошибки, кнопка активна). L2 `Q8: a` (слово человека): \"система должна завершить действие после возврата сети\" - НЕ выполнено: после возврата сети книга не добавлена и повторная отправка не делается. Исход выбран по ответу человека Q8:a.",
+  "evidence": [
+    "card15-offline-click.png",
+    "card15-online-after.png",
+    "печать: toasts [\"Failed to add book to cart\"]; FAILED POST /api/cart net::ERR_INTERNET_DISCONNECTED; server cart [] через 6 с после возврата сети и после reload"
+  ],
+  "oddities": [
+    "Если Q8:a читать как \"пользователь может повторить\" вместо \"само завершится\" - исход станет AS_REQUIRED; формулировка ответа человека допускает оба чтения, стоит уточнить у владельца.",
+    "Консоль: \"Error adding to cart: TypeError: Failed to fetch\" (обработанная, логируется)."
+  ],
+  "tool_calls": 3,
+  "lane": "B",
+  "seconds": 20
+}

@@ -1,0 +1,35 @@
+{
+  "card": 13,
+  "title": "Цена в корзине: на момент добавления или текущая (XPANBFLFA-164)",
+  "lane": "C",
+  "outcome": "BUG_CONFIRMED",
+  "started_at": "2026-11-05T20:38:44",
+  "ended_at": "2026-11-05T20:39:07",
+  "seconds": 23,
+  "steps_done": [
+    "пользователь: /books/12 (Last Copy, $20.00), Add to Cart x1",
+    "админ: PUT /api/books/12 {price:25} -> 200"
+  ],
+  "observed": [
+    "Last Copy ДО: price=20, stock=1",
+    "корзина при цене 20: Shopping Cart 1 title, 1 copy 01 Last Copy Anonymous $20.00 each QUANTITY Subtotal: $20.00 Remove Order Summary Items (1) $20.00 Subtotal $20.00 Shipping, promo codes and",
+    "во время: {\"price\":25,\"stockQuantity\":1}",
+    "корзина после смены цены на 25: Shopping Cart 1 title, 1 copy 01 Last Copy Anonymous $25.00 each QUANTITY Subtotal: $25.00 Remove Order Summary Items (1) $25.00 Subtotal $25.00 Shipping, promo codes and",
+    "GET /api/cart/total: {\"status\":200,\"body\":\"25\"}",
+    "checkout (без оформления заказа): bookstore Home Cart 1 Wishlist Profile Logout 03 / CHECKOUT Checkout Enter the delivery details for your order. Verify your email address. You can browse and fill your cart, but placing an order needs a confirmed address. We sent a link to your inbox. Resend email FULL NAME EMAIL ADDRESS SHIPPING Standard $4.99 3 to 5 business days Free over $50.00 Express $14.99 1 to 2 business days PROMO CODE Apply PAYMENT Test mode: no real money moves. Use 42",
+    "запросы checkout: GET /api/cart  -> 200 [{\"id\":939,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":354,}] || GET /api/cart  -> 200 [{\"id\":939,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":354,}] || GET /api/cart  -> 200 [{\"id\":939,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":354,}] || GET /api/cart  -> 200 [{\"id\":939,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":354,}] || GET /api/cart/total  -> 200 25 || GET /api/cart  -> 200 [{\"id\":939,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":354,}] || POST /api/checkout/quote req={\"shippingMethod\":\"STANDARD\"} -> 200 {\"shippingMethod\":\"STANDARD\",\"promoCode\":null,\"subtotal\":25,\"discount\":0,\"shipping\":4.99,\"tax\":2,\"total\":31.99} || GET /api/cart  -> 200 [{\"id\":939,\"bookId\":12,\"quantity\":1,\"sessionId\":null,\"userId\":354,}]",
+    "строка корзины хранит цену? поля: id,bookId,quantity,sessionId,userId,createdAt,updatedAt",
+    "корзина очищена: []",
+    "ВОССТАНОВЛЕНИЕ: PUT {\"price\":20,\"stockQuantity\":1} -> 200; read-back: price=20, stock=1; ВОССТАНОВЛЕНО"
+  ],
+  "expected_from_card": "Jira TC-015 (XPANBFLFA-164): «charged the price shown when added»; человек 02.11: Q7: a (цена при добавлении), A: Q3: a",
+  "evidence": [
+    "card13-cart-price25.png",
+    "card13-checkout-price25.png"
+  ],
+  "oddities": [
+    "/checkout в этой сессии показывает баннер «Verify your email address» (пользователь не подтверждён); заказ я не оформлял. Цена, которую показал POST /api/checkout/quote: subtotal 25, tax 2, total 31.99 — тоже по текущей цене 25 (не по цене добавления 20).",
+    "Строка корзины (GET /api/cart) не содержит поля цены: id, bookId, quantity, sessionId, userId, createdAt, updatedAt."
+  ],
+  "tool_calls": 6
+}

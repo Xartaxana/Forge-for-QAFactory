@@ -1,0 +1,1 @@
+go on: accept the TC_001/TC_002 window without review receipts. The probe cannot read three tests (the success toast disappears by itself; the failure place of the out-of-stock button test was not found) - a gap of the factory tooling, not a verdict on the tests. They stay unverified and appear as open items in the report and the debt list; the stock-0 red test goes to S7 triage.

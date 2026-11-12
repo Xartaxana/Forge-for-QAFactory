@@ -1,0 +1,27 @@
+{
+  "title": "Из вишлиста: «Moved to cart» при сбое удаления",
+  "outcome": "REQUIREMENT_SILENT",
+  "steps_done": [
+    "1984 в вишлист (кнопка на странице книги), корзина пуста",
+    "Подменил DELETE /api/wishlist/3 на 500 (route.fulfill), нажал Move to cart"
+  ],
+  "observed": [
+    "после Move при DELETE=500: запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":1}\",\"REQ DELETE /api/wishlist/3 \",\"REQ GET /api/cart \",\"RES 201 /api/cart {\\\"id\\\":938,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":353,\\\"createdAt\\\":\\\"2026-11-05T19:38:54.241Z\\\"\",\"RES 200 /api/cart [{\\\"id\\\":938,\\\"bookId\\\":3,\\\"quantity\\\":1,\\\"sessionId\\\":null,\\\"userId\\\":353,\\\"createdAt\\\":\\\"2026-11-05T19:38:54.241Z\",\"RES 500 /api/wishlist/3 {\\\"error\\\":\\\"boom\\\"}\"]; тосты=[\"Moved to cart\"]; строка в вишлисте на экране=0; бейдж=1; корзина=[{\"b\":3,\"q\":1}]",
+    "после перезагрузки: строка в вишлисте на экране=1; вишлист API=1 шт; бейдж=1"
+  ],
+  "expected_from_card": "B R-13 (производное, не из требований): сбой удаления не должен выдаваться за успех; требований в источниках нет",
+  "evidence": [
+    "card07-after-move.png",
+    "card07-after-reload.png"
+  ],
+  "tool_calls": 2,
+  "lane": "A",
+  "started_at": "2026-11-05T19:38:42.381Z",
+  "ended_at": "2026-11-05T19:38:57.649Z",
+  "seconds": 15,
+  "card": 7,
+  "oddities": [
+    "console errors: Error loading books: TypeError: Failed to fetch\n    at http://localhost:3000/_next/static/chunks/app/page-f8518b3e18b2c684.js:1:4006\n    at aD (http://localhost:3000/_next/static/chunks/fd9d1056-f7f7c || Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Сбой удаления из вишлиста (500) выдан за успех: тост «Moved to cart», строка исчезла с экрана, после перезагрузки книга снова в вишлисте и в корзине"
+  ]
+}

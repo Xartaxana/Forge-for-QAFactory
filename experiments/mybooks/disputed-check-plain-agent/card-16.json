@@ -1,0 +1,28 @@
+{
+  "card": 16,
+  "title": "Книга с остатком 0 на карточке каталога",
+  "lane": "C",
+  "outcome": "AS_REQUIRED",
+  "started_at": "2026-11-05T20:36:26",
+  "ended_at": "2026-11-05T20:36:52",
+  "seconds": 26,
+  "steps_done": [
+    "вход; каталог / (перебор страниц), карточка book-card-11 «Out of Print Classic»; found=true"
+  ],
+  "observed": [
+    "кнопка карточки: текст «Out of Stock»; disabled=true; атрибут disabled=\"\"; остаток на карточке: 0; URL /?page=2",
+    "клик по кнопке: locator.click: Timeout 3000ms exceeded.; запросы /api/cart: []; тосты []; бейдж (no badge)",
+    "страница книги 11: кнопка «Out of Stock», disabled=true; поле количества disabled=true",
+    "контроль POST /api/cart {\"bookId\":11,\"quantity\":1} -> 400 {\"error\":\"\\\"Out of Print Classic\\\" is out of stock\",\"code\":\"OUT_OF_STOCK\"}",
+    "корзина: []"
+  ],
+  "expected_from_card": "AC-2 XPANBFLFA-44: «see an \"Out of stock\" message»; Jira 143: «shows a disabled button rather than a message»; L2 Q5: a — отключённая кнопка достаточна; красный тест B ждёт тост — R-1 тост не называет",
+  "evidence": [
+    "card16-catalog.png",
+    "card16-detail.png"
+  ],
+  "oddities": [
+    "Клик по отключённой кнопке невозможен (Playwright: таймаут), запросов /api/cart нет, тоста нет — «сообщения» кроме подписи кнопки и числа «0» в блоке Stock на карточке нет."
+  ],
+  "tool_calls": 4
+}

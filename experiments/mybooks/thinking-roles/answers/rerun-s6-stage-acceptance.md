@@ -1,0 +1,1 @@
+I accept the run stage S6 as the runner left it: the automated run is recorded, the three manual cases are not walked for reasons of the factory's tool and that is recorded with my words. The failure analyst did not record its acceptance of S6, so I pass the stage acceptance myself.

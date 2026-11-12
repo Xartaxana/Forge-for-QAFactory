@@ -1,0 +1,1 @@
+Your handoff form still lists a placeholder in inputs_read (work/handoffs/<the tester's dispatch>.yaml). Replace it with the tester's real form work/handoffs/S2-qa-requirements-tester-1.yaml and its sha256, keep your review as it stands, and finish again.

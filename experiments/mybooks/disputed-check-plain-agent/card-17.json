@@ -1,0 +1,33 @@
+{
+  "title": "Количество выше остатка, максимум",
+  "outcome": "AS_REQUIRED",
+  "steps_done": [
+    "/books/3: выделил всё, набрал \"999\", Add to Cart",
+    "/books/3: выделил всё, набрал \"16\", Add to Cart",
+    "/books/3: выделил всё, набрал \"15\", Add to Cart",
+    "Корзина 14, ArrowUp дважды (15, 16)"
+  ],
+  "observed": [
+    "ввод \"999\" (поле=\"999\"): запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":999}\",\"RES 400 /api/cart {\\\"error\\\":\\\"Only 15 in stock\\\",\\\"code\\\":\\\"INSUFFICIENT_STOCK\\\"}\"]; тосты=[\"Only 15 in stock\"]; бейдж=(нет бейджа); корзина=[]",
+    "ввод \"16\" (поле=\"16\"): запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":16}\",\"RES 400 /api/cart {\\\"error\\\":\\\"Only 15 in stock\\\",\\\"code\\\":\\\"INSUFFICIENT_STOCK\\\"}\"]; тосты=[\"Only 15 in stock\"]; бейдж=(нет бейджа); корзина=[]",
+    "ввод \"15\" (поле=\"15\"): запросы=[\"REQ POST /api/cart {\\\"bookId\\\":3,\\\"quantity\\\":15}\",\"RES 201 /api/cart {\\\"id\\\":926,\\\"bookId\\\":3,\\\"quantity\\\":15,\\\"sessionId\\\":null,\\\"userId\\\":343,\\\"createdAt\\\":\\\"2026-11-05T19:34:26.765Z\\\",\\\"updatedAt\\\":\\\"2026-11-05T19:3\"]; тосты=[\"15 copies added to cart\"]; бейдж=15; корзина=[15]",
+    "корзина: 14, ArrowUp дважды: тосты=[]; сервер qty=15; поле=15"
+  ],
+  "expected_from_card": "Слово человека 02.11: Q2: a (отказ целиком), Q3: a (максимум = остаток); на странице книги тост «Only N in stock»",
+  "evidence": [
+    "card17-999.png",
+    "card17-16.png",
+    "card17-cart.png"
+  ],
+  "tool_calls": 2,
+  "lane": "A",
+  "started_at": "2026-11-05T19:34:14.065Z",
+  "ended_at": "2026-11-05T19:34:30.959Z",
+  "seconds": 17,
+  "card": 17,
+  "oddities": [
+    "console errors: Failed to load resource: the server responded with a status of 400 (Bad Request) || Failed to load resource: the server responded with a status of 400 (Bad Request)",
+    "Предыдущий прогон до исправления моего ввода (стирание подставляло 1: набор 999 давал 1999) показал тост «Quantity must be at most 999», то есть 400 с другим сообщением при >999",
+    "В корзине ArrowUp с 15 до 16: сервер остался 15, тост не пойман (возможно, исчез до чтения)"
+  ]
+}

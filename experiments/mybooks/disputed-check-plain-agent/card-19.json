@@ -1,0 +1,29 @@
+{
+  "title": "Бейдж корзины устарел до перезагрузки",
+  "outcome": "REQUIREMENT_SILENT",
+  "steps_done": [
+    "Добавил 1984 x1 через страницу книги",
+    "Из консоли страницы fetch(\"/api/cart\",{method:\"DELETE\"})"
+  ],
+  "observed": [
+    "после добавления 1 шт: бейдж=1",
+    "на /cart: бейдж=1",
+    "из консоли fetch DELETE /api/cart -> 200",
+    "после внешнего DELETE (без перезагрузки): бейдж=1; текст корзины на экране: 02 / CART |  | Shopping Cart |  | 1 title, 1 copy |  | 01 | 1984 |  | George Orwell |  | $13.99 each |  | QUANTITY | Subtotal: $13.99 | Remove | Order Summary | Items (1) | $13.99 | Subtotal | $13.99 ",
+    "после перезагрузки: бейдж=(нет бейджа)"
+  ],
+  "expected_from_card": "B R-11 «бейдж = сумма количеств, перечитывается после каждого добавления»; ATC AC-07 (про внешнее удаление требования нет)",
+  "evidence": [
+    "card19-before-reload.png",
+    "card19-after-reload.png"
+  ],
+  "tool_calls": 2,
+  "lane": "A",
+  "started_at": "2026-11-05T19:36:08.155Z",
+  "ended_at": "2026-11-05T19:36:40.541Z",
+  "seconds": 32,
+  "card": 19,
+  "oddities": [
+    "Страница /cart после внешнего DELETE по-прежнему показывает «1 title, 1 copy», 1984, 3.99, пока не перезагрузить"
+  ]
+}
