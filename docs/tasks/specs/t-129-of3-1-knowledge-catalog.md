@@ -311,6 +311,8 @@ error direction cannot be kept; any test expectation that must change to pass (b
 - **F7 One node or five.** **Five nodes a-e** (§5 owns): file-disjoint except `env_probe.py` (function-disjoint c/e); a first, b/c/d/e in
   parallel after it; OH3-42's "scout first" table is done by builder e as its first attached step (the Lead may instead dispatch a scout).
 
+**Owner's word 12.11.2026 (in the coordinator session):** F3 — (a): remove `format_all` and `records_policy` (two fewer onboarding asks), keep `seeds` and `generators`; F6 — (b): phase 1 converts the classes named here and lands the census + shrink-only R2 baseline; the residual becomes four nodes N-r1..N-r4 with tests. Provisional coordinator answers (Opus, until the critic on plan t-137): F1 (c), F2 `null`, F4 (b), F5 as recommended, F7 five nodes a-e.
+
 ## §7 Files ALSO written by the absorbed batch-1 nodes (keep these nodes out of parallel batch-1 streams)
 
 - OH1-6 (batch-1 :23): `scripts/hooklib.py`, `scripts/gate_preflight.py`, `scripts/dispatch_liveness.py`, `scripts/vcs_evidence.py`.
