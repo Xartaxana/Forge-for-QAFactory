@@ -97,7 +97,6 @@ without side effects, same as the rest of this file set.
 
 import json
 import os
-import re
 import sys
 import threading
 from datetime import datetime
