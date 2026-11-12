@@ -694,7 +694,30 @@ def forms_all_kinds() -> None:
         cleanup(root)
 
 
+def taken_artifact_root() -> None:
+    """OF3-1d item 7 (AR-4): `_taken` counts the story folders of the configured root (already so), and a config that is a JSON
+    list, bad JSON or a non-string root falls back to today's folder with no crash. One row set, both worlds."""
+    rows = (  # (id, config text or None, folder holding the story LOCAL-7, expected highest number)
+        ("no config: the default folder", None, "qa-factory/artifacts", 7),
+        ("configured root: its folders count", '{"artifact_root": "stories"}', "stories", 7),
+        ("configured root: the old folder no longer counts", '{"artifact_root": "stories"}', "qa-factory/artifacts", 0),
+        ("config a JSON list: today's folder, no crash", "[]", "qa-factory/artifacts", 7),
+        ("config bad JSON: today's folder, no crash", "{not json", "qa-factory/artifacts", 7),
+        ("config non-string root: today's folder, no crash", '{"artifact_root": 5}', "qa-factory/artifacts", 7),
+    )
+    for label, config, where, expected in rows:
+        root = project()
+        try:
+            (root / where / "LOCAL-7").mkdir(parents=True)
+            if config is not None:
+                (root / "qa-factory" / "config.json").write_text(config, encoding="utf-8")
+            check_eq(f"taken: {label}", LK._taken(root, {}, r"LOCAL-\d+"), expected)
+        finally:
+            cleanup(root)
+
+
 def main() -> None:
+    taken_artifact_root()
     is_local_battery()
     mint_battery()
     mint_race_and_limit()
