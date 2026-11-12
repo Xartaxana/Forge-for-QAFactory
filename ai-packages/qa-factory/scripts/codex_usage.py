@@ -7,7 +7,7 @@ are NEVER added to these records. Unknown formats remain unsupported.
 from __future__ import annotations
 import json
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ADAPTER_VERSION = "codex-response-usage-v1"
@@ -18,6 +18,45 @@ def stamp(value):
         return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+
+
+# What a time WITHOUT a zone means, named per reader (data, not a guess): "utc" - the host wrote it as UTC
+# (a driver entry's `started_at`, a progress record); "local" - the writer's own clock (a hook journal row, a
+# driver-runs row); "none" - nobody can place it, so it is no evidence (a rollout row's `timestamp`).
+NAIVE_READINGS = ("utc", "local", "none")
+
+
+def epoch_of(value, naive="utc", numbers=True):
+    """Epoch seconds of an epoch number (when `numbers`) or an ISO string, else None. The ONE reader of a stored time.
+
+    `naive` says what a string with no zone means (`NAIVE_READINGS`); a string that carries a zone is read the same
+    under every reading. A bool, an unparsable string or an out-of-range time is None, never an exception."""
+    if naive not in NAIVE_READINGS:
+        raise ValueError(f"epoch_of: naive must be one of {NAIVE_READINGS}, got {naive!r}")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if numbers else None
+    when = stamp(str(value).strip())
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        if naive == "none":
+            return None
+        if naive == "utc":
+            when = when.replace(tzinfo=timezone.utc)
+    try:
+        return when.timestamp()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def iso_of(epoch, z=False):
+    """An epoch second as an ISO time in UTC (`...+00:00`, or `...Z` when `z`); None for None. The ONE renderer."""
+    if epoch is None:
+        return None
+    text = datetime.fromtimestamp(epoch, timezone.utc).isoformat(timespec="seconds")
+    return text.replace("+00:00", "Z") if z else text
 
 
 def first_row(path):
