@@ -1,0 +1,1 @@
+- Audit rule A20 (portable paths) now flags only the start of a file-system path (a drive letter, `~/`, `/Users/<name>`, `/home/<name>`), so a URL or API segment such as `https://host/users/1` or `GET /users/{id}` in a strategy document is no longer taken for a home directory.
