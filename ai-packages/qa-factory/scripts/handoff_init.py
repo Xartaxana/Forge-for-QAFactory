@@ -44,7 +44,8 @@ def task_root(task: str, root=None) -> Path:
 
 
 # `one of vocabulary.X`, then the hand-written list some contracts keep after it (` - a|b|c`, never a space inside).
-VOCAB_LIST = re.compile(r"one of vocabulary\.([a-z_]+)(?: - [^\s,>]+)?")
+# The list ends at a space, `,`, `;` or `>`: a `;` written right after the list belongs to the tail and stays.
+VOCAB_LIST = re.compile(r"one of vocabulary\.([a-z_]+)(?: - [^\s,;>]+)?")
 
 
 def inline_values(text: str, role: str) -> str:
@@ -101,7 +102,7 @@ def _fill_line(dispatch: str, role: str, form: str = "", doc=None) -> str:
     door = (f", or run handoff_check.py --file {form} --fix --values - (Bash)" if shell else "")
     rows = ""
     try:
-        paths = handoff_check.row_form(handoff.spec_of(doc), "")[1] if doc is not None else []
+        paths = handoff_check.row_form(handoff.spec_of(doc), "", doc.nodes)[1] if doc is not None else []
     except Exception:                      # an unreadable contract: the line as it was
         paths = []
     first, later = handoff_check.row_pair(paths)
