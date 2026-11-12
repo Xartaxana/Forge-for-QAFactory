@@ -1939,8 +1939,7 @@ def _capture(event) -> bool:
     # WRITE-time flag, computed later from by_activity) exists. It is exactly equivalent:
     # by_activity can only ever carry a doctor/onboarding/story type when `activities`
     # already carries one, so a False here guarantees has_factory_activity ends up False too.
-    likely_factory = any(isinstance(a, dict) and a.get("type") in ("doctor", "onboarding", "story")
-                         for a in activities)
+    likely_factory = _has_factory_type(activities)
     binding = {}
     if event.get('host_binding'):
         binding = json.loads(Path(event['host_binding']).read_text(encoding='utf-8'))
@@ -2232,8 +2231,7 @@ def _capture(event) -> bool:
     # onboarded project (factory development, run analysis) still gets a cost file — do not
     # stop capturing it — but it never ran doctor/onboarding/story, so the dashboard (package
     # G) must be able to tell it apart from a session that actually did factory work.
-    has_factory_activity = any(v.get("type") in ("doctor", "onboarding", "story")
-                               for v in by_activity.values())
+    has_factory_activity = _has_factory_type(by_activity.values())
 
     out_dir = state_dir(event) / "state" / "cost"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -3600,6 +3598,12 @@ def _recapture_skip(doc: dict, project_slug_value: str, max_mb: float, explicit:
     if age is not None and age < RECAPTURE_LIVE_WINDOW_S:
         return {"status": "skipped", "reason": f"transcript changed {int(age)} s ago - still live", "code": "live"}
     return None
+
+
+def _has_factory_type(items) -> bool:
+    """True when any dict of `items` carries a type of `activity_capture.REAL_FACTORY_TYPES` (the one set, CD1-11)."""
+    from activity_capture import REAL_FACTORY_TYPES
+    return any(isinstance(a, dict) and a.get("type") in REAL_FACTORY_TYPES for a in items)
 
 
 def recapture_stale(root: Path, explicit: bool = False) -> list:

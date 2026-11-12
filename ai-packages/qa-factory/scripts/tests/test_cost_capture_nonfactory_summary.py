@@ -139,6 +139,30 @@ def bare_root_creates_nothing():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def factory_activity_is_one_set():
+    """CD1-11: hooklib.session_has_factory_activity and cost_capture's two readers answer from
+    activity_capture.REAL_FACTORY_TYPES: every named type counts, `unclassified` alone does not, and an
+    absent or foreign type does not."""
+    import unittest.mock as mock
+    import activity_capture as AC
+    import hooklib
+    assert AC.REAL_FACTORY_TYPES == AC.FACTORY_TYPES - {"unclassified"}
+    cases = {"doctor": True, "onboarding": True, "story": True, "collect": True, "environment-maintenance": True,
+             "unclassified": False, "": False, None: False, "made-up": False}
+    for kind, expected in cases.items():
+        doc = {"activities": [{"type": kind}, "junk", None]}
+        with mock.patch("activity_capture.load", return_value=doc),                 mock.patch("activity_capture.activity_path", return_value=Path("x.json")):
+            assert hooklib.session_has_factory_activity("s1", {}) is expected, ("hooklib", kind)
+        assert C._has_factory_type([{"type": kind}, "junk"]) is expected, ("cost_capture list", kind)
+        assert C._has_factory_type({"a1": {"type": kind}}.values()) is expected, ("cost_capture by_activity", kind)
+    assert C._has_factory_type([]) is False
+    for name in ("hooklib.py", "cost_capture.py"):
+        text = (SCRIPTS / name).read_text(encoding="utf-8")
+        assert '("doctor", "onboarding", "story")' not in text, name
+    print("PASS factory activity: one set, three readers")
+
+
 if __name__ == "__main__":
     main()
     bare_root_creates_nothing()
+    factory_activity_is_one_set()

@@ -15,6 +15,9 @@ import session_identity
 # `TYPES` stays as the same object for the readers that already import it; `dashboard_cost_groups` reads FACTORY_TYPES for its labels.
 FACTORY_TYPES = {"onboarding", "doctor", "story", "environment-maintenance", "collect", "unclassified"}
 TYPES = FACTORY_TYPES
+# What counts as FACTORY WORK: every named type, never the `unclassified` bucket (owner, 12.11.2026, CD1-11). The three readers
+# (hooklib.session_has_factory_activity, cost_capture likely_factory and has_factory_activity) read this one set.
+REAL_FACTORY_TYPES = FACTORY_TYPES - {"unclassified"}
 
 def _atomic_activity(path, doc):
     for attempt in range(5):
