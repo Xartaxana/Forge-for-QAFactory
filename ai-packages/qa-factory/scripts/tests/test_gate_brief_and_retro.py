@@ -282,6 +282,27 @@ def test_oh1_11_an_unknown_probe_is_not_shown_at_gate_a() -> None:
     check_eq("K-N6: a string is iterated as lines of characters, none matches: all kept", gate_brief._not_established("vcs_api: unknown")[1], [])
 
 
+def test_oh4_1_capability_names_and_prefix_are_defined_once() -> None:
+    """OH4-1 (FR-13, AR-1): both gate A expressions are built from `CAPABILITY_NAMES` and the one prefix; a name added to the tuple
+    is seen by both, a longer name that merely starts with one is not, and the narrow list is a slice of the tuple."""
+    check_eq("the narrow list is a subset of the names", set(gate_brief._PROVABLE_NAMES) <= set(gate_brief.CAPABILITY_NAMES), True)
+    cases = [("x_cap", "x_cap: unknown", True), ("x_cap", "S0 x_cap: unknown", True), ("x_cap", "WARN x_cap: unknown", True),
+             ("x_cap", "x_cap_more: unknown", False), ("x_cap", "x: unknown", False),
+             ("vcs_api", "vcs_api: unknown", True), ("host_hooks", "host_hooks_x: unknown", False)]
+    # the new name sits inside the slice the narrow expression reads, so that both expressions can see it
+    names = gate_brief.CAPABILITY_NAMES[:2] + ("x_cap",) + gate_brief.CAPABILITY_NAMES[2:]
+    narrow, wide = gate_brief._capability_lines(names, names[:3])
+    for _name, line, seen in cases:
+        for label, rx in (("capability line", narrow), ("not-established line", wide)):
+            check_eq(f"OH4-1: {label} on `{line}`", bool(rx.match(line)), seen)
+    check_eq("OH4-1: the module expressions are the ones built from the tuple",
+             (gate_brief._CAPABILITY_LINE.pattern, gate_brief._NOT_ESTABLISHED_LINE.pattern),
+             tuple(rx.pattern for rx in gate_brief._capability_lines()))
+    check_eq("OH4-1: the prefix group and name group numbers stay (users read group 2 / group 1)",
+             (gate_brief._CAPABILITY_LINE.match("S0 vcs_api: x").groups(), gate_brief._NOT_ESTABLISHED_LINE.match("S0 vcs_api: unknown").groups()),
+             (("S0 ", "vcs_api"), ("vcs_api",)))
+
+
 def test_oh1_11_s0_says_unknown_is_not_shown_at_gate_a() -> None:
     """OH1-11 N5: s0.md (the producer text) and gate A agree: refusals are said now, `unknown` is recorded and not shown."""
     text = (SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s0.md").read_text(encoding="utf-8")
@@ -3509,6 +3530,7 @@ if __name__ == "__main__":
     test_hf27_p3_question_note_says_where_in_words_and_still_open_reads_the_one_definition()
     test_hf8_12_a_capability_the_story_proved_after_s0_leaves_the_brief()
     test_oh1_11_an_unknown_probe_is_not_shown_at_gate_a()
+    test_oh4_1_capability_names_and_prefix_are_defined_once()
     test_oh1_11_s0_says_unknown_is_not_shown_at_gate_a()
     test_gate_a_brief()
     test_gate_a_brief_obeys_the_human_text_rules()

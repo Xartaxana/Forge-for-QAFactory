@@ -2240,10 +2240,28 @@ def carried_concern_cases(task_root: Path) -> list:
 # The machine prefix of a capability line S0 records (`artifact-contract-json.md`: `S0 vcs_api: <the script's own line>`). Only this
 # prefix is read - what the line SAYS is never judged (FR-12); a line that does not match it, in another case or with the name
 # in the middle, is left exactly as it is (E22).
-_CAPABILITY_LINE = re.compile(r"^(S0 |WARN )?(vcs_api|host_hooks)\b:")
-# The same prefix with the status token `unknown` right after the colon (OH1-11): a probe that did not answer. Only the
-# prefix and the status token are read (FR-12); `unknown-ish`, `unknown token` after another word, another name or case stay.
-_NOT_ESTABLISHED_LINE = re.compile(r"^(?:S0 |WARN )?(vcs_api|host_hooks|base_slice)\b:\s*unknown(?![\w-])")
+# OH4-1 (FR-13, AR-1): the closed set of capability names and the line prefix are each defined ONCE here; both expressions
+# below are built from them (no data row lists these names in `references/`, so the set is a code constant). The narrow
+# list - the capabilities a story can later prove (`_proved_warnings`) - is a slice of the same tuple, never a second literal.
+CAPABILITY_NAMES = ("vcs_api", "host_hooks", "base_slice")
+_PROVABLE_NAMES = CAPABILITY_NAMES[:2]
+_CAPABILITY_PREFIX = "S0 |WARN "
+
+
+def _capability_lines(names=CAPABILITY_NAMES, provable=_PROVABLE_NAMES, prefix=_CAPABILITY_PREFIX) -> tuple:
+    """`(capability_line, not_established_line)` built from the names and the prefix. `capability_line`: group 1 the prefix
+    (or None), group 2 the name, over `provable`; `not_established_line`: a non-capturing prefix, group 1 the name, over `names`.
+    `\\b` keeps `host_hooks_x` from matching `host_hooks`."""
+    def alt(items):
+        return "|".join(re.escape(item) for item in items)
+    return (re.compile(rf"^({prefix})?({alt(provable)})\b:"),
+            # The same prefix with the status token `unknown` right after the colon (OH1-11): a probe that did not answer. Only
+            # the prefix and the status token are read (FR-12); `unknown-ish`, `unknown token` after another word, another name
+            # or case stay.
+            re.compile(rf"^(?:{prefix})?({alt(names)})\b:\s*unknown(?![\w-])"))
+
+
+_CAPABILITY_LINE, _NOT_ESTABLISHED_LINE = _capability_lines()
 
 
 def _not_established(warnings) -> tuple:
