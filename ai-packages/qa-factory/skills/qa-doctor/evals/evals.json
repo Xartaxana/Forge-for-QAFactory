@@ -323,13 +323,13 @@
     },
     {
       "id": 16,
-      "prompt": "Run qa-doctor in an onboarded project where a capability is missing with remedy.owner user and its remedy steps read 'run tracker_write.py --record confirmed|no --words <its answer>' and 'run project_gitignore.py --write'.",
-      "expected_output": "The doctor does not print either script line. For the tracker answer it asks the person one closed question in human-questions form with the options, then runs the recording itself and prints the outcome. The .gitignore rewrite it runs itself, and the report names only the person's own action (commit .gitignore). A step only a person can do, such as signing in to grant a token, appears as an action in words, not as a command.",
+      "prompt": "Run qa-doctor in an onboarded project where the capability ticket_adapter is missing with remedy.owner user (gap ticket-read-route, autorun false); its remedy steps name /qa-factory:qa-onboarding topic 7 and, as an alternative, a waiver.py --stage S1 call with the person's own words.",
+      "expected_output": "The doctor does not print the waiver.py line or any script, flag or path. It names the skill that owns the step, /qa-factory:qa-onboarding, and presents the alternative as one closed question in human-questions form (give the tracker details, or say the word and the story runs on what the route does reach). It does not run the waiver itself, because the waiver is outside its declared writes; it names the owning skill for it. READINESS stays at your help is needed.",
       "files": [],
       "assertions": [
         {
-          "name": "role-runs-the-script",
-          "description": "The role runs the script itself after the person's answer, or at once when no decision is needed; the script call is not handed over."
+          "name": "outside-writes-names-the-skill",
+          "description": "The doctor runs nothing outside its declared writes and read-only probes: the waiver is not run by the doctor, the owning skill is named."
         },
         {
           "name": "closed-question-for-a-decision",

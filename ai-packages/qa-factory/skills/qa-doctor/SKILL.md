@@ -275,10 +275,7 @@ FACTORY NOTES (nothing for you to do)      ... only when there is one
 
 Rules of printing:
 
-- **The person gets a skill, a closed question or an action of their own - never a factory script, flag or plugin path.** Run such a step yourself, or name the skill that owns it; a script's `reason` is addressed to you.
-- **The role runs the script; the person answers or acts.** A decision is one closed question
-  (`references/human-questions.md`), then you run it; a step only they can do (access, a secret) is an action in
-  words. Nothing for them: say so in a line.
+- **The person gets a skill, a closed question or an action of their own - never a factory script, flag or plugin path.** You run only a read-only probe or a script within the writes listed above; a decision is then one closed question (`references/human-questions.md`) and you run it on the answer. Any other step: name the skill that owns it. A step only they can do (access, a secret) is an action in words; nothing for them: say so in a line.
 - **Nothing for the person goes last**, under `FACTORY NOTES (nothing for you to do)`: each non-`ok` `remedy.owner: factory` row, `ACTIVITY NOT RECORDED`, `injection: unverified` after the probe (no receipt yet), a failed `.gitignore` write, a repeated guard refusal - the fact in one plain line, no alarm wording. No working tree, `git status` or own writes. A `remedy.owner: user` row keeps READINESS at "your help is needed".
 - **Steps are printed by `remedy.owner`, not by the capability's `owner`.** The capability's
   owner says whose domain the gap is; `remedy.owner` says who must act: an unreachable host is
