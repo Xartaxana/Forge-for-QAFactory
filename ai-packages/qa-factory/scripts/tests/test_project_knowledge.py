@@ -823,6 +823,7 @@ def test_damaged_catalogue_refusal_names_the_damage_and_the_door(proj, monkeypat
                                  value={"sign_in": "account"}, words="the person said so", source="person", story="T-1", by="conductor")[:2]
         assert row is None and "catalogue is damaged" in problem and "reinstall the plugin" in problem and "nothing was recorded" in problem
         assert PK.CATALOGUE_PROBLEM in problem and "not a project-knowledge key" not in problem and not proj.path().exists()
+        assert problem.count("reinstall the plugin") == 1, problem                                 # the door is said once
         if kept:                                              # the other registry keys judge as today
             assert PK.record_problems(PK.ACCOUNTS_KEY, "dev", "auditor", "known", "stand", "w", "person", "conductor") == []
     finally:
@@ -894,8 +895,22 @@ def test_value_absent_config_and_unreadable_config_say_which(proj):
 
 def test_value_of_a_registry_row_is_the_state_reader_own_answer(proj):
     proj.write_config(environments=[{"name": "dev", "credentials_by_role": {"auditor": {"user_key": "U", "secret_key": "S"}}}])
-    got = PK.value(proj.root, PK.ROLES_KEY)
-    assert got["state"] == PK.state(proj.root, PK.ROLES_KEY, "", "")["state"] == "unknown"
+    row, problem = PK.record(proj.root, key=PK.ROLES_KEY, environment="", element="auditor", state="known", scope="project",
+                             value={"sign_in": "account"}, words="the person said so", source="person", story="T-1", by="conductor")[:2]
+    assert row is not None and problem == "", problem
+    got = PK.value(proj.root, PK.ROLES_KEY, element="auditor")                                  # a found row: its stored value
+    assert got["state"] == PK.state(proj.root, PK.ROLES_KEY, "", "auditor")["state"] == "known"
+    assert got["value"] == {"sign_in": "account"} and got["problem"] == ""
+    empty = PK.value(proj.root, PK.ROLES_KEY)                                                   # no element: unknown, and it says why
+    assert empty["state"] == "unknown" and empty["value"] is None and "no element was named" in empty["problem"] and "element=" in empty["problem"]
+    assert PK.value(proj.root, PK.ROLES_KEY, element="nobody")["state"] == "unknown"
+
+
+def test_stand_by_name_is_one_road_for_a_non_string_name(proj):
+    cfg = {"environments": [{"name": 5, "credentials_by_role": {"auditor": {"user_key": "U", "secret_key": "S"}}, "safe_to_break": "x"}]}
+    assert PK.environment("5", cfg=cfg)["found"] is False                                       # the card says: no stand is named 5
+    assert PK.state(proj.root, PK.ACCOUNTS_KEY, "5", "auditor", cfg)["state"] == "unknown"      # the account reader agrees
+    assert PK.value(proj.root, "environments[].safe_to_break", "5", cfg)["state"] == "unknown"
 
 
 @pytest.mark.parametrize("raw, name, found, problem", [

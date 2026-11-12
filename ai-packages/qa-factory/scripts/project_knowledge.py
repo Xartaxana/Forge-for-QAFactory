@@ -233,8 +233,8 @@ def _stands(cfg) -> list:
 
 def _stand_roles(cfg, environment):
     """The `credentials_by_role` object of the stand NAMED `environment` (exact), or None: no such stand, two of one name, no object."""
-    named = [e for e in _stands(cfg) if str(e.get("name") or "") == environment] if environment else []
-    roles = named[0].get("credentials_by_role") if len(named) == 1 else None
+    card = _stand_card(environment, cfg)
+    roles = card["entry"].get("credentials_by_role") if card["found"] else None
     return roles if isinstance(roles, dict) else None
 
 
@@ -325,9 +325,11 @@ def environment(name, root=None, cfg=None) -> dict:
         return {"found": False, "entry": None, "problem": f"the stand could not be read ({type(exc).__name__})"}
 
 
-def value(root, key, environment="", cfg=None) -> dict:
+def value(root, key, environment="", cfg=None, element="") -> dict:
     """`{"value", "state", "source", "problem"}` of ONE catalogued fact. PURE: writes nothing, never raises.
 
+    A registry row is per element: pass `element=`; an empty element is `unknown` with a problem naming it. A found row's stored
+    `value` is returned.
     ORDER (the catalogue is consulted FIRST, so a key with no row never reads as `known`): no row -> `unknown`; a registry row ->
     `state()`; a config row -> the config through `_read` (absent file `unknown`/`absent`, unreadable `unknown` with its message),
     `environments[].x` rows through the stand card of the stand NAMED `environment`. ERROR DIRECTION: toward `unknown`, never `known`:
@@ -343,8 +345,14 @@ def value(root, key, environment="", cfg=None) -> dict:
             return out
         store = row.get("store")
         if store in ("registry", "config+registry"):
-            got = state(root, key, str(environment or ""), "", cfg)
+            if not isinstance(element, str) or not element.strip():
+                out["problem"] = _cut(f"{key} is a fact per element and no element was named; pass `element=` (the role or the side)")
+                return out
+            got = state(root, key, str(environment or ""), element, cfg)
+            row = got["row"] if isinstance(got["row"], dict) else None
             out.update(state=got["state"], source=got["source"], problem=got["problem"])
+            if got["state"] == KNOWN and row is not None and row.get("value") is not None:
+                out["value"] = copy.deepcopy(row["value"])
             return out
         if not (isinstance(store, str) and store.startswith("config:") and store[len("config:"):]):
             out["problem"] = _cut(f"the knowledge row {key} names no store this reader knows")
@@ -499,8 +507,9 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     spec = KEYS.get(key)
     if spec is None:
         if CATALOGUE_PROBLEM:     # a damaged catalogue: name the true cause and the door, never "not a key (the keys: )"
+            door = "" if "reinstall the plugin" in CATALOGUE_PROBLEM else "reinstall the plugin; "
             return [f"the key {key!r} cannot be checked: the project-knowledge catalogue is damaged ({CATALOGUE_PROBLEM}); "
-                    "reinstall the plugin; nothing was recorded"]
+                    f"{door}nothing was recorded"]
         return [f"the key {key!r} is not a project-knowledge key (the keys: {', '.join(KEYS)}); nothing was recorded"]
     out = []
     if state not in STATES:

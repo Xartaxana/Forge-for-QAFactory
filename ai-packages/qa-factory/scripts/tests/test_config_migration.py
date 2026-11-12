@@ -375,7 +375,7 @@ def knowledge_gaps(template: dict, table: dict) -> list:
     top = {k: row for k, row in section.items()
            if "." not in k and "[" not in k and isinstance(row, dict) and str(row.get("store", "")).startswith("config:")}
     bad = []
-    for key in (k for k in template if not k.endswith("_note")):
+    for key in (k for k in template if not C._is_note(k)):
         if key not in top:
             bad.append(f"{key}: a template key with no catalogue row; {door}")
         elif top[key].get("in_template") is False:
