@@ -94,6 +94,36 @@ The verdict (`fit_with_fixes`, 4 blocking) stands and changes the order, not the
    edit breaks the chain → the person's). It gets its own designer draft and critic on the plan (B-1, B-2, B-3 of
    t-119 are its entry requirements) and does not hold B1–B3 or the release.
 
+### Lead decisions on the B0-2 measurement (12.11.2026, t-118, `reports/t-118-b0-2-git-measure.md` = fact F0-32)
+
+These OVERRIDE any sentence below that says otherwise; a builder follows this list.
+
+1. **Blockers, final.** Both words: an unmerged XY; an operation in progress (G2 names incl. `REVERT_HEAD`, tested by
+   existence — `rev-parse --git-path` exits 0 for absent names too); home `unknown`; a person path under the home or
+   holding a guard separator; a nested repository (`?? x/` with a trailing slash under `-uall`); more than the cap;
+   ` A` (intent-to-add: `write-tree` drops the entry, the undo cannot bring it back). Commit only: detached HEAD.
+   **Stash only: ANY person entry whose X is not `' '` or `?`** (every staged change: `M `, `MM`, `A `, `D `, `R `,
+   `C `), and any entry of mode `160000` (G3) or named `.gitmodules`. So stash takes only `??`, ` M`, ` D` entries —
+   the classes where the take is exact AND `git stash apply --index <sha12>` restores the tree even with another
+   staged entry in the index (B0-2 row 8: with staged content in the stash the apply fails 128).
+2. **Stash undo text.** "To take them back: `git stash apply --index <sha12>`; then remove the entry: `git stash
+   list` shows it as `stash@{N}` with the message above, and `git stash drop stash@{N}` drops it." Never
+   `git stash drop <sha>` (refused, and a digits-only token drops ANOTHER stash). `reminder_line` finds the entry by
+   the full sha through `git stash list --format="%H %gd %s"` and prints its current `stash@{N}`.
+3. **Commit undo** stays `git reset --soft <head12>` then `git read-tree <tree12>` (true for every non-blocked
+   class, B0-2 rows 4–6).
+4. **The reminder's commit lookup** (G13) reads `git log --fixed-strings --grep=<MSG> --format=%H%x00%s -n 20` and
+   keeps only a row whose subject EQUALS the message (the grep is a substring test).
+5. **Timeout.** The git child is started so that its whole process tree can be killed (`subprocess.Popen`;
+   Windows: `taskkill /F /T /PID <pid>`; POSIX: a new session and `os.killpg`); output goes to temp files, never
+   pipes (an orphaned hook keeps a pipe open). After the kill: HEAD not moved → try G6; G6 failing (a stale
+   `index.lock`) → the result is `failed` and its door names the lock file and the one command that restores the
+   index once the person removed it (`git read-tree <tree12>`). The factory never deletes the lock.
+6. **Reading rename entries**: G1 gives NEW then OLD; G12 gives status, OLD, NEW. `rev-parse` signals by exit code,
+   never by stdout (an unborn or root-commit repository echoes the argument): no HEAD → no door, as today.
+7. A hook that creates or rewrites a file (rows 6a–6c): the commit took exactly the listed paths; what is left
+   dirty is the `still` branch (remark, no pass, the next rehearsal asks again) — unchanged.
+
 ---
 
 ## §0 Facts (read in the carrier, file:line; re-read 12.11.2026 for t-115 where marked *)
