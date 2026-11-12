@@ -482,10 +482,16 @@ def resolve(root: Path, decision_id: str, decision: str, resolution_ref: str,
         if set(live) - set(marker_paths):
             raise ValueError("paired deferred marker remains; name every marker file in this resolution")
         tx_dir = root / "qa-factory" / "state" / "decision-transactions"
-        tx_dir.mkdir(parents=True, exist_ok=True)
         receipt_path = tx_dir / f"{decision_id}.json"
         earlier = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.exists() else {}
         recovering = earlier.get("status") == "pending"
+        # Every refusal comes before the first write (OH3-24 M2): the CLI reports exit 2 as "nothing written", so a marker file
+        # that is absent, or holds no marker (a recovery excepted: its marker may be gone already), is refused here.
+        for path in marker_paths:
+            if not path.is_file(): raise ValueError(f"marker file is absent: {path}")
+            if not recovering and not _marker_forms(path.read_text(encoding="utf-8"), token):
+                raise ValueError(f"exact marker not found in {path}")
+        tx_dir.mkdir(parents=True, exist_ok=True)
         receipt = {"schema_version": 1, "decision_id": decision_id, "status": "pending",
                    "field_values": field_values,
                    "marker_files": [str(p).replace("\\", "/") for p in marker_inputs],
@@ -501,12 +507,9 @@ def resolve(root: Path, decision_id: str, decision: str, resolution_ref: str,
         if pointers and config_path.exists():
             _atomic(config_path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
         for path in marker_paths:
-            if not path.is_file(): raise ValueError(f"marker file is absent: {path}")
             content = path.read_text(encoding="utf-8")
             forms = _marker_forms(content, token)
-            if not forms:
-                if not recovering: raise ValueError(f"exact marker not found in {path}")
-            else:
+            if forms:
                 for form in forms: content = content.replace(form, "")
                 _atomic(path, content)
         row["status"] = "closed"; row["decision with witness"] = decision
@@ -673,16 +676,11 @@ def record_stand_account(root: Path, *, stand: str, role: str, user_key: str, se
 def _record_stand_fact(action: str, args, record) -> dict:
     """The CLI of a stand fact (`stand-account`, `stand-frontend`): the person's words resolved first, then `record(root, words=...)`;
     a refusal is one stderr line and exit 2 (as `add-finding`). ONE wrapper for every stand fact."""
-    try:
+    def run():
         import person_words
         words = person_words.read(None, args.words_file, "--decision")
         return record(args.root.resolve(), words)
-    except ValueError as exc:
-        print(f"project_decisions: {action} refused - {exc}", file=sys.stderr)
-        raise SystemExit(2)
-    except TimeoutError as exc:
-        print(_registry_busy_line(action, exc), file=sys.stderr)
-        raise SystemExit(2)
+    return _refusal_as_line(action, run)
 
 
 def _record_stand_account(args) -> dict:
@@ -852,21 +850,17 @@ def _finding_words(args) -> tuple:
 def _record_finding(args) -> dict:
     """The `add-finding` action: its words resolved, the row written; a refusal is one stderr line and exit 2, except a key
     recorded earlier under other content: the same kind of line, exit `RECORDED_EARLIER_EXIT` (3)."""
-    try:
-        witness, key = _finding_words(args)
-        return add_finding(args.root.resolve(), essence=args.essence, scope=args.scope,
-                           witness=witness, idempotency_key=key)
-    except FindingRecordedEarlier as exc:
-        print(f"project_decisions: add-finding refused - {exc}", file=sys.stderr)
-        raise SystemExit(RECORDED_EARLIER_EXIT)
-    except ValueError as exc:
-        # A refusal is one line the caller can read, never a traceback (FR-1, FR-47). `add_finding` itself
-        # still raises: the pre-tool guard calls it that way (guard_pre_tool.py).
-        print(f"project_decisions: add-finding refused - {exc}", file=sys.stderr)
-        raise SystemExit(2)
-    except TimeoutError as exc:
-        print(_registry_busy_line("add-finding", exc), file=sys.stderr)
-        raise SystemExit(2)
+    def run():
+        # `FindingRecordedEarlier` is a ValueError: caught first, inside, so the shared wrapper never turns it into exit 2.
+        # `add_finding` itself still raises: the pre-tool guard calls it that way (guard_pre_tool.py).
+        try:
+            witness, key = _finding_words(args)
+            return add_finding(args.root.resolve(), essence=args.essence, scope=args.scope,
+                               witness=witness, idempotency_key=key)
+        except FindingRecordedEarlier as exc:
+            print(f"project_decisions: add-finding refused - {exc}", file=sys.stderr)
+            raise SystemExit(RECORDED_EARLIER_EXIT)
+    return _refusal_as_line("add-finding", run)
 
 
 def _refusal_as_line(action: str, run):

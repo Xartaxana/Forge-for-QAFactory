@@ -31,6 +31,8 @@ CASES = [
     ("dot-slash-twice", "doc:././a/./b.md#h", "doc:a/b.md#h"),
     ("empty-anchor", "doc:a.md#", "doc:a.md"),
     ("dot-slash-empty-anchor", "doc:./a.md#", "doc:a.md"),
+    ("empty-segment-mid", "doc:a//b.md", "doc:a/b.md"),
+    ("empty-segment-trailing", "doc:a/", "doc:a"),
     ("colon-in-anchor", "doc:a.md#x:y", "doc:a.md#x:y"),
     ("spaces-around-path", "doc:  a/b.md  #h", "doc:a/b.md#h"),
     ("spaces-inside-path", "doc:my dir/a b.md", "doc:my dir/a b.md"),
@@ -114,6 +116,29 @@ try:
                "--asked", "q")
     check_eq("p4 text: the printed command is accepted by add", done.returncode, 0)
     check_eq("p4 text: the row holds the document ref", json.loads(done.stdout or "{}").get("field_refs"), ref)
+finally:
+    cleanup(root)
+
+# OH3-24 M2: exit 2 means NOTHING was written. A pointer row (so `resolve` has a config value to write) and a marker file that is
+# absent, or present without the marker: config.json byte-equal before/after and no receipt file (validate before any write).
+root = temp_project()
+try:
+    words = root / "words.txt"
+    words.write_text("yes\n", encoding="utf-8")
+    (root / "qa-factory").mkdir(parents=True, exist_ok=True)
+    config = root / "qa-factory" / "config.json"
+    config.write_bytes(b'{"a": 1}\n')
+    (root / "qa-factory" / "present.md").write_text("no marker here\n", encoding="utf-8")
+    receipts = root / "qa-factory" / "state" / "decision-transactions"
+    done = cli(root, "add", "--essence", "e", "--asked", "q", "--field-ref", "/x")
+    check_eq("M2: pointer row added", done.returncode, 0)
+    for name, marker in [("marker file absent", "qa-factory/nope.md"), ("marker not in the file", "qa-factory/present.md")]:
+        before = config.read_bytes()
+        done = cli(root, "resolve", "--id", "DD-1", "--words-file", str(words), "--resolution-ref", "r",
+                   "--field-values", '{"/x": 5}', "--marker-file", marker)
+        check_eq(f"M2 {name}: exit code", done.returncode, 2)
+        check_eq(f"M2 {name}: config.json byte-equal", config.read_bytes(), before)
+        check_eq(f"M2 {name}: no receipt written", sorted(p.name for p in receipts.glob("*.json")) if receipts.exists() else [], [])
 finally:
     cleanup(root)
 
