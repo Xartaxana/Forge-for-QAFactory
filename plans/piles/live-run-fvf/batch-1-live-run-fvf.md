@@ -42,6 +42,7 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 | FV1-9 | П2 | Пакет вопросов: повторы, нет источников вариантов, «нельзя ответить как есть» показано человеку (`findings/20261112-s4-paket-voprosov-s-povtorami-i-bez-istochnikov.md`) | designer → builder → critic | `scripts/question_register.py` | FV1-3 | ожидает |
 | FV1-10 | П2 | S1 не взяла выгрузку, названную в тексте стори (`findings/20261112-s1-ne-vzyala-vygruzku-nazvannuyu-v-tekste-stori.md`) | designer → builder → critic | `scripts/context_bundle.py` | — | ожидает |
 | FV1-11 | П2 | S0 останавливается на тикете без `# ` (`findings/20261112-s0-ostanovka-na-tikete-bez-zagolovka.md`) | builder → critic | `scripts/ticket_adapter.py` | — | ожидает |
+| FV1-13 | П1 | Дирижёр не исполнил выбранный вариант `go on`: судил по прежним словам, спросил в третий раз (`findings/20261112-dirizher-ne-ispolnil-vybrannyj-variant-go-on.md`) | designer → builder → critic | `scripts/driver_dispatch.py`, `scripts/question_register.py` | FV1-3 | ожидает |
 | FV1-12 | П2 | Карточка S2 и реестр стадий расходятся; замысел S2 — слово владельца (`findings/20261112-s2-kartochka-i-reestr-stadij-rashodyatsya.md`) | ждёт слова владельца → builder | `skills/qa-story/phases/s2.md`, `references/stages.json` | — | ожидает |
 
 ## Ход
@@ -50,6 +51,7 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 
 - 12.11 19:10 — пачка открыта оператором прогона LR2-1 (сессия Opus) по слову владельца; 12 находок первых полутора часов
   прогона (17:39–19:05).
+- 12.11 19:12 — FV1-13: третья остановка плеча `factory` на S5, плечо остановлено по потолку RUN-INSTRUCTIONS §5.
 
 ## Живые доказательства
 
