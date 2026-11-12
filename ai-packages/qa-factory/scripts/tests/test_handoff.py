@@ -509,6 +509,88 @@ def the_diff_counts_read_the_production_rule() -> None:
         cleanup(root)
 
 
+def one_survivor_binds_a_diff_to_its_checkout_and_the_production_count_reads_records() -> None:
+    """B-355 items 5 and 6: `diff_checkout(task, diff, cfg, project)` is the one «diff -> checkout» join (the manifest entry of the
+    diff, else the one entry; never another repository's checkout), and `_production_files` takes paths (today's call) or diff
+    records `{path, diff}` (bound per diff). World N (nothing recorded in the path's area) = today's figure; World R (recorded)
+    = the record decides through the record's own checkout; an unbound record under a recorded word is counted."""
+    import handoff_check as H
+    import hooklib
+    be = {"repo_id": "be", "diff_path": "work/impl-diff-be.txt"}
+    fe = {"repo_id": "fe", "diff_path": "work/impl-diff-fe.txt"}
+    repos = {"implementation_repos": [{"repo_id": "be", "local_path": "../testproject1"}, {"repo_id": "fe", "local_path": "../other"}]}
+    recorded = dict({"test_locations": ["testproject1/legacy_checks/"]}, **repos)
+    two = {"implementations": [be, fe]}
+
+    def view(prefix: str, config_extra: dict, manifest: dict):
+        ws, task = reference_shaped_story(prefix, config_extra, manifest)
+        return ws, task
+
+    def with_story(prefix, config_extra, manifest, ask):
+        ws, task = view(prefix, config_extra, manifest)
+        try:
+            with hooklib.selftest_root_restored():
+                hooklib.pin_project_root(ws / "th")
+                art = H.Artifacts(task)
+                return ask(art, ws)
+        finally:
+            cleanup(ws)
+
+    def binds(manifest: dict, *names: str) -> list:
+        def ask(art, ws):
+            got = [H.diff_checkout(art.root, name, art.config, art.project) for name in names]
+            return [(None if c is None else c.relative_to(ws).as_posix(), why) for c, why in got]
+        return with_story("qa-b355-dc-", repos, manifest, ask)
+
+    # item 5: one entry, two diffs -> both bound (today's single-entry condition); two entries -> each by name; none -> unbound
+    check_eq("diff_checkout: one entry, two diffs -> both bound to its checkout",
+             binds({"implementation": {"repo_id": "be"}}, "impl-diff.txt", "impl-diff-x.txt"), [("testproject1", "")] * 2)
+    check_eq("diff_checkout: two entries -> each diff by the basename of its diff_path, and by the `impl-diff-<id>.txt` suffix",
+             binds(two, "impl-diff-be.txt", "impl-diff-fe.txt"), [("testproject1", ""), ("other", "")])
+    check_eq("diff_checkout: two entries, a diff neither names -> unbound with the reason (never another repository's checkout)",
+             binds(two, "impl-diff.txt"), [(None, "no manifest entry for impl-diff.txt")])
+    check_eq("diff_checkout: no manifest, an empty id, a configured path that is no folder, two entries naming one diff -> (None, reason)",
+             [binds(m, "impl-diff.txt")[0][0] for m in
+              ({}, {"implementation": {"repo_id": ""}}, {"implementation": {"repo_id": "zz"}},
+               {"implementations": [dict(be, diff_path="work/impl-diff.txt"), dict(fe, diff_path="work/impl-diff.txt")]})],
+             [None] * 4)
+
+    def impl_checkout(manifest: dict):
+        def ask(art, ws):
+            found = H._impl_checkout(art)
+            return None if found is None else found.relative_to(ws).as_posix()
+        return with_story("qa-b355-ic-", repos, manifest, ask)
+    check_eq("_impl_checkout: exactly one entry -> its checkout (through diff_checkout); two entries -> None (ambiguous)",
+             (impl_checkout({"implementation": {"repo_id": "be"}}), impl_checkout(two)), ("testproject1", None))
+
+    # item 6: the production count
+    def count(config_extra: dict, manifest: dict, items: list) -> list:
+        return with_story("qa-b355-pc-", config_extra, manifest, lambda art, ws: H._production_files(items, art.config, art))
+
+    leg = "legacy_checks/a.py"
+    rec = lambda diff, path=leg: {"path": path, "diff": diff}   # noqa: E731
+    check_eq("World R, records: the same path is a test of the diff whose checkout the record names (be) and counted for the "
+             "other (fe: a different checkout, the record does not name it there); the same path in both diffs is counted once",
+             [count(recorded, two, [rec("impl-diff-be.txt")]), count(recorded, two, [rec("impl-diff-fe.txt")]),
+              count(recorded, two, [rec("impl-diff-be.txt"), rec("impl-diff-fe.txt")]),
+              count(recorded, two, [rec("impl-diff-fe.txt"), rec("impl-diff-be.txt")])], [[], [leg], [leg], [leg]])
+    check_eq("World R, unbound record (no entry names the diff, two entries): the record's file is counted (declared unknown), the "
+             "usual name does not drop it",
+             count(recorded, two, [rec("impl-diff.txt", "tests/x/test_a.py")]), ["tests/x/test_a.py"])
+    check_eq("World R, a record with no `diff` is the main impl diff (diff \"\"): one entry -> bound -> excluded by the record",
+             count(recorded, {"implementation": {"repo_id": "be"}}, [{"path": leg}]), [])
+    check_eq("paths (str) are today's call: the one entry binds them, with no entry the usual names decide (never the unknown)",
+             [count(recorded, {"implementation": {"repo_id": "be"}}, [leg]), count(recorded, {}, ["tests/x/test_a.py", leg])],
+             [[], [leg]])
+    check_eq("a mixed list: a path and records, each by its own binding, each path once, the order kept",
+             count(recorded, two, [leg, rec("impl-diff-fe.txt", "src/b.py"), rec("impl-diff-be.txt"), "src/b.py"]),
+             [leg, "src/b.py"])
+    check_eq("World N (nothing recorded in the path's area): records give today's figure, bound or not",
+             [count(repos, two, [rec("impl-diff-be.txt", "tests/x/test_a.py"), rec("impl-diff-be.txt", "src/a.py")]),
+              count(repos, {}, [rec("impl-diff.txt", "tests/x/test_a.py"), rec("impl-diff.txt", "src/a.py")]),
+              count(repos, {}, ["tests/x/test_a.py", "src/a.py"])], [["src/a.py"]] * 3)
+
+
 S2_FORM = "s2-tester-to-strategist"
 S2_COUNT = "inputs_read[0].production_files_accounted_for"
 S2_CLAIM = "claims.every_production_file_reaches_a_requirement_or_is_named_not_requirement_bearing"
@@ -2337,6 +2419,7 @@ def main() -> None:
     no_form_text_claims_a_count_check_that_does_not_run()
     the_diff_counts_read_every_recorded_diff()
     the_production_rule_reads_the_projects_word_from_the_implementation_checkout()
+    one_survivor_binds_a_diff_to_its_checkout_and_the_production_count_reads_records()
     finish("test_handoff")
 
 
