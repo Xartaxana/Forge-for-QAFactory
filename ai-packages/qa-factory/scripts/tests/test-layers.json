@@ -4344,7 +4344,8 @@
     "driver_stage_s7.py",
     "driver_stage_s8s9.py",
     "tests/harness.py",
-    "tests/state_census.py"
+    "tests/state_census.py",
+    "worker_lifecycle.py"
    ]
   },
   "test_resume_doors.py": {

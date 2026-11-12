@@ -81,21 +81,17 @@ def binding_is_active(root, binding, event=None):
     not an object, or without that dispatch, a dispatch with no status - a spawn beside a live
     worker is the expensive mistake, a refused spawn names its door.
 
-    `root` is where the receipts were read, so the story is resolved under it, exactly as
-    `hooklib.artifacts_dir` would (including its refusal of a ticket that is not one path
-    component: a receipt cannot steer this read outside the story folders). `artifacts_dir`
-    itself resolves under the event's project, which is not `root` when no event is given."""
+    `root` is where the receipts were read, so the story is resolved under it, through
+    `hooklib.artifacts_dir(..., root=root)`, so a receipt cannot steer the read outside the story folders."""
     if binding.get("status") == "terminal":
         return False
     task, dispatch = binding.get("task_id"), binding.get("dispatch_id")
     if not task or not dispatch:
         return True
     task = str(task)
-    if task in (".", "..") or any(c in task for c in "/\\:"):
-        return True
     try:
-        from hooklib import artifact_root
-        state = json.loads((artifact_root(event, root=root) / task / "state/controller.json")
+        from hooklib import artifacts_dir
+        state = json.loads((artifacts_dir(task, event, root=root) / "state/controller.json")
                            .read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return True
@@ -116,7 +112,7 @@ def _blocking_text(blocking, root, task, event):
     if named:
         try:
             from hooklib import artifacts_dir
-            where = str(artifacts_dir(task, event))
+            where = str(artifacts_dir(task, event, root=root))
         except (ValueError, OSError):
             where = "<the story's folder>"
         from person_words import door
@@ -157,7 +153,7 @@ def note_unlaunched_denial(root, event, task, role, reason):
             return
         from hooklib import artifacts_dir, read_json
         from inject_context import dispatch_id_of, note_denial
-        state = read_json(artifacts_dir(task, event) / 'state/controller.json', {}, kind=dict)
+        state = read_json(artifacts_dir(task, event, root=root) / 'state/controller.json', {}, kind=dict)
         unlaunched = [d for d in (state.get('dispatches') or {}).values()
                       if isinstance(d, dict) and d.get('status') == 'running' and d.get('role') == role
                       and not d.get('agent_id') and not d.get('returned_at')]
@@ -211,7 +207,7 @@ def guard(event):
             continue
         task, dispatch = binding.get("task_id"), binding.get("dispatch_id")
         try:
-            state = json.loads((artifacts_dir(task, event) / "state/controller.json").read_text(encoding="utf-8")) if task else {}
+            state = json.loads((artifacts_dir(task, event, root=root) / "state/controller.json").read_text(encoding="utf-8")) if task else {}
             allowed = state.get("dispatches", {}).get(dispatch, {}).get("cancellation")
         except (OSError, ValueError, AttributeError, TypeError):   # a state we cannot read allows nothing
             allowed = None
