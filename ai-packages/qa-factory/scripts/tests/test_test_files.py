@@ -466,9 +466,99 @@ def part_recorded() -> None:
         cleanup(base)
 
 
+def part_sites() -> None:
+    """B-355 items 11, 12, 12b: the sites that ask the leaf with the project's word. ONE table over the real verdict on a temp project,
+    ids `<site>-<world>-<case>`: R = the project recorded where its tests are for the path's area, N = nothing recorded, unbound = a diff
+    no manifest entry binds, unreadable = no config. Error direction pinned per site: a judge_run name is skipped only on a recorded folder
+    name (noise otherwise), a diff file with no checkout under a recorded word is production, a helper in a recorded folder may be a test."""
+    from types import SimpleNamespace
+    import base_slice as BS
+    import blast_radius as BR
+    import judge_run as JR
+    import project_inventory as PI
+    import repo_map as RM
+    base = temp_dir("qa-tf-sites-").resolve()
+    for folder in ("proj/qa-factory", "proj/src/legacy", "proj/src/new", "proj/tests", "app/src/legacy", "app/tests", "task/work"):
+        (base / folder).mkdir(parents=True)
+    proj, app, task = base / "proj", base / "app", base / "task"
+    (task / "work" / "context-manifest.json").write_text(
+        json.dumps({"implementations": [{"repo_id": "app", "diff_path": "work/impl-diff.txt"}]}), encoding="utf-8")
+    cfg_r = {"app_root": ".", "test_locations": ["src/legacy/"]}                       # R: the application of the project is recorded
+    cfg_n = {"app_root": "."}                                                          # N: nothing recorded
+    cfg_ar = {"app_root": "../app", "code_repos": [{"name": "app", "path": "../app"}], "test_locations": ["src/legacy/"]}
+    cfg_an = {"app_root": "../app", "code_repos": [{"name": "app", "path": "../app"}]}
+    try:
+        rows = []
+        # judge_run (item 12): a True from `name` skips the identifier; the safe side is noise, never a skipped project folder name
+        text = "AttributeError: 'legacy' 'tests' 'test_login' 'widget' 'proj'"
+        rows += [("judge_run-R-recorded-folder-skipped-usual-names-are-noise", JR.wanted_names(text, cfg_r, proj), ["tests", "test_login", "widget", "proj"]),
+                 ("judge_run-N-usual-names-skipped", JR.wanted_names(text, cfg_n, proj), ["legacy", "widget", "proj"]),
+                 ("judge_run-unbound-no-word-is-today", JR.wanted_names(text), ["legacy", "widget", "proj"]),
+                 ("judge_run-R-file-shapes-only-names-no-folder", JR.wanted_names("'src' 'tests' 'widget'", {"app_root": ".", "test_locations": ["src/**/*.test.ts"]}, proj),
+                  ["src", "tests", "widget"])]
+        # project_inventory._test_area (item 12): the record names a code file's folder; nothing recorded: names_a_test as before
+        rows += [("project_inventory-R-helper-in-recorded-folder-is-an-area", PI._test_area("src/legacy/helper.py:3", cfg_r, proj), "src/legacy"),
+                 ("project_inventory-R-test-named-outside-the-record-is-none", PI._test_area("src/new/test_x.py:3", cfg_r, proj), ""),
+                 ("project_inventory-R-recorded-non-code-file-is-none", PI._test_area("src/legacy/readme.md:1", cfg_r, proj), ""),
+                 ("project_inventory-N-test-name-is-an-area", PI._test_area("tests/test_a.py:3", cfg_n, proj), "tests"),
+                 ("project_inventory-N-helper-is-none", PI._test_area("src/legacy/helper.py:3", cfg_n, proj), ""),
+                 ("project_inventory-phase1-no-config-is-today", PI._test_area("tests/test_a.py:3"), "tests"),
+                 ("project_inventory-phase1-empty-config-is-today", PI._test_area("tests/test_a.py:3", {}, proj), "tests")]
+        # repo_map._is_test_file (item 12b): a recorded place makes every file of it a test (test_place); elsewhere test_body as before
+        rows += [("repo_map-R-helper-in-recorded-folder-is-a-test", RM._is_test_file(proj / "src/legacy/helper.py", cfg_r, proj), True),
+                 ("repo_map-R-test-named-outside-the-record-is-none", RM._is_test_file(proj / "src/new/test_x.py", cfg_r, proj), False),
+                 ("repo_map-N-test-named-is-a-test", RM._is_test_file(proj / "src/new/test_x.py", cfg_n, proj), True),
+                 ("repo_map-N-folder-alone-is-none", RM._is_test_file(proj / "tests/helper.py", cfg_n, proj), False)]
+        # blast_radius._kind (item 11): through the checkout of the path's own diff; unbound under a recorded word is production
+        def kind(cfg, path, checkout):
+            return BR._kind(SimpleNamespace(cfg=cfg, project=proj, kinds={}), path, checkout)
+        rows += [("blast_radius-R-the-record-names-a-test", kind(cfg_ar, "src/legacy/a.py", app), "test"),
+                 ("blast_radius-R-usual-folder-outside-the-record-is-production", kind(cfg_ar, "tests/a.py", app), "production"),
+                 ("blast_radius-R-unbound-is-production", kind(cfg_ar, "src/legacy/a.py", None), "production"),
+                 ("blast_radius-N-usual-folder-is-a-test", kind(cfg_an, "tests/a.py", app), "test"),
+                 ("blast_radius-N-no-word-is-today", kind({}, "tests/a.py", app), "test")]
+        # base_slice._collect_diff (item 11): the entries of a repository whose base cannot be had name the files that matter (no git needed)
+        entry = {"repo_id": "app", "diff_path": "work/impl-diff.txt"}
+        paths3 = ("src/legacy/a.py", "tests/b.py", "src/new/c.py")
+        def chosen(cfg, entry=entry):
+            res = SimpleNamespace(entries=[], failed=[])
+            ctx = SimpleNamespace(root=task, project=proj, cfg=cfg)
+            record = {"repo": "", "repo_id": "app", "implementation_commit": ""}
+            files = [{"path": p} for p in paths3]
+            BS._collect_diff(ctx, "impl-diff.txt", files, record, entry, set(), res)
+            return [e["file"] for e in res.entries]
+        def blast_kept(cfg, entry=entry):
+            # blast_radius side of the same diff: the commit is unrecorded (no_record), the checkout it found is kept on the record
+            rec = SimpleNamespace(entry=entry, name="impl-diff.txt", unreadable="", commit="", entry_why="", found=None, checkout=None)
+            ctx = SimpleNamespace(cfg=cfg, project=proj, kinds={})
+            BR._classify(ctx, rec)
+            ctx.by_diff = {rec.name: rec}
+            def area(p):                                                   # blast_radius's own site: the kind of the path of one diff file
+                f = {"path": p, "diff": rec.name, "repo": "", "hunks": [], "added": 0, "removed": 0, "path_uncertain": False,
+                     "refused": False, "new": False, "deleted": False}
+                return BR._new_area(ctx, f).kind
+            return [p for p in paths3 if area(p) in BS.KINDS]
+        rows += [("base_slice-R-the-record-names-a-test", chosen(cfg_ar), ["src/new/c.py", "tests/b.py"]),
+                 ("base_slice-N-usual-folder-is-a-test", chosen(cfg_an), ["src/legacy/a.py", "src/new/c.py"]),
+                 ("base_slice-unreadable-is-today", chosen({}), ["src/legacy/a.py", "src/new/c.py"]),
+                 # F-D-1: found checkout + unrecorded commit: both S3 tools keep the checkout and give one verdict under one recorded word
+                 ("twin-R-found-checkout-unrecorded-commit-base_slice", chosen(cfg_ar), ["src/new/c.py", "tests/b.py"]),
+                 ("twin-R-found-checkout-unrecorded-commit-blast_radius", blast_kept(cfg_ar), ["tests/b.py", "src/new/c.py"]),
+                 # checkout not found at all (no config repo): None -> production under a recorded word, in both tools
+                 ("twin-R-no-checkout-base_slice", chosen({"app_root": ".", "test_locations": ["src/legacy/"]}), sorted(paths3)),
+                 ("twin-R-no-checkout-blast_radius", blast_kept({"app_root": ".", "test_locations": ["src/legacy/"]}), list(paths3))]      # blast side keeps the diff's own order
+        (task / "work" / "context-manifest.json").unlink()
+        rows += [("base_slice-R-unbound-is-production", chosen(cfg_ar, None), ["src/legacy/a.py", "src/new/c.py", "tests/b.py"])]
+        for row_id, got, expected in rows:
+            check_eq(f"B-355 {row_id}", got, expected)
+    finally:
+        cleanup(base)
+
+
 def main() -> None:
     part_kinds()
     part_recorded()
+    part_sites()
     part_consumers()
     part_unreadable()
     part_spellings()
