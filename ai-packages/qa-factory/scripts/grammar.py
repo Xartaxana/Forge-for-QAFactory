@@ -289,11 +289,8 @@ ESCAPE_MISSING_RE = re.compile(r"^(aspect|seam|perturbation|class|oracle):\S.*$"
 
 def load_overrides(config_path: Path) -> dict:
     """Project extensions from config.json (fail-open: no file/key — defaults)."""
-    try:
-        cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return cfg if isinstance(cfg, dict) else {}
+    import hooklib
+    return hooklib.read_json(config_path, {}, errors=Exception, kind=dict)
 
 
 def defect_classes(cfg: dict) -> set:

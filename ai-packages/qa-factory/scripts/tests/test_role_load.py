@@ -605,7 +605,31 @@ def test_newline_independent() -> None:
              by_name(RL.static_load("qa-a", plugin_root=lf_root))["charter"]["bytes"], len(charter.encode("utf-8")) + 4)
 
 
+def test_task_root_artifact_root() -> None:
+    """OF3-1d item 7 (AR-4, AR-28): `_task_root` reads the story folder through `hooklib.artifact_root`; a reader, so a broken
+    config (bad JSON, a JSON list, a non-string value) falls back to today's folder. One row set, both worlds."""
+    rows = (  # (id, config text or None, where the story lives, expected folder or None = "no story folder")
+        ("no config: the default folder", None, "qa-factory/artifacts", "qa-factory/artifacts"),
+        ("configured root honoured", '{"artifact_root": "stories"}', "stories", "stories"),
+        ("configured root: a story only in the old folder is not found", '{"artifact_root": "stories"}', "qa-factory/artifacts", None),
+        ("broken config (bad JSON): today's folder", "{not json", "qa-factory/artifacts", "qa-factory/artifacts"),
+        ("broken config (a JSON list): today's folder", "[]", "qa-factory/artifacts", "qa-factory/artifacts"),
+        ("broken config (non-string root): today's folder", '{"artifact_root": 5}', "qa-factory/artifacts", "qa-factory/artifacts"),
+    )
+    for index, (label, config, where, expected) in enumerate(rows):
+        project = TMP / f"p-root-{index}"
+        (project / where / "T-1").mkdir(parents=True)
+        if config is not None:
+            write(project / "qa-factory" / "config.json", config)
+        try:
+            found = RL._task_root(project, "T-1")
+        except RL.RoleLoadError:
+            found = None
+        check_eq(f"item 7 _task_root: {label}", found, None if expected is None else project / expected / "T-1")
+
+
 try:
+    test_task_root_artifact_root()
     test_newline_independent()
     test_craft_split()
     test_a22_process_ratchet()

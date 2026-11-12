@@ -46,7 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from content_size import content_bytes  # noqa: E402
-from hooklib import PLUGIN_ROOT, is_one_component, project_root, read_json  # noqa: E402
+from hooklib import PLUGIN_ROOT, artifact_root, is_one_component, project_root, read_json  # noqa: E402
 from inject_context import DISPATCH_KINDS, delivered_text, dispatch_kind, entries_for  # noqa: E402  (the one reader of `kinds`, AR-13)
 
 SETTINGS_REL = "references/role-load.json"
@@ -534,7 +534,11 @@ def common_list_bytes(plugin_root=PLUGIN_ROOT):
 
 # ------------------------------------------------------------------------------------------ story mode
 def _task_root(project, task) -> Path:
-    root = Path(project) / "qa-factory" / "artifacts" / str(task)
+    try:
+        artifacts = artifact_root(root=Path(project))
+    except (OSError, ValueError, AttributeError):
+        artifacts = Path(project) / "qa-factory" / "artifacts"    # a broken config: today's folder
+    root = artifacts / str(task)
     if not is_one_component(str(task)) or not root.is_dir():
         raise RoleLoadError(f"no story folder {task}")
     return root

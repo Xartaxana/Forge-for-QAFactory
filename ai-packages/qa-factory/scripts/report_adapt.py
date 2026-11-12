@@ -284,11 +284,8 @@ def _refuse(message: str) -> int:
 def _context():
     import hooklib
     root = Path(hooklib.project_root())
-    try:
-        cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        cfg = {}
-    return root, cfg if isinstance(cfg, dict) else {}
+    cfg = hooklib.read_json(root / "qa-factory" / "config.json", {}, kind=dict)
+    return root, cfg
 
 
 def _story(ns) -> str:

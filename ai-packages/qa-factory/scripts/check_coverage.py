@@ -94,10 +94,9 @@ def project_cases_root(root: Path) -> Path | None:
 
     One owner for the fact (A21): contract.cases_root decides it for the story scripts,
     this reads the same key for the project-wide map."""
-    try:
-        import json
-        cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
-    except Exception:
+    from hooklib import read_json
+    cfg = read_json(root / "qa-factory" / "config.json", None, errors=Exception, kind=dict)
+    if cfg is None:
         return None
     raw = str((cfg or {}).get("cases_root") or "").strip()
     return (root / raw) if raw else None

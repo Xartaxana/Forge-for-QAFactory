@@ -402,10 +402,7 @@ def _story_context(task: str):
         raise ValueError(f"there is no story `{task}` in this project, so nothing was recorded; pass the id of the story "
                          "that is running as --task")
     root = runtime_paths.project_for_task(task_root)
-    try:
-        cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        cfg = {}
+    cfg = hooklib.read_json(root / "qa-factory" / "config.json", {})
     try:
         pipeline = json.loads((task_root / "pipeline.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):

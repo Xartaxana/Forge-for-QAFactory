@@ -14,6 +14,7 @@ pre_action-only attempt cannot be a pass but can be inconclusive; `--phase befor
 record written with before/after still validates.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -1971,6 +1972,68 @@ def read_login_adversarial():
         S.cleanup(t)
 
 
+def of3_1e_one_env_file_parse():
+    """OH3-42 (AR-13): one table of env-file lines, read through EACH reader - `env_probe.parse_env_file`,
+    `manual_capture._env_values`, `stand_health._env_values` (one file) and `brief_pack._env_file_key_names` (names only) -
+    expects the same values. Expected values are the item's rules: BOM dropped, `export ` dropped, empty name skipped, ONE
+    paired quote stripped, split at the FIRST `=`, comments and lines without `=` skipped."""
+    import env_probe
+    import stand_health
+    long_value = "v" * 100000
+    rows = [
+        ("plain", "A=1", {"A": "1"}),
+        ("export prefix", "export A=1", {"A": "1"}),
+        ("double quotes", 'A="x"', {"A": "x"}),
+        ("single quotes", "A='x'", {"A": "x"}),
+        ("mismatched quotes kept", "A=\"x'", {"A": "\"x'"}),
+        ("a lone quote kept", 'A="', {"A": '"'}),
+        ("empty name skipped", "=x", {}),
+        ("export with empty name skipped", "export =x", {}),
+        ("a name `export` with no space is a name", "export=x", {"export": "x"}),
+        ("comment skipped", "#A=1", {}),
+        ("a line without = skipped", "just words", {}),
+        ("empty value", "A=", {"A": ""}),
+        ("empty quoted value", 'A=""', {"A": ""}),
+        ("= inside the value", "A=b=c==", {"A": "b=c=="}),
+        ("CRLF", "A=1\r\nB=2\r\n", {"A": "1", "B": "2"}),
+        ("BOM on the first line", "﻿A=1\nB=2", {"A": "1", "B": "2"}),
+        ("BOM before export", "﻿export A=1", {"A": "1"}),
+        ("non-ASCII value", "A=café-中", {"A": "café-中"}),
+        ("a very long line", f"A={long_value}", {"A": long_value}),
+        ("blanks around the value", "A =  x  ", {"A": "x"}),
+        ("a later line of the same name wins", "A=1\nA=2", {"A": "2"}),
+    ]
+    t = S.make_task()
+    try:
+        env = t.project / "harness" / ".env"
+        env.parent.mkdir(parents=True, exist_ok=True)
+        for label, text, want in rows:
+            env.write_bytes(text.encode("utf-8"))
+            check_eq(f"parse_env_file: {label}", env_probe.parse_env_file(env), want)
+            check_eq(f"manual_capture._env_values: {label}", MC._env_values(env), want)
+            got = stand_health._env_values(t.project, {"env_file": "harness/.env"})
+            check_eq(f"stand_health._env_values: {label}", {k: got.get(k) for k in ("A", "B", "export") if k in want}, want)
+            check_eq(f"stand_health._env_values: {label}: a name the file did not hold stays out",
+                     [k for k in ("A", "B") if k not in want and k in got and k not in os.environ], [])
+        # two files: `env_files` lists them, the later wins; stand_health and brief_pack both see them
+        first, second = t.project / "harness" / "one.env", t.project / "harness" / "two.env"
+        first.write_bytes("﻿export ONE_TOKEN_A=1\nONE_TOKEN_B=old\n".encode("utf-8"))
+        second.write_bytes("ONE_TOKEN_B='new'\nexport ONE_TOKEN_C=3\n".encode("utf-8"))
+        got = stand_health._env_values(t.project, {"env_files": ["harness/one.env", "harness/two.env"]})
+        check_eq("stand_health: `env_files` of two files, the later wins",
+                 (got.get("ONE_TOKEN_A"), got.get("ONE_TOKEN_B"), got.get("ONE_TOKEN_C")), ("1", "new", "3"))
+        got = stand_health._env_values(t.project, {"env_files": ["harness/one.env"], "env_file": "harness/two.env"})
+        check_eq("stand_health: `env_files` beats the older `env_file`", (got.get("ONE_TOKEN_A"), got.get("ONE_TOKEN_C")), ("1", None))
+        got = stand_health._env_values(t.project, {"env_files": ["harness/nowhere.env", "harness/two.env"]})
+        check_eq("stand_health: a missing file in the list is skipped, not fatal", got.get("ONE_TOKEN_C"), "3")
+        import brief_pack
+        names, _rel = brief_pack._env_file_key_names({"env_files": ["harness/one.env", "harness/two.env"]}, t.project)
+        check_eq("brief_pack names the keys of BOTH files, `export` and BOM read as the names", sorted(names or []),
+                 ["ONE_TOKEN_A", "ONE_TOKEN_B", "ONE_TOKEN_C"])
+    finally:
+        S.cleanup(t)
+
+
 def t308_f1_a_login_declared_null_is_never_read():
     """t-308 F1: `manual_capture.login.<kind>: null` says that kind needs no login, and the driver's gate already says "no
     problem" for it - so the capture must not read (and refuse on) the env file either. ERROR DIRECTION: the gate and the
@@ -3113,6 +3176,7 @@ def main():
     landing_data_and_overrides()
     landing_before_submit()
     read_login_adversarial()
+    of3_1e_one_env_file_parse()
     t308_f1_a_login_declared_null_is_never_read()
     t308_f2_an_explicit_attempt_of_a_login_that_did_not_land()
     t308_f3_a_recipe_that_is_not_an_object_is_refused()

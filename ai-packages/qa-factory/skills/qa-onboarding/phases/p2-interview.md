@@ -278,16 +278,13 @@ profiles. Unsupported selector or adapter stays unsupported; offer manual/prepar
 5. **Git conventions and pre-commit commands.** Confirm (or correct) the branch/commit/MR
    pattern discovery inferred from history; ask for `pre_commit_commands` (linter,
    formatter — e.g. `ruff check`) and confirm any the repo's own docs already named.
-   Record `format_changed` and `format_all` as two separate keys: `format_changed` formats
+   Record `format_changed`: it formats
    ONLY the files a story touched (the project's formatter over `git diff --name-only
-   <base>...HEAD`) and is the only formatting a role may run; `format_all` is the wide
-   command and is a separate cleanup. When the project offers only a wide command, DERIVE
+   <base>...HEAD`) and is the only formatting a role may run. When the project offers only
+   a wide command, DERIVE
    the narrow one here rather than leaving the choice to a role — on TP2-2520 the
    configured command was `prettier --write src`, the story changed one test file, and
-   running it would have rewritten drift in 39 files belonging to other people. Also ask
-   `records_policy` (`with_story` · `separate` · `local_only`): where the factory's shared
-   records — `obligations.md`, `factory-backlog.md`, `strategy/*`, which accumulate across
-   stories — are committed. `artifacts/<TICKET>/` always travels with its own story. This
+   running it would have rewritten drift in 39 files belonging to other people. This
    topic owns naming *conventions* only. **How the factory talks to the VCS** — `glab`, `gh`,
    a connector — belongs to topic 7 and is not asked here; asking it in both places is how
    the same question got put to a team twice. Also ask, in plain words, **which command brings
