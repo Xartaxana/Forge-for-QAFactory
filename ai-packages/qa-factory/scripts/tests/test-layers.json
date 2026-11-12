@@ -1082,6 +1082,7 @@
     "waiver.py",
     "window_record.py",
     "tests/harness.py",
+    "tests/story_run_common.py",
     "tests/test_controller_rework_scope.py",
     "tests/test_fixes_13797.py",
     "tests/test_gap_points.py"
