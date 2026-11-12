@@ -44,7 +44,8 @@ def task_root(task: str, root=None) -> Path:
 
 
 # `one of vocabulary.X`, then the hand-written list some contracts keep after it (` - a|b|c`, never a space inside).
-VOCAB_LIST = re.compile(r"one of vocabulary\.([a-z_]+)(?: - [^\s,>]+)?")
+# The list ends at a space, `,`, `;` or `>`: a `;` written right after the list belongs to the tail and stays.
+VOCAB_LIST = re.compile(r"one of vocabulary\.([a-z_]+)(?: - [^\s,;>]+)?")
 
 
 def inline_values(text: str, role: str) -> str:

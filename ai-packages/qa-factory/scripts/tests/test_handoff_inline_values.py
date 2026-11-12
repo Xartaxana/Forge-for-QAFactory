@@ -133,6 +133,15 @@ def test_hand_list_is_replaced() -> None:
              "<one of vocabulary.staleness_causes - source|test|runtime|environment|build|provenance>")
     again = handoff_init.inline_values(handoff_init.inline_values(text, "qa-scout"), "qa-scout")
     check_eq("K-B3 doing it twice changes nothing", again, handoff_init.inline_values(text, "qa-scout"))
+    # SC2-42: a hand list ends at a space, `,`, `;` or `>`; whatever follows it stays, whole (one case per tail shape)
+    new = "approved|approved_with_fixes|rejected|unverified"
+    for label, old, tail in (("semicolon then words", " - old|list", "; c"), ("comma then words", " - old|list", ", c"),
+                             ("space then semicolon", " - old|list", " ; c"), ("bare name, semicolon", "", "; c"),
+                             ("bare name, comma", "", ", c"), ("empty tail", " - old|list", "")):
+        text_in = "a:\n  v: <one of vocabulary.critic_verdicts" + old + tail + ">\n"
+        got = handoff_init.inline_values(text_in, "qa-scout").splitlines()[1]
+        check_eq(f"SC2-42 {label}: the list is replaced, the tail stays", got.strip(),
+                 f"v: <one of vocabulary.critic_verdicts - {new}{tail}>")
     check_eq("K-B3 a line that is not a vocabulary placeholder is untouched",
              handoff_init.inline_values("x: <= 80 characters>\ny: some words one of vocabulary.row_states\n", "r"),
              "x: <= 80 characters>\ny: some words one of vocabulary.row_states\n")
