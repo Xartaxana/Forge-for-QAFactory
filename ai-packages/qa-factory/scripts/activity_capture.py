@@ -15,9 +15,17 @@ import session_identity
 # `TYPES` stays as the same object for the readers that already import it; `dashboard_cost_groups` reads FACTORY_TYPES for its labels.
 FACTORY_TYPES = {"onboarding", "doctor", "story", "environment-maintenance", "collect", "unclassified"}
 TYPES = FACTORY_TYPES
-# What counts as FACTORY WORK: every named type, never the `unclassified` bucket (owner, 12.11.2026, CD1-11). The three readers
-# (hooklib.session_has_factory_activity, cost_capture likely_factory and has_factory_activity) read this one set.
+# What counts as FACTORY WORK: every named type, never the `unclassified` bucket (owner, 12.11.2026, CD1-11).
 REAL_FACTORY_TYPES = FACTORY_TYPES - {"unclassified"}
+
+
+def is_factory_activity(items) -> bool:
+    """The ONE predicate "is this factory activity" (CD1-11, AR-1): True when any entry of `items` is a dict whose `type` is a
+    string of REAL_FACTORY_TYPES. Read by hooklib.session_has_factory_activity, cost_capture (likely_factory and
+    has_factory_activity), factory_dashboard._has_factory_activity and metrics_projection._has_factory_activity. None, an empty
+    list and junk entries (a non-dict, a missing or non-string type such as a list or a dict) give False; nothing raises."""
+    return any(isinstance(a, dict) and isinstance(a.get("type"), str) and a["type"] in REAL_FACTORY_TYPES
+               for a in items or ())
 
 def _atomic_activity(path, doc):
     for attempt in range(5):

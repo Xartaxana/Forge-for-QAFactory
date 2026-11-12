@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import artifact_root, project_root, parse_frontmatter, require_project_at
+from activity_capture import is_factory_activity
 import adapter_forms as AF  # noqa: E402  — the project's ticket key form (B-405): which task name is a story
 import contract as C  # noqa: E402  — C.artifact resolves work/ or flat artifact paths
 import runtime_paths as RP  # noqa: E402  — where the carried records and the readiness report live (t-232)
@@ -1955,12 +1956,12 @@ def tab_estimates(records, ob_list, cost_lookup, signals, sonnet_lookup=None, fl
 def _has_factory_activity(s):
     """A session counts as factory work when `has_factory_activity` says so explicitly, or —
     for a file written before that field existed — when its own `by_activity` already shows
-    a doctor/onboarding/story type (the identical rule cost_capture.py uses to COMPUTE the
-    field it would have written). `by_activity` itself missing entirely means NO signal at
+    a factory activity type (`activity_capture.is_factory_activity`, the ONE predicate cost_capture.py also
+    uses to COMPUTE the field it would have written). `by_activity` itself missing entirely means NO signal at
     all is available (not even the old-format shape cost_capture.py has always written) —
     that stays the old conservative default, True, so a story already in flight is never
     refused because an artifact lacks a field. A session whose `by_activity` IS present but
-    names no doctor/onboarding/story type at all — session 79152e1f, cwd merely inside the
+    names no factory activity type at all — session 79152e1f, cwd merely inside the
     project, $149 that used to render as "Unclassified" — is no longer miscounted as factory
     just because `has_factory_activity` itself is absent."""
     v = s.get('has_factory_activity')
@@ -1969,8 +1970,7 @@ def _has_factory_activity(s):
     by_activity = s.get('by_activity')
     if not isinstance(by_activity, dict):
         return True
-    return any(isinstance(a, dict) and a.get('type') in ('doctor', 'onboarding', 'story')
-               for a in by_activity.values())
+    return is_factory_activity(by_activity.values())
 
 
 def split_project_sessions(sessions, root=None):

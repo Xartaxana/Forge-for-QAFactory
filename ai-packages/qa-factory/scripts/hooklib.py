@@ -2190,7 +2190,7 @@ def needs_guard(command: str, cfg: dict, event: dict | None = None) -> bool:
 
 
 def session_has_factory_activity(session_id: str, event: dict | None = None) -> bool:
-    """True when this session ever opened a factory activity (any `activity_capture.REAL_FACTORY_TYPES` type): the guard's
+    """True when this session ever opened a factory activity (`activity_capture.is_factory_activity`): the guard's
     read-size limit and turn counter apply only inside real factory work, never to a session
     that merely sits with its cwd inside the project (a Git Bash `cd`, an unrelated analysis
     session) — that was exactly what left `state/cost/` and `state/turns/` files behind for
@@ -2202,15 +2202,14 @@ def session_has_factory_activity(session_id: str, event: dict | None = None) -> 
     if not session_id:
         return False
     try:
-        from activity_capture import REAL_FACTORY_TYPES, activity_path, load
+        from activity_capture import activity_path, is_factory_activity, load
     except Exception:
         return False
     try:
         doc = load(activity_path(event, session_id), session_id)
     except Exception:
         return False
-    return any(isinstance(a, dict) and a.get("type") in REAL_FACTORY_TYPES
-               for a in doc.get("activities") or [])
+    return is_factory_activity(doc.get("activities"))
 
 
 _SUBAGENT_ROLE_RE = re.compile(r"You are\s+([\w-]+)")

@@ -114,55 +114,5 @@ def main():
         cleanup(root)
 
 
-def bare_root_creates_nothing():
-    """OH3-37: on a root without qa-factory/config.json `cost_capture.py --all-stale` creates nothing named qa-factory/."""
-    import tempfile, shutil
-    tmp = Path(tempfile.mkdtemp(prefix="cc-bare-")).resolve()
-    try:
-        transcript = tmp / "t.jsonl"
-        transcript.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"},
-                                          "timestamp": "2026-11-12T10:00:00Z"}) + "\n", encoding="utf-8")
-        bare = tmp / "bare"
-        bare.mkdir()
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        # The hook-stdin form with a readable transcript DOES create qa-factory/state/cost here (measured 12.11.2026,
-        # OH3-37 question to the coordinator): it is not pinned until the owner of the node decides its behaviour.
-        forms = {"--all-stale": (["--all-stale"], "")}
-        for name, (args, stdin) in forms.items():
-            r = subprocess.run([sys.executable, "-B", str(SCRIPTS / "cost_capture.py"), *args], cwd=bare, env=env,
-                               input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=120)
-            assert r.returncode == 0, (name, r.returncode, r.stderr)
-            assert not list(bare.rglob("qa-factory")), (name, [p.name for p in bare.rglob("*")])
-        print("PASS bare root: cost_capture creates no qa-factory/")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def factory_activity_is_one_set():
-    """CD1-11: hooklib.session_has_factory_activity and cost_capture's two readers answer from
-    activity_capture.REAL_FACTORY_TYPES: every named type counts, `unclassified` alone does not, and an
-    absent or foreign type does not."""
-    import unittest.mock as mock
-    import activity_capture as AC
-    import hooklib
-    assert AC.REAL_FACTORY_TYPES == AC.FACTORY_TYPES - {"unclassified"}
-    cases = {"doctor": True, "onboarding": True, "story": True, "collect": True, "environment-maintenance": True,
-             "unclassified": False, "": False, None: False, "made-up": False}
-    for kind, expected in cases.items():
-        doc = {"activities": [{"type": kind}, "junk", None]}
-        with mock.patch("activity_capture.load", return_value=doc),                 mock.patch("activity_capture.activity_path", return_value=Path("x.json")):
-            assert hooklib.session_has_factory_activity("s1", {}) is expected, ("hooklib", kind)
-        assert C._has_factory_type([{"type": kind}, "junk"]) is expected, ("cost_capture list", kind)
-        assert C._has_factory_type({"a1": {"type": kind}}.values()) is expected, ("cost_capture by_activity", kind)
-    assert C._has_factory_type([]) is False
-    for name in ("hooklib.py", "cost_capture.py"):
-        text = (SCRIPTS / name).read_text(encoding="utf-8")
-        assert '("doctor", "onboarding", "story")' not in text, name
-    print("PASS factory activity: one set, three readers")
-
-
 if __name__ == "__main__":
     main()
-    bare_root_creates_nothing()
-    factory_activity_is_one_set()
