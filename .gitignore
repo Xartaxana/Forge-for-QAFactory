@@ -17,6 +17,7 @@ logs/owns_registry.jsonl
 .claude/dispatch_claims/
 # Session-local hook state (DoD tracker, search ledger): a worktree commit carried them into main twice (564780b9, pile run-honesty/1)
 .claude/dod_track/
+.claude/compact_seen.json
 logs/.search-ledger/
 # Migration bundle (GM2-2 / F-13): rebuilt last before the cutover, never committed
 *.bundle

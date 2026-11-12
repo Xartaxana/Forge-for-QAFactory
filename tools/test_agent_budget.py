@@ -159,6 +159,7 @@ def test_main_warn_at_300k_and_again_only_at_350k(ses):
     _write(ses.main, [_assistant(310000)])
     first = ses.run({})
     assert "main session context is 310000 tokens" in _ctx_of(first)
+    assert "docs/tasks/compact-snapshots/" in _ctx_of(first)
     assert ses.run({}).stdout == ""
     _write(ses.main, [_assistant(349999)])
     assert ses.run({}).stdout == ""

@@ -486,7 +486,9 @@ for the period, and diffs to DECISIONS.md.
     carry the whole node instead of the fix diff — each a finding;
     critic-on-plan dispatches on specs with no fork or schema/money
     change — a finding; (d) the Lead session's median context per turn
-    (target ≤ 350K; a turn over 600K means a compaction was skipped),
+    (target ≤ 350K; a turn over 600K means a compaction was skipped; with
+    auto-compaction at 350K, once the experiment A0.1 confirms the key
+    is honoured, a turn over 400K is a finding of the auto window),
     stage commits per merge (target ≤ 0.5), journal notes over 300
     chars written after 07.10.2026 23:00 (`journal_echo` warns),
     CI reads through the browser instead of `tools/ci_read.py`; (e)
@@ -942,6 +944,18 @@ the source's own number.
     violation (the hook fails open, so this check is its only detector
     besides `tools/test_compact_snapshot.py`); uncommitted snapshots
     beyond the newest 30 are noted (the hook never deletes them).
+    Since 12.11.2026 (F19, node A1): a hook snapshot carries its
+    identity in its first line, and every compaction is followed by the
+    `AFTER COMPACT:` line; a `COMPACT SNAPSHOT: MISSING` line is a
+    violation of the snapshot duty; a compaction of `trigger: auto` is
+    checked like a manual one; a Lead action after a compaction before
+    any Read of the named snapshot is a finding. Named open limits, each
+    counted when met: a session opened in the clone's parent (no hooks
+    load: a compaction there has no line at all); auto compactions
+    before the experiment A0.1 settles which event carries the pointer
+    (the auto window is live since 97fae62); an `announced record not
+    written` line, and two sessions writing the record at once (the
+    lost update errs toward "fresh once more").
 33. **Piles and batches, the journal per developer (DECISIONS.md D-0036;
     CLAUDE.md rule 4a; PROJECT.md «Командная работа»).**
     Mechanism: `tools/piles.py check` in `.githooks/commit-msg` (door

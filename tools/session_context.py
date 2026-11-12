@@ -2218,27 +2218,190 @@ def build_context_lines(
 _COMPACT_SNAPSHOT_DIR = Path("docs") / "tasks" / "compact-snapshots"
 
 
-def compact_snapshot_line(root: Path, now: datetime.datetime = None) -> str:
-    """SessionStart with source `compact`: one line naming the newest file
-    the PreCompact hook (tools/compact_snapshot.py) wrote under
-    docs/tasks/compact-snapshots/ and its age in minutes, or "none".
-    Read-only; never raises (a failure degrades to one line -- the boot
-    must not fail on it)."""
+STALE_MIN = 10  # a hook snapshot older than this is never "this compaction's"
+MATCH_SESSION = True  # compare the SessionStart session id with the snapshot header's; an experiment may flip it
+COMPACT_SEEN_REL = Path(".claude") / "compact_seen.json"  # the announced record: a JSON list of snapshot file names
+COMPACT_SEEN_KEEP = 200
+
+
+def _compact_door(session_id) -> str:
+    sess = f" --session {session_id}" if session_id else ""
+    return f"write it now: python -B tools/compact_snapshot.py --source manual{sess}"
+
+
+def _read_announced(path: Path):
+    """(names, problem): the announced record's names; ([], None) when the file is absent; (None, reason) when it
+    is unreadable or not a JSON list -- the caller then counts every candidate as announced. Never raises."""
     try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return [], None
+    except (OSError, ValueError) as e:
+        return None, _ascii_sanitize(f"{type(e).__name__}: {e}", 120)
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        return None, _ascii_sanitize(f"not JSON: {e}", 120)
+    if not isinstance(data, list):
+        return None, "not a JSON list"
+    return [x for x in data if isinstance(x, str)], None
+
+
+def compact_snapshot_lines(root: Path, now: datetime.datetime = None, session_id=None) -> list:
+    """SessionStart with source `compact`: the block after the boot lines (spec fg-context-and-hygiene A1).
+    The snapshot named is the one written for THIS compaction: a hook snapshot (identity by the header of its first
+    line, compact_snapshot.snapshot_identity -- never by name) that is not in the announced record, is at most
+    STALE_MIN minutes old and, when both session ids are known and MATCH_SESSION, carries the same session id;
+    the newest such file wins. Otherwise `COMPACT SNAPSHOT: MISSING ...` with the door. The error direction is
+    toward MISSING, never toward "fresh" for an announced or stale file. A fresh snapshot's name is appended to the
+    announced record (last COMPACT_SEEN_KEEP names) before the lines are returned. Never raises (fail-open)."""
+    sid = None
+    try:
+        import compact_snapshot as _cs
+
+        sid = _cs.clean_session_id(session_id)
         now = now or datetime.datetime.now()
-        folder = Path(root) / _COMPACT_SNAPSHOT_DIR
-        files = []
-        if folder.is_dir():
-            for p in folder.glob("*.md"):
-                if p.name.lower() != "readme.md":
-                    files.append((p.stat().st_mtime, p.name))
-        if not files:
-            return "COMPACT SNAPSHOT: none"
-        mtime, name = max(files)
-        age = max(0, int((now.timestamp() - mtime) // 60))
-        return f"COMPACT SNAPSHOT: {_COMPACT_SNAPSHOT_DIR.as_posix()}/{_ascii_sanitize(name, 120)} ({age} min old)"
-    except Exception as e:
-        return f"COMPACT SNAPSHOT: unavailable ({_ascii_sanitize(str(e), 120)})"
+        hooks, narratives, failures = _compact_candidates(Path(root), _cs)
+        if failures and not hooks and not narratives:
+            return _compact_unavailable(failures[0], sid)
+        record = Path(root) / COMPACT_SEEN_REL
+        announced, problem = _read_announced(record)
+        chosen = _compact_chosen(hooks, announced, sid, now)
+        lines = _compact_block(hooks, narratives, chosen, sid, now)
+        if problem:   # unreadable record: this compaction says MISSING; the record is rebuilt so the next one works
+            lines.append(_compact_rebuild(record, hooks, problem))
+        elif chosen is not None:
+            err = _write_announced(record, [chosen[1]])
+            if err:
+                lines.append(f"COMPACT SNAPSHOT: announced record not written ({err})")
+        return lines
+    except Exception as e:  # noqa: BLE001 -- fail-open: the boot must not fail on this block
+        return _compact_unavailable(e, sid)
+
+
+_COMPACT_AFTER = ("AFTER COMPACT: read the snapshot above before your next action; "
+                  "accept the OPEN DISPATCH lines in a batch")
+
+
+def _exc_text(e: Exception) -> str:
+    return _ascii_sanitize(f"{type(e).__name__}: {e}", 120)
+
+
+def _compact_unavailable(e: Exception, sid) -> list:
+    return [f"COMPACT SNAPSHOT: unavailable ({_exc_text(e)}) -- {_compact_door(sid)}", _COMPACT_AFTER]
+
+
+def _compact_candidates(root: Path, cs):
+    """(hooks, narratives, failures) of the snapshot folder: (mtime, name, identity | None) per readable file; a file
+    whose stat or header read fails is skipped and its error kept. README.md is never a candidate."""
+    hooks, narratives, failures = [], [], []
+    folder = root / _COMPACT_SNAPSHOT_DIR
+    if folder.is_dir():
+        for p in folder.glob("*.md"):
+            if p.name.lower() == "readme.md":
+                continue
+            try:
+                mtime = p.stat().st_mtime
+                ident = cs.snapshot_identity(p)
+            except (OSError, ValueError) as e:
+                failures.append(e)
+                continue
+            (narratives if ident is None else hooks).append((mtime, p.name, ident))
+    return hooks, narratives, failures
+
+
+def _compact_age(h, now: datetime.datetime):
+    """(age in seconds, trusted) of a hook snapshot: the OLDER of the age from the file's mtime and the age from the
+    header's `written` field (a checkout/pull/stash refreshes an mtime, never the header). `trusted` is False when
+    `written` is absent or unparsable: such a file is never fresh, its shown age is the mtime's. A time in the
+    future (clock skew) counts as age 0."""
+    mtime, _name, ident = h
+    age = max(0.0, now.timestamp() - mtime)
+    try:
+        written = datetime.datetime.strptime(ident["written"], "%Y-%m-%dT%H:%M:%S")
+    except (ValueError, TypeError, KeyError):
+        return age, False
+    return max(age, (now - written).total_seconds()), True
+
+
+def _compact_chosen(hooks: list, announced, sid, now: datetime.datetime):
+    """The newest hook snapshot that is this compaction's, or None. Error direction: toward None -- an unreadable
+    record (announced is None), an announced name, an age over STALE_MIN or an untrusted age is never fresh."""
+    if announced is None:
+        return None
+    seen = set(announced)
+
+    def this_compactions(h):
+        age, trusted = _compact_age(h, now)
+        if h[1] in seen or not trusted or age > STALE_MIN * 60:
+            return False
+        known = h[2]["session"] != "unknown" and sid is not None
+        return not (MATCH_SESSION and known and h[2]["session"] != sid)
+
+    eligible = [h for h in hooks if this_compactions(h)]
+    return max(eligible, key=lambda h: (h[0], h[1])) if eligible else None
+
+
+def _compact_block(hooks: list, narratives: list, chosen, sid, now: datetime.datetime) -> list:
+    rel = _COMPACT_SNAPSHOT_DIR.as_posix()
+
+    def path_of(name):
+        return f"{rel}/{_ascii_sanitize(name, 120)}"
+
+    def age_min(h):
+        return int(_compact_age(h, now)[0] // 60)
+
+    lines = []
+    if chosen is not None:
+        lines.append(f"COMPACT SNAPSHOT: {path_of(chosen[1])} ({age_min(chosen)} min old, "
+                     f"trigger {_ascii_sanitize(chosen[2]['trigger'], 20)})")
+    else:
+        newest = max(hooks, key=lambda h: (h[0], h[1])) if hooks else None
+        shown = f"{path_of(newest[1])}, {age_min(newest)} min old" if newest else "none"
+        lines.append(f"COMPACT SNAPSHOT: MISSING for this compaction (newest hook snapshot {shown}) -- "
+                     f"{_compact_door(sid)}")
+    if narratives:
+        n = max(narratives, key=lambda h: (h[0], h[1]))
+        if chosen is None or n[0] > chosen[0]:
+            nmin = int(max(0.0, now.timestamp() - n[0]) // 60)
+            lines.append(f"COMPACT NARRATIVE: {path_of(n[1])} ({nmin} min old)")
+    lines.append(_COMPACT_AFTER)
+    return lines
+
+
+def _write_announced(record: Path, add: list):
+    """Merge `add` into the record and write it atomically (dod_track._atomic_write_text). The record is re-read
+    right before the write and merged (union, order kept, last COMPACT_SEEN_KEEP), so a name another session wrote
+    in between is kept. A lost update is still possible when two sessions write within the same instant (the read
+    and the replace are not one step); it errs toward "fresh once more" -- a name dropped is shown as this
+    compaction's again if its snapshot is still under STALE_MIN -- and is a named limit of calibration check 32.
+    Returns None, or the error text when the write failed."""
+    try:
+        import dod_track
+
+        current, _problem = _read_announced(record)
+        merged = list(current or [])
+        merged += [n for n in add if n not in merged]
+        dod_track._atomic_write_text(record, json.dumps(merged[-COMPACT_SEEN_KEEP:]))
+        return None
+    except Exception as e:  # noqa: BLE001 -- the block is printed anyway
+        return _exc_text(e)
+
+
+def _compact_rebuild(record: Path, hooks: list, problem: str) -> str:
+    """The line for an unreadable announced record: the record is rewritten NOW as a valid list of every hook
+    snapshot present (they all counted as announced, so the error direction is kept); when that fails the line
+    names the door."""
+    names = [h[1] for h in sorted(hooks, key=lambda h: (h[0], h[1]))]
+    try:
+        import dod_track
+
+        dod_track._atomic_write_text(record, json.dumps(names[-COMPACT_SEEN_KEEP:]))
+    except Exception as e:  # noqa: BLE001 -- the block is printed anyway
+        return (f"COMPACT SNAPSHOT: announced record unreadable ({problem}) and could not be rebuilt "
+                f"({_exc_text(e)}) -- delete {COMPACT_SEEN_REL.as_posix()}; the next compaction writes it again")
+    return (f"COMPACT SNAPSHOT: announced record unreadable ({problem}) -- rebuilt now with the {len(names)} "
+            f"snapshot(s) present; the next compaction reads it")
 
 
 def main(root: Path = None) -> int:
@@ -2308,8 +2471,9 @@ def main(root: Path = None) -> int:
 
         if source == "compact":
             # After the cut: this line must survive build_context_lines'
-            # MAX_LINES truncation (it is the pointer to the PreCompact snapshot).
-            lines = lines + [compact_snapshot_line(resolved_root)]
+            # MAX_LINES truncation (it is the pointer to the PreCompact snapshot, or MISSING with the door).
+            sid = stdin_payload.get("session_id") if isinstance(stdin_payload, dict) else None
+            lines = lines + compact_snapshot_lines(resolved_root, session_id=sid if isinstance(sid, str) else None)
 
         output = "\n".join(lines)
         if lines:

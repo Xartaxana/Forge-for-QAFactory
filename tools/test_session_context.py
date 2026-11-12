@@ -2927,3 +2927,245 @@ def test_td157_quarantine_line_real_function_no_records_no_line(tmp_path):
         "def test_layers(path):\n    return {'absent': True, 'quarantine': {}, 'cohorts': {}}\n", encoding="utf-8")
     assert sc.test_quarantine_line(root) == []
     assert not any("TEST QUARANTINE" in l for l in sc.build_context_lines(root, datetime.datetime(2026, 11, 10, 12, 0, 0)))
+
+
+# ---- A1 (fg-context-and-hygiene): the block after a compaction, identity by the header of the first line ----
+
+import compact_snapshot as _cs_mod
+import session_context as _scm
+
+_A1_NOW = datetime.datetime(2026, 11, 12, 13, 0, 0)
+_A1_DIR = "docs/tasks/compact-snapshots"
+_A1_FRESH = "min old, trigger"        # the fresh line carries the trigger; MISSING never does
+_A1_MISSING = "COMPACT SNAPSHOT: MISSING for this compaction"
+_A1_DOOR = "python -B tools/compact_snapshot.py --source manual"
+_A1_ABSENT = "absent"                 # record_after: the record file is not there
+
+
+def _a1_put(root, files):
+    folder = root / _A1_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, session, age_min, *rest in files:
+        path = folder / name
+        # optional 4th item: minutes ago the header says it was written (negative = in the future), or a raw
+        # `written:` text, or "absent" for a header with no written field; default: written right now
+        written = rest[0] if rest else 0
+        if session is None:
+            text = "# body\n"
+        elif isinstance(written, int):
+            text = _cs_mod.header_line(session, "manual", _A1_NOW - datetime.timedelta(minutes=written)) + "\n# body\n"
+        else:
+            field = "" if written == "absent" else f"; written: {written}"
+            text = f"{_cs_mod.HOOK_HEADER_PREFIX}; session: {session}; trigger: manual{field} -->\n# body\n"
+        path.write_text(text, encoding="utf-8")
+        stamp = _A1_NOW.timestamp() - age_min * 60
+        os.utime(path, (stamp, stamp))
+
+
+def _a1_record(root):
+    path = root / ".claude" / "compact_seen.json"
+    if not path.exists():
+        return _A1_ABSENT
+    raw = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw   # a corrupt record is compared as its raw text
+
+
+# id, files [(name, header session | None = no header, age in min)], record (None | list | raw str), the SessionStart
+# session id, mode, expected prefix of line 0, strings that must / must not be in the block, the record afterwards
+_A1_ROWS = [
+    ("fresh_headed", [("2026-11-12-1257-manual.md", "s1", 3)], None, "s1", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1257-manual.md (3 {_A1_FRESH} manual)",
+     ["AFTER COMPACT: read the snapshot above before your next action"], ["MISSING", "COMPACT NARRATIVE"],
+     ["2026-11-12-1257-manual.md"]),
+    ("headed_11_min_old", [("2026-11-12-1249-manual.md", "s1", 11)], None, "s1", "fn",
+     _A1_MISSING, [f"{_A1_DIR}/2026-11-12-1249-manual.md, 11 min old", _A1_DOOR], [_A1_FRESH], _A1_ABSENT),
+    ("headed_10_min_old_still_counts", [("2026-11-12-1250-manual.md", "s1", 10)], None, "s1", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1250-manual.md (10 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1250-manual.md"]),
+    ("headed_already_announced", [("2026-11-12-1257-manual.md", "s1", 3)], ["2026-11-12-1257-manual.md"], "s1", "fn",
+     _A1_MISSING, [_A1_DOOR], [_A1_FRESH], ["2026-11-12-1257-manual.md"]),
+    ("two_compactions_second_precompact_absent", [("2026-11-12-1257-manual.md", "s1", 3)], None, "s1", "twice",
+     _A1_MISSING, [_A1_DOOR, "5 min old"], [_A1_FRESH], ["2026-11-12-1257-manual.md"]),
+    ("unheaded_hand_written_newest", [("2026-11-12-1210-manual.md", None, 1), ("2026-11-12-1230-manual.md", "s1", 30)],
+     None, "s1", "fn",
+     _A1_MISSING, [f"COMPACT NARRATIVE: {_A1_DIR}/2026-11-12-1210-manual.md (1 min old)", _A1_DOOR],
+     [_A1_FRESH], _A1_ABSENT),
+    ("headed_suffix_2", [("2026-11-12-1259-manual-2.md", "s1", 1)], None, "s1", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1259-manual-2.md (1 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1259-manual-2.md"]),
+    ("headed_other_source_name", [("2026-11-12-1259-weird.md", "s1", 2)], None, "s1", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1259-weird.md (2 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1259-weird.md"]),
+    ("session_mismatch", [("2026-11-12-1257-manual.md", "s1", 3)], None, "s2", "fn",
+     _A1_MISSING, ["--session s2"], [_A1_FRESH], _A1_ABSENT),
+    ("session_unknown_in_header", [("2026-11-12-1257-manual.md", "unknown", 3)], None, "s2", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1257-manual.md (3 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1257-manual.md"]),
+    ("session_unknown_in_payload", [("2026-11-12-1257-manual.md", "s1", 3)], None, None, "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1257-manual.md (3 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1257-manual.md"]),
+    ("two_sessions_in_one_clone_newest_is_the_other_ones",
+     [("2026-11-12-1256-manual.md", "mine", 4), ("2026-11-12-1258-manual.md", "other", 2)], None, "mine", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1256-manual.md (4 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1256-manual.md"]),
+    ("no_folder", [], None, "s1", "fn",
+     "COMPACT SNAPSHOT: MISSING for this compaction (newest hook snapshot none)", [_A1_DOOR], [_A1_FRESH],
+     _A1_ABSENT),
+    ("folder_with_only_readme", [("README.md", None, 5)], None, "s1", "fn",
+     "COMPACT SNAPSHOT: MISSING for this compaction (newest hook snapshot none)", [_A1_DOOR],
+     ["COMPACT NARRATIVE"], _A1_ABSENT),
+    # B1: the age is the OLDER of the mtime age and the header's written age; a written that is absent / unparsable
+    # is never fresh; a written in the future counts as 0 (the mtime decides)
+    ("written_65_min_ago_mtime_refreshed", [("2026-11-12-1155-manual.md", "s1", 5, 65)], None, "s1", "fn",
+     _A1_MISSING, [f"{_A1_DIR}/2026-11-12-1155-manual.md, 65 min old", _A1_DOOR], [_A1_FRESH], _A1_ABSENT),
+    ("other_sessions_old_file_mtime_refreshed", [("2026-11-11-0900-manual.md", "unknown", 2, 1440)], None, "s1", "fn",
+     _A1_MISSING, [_A1_DOOR], [_A1_FRESH], _A1_ABSENT),
+    ("written_unparsable", [("2026-11-12-1257-manual.md", "s1", 3, "garbage")], None, "s1", "fn",
+     _A1_MISSING, [_A1_DOOR, "3 min old"], [_A1_FRESH], _A1_ABSENT),
+    ("written_absent_from_header", [("2026-11-12-1257-manual.md", "s1", 3, "absent")], None, "s1", "fn",
+     _A1_MISSING, [_A1_DOOR], [_A1_FRESH], _A1_ABSENT),
+    ("written_in_the_future_mtime_decides", [("2026-11-12-1257-manual.md", "s1", 3, -5)], None, "s1", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1257-manual.md (3 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1257-manual.md"]),
+    # F5: one candidate unreadable, the other still named
+    ("newer_candidate_unreadable_older_still_named",
+     [("2026-11-12-1256-manual.md", "s1", 4), ("2026-11-12-1258-manual.md", "s1", 2)], None, "s1", "newer_unreadable",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1256-manual.md (4 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1256-manual.md"]),
+    # B2: an unreadable record -> MISSING and the record is rebuilt now, so the next compaction works again
+    ("record_corrupt", [("2026-11-12-1257-manual.md", "s1", 3)], "{not json", "s1", "fn",
+     _A1_MISSING, [_A1_DOOR, "COMPACT SNAPSHOT: announced record unreadable (", "rebuilt"], [_A1_FRESH],
+     ["2026-11-12-1257-manual.md"]),
+    ("record_corrupt_next_compaction_works", [("2026-11-12-1257-manual.md", "s1", 3)], "{not json", "s1", "heal",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1259-manual.md (1 {_A1_FRESH} manual)", [], ["MISSING"],
+     ["2026-11-12-1257-manual.md", "2026-11-12-1259-manual.md"]),
+    ("record_not_a_list", [("2026-11-12-1257-manual.md", "s1", 3)], '{"a": 1}', "s1", "fn",
+     _A1_MISSING, ["announced record unreadable (not a JSON list)", "rebuilt"], [_A1_FRESH],
+     ["2026-11-12-1257-manual.md"]),
+    ("record_corrupt_and_not_writable", [("2026-11-12-1257-manual.md", "s1", 3)], "{not json", "s1", "unwritable",
+     _A1_MISSING, ["announced record unreadable (", "delete .claude/compact_seen.json"], [_A1_FRESH, "rebuilt now"],
+     "{not json"),
+    ("record_not_writable", [("2026-11-12-1257-manual.md", "s1", 3)], None, "s1", "unwritable",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1257-manual.md (3 {_A1_FRESH} manual)",
+     ["COMPACT SNAPSHOT: announced record not written ("], ["MISSING"], _A1_ABSENT),
+    ("record_keeps_the_last_200",
+     [("2026-11-12-1257-manual.md", "s1", 3)], [f"old-{i}.md" for i in range(250)], "s1", "fn",
+     f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1257-manual.md (3 {_A1_FRESH} manual)", [], ["MISSING"],
+     [f"old-{i}.md" for i in range(51, 250)] + ["2026-11-12-1257-manual.md"]),
+    ("non_compact_source", [("2026-11-12-1257-manual.md", "s1", 3)], None, "s1", "startup", None, [],
+     ["COMPACT SNAPSHOT", "COMPACT NARRATIVE", "AFTER COMPACT"], _A1_ABSENT),
+]
+
+
+class _A1Stdin:
+    def __init__(self, text):
+        self._text = text
+
+    def isatty(self):
+        return False
+
+    def read(self):
+        return self._text
+
+
+@pytest.mark.parametrize("files, record, session, mode, first, must, must_not, record_after",
+                         [r[1:] for r in _A1_ROWS], ids=[r[0] for r in _A1_ROWS])
+def test_a1_compact_block(tmp_path, monkeypatch, capsys, files, record, session, mode, first, must, must_not,
+                          record_after):
+    _a1_put(tmp_path, files)
+    if record is not None:
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "compact_seen.json").write_text(
+            record if isinstance(record, str) else json.dumps(record), encoding="utf-8")
+    if mode == "unwritable":
+        real = Path.write_text
+
+        def refuse(self, *a, **k):
+            if self.name.startswith("compact_seen.json"):   # the record and the temp file of its atomic write
+                raise PermissionError("read-only")
+            return real(self, *a, **k)
+
+        monkeypatch.setattr(Path, "write_text", refuse)
+    if mode == "newer_unreadable":
+        real_identity = _cs_mod.snapshot_identity
+
+        def identity(p):
+            if "1258" in str(p):
+                raise OSError("denied")
+            return real_identity(p)
+
+        monkeypatch.setattr(_cs_mod, "snapshot_identity", identity)
+    if mode == "startup":
+        (tmp_path / "logs").mkdir()
+        monkeypatch.setattr(sys, "stdin", _A1Stdin(json.dumps({"source": "startup", "session_id": session})))
+        assert _scm.main(tmp_path) == 0
+        lines = capsys.readouterr().out.splitlines()
+    else:
+        lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW, session)
+        if mode == "twice":
+            assert lines[0].startswith("COMPACT SNAPSHOT: ") and _A1_FRESH in lines[0], lines   # the first compaction
+            lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW + datetime.timedelta(minutes=2), session)
+        if mode == "heal":
+            assert lines[0].startswith(_A1_MISSING) and "rebuilt" in "\n".join(lines), lines   # the corrupt record
+            _a1_put(tmp_path, [("2026-11-12-1259-manual.md", "s1", 1)])                        # a new compaction
+            lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW, session)
+    if first is not None:
+        assert lines[0].startswith(first), lines
+    block = "\n".join(lines)
+    for text in must:
+        assert text in block, (text, lines)
+    for text in must_not:
+        assert text not in block, (text, lines)
+    assert _a1_record(tmp_path) == record_after
+
+
+def test_a1_match_session_constant_is_the_one_switch(tmp_path, monkeypatch):
+    _a1_put(tmp_path, [("2026-11-12-1257-manual.md", "s1", 3)])
+    monkeypatch.setattr(_scm, "MATCH_SESSION", False)
+    lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW, "s2")
+    assert _A1_FRESH in lines[0], lines   # with the switch off the session clause is skipped
+
+
+def test_a1_clock_skew_reads_as_age_zero(tmp_path):
+    _a1_put(tmp_path, [("2026-11-12-1257-manual.md", "s1", -5)])   # mtime 5 min in the future
+    lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW, "s1")
+    assert lines[0].endswith("(0 min old, trigger manual)"), lines
+
+
+def test_a1_unreadable_file_is_skipped_and_all_failing_is_unavailable(tmp_path, monkeypatch):
+    _a1_put(tmp_path, [("2026-11-12-1257-manual.md", "s1", 3)])
+    monkeypatch.setattr(_cs_mod, "snapshot_identity", lambda p: (_ for _ in ()).throw(OSError("denied")))
+    lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW, "s1")
+    assert lines[0] == f"COMPACT SNAPSHOT: unavailable (OSError: denied) -- write it now: {_A1_DOOR} --session s1", lines
+    assert lines[1].startswith("AFTER COMPACT: read the snapshot above") and len(lines) == 2, lines   # F3
+
+
+def test_a1_write_announced_merges_what_another_session_wrote(tmp_path):
+    record = tmp_path / ".claude" / "compact_seen.json"
+    record.parent.mkdir()
+    record.write_text(json.dumps(["other-session.md", "dup.md"]), encoding="utf-8")   # written after our first read
+    assert _scm._write_announced(record, ["dup.md", "mine.md"]) is None
+    assert json.loads(record.read_text(encoding="utf-8")) == ["other-session.md", "dup.md", "mine.md"]
+
+
+def test_a1_outer_failure_also_carries_the_after_line(tmp_path, monkeypatch):
+    monkeypatch.setattr(_scm, "_compact_candidates", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW, "s1")
+    assert lines[0].startswith("COMPACT SNAPSHOT: unavailable (RuntimeError: boom)") and len(lines) == 2, lines
+    assert lines[1].startswith("AFTER COMPACT: "), lines
+
+
+def test_a1_old_unheaded_hook_snapshots_read_as_narratives(tmp_path):
+    """Temporal, both worlds: a snapshot written before the header existed has none, so it can never be this
+    compaction's; the same text with the header on line 1 can."""
+    _a1_put(tmp_path, [("2026-11-12-1257-auto.md", None, 3)])
+    assert _scm.compact_snapshot_lines(tmp_path, _A1_NOW, "s1")[0].startswith(_A1_MISSING)
+    _a1_put(tmp_path, [("2026-11-12-1257-auto.md", "s1", 3)])
+    assert _A1_FRESH in _scm.compact_snapshot_lines(tmp_path, _A1_NOW, "s1")[0]
+
+
+def test_a1_no_caller_of_the_old_function_name_is_left():
+    assert not hasattr(_scm, "compact_snapshot_line")

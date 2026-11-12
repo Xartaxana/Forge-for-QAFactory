@@ -71,11 +71,59 @@ _SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
 _TID_RE = re.compile(r"^t-(\d+)$")
 
 REMINDER = (
-    "After the compact: read CURRENT_CONTEXT.md, then the newest `## State at` section of "
-    "docs/tasks/factory-fixes.md, then this snapshot's OPEN DISPATCHES (accept them in a batch; "
-    "a dead worker is a `replaces_worker` dispatch). The Lead writes the narrative State section "
-    "by hand; this file holds the facts the hand-written one must not contradict."
+    "After the compact: read CURRENT_CONTEXT.md, then the newest hand-written narrative of "
+    "docs/tasks/compact-snapshots/ (the newest file of that folder whose first line is not a hook header, "
+    "whatever its name; the SessionStart line COMPACT NARRATIVE names it when it is newer), then this snapshot's OPEN DISPATCHES (accept them in a batch; "
+    "a dead worker is a `replaces_worker` dispatch). The Lead writes the narrative by hand; "
+    "this file holds the facts the hand-written one must not contradict."
 )
+
+# The identity of a hook snapshot is its FIRST line (an HTML comment): a file name cannot tell a hook snapshot from a
+# hand-written narrative of the same name family. This module is the ONE writer (header_line) and the ONE reader
+# (snapshot_identity) of that line; tools/session_context.py imports them (AR-22).
+HOOK_HEADER_PREFIX = "<!-- compact-snapshot: hook"
+HEADER_READ_BYTES = 512
+SESSION_UNKNOWN = "unknown"
+_SESSION_CHARS_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_SESSION_CAP = 64
+_HEADER_FIELD_RE = re.compile(r"(?:^|;)\s*(session|trigger|written):\s*([^;>]*?)\s*(?=;|-->|$)")
+
+
+def clean_session_id(value):
+    """A session id as the header carries it: only [A-Za-z0-9_.-], at most 64 characters (a header stays one line and
+    never holds `;` or `-->`); None when `value` is no usable id. Never raises."""
+    try:
+        if not isinstance(value, str):
+            return None
+        cleaned = _SESSION_CHARS_RE.sub("", value)[:_SESSION_CAP]
+        return cleaned or None
+    except Exception:
+        return None
+
+
+def header_line(session, trigger: str, written: datetime.datetime) -> str:
+    """The first line of a hook snapshot (the one writer of the form)."""
+    trig = trigger if trigger in ("manual", "auto") else "unknown"
+    return (f"{HOOK_HEADER_PREFIX}; session: {clean_session_id(session) or SESSION_UNKNOWN}; "
+            f"trigger: {trig}; written: {written.strftime('%Y-%m-%dT%H:%M:%S')} -->")
+
+
+def snapshot_identity(path):
+    """{"session", "trigger", "written"} of a hook snapshot, or None when the first line is no hook header (a
+    hand-written narrative, an old file written before the header existed). Reads at most HEADER_READ_BYTES bytes.
+    A header whose prefix is present but whose fields are missing or odd is still a hook snapshot: the missing field
+    reads "unknown". A read failure raises OSError (the caller decides: the file is skipped)."""
+    with open(path, "rb") as f:
+        raw = f.read(HEADER_READ_BYTES)
+    first = raw.decode("utf-8", "replace").lstrip("﻿").split("\n", 1)[0].strip()
+    if not first.startswith(HOOK_HEADER_PREFIX):
+        return None
+    fields = {k: v for k, v in _HEADER_FIELD_RE.findall(first[len(HOOK_HEADER_PREFIX):])}
+    return {
+        "session": fields.get("session") or SESSION_UNKNOWN,
+        "trigger": fields.get("trigger") or "unknown",
+        "written": fields.get("written") or "unknown",
+    }
 
 
 def repo_root() -> Path:
@@ -407,8 +455,10 @@ def file_list(entries: list) -> list:
     return lines
 
 
-def build_snapshot(root: Path, source: str, now: datetime.datetime):
-    """Returns (markdown_text, facts) where facts feeds the stdout summary."""
+def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None, trigger=None):
+    """Returns (markdown_text, facts) where facts feeds the stdout summary. The first line is the hook header
+    (header_line): `session` is the PreCompact payload's session id (None -> unknown); `trigger` defaults to
+    `source` when that is manual or auto."""
     git = collect_git(root)
     view = journal_view(root)
     jk = journal = None
@@ -432,7 +482,8 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime):
             own_events = journal.events(journal.logical(own_label))
     switched = cur_rel != JOURNAL_REL.as_posix()
 
-    out = [f"# Compact snapshot -- {source}", "", "## 1. Header", ""]
+    out = [header_line(session, trigger if trigger is not None else source, now),
+           f"# Compact snapshot -- {source}", "", "## 1. Header", ""]
     out.append(f"- when: {now.strftime('%Y-%m-%d %H:%M:%S')} (local system clock)")
     out.append(f"- source: {source}")
     missed = git.get("missed") or []
@@ -585,11 +636,12 @@ def prune(folder: Path, root: Path):
 
 
 def _read_trigger_from_stdin(deadline: float = 2.0):
-    """The PreCompact payload's `trigger` (manual/auto); None on anything
-    odd. Bounded by a deadline so a never-closed stdin cannot hang the hook."""
+    """(trigger, session_id) of the PreCompact payload: `trigger` (manual/auto) and `session_id`, each None
+    when absent or odd (the whole pair is (None, None) on anything odd). Bounded by a deadline so a never-closed
+    stdin cannot hang the hook."""
     try:
         if sys.stdin is None or sys.stdin.isatty():
-            return None
+            return None, None
         box = []
 
         def _reader():
@@ -604,12 +656,14 @@ def _read_trigger_from_stdin(deadline: float = 2.0):
         if t.is_alive():
             _STDIN_STATE["hit"] = True  # the reader may stay blocked in a read: the exit at the bottom must not wait for it
         if not box or not box[0]:
-            return None
+            return None, None
         data = json.loads(box[0])
-        trig = data.get("trigger") if isinstance(data, dict) else None
-        return trig if isinstance(trig, str) and trig else None
+        if not isinstance(data, dict):
+            return None, None
+        trig = data.get("trigger")
+        return (trig if isinstance(trig, str) and trig else None), clean_session_id(data.get("session_id"))
     except Exception:
-        return None
+        return None, None
 
 
 def emit(text: str) -> None:
@@ -629,12 +683,13 @@ def emit(text: str) -> None:
         pass
 
 
-def write_snapshot(root: Path, source: str, now: datetime.datetime = None):
+def write_snapshot(root: Path, source: str, now: datetime.datetime = None, session=None):
     """Writes the snapshot FILE and returns (summary line, snapshot folder).
+    `session`: the session id for the header (None -> unknown).
     Nothing here touches retention: the file and its summary are done before
     prune's git calls start (t-323 B5). May raise; main() catches."""
     now = now or datetime.datetime.now()
-    text, facts = build_snapshot(root, source, now)
+    text, facts = build_snapshot(root, source, now, session=session)
     folder = root / SNAPSHOT_DIR
     path = write_unique(folder, f"{now.strftime('%Y-%m-%d-%H%M')}-{source}", text)
     rel = path.relative_to(root).as_posix()
@@ -677,10 +732,14 @@ def main(argv=None, root: Path = None) -> int:
         ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
         ap.add_argument("--source", default=None, help="manual | auto (default: stdin trigger)")
         ap.add_argument("--root", default=None, help="repo root (default: this file's parent's parent)")
+        ap.add_argument("--session", default=None,
+                        help="session id for the header (overrides the payload's; the door of a MISSING snapshot)")
         args, _unknown = ap.parse_known_args(argv)
-        source = args.source or _read_trigger_from_stdin() or "unknown"
+        payload_trigger, payload_session = _read_trigger_from_stdin()
+        source = args.source or payload_trigger or "unknown"
+        session = clean_session_id(args.session) or payload_session
         use_root = Path(args.root) if args.root else (Path(root) if root else repo_root())
-        summary, folder = write_snapshot(use_root, safe_source(source))
+        summary, folder = write_snapshot(use_root, safe_source(source), session=session)
         emit(summary)  # out BEFORE retention: a hook cut off in prune's git calls has already reported
         note = retention_line(folder, use_root)
         if note:

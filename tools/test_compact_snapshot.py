@@ -607,51 +607,79 @@ class _FakeStdin:
         return self._text
 
 
-def test_compact_snapshot_line_none_when_folder_absent_or_only_readme(tmp_path):
-    assert sc.compact_snapshot_line(tmp_path) == "COMPACT SNAPSHOT: none"
-    folder = tmp_path / cs.SNAPSHOT_DIR
-    folder.mkdir(parents=True)
-    (folder / "README.md").write_text("r", encoding="utf-8")
-    assert sc.compact_snapshot_line(tmp_path) == "COMPACT SNAPSHOT: none"
+# The table of `compact_snapshot_lines` (A1) lives in test_session_context.py; here the writer side of the header.
 
 
-def test_compact_snapshot_line_names_newest_and_age(tmp_path):
-    folder = tmp_path / cs.SNAPSHOT_DIR
-    folder.mkdir(parents=True)
-    old, new = folder / "2026-10-02-1000-manual.md", folder / "2026-10-02-1300-auto.md"
-    old.write_text("o", encoding="utf-8")
-    new.write_text("n", encoding="utf-8")
-    base = datetime.datetime(2026, 10, 2, 13, 0, 0).timestamp()
-    os.utime(old, (base - 10800, base - 10800))
-    os.utime(new, (base, base))
-    now = datetime.datetime.fromtimestamp(base + 7 * 60 + 30)
-    assert sc.compact_snapshot_line(tmp_path, now) == (
-        "COMPACT SNAPSHOT: docs/tasks/compact-snapshots/2026-10-02-1300-auto.md (7 min old)"
-    )
+def _stdin_payload(monkeypatch, payload):
+    monkeypatch.setattr(sys, "stdin", _FakeStdin(json.dumps(payload)))
 
 
-def test_compact_snapshot_line_never_raises(tmp_path, monkeypatch):
-    monkeypatch.setattr(sc.Path, "is_dir", lambda self: (_ for _ in ()).throw(OSError("boom")))
-    assert sc.compact_snapshot_line(tmp_path).startswith("COMPACT SNAPSHOT: unavailable")
+def _only_snapshot(root: Path) -> Path:
+    return next((root / cs.SNAPSHOT_DIR).glob("*.md"))
 
 
-def test_main_on_compact_source_prints_snapshot_line(tmp_path, capsys, monkeypatch):
+def test_header_carries_session_and_trigger_of_the_payload(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    _stdin_payload(monkeypatch, {"trigger": "auto", "session_id": "abc-123"})
+    assert cs.main(["--root", str(tmp_path)]) == 0
+    first = _only_snapshot(tmp_path).read_text(encoding="utf-8").split("\n", 1)[0]
+    assert first.startswith(cs.HOOK_HEADER_PREFIX) and first.endswith("-->"), first
+    ident = cs.snapshot_identity(_only_snapshot(tmp_path))
+    assert ident["session"] == "abc-123" and ident["trigger"] == "auto" and ident["written"] != "unknown", ident
+    assert "-auto" in _only_snapshot(tmp_path).name
+
+
+def test_session_flag_overrides_the_payload(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    _stdin_payload(monkeypatch, {"trigger": "manual", "session_id": "from-payload"})
+    assert cs.main(["--root", str(tmp_path), "--session", "from-flag"]) == 0
+    assert cs.snapshot_identity(_only_snapshot(tmp_path))["session"] == "from-flag"
+
+
+def test_no_session_anywhere_writes_unknown(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    _stdin_payload(monkeypatch, {"trigger": "manual"})
+    assert cs.main(["--root", str(tmp_path)]) == 0
+    ident = cs.snapshot_identity(_only_snapshot(tmp_path))
+    assert ident["session"] == "unknown" and ident["trigger"] == "manual", ident
+
+
+def test_snapshot_identity_round_trip_and_narratives(tmp_path):
+    when = datetime.datetime(2026, 11, 12, 13, 5, 9)
+    head = cs.header_line("s-1", "auto", when)
+    f = tmp_path / "a.md"
+    f.write_text(head + "\n# body\n", encoding="utf-8")
+    assert cs.snapshot_identity(f) == {"session": "s-1", "trigger": "auto", "written": "2026-11-12T13:05:09"}
+    (tmp_path / "b.md").write_text("# a hand-written narrative\n" + head + "\n", encoding="utf-8")  # header not on line 1
+    assert cs.snapshot_identity(tmp_path / "b.md") is None
+    (tmp_path / "c.md").write_text(cs.HOOK_HEADER_PREFIX + " -->\n", encoding="utf-8")            # corrupt: fields missing
+    assert cs.snapshot_identity(tmp_path / "c.md") == {"session": "unknown", "trigger": "unknown", "written": "unknown"}
+    (tmp_path / "d.md").write_bytes(b"")
+    assert cs.snapshot_identity(tmp_path / "d.md") is None
+    assert cs.header_line("a;b --> c", "x", when).count("\n") == 0 and "-->" not in cs.header_line("a;b --> c", "x", when)[:-3]
+
+
+def test_reminder_names_only_what_exists():
+    """A data join, not a phrase pin: every path the reminder names (without a glob) is on disk, and the two it must
+    name -- CURRENT_CONTEXT.md and the snapshot folder -- are among them."""
+    import re
+    root = cs.repo_root()
+    named = re.findall(r"(?<![\w/.-])((?:docs/tasks/compact-snapshots/|[A-Za-z_]+\.md)[\w./-]*)", cs.REMINDER)
+    named = [n for n in named if "*" not in n]
+    assert "CURRENT_CONTEXT.md" in named and "docs/tasks/compact-snapshots/" in named, named
+    missing = [n for n in named if not (root / n).exists()]
+    assert not missing, missing
+    assert "factory-fixes" not in cs.REMINDER
+
+
+def test_main_on_compact_source_prints_the_block(tmp_path, capsys, monkeypatch):
     (tmp_path / "logs").mkdir()
-    folder = tmp_path / cs.SNAPSHOT_DIR
-    folder.mkdir(parents=True)
-    (folder / "2026-10-02-1331-manual.md").write_text("s", encoding="utf-8")
-    monkeypatch.setattr(sys, "stdin", _FakeStdin(json.dumps({"source": "compact"})))
+    _stdin_payload(monkeypatch, {"source": "compact", "session_id": "s-9"})
     assert sc.main(tmp_path) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[-1].startswith("COMPACT SNAPSHOT: docs/tasks/compact-snapshots/2026-10-02-1331-manual.md (")
-    assert out[-1].endswith(" min old)")
-
-
-def test_main_on_compact_source_with_no_snapshot_says_none(tmp_path, capsys, monkeypatch):
-    (tmp_path / "logs").mkdir()
-    monkeypatch.setattr(sys, "stdin", _FakeStdin(json.dumps({"source": "compact"})))
-    assert sc.main(tmp_path) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == "COMPACT SNAPSHOT: none"
+    assert out[-2].startswith("COMPACT SNAPSHOT: MISSING for this compaction (newest hook snapshot none)"), out[-3:]
+    assert out[-1].startswith("AFTER COMPACT: read the snapshot above")
+    assert "--session s-9" in out[-2]
 
 
 def test_main_on_other_sources_prints_no_snapshot_line(tmp_path, capsys, monkeypatch):

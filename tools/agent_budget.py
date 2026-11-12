@@ -274,9 +274,11 @@ def _warns(state: dict, ctx, is_worker: bool) -> list:
     if level > state["ctx_level"]:
         who = "worker" if is_worker else "main session"
         again = "" if is_worker else ", repeated every %d" % step
+        duty = "" if is_worker else (" Write the compact snapshot (docs/tasks/compact-snapshots/) and tell the "
+                                     "operator the one line (PROJECT.md).")
         out.append("AGENT BUDGET WARN: the %s context is %d tokens (warn from %d%s); every turn re-reads it. "
-                   "Trim output, stop re-running after each edit, commit and hand over before the cap."
-                   % (who, ctx, warn, again))
+                   "Trim output, stop re-running after each edit, commit and hand over before the cap.%s"
+                   % (who, ctx, warn, again, duty))
     state["ctx_level"] = level
     t_warn = _int_env("AGENT_BUDGET_TEST_RUNS_WARN", TEST_RUNS_WARN)
     t_level = _level(state["tests"], t_warn, _int_env("AGENT_BUDGET_TEST_RUNS_STEP", TEST_RUNS_STEP))
