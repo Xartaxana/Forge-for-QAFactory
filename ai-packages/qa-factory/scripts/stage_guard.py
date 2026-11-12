@@ -1383,6 +1383,7 @@ def _unidentified_resume(event: dict, targets: list) -> int:
 
 UNRESUMABLE = ("superseded", "released_by_person")   # controller.RELEASED; pinned equal by test_resume_story_isolation
 RESUMABLE_STOPPED = ("blocked", "paused")   # Controller.RESUMABLE; pinned equal by test_resume_doors (DC1-16)
+INCOMPLETE = "incomplete"   # the status `Controller._resume_status_problems` answers with `incomplete_words` (DC1-28)
 RETURNED_UNACCEPTED = "returned_unaccepted"   # controller.RETURNED; pinned equal by test_resume_doors
 BUDGET_EXHAUSTED = "INFRA/BUDGET_EXHAUSTED"   # controller.BUDGET_EXHAUSTED: `resume` refuses it; pinned by test_resume_doors
 
@@ -1710,8 +1711,32 @@ def _stopped_target(event: dict, ticket: str, target: str, controller: dict, get
     return ident, held, str(rec["status"])
 
 
+def _incomplete_target(event: dict, ticket: str, target: str, controller: dict, get_ctl) -> str:
+    """The dispatch id when `target` rides EXACTLY ONE `incomplete` record (every other one `accepted`/`superseded`/
+    `released_by_person`) AND `recover` prints a retry packet for it, else "" (DC1-28, F-S3C-8). `incomplete` is work left, not a
+    person's answer: no agent holds its context (`Controller.incomplete_words`), so a message to its agent reaches nothing. ERROR
+    DIRECTION as `_stopped_target`: a DENY only with a door that works (`Controller.retry_packets`, the very reader `recover`
+    prints, AR-15), every doubt is "" = ALLOW. A record that is not an object, a second open record, a later record of the same
+    stage and role (it holds the work now), a story-budget stop: all "". The Controller is called only at the first candidate."""
+    records = controller.get("dispatches") if isinstance(controller.get("dispatches"), dict) else {}
+    extra = [dispatch for story, dispatch in _recipient_receipts(event, artifact_root(event), target) if story == ticket]
+    rows = [(key, records.get(key)) for key in _closed_keys(records, target, extra)]
+    if not rows or any(not isinstance(rec, dict) for _, rec in rows):
+        return ""
+    open_rows = [(key, rec) for key, rec in rows if rec.get("status") == INCOMPLETE]
+    if len(open_rows) != 1 or any(rec.get("status") not in _SETTLED_BESIDE_STOP + (INCOMPLETE,) for _, rec in rows):
+        return ""
+    key, rec = open_rows[0]
+    ident = str(rec.get("id") or key)
+    ctl = get_ctl()
+    if not any(packet.get("dispatch_id") == ident for packet in ctl.retry_packets(ctl.state())):
+        return ""
+    return ident
+
+
 def _stopped_refusal(event: dict, ticket: str, targets: list, controller: dict) -> str:
-    """The refusal text for the targets `_stopped_target` calls stopped, each as its own sentence, or "" when none is. Raises are the
+    """The refusal text for the targets `_stopped_target` calls stopped (and, DC1-28, `_incomplete_target` calls incomplete), each as its
+    own sentence, or "" when none is. Raises are the
     caller's: `check_resume` calls this in a `try` before `deny` and reads a raise as today's ALLOW."""
     built = []
 
@@ -1725,6 +1750,10 @@ def _stopped_refusal(event: dict, ticket: str, targets: list, controller: dict) 
     for target in targets:
         ident, held, status = _stopped_target(event, ticket, target, controller, get_ctl)
         if not ident:
+            gone = _incomplete_target(event, ticket, target, controller, get_ctl)
+            if gone:
+                parts.append(f"{ticket}: resuming '{target}' is blocked - {get_ctl().incomplete_words(gone)}; "
+                             "`--operation dispatch --input <file>` sends it.")
             continue
         door = get_ctl()._resume_door(ident) + ("" if held else f" --agent-id {target}")
         parts.append(f"{ticket}: resuming '{target}' is blocked - dispatch {ident} is {status}, stopped for a person, and the "

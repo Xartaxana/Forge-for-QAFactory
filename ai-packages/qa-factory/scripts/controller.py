@@ -6205,6 +6205,13 @@ class Controller:
                  if event.get("type") == "checkpoint" and (event.get("payload") or {}).get("id") == dispatch_id]
         return max(found) if found else None
 
+    def incomplete_words(self, dispatch_id):
+        """The ONE sentence for an `incomplete` dispatch that is asked to go on in place (DC1-28, AR-15, AR-25): `resume` says it, and
+        `stage_guard` says it to a `SendMessage` aimed at that dispatch's agent - the same words and the same door (`recover`)."""
+        return (f"{dispatch_id} is incomplete: it stopped with work left, not for a person's answer, so no agent holds its "
+                f"context; continue it with the retry packet `controller.py --task-root {self.store.root} --operation "
+                "recover` prints")
+
     def _resume_status_problems(self, d, dispatches):
         """Why a dispatch in THIS status is not resumed, each with the door of its status (R2 b); [] for blocked / paused."""
         did, status, root = d.get("id"), d.get("status"), self.store.root
@@ -6221,8 +6228,7 @@ class Controller:
             return [(StateConflict, f"{did} is {status}: it is not stopped; `story_step.py finish --task {self._ticket()} "
                                     f"--dispatch-id {did} --digest \"<digest>\"` or `story_step.py pause` takes it as it is")]
         if status == "incomplete":
-            return [(StateConflict, f"{did} is incomplete: it stopped with work left, not for a person's answer, so no "
-                                    f"agent holds its context; continue it with the retry packet {door}recover` prints")]
+            return [(StateConflict, self.incomplete_words(did))]
         if status in (NEVER_STARTED, RELEASED):
             return [(StateConflict, f"{did} is {status}: it never reached an agent, or a person set it free, so no agent "
                                     f"holds its work; {door}next` prints the relaunch packet")]
