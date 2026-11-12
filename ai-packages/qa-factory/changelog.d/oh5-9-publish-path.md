@@ -1,0 +1,1 @@
+- The bug reporter's charter and command card now name the path that `artifact_producer.py publish` really accepts for a bug, `<task root>/bugs/`, instead of the project's `qa-factory/bugs/`, which `publish` refuses from a story root.
