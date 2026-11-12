@@ -92,14 +92,40 @@ SUGGEST_NOTE = ("written by `runtime_probe.py --suggest --write`. {python} and {
                 "on every machine. Only {argv, cwd, timeout_s} are read.")
 
 
-def _production(name: str) -> bool:
-    """The one rule of "is this a production file" (`test_files.file_kind`), asked without the project's word: this walker
-    does not know the checkout the diff's paths are relative to. A test-looking name outside a test place is production."""
+def _production(name: str, cfg=None, checkout=None) -> bool:
+    """The one rule of "is this a production file" (`test_files.file_kind`). `cfg` None: asked without the project's word,
+    the usual names decide (a test-looking name outside a test place is production). `cfg` given (B-355): the project's word
+    is read through `checkout`, the folder the diff's paths are relative to (`word=cfg`): where the word records the place the
+    path lies in, only the record decides; nothing recorded there: today's answer; no `checkout` while the word records
+    anything: unknown, so the file stays production (a file counted too many times, never one lost)."""
     import test_files
-    return test_files.file_kind(name) == "production"
+    if not cfg:
+        return test_files.file_kind(name) == "production"
+    return test_files.file_kind(name, root=Path(hooklib.project_root()), word=cfg, checkout=checkout) == "production"
 
 
-def diff_files(task_root: Path) -> list:
+def _diff_checkouts(task_root, cfg):
+    """`{diff file name: checkout folder or None}` for every `work/impl-diff*.txt`, each through the one survivor
+    `handoff_check.diff_checkout` (B-355 axis 10). Empty with no word: nothing is bound then."""
+    if not cfg:
+        return {}
+    import handoff_check
+    out = {}
+    for diff in sorted_paths((Path(task_root) / "work").glob("impl-diff*.txt")):
+        try:
+            out[diff.name] = handoff_check.diff_checkout(Path(task_root), diff.name, cfg, Path(hooklib.project_root()))[0]
+        except Exception:  # noqa: BLE001 - an unbindable diff is unbound (the consumer's declared unknown)
+            out[diff.name] = None
+    return out
+
+
+def diff_files(task_root: Path, cfg=None) -> list:
+    """The production files of the recorded diffs. `cfg` None: the project's config is read here (`hooklib.load_config`), so
+    a caller that holds none needs no edit; each diff is bound to its own checkout (B-355), nothing recorded in the file's
+    area -> today's rule."""
+    if cfg is None:
+        cfg = hooklib.load_config() or {}
+    checkouts = _diff_checkouts(task_root, cfg)
     out = []
     for diff in sorted_paths((task_root / "work").glob("impl-diff*.txt")):
         try:
@@ -108,19 +134,22 @@ def diff_files(task_root: Path) -> list:
             continue
         for match in re.finditer(r"^\+\+\+ b/(\S+)", text, re.M):
             name = match.group(1)
-            if not _production(name):
+            if not _production(name, cfg, checkouts.get(diff.name)):
                 continue
             if name not in out:
                 out.append(name)
     return out
 
 
-def diff_new_files(task_root: Path) -> list:
+def diff_new_files(task_root: Path, cfg=None) -> list:
     """The production files the story ADDS: `--- /dev/null` followed by `+++ b/<path>` in a recorded diff.
 
     The one fact that makes a file's absence from the container a content difference (t-357 F2a): a file the story
     adds was never deployed, whereas a file the story only changes is there on any stand that runs the app, so its
-    absence means the folder searched is not the app's. Same exclusions as `diff_files`."""
+    absence means the folder searched is not the app's. Same exclusions and same binding as `diff_files`."""
+    if cfg is None:
+        cfg = hooklib.load_config() or {}
+    checkouts = _diff_checkouts(task_root, cfg)
     out = []
     for diff in sorted_paths((Path(task_root) / "work").glob("impl-diff*.txt")):
         try:
@@ -129,7 +158,7 @@ def diff_new_files(task_root: Path) -> list:
             continue
         for match in re.finditer(r"^--- /dev/null[ \t]*\r?\n\+\+\+ b/(\S+)", text, re.M):
             name = match.group(1)
-            if not _production(name):
+            if not _production(name, cfg, checkouts.get(diff.name)):
                 continue
             if name not in out:
                 out.append(name)
@@ -968,7 +997,7 @@ class Reading:
         # compared file missing and none of them new says the folder searched is the wrong one (a wrong `--app-root`), never
         # that the build is stale: the rung could not tell, the label rung still runs and a person can still be asked how.
         if absent and not present:
-            added = set(diff_new_files(self.task_root))
+            added = set(diff_new_files(self.task_root, self.cfg))
             if not any(c["file"] in added for c in absent):
                 self.note("sources", "sources.compare_failed", container=ns.container,
                           why=f"none of its {len(absent)} file(s) is under `{app_root}` there, so `{app_root}` may not be "
@@ -1459,7 +1488,7 @@ def do_suggest(ns) -> int:
         # onboarding write, which never had a story to ask.
         where, refusal = pick_checkout(cfg, ns.profile, ns.checkout)
         why = "" if (refusal or not str(where or "").strip()) else why_nothing_to_compare(
-            ns.task_root, diff_files(Path(ns.task_root)), project_root / where, where)
+            ns.task_root, diff_files(Path(ns.task_root), cfg), project_root / where, where)
         if why:
             # A story with no diff on record and a story whose diff lies elsewhere are two
             # facts (t-238 W1); the sentence says which one this is.
@@ -1625,7 +1654,8 @@ def main() -> int:
     record = {"profile_id": ns.profile, "timestamp": now, "environment_id": ns.environment,
               "expected_source_revision": expected or "unknown", "observed_runtime_identity": "",
               "evidence_refs": [], "provenance": {"technical_verification": False}, "result": "unknown"}
-    files = diff_files(task_root)
+    cfg = hooklib.load_config() or {}
+    files = diff_files(task_root, cfg)
     has_diff = diff_recorded(task_root)
     if has_diff and not compared_files(files, checkout):
         # The story's diff does not touch this checkout, so what this stand runs cannot be
@@ -1649,7 +1679,7 @@ def main() -> int:
     pipeline = hooklib.read_json(task_root / "pipeline.json", {})
     print(json.dumps(build_identity(
         ns, record, root=hooklib.project_root(), task_root=task_root, checkout=checkout, expected=expected, files=files,
-        has_diff=has_diff, now=now, cfg=hooklib.load_config() or {},
+        has_diff=has_diff, now=now, cfg=cfg,
         story_stand=str(pipeline.get("environment") or "").strip() if isinstance(pipeline, dict) else "")))
     return 0
 

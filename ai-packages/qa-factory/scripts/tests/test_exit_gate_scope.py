@@ -619,5 +619,68 @@ finally:
     exit_gate.va.check_phase_json, exit_gate.va.check_case, exit_gate.va.check_bug = real_checks
     harness.cleanup(proj)
 
+# --- B-355 node C item 7: the S2 grounding list reads the project's word through each diff's checkout (ids `<case>-<world>`) ---
+# One parameterised set on a real temp project: a manifest binds the diff to `code/app`, `app_root` is `code`, the person's word
+# names `app/unit/` (World R) or nothing (World N). `tests/test_c.py` is excluded today by its folder; in a recorded area it is
+# production (the leaf may call a test production, never the reverse), and an unbound diff under a recorded word lists every code file.
+CLAUSE = ("(counted as production: the checkout of impl-diff.txt is not configured - implementation_repos[].local_path or "
+          "code_repos[].path; a person's word passes this check)")
+ALL3 = ["unit/a.py", "src/b.py", "tests/test_c.py"]
+proj7 = harness.temp_project("qa-eg-b355c-")
+try:
+    (proj7 / "code" / "app").mkdir(parents=True)
+    harness.use_project(proj7)
+    task7 = exit_gate.artifact_root() / "T-1"
+    (task7 / "work").mkdir(parents=True)
+    diff_lines = []
+    for diff_path in ("unit/a.py", "src/b.py", "tests/test_c.py"):
+        diff_lines += [f"diff --git a/{diff_path} b/{diff_path}", "new file mode 100644", "--- /dev/null", f"+++ b/{diff_path}",
+                       "@@ -0,0 +1 @@", "+x"]
+    diff_text = "\n".join(diff_lines) + "\n"
+    (task7 / "work" / "impl-diff.txt").write_text(diff_text, encoding="utf-8")
+    (task7 / "work" / "requirements-register.md").write_text("| R-1 | x | requirement | y |\n", encoding="utf-8")
+    manifest7 = task7 / "work" / "context-manifest.json"
+    cfg7 = proj7 / "qa-factory" / "config.json"
+    base7 = {"app_root": "code", "implementation_repos": [{"repo_id": "app", "local_path": "code/app"}]}
+    recorded7 = dict(base7, test_locations=["app/unit/"])
+    nothing7 = dict(base7, test_locations=[])
+
+    def s2_run(config, bound=True):
+        if config is None:
+            cfg7.unlink()
+        else:
+            cfg7.write_text(json.dumps(config), encoding="utf-8")
+        if bound:
+            manifest7.write_text(json.dumps({"implementation": {"repo_id": "app"}}), encoding="utf-8")
+        elif manifest7.exists():
+            manifest7.unlink()
+        errors = exit_gate.grounding_errors("qa-requirements-tester", "T-1")
+        if not errors:
+            return [], ""
+        return errors[0].split("adds: ", 1)[1].split(" - no `derived`", 1)[0].split(", "), errors[0]
+
+    for case, config, bound, want_names, want_clause in (
+            ("R", recorded7, True, ["src/b.py", "tests/test_c.py"], False),
+            ("N", nothing7, True, ["unit/a.py", "src/b.py"], False),
+            ("R-unbound", recorded7, False, ALL3, True),
+            ("N-unbound", nothing7, False, ["unit/a.py", "src/b.py"], False),
+            ("absent-config", None, True, ["unit/a.py", "src/b.py"], False)):
+        got_names, got_text = s2_run(config, bound)
+        check(f"item 7 {case}: list", got_names == want_names, str(got_names))
+        check(f"item 7 {case}: clause {'present' if want_clause else 'absent'}", (CLAUSE in got_text) is want_clause, got_text[-220:])
+    # config unreadable: hooklib.load_config yields {} (artifact_root hardening is queued, OF4-10) -> today's list, no clause
+    real_load_config = hooklib.load_config
+    hooklib.load_config = lambda *a, **k: {}
+    try:
+        got_names, got_text = s2_run(recorded7, False)
+    finally:
+        hooklib.load_config = real_load_config
+    check("item 7 config-unreadable: list", got_names == ["unit/a.py", "src/b.py"], str(got_names))
+    check("item 7 config-unreadable: clause absent", CLAUSE not in got_text, got_text[-220:])
+    check("item 7 bare: new_production_files(diff) is today's", exit_gate.new_production_files(diff_text) == ["unit/a.py", "src/b.py"],
+          str(exit_gate.new_production_files(diff_text)))
+finally:
+    harness.cleanup(proj7)
+
 print(f"=== test_exit_gate_scope: {total - fails}/{total} ok ===")
 sys.exit(1 if fails else 0)
