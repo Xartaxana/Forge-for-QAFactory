@@ -2869,6 +2869,9 @@ def main() -> None:
                  brief_pack.measured_bytes(text) - result["budget_bytes"], form_bytes() + sd_head)  # GM3: the budget counts the plugin root as a token
         check_in("it names the scope", "Scope: TC-001, TC-002", text)
         check_in("and the read_first pointer", "Read first, before anything else: work/s5-notes.md", text)
+        # Source: finding 20261102 item 1 (PC2-1), "the 6144-byte brief boundary". The S5 pins below judge the LADDER at a ceiling they
+        # set themselves (s5_build_at overwrites BRIEF_MAX_BYTES and restores it in its `finally`); this check pins the VALUE.
+        check_eq("the brief ceiling is the 6144 B of the requirement", brief_pack.BRIEF_MAX_BYTES, 6144)
         digests_ceiling = s5_ceiling(lambda r: r["sides"]["digests"] is False)
         at_digests = s5_build_at(digests_ceiling)
         check_in("earlier digests are inline (AT their measured ceiling)", "- S4 done: qa-case-critic S4 QA-9", at_digests["markdown"])
