@@ -20,7 +20,7 @@
 
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
-| 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-18 | L | ожидает | — | — | — |
+| 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-19 | L | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -60,7 +60,8 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261112-onbording-zapisal-vhod-kodom-nevozmozhen-oshibochno.md` | находка | Онбординг ошибочно записал «вход кодом невозможен» (POST на страницу); S5 стоит на этом отказе | `scripts/stand_access.py`, `scripts/env_probe.py` | пачка 1, FV1-15 | да, 12.11.2026 | FV1-5; LR2-1 |
 | `findings/20261112-s5-lichnost-stenda-sprashivaet-kommit-repo-testov.md` | находка | Вопрос о сборке стенда называет коммит репозитория тестов; «current code» с S0 не учтён | `scripts/driver_gates.py` | пачка 1, FV1-16 | нет | LR2-1 |
 | `findings/20261112-onbording-ne-umeet-opredelit-kak-vojti-na-stend.md` | баг | Онбординг не определяет вход на стенд: POST на страницу → «кодом нельзя»; NextAuth и обвязка не испробованы | `scripts/stand_access.py`, онбординг | пачка 1, FV1-17 | да, 12.11.2026 | FV1-15; LR2-1 |
-| `findings/20261112-kontrakt-selektorov-nikogda-ne-proveren.md` | находка | Гейт селекторов требует запись, которую проба онбординга произвести не может; дверь — только литерал руками | `scripts/onboarding_probe.py`, `scripts/profile_contract.py` | пачка 1, FV1-18 | да, 12.11.2026 | LR2-1 |
+| `findings/20261112-kontrakt-selektorov-nikogda-ne-proveren.md` | находка | Регрессия: без проверенных селекторов раннер отказывает запускать тесты; запись первого взгляда не читается | `scripts/execution_request.py`, `scripts/profile_contract.py` | пачка 1, FV1-18 | да, 12.11.2026 | LR2-1 |
+| `findings/20261112-pochinka-ne-vopros-cheloveku-dohodit-do-cheloveka.md` | находка | S5 требует `obligation_refs`, которые для тестов на TS не произвести (читатель маркера только Python); рукописное значение проверка пропускает; починка «не вопрос человеку» ставится человеку | `scripts/manifest_from_tests.py`, `scripts/s5_precheck.py`, `scripts/story_run.py` | пачка 1, FV1-19 | нет | LR2-1, FV1-13 |
 | `findings/20261112-s2-kartochka-i-reestr-stadij-rashodyatsya.md` | находка | Карточка S2 «один диспатч», `stages.json` — критик-приёмщик; замысел S2 — вопрос владельцу | `skills/qa-story/phases/s2.md`, `references/stages.json` | пачка 1, FV1-12 | нужно | LR2-1 |
 
 ## Входящие
