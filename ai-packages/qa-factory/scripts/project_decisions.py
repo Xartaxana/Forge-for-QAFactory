@@ -236,20 +236,23 @@ _MSYS_REWRITE_RE = re.compile(r"(?i)^[a-z]:[\\/](?:.*[\\/])?git(?:\s*\(x86\))?[\
 
 
 DOC_PREFIX = "doc:"
-_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
 def _doc_ref(item: str) -> str:
     """OH2-6 (b2): a ref naming a DOCUMENT, `doc:<path under qa-factory>[#<anchor>]`, for a row whose hole is a paragraph in a
     file and not a key of config.json (so `resolve` has no config pointer to write). Normalized: the prefix lower-case,
-    backslashes to `/`, the path part stripped. The path part must be non-empty and relative: no `..`, no drive, no leading
-    `/` - a document ref never leaves `qa-factory/`. Anything else is refused naming the form (FR-1, AR-9)."""
-    path, hash_mark, anchor = item[len(DOC_PREFIX):].replace("\\", "/").partition("#")
+    backslashes to `/`, the path part stripped, `.` segments (a leading `./`) dropped, an empty `#` dropped. The path part
+    must be non-empty and relative: no `..`, no `:` anywhere (a drive or a URL such as `https://x`), no leading `/` - a
+    document ref never leaves `qa-factory/`. The `:` and `..` refusals are judged on the raw path, before `.` is dropped.
+    Anything else is refused naming the form (FR-1, AR-9)."""
+    path, _, anchor = item[len(DOC_PREFIX):].replace("\\", "/").partition("#")
     path = path.strip()
-    if not path or path.startswith("/") or _DRIVE.match(path) or ".." in path.split("/"):
-        raise ValueError("a document ref is doc:<path under qa-factory>[#<anchor>], e.g. "
-                         f"doc:strategy/test-strategy.md#risk-and-impact-scale; got {_shown(item)!r}")
-    return DOC_PREFIX + path + hash_mark + anchor
+    segments = [s for s in path.split("/") if s not in ("", ".")]
+    if not segments or path.startswith("/") or ":" in path or ".." in path.split("/"):
+        raise ValueError("a document ref is doc:<path under qa-factory>[#<anchor>] - a relative path with no `:`, `..` or "
+                         "leading `/`, e.g. doc:strategy/test-strategy.md#risk-and-impact-scale (write the path as it is "
+                         f"under qa-factory/, without a scheme or a drive); got {_shown(item)!r}")
+    return DOC_PREFIX + "/".join(segments) + ("#" + anchor if anchor else "")
 
 
 def _refs(value: str | list[str]) -> list[str]:

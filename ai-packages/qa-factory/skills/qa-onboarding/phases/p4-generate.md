@@ -595,7 +595,7 @@ doc:strategy/test-strategy.md#risk-and-impact-scale
 --essence "risk areas not named: strategy/test-strategy.md (Risk and impact scale), strategy/aspect-profile.md"
 --asked "batch <id>: <the risk-areas question as it was put>" --trigger-type story_count --trigger-value 3` (it
 comes due after three sized stories, `project_decisions.due`). The field ref is a document ref
-(`doc:<path under qa-factory>[#<anchor>]`): the hole is a paragraph, not a key of `config.json`. Its later resolution names
+(`doc:<path under qa-factory>[#<anchor>]`, a relative path with no `:` or `..`; `./` and an empty `#` are dropped): the hole is a paragraph, not a key of `config.json`. Its later resolution names
 both files and gives no value: `project_decisions.py --root . resolve --id <DD-n> --words-file <file> --resolution-ref
 <evidence> --marker-file qa-factory/strategy/test-strategy.md --marker-file qa-factory/strategy/aspect-profile.md
 --marker-text "[DEFERRED: risk areas not named]"`. Write the paragraphs into both files with the marker line left where it stands;

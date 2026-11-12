@@ -1,0 +1,1 @@
+- A document reference on a decision row (`doc:<path>[#<anchor>]`) is now checked as a relative path: `doc:https://x` and a drive path are refused because of the `:`, a leading `./` and an empty `#` are dropped, and the refusal says the form to write instead.
