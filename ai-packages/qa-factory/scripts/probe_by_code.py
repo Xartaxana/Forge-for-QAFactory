@@ -6348,7 +6348,7 @@ def _walk_plan(ctx: ProbeCtx, plan: dict, entries: list, locks: list, timeout: f
     unmodelled: [keys with no entry], dropped: [not_here / product keys, P4b reads them], proved: [keys skipped as proved], runs,
     evidence_refs: [{path, sha256}] (the summary and report files of every attempt that ran; [] when none ran), input_hash (the one
     value the single probe records: the author's run-block binding, else the fingerprint over the author's bytes; None when no run
-    built a request)}`. After EVERY row and at the end `_aggregate_record` writes `work/probes/<iid>.json` (the one writer), after that
+    built a request)}`. After every row but the last, and once at the end (the walk's one receipt-capable call), `_aggregate_record` writes `work/probes/<iid>.json` (the one writer), after that
     row's per-check records and with the author's bytes back (or the restore recorded as failed); a failed aggregate write is a note
     in `notes`, the per-check records stand. A walk with no key left to run because all are proved also writes it (read back from the
     records); a plan with no live key (all unmodelled or dropped: no lock was taken) or no check writes nothing: the caller reads
@@ -6527,9 +6527,13 @@ def _walk_plan(ctx: ProbeCtx, plan: dict, entries: list, locks: list, timeout: f
                     result["ended"] = "time"
                     break
         write(group, index < len(groups) - 1 and not result["ended"])
-        publish()       # after the row's restore is verified or recorded as failed, and after its per-check records: a killed walk keeps both
         if result["ended"]:
             break
+        if index < len(groups) - 1:
+            # intermediate aggregates after every row but the last, after the row's restore is verified and its per-check records are
+            # written (a killed walk keeps both); the last row's aggregate is the final one at the end of the walk, so a walk attaches
+            # its receipt once
+            publish()
     remaining = [k for k in live if k not in outcomes or outcomes[k]["verdict"] == "not_reached"]
     why = {"time": f"the walk's --timeout ({timeout} s) is spent before this check ran; the same call again continues (checks proved on "
                    "these bytes are skipped)",
@@ -7283,7 +7287,9 @@ def _repeat_same_entries(ctx: ProbeCtx, answer: dict, checks: list) -> bool:
     the same statements) and no model entry of this window's file that differs from the one the receipt was made for (`_entry_sha`)? A
     probe record of a walk that is not a receipt (a survivor, an unfinished plan) is never a repeat: it walks (§14). A check with no entry in
     the file stands on the one the receipt holds (the stored model): nothing runs on a repeat, so no model is owed. Any doubt is False: the
-    changed check runs again. Reads; writes nothing."""
+    changed check runs again. A proved row the walk runs (`actual`, `find`, `invert`; a kind not established is read as walked) whose
+    per-check record is absent, unreadable or disagrees with the receipt on verdict or `entry_sha` is not a repeat: the call walks (FR-59,
+    error direction: walk); a `product` row has no per-check record and stands on its product receipt. Reads; writes nothing."""
     if answer.get("by") != "receipt":
         return False
     rows = (_repeat_record(ctx, answer) or {}).get("checks")
@@ -7296,11 +7302,27 @@ def _repeat_same_entries(ctx: ProbeCtx, answer: dict, checks: list) -> bool:
     except Exception:        # noqa: BLE001 - the shape refusal is `_entries_for`'s, on the walk
         return False
     picked = _pick_entries(ctx, [m for m in models if not m.get("alternative")])
+    stored_rows = None      # the standing aggregate's rows, read once and only for a check with no entry in the file
     for check, row in zip(checks, rows):
         if not (isinstance(row, dict) and row.get("key") == check["key"] and row.get("statement_sha") == check.get("statement_sha")
                 and row.get("verdict") in ("intended_failure", "not_owed")):
             return False
         if check["key"] in picked and _entry_sha(picked[check["key"]]) != row.get("entry_sha"):
+            return False
+        if row["verdict"] != "intended_failure":
+            continue        # a not_owed row never runs: it has no per-check record
+        kind = (picked.get(check["key"]) or {}).get("kind")
+        if kind is None:
+            if stored_rows is None:
+                # `_repeat_record` reads `answer["record"]` for any `by` but "receipt"; for a receipt answer that is the aggregate the receipt names
+                stored_rows = (_repeat_record(ctx, {**answer, "by": "probe_record"}) or {}).get("checks")
+                stored_rows = stored_rows if isinstance(stored_rows, list) else []
+            kind = next(((one.get("entry") or {}).get("kind") for one in stored_rows
+                         if isinstance(one, dict) and one.get("key") == check["key"] and isinstance(one.get("entry"), dict)), None)
+        if kind == "product":
+            continue        # proved by its product receipt, never run: no per-check record
+        stored = _per_check_read(ctx, check)        # actual / find / invert, or a kind not established (unknown: read as walked)
+        if not (isinstance(stored, dict) and stored.get("verdict") == "intended_failure" and stored.get("entry_sha") == row.get("entry_sha")):
             return False
     return True
 

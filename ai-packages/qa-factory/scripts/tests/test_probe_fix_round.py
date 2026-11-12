@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import probe_by_code as PBC  # noqa: E402
 import test_probe_walk as TW  # noqa: E402
-from test_probe_every_check import flip, flip_call, flip_models, flip_actual, flip_snapshot, flip_refusal  # noqa: E402
+from test_probe_every_check import flip, flip_call, flip_models, flip_actual, flip_snapshot, flip_refusal, real_receipt  # noqa: E402
 from test_probe_walk import World, fire, row, verdicts  # noqa: E402
 
 
@@ -191,6 +191,21 @@ def test_b3_repeat_of_a_complete_walk_is_already_probed(tmp_path, monkeypatch):
     flip_models(world, [dict(m, actual="3") for m in flip_actual(world)])
     changed = flip_call(world)
     assert changed["verdict"] != "already_probed" and len(world.runs) > runs, "a changed entry is a rerun"
+    # E5 of t-041 (B1 of its plan critic): a walked row plus a `product` row, both proved, repeated on the same bytes and entries: answered by
+    # the receipt, no run. The product row has no per-check record by construction; reading one for it would walk every repeat forever.
+    # Killed by: dropping the `kind == "product"` skip in `_repeat_same_entries`.
+    product_world = flip(tmp_path / "with-product", monkeypatch, "ss", stage="S5")
+    good, _receipt = real_receipt(product_world, monkeypatch, product_world.keys[0])
+    product_row = with_row(product_world, monkeypatch)        # after real_receipt: its manifest_entry patch is replaced by this row
+    monkeypatch.setattr(PBC.proof_level, "binding_facts", lambda task_root, iid: {
+        "case_version": "cv_1", "test_content_hash": PBC.sha256(product_world.original), "source_revision": "rev1", "build_id": "b1"})
+    flip_models(product_world, [{"check": product_world.keys[0], "instance": "i1", "product": good}] + flip_actual(product_world, product_world.keys[1:]))
+    proved = flip_call(product_world)
+    assert [(r["probe_kind"], r["verdict"]) for r in proved["checks"]] == [("product", "intended_failure"), ("actual", "intended_failure")] and proved["receipt"], proved["checks"]
+    product_row["sensitivity_proof"] = {"receipt_ref": proved["receipt"]}
+    runs = len(product_world.runs)
+    repeat = flip_call(product_world)
+    assert repeat["verdict"] == "already_probed" and repeat["by"] == "receipt" and len(product_world.runs) == runs, (repeat.get("verdict"), repeat.get("notes"))
 
 
 def test_b3_a_survivor_of_a_walk_is_not_a_repeat(tmp_path, monkeypatch):
