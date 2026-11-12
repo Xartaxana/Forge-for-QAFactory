@@ -1735,11 +1735,33 @@ class Rehearsal:
             norm_ids = contract.norm_row_ids(register)
         except Exception:
             self.note(check, "the register could not be read, so the norms-question rule was not checked")
+        # TR2-9 (B-12): the status of a question is read from the question register, the one reader (AR-13) - an answer recorded
+        # there is an answer, as much as a word kept in the question's own dict. FR-59: a register that cannot be read, or a
+        # record it set aside, is a note, and the question is then checked as it stands (the safe direction: toward asking).
+        import question_register
+        settled_rows = [False] * len(questions)
+        try:
+            view = question_register.load(self.task_root)
+            # B-12 F1: only the FIRST row of an id is the row the register's answer belongs to (`question_register.matches`,
+            # the one rule, shared with gate_brief.still_open); a later row of the same id has no answer of its own.
+            settled_rows = [question_register.settled(m) for m in question_register.matches(questions, view)]
+            set_aside = sum(int(n or 0) for n in (view.get("skipped") or {}).values())
+            if view.get("problems") or set_aside:
+                shown = [str(p) for p in view.get("problems") or []]
+                more = f" and {len(shown) - 2} more" if len(shown) > 2 else ""   # F-5: the cut at two is said out loud
+                self.note(check, "the question register was read with problems (" + "; ".join(
+                    shown[:2] + ([f"{set_aside} record(s) set aside"] if set_aside else [])) + more + "), so a question it does not "
+                    "show as settled is checked as it stands")
+        except Exception as exc:
+            settled_rows = [False] * len(questions)   # F-4: the note below must be true - nothing computed above stands (FR-59: toward asking)
+            self.note(check, f"the status of the questions could not be read from the question register ({type(exc).__name__}), "
+                             "so every question is checked as it stands")
         keyed = None   # the question ids some case keys by meaning (`now` / `before`), read once and only when needed
         for index, question in enumerate(questions, start=1):
-            if any(str(question.get(key) or "").strip()
-                   for key in ("answer", "answered", "resolution")):
+            if question_register.row_answered(question):
                 continue  # already answered: nothing left to ask, nothing to rewrite
+            if settled_rows[index - 1]:
+                continue  # answered in the register (B-12): the same question is not shown again as one nobody can answer
             problems = question_errors(question, norm_ids)
             qid = str(question.get("id") or question.get("ref") or f"Q-{index}").strip()
             # HF4-7 (B7-3): a before/now question that does not say which reading is the behaviour now is the tester's to

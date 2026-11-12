@@ -4108,20 +4108,17 @@ def still_open(rows, view, pipeline: dict, task_root) -> list:
     the record kind as its `where`. An id in a record of a question the register already marked
     `named` (gate words) or `with_designer` keeps that status; only an `open` one is upgraded."""
     import question_register as QR
-    by_id = {str(q.get("id")): q for q in (view or {}).get("questions", [])}
     records = _recorded_words(pipeline or {}) + [(REMARK_WORDS, r["text"]) for r in remarks(task_root)]
-    out, seen = [], set()
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
-            continue
-        if any(str(row.get(key) or "").strip() for key in ("answer", "answered", "resolution")):
+    out = []
+    dict_rows = [row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)]
+    # Match over ALL dict rows first: the register's answer belongs to the FIRST row of an id (as `load` keeps it), even when that
+    # row is itself answered or the conductor's; only then are the filters applied (B-12 F-1).
+    for row, mine in zip(dict_rows, QR.matches(dict_rows, view)):   # the first-row-of-an-id rule: `question_register.matches` (AR-13)
+        if QR.row_answered(row):
             continue
         if QR.driver_owned(row):
             continue         # t-1815 F2: a role's question with no person class is the conductor's, never listed to a person
         qid = str(row.get("id") or "").strip() if isinstance(row.get("id"), str) else ""
-        mine = by_id.get(qid) if qid and qid not in seen else None
-        if qid:
-            seen.add(qid)
         ident = qid or str(row.get("ref") or row.get("requirement") or "").strip()
         item = dict(row)
         if mine is not None:

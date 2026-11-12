@@ -376,6 +376,28 @@ def settled(question) -> bool:
     return isinstance(question, dict) and question.get("status") in SETTLED_STATUSES and _holds(question)
 
 
+def row_answered(row) -> bool:
+    """Does this readiness row itself carry an answer (`answer` / `answered` / `resolution`, non-blank)? The ONE own-answer test
+    (AR-13) gate A and the gate brief's open list share; a row that is no object is not answered (toward asking)."""
+    return isinstance(row, dict) and any(str(row.get(key) or "").strip() for key in ("answer", "answered", "resolution"))
+
+
+def matches(rows, view) -> list:
+    """The register question (`load`'s shape, from `view`) each of `rows` is, in order: the ONE place the first-row-of-an-id rule
+    lives (AR-13). The register keeps the FIRST row of an id and its answer belongs to that row, so only the first row of an id
+    in `rows` is matched (by the id stripped of surrounding whitespace, then exactly and case-sensitively, as `load` keys it); a later row of the same id, a row with no usable id, a row
+    that is no object, an id the register does not hold and a `view` that is None (a register nobody could read) give None -
+    the caller judges such a row as it stands (FR-41, FR-59: the error goes toward asking). Callers ask `settled` of the match."""
+    by_id = {str(q.get("id")): q for q in ((view or {}).get("questions") or []) if isinstance(q, dict)}
+    out, seen = [], set()
+    for row in rows or []:
+        qid = row.get("id").strip() if isinstance(row, dict) and isinstance(row.get("id"), str) else ""
+        out.append(by_id.get(qid) if qid and qid not in seen else None)
+        if qid:
+            seen.add(qid)
+    return out
+
+
 def closes(question) -> bool:
     """Does the person's answer to this register question CLOSE a card that rests on it? `settled` (the one definition of
     settled, AR-13) AND the answer is on the exact bytes of the row it was given on (`changed_since_answer is False`: a

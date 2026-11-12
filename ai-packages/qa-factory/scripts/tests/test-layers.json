@@ -1897,6 +1897,21 @@
     "tests/test_http_client.py"
    ]
   },
+  "test_gate_preflight_question_status.py": {
+   "layer": "data_join",
+   "why": "gate A reads a question's answer from the question register (the join gate_preflight.check_open_questions <-> question_register.matches, shared with gate_brief.still_open; the first row of an id owns the answer)",
+   "named_by": [
+    "design/architecture.md:161"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "gate_brief.py",
+    "gate_preflight.py",
+    "question_register.py",
+    "tests/harness.py",
+    "tests/test_gate_preflight.py"
+   ]
+  },
   "test_gate_question_form.py": {
    "layer": "detector",
    "why": "AR-16 detector (one question form)",
