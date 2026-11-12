@@ -6205,12 +6205,34 @@ class Controller:
                  if event.get("type") == "checkpoint" and (event.get("payload") or {}).get("id") == dispatch_id]
         return max(found) if found else None
 
+    def _recover_words(self):
+        """The ONE spelling of the retry-packet door (AR-15): every refusal that sends a person to `recover` says it with this."""
+        return f"the retry packet `controller.py --task-root {self.store.root} --operation recover` prints"
+
     def incomplete_words(self, dispatch_id):
         """The ONE sentence for an `incomplete` dispatch that is asked to go on in place (DC1-28, AR-15, AR-25): `resume` says it, and
-        `stage_guard` says it to a `SendMessage` aimed at that dispatch's agent - the same words and the same door (`recover`)."""
+        `stage_guard` says it to a `SendMessage` aimed at that dispatch's agent - the same words and the same door (`recover`).
+        It is the sentence for a dispatch `recover` can print a packet for (`retry_packets`); `_incomplete_problem` picks it (H3)."""
         return (f"{dispatch_id} is incomplete: it stopped with work left, not for a person's answer, so no agent holds its "
-                f"context; continue it with the retry packet `controller.py --task-root {self.store.root} --operation "
-                "recover` prints")
+                f"context; continue it with {self._recover_words()}")
+
+    def _budget_words(self, dispatch_id):
+        """The ONE sentence for a dispatch stopped on the story budget (`resume` refuses it, `recover` prints no packet for it)."""
+        return (f"{dispatch_id} stopped on the story budget ({BUDGET_EXHAUSTED}): hard quota exhaustion is not automatically "
+                "resumed. Raise the quota (the person's word on the story budget) or dispatch fresh work with a new input hash")
+
+    def _incomplete_problem(self, d):
+        """The refusal of an `incomplete` dispatch, with a door that WORKS (FR-2, H3): `recover` only when `retry_packets` lists the
+        dispatch (the reader `recover` prints, AR-15); the budget sentence for a story-budget stop; `next` for any other (a later record
+        of the same stage and role holds the work, or the record cannot make a packet)."""
+        did = d.get("id")
+        if any(packet.get("dispatch_id") == did for packet in self.retry_packets()):
+            return self.incomplete_words(did)
+        if d.get("reason") == BUDGET_EXHAUSTED:
+            return self._budget_words(did)
+        return (f"{did} is incomplete: it stopped with work left, and `recover` prints no retry packet for it (a later record of its "
+                f"stage and role holds the work, or it cannot be rebuilt); `controller.py --task-root {self.store.root} "
+                "--operation next` prints what the story does now")
 
     def _resume_status_problems(self, d, dispatches):
         """Why a dispatch in THIS status is not resumed, each with the door of its status (R2 b); [] for blocked / paused."""
@@ -6228,7 +6250,7 @@ class Controller:
             return [(StateConflict, f"{did} is {status}: it is not stopped; `story_step.py finish --task {self._ticket()} "
                                     f"--dispatch-id {did} --digest \"<digest>\"` or `story_step.py pause` takes it as it is")]
         if status == "incomplete":
-            return [(StateConflict, self.incomplete_words(did))]
+            return [(StateConflict, self._incomplete_problem(d))]
         if status in (NEVER_STARTED, RELEASED):
             return [(StateConflict, f"{did} is {status}: it never reached an agent, or a person set it free, so no agent "
                                     f"holds its work; {door}next` prints the relaunch packet")]
@@ -6239,14 +6261,12 @@ class Controller:
 
     def _resume_stop_problems(self, d, p):
         """The checks that read the stop itself: the budget, the agent, the stale request (R2 c, e, f, g)."""
-        did, root, problems = d.get("id"), self.store.root, []
+        did, problems = d.get("id"), []
         if d.get("reason") == BUDGET_EXHAUSTED:
-            problems.append((StateConflict, f"{did} stopped on the story budget ({BUDGET_EXHAUSTED}): hard quota exhaustion "
-                                            "is not automatically resumed. Raise the quota (the person's word on the story "
-                                            "budget) or dispatch fresh work with a new input hash"))
+            problems.append((StateConflict, self._budget_words(did)))
         mine, theirs = d.get("agent_id"), p.get("agent_id")
         mine, theirs = (mine.strip() if isinstance(mine, str) else ""), (theirs.strip() if isinstance(theirs, str) else "")
-        retry = f"the retry packet `controller.py --task-root {root} --operation recover` prints"
+        retry = self._recover_words()
         if not mine and not theirs:
             problems.append((StateConflict, f"{did} has no recorded agent and the request names none: a resume names the "
                                             "agent that holds the context. Pass `--agent-id <the id the Agent call "
@@ -6409,8 +6429,7 @@ class Controller:
             # a status with its own door says it (running, superseded, ...); a stopped record with no stop of its own, this
             problems += [(ValueError, status_problem) for _, status_problem in self._resume_status_problems(dispatch, dispatches)] or [
                 (ValueError, f"no recorded stop to resume ({identifier} is {dispatch.get('status')} without a checkpoint of "
-                             f"its own); continue it with the retry packet `controller.py --task-root {self.store.root} "
-                             "--operation recover` prints")]
+                             f"its own); continue it with {self._recover_words()}")]
         self._raise_all(problems)
         request = {"id": identifier, "stop_sequence": stop, "stage": dispatch.get("stage"), "role": dispatch.get("role"),
                    "expected_revision": state.get("revision"), "idempotency_key": f"resume:{identifier}:{stop}"}

@@ -843,7 +843,41 @@ def d15_the_text_says_it() -> None:
             check_in(f"d15 {name} holds `{key}`", key, text)
 
 
+def d17_one_carrier_each() -> None:
+    """DC1-27 (FR-54, AR-13, AR-19; t-147 H1): the gate's two shared words have ONE carrier and every reader reads it.
+    (1) the mark `Earlier answer at this gate:` is `question_register.EARLIER_ANSWER_MARK`; the driver's `Driver.EARLIER_ANSWER` is that
+    very object and no other script holds the literal. (2) the owners of an answer rework are `controller.ANSWER_REWORK_OWNERS`; an owner
+    added there is accepted by BOTH roads - the controller's owed-rework reading and the driver's `merge_answer_rework`."""
+    import story_run
+    check("D1: the driver's mark IS the register's (one object)", story_run.Driver.EARLIER_ANSWER is QR.EARLIER_ANSWER_MARK)
+    literal = '"\\n\\nEarlier answer at this gate:\\n"'
+    holders = sorted(p.name for p in SCRIPTS.glob("*.py") if literal in p.read_text(encoding="utf-8"))
+    check_eq("D1: the literal of the mark stands in one script", holders, ["question_register.py"])
+    third = {"scribe": ("S9", "qa-doc-scribe", "--cases")}
+    original = dict(CTL.ANSWER_REWORK_OWNERS)
+    entry = {"owner": "scribe", "where": "TC-1", "question": "Q1", "answer": "a", "record_at": "t1"}
+    for label, owners in (("the two shipped owners", original), ("a third owner added in the one table", {**original, **third})):
+        CTL.ANSWER_REWORK_OWNERS.clear()
+        CTL.ANSWER_REWORK_OWNERS.update(owners)
+        try:
+            parts, _doors = CTL._owed_rework_parts(Path("T"), [entry])
+            fake = object.__new__(story_run.Driver)
+            fake.state, fake.state_dir = {}, Path("no-such-state-dir")
+            fake.question_branch_findings = lambda: []
+            fake.save_state = lambda: None
+            fake.answer_item_words = lambda item: ""
+            merged = story_run.Driver.merge_answer_rework(fake, [entry])
+        finally:
+            CTL.ANSWER_REWORK_OWNERS.clear()
+            CTL.ANSWER_REWORK_OWNERS.update(original)
+        accepted = "scribe" in owners
+        check_eq(f"D2 [{label}]: the controller's reading names the owner exactly when the table holds it",
+                 any("the scribe must rework TC-1" in part for part in parts), accepted)
+        check_eq(f"D2 [{label}]: the driver's merge takes the owner's rework exactly when the table holds it", merged, accepted)
+
+
 def main() -> None:
+    d17_one_carrier_each()
     h3_the_adversarial_list()
     h8_damaged_records()
     h11_a_reader_prints_the_reason()

@@ -248,6 +248,9 @@ def k1_9_registry_and_the_command() -> None:
     check_eq("K1-9 the registry row exists", row is not None, True)
     check_eq("K1-9 ... and names this test", row and row["test"], "scripts/tests/test_resume_stopped.py")
     check_eq("K1-9 A24 finds no violation", refusal_registry.findings(), [])
+    check_in("K1-9 the row names the incomplete branch (DC1-28, t-147 H2)", "`incomplete` dispatch", row["refuses"])
+    check_in("K1-9 ... and its door `recover`", "--operation recover", row["refuses"])
+    check_in("K1-9 ... and the condition that it prints a packet (`retry_packets`)", "retry_packets", row["refuses"])
     root, task, _c = world("qa-stopped-k9-")
     try:
         check_in("K1-9 the text carries the command", f"story_step.py resume --task {TICKET}", RD.verdict(
@@ -300,6 +303,42 @@ def k1_10_incomplete_agent_gets_the_controllers_words() -> None:
         cleanup(root)
 
 
+def k1_11_incomplete_door_is_one_that_works() -> None:
+    """t-147 H3 (FR-2, AR-25): `resume` of an `incomplete` dispatch names `recover` only when `recover` prints a packet for it; otherwise the
+    budget sentence (story-budget stop) or `next` (a later record of the stage and role). H4: one head for the two guard targets, one
+    spelling of the `recover` sentence. KILLS: `incomplete_words` named unconditionally; a copy of the head in either target."""
+    def says(controller) -> str:
+        dispatches = controller.state()["dispatches"]
+        return " ".join(text for _kind, text in controller._resume_status_problems(dispatches[D1], dispatches))
+    root, task, controller = world("qa-incomplete-k11-", status="incomplete")
+    try:
+        check_eq("K1-11 a packet is printed: the words name `recover`", says(controller), controller.incomplete_words(D1))
+    finally:
+        cleanup(root)
+    root, task, controller = world("qa-incomplete-k11b-", status="incomplete", reason=SG.BUDGET_EXHAUSTED)
+    try:
+        check_eq("K1-11 story-budget stop (no packet): the budget sentence", says(controller), controller._budget_words(D1))
+        check_not_in("K1-11 ... and no `recover` door", "--operation recover", says(controller))
+        check_eq("K1-11 control: `recover` prints no packet for it", [p for p in controller.retry_packets()
+                                                                      if p.get("dispatch_id") == D1], [])
+    finally:
+        cleanup(root)
+    root, task, controller = world("qa-incomplete-k11c-", status="incomplete")
+    try:
+        RD.dispatch(controller, "S3-qa-worker-8", "S3")
+        check_in("K1-11 a later record of the stage and role (no packet): the door is `next`", "--operation next", says(controller))
+        check_not_in("K1-11 ... and not `recover`", "--operation recover", says(controller))
+    finally:
+        cleanup(root)
+    import inspect
+    for name in ("_stopped_target", "_incomplete_target"):
+        source = inspect.getsource(getattr(SG, name))
+        check_in(f"K1-11 H4 {name} reads the one head", "_one_open_record(", source)
+        check_not_in(f"K1-11 H4 {name} holds no copy of the head", "_closed_keys(", source)
+    source = inspect.getsource(Controller)
+    check_eq("K1-11 H4 the `recover` sentence has one spelling", source.count("the retry packet `controller.py --task-root"), 1)
+
+
 def main() -> None:
     k1_1_the_scenario_and_the_real_door()
     k1_2_paused()
@@ -311,6 +350,7 @@ def main() -> None:
     k1_8_reading_writes_nothing()
     k1_9_registry_and_the_command()
     k1_10_incomplete_agent_gets_the_controllers_words()
+    k1_11_incomplete_door_is_one_that_works()
     RD.t442_controller_side()     # the controller's side of the same door: the request it builds and the refusals it gives
     finish("test_resume_stopped")
 
