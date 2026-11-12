@@ -528,3 +528,16 @@ Needed beyond the manifest: the site files above, `test-layers.json`, `judgment-
 - Lead: F-11 (a), F-13 (a), F-14 (a), F-15 (a). Assumption 9 confirmed: F-1, F-4..F-10 carry the attempt-1 recommendations.
 - Wording slip in item 3 World R fixed by the Lead. O-4 and O-3 go as findings into `onboarding-hooks`.
 - Dispatch order unchanged: node A waits for OF3-1 a AND b merged.
+
+## Decided during the code (12.11.2026, coordinator on Opus; critic t-184 = `reviews/t-180-b355-ag-critic.md`)
+
+- Item 3: the three old World R rows (test_test_locations K3 x2, E16) take the 3b meaning. The claim that they stay green was a spec
+  defect. A-3 adds back the World N twin of E16.
+- Item 4, the `name` consumer (A-2): it has no path, so it judges by the word over ANY area and ignores `checkout`. The unbound-None
+  rule does not apply to `name`. Its set is the literal last folder segment of a live folder carrier as written (A-1): a wildcard
+  segment is never taken and the resolved prefix is never used. A `test_locations` entry that covers a whole protected root adds nothing.
+- Q2: a project recorded only by FILE shapes (O-2) gives an empty `name` set, so judge_run greps every quoted name (the noise side).
+  This is accepted and stated in the docstring. A file-shape carrier does not add its folder, because `src/**/*.test.ts` would make
+  `src` a test name.
+- Item 13: p3-summary-gate.md joins node G's owns (a same-artifact sibling).
+- Q1 (the config-keys.json:317 / template note) goes to onboarding-forge/4. G's prose rows go to `live-runs` (FR-33).
