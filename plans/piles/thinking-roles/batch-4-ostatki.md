@@ -1,6 +1,6 @@
 # Думающие роли — пачка 4: остатки ревью критиков и скаутов (формы, замки, повторы, реестр тестов)
 
-кучка: `thinking-roles` | статус: ожидает | взял: — | ветка: — | MR: — | стенд: не нужен | приоритет: П2
+кучка: `thinking-roles` | статус: закрыта | взял: dev1, 12.11.2026 | ветка: — | MR: `5498318` | стенд: не нужен | приоритет: П2
 
 Правило готовности: пачка закрыта, когда каждый узел «принято», свидетели узлов — в журнале взявшего, живые доказательства (FR-33) не требуются.
 
@@ -32,19 +32,22 @@
 | TR4-11 | П2 | Мелкие остатки окон и census (тот же файл решений, раздел 3): (1) драйвер по Ctrl-C пишет одну запись «остановлен человеком» (кто: person, когда) в состояние стори, `collect_stall` K3 читает её и отличает остановку от смерти драйвера, на обеих дорогах; тест на K3 с записью и без; (2) свои дописыватели jsonl в `story_run.py` (`_append_jsonl` и прямые) идут через `hooklib.append_jsonl_line` (ось 29 карты); тест оси; (3) слепое пятно census — подкласс `ValueError` / `StateConflict` невидим для `refusal_registry.sites` — напечатано в строке итогов `test_judgment_census.py` и в `about` файла census; сканер не расширяется; (4) правки текста: changelog «31.2 s» — расчётное, не измеренное (t-2095 N1), `s5_precheck.py` «a held name» (N2) | builder | `scripts/story_run.py` (`_interrupt_chains`, `_append_jsonl`), `scripts/collect_stall.py`, `scripts/tests/test_collect_stall.py`, `scripts/tests/test_judgment_census.py`, `scripts/tests/fixtures/judgment-census.json` (`about`), `scripts/s5_precheck.py`, `changelog.d/` | TR4-10 (общий `story_run.py`) | принято |
 | TR4-12 | П2 | Мелкие остатки ревью 10.11: `role_stops` по id диспатча, префилл форм S7/S8, `test_brief_pack_sd_head.py` в каноне, быстрая фикстура `brief_pack.build()`, `stand_lease` при занятом замке. Находка `findings/20261110-melkie-ostatki-revyu-10-11.md` | builder | `scripts/dispatch_liveness.py`, `scripts/brief_pack.py`, шаблоны форм S7/S8, `scripts/stand_lease.py`, `scripts/tests/` | слияние TR4-1, TR4-2 (часть A) | принято |
 | TR4-13 | П1 | Окно S5, чей последний раунд — принятый раунд автора, открыто в `s5_open_windows`, `todo` читает его оттуда, ход — «критик просматривает»; четыре теста (а)–(г). Находка `findings/20261110-s5-okno-posle-prinyatogo-avtorskogo-raunda-nevidimo.md` | builder → critic | `scripts/story_run.py`, `scripts/tests/test_s5_window_leftovers.py` | — | принято |
-| TR4-14 | П2 | Один сборщик действия `resolve_return` в `scripts/controller.py`, все места `story_run.py` зовут его; один тест полей пакета, `test_driver_layers.py` держит вызывающих. Находка `findings/20261110-odin-sborshchik-resolve-return.md` | builder | `scripts/controller.py`, `scripts/story_run.py`, `scripts/tests/` | слияние TR4-10, TR4-13 | ожидает |
-| TR4-16 | П3 | Остатки ревью TR3-10 D: одно чтение первого стенда и публичные имена, ключи пулов через `fold_kind`, `walk_assign_step` на три шага, возврат в S6 после ответа `added`. Находка `findings/20261111-uchyotki-obhodov-ostatki-revyu.md` | builder | `scripts/walk_pool.py`, `scripts/project_decisions.py`, `scripts/guard_secrets.py`, `scripts/gate_preflight.py`, `scripts/config_contract.py`, `scripts/story_run.py` (`take_answer`, `walk_gap_role`, `_answer_walk_supply`, `walk_assign_step`), `scripts/tests/` | TR3-10 | ожидает |
-| TR4-17 | П3 | Остатки цепочки проб t-2064: одиннадцать пунктов находки `findings/20261111-proby-ostatki-cepochki.md` | builder | `scripts/manifest_put.py`, `scripts/proof_level.py`, `scripts/probe_by_code.py`, `scripts/planning_contract.py`, `scripts/check_witness.py`, `scripts/tests/test_probe_by_code_languages.py`, `scripts/tests/test_brief_pack.py` | слияние цепочки проб (TR2-14) | ожидает |
-| TR4-15 | П2 | Необязательное поле черновика `observation` (id наблюдения без закреплённого кейса): в контракте, в срезе для аналитика (срез сгенерирован: пересобрать `python -B scripts/contract_slices.py --write`, руками не править), в `place_of_draft`; `validate_artifacts.py` не меняется; четыре теста (а)–(г). Находка `findings/20261110-tr1-11-chernovik-nablyudeniya-klyuch-svyazi.md` | builder → critic | `references/artifact-contract-run.md`, `references/slices/qa-failure-analyst/artifact-contract-run.md` (генерируется), `scripts/place_answers.py`, `scripts/tests/test_place_answers.py` | слияние TR1-11 | ожидает |
 
 ## Ход
 
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
 
 - 06.11.2026 — пачка открыта диспатчем t-2083: находки из очереди ревью t-2053, t-2055, t-2060 и разбора t-2036 (девять узлов, девять находок по классам).
+- 12.11.2026 — слово владельца: хвосты П2 и П3 — в пачки 5 и 6 (t-097).
 
 ## Живые доказательства
 
 Живых доказательств нет: узлы не меняют поведение роли на стенде.
 
+| Что | Стенд / проект | Кто | Статус |
+|---|---|---|---|
+
 ## Остатки
+
+- TR4-14, TR4-15 (хвосты П2) | перенос: пачка 5 | обоснование: узлы П1 пачки приняты, хвосты этого приоритета не держат её цель | подтвердил: владелец, 12.11.2026
+- TR4-16, TR4-17 (хвосты П3) | перенос: пачка 6 | обоснование: узлы П1 пачки приняты, хвосты этого приоритета не держат её цель | подтвердил: владелец, 12.11.2026

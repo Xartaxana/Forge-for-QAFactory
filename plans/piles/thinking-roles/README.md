@@ -22,10 +22,12 @@
 
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
-| 1 | ручной проход кейсов и мест даёт верные вердикты: ввод как у человека, правило сбоя не мешает соседним кейсам, незнакомая учётка не останавливает прогон, стадия закрывается после аналитика | находки ходока и аналитика 06.11.2026 | L | ожидает | — | — | — |
-| 2 | пробы целятся в проверку требования и закрывают окно без слова человека; драйвер не теряет ответ скрипта из-за предупреждения; швы первого прохода плеча B закрыты; тест, который ничего не исполнил, — красный | находки проб, драйвера, плеча B, тестов 06.11.2026 | L | ожидает | — | — | — |
+| 1 | ручной проход кейсов и мест даёт верные вердикты: ввод как у человека, правило сбоя не мешает соседним кейсам, незнакомая учётка не останавливает прогон, стадия закрывается после аналитика | находки ходока и аналитика 06.11.2026 | L | закрыта | — | — | `5498318` |
+| 2 | пробы целятся в проверку требования и закрывают окно без слова человека; драйвер не теряет ответ скрипта из-за предупреждения; швы первого прохода плеча B закрыты; тест, который ничего не исполнил, — красный | находки проб, драйвера, плеча B, тестов 06.11.2026 | L | закрыта | — | — | `5498318` |
 | 3 | автоматизация идёт несколькими окнами сразу, ручной проход — тремя ходоками | находка параллельности 06.11.2026 | L | ожидает | — | — | — |
-| 4 | остатки ревью критиков и скаутов: форма критика называет просмотренный диспатч, один замок файла, один помощник отказа, реестр медленных тестов, перечни знают новый скрипт | находки остатков 06.11.2026 | M | ожидает | — | — | — |
+| 4 | остатки ревью критиков и скаутов: форма критика называет просмотренный диспатч, один замок файла, один помощник отказа, реестр медленных тестов, перечни знают новый скрипт | находки остатков 06.11.2026 | M | закрыта | — | — | `5498318` |
+| 5 | хвосты П2 пачек 1, 2 и 4: быстрый отказ входа и остатки ревью ходока, запись обхода принимается по смыслу, повтор пробы с другой целью, один читатель ответов драйвера, статус вопроса гейта A из реестра, один сборщик `resolve_return`, поле `observation` черновика | находки пачек 1, 2 и 4 | M | ожидает | — | — | — |
+| 6 | хвосты П3 пачек 1, 2 и 4: остатки ревью ходока и обходов, спеки приведены к коду ночных пачек, остатки цепочки проб, лишний вопрос `s1_gap` | находки пачек 1, 2 и 4 | S | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`.
 
@@ -50,6 +52,17 @@
 Начать с TR4-4, TR4-5 и TR4-1 (быстрые, файлы не делят); TR4-3, TR4-6…TR4-9 ждут слияния веток своих узлов (функций на основе нет).
 Подробно — `batch-4-ostatki.md`.
 
+## Бриф пачки 5
+
+Хвосты П2 пачек 1, 2 и 4, собранные словом владельца 12.11.2026, чтобы эти пачки закрывались по узлам П1. Начать с TR1-5, TR1-6, TR2-2, TR2-3,
+TR2-6, TR2-9, TR2-11, TR2-16, TR4-14, TR4-15 (у них «—» или только принятые узлы в «Зависит от»); остальные идут цепочками общих файлов.
+Подробно — `batch-5-hvosty-p2.md`.
+
+## Бриф пачки 6
+
+Хвосты П3 пачек 1, 2 и 4, собранные словом владельца 12.11.2026. Начать с TR2-13, TR4-16, TR4-17; TR1-7 и TR2-10 ждут узлов пачки 5.
+Подробно — `batch-6-hvosty-p3.md`.
+
 ## Дороги
 
 Читать по порядку: эта карточка → файл пачки → находка узла (раздел с id узла) → спека, названная находкой → код по функциям из находки.
@@ -66,15 +79,15 @@
 |---|---|---|---|---|---|---|
 | **Пачка 1** | | | | | | |
 | `findings/20261106-hodok-lozhnyj-pass-i-pravila-sboya.md` | находка, id — | набор по одной цифре прячет баг; снятое правило сбоя мешает следующим кейсам; нет шага «закончить сессию» | `scripts/manual_capture.py`, `scripts/walk_session.py` | в пачке 1, TR1-1, TR1-2, TR1-3 | нет | t-1957 |
-| `findings/20261106-hodok-uchyotki-i-vhod.md` | находка, id — | дорожка с незнакомой учёткой уходит на старую дорогу и останавливает прогон; отказ входа ждёт минутами | `scripts/story_run.py`, `scripts/manual_capture.py` | в пачке 1, TR1-4, TR1-5 | нет | t-1955, t-1957 |
-| `findings/20261106-hodok-ostatki-kritika-i-priyomka-zapisi.md` | находка, id — | открытые замечания двух ревью ходока; запись обхода принимается по наличию цитаты, не по смыслу | `scripts/walk_session.py`, `scripts/manual_evidence.py`, `references/walk-charter.md` | в пачке 1, TR1-6, TR1-7, TR1-8 | нет | t-2013, t-2018 |
-| `findings/20261106-analitik-prohodit-mesta-ostatki.md` | находка, id — | S7 не закрылась после обхода мест; место за входом недоступно; черновик без подтверждения читается подтверждённым | `scripts/controller.py`, `scripts/story_run.py`, `scripts/place_answers.py` | в пачке 1, TR1-9, TR1-10, TR1-11 | нет | t-1991, t-2010, t-2027 |
+| `findings/20261106-hodok-uchyotki-i-vhod.md` | находка, id — | дорожка с незнакомой учёткой уходит на старую дорогу и останавливает прогон; отказ входа ждёт минутами | `scripts/story_run.py`, `scripts/manual_capture.py` | в пачке 1, TR1-4; в пачке 5, TR1-5 | нет | t-1955, t-1957 |
+| `findings/20261106-hodok-ostatki-kritika-i-priyomka-zapisi.md` | находка, id — | открытые замечания двух ревью ходока; запись обхода принимается по наличию цитаты, не по смыслу | `scripts/walk_session.py`, `scripts/manual_evidence.py`, `references/walk-charter.md` | в пачке 5, TR1-6, TR1-8; в пачке 6, TR1-7 | нет | t-2013, t-2018 |
+| `findings/20261106-analitik-prohodit-mesta-ostatki.md` | находка, id — | S7 не закрылась после обхода мест; место за входом недоступно; черновик без подтверждения читается подтверждённым | `scripts/controller.py`, `scripts/story_run.py`, `scripts/place_answers.py` | в пачке 1, TR1-9, TR1-11; в пачке 5, TR1-10 | нет | t-1991, t-2010, t-2027 |
 | **Пачка 2** | | | | | | |
-| `findings/20261106-proby-cel-proby-i-ostatki.md` | находка, id — | проба не в цель: `assertion_id` на строку мимо Then; повтор пробы запирает цель; старое слово как вейвер | `scripts/probe_by_code.py`, `scripts/manifest_put.py`, `scripts/window_record.py` | в пачке 2, TR2-1, TR2-2 | нет | t-1968, t-2000, t-2031 |
-| `findings/20261106-drajver-chtenie-otvetov-i-ostatki-b20.md` | находка, id — | ответы дочерних скриптов читаются целым текстом; остатки цепочки приёмок; шапка над текстом дирижёра | `scripts/story_run.py`, `scripts/no_move.py` | в пачке 2, TR2-3, TR2-4, TR2-5 | нет | t-1988, t-2015, t-2020 |
-| `findings/20261106-plecho-b-shvy-pervogo-prohoda.md` | находка, id — | пять невзятых дефектов плеча B, лишний вопрос S1, расхождение цены из двух источников | `scripts/handoff_check.py`, `scripts/gate_preflight.py`, `scripts/coverage_contract.py`, `scripts/stage_done.py` | в пачке 2, TR2-6, TR2-7, TR2-8, TR2-9, TR2-10, TR2-11 | нет | t-1936 |
-| `findings/20261106-testy-pytest-nevidimy-i-sverka-spek.md` | находка, id — | тесты в стиле pytest невидимы для selftest; спеки и хартии отстали от кода ночных пачек | `scripts/selftest.py`, `docs/tasks/specs/`, `docs/SIBLING_MAP.md` | в пачке 2, TR2-12, TR2-13 | нет | t-1996, t-2028 |
-| `findings/20261106-odna-doroga-proby-na-vse-yazyki.md` | находка, id — | Python-путь пробы ломает первый assert, нет `--at`; исключение языка из спеки — дефект форджа | `scripts/probe_by_code.py`, `references/detectors.json`, `.claude/agents/designer.md`, `docs/SIBLING_MAP.md` | в пачке 2, TR2-14, TR2-15 | да: 06.11.2026 («надо что бы всё было единообразно») | t-1968, t-2000, t-2045 |
+| `findings/20261106-proby-cel-proby-i-ostatki.md` | находка, id — | проба не в цель: `assertion_id` на строку мимо Then; повтор пробы запирает цель; старое слово как вейвер | `scripts/probe_by_code.py`, `scripts/manifest_put.py`, `scripts/window_record.py` | в пачке 2, TR2-1; в пачке 5, TR2-2 | нет | t-1968, t-2000, t-2031 |
+| `findings/20261106-drajver-chtenie-otvetov-i-ostatki-b20.md` | находка, id — | ответы дочерних скриптов читаются целым текстом; остатки цепочки приёмок; шапка над текстом дирижёра | `scripts/story_run.py`, `scripts/no_move.py` | в пачке 5, TR2-3, TR2-4, TR2-5 | нет | t-1988, t-2015, t-2020 |
+| `findings/20261106-plecho-b-shvy-pervogo-prohoda.md` | находка, id — | пять невзятых дефектов плеча B, лишний вопрос S1, расхождение цены из двух источников | `scripts/handoff_check.py`, `scripts/gate_preflight.py`, `scripts/coverage_contract.py`, `scripts/stage_done.py` | в пачке 2, TR2-7, TR2-8; в пачке 5, TR2-6, TR2-9, TR2-11; в пачке 6, TR2-10 | нет | t-1936 |
+| `findings/20261106-testy-pytest-nevidimy-i-sverka-spek.md` | находка, id — | тесты в стиле pytest невидимы для selftest; спеки и хартии отстали от кода ночных пачек | `scripts/selftest.py`, `docs/tasks/specs/`, `docs/SIBLING_MAP.md` | в пачке 2, TR2-12; в пачке 6, TR2-13 | нет | t-1996, t-2028 |
+| `findings/20261106-odna-doroga-proby-na-vse-yazyki.md` | находка, id — | Python-путь пробы ломает первый assert, нет `--at`; исключение языка из спеки — дефект форджа | `scripts/probe_by_code.py`, `references/detectors.json`, `.claude/agents/designer.md`, `docs/SIBLING_MAP.md` | в пачке 2, TR2-14, TR2-15; в пачке 5, TR2-16 | да: 06.11.2026 («надо что бы всё было единообразно») | t-1968, t-2000, t-2045 |
 | **Пачка 3** | | | | | | |
 | `findings/20261106-parallelnost-okna-s5-i-hodoki.md` | находка, id — | окна автоматизации и ручной проход идут по одному; узлы параллельности из спек t-1937 и t-1957 | `scripts/controller.py`, `scripts/story_run.py`, `scripts/stand_lease.py` | в пачке 3, TR3-1…TR3-11 | да: 05.11.2026 («время уменьшить в разы», «пусть будет 3») | t-1937, t-1957 |
 | **Пачка 4** | | | | | | |
@@ -89,10 +102,10 @@
 | `findings/20261106-vvod-tsepochka-po-tekstu-selektora.md` | находка, id — | цепочка ввода различает поле по написанию селектора и делится между акторами | `scripts/walk_session.py`, `scripts/manual_capture.py` | в пачке 4, TR4-9 | нет | t-2055 |
 | `findings/20261110-melkie-ostatki-revyu-10-11.md` | находка, id — | живость по роли, а не по диспатчу; формы S7/S8 без префилла; медленная фикстура brief pack; аренда стенда без замка | `scripts/dispatch_liveness.py`, `scripts/brief_pack.py`, `scripts/stand_lease.py` | в пачке 4, TR4-12 | нет | t-2145, t-2153, t-2166 |
 | `findings/20261110-s5-okno-posle-prinyatogo-avtorskogo-raunda-nevidimo.md` | находка, id — | окно S5 после принятого раунда автора не видно читателям открытых окон; стадия кончается отказом вместо просмотра критика | `scripts/story_run.py`, `scripts/tests/test_s5_window_leftovers.py` | в пачке 4, TR4-13 | нет | t-2263 |
-| `findings/20261110-odin-sborshchik-resolve-return.md` | находка, id — | пакет `resolve_return` собирается в нескольких местах `story_run.py`; нужен один сборщик в контроллере | `scripts/controller.py`, `scripts/story_run.py` | в пачке 4, TR4-14 | нет | t-2263 |
-| `findings/20261111-uchyotki-obhodov-ostatki-revyu.md` | находка, id — | остатки ревью TR3-10 D: стенд читается в нескольких местах, ключи пулов и `fold_kind` расходятся, `walk_assign_step` длинный, ответ `added` не возвращает S6 | `scripts/walk_pool.py`, `scripts/story_run.py`, `scripts/config_contract.py` | в пачке 4, TR4-16 | нет | t-2331 |
-| `findings/20261111-proby-ostatki-cepochki.md` | находка, id — | остатки цепочки проб (t-2064) после приёмки: проверка строки у привязок, один предикат устаревания, мёртвый `--supersede`, один читатель строки агрегата, остатки старой дороги, `except Exception` ходьбы, пустой список строк, ранний снимок дерева в тесте, запас байт пина K7, `owner_role` с двумя правилами, остаток слова | `scripts/manifest_put.py`, `scripts/proof_level.py`, `scripts/probe_by_code.py`, `scripts/planning_contract.py`, `scripts/check_witness.py` | в пачке 4, TR4-17 | нет | t-2064, t-2400, t-2490 |
-| `findings/20261110-tr1-11-chernovik-nablyudeniya-klyuch-svyazi.md` | находка, id — | черновик непривязанного наблюдения не называет его: нужно одно необязательное поле контракта, которое читает `place_of_draft` | `scripts/place_answers.py`, `references/artifact-contract-run.md`, `scripts/validate_artifacts.py` | в пачке 4, TR4-15 | нет | t-2306, t-2299 |
+| `findings/20261110-odin-sborshchik-resolve-return.md` | находка, id — | пакет `resolve_return` собирается в нескольких местах `story_run.py`; нужен один сборщик в контроллере | `scripts/controller.py`, `scripts/story_run.py` | в пачке 5, TR4-14 | нет | t-2263 |
+| `findings/20261111-uchyotki-obhodov-ostatki-revyu.md` | находка, id — | остатки ревью TR3-10 D: стенд читается в нескольких местах, ключи пулов и `fold_kind` расходятся, `walk_assign_step` длинный, ответ `added` не возвращает S6 | `scripts/walk_pool.py`, `scripts/story_run.py`, `scripts/config_contract.py` | в пачке 6, TR4-16 | нет | t-2331 |
+| `findings/20261111-proby-ostatki-cepochki.md` | находка, id — | остатки цепочки проб (t-2064) после приёмки: проверка строки у привязок, один предикат устаревания, мёртвый `--supersede`, один читатель строки агрегата, остатки старой дороги, `except Exception` ходьбы, пустой список строк, ранний снимок дерева в тесте, запас байт пина K7, `owner_role` с двумя правилами, остаток слова | `scripts/manifest_put.py`, `scripts/proof_level.py`, `scripts/probe_by_code.py`, `scripts/planning_contract.py`, `scripts/check_witness.py` | в пачке 6, TR4-17 | нет | t-2064, t-2400, t-2490 |
+| `findings/20261110-tr1-11-chernovik-nablyudeniya-klyuch-svyazi.md` | находка, id — | черновик непривязанного наблюдения не называет его: нужно одно необязательное поле контракта, которое читает `place_of_draft` | `scripts/place_answers.py`, `references/artifact-contract-run.md`, `scripts/validate_artifacts.py` | в пачке 5, TR4-15 | нет | t-2306, t-2299 |
 
 ## Входящие
 
