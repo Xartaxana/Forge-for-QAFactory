@@ -2621,11 +2621,19 @@ def _in_test_root(cfg: dict, rel: str) -> bool:
     # B-355 node I: the roots are read through the one reader (`test_locations.is_test_path`), `by == "config"` from
     # `roots.test` / `tests_root` only: a value it ignores (`"."`, at or above the root) is ignored here too, and where
     # the project recorded its tests for the area only the record decides. The path is project-relative, so the root
-    # it is read against is a fixed stand-in; `markers` and `test_locations` never pass here.
+    # it is read against is a fixed stand-in; `markers` never passes here, and `test_locations` passes only for a path
+    # that ALSO lies under a `roots.test` / `tests_root` carrier (read from the reader's own live carrier list).
     import test_locations as TL
-    verdict = TL.is_test_path(key, cfg if isinstance(cfg, dict) else {}, root=_STAND_IN_ROOT)
-    if not (verdict.get("by") == "config" and verdict.get("source") in ("roots.test", "tests_root")):
+    cfg = cfg if isinstance(cfg, dict) else {}
+    verdict = TL.is_test_path(key, cfg, root=_STAND_IN_ROOT)
+    if verdict.get("by") != "config":
         return False
+    if verdict.get("source") not in ("roots.test", "tests_root"):
+        ctx = TL._Ctx(cfg, _STAND_IN_ROOT)
+        t = TL._target(ctx, key, None)
+        if not any(source in ("roots.test", "tests_root") and TL._inside(t, prefix)
+                   for source, _where, prefix, _rest, _wild in TL._live_carriers(ctx, t)):
+            return False
     app = str(cfg.get("app_root") or ".").replace("\\", "/")
     for protected in cfg.get("protected_app_paths") or []:
         base = ER._path_key(posixpath.join(app, str(protected).replace("\\", "/")))
