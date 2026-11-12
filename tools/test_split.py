@@ -57,6 +57,8 @@ the proof passed over the re-read temp files. The tool writes no registry: it PR
 """
 from __future__ import annotations
 
+__test__ = False    # a tool, not a test module: pytest collects `test_*.py` and would take `tests_dir_of` for a test
+
 import argparse
 import ast
 import dataclasses
