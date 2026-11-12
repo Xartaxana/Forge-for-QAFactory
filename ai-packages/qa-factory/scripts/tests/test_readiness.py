@@ -1105,10 +1105,22 @@ def test_places_check() -> None:
         row = R.check_test_places(dict(outside, test_locations=[]), only)
         check_eq("K-14 unreachable: with no word recorded nothing is unreachable", row["unreachable"], [])
         data = json.loads(cli(root, "--json").stdout)
-        check_eq("K-14: nothing recorded (not_recorded) -> the doctor document has no test_places key",
-                 "test_places" in data, False)
+        check_eq("K-14: nothing recorded (not_recorded) -> the area is published with its not_recorded note",
+                 sorted({a["status"] for a in data.get("test_places", {}).get("areas", {}).values()}), ["not_recorded"])
+        check_eq("K-14: nothing recorded -> test_places key present", "test_places" in data, True)
         ok_a = {"status": "ok", "note": "n"}
-        unc = {"status": "uncovered", "note": "u", "places": ["x"]}
+        nr = {"status": "not_recorded", "note": "m"}
+        pub =R.published_test_places({"status": "uncovered", "areas": {"app": ok_a, "project": nr},
+                                       "unreachable": [], "note": "app: n; project: m"})
+        check_eq("K-14 publish: not_recorded kept, ok dropped, note rebuilt without the dropped area",
+                 (list(pub["areas"]), pub["note"]), (["project"], "project: m"))
+        check_eq("K-14 publish: an area status outside the known set is kept",
+                 list(R.published_test_places({"status": "ok", "areas": {"app": {"status": "weird", "note": "w"}},
+                                               "unreachable": []})["areas"]), ["app"])
+        check_eq("K-14 publish: unreachable sentence kept in the rebuilt note",
+                 "cannot reach the files of r" in R.published_test_places(
+                     {"status": "unreachable", "areas": {"app": ok_a}, "unreachable": ["r"], "note": "app: n"})["note"], True)
+        unc ={"status": "uncovered", "note": "u", "places": ["x"]}
         check_eq("K-14 publish: all areas ok -> nothing to say, key absent",
                  R.published_test_places({"status": "ok", "areas": {"app": ok_a, "project": ok_a}, "unreachable": []}), {})
         check_eq("K-14 publish: one uncovered + one ok -> only the uncovered area",

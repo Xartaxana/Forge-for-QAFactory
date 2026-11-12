@@ -674,13 +674,22 @@ def check_test_places(cfg: dict, root: Path) -> dict:
 
 
 def published_test_places(row: dict) -> dict:
-    """The part of `check_test_places` the doctor document carries: only `uncovered` / `unknown` areas and the
-    `unreachable` entries. Empty when nothing is left to say; a row that is itself `unknown` (the check crashed,
-    so it has no areas) is still published, never silenced (AR-28)."""
-    areas = {k: v for k, v in (row.get("areas") or {}).items() if v.get("status") in ("uncovered", UNKNOWN)}
-    if not areas and not row.get("unreachable") and row.get("status") != UNKNOWN:
+    """The part of `check_test_places` the doctor document carries: every area that is not `ok` (`uncovered`,
+    `unknown`, `not_recorded`, and any status not known here: never silently dropped) and the `unreachable`
+    entries. Empty when nothing is left to say; a row that is itself `unknown` (the check crashed, so it has no
+    areas) is still published, never silenced (AR-28). The `note` is rebuilt from what is kept, so it never
+    speaks of a dropped area."""
+    areas = {k: v for k, v in (row.get("areas") or {}).items() if v.get("status") != OK}
+    unreachable = row.get("unreachable") or []
+    if not areas and not unreachable and row.get("status") != UNKNOWN:
         return {}
-    return dict(row, areas=areas)
+    if not areas and not unreachable:
+        return dict(row, areas=areas)
+    notes = [f"{name}: {v.get('note', '')}" for name, v in areas.items()]
+    if unreachable:
+        notes.append("a recorded word cannot reach the files of " + ", ".join(unreachable)
+                     + " (they lie outside app_root and the project root)")
+    return dict(row, areas=areas, note="; ".join(notes))
 
 
 def check_vcs(root: Path, probe_remote: bool = False) -> dict:
