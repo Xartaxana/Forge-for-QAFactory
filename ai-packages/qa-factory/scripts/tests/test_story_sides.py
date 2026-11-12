@@ -206,7 +206,8 @@ def registry_cases():
         check_eq("a project row: source registry, registry_key product.sides, deliverable and settles_by read",
                  {k: sides["ui"][k] for k in ("source", "registry_key", "deliverable", "settles_by", "reality")},
                  {"source": "registry", "registry_key": PK.SIDES_KEY, "deliverable": False, "settles_by": "platform team", "reality": REAL})
-        check("once a product.sides row exists `product` is not implied", "product" not in sides, sorted(sides))
+        check("a product.sides row of a real side that is another team's (deliverable false) does not name this team's part: `product` is implied",
+              "product" in sides, sorted(sides))
         put(root, PK.STAND_SIDES_KEY, "backend", {"reality": SUBSTITUTED}, environment="dev")
         sides, _ = read(root, env="dev")
         check_eq("a stand row of the chosen stand: reality read, registry_key environments.sides; deliverable unknown reads true",
@@ -225,9 +226,9 @@ def registry_cases():
         root = Path(td)
         put(root, PK.REFERENCE_KEY, "ui", {"reference": True}, environment="old")
         sides, _ = read(root)
-        check_eq("a reference row alone: registry_key environments.reference_for, reality real, the implicit product stays",
+        check_eq("a reference row alone: registry_key environments.reference_for, reality real, deliverable reads true: no implicit product",
                  ({k: sides["ui"][k] for k in ("registry_key", "reference", "reality")}, "product" in sides),
-                 ({"registry_key": PK.REFERENCE_KEY, "reference": "old", "reality": REAL}, True))
+                 ({"registry_key": PK.REFERENCE_KEY, "reference": "old", "reality": REAL}, False))
     with tempfile.TemporaryDirectory(prefix="qa-sides-reg-") as td:
         root = Path(td)
         put(root, PK.SIDES_KEY, "UI", {"deliverable": True})
@@ -279,6 +280,14 @@ def registry_cases():
                  (contract.registry_sides(root)["sides"]["ui"]["reality"], bool(contract.registry_sides(root)["problem"])), ("", True))
 
 
+def copy_registry(root, root2):
+    """A second story of the same project: the project's registry file is copied to `root2` (the registry is the project's, not the story's)."""
+    import shutil
+    import project_knowledge as PK
+    PK.record_path(root2).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(PK.record_path(root), PK.record_path(root2))
+
+
 def driver_cases():
     """t-2181 PC-1b in the driver at S0: the second story is not asked; the answer is recorded once (writer 2); a no_trace story
     keeps it in `pipeline.sides` with the line; C15; an unreadable registry is `sides_unknown`."""
@@ -286,18 +295,68 @@ def driver_cases():
     from story_run_common import eq as check_eq   # this one takes a detail text (the process output) as a fourth argument
     from story_run_common import s0_answer, s0_pipeline, s0_project, s0_run, s0_state, stub_calls
     repos = {"code_repos": [{"name": "app", "path": "app"}]}
-    root, task_root, env = s0_project("PROJ-1", config=repos)
-    try:
-        PK.record(root, key=PK.SIDES_KEY, environment="", element="backend", state="known", scope="project",
-                  value={"deliverable": False, "settles_by": "platform team"}, words="theirs", source="person", story="S-0", by="conductor")
-        out = s0_run(root, env, "PROJ-1", "--side", "backend=substituted")
-        check_eq("the second story of a project is not asked sides.deliverable (exit 0, no block)",
-                 (out.returncode, s0_state(task_root).get("s0_block")), (0, None), out.stdout[-500:] + out.stderr[-300:])
-        entry = s0_pipeline(task_root)["sides"]["backend"]
-        check_eq("... the registry's deliverable and settles_by are recorded with the launch's reality",
-                 (entry["reality"], entry["deliverable"], entry["settles_by"]), (SUBSTITUTED, False, "platform team"))
-    finally:
-        harness.cleanup(root)
+    # PC2-7 (t-043): ONE table - the implicit `product` is carried exactly when no side of the story is a real side of this team, whatever the
+    # registry holds from earlier stories and with or without `--no-trace`. Each S0 row runs traced AND `--no-trace` and the two records are
+    # equal without `at`; the id of the row names the case in every label. `second-story` has no `--no-trace` half (that flow asks again).
+    product_default = {"reality": "real", "deliverable": True, "source": "default"}
+    ours, theirs = (("ui", True, ""),), (("backend", False, "platform team"),)
+    # id, registry rows (name, deliverable, settles_by), launch flags, the answer to sides.deliverable (None: not asked), `product`, `backend`
+    rows = (
+        ("own-answer", (), ("--side", "backend=substituted"), "another team's", product_default, (SUBSTITUTED, False, "")),
+        ("other-story-row", theirs, ("--side", "backend=substituted"), None, product_default, (SUBSTITUTED, False, "platform team")),
+        ("real-side-named", ours, ("--side", "backend=substituted"), "another team's", None, None),
+        ("other-team-real", (("ui", False, ""),), ("--side", "backend=substituted"), "another team's", product_default, None),
+        ("reference-only", (), ("--reference", "ui=old"), None, None, None),
+        ("second-story", (), ("--side", "backend=substituted"), "another team's", product_default, (SUBSTITUTED, False, "")),
+    )
+
+    def strip(sides):
+        return {name: {k: v for k, v in entry.items() if k != "at"} for name, entry in sides.items()}
+
+    def story_one(row, *extra):
+        """A fresh project, the registry rows seeded, the launch and the answer; `(root, task_root, env, out)` - the caller cleans up."""
+        root, task_root, env = s0_project("PROJ-1", config=repos)
+        for name, deliverable, settles_by in row[1]:
+            PK.record(root, key=PK.SIDES_KEY, environment="", element=name, state="known", scope="project",
+                      value={"deliverable": deliverable, "settles_by": settles_by}, words="the person said", source="person", story="S-0", by="conductor")
+        out = s0_run(root, env, "PROJ-1", *extra, *row[2])
+        if row[3]:
+            out = s0_answer(root, env, "PROJ-1", row[3], *extra)
+        return root, task_root, env, out
+
+    for row in rows:
+        name, found = row[0], {}
+        for mode, extra in (("traced", ()), ("no-trace", ("--no-trace",))):
+            if name == "second-story" and extra:
+                continue
+            root, task_root, env, out = story_one(row, *extra)
+            try:
+                found[mode] = strip(s0_pipeline(task_root)["sides"])
+                check_eq(f"{name} ({mode}): S0 ends and nothing is left asked", (out.returncode, s0_state(task_root).get("s0_block")), (0, None),
+                         out.stdout[-500:] + out.stderr[-300:])
+                check_eq(f"{name} ({mode}): `product` is as the rule says", found[mode].get("product"), row[4])
+                if row[5]:
+                    got = found[mode]["backend"]
+                    check_eq(f"{name} ({mode}): the registry's deliverable and settles_by are recorded with the launch's reality",
+                             (got["reality"], got["deliverable"], got.get("settles_by", "")), row[5])
+                if name == "second-story":      # story 2 of the project: the same launch, a copy of the registry, nothing asked
+                    root2, task_root2, env2 = s0_project("PROJ-2", config=repos)
+                    try:
+                        copy_registry(root, root2)
+                        out2 = s0_run(root2, env2, "PROJ-2", *row[2])
+                        second = strip(s0_pipeline(task_root2)["sides"])
+                        check_eq(f"{name}: story 2 is not asked", (out2.returncode, s0_state(task_root2).get("s0_block")), (0, None),
+                                 out2.stdout[-500:] + out2.stderr[-300:])
+                        check_eq(f"{name}: story 2 carries story 1's `product`, whole", second.get("product"), found[mode]["product"])
+                        check_eq(f"{name}: story 2's backend equals story 1's on reality and deliverable (its source differs by design)",
+                                 {k: second["backend"][k] for k in ("reality", "deliverable")},
+                                 {k: found[mode]["backend"][k] for k in ("reality", "deliverable")})
+                    finally:
+                        harness.cleanup(root2)
+            finally:
+                harness.cleanup(root)
+        if "no-trace" in found:
+            check_eq(f"{name}: the traced and the `--no-trace` records are equal without `at`", found["traced"], found["no-trace"])
     root, task_root, env = s0_project("PROJ-1", config=repos)
     try:
         s0_run(root, env, "PROJ-1", "--side", "backend=substituted")
@@ -374,6 +433,8 @@ def driver_cases():
         check_eq("F1 (a): the repaired registry on the relaunch clears the mark and records the substituted side (source registry)",
                  (out.returncode, bool(pipeline.get("sides_unknown")), entry.get("reality"), entry.get("deliverable"), entry.get("source")),
                  (0, False, SUBSTITUTED, False, "registry"), out.stdout[-400:] + out.stderr[-300:])
+        check_eq("F1 (a): ... and the re-read carries the implicit `product` as the default, as S0 spells it (K-b2, AR-19)",
+                 {k: v for k, v in ((pipeline.get("sides") or {}).get("product") or {}).items() if k != "at"}, product_default)
         check_eq("... and a third launch with no mark does nothing more (the record is as it was)", (s0_run(root, env, "PROJ-1").returncode,
                  s0_pipeline(task_root)["sides"]), (0, pipeline["sides"]))
     finally:
@@ -426,8 +487,8 @@ def driver_cases():
         check_eq("F2: no --env, the stand `dev` selected: its substituted row reaches pipeline.sides (never read as real)",
                  (out.returncode, pipeline.get("environment"), entry.get("reality"), entry.get("deliverable")),
                  (0, "dev", SUBSTITUTED, False), out.stdout[-500:] + out.stderr[-300:])
-        check("F6: a `product.sides` row exists, so `product` is not implied in pipeline.sides", "product" not in (pipeline.get("sides") or {}),
-              sorted(pipeline.get("sides") or {}))
+        check("F6: no side of the story is a real side of this team (backend is substituted, another team's), so `product` is implied in pipeline.sides",
+              "product" in (pipeline.get("sides") or {}), sorted(pipeline.get("sides") or {}))
     finally:
         harness.cleanup(root)
     root, task_root, env = s0_project("PROJ-1", config=stands)
@@ -479,7 +540,6 @@ def pipeline_of(task_root):
 
 def absent_side_cases():
     """t-2559 (W2 B3): the S5 hold for an absent side asks whose the side is. The owner's flow end to end, then the edges."""
-    import shutil
     import project_knowledge as PK
     import story_run
     from story_run_common import s0_pipeline, s0_project, s0_run, s0_state
@@ -508,8 +568,7 @@ def absent_side_cases():
         # a second story of the same project is not asked (the registry row is the project's)
         root2, task_root2, env2 = s0_project("PROJ-2", config={"code_repos": [{"name": "app", "path": "app"}]})
         try:
-            PK.record_path(root2).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(PK.record_path(root), PK.record_path(root2))
+            copy_registry(root, root2)
             out = s0_run(root2, env2, "PROJ-2", "--side", "api=absent")
             entry = (s0_pipeline(task_root2).get("sides") or {}).get("api") or {}
             check_eq("B3: a second story of the project is not asked: no stop, the side is not deliverable (W2 (3))",

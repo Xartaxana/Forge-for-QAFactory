@@ -301,14 +301,47 @@ Recommendation: (a) — the hunk is three lines and its test runs in the same no
 ### Answers to the forks (Lead, 12.11.2026)
 
 - F-1: (a) — every well-formed `product.sides` row except those this story wrote. Lead's technical call.
-- F-2: OPEN, the owner's. Asked 12.11.2026 in the session chat with recommendation (b). Node PC2-7 runs without the
-  answer: E2 stays today's behaviour. PC2-7b opens as a finding with a node only after the owner's word.
+- F-2: (b) — the owner's word, 12.11.2026 («да» to: the next story of a project that recorded only another team's
+  side sees the rest as `product`). `product` is implied whenever the story's merged entries (registry + launch +
+  answers) hold NO real side — independent of history and of `--no-trace`. Lead's call on how it lands: the answer came
+  before any builder started, so PC2-7 is built DIRECTLY on the (b) condition (it also makes the red check green: the
+  story's own `backend` row is non-real); F-1 (a)'s `story=` argument is then not needed and is NOT built. The rewrite
+  of §3-§6 to (b) follows the plan critic's verdict (t-050), which was asked to judge (b) as well.
 - F-3: (a) — "own" by the latest row. Lead's technical call. Noted while accepting: `project_knowledge.record`
   (`project_knowledge.py:417-419`) returns the HELD row and writes nothing when this story repeats the state and value
   another story recorded, so that row stays another story's and counts — the safe side of §3.
 - F-4: (a) — `contract.py (registry_sides)` is granted to the PC2-7 builder by the dispatch; no other function of the
   file. The builder does not commit; the Lead commits (shared tree on `main`).
 - Handoff path: the builder's report goes in its final message; the file under `docs/tasks/handoffs/` is optional.
+
+### The node as it stands after the plan critic (t-050; Lead, 12.11.2026) — OVERRIDES §3-§6
+
+Verdict of `docs/tasks/specs/reviews/t-043-critic-on-plan.md`: accept with fixes; building PC2-7 directly on F-2 (b)
+is sound. The section «F-2 (b) as the node's condition» of that report — (b)2 where the condition lives, (b)3 the
+flip list, (b)4 the edge table, (b)5 the §3 text, the builder node, the test table and keys K-b1, K-b2 — IS the node's
+requirement; §3-§6 above (the F-1 (a) design with `story=` and `provenance`) are history and are NOT built. Decisions:
+
+- **B5 — the rule's wording.** `product` is implied exactly when no entry of the story's merged sides is real AND this
+  team's (`deliverable` true or absent). An entry with an empty reality is not real. Taken by the critic's
+  recommendation until the owner's word: the owner's «да» was to «a project that recorded only another team's side
+  sees the rest as `product`», and the literal «no real side» would contradict it when that other team's side is real
+  on the stand. The question is put to the owner; the row `other-team-real` of the test table carries the variant's
+  expectation (real / true / default).
+- **B6:** `contract.story_sides(root=)` follows the rule; under the variant `test_story_sides.py:209` and `:228-230`
+  flip, and `:429` flips; each is an edit of the existing check.
+- **B7:** the `second-story` row compares `product` whole and `backend` on `reality` and `deliverable` only.
+- **B8:** one helper `contract.product_implied(sides)`, three callers; `product_rows` is removed; `sides_reread`
+  evaluates over `read["sides"]` and writes the default `product` with `source: default`.
+- **B2 — the witness.** Run locally: `test_story_sides.py`, `test_driver_layers.py`, `test_judgment_census.py`,
+  `selftest.py --lang`. `test_no_mr_entry.py` (a SLOW_TESTS file) and `test_story_run_words.py` are judged by the batch
+  canon in CI, K1 included. **B3':** K7 reads: `git grep -n "product_rows" -- ai-packages/qa-factory/scripts` shows
+  only the unrelated variable of `finalize_task.py` (:526, :531, :623). **B4':** t-2181 lines 280 and 696 both state
+  the new rule. **B1:** moot under (b) — nothing reads `provenance`.
+- **F-4 widened:** `contract.py (registry_sides, story_sides, product_implied)` is granted to the PC2-7 builder.
+- Non-blocking findings N1-N7 of the report: accepted as worded, except N2 (outside the node).
+- Queued outside the node (finding of the pile, Lead, same night): during S0 of a `--no-trace` story the conductor's
+  `side` / `account` / `revoke` commands still write a registry row — their experiment check reads `pipeline.json`,
+  which does not exist yet.
 
 ## 9. Reading trail
 

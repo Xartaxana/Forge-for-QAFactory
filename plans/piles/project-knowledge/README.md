@@ -61,6 +61,7 @@
 | `findings/20261111-bez-vybrannogo-stenda-chelovek-slyshit-chto-netu-klyuchej.md` | находка | Без выбранного стенда вопрос о входе говорит «нет ключей», а не «стенд не выбран» | `plans/piles/project-knowledge/batch-2-usloviya-zamena-oglavlenie.md` | PK2-16, ожидает | — | PK0-5; t-2361 |
 | `findings/20261111-akkaunt-kejsa-v-dvuh-mestah-odin-pomoshchnik.md` | находка | Аккаунт, который называет ручной кейс, определён в двух местах; нужен один помощник | `plans/piles/project-knowledge/batch-2-usloviya-zamena-oglavlenie.md` | PK2-17, ожидает | — | PK0-5; t-2361 |
 | `findings/20261111-zapis-zamechennoj-roli-gonka-proverki-i-zapisi.md` | находка | Замеченная роль: проверка реестра без замка и запись под замком; ответ человека может быть перезаписан | `plans/piles/project-knowledge/batch-2-usloviya-zamena-oglavlenie.md` | PK2-18, ожидает | нет | критик t-2370 (PK0-3); AR-28 |
+| `findings/20261112-s0-no-trace-komandy-dirizhera-pishut-v-reestr.md` | находка | В S0 прогона `--no-trace` `side`/`account`/`revoke` пишут строку в реестр: `pipeline.json` ещё нет, признак живёт в `launch.no_trace` | `plans/piles/project-knowledge/batch-2-usloviya-zamena-oglavlenie.md` | PK2-19, ожидает | нет | критик на план t-043 (N2); PK2-11; P8, FR-53, FR-59 |
 
 ## Что эта кучка вберёт из других (фазы 1–6 плана)
 

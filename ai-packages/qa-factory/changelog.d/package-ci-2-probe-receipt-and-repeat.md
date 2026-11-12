@@ -1,0 +1,1 @@
+- The probe walk now writes its live receipt once per walk (the note "already holds this proof" appears only when the receipt file existed before the walk), and a repeat whose per-check records cannot be read, or disagree with the receipt, runs the probe again instead of answering `already_probed`.

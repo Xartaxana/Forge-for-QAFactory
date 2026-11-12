@@ -2299,17 +2299,21 @@ def stamp_record(root: Path, instance: str, **fields) -> dict:
 
 # t-2064 P4b: the key set of a WALK's aggregate (was the first-check record's: `author_run_block` and `run` are gone; the plan's `checks`,
 # `mutated_files`, `plan_runs`, `plan_remaining`, `plan_unfinished` and `words` are new). `publish` / `binding` / `receipt*` are the
-# receipt's: they stand until item 4 attaches a receipt to the aggregate.
+# receipt's: they stand until item 4 attaches a receipt to the aggregate. `judgment_owed` and `walk_ended` are the aggregate's own,
+# each with a reader (named at its line below).
 INVERT_RECORD_KEYS = [
     "actual_location", "actual_reason", "assertion_id", "binding", "case", "checks", "defect_location",
     "dispatch_id", "evidence_ref", "evidence_refs", "expected_location", "expected_reason", "failure_kind",
     "input_hash", "input_hash_source", "instance_content_sha", "instance_id", "instance_identity",
+    "judgment_owed",     # `_judgment_fold`, always written; read by `proof_level.probe_record_state` -> `probe_plain_call_owed`
     "manifest_fields_missing", "mutated_file", "mutated_files", "mutation", "mutation_detail", "mutation_kind", "notes",
     "obligation_hash", "obligation_ids", "obligation_refs", "observed", "plan_remaining", "plan_runs", "plan_unfinished",
     "probe_tool", "proof_level",
     "proved_by",     # t-2064 N3b step 5: an `intended_failure` the code proved says how (`marker`, the token read in the row)
     "publish", "receipt", "receipt_missing", "record", "recorded_at", "request", "restore", "schema_version", "target",
-    "task", "test_code_sha", "test_file_sha256", "test_node", "verdict", "window_probe", "words"]
+    "task", "test_code_sha", "test_file_sha256", "test_node", "verdict",
+    "walk_ended",        # `_aggregate_record`; read by `_refold` (the judge's rebuild of the aggregate: `walk["ended"]`)
+    "window_probe", "words"]
 
 
 def the_record_and_the_answer_are_pinned(stub: Path) -> None:
@@ -2329,12 +2333,12 @@ def the_record_and_the_answer_are_pinned(stub: Path) -> None:
                   "command, fingerprint file list and runtime probe are those of this story's last typed run on "
                   "profile unit"])
         proc, answer = run(root, stub, f"{TEST_FILE_REL}::test_add", "test_add")
-        # t-2064 P4b: a second call over the same bytes is no longer answered `already_probed` on the default road: the walk is called
-        # again and answers with the aggregate (a proved check is not run again - test_probe_every_check.py
-        # test_repeat_skips_proved_runs_new_model). Question for the coordinator: is `already_probed` kept for the walk's repeat?
-        check_eq("pinned answer: exit 0, the walk answers with the aggregate again", (proc.returncode, answer.get("verdict")),
-                 (0, "intended_failure"))
-        check_eq("pinned answer: the key set is the aggregate's", sorted(answer), INVERT_RECORD_KEYS)
+        # t-2064 fix round A, B3: a second call over the same bytes and entries of a WHOLE walk (receipt on the row, every proved per-check
+        # record readable) is answered `already_probed`: the walk's repeat is the old road's one question. These two checks add what the
+        # "twice" check (a subset test) does not: the EXACT key set of that answer, `_repeat_answer`'s keys plus `notes`.
+        check_eq("pinned answer: exit 0, the walk's repeat is answered already_probed (B3)", (proc.returncode, answer.get("verdict")),
+                 (0, "already_probed"))
+        check_eq("pinned answer: the key set is the already_probed answer's", sorted(answer), sorted(ANSWER_KEYS + ["notes"]))
     with fresh() as root:
         manifest = manifest_of(root)
         for row in manifest["tests"]:
@@ -2364,9 +2368,9 @@ def the_repeat_is_answered(stub: Path) -> None:
     try:
         # AC1: the same bytes twice - the runner ran ONCE, and nothing was launched the second time.
         # t-2064 P4b: the subject is a PROVED check (`test_add`, `intended_failure`): the walk skips a check proved on the same bytes of its
-        # file with the same entry (spec section 14), so the one launch and "nothing launched or written but the aggregate" hold. The spec's
-        # ANSWER of the repeat (`already_probed`, its keys, `by`, the block, the words, ONE printed line) is not what the road returns: the
-        # pins of it stay red (PRODUCT QUESTION 1 of t-2064-p4b2t2-report.md), unbent. The old subject, a `no_failure` check, is not a proof
+        # file with the same entry (spec section 14), so the one launch and "nothing launched or written but the aggregate" hold. The ANSWER
+        # of the repeat is `already_probed` by the receipt (t-2064 fix round A, B3; the spec's keys, `by`, block and words, one printed
+        # line). The old subject, a `no_failure` check, is not a proof
         # and is walked again: see the "no_failure" group below (PRODUCT QUESTION 2).
         with fresh() as root:
             authored = (root / TEST_FILE_REL).read_bytes()
@@ -2500,8 +2504,9 @@ def the_repeat_is_answered(stub: Path) -> None:
         # AC2: a record nobody can read is absent, with a note
         with fresh() as root:
             # t-2064 P4b: the record that says a check is PROVED is the per-check record, so that is the one made unreadable (the old pin
-            # corrupted the single record of a survivor, which is re-run anyway); the walk reads no note about it: an unreadable record is
-            # simply not a proof (`_check_proved`, AR-28) and the check runs again, the aggregate is rewritten readable
+            # corrupted the single record of a survivor, which is re-run anyway); an unreadable per-check record answers no repeat
+            # (`_repeat_same_entries`, t-041 F2) and is not a proof on the walk (`_check_standing`, AR-28): the check runs again, and the
+            # aggregate is rewritten readable
             go(root, "corrupt", "test_add", "test_add")
             checks_dir = task_of(root) / "work" / "probes" / "checks"
             for broken in checks_dir.glob("test_add--*.json"):
@@ -2511,12 +2516,16 @@ def the_repeat_is_answered(stub: Path) -> None:
                      (got.get("verdict"), launches("corrupt")), ("intended_failure", 2))
             check_eq("...and the aggregate it leaves is readable", read_record(root, "test_add").get("verdict"), "intended_failure")
 
-        # B-373 R10 / E23: `already_probed` is unchanged - a stored `incomplete` (the tool could not read the run)
-        # answers nothing, so the probe runs again; only no_failure / wrong_location block a repeat (a gap of the
-        # factory's is never a standing verdict on the test)
+        # B-373 R10 / E23 + F3: a stored `incomplete` (the tool could not read the run) answers nothing, so the probe runs again; the walk
+        # reads the PER-CHECK record, so that one is stamped too (a stored `incomplete` per-check record reruns; a survivor is carried);
+        # only no_failure / wrong_location stand (a gap of the factory's is never a standing verdict on the test)
         with fresh() as root:
             go(root, "incompl", "test_dead_assert", "test_dead_assert")
             stamp_record(root, "test_dead_assert", verdict="incomplete")
+            for one in (task_of(root) / "work" / "probes" / "checks").glob("test_dead_assert--*.json"):
+                stored = json.loads(one.read_text(encoding="utf-8"))
+                stored["verdict"] = "incomplete"
+                write_json(one, stored)
             proc, got = go(root, "incompl", "test_dead_assert", "test_dead_assert")
             check_eq("an incomplete record does not answer a repeat: the probe runs",
                      (got.get("verdict"), launches("incompl")), ("no_failure", 2))
@@ -2524,7 +2533,7 @@ def the_repeat_is_answered(stub: Path) -> None:
         # t-2064 P4b, THE GROUPS BELOW (levels and budget unavailable, a person's word, a product record, legacy records) pin the old repeat's
         # readers: `proof_level.already_probed` through `_repeat_check`, which the plain road no longer calls (the walk skips a check by its
         # per-check record, section 14, and never reads a person's word, a product record or a legacy aggregate). Their ANSWER pins stay
-        # red and unbent: PRODUCT QUESTION 1 (the person's-word door and the answer), and a `no_failure` is walked again on every call
+        # as they are: the answer is B3's `already_probed`; a `no_failure` is walked again on every call
         # (PRODUCT QUESTION 2). A pin of "the probe runs (no_failure, N)" that passes below passes ONLY because a survivor is re-run on
         # every call - not for the reason it names (the note it carries is the red pin next to it); the report lists them by name.
         # AC2: the vocabulary of levels, and the run budget, unavailable: the probe runs, with a note (in this

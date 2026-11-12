@@ -37,6 +37,7 @@
 | FG7-14 | П2 | Метка диспатча несёт роль, а не модель: проверка 3 `dispatch_gate` принимает роль, модель по роли даёт `delegation.config.yaml`, хост-адаптация правила 7 (`findings/20261111-metka-dispatcha-neset-rol-d-0016-ne-sdelano.md`; D-0016, слово владельца 11.11.2026) | designer → builder → critic | `tools/dispatch_gate.py`, `tools/test_dispatch_gate.py`, `CLAUDE.md` | нет | ожидает |
 | FG7-15 | П3 | Свидетель для путей вне пакета одной дорогой: `scenario_walk.py --witness-for` отвечает и за `tools/`, путь без теста называется строкой (`findings/20261111-svidetel-dlya-putej-vne-paketa-odin-put.md`; t-013 F5) | designer → builder → critic | `ai-packages/qa-factory/scripts/tests/scenario_walk.py`, `ai-packages/qa-factory/scripts/tests/test-layers.json` | нет | ожидает |
 | FG7-16 | П3 | Проверка журнала отказывает строке с `basis: "judge"`: судья в проекте не используется (`findings/20261111-basis-judge-razreshen-kodom-pri-neispolzuemom-sude.md`; t-013 R-1) | builder | `tools/journal_validator.py`, `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | нет | ожидает |
+| FG7-17 | П3 | В шаблон пачки добавлен раздел `## Бриф` с двухстрочной формой «Что сделать: … НЕ делать: …»; существующий тест заголовков идёт и по шаблону (`findings/20261112-v-shablone-pachki-net-razdela-brief.md`; builder t-058; FR-54; AR-19) | builder | `plans/piles/_template/batch.md`, `tools/test_pile_cards_contents.py` | нет | ожидает |
 
 ## Ход
 

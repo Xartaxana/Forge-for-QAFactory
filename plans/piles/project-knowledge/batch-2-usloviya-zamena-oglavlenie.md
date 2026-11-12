@@ -37,6 +37,7 @@
 | PK2-16 | П2 | Отказ «нет выбранного стенда» получает свой вид и свою фразу для человека. `findings/20261111-bez-vybrannogo-stenda-chelovek-slyshit-chto-netu-klyuchej.md` | builder → critic | `ai-packages/qa-factory/scripts/story_run.py` | PK0-5 | ожидает |
 | PK2-17 | П3 | Один помощник «аккаунт, который называет кейс» для `default_login_needed` и `_actors_of_manual_cases`. `findings/20261111-akkaunt-kejsa-v-dvuh-mestah-odin-pomoshchnik.md` | builder → critic | `ai-packages/qa-factory/scripts/gate_preflight.py` | PK0-5 | ожидает |
 | PK2-18 | П2 | Запись замеченной роли: защита «писать, только если последнее состояние отсутствует или `noticed`» под замком в `record`, чтобы ответ человека не перезаписывался. `findings/20261111-zapis-zamechennoj-roli-gonka-proverki-i-zapisi.md` | builder → critic | `ai-packages/qa-factory/scripts/project_knowledge.py` | PK0-3 | ожидает |
+| PK2-19 | П2 | `_refuse_no_trace` читает признак эксперимента и до записи `pipeline.json` (launch-запись `state/driver-state.json`, `launch.no_trace`); нет ни одного носителя — не писать и сказать почему (FR-59); тест-таблица случаев. `findings/20261112-s0-no-trace-komandy-dirizhera-pishut-v-reestr.md` | designer (спека узла) → builder → critic | `ai-packages/qa-factory/scripts/project_knowledge.py (_refuse_no_trace)`, `ai-packages/qa-factory/scripts/tests/test_project_knowledge.py` | PK0-1; вместе с PK2-11 (один класс) | ожидает |
 
 ## Живые доказательства
 

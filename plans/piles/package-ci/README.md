@@ -24,6 +24,7 @@ Windows-машине, тесты стабильны под нагрузкой и
 |---|---|---|---|---|---|---|---|
 | 1 | полный прогон зелёный на Linux и на второй Windows-машине, тесты не падают под нагрузкой, время тестов в лимите | B-307, B-301, B-302 | M | закрыта | — | — | `855d4e5c` |
 | 2 | пины потолков брифа в тестах строятся во время теста, а не берутся из измеренной константы | — (находка 02.11.2026, узел PC2-1) | S | в работе | dev1, 11.11.2026 | `pile/package-ci/batch-2` | — |
+| 3 | потолок брифа «только двери» в тесте ужат до замера CI после PC2-6 | — (находка 12.11.2026, узел PC3-1) | S | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → words-gates/1, onboarding-forge/1, onboarding-forge/2.
 
@@ -105,6 +106,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261111-kanon-krasnyj-freshness-s3-ne-registriruetsya.md` | находка | канон красный: после приёмки S2 диспатч S3 не зарегистрирован, тест падает исключением | `scripts/tests/test_story_run_freshness.py` | пачка 2, PC2-5 | нет | t-034, t-035; PC2-3 |
 | `findings/20261111-kanon-krasnyj-brief-pack-brify-vyshe-potolka-6-kb.md` | находка | канон красный: брифы S5 и критика кода выше потолка 6 КБ, срез убирает обход человека и файлы кейсов | `scripts/brief_pack.py`, `scripts/tests/test_brief_pack.py` | пачка 2, PC2-6 | нет | t-034, t-035; PC2-1 |
 | `findings/20261111-kanon-krasnyj-no-mr-entry-otvet-o-storone-vyklyuchaet-produkt.md` | находка | канон красный: собственный ответ о стороне выключает продукт по умолчанию | `scripts/story_run.py`, `scripts/tests/test_no_mr_entry.py` | пачка 2, PC2-7 | нет | t-034; `pre-code` PC1-3 |
+| `findings/20261112-khrapovik-doors-only-brief-max-posle-pc2-6.md` | находка, id — | храповик `DOORS_ONLY_BRIEF_MAX` ужать до числа `REPORT K7` из лога CI после PC2-6; PC2-1 по дереву уже сделан | `scripts/tests/test_brief_pack_s5_plan.py` | пачка 3, PC3-1 | нет | t-056 N9; PC2-1, PC2-6 |
 
 ## Входящие
 

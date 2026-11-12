@@ -133,6 +133,39 @@ Acceptance keys:
 - F3 — (a): the expectation `("no_failure", 2)` stays, the fixture stamps the per-check record too.
 - The handoff line of §6 is read without the branch: the batch works in the shared tree on `main`, the builder does not commit; the Lead commits.
 
+## Fixes after the plan critic (t-046, `docs/tasks/specs/reviews/t-041-critic-on-plan.md`; Lead, 12.11.2026)
+
+These lines OVERRIDE §5/§6 wherever they differ. The critic's control run confirmed the premise: 756/762, the six FAIL
+lines carry the values §1/§2 predicted.
+
+- **B1 — the F2 condition reads only rows the WALK proves.** A row proved by a `product` entry is `intended_failure` in
+  the receipt but never has a per-check record (PBC :6380-6381, :6486-6494), so F2 as first written would make every
+  repeat of a plan with a `product` row walk again, for ever. The condition of «F2 in code» applies to a
+  `(check, row)` only when the row's entry kind is one the walk runs: `actual`, `find` or `invert`. Where the kind
+  comes from, in this order: (1) the picked entry of the window's models file (`picked`, already built in
+  `_repeat_same_entries`, PBC :7298); (2) for a check with no entry in the file, the stored aggregate's row for that
+  check (`checks[].entry.kind`; the aggregate is the record `answer["record"]` names); (3) kind `product` by either
+  source: the row is NOT read here, it stands on its product receipt; (4) no kind from either source: the row is read
+  as a walked row (unknown -> walk, FR-59; this cannot loop, a walk writes the per-check record of every row it runs).
+- **E5 gains a row:** a plan with one `invert` row and one `product` row, both proved, called again with unchanged
+  bytes and entries -> `already_probed`, one launch in total (invariant: B3, t-2064 :541 — a whole standing record
+  answers the repeat for every entry kind).
+- **Test for the E5 row:** one check group inside the owned function `the_repeat_is_answered` (no new function), built
+  from that function's existing fixtures plus one `product` entry. If the function's fixtures cannot carry a `product`
+  entry in about 25 added lines, do NOT build new scaffolding: say so in the report with the reason, and the case goes
+  to the code critic as a named gap.
+- **N1:** the read is `_per_check_read(ctx, check)` (PBC :6614-6617), not a hand-built `_read_check_record(...)` call.
+- **N2:** the builder does NOT commit and does not `git add`. K5 reads: the report proposes the `architecture:` and
+  `judgment:` lines; `selftest.py --lang` green.
+- **N3 — witness scope.** The builder runs locally, once each on the final state: `test_probe_by_code.py`,
+  `test_probe_fix_round.py`, `test_probe_one_road.py`, `test_probe_word_repeat.py`,
+  `test_probe_by_code_languages.py`, `test_judgment_census.py`, `gate_registry.py --check`, `selftest.py --lang`. K2
+  covers the first five (before/after FAIL lists; the «before» of the four neighbours is one run each at step 0).
+  Every other file `scenario_walk.py --witness-for` prints (`test_story_run_s6.py` and the scenario tests among them)
+  is NOT run locally: the report lists them as left to the batch canon in CI.
+- **N4:** the rewritten comment over the two repinned checks says what they add: the EXACT key set of the
+  `already_probed` answer (the «twice» check at T :2384-2386 is a subset test).
+
 ## 8. Small choices closed by the designer
 
 - Place of the one-write fix: the publish order in `_walk_plan` (§3), not an in-process "written by me" set threaded through `_aggregate_record` -> `attach_receipt` -> `write_receipt` (more plumbing through three signatures, same effect) and not a `final` flag on `publish()` (the in-loop call after the last group is simply redundant with :6549).

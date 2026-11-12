@@ -2220,7 +2220,7 @@ def approach_scenario(task: Path, root: Path) -> None:
             unpinned = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=True)["markdown"]
         finally:
             brief_pack.SCRIPTS = real_scripts
-        check("K6 negative control: an unpinned build at a 150-char folder is a different (longer) brief", unpinned != nothing["markdown"] and len(unpinned) > len(nothing["markdown"]))
+        check("K6 negative control: an unpinned build at a 150-char folder prints that folder in its card, the pinned brief does not", f'python "/{"x" * 150}/<script>"' in unpinned and "x" * 150 not in nothing["markdown"])
         # a project that recorded its approach
         cfg = json.loads(original.decode("utf-8"))
         cfg["test_data"] = {"accounts_by_role": "created per test through the admin API", "seeds": "factories in tests/factories.py",
@@ -2429,7 +2429,11 @@ def n4_scenario(task: Path, root: Path) -> None:
         check_eq("N4 W6: ... all 60 warnings keep their line", len(kept), 60)
         check("N4 W6: ... each words text cut at the level-1 limit (DECISION_CHARS_MIN)",
               all(len(ln) <= len("- standing: ") + brief_pack.DECISION_CHARS_MIN for ln in kept), str(max(len(ln) for ln in kept)))
-        check_in("N4 W6: ... the waivers are ONE count line", "- 1 waiver(s) of S5 are in the side file", battery["markdown"])
+        check_in("N4 W6: ... the S5 waiver keeps its own line (PC2-6 K1: the person's waiver is not traded for a count line)",
+                 'S5 block "vcs-1: uncommitted changes" -> go on', battery["markdown"])
+        check_in("N4 W6: ... the over line is the first line of `Not in the brief` and names the words (PC2-6)",
+                 f"- the brief stays over its {brief_pack.BRIEF_MAX_BYTES} B budget after every cut (words at level 1",
+                 battery["markdown"].split("## Not in the brief\n\n", 1)[1].splitlines()[0])
         check_not_in("N4 W6: ... and no pointer-only line", "recorded decision(s):", battery["markdown"])
         check_in("N4 W6: `Not in the brief` names the decisions side file", "- every decision in full - read qa-factory/artifacts/QA-9/work/briefs/S5-qa-automator-1-decisions.md",
                  battery["markdown"])
@@ -2927,6 +2931,24 @@ def main() -> None:
                  f'python "{(PLUGIN / "scripts").resolve().as_posix()}/<script>"', text)
         check_not_in("and never by an unexpanded plugin variable", "CLAUDE_PLUGIN_ROOT", text)
         check_not_in("judge off: no judge command for the automator either", "judge_run", text)
+        # PC2-6 B6 (pop priority): the first line to go is "critic findings: none yet", while the case files are still listed
+        none_yet_ceiling = s5_ceiling(lambda r: "critic findings: none yet" in r["markdown"])
+        popped_one = s5_build_at(none_yet_ceiling - 1)
+        check("PC2-6 B6: one byte short of keeping it, the none-yet line is gone and the case files are still listed",
+              "critic findings: none yet" not in popped_one["markdown"] and "work/test-cases/coupon/TC-001.md (" in popped_one["markdown"])
+        # PC2-6 O-d: words that are all short (no S1 waiver) keep level 2, the S5 waiver inline, and the files are popped from it
+        pipeline_file = task / "pipeline.json"
+        pipeline_kept = pipeline_file.read_bytes()
+        short_doc = json.loads(pipeline_kept.decode("utf-8"))
+        short_doc["stage_overrides"] = [o for o in short_doc["stage_overrides"] if o["stage"] != "S1"]
+        pipeline_file.write_text(json.dumps(short_doc), encoding="utf-8")
+        try:
+            short_words = s5_build_at(1)
+        finally:
+            pipeline_file.write_bytes(pipeline_kept)
+        check("PC2-6 O-d: all-short words stay at level 2 (no side-file pointer, the S5 waiver inline) while the files are popped",
+              "- every decision in full - read" not in short_words["markdown"]
+              and 'S5 block "vcs-1: uncommitted changes" -> go on' in short_words["markdown"] and any("input file(s)" in o for o in short_words["omitted"]))
 
         # --- overflow: the person's words move to a side file, the brief stays under 6 KB -----
         seed_story_for_s5(task, root, "Gate A: approved. " + "Keep every UI case in scope. " * 400)
