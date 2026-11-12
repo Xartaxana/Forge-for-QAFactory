@@ -419,6 +419,7 @@
   {"file": "inject_context.py", "function": "collect_blocks", "class": "shape", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "data", "ref": "A24:IC-oversized-slice"},
   {"file": "inject_context.py", "function": "map_problems", "class": "shape", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "data"},
   {"file": "inject_context.py", "function": "refuse_receipt", "class": "xref", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "data"},
+  {"file": "install_paths.py", "function": "_basis_errors", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "install_paths.py", "function": "_layout_errors", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "install_paths.py", "function": "_shape_errors", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "install_paths.py", "function": "load_table", "class": "shape", "roles": ["conductor"], "owner": "data"},
