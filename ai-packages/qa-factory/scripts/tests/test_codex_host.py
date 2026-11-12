@@ -453,6 +453,16 @@ class NativeHostTests(unittest.TestCase):
             stage(root,launch('ua',a),'qa-scout','context A','STORY-A')
             stage(root,launch('ub',b),'qa-scout','context B','STORY-B')
             before=packets()
+            import runtime_paths as RP
+            def journal_rows():
+                path=RP.configured(root,None,'journal.jsonl')
+                rows=[json.loads(x) for x in path.read_text(encoding='utf-8').splitlines()] if path.is_file() else []
+                return [r for r in rows if r.get('event')=='hook_signal']
+            flag=hooklib._once_flag(start('child-x'),'signal|inject|'+native_context.ambiguous_once_key('qa-scout',[a,b]))
+            def unflag():
+                if flag is not None and flag.exists():flag.unlink()
+            unflag()                       # the flag lives in the OS temp and would survive an earlier run
+            logged=len(journal_rows())
             self.assertEqual(run(start('child-x')),'')
             self.assertEqual(packets(),before)
             message=seen['err']
@@ -461,6 +471,16 @@ class NativeHostTests(unittest.TestCase):
                 self.assertIn(fact,message)
             for secret in ('context A','context B'):
                 self.assertNotIn(secret,message)
+            # F-4: the starved launch is also a journal signal, once per role per set of waiting names.
+            (row,)=journal_rows()[logged:]
+            self.assertEqual(row['kind'],'inject')
+            for fact in (a,b):
+                self.assertIn(fact,row['notes'])
+            for secret in ('context A','context B'):
+                self.assertNotIn(secret,row['notes'])
+            self.assertEqual(run(start('child-x')),'')
+            self.assertEqual(len(journal_rows()),logged+1)           # the same ambiguity is not said twice
+            unflag()
             # (vi) exactly one role match and no identity: delivered, as with one launch in flight.
             (qf/'state/native-context').joinpath(native_context.pending_path(root,'parent',b).name).unlink()
             self.assertEqual(run(start('child-y')),'context A')
@@ -492,6 +512,57 @@ class NativeHostTests(unittest.TestCase):
             self.assertTrue(foreign.is_file())
             self.assertNotIn(foreign.name,opened)
             self.assertNotIn('stray.json',opened)
+            # (A8, A8b: F-7, F-9) a side write that fails inside `deliver` never costs the child its context: it is said on
+            # stderr (one line) and once in the project journal, and the context still reaches stdout.
+            import runtime_paths as RP
+            def signals():
+                path=RP.configured(root,None,'journal.jsonl')
+                rows=[json.loads(x) for x in path.read_text(encoding='utf-8').splitlines()] if path.is_file() else []
+                return [r for r in rows if r.get('event')=='hook_signal']
+            def fresh():
+                shutil.rmtree(qf/'state/native-context',ignore_errors=True);shutil.rmtree(qf/'state/host-dispatches',ignore_errors=True)
+                stage(root,launch('ua',a),'qa-scout','context A','STORY-A')
+                return native_context.pending_path(root,'parent',a)
+            def said(message,*facts):
+                self.assertEqual(len(message.strip().splitlines()),1,message)
+                for fact in ('qa-scout',)+facts:
+                    self.assertIn(fact,message)
+                self.assertNotIn('context A',message)
+            def new_signals(before,*facts):
+                added=signals()[before:]
+                self.assertEqual([r['kind'] for r in added],['inject']*len(added))
+                for row in added:
+                    self.assertEqual(row['task'],'STORY-A')
+                    for fact in ('qa-scout',)+facts:
+                        self.assertIn(fact,row['notes'])
+                return added
+            for error in (OSError('disk full'),ValueError('broken receipt')):
+                packet=fresh();before=len(signals())
+                with patch('host_dispatch.record',side_effect=error):
+                    self.assertEqual(run(start('child-a',a)),'context A')
+                kept=json.loads(packet.read_text(encoding='utf-8'))
+                self.assertEqual(kept['status'],'delivered');self.assertNotIn('context',kept)
+                self.assertFalse(binding_path(root,'child-a').exists())
+                said(seen['err'],'launch receipt could not be written',type(error).__name__,str(error))
+                (row,)=new_signals(before,'launch receipt could not be written',str(error))
+                self.assertEqual(row['notes'],seen['err'].strip())
+            packet=fresh();staged=packet.read_bytes();before=len(signals())
+            with patch.object(native_context,'atomic_json',side_effect=PermissionError('locked')):
+                self.assertEqual(run(start('child-a',a)),'context A')
+            self.assertEqual(packet.read_bytes(),staged)             # stays as staged: pending, context kept
+            self.assertEqual(json.loads(packet.read_text(encoding='utf-8'))['status'],'pending')
+            self.assertTrue(binding_path(root,'child-a').is_file())
+            said(seen['err'],'could not be marked delivered','PermissionError','locked')
+            (row,)=new_signals(before,'could not be marked delivered','locked')
+            self.assertEqual(row['notes'],seen['err'].strip())
+            packet=fresh();before=len(signals())
+            with patch('host_dispatch.record',side_effect=OSError('disk full')), \
+                    patch.object(native_context,'atomic_json',side_effect=PermissionError('locked')):
+                self.assertEqual(run(start('child-a',a)),'context A')
+            lines=seen['err'].strip().splitlines()
+            self.assertEqual(len(lines),2,seen['err'])
+            self.assertIn('launch receipt could not be written',lines[0]);self.assertIn('could not be marked delivered',lines[1])
+            self.assertEqual(len(new_signals(before)),2)
 
     def test_desktop_spawn_is_identified_by_its_task_name_alone(self):
         """Codex 0.155.1 desktop passes `task_name`, `fork_turns` and an OPAQUE encrypted
