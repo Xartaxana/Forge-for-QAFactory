@@ -595,6 +595,19 @@ def test_a20_portable_paths() -> None:
         check_eq(f"A20: a runtime_probes of another shape is no crash and no violation ({odd})",
                  A.non_portable_config_paths(dict(portable, **odd)), [])
 
+    # OF1-3: the rule reads the START of a file-system path, not a URL or API segment
+    for text, flagged in (
+        ("C:" + B + "Users" + B + "x", True), ("/home/x", True), ("/Users/x", True), ("~/x", True),
+        ("see `/Users/name/x` here", True), ("cd /home/x && ls", True),
+        ("https://a/users/1", False), ("http://host/users/1", False), ("/users/123", False),
+        ("GET /users/{id}", False), ("`/api/users/{id}`", False), ("https://a/Users/1", False),
+        ("https://a/home/1", False),
+    ):
+        check_eq(f"A20 path start: {text!r} is {'flagged' if flagged else 'not flagged'}",
+                 bool(A.PERSONAL_PATH.search(text)), flagged)
+        check_eq(f"A20 path start in a document line: {text!r}",
+                 len(A.non_portable_config_paths(dict(portable, test_command_templates={"q": text}))), int(flagged))
+
     tmp = temp_project("qa-factory-audit-a20-")
     try:
         strategy = tmp / "qa-factory" / "strategy"

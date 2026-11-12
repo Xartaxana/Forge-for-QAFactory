@@ -943,7 +943,14 @@ def a13_deferred_decisions() -> None:
 DRIVE_ROOTED = re.compile(r"^[A-Za-z]:[\\/]")
 # The conservative half of the rule, for free text and shell commands: not "absolute" (a
 # command may legitimately name /usr/bin or /var/run) but "somebody's home directory".
-PERSONAL_PATH = re.compile(r"(?i)(?:/Users/|/home/|\\Users\\|:[\\/]Users[\\/]|(?:^|[\s\"'=])~[/\\])")
+# It reads the START of a file-system path (OF1-3): a `/Users/` or `/home/` that begins a path
+# (line start, whitespace, a quote, a backtick, `=`, a bracket) with the spelling a machine uses
+# (capital `Users`, lower `home`); a URL or API segment (`https://h/users/1`, `/api/users/{id}`,
+# `GET /users/{id}`) is preceded by a host or a name, or is lower-case, and is not a home directory.
+_PATH_START = r"(?:^|[\s\"'`=(\[,])"
+PERSONAL_PATH = re.compile(
+    _PATH_START + r"(?:/Users/|/home/|~[/\\])"
+    + r"|(?i:\\Users\\|[A-Za-z]:[\\/]Users[\\/])")
 RELATIVE_HINT = ("replace it with a path relative to the project root (`.`, `..`, "
                  "`../testproject1`) — see references/common-rules.md, \"What a path is relative to\"")
 
