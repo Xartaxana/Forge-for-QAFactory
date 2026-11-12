@@ -2901,7 +2901,7 @@ def _approach_test_data(config) -> tuple:
 def _approach_documents(project: Path, config) -> tuple:
     """-> (line, recorded)"""
     try:
-        names = sorted(p.name for p in (project / "qa-factory" / "strategy").glob("*.md") if p.is_file())
+        names = sorted(p.name for p in (RP.home_dir(project) / "strategy").glob("*.md") if p.is_file())
     except OSError:
         names = []
     shown = ", ".join(names[:APPROACH_DOCS_MAX]) + (f" (+{len(names) - APPROACH_DOCS_MAX} more)" if len(names) > APPROACH_DOCS_MAX else "")
