@@ -1524,7 +1524,6 @@ def story_register_text(task_root) -> str:
 
 ANY_READING = "*"          # the patch of every reading letter that has no key of its own
 NOT_NEEDED = contract.NOT_NEEDED_KEY  # its own key: `*` never covers it (a dropped check is not a reading)
-SETTLED_STATUSES = ("answered", "not_needed")
 BRANCH_KEYS_PATH = Path(__file__).resolve().parent.parent / "references" / "question-branch-keys.json"
 BRANCH_KINDS = ("unresolved_ref", "missing_refs", "bad_branch", "invalid_variant", "stale_reason",
                 "missing_reading_text", "settled_question", "dependent_pair", "case_unreadable",
@@ -2708,7 +2707,7 @@ def _apply_gate_answers(root: Path, words: str, where: str, by: str, put, lines:
     for qid, letter, status in todo:
         question = known[qid]
         now = str(question.get("status") or "open")
-        if now in SETTLED_STATUSES:
+        if now in QR.SETTLED_STATUSES:
             before = str(question.get("reading") or "") if now == "answered" else ""
             if (now == "answered" and status == "answered" and before == letter) or \
                     (now == "not_needed" and status == "not_needed"):
@@ -2768,7 +2767,7 @@ def _apply_gate_answers(root: Path, words: str, where: str, by: str, put, lines:
         lines.append(f"{where}: not questions of this story, so nothing is recorded for them: "
                      + ", ".join(read["unknown_ids"]))
     for qid in read["untokened_questions"]:
-        if qid in skipped or str((known.get(qid) or {}).get("status") or "open") in SETTLED_STATUSES:
+        if qid in skipped or str((known.get(qid) or {}).get("status") or "open") in QR.SETTLED_STATUSES:
             continue
         rows_on = dependents(qid)
         if rows_on:
@@ -3496,7 +3495,7 @@ def apply_recorded_answers(task_root, where, by="driver") -> dict:
 def _apply_recorded(root: Path, where: str, by: str, out: dict) -> None:
     import question_register as QR
     answered = [q for q in QR.load(root).get("questions") or []
-                if isinstance(q, dict) and q.get("id") and q.get("status") in SETTLED_STATUSES]
+                if isinstance(q, dict) and q.get("id") and q.get("status") in QR.SETTLED_STATUSES]
     if not answered:
         return
     lines, rework = [], []          # handed to `out` only when the pass got through: a failed write reports nothing it did not do
@@ -3546,21 +3545,9 @@ def _apply_recorded(root: Path, where: str, by: str, out: dict) -> None:
             # reworks - the error goes toward carrying the person's words out (FR-8), never toward dropping them (HF3-10, F7)
             again_in_words = prior is not None and answer == "" and prior.get("answer") == ""
             if prior is not None and (prior.get("answer") != answer or again_in_words):
-                was = str(prior.get("answer") or "")
-                old = _answer_words(was)
-                if again_in_words:
-                    lines.append(f"{qid}: you answered in your own words again; the test planner reworks the parts that followed "
-                                 "your earlier words.")
-                else:
-                    lines.append(f"{qid}: your answer is now {_answer_words(answer)}, but the test plan was written for {old}; "
-                                 f"the test planner reworks the parts that followed {old}.")
-                # every row ANY answer the plan was asked to follow moved or handed to the strategist (HF3-10, F2/F4)
-                moved_before = dict.fromkeys(rid for r in intents for field in ("rows", "rework_rows")
-                                             if isinstance(r.get(field), list) for rid in r[field] if isinstance(rid, str))
-                rework += [{"owner": "strategist", "where": rid, "question": qid, "answer": answer, "record_at": at, "was": was}
-                           for rid in moved_before]
-                rework += [dict(w, was=was) for w in _case_rework(cases, q, key, answer, at)]
-                records.append(_late_record(q, [], not_applied=NOT_APPLIED_DIFFERENT, rework_rows=list(moved_before)))
+                reworked, record = _reopened(q, intents, cases, key, answer, at, lines)
+                rework += reworked
+                records.append(record)
             elif prior is not None:
                 records.append(_late_record(q, []))          # asked again on a changed row, answered the same: the branch is gone
             else:
@@ -3570,13 +3557,49 @@ def _apply_recorded(root: Path, where: str, by: str, out: dict) -> None:
                 rework += row_rework + _case_rework(cases, q, key, answer, at)
                 records.append(_late_record(q, moved, rework_rows=[w["where"] for w in row_rework]))
     if plan_changed:
-        from event_store import atomic_json
-        if isinstance(document, dict):
-            document["rows"] = rows
-        else:
-            document = rows
-        atomic_json(path, document)
-        _rerender_plan_cells(root, md_changes)
+        _publish_plan(root, path, document, rows, md_changes)
+    _note_applied(root, records, where, by, out, lines)
+    out["lines"].extend(lines)
+    out["rework"].extend(rework)
+
+
+def _reopened(q: dict, intents: list, cases: dict, key: str, answer: str, at: str, lines: list) -> tuple:
+    """A settled question answered differently from the last answer the plan followed (or again in the person's own
+    words): the line it adds to `lines`, and `(rework_items, record)` - nothing is applied to a row here."""
+    qid, prior = q["id"], intents[-1]
+    again_in_words = answer == "" and prior.get("answer") == ""
+    was = str(prior.get("answer") or "")
+    old = _answer_words(was)
+    if again_in_words:
+        lines.append(f"{qid}: you answered in your own words again; the test planner reworks the parts that followed "
+                     "your earlier words.")
+    else:
+        lines.append(f"{qid}: your answer is now {_answer_words(answer)}, but the test plan was written for {old}; "
+                     f"the test planner reworks the parts that followed {old}.")
+    # every row ANY answer the plan was asked to follow moved or handed to the strategist (HF3-10, F2/F4)
+    moved_before = dict.fromkeys(rid for r in intents for field in ("rows", "rework_rows")
+                                 if isinstance(r.get(field), list) for rid in r[field] if isinstance(rid, str))
+    rework = [{"owner": "strategist", "where": rid, "question": qid, "answer": answer, "record_at": at, "was": was}
+              for rid in moved_before]
+    rework += [dict(w, was=was) for w in _case_rework(cases, q, key, answer, at)]
+    return rework, _late_record(q, [], not_applied=NOT_APPLIED_DIFFERENT, rework_rows=list(moved_before))
+
+
+def _publish_plan(root: Path, path: Path, document, rows: list, md_changes: dict) -> None:
+    """Write the changed rows back to the plan file once, then re-render the cells of its markdown twin."""
+    from event_store import atomic_json
+    if isinstance(document, dict):
+        document["rows"] = rows
+    else:
+        document = rows
+    atomic_json(path, document)
+    _rerender_plan_cells(root, md_changes)
+
+
+def _note_applied(root: Path, records: list, where: str, by: str, out: dict, lines: list) -> None:
+    """Append each record to the question register and to `out["applied"]`; a record that could not be written
+    adds a line to `lines` instead and is tried again at the next stop."""
+    import question_register as QR
     now_ts = QR._now()
     for record in records:
         try:
@@ -3585,8 +3608,6 @@ def _apply_recorded(root: Path, where: str, by: str, out: dict) -> None:
         except (OSError, QR.Refused) as exc:
             lines.append(f"{record['id']}: your answer could not be noted as applied ({type(exc).__name__}); it is tried again "
                          "at the next stop")
-    out["lines"].extend(lines)
-    out["rework"].extend(rework)
 
 
 def _unmet_preconditions(root, items: list) -> list:
