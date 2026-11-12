@@ -206,11 +206,11 @@ def part_inside_application_code() -> None:
         check_in("K3: and the reason says why", "inside application code 'src' and in none of the project's test "
                  "locations", found["reason"])
         found = verdict("tests/test_x.py", cfg, root)
-        check_eq("K3: outside the protected roots the usual names stay the fallback",
-                 (found["test"], found["by"], found["source"], found["kind"]), (True, "markers", "markers", "folder"))
-        check_eq("K3: a name marker: `src` is protected, `lib/foo.spec.ts` is not",
+        check_eq("K3 World R (B-355 3b): outside the protected roots the usual names decide nothing once the project recorded its tests",
+                 (found["test"], found["by"], found["source"], found["kind"]), (False, "none", "", ""))
+        check_eq("K3 World R (B-355 3b): a name marker: `src` is protected, `lib/foo.spec.ts` is not - and it is no test (no marker)",
                  (verdict("lib/foo.spec.ts", cfg, root)["by"], verdict("lib/foo.spec.ts", cfg, root)["where"]),
-                 ("markers", "stem_suffixes:.spec"))
+                 ("none", ""))
         none = {k: v for k, v in cfg.items() if k != "test_locations"}
         for p in ("src/app/test_x.py", "tests/test_x.py"):
             check_eq(f"K3: with no test_locations both are markers (today's behaviour): {p}",
@@ -361,8 +361,8 @@ def part_edges() -> None:
         hooklib.ref = lambda rel: empty / rel
         cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
         found = verdict("tests/test_x.py", cfg, root)
-        check_eq("E16: markers missing: no recognition by name, the reason names the file",
-                 (found["test"], "test-path-markers.json" in found["reason"]), (False, True))
+        check_eq("E16 World R (B-355 3b): markers missing: no recognition by name, the reason is the 3b one (the record decides)",
+                 (found["test"], "recorded where its tests are" in found["reason"]), (False, True))
         check_eq("E16: the project's word still answers", verdict("src/__checks__/a.py", cfg, root)["test"], True)
         check_eq("E16: markers() says why", TL.markers()[1], "missing, unreadable or empty")
         (empty / "test-path-markers.json").write_text(json.dumps(
