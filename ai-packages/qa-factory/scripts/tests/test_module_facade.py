@@ -12,7 +12,6 @@ that is patched and then loses its function), `builtin_open_through_the_facade` 
 reads), and `facade_own_main_from_import` (a free name of the facade's own code)."""
 import importlib
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,7 +24,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import harness  # noqa: E402
-from harness import check, check_eq, finish  # noqa: E402
+from harness import check, finish  # noqa: E402
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))

@@ -431,7 +431,7 @@ def analyze(text: str) -> Analysis:
     def refs_of(node):
         return {x.id for x in ast.walk(node) if isinstance(x, ast.Name) and x.id in cands}
 
-    blocks, pieces, plain = [], [], []
+    blocks = []
     consumed = set()     # run lists a consumer reads
     unnamed = 0
     for i, it in enumerate(items):
@@ -1027,7 +1027,6 @@ def build_plan(m: dict, repo: Path, tests_dir: Path | None = None) -> Plan:
         if bad:
             problems.append(f"{plan.source_name}:{seg.line}: `{', '.join(sorted(bad))}` is a runner artifact (generated per part) "
                             "but a definition reads it")
-    consumers_read = {r for blk in an.blocks for r in blk.refs}
     # -- uses between homes
     cross = {}
     for seg in an.segs:
