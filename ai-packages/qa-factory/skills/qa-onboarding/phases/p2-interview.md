@@ -130,7 +130,7 @@ one, which is what makes this rule a check rather than a hope.
    <cand>... --check --candidate "<p>" --json` (phase 1's own `--app-root`/`--protected`: no config
    exists yet, and an unreadable count says so in `unreadable`, it is not "0 files"): "<N> files, <M>
    without a usual test name" ("at least" when `truncated`), and ask
-   whether there are other places inside the application folders where tests live under
+   whether there are other places (inside the application folders or elsewhere) where tests live under
    other names. The project's answer is its own word: any name the team uses is accepted.
    The answer becomes `config.test_locations` (entries relative to `app_root`, written like
    `protected_app_paths`; audit A20). An entry that covers a whole application folder is asked
