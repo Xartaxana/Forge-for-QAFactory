@@ -80,11 +80,12 @@ did surface (a compose service image, a CI `include`, a README link, an SDK pack
 An application repository whose local path nobody can give is a legitimate end state; an
 unasked one is not.
 
-**Tests inside the application folders.** Once the application directories are known (every
+**The project's test places (application folders first).** Once the application directories are known (every
 layout, a Single root included), run `python "${CLAUDE_PLUGIN_ROOT}/scripts/test_locations.py"
 --root . --app-root <cand> --protected <cand>... --suggest --json` and record the candidates
 with their counts for topic 1c: it names folders and files that carry a usual test name, so
 the team confirms or corrects them; it decides nothing, and `truncated: true` means "at least".
+The candidates are the factory's hint; the team's answer in 1c is the decision every later stage reads.
 
 ## How the stand is reached — two lists, never one
 
