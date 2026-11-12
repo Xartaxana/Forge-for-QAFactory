@@ -23,6 +23,7 @@
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
 | 1 | роли читают меньше и точнее (диета инъекции, карточки AHEAD), уставы ролей несут P16/P17, джев-суждения достроены | B-023 | M | закрыта | — | — | `855d4e5c` |
+| 2 | на самом сильном сжатии брифа слова человека из ответа на вопрос остаются в брифе, а заметка о брифе не теряется за строкой stderr | — (находка 12.11.2026, узлы RC2-1, RC2-2) | S | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → release-next/1, words-gates/1, onboarding-forge/1, driver-hosts/2, onboarding-forge/2.
 
@@ -101,6 +102,8 @@ AHEAD», «форма передачи».
 | `findings/20261029-skaut-ostanavlivaetsya-na-konflikte-reshyonnom-v-kommentariyah.md` | находка | скаут S1 остановился на `requirement/code conflict`, снятом комментариями источника, который сам читал «полностью» | `phases/s1.md:341`, `agents/qa-scout.md` | RC1-13, ожидает | нет (П1 0.10.7 — решение Lead) | RC1-12, CX1-14 |
 | `findings/20261030-potolki-inekcii-ne-tam-gde-rezhetsya.md` | находка | A22/A25 меряют не то, что получает роль (первое сообщение 34–54 КБ); в рантайме режется только бриф (6 144 Б), драйвер при переборе молча отдаёт ноль правил; мера от цены, молчаливые потери — кодом | `scripts/audit_factory.py`, `scripts/brief_pack.py`, `scripts/story_run.py`, `scripts/inject_context.py`, `references/inject-map.json` | RC1-14, ожидает | да (30.10: «не урезать, а решить; либо поднимаем лимиты»); бюджет в $ — решение владельца | t-1619; `docs/tasks/specs/reviews/20261030-obyom-pravil-roli-i-potolki.md`; RC1-1; OH3-1 |
 | `findings/20261101-common-rules-i-slajsy-uchat-tolko-path-value.md` | находка, id — | `common-rules.md` и 13 слайсов учат роль только `path: value`, индексную форму строк списка не называют (F-2 (б) HF8-7) | `references/common-rules.md` | RC1-15, ожидает | нет | RC1-9; RC1-11; HF8-28 |
+| **Бриф роли: слова человека и заметка о брифе (пачка 2)** | | | | | | |
+| `findings/20261112-slova-cheloveka-iz-otveta-na-vopros-uhodyat-iz-brifa-na-urovne-1.md` | находка, id — | на уровне слов 1 ответ на вопрос теряет слова человека (FR-8, AR-24); заметка о брифе — последняя строка stdout+stderr, а не строка `brief: ` | `scripts/brief_pack.py`, `scripts/story_step.py`, `scripts/tests/test_brief_pack.py` | пачка 2, RC2-1, RC2-2, ожидает | нет | критик на план t-051 (B5, N2); PC2-6 `package-ci/2`; `docs/tasks/specs/reviews/t-042-critic-on-plan.md` |
 
 ## Входящие
 

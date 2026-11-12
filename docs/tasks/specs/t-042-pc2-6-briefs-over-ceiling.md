@@ -288,6 +288,63 @@ DoD: `python -B C:\QAFactory\forge-repo\ai-packages\qa-factory\scripts\tests\tes
   builder's owns for `tbp` are that block only (line 2432 and the added check).
 - The builder does not commit; the Lead commits (shared tree on `main`). A6 is read by the Lead on the canon run.
 
+### The measurement (step M, t-052, 12.11.2026) and the option set chosen by the Lead
+
+Measured on Windows (the plugin root is tokenised; the critic build measures 6185 here and in CI run 43092267661, so
+the two machines agree on that build). Budget bytes against the 6144 ceiling:
+
+| build (`tbp` line) | today | words L1 − L2 today | L1, all files, K1 + O-c | what its red check needs |
+|---|---|---|---|---|
+| 2855 | 6047, 3 file lines popped, no waiver | +61 (L1 is LONGER) | 6092 — fits, margin 52 | `:2876` the case-file lines; `:2899` the waiver |
+| 2202 | 6091, 3 popped, no waiver | +61 | 6136 — fits, margin 8 | `:2206` the waiver |
+| 2239 | 6139, 4 popped, no waiver | +61 | 6236 — short by 92 | `:2244` the waiver |
+| 2933 | 6036, 5 popped | −99 | 6277 — short by 133 | (no red check) |
+| 769 critic | 6185, 11 of 12 popped | −97 | 6066 with files popped as today — margin 78 | `:770` budget ≤ 6144 |
+
+K1 delta −22 B (waiver line 71 in, count line 93 out), O-c delta −95 B (−97 critic). After K1 + O-c level 1 is smaller
+than level 2 in every fixture, so O-d changes nothing.
+
+Chosen: **K1 + O-c + the F3 order + the §3 line. O-d is NOT built; O-a / O-b are NOT built** (F2 closed: not needed).
+Why this is enough: the three waiver checks need only the waiver inline, which K1 gives at level 1 whatever is popped;
+`:770` gets 119 B; `:2876` fits by 52 B, and where a machine measures higher the F3 order pops the «critic findings:
+none yet» line (114 B) before any case-file line. The builds at 2239 and 2933 still pop file lines — that is the last
+rung working as designed, not a red check. §1.4's wrong guesses (source material popped first; all five builds over
+the ceiling) are superseded by this table. Selection rule of §1.4 and step M are done: the builder starts at step C.
+
+### Fixes after the plan critic (t-051, `docs/tasks/specs/reviews/t-042-critic-on-plan.md`; Lead, 12.11.2026)
+
+Verdict: accept with fixes. These lines OVERRIDE everything above them wherever they differ. The report's section of
+«exact spec text to change» is BINDING for the builder for every item accepted here; it is read together with this list.
+
+- **B1 accepted.** The over-ceiling line is a `render()` argument, added after the budget reasons are known and before
+  the SLICE check and its note re-render loop (`bp:4437-4447`). `budget_bytes` is computed on the render WITHOUT the
+  line, never by searching the text; the line is not put into `omitted`. Invariant: W8 (`tbp:2447`) keeps its line 3
+  and the size the by-range note prints is the size of the final text; the 30 KB brief carries both lines.
+- **B2:** moot — step M is done and the option set is chosen above; no selection rule is left to the builder.
+- **B3 accepted, and it REVERSES the line «O-d is NOT built» above: O-d IS built, always.** After K1 a brief whose
+  words are all short is longer at level 1 by the `## Not in the brief` pointer, so level 1 is taken only when
+  `budget_of(level 1) < budget_of(level 2)`; the last resort pops files from the kept words level (`bp:4415`), and the
+  reason test at `bp:4431` becomes `chosen[1] >= 1`-style so that the reason `words at level 1` is named exactly when
+  the kept level is 1 — a brief kept at level 2 and still over names `doors only` only when doors alone are left.
+  Invariant: the vocabulary of `over_ceiling` stays closed; no K7 verdict of `test_brief_pack_s5_plan.py` changes side.
+- **B4 accepted.** The `tbp` owns are the W6 block only (`n4_scenario`, `tbp:2423-2440`): the expectation at 2432
+  becomes the S5 waiver line inline, plus ONE added `check_in` for the over line, its text built from
+  `brief_pack.BRIEF_MAX_BYTES` (the report gives the wording). A2 reads: the only edited expectations are these two.
+- **B5 queued, not built here:** a question answer's level-1 form keeps the id and the reading letter and drops the
+  person's free words (`bp:1603/1621/1634`) — the same FR-8 class as the waiver. It goes out as a finding of the
+  `package-ci` pile with its own node (Lead, same night). Rung 7's sentence «every answer keeps a 240-character line»
+  is read as «every journal answer; a question answer keeps its level-1 form as today».
+- **B6 accepted.** The RENDERED order of the file list never changes; only the POP priority does. Each line is tagged
+  with its category when `files` is built; `trimmed_files` keeps the rendered order. Pop priority, first to last: the
+  «critic findings: none yet» line; source material; other optional named inputs (the masks block as one unit with
+  its inputs; the «... and N more case files» line with the case files); case-file lines, last case first; the
+  window's test file. Never popped: the doors. Invariant: a brief that pops nothing is byte-identical (step P).
+- **N1-N6, N8, N10-N14 accepted** as the report words them. **N7 accepted:** the «run finding» half of the finding's
+  item 3 is DROPPED by the Lead's decision (AR-14, P27), not handed to anyone; recorded in the batch «Ход». **N9:**
+  moot (no STOP rule left). **N2** (the stderr line displacing the note in `story_step._brief`) is queued in the same
+  finding as B5; `story_step.py` is outside this node.
+- The builder does not commit and does not `git add`; it proposes the `architecture:` and `judgment:` lines.
+
 ## Small technical choices closed by the designer
 
 - The over line has no byte count of the brief (no fixed-point loop); it prints the ceiling from `BRIEF_MAX_BYTES`.
