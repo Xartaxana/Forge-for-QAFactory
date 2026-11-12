@@ -6242,6 +6242,12 @@
    "covers": [
     "hooklib.py",
     "test_files.py",
+    "judge_run.py",
+    "project_inventory.py",
+    "blast_radius.py",
+    "base_slice.py",
+    "repo_map.py",
+    "test_locations.py",
     "README.md",
     "tests/harness.py"
    ]
