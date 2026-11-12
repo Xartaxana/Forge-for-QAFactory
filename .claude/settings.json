@@ -129,5 +129,46 @@
         "path": "./tools/claude-mods"
       }
     }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python tools/ci_read.py *)",
+      "Bash(python -B tools/ci_read.py *)",
+      "Bash(python tools/piles.py check *)",
+      "Bash(python tools/piles.py board --check)",
+      "Bash(python tools/test_quarantine.py status)",
+      "Bash(python tools/test_quarantine.py check)",
+      "Bash(python tools/lint_ratchet.py --check)",
+      "Bash(python tools/dup_ratchet.py --check)",
+      "Bash(python tools/journal_keys.py *)",
+      "Bash(python tools/critic_verdict_check.py *)",
+      "Bash(python -m pytest tools/*)",
+      "Bash(python -m pyflakes *)",
+      "Bash(python -B ai-packages/qa-factory/scripts/tests/*)",
+      "Bash(python -B ai-packages/qa-factory/scripts/selftest.py --limits --lang)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git diff *)",
+      "Bash(git worktree list)",
+      "PowerShell(python tools/ci_read.py *)",
+      "PowerShell(python -B tools/ci_read.py *)",
+      "PowerShell(python tools/piles.py check *)",
+      "PowerShell(python tools/piles.py board --check)",
+      "PowerShell(python tools/test_quarantine.py status)",
+      "PowerShell(python tools/test_quarantine.py check)",
+      "PowerShell(python tools/lint_ratchet.py --check)",
+      "PowerShell(python tools/dup_ratchet.py --check)",
+      "PowerShell(python tools/journal_keys.py *)",
+      "PowerShell(python -m pytest tools/*)",
+      "PowerShell(python -m pyflakes *)",
+      "PowerShell(python -B ai-packages/qa-factory/scripts/tests/*)",
+      "PowerShell(git status *)",
+      "PowerShell(git log *)",
+      "PowerShell(git show *)",
+      "PowerShell(git diff *)",
+      "PowerShell(git worktree list)",
+      "PowerShell(Get-Date *)"
+    ]
   }
 }
