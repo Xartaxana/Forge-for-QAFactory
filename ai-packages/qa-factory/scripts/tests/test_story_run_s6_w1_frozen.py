@@ -32,6 +32,8 @@ A difference that is not one of these is a finding: a change of the serial road.
 
 Capture (a builder or a lead, once, on the tree before C1, never in CI):
     python -B scripts/tests/test_story_run_s6_w1_frozen.py --capture <fixtures dir>
+Retaken on 12.11.2026 at tree 8afd343 (the owner's word, t-107): the prompt gained the input line of the story's first-look record (`work/first-look.yaml`,
+`brief_pack.FIRST_LOOK_FILE`) and the brief note prints `N budget B against the ceiling` (2b1b36c); `events` and `state_keys` came out byte-equal.
 
 This file is CI's (`story_run_*` is a slow-tier name): a builder never runs the compare in CI's place (plans/builder-rules.md 7b).
 """
@@ -155,12 +157,12 @@ def mask(text: str, root, task_root) -> str:
     return mask_brief_bytes(text)
 
 
-BRIEF_BYTES = re.compile(r"\(\d[\d,]* B, \d[\d,]* B against the ceiling\)")
+BRIEF_BYTES = re.compile(r"\(\d[\d,]* B, \d[\d,]* (?:budget )?B against the ceiling\)")      # both labels the product has printed: `N B, N B` and `N B, N budget B`
 
 
 def mask_brief_bytes(text: str) -> str:
-    """M7: the two byte figures of the `note: brief:` line depend on the install path (AR-4), so they are replaced by `<bytes>`; the rest of the line stays."""
-    return BRIEF_BYTES.sub("(<bytes> B, <bytes> B against the ceiling)", text)
+    """M7: the two byte figures of the `note: brief:` line depend on the install path (AR-4), so they are replaced by `<bytes>`; the rest of the line (the label included) stays."""
+    return BRIEF_BYTES.sub(lambda m: "(<bytes> B, <bytes> " + ("budget " if "budget" in m.group(0) else "") + "B against the ceiling)", text)
 
 
 def enter(driver, world):

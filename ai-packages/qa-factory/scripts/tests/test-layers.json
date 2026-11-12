@@ -26,7 +26,11 @@
  ],
  "fixture_owners": {
   "driver-layers.json": "test_driver_layers.py",
-  "env-facts-baseline.json": "test_state_portability.py"
+  "env-facts-baseline.json": "test_state_portability.py",
+  "s6-w1-frozen/calls.json": "test_story_run_s6_w1_frozen.py",
+  "s6-w1-frozen/console.json": "test_story_run_s6_w1_frozen.py",
+  "s6-w1-frozen/events.json": "test_story_run_s6_w1_frozen.py",
+  "s6-w1-frozen/state_keys.json": "test_story_run_s6_w1_frozen.py"
  },
  "keep": {
   "test_adapter_forms.py": {
@@ -5981,6 +5985,44 @@
     "tests/test_fixes_13797.py"
    ]
   },
+  "test_story_run_s6_w1_frozen.py": {
+   "layer": "detector",
+   "why": "TR3-9 C.1: `manual.walkers` 1 keeps today's S6 road byte for byte (calls, events, state keys, console), against a frozen capture of one stub-driven manual story",
+   "named_by": [
+    "docs/tasks/specs/t-2147-tr3-9-walker-lanes.md:334",
+    "docs/tasks/specs/t-2147-tr3-9-walker-lanes.md:370"
+   ],
+   "replaced_by": null,
+   "covers": [
+    "controller.py",
+    "story_run.py",
+    "driver_chains.py",
+    "driver_conductor.py",
+    "driver_core.py",
+    "driver_dialog.py",
+    "driver_dispatch.py",
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_s0.py",
+    "driver_sources.py",
+    "driver_stage_build.py",
+    "driver_stage_plan.py",
+    "driver_stage_s5.py",
+    "driver_stage_s6.py",
+    "driver_stage_s7.py",
+    "driver_stage_s8s9.py",
+    "brief_pack.py",
+    "tests/harness.py",
+    "tests/story_run_common.py",
+    "tests/test_controller_state.py",
+    "tests/test_story_run_s5_parallel.py",
+    "scripts/tests/fixtures/s6-w1-frozen/calls.json",
+    "scripts/tests/fixtures/s6-w1-frozen/console.json",
+    "scripts/tests/fixtures/s6-w1-frozen/events.json",
+    "scripts/tests/fixtures/s6-w1-frozen/state_keys.json"
+   ]
+  },
   "test_story_run_s7.py": {
    "layer": "data_join",
    "why": "held by import: test_s7_rejudge.py imports it; leaves the canon when the import is cut (TD-15.8)",
@@ -9925,15 +9967,6 @@
    "red_at_entry": false,
    "flaky_at_entry": false,
    "seconds": 73.8
-  },
-  "test_story_run_s6_w1_frozen.py": {
-   "cohort": "8073673",
-   "entered": "2026-11-11",
-   "release_at_entry": "0.10.9",
-   "commit_at_entry": "5498318091445d3c4fdb56ae006ff433deaa4413",
-   "red_at_entry": true,
-   "flaky_at_entry": false,
-   "seconds": 9.3
   },
   "test_story_run_s7_live.py": {
    "cohort": "8073673",
