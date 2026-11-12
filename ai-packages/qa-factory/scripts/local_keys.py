@@ -129,9 +129,9 @@ def _taken(project: Path, cfg, key_pattern: str) -> int:
     names = list(_listing(_text_dir(project)))
     try:
         artifacts = hooklib.artifact_root(root=project)
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         artifacts = project / "qa-factory" / "artifacts"
-    names += _listing(artifacts) + _listing(artifacts / SUPERSEDED)
+    names += _listing(artifacts)+ _listing(artifacts / SUPERSEDED)
     row = ((cfg or {}).get("adapters") or {}).get("ticket") if isinstance(cfg, dict) else None
     if isinstance(row, dict) and AF.ticket_kind(cfg) == "file" and str(row.get("path") or "").strip():
         base = Path(str(row["path"]))

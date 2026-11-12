@@ -151,6 +151,64 @@ try:
 finally:
     cleanup(root)
 
+# --- OF3-1d item 7 (AR-4, AR-28): the story named by `--output` under a CONFIGURED artifact root -------------------------
+# S-1 holds the person's word; S-2 holds none. `--output` under S-2: a narrowed consultation reads the request (exit 0); every
+# doubt widens it to all stories and S-1's word refuses (exit 2). The POSITIONAL invariant: narrowed ONLY for a real story.
+def root_story(base: Path, task: str, marker: bool = True, list_text: str = "") -> None:
+    (base / task / "work").mkdir(parents=True)
+    if marker:
+        (base / task / "pipeline.json").write_text("{}", encoding="utf-8")
+    if list_text:
+        entries, problems = SE.parse_bytes(list_text.encode("utf-8"), task)
+        assert not problems, problems
+        SE.write_record(base / task, entries, "list.txt", list_text.encode("utf-8"))
+
+
+ROOT_ROWS = (  # (id, config text, root folder of the stories, marker on S-2, output under project, old folder also holds S-2, exit)
+    ("output inside a story folder of the configured root names its story", '{"artifact_root": "stories"}', "stories", True,
+     "stories/S-2/work/x.json", False, 0),
+    ("output under the old default folder with a root configured elsewhere still names its story", '{"artifact_root": "stories"}',
+     "stories", True, "qa-factory/artifacts/S-2/work/x.json", True, 0),
+    ("output under a configured root but not in a story folder: every story consulted", '{"artifact_root": "."}', ".", True,
+     "tmp/x.json", False, 2),
+    ("a story folder without pipeline.json under a configured root: every story consulted", '{"artifact_root": "stories"}',
+     "stories", False, "stories/S-2/work/x.json", False, 2),
+    ("a file directly in the configured root: every story consulted", '{"artifact_root": "stories"}', "stories", True,
+     "stories/x.json", False, 2),
+    ("an output with .. out of the story: every story consulted", '{"artifact_root": "stories"}', "stories", True,
+     "stories/S-2/../tmp/x.json", False, 2),
+    # (a case variant is not a row: a case-blind file system resolves it to the real story, a case-sensitive one to a name
+    # absent from the listing - the leaf's exact-name rule is pinned in the hooklib tests)
+    ("a name that is not in the listing: every story consulted", '{"artifact_root": "stories"}', "stories", True,
+     "stories/S-3/work/x.json", False, 2),
+    ("a name with a trailing blank: every story consulted", '{"artifact_root": "stories"}', "stories", True,
+     "stories/S-2 /work/x.json", False, 2),
+    ("broken config (bad JSON): today's recognition, no traceback", "{not json", "qa-factory/artifacts", True,
+     "qa-factory/artifacts/S-2/work/x.json", False, 0),
+    ("broken config (a JSON list): today's recognition, no traceback", "[]", "qa-factory/artifacts", True,
+     "qa-factory/artifacts/S-2/work/x.json", False, 0),
+)
+for label, config, stories_at, marker, output, old_too, want in ROOT_ROWS:
+    root = temp_project("qa-vcs-evidence-root-")
+    harness.use_project(root)
+    try:
+        (root / "qa-factory").mkdir(exist_ok=True)
+        (root / "qa-factory" / "config.json").write_text(config, encoding="utf-8")
+        base = root / stories_at
+        root_story(base, "S-1", list_text=LIST)
+        root_story(base, "S-2", marker=marker)
+        (root / "tmp").mkdir(exist_ok=True)
+        if old_too:
+            root_story(root / "qa-factory" / "artifacts", "S-2")
+        try:
+            code, _out, err = run(root, "--url", URL_1924, "--output", str(root / output))
+            seen = (code, "Traceback" in err)
+        except Exception as exc:                      # a traceback is a failure of the row, not of the run
+            seen = (type(exc).__name__, True)
+        check_eq(f"item 7 story named by --output: {label}", seen, (want, False))
+    finally:
+        cleanup(root)
+
 # --- the API receipt (HF8-12, W-4): what `main` keeps of one read, and what `read_api_receipts` hands back --------------
 import event_store  # noqa: E402
 import shutil  # noqa: E402

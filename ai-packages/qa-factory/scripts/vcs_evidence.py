@@ -579,10 +579,25 @@ def api_capability(live, receipts):
 
 
 def _story_root_of(output) -> "Path | None":
-    """`<...>/qa-factory/artifacts/<T>` when `output` lies under it, else None (no story is known)."""
+    """The story folder `output` lies in, else None (no story is known; the caller then consults every story).
+
+    (1) Under the configured artifact root (`hooklib.artifact_root()`, the env-derived project root): `<root>/<T>/...` names
+    the story `<root>/<T>` only when `<T>` is a story folder of the root's listing AND holds `pipeline.json` (the leaf alone
+    calls any folder under the root a story). Every doubt - not under the root, a broken config, no marker - falls through.
+    (2) Else `<...>/qa-factory/artifacts/<T>` by the path parts (the old default folder). (3) Else None."""
     if not output:
         return None
-    parts = Path(output).resolve().parts
+    resolved = Path(output).resolve()
+    try:
+        import hooklib
+        root = hooklib.artifact_root()
+        relative = resolved.relative_to(root)
+        if len(relative.parts) >= 2 and hooklib.is_story_folder(root, relative.parts[0]) \
+                and (root / relative.parts[0] / "pipeline.json").is_file():
+            return root / relative.parts[0]
+    except (OSError, ValueError, AttributeError):
+        pass                  # a broken config or a path outside the root: today's recognition below
+    parts = resolved.parts
     for index in range(len(parts) - 2, 0, -1):
         if parts[index] == "artifacts" and parts[index - 1] == "qa-factory":
             return Path(*parts[:index + 2])
