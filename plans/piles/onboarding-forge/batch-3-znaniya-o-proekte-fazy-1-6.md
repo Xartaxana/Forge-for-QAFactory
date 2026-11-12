@@ -9,6 +9,7 @@
 Пути «Пишет в»: пакета — от `ai-packages/qa-factory/`.
 очередь: onboarding-forge/1 → onboarding-forge/3
 очередь: onboarding-forge/2 → onboarding-forge/3
+очередь: onboarding-forge/3 → onboarding-hooks/5
 
 ## Бриф
 
