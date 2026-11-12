@@ -27,6 +27,7 @@ RC2-1 начинать после слияния PC2-6: тот же файл и 
 |---|---|---|---|---|---|---|
 | RC2-1 | П2 | Ответ на вопрос на уровне слов 1 несёт слова человека, обрезанные по `DECISION_CHARS_MIN`, целиком — в `<ID>-decisions.md`; пункт 1 находки `findings/20261112-slova-cheloveka-iz-otveta-na-vopros-uhodyat-iz-brifa-na-urovne-1.md` (FR-8, AR-24) | builder → critic | `ai-packages/qa-factory/scripts/brief_pack.py (question_answer_lines)`, `ai-packages/qa-factory/scripts/tests/test_brief_pack.py` | PC2-6 (`package-ci/2`) | ожидает |
 | RC2-2 | П2 | `story_step._brief` берёт строку с префиксом `brief: `, а не последнюю строку stdout+stderr; пункт 2 той же находки (AR-22) | builder → critic | `ai-packages/qa-factory/scripts/story_step.py (_brief)`, `ai-packages/qa-factory/scripts/tests/test_brief_pack.py` | RC2-1 (общий тестовый файл) | ожидает |
+| RC2-3 | П2 | Процедура уходит из разделов `kind: craft` в `process`: `about:`, `first_look.py put` и форма первого просмотра в `qa-runner`; фиксированные метки в `qa-case-critic`; подъём `process_ratchet_tokens` называется (`findings/20261112-razdely-masterstva-nesut-stroki-procedury-p27.md`; калибровка 12.11 п. 13; P27, AR-20, FR-33) | builder → critic | `ai-packages/qa-factory/agents/qa-runner.md`, `ai-packages/qa-factory/agents/qa-case-critic.md`, `ai-packages/qa-factory/references/role-load.json` | нет | ожидает |
 
 <!--
 «Пишет в»: каждый файл узла — в обратных кавычках. Общий файл двух пачек «в работе» открывается либо строкой `очередь: A → B` в обеих
@@ -38,6 +39,7 @@ RC2-1 начинать после слияния PC2-6: тот же файл и 
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
 
 - 12.11 — пачка открыта: находка из критика на план t-051 (B5, N2), положена тем же ходом, что файл в `findings/` (D-0044).
+- 12.11 — узел RC2-3 (находка калибровки 12.11.2026, п. 13: процедура в разделах мастерства) тем же ходом, что файл в `findings/` (D-0044, builder t-093); RC2-3 пишет в файлы ролей и `role-load.json`, с RC2-1/RC2-2 не пересекается
 
 ## Живые доказательства
 
