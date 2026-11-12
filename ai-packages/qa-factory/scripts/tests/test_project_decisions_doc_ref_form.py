@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import check, check_eq, finish  # noqa: E402
+from harness import check, check_eq, cleanup, finish, run_script, temp_project  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import project_decisions as PD  # noqa: E402
@@ -70,5 +70,37 @@ for case_id, item, want in CASES:
             check(f"{case_id}: refusal is one line", "\n" not in err, repr(err))
     else:
         check_eq(f"{case_id}: normalised", got, [want])
+
+# OH3-24 Q-b / Q-c: on the command line a refusal of `add` and `resolve` is ONE stderr line and exit 2 (as `add-finding`), never a
+# traceback (exit 1); a marker file that leaves the root (drive, `:`, leading `/`, `..`, backslash forms) is such a refusal.
+ADD = ["add", "--essence", "e", "--asked", "q", "--field-ref", "doc:a/b.md#h"]
+MARKER_CASES = ["C:/x.md", "C:x.md", "/x.md", "\\x.md", "../x.md", "a/../../x.md", "a\\..\\..\\x.md", "https://x"]
+
+
+def cli(root, *args):
+    return run_script("project_decisions.py", "--root", root, *args)
+
+
+root = temp_project()
+try:
+    words = root / "words.txt"
+    words.write_text("yes\n", encoding="utf-8")
+    cases = [("add: bad doc ref", ["add", "--essence", "e", "--asked", "q", "--field-ref", "doc:https://x"], 2),
+             ("add: blank asked", ["add", "--essence", "e", "--asked", " ", "--field-ref", "doc:a/b.md"], 2),
+             ("add: good row", ADD, 0),
+             ("resolve: unknown id", ["resolve", "--id", "DD-99", "--words-file", str(words), "--resolution-ref", "r"], 2),
+             ("resolve: blank resolution ref", ["resolve", "--id", "DD-1", "--words-file", str(words), "--resolution-ref", " "], 2)]
+    cases += [(f"resolve: marker file {m!r}", ["resolve", "--id", "DD-1", "--words-file", str(words), "--resolution-ref", "r",
+                                                "--marker-file", m], 2) for m in MARKER_CASES]
+    for name, args, code in cases:
+        done = cli(root, *args)
+        check_eq(f"{name}: exit code", done.returncode, code)
+        if code == 2:
+            lines = done.stderr.strip().splitlines()
+            check(f"{name}: one stderr line, no traceback", len(lines) == 1 and "Traceback" not in done.stderr, done.stderr[-300:])
+            check(f"{name}: the line names the action", lines and lines[0].startswith(
+                "project_decisions: " + args[0] + " refused - "), done.stderr[-300:])
+finally:
+    cleanup(root)
 
 finish("project_decisions doc ref form")

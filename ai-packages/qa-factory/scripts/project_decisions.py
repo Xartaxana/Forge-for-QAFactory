@@ -7,9 +7,10 @@ write so interrupted writes can be reconciled without inventing a decision.
 
 Exit codes of the CLI (FR-14: the shape of the output is a contract as much as the arguments):
   0  done; the row (or the existing row of a retried key) is printed as JSON.
-  1  a crash: an error nothing in `main` catches (any error of `add-finding` other than ValueError / TimeoutError, and every
-     ValueError of `add` and `resolve`, whose refusals are still raised). A traceback on stderr.
-  2  refused, one stderr line, nothing written (a bad scope, missing words, a busy registry, argparse's own refusals).
+  1  a crash: an error nothing in `main` catches (any error of `add`, `resolve` or `add-finding` other than ValueError /
+     TimeoutError). A traceback on stderr.
+  2  refused, one stderr line, nothing written (a bad scope, missing words, a busy registry, any ValueError of `add` and
+     `resolve`, argparse's own refusals).
      `stand-account` (HF8-9) and `stand-frontend` (HF8-10) refuse the same way: one stderr line with its door, exit 2, config.json and the registry untouched; the
      same record again exits 0 with `"unchanged": true`.
   3  `add-finding` only: the key is already recorded under DIFFERENT content. The finding exists (the line names its id), so a
@@ -238,6 +239,14 @@ _MSYS_REWRITE_RE = re.compile(r"(?i)^[a-z]:[\\/](?:.*[\\/])?git(?:\s*\(x86\))?[\
 DOC_PREFIX = "doc:"
 
 
+def _is_relative_path(raw: str) -> bool:
+    """The ONE predicate of this file for "a relative path that stays inside its root" (OH3-24 Q-c): backslashes read as `/`,
+    non-empty, no leading `/`, no `:` anywhere (a Windows drive, `C:x`, or a URL), no `..` segment. Judged on the raw text,
+    before any `.` segment is dropped."""
+    path = str(raw).replace("\\", "/").strip()
+    return bool(path) and not path.startswith("/") and ":" not in path and ".." not in path.split("/")
+
+
 def _doc_ref(item: str) -> str:
     """OH2-6 (b2): a ref naming a DOCUMENT, `doc:<path under qa-factory>[#<anchor>]`, for a row whose hole is a paragraph in a
     file and not a key of config.json (so `resolve` has no config pointer to write). Normalized: the prefix lower-case,
@@ -248,7 +257,7 @@ def _doc_ref(item: str) -> str:
     path, _, anchor = item[len(DOC_PREFIX):].replace("\\", "/").partition("#")
     path = path.strip()
     segments = [s for s in path.split("/") if s not in ("", ".")]
-    if not segments or path.startswith("/") or ":" in path or ".." in path.split("/"):
+    if not segments or not _is_relative_path(path):
         raise ValueError("a document ref is doc:<path under qa-factory>[#<anchor>] - a relative path with no `:`, `..` or "
                          "leading `/`, e.g. doc:strategy/test-strategy.md#risk-and-impact-scale (write the path as it is "
                          f"under qa-factory/, without a scheme or a drive); got {_shown(item)!r}")
@@ -462,8 +471,9 @@ def resolve(root: Path, decision_id: str, decision: str, resolution_ref: str,
         for pointer in pointers:
             _set_pointer(config, pointer, field_values[pointer])
         marker_inputs = [Path(raw) for raw in (marker_files or [])]
-        if any(path.is_absolute() or ".." in path.parts for path in marker_inputs):
-            raise ValueError("marker file must be a relative path inside project root")
+        if not all(_is_relative_path(str(raw)) for raw in marker_files or []):
+            raise ValueError("marker file must be a relative path inside project root: no drive, no `:`, no leading `/` and "
+                             "no `..` (e.g. qa-factory/strategy/test-strategy.md)")
         marker_paths = [(root / raw).resolve(strict=False) for raw in marker_inputs]
         token = marker_text or f"[DEFERRED: {row.get('essence + where the marker is', '')}]"
         # Any live marker matching the supplied token, in any case of the word (OH3-23 Q3), must be named for removal.
@@ -859,6 +869,19 @@ def _record_finding(args) -> dict:
         raise SystemExit(2)
 
 
+def _refusal_as_line(action: str, run):
+    """`add` and `resolve` on the command line (OH3-24 Q-b): a refusal is one stderr line and exit 2, never a traceback - the way
+    `add-finding` does it (P31). `upsert` and `resolve` themselves still raise: other callers read the ValueError."""
+    try:
+        return run()
+    except ValueError as exc:
+        print(f"project_decisions: {action} refused - {exc}", file=sys.stderr)
+        raise SystemExit(2)
+    except TimeoutError as exc:
+        print(_registry_busy_line(action, exc), file=sys.stderr)
+        raise SystemExit(2)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """The command line: one subparser per action (kept out of `main`, which stays short - P21)."""
     parser = argparse.ArgumentParser(); parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -922,16 +945,16 @@ def main() -> None:
         if decision is None:
             parser.error("resolve needs --decision (one line) or --words-file <path> (the person's "
                          "words as they were given)")
-    if args.action == "add": result = upsert(args.root.resolve(), field_refs=args.field_ref,
+    if args.action == "add": result = _refusal_as_line("add", lambda: upsert(args.root.resolve(), field_refs=args.field_ref,
         essence=args.essence, asked=args.asked, scope=args.scope, owner=args.owner,
-        trigger_type=args.trigger_type, trigger_value=args.trigger_value)
+        trigger_type=args.trigger_type, trigger_value=args.trigger_value))
     elif args.action == "add-finding": result = _record_finding(args)
     elif args.action == "stand-account": result = _record_stand_account(args)
     elif args.action == "stand-frontend": result = _record_stand_frontend(args)
     elif args.action == "resolve":
-        result = resolve(args.root.resolve(), args.id, decision, args.resolution_ref,
-                         json.loads(args.field_values) if args.field_values is not None else {},
-                         args.marker_file, args.marker_text)
+        result = _refusal_as_line("resolve", lambda: resolve(
+            args.root.resolve(), args.id, decision, args.resolution_ref,
+            json.loads(args.field_values) if args.field_values is not None else {}, args.marker_file, args.marker_text))
     else:
         result = {"recovered": recover_pending(args.root.resolve())}
     print(json.dumps(result, ensure_ascii=False))
