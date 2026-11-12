@@ -229,9 +229,7 @@ for the period, and diffs to DECISIONS.md.
     tools/negative_lint.py; Negative
     claim -- tools/claim_control_gate.py; Search returned nothing --
     tools/search_control_gate.py; Command hygiene -- tools/
-    hygiene_gate.py (declared population: every non-empty Bash/PowerShell
-    command string, the HYGIENE row of `tools/warn_layers.json`; no
-    measured kind yet, so its share is "n/a (population not measured)").
+    hygiene_gate.py.
     LIST IS OPEN: a live layer missing from this list
     is a finding about THIS CHECK, not about the layer; a layer NAMED
     here but missing from `tools/warn_layers.json` is a finding about

@@ -33,9 +33,9 @@ HYGIENE_6 = "6. An environment-negative claim requires verification: empty outpu
 
 # (aspect id, owner, key)
 OWNER_KEYS = [
-    ("hand-back:builder", ".claude/agents/builder.md", "DONE / PARTIAL / NOT DONE per spec item"),
+    ("hand-back:builder", ".claude/agents/builder.md", "one status line `1 done | 2 done | 3 not done --"),
     ("hand-back:critic", ".claude/agents/critic.md", "the verdict line and the number of blocking findings"),
-    ("hand-back:designer", ".claude/agents/designer.md", "the forks by id with one line each"),
+    ("hand-back:designer", ".claude/agents/designer.md", "`1 drafted | 2 fork | 3 not drafted -- <one clause>`"),
     ("hand-back:scout", ".claude/agents/scout.md", "the Lead extracts it to a file in"),
     ("scope:builder", RULES, "не регрессия, не соседи, не большие файлы"),
     # scope:mutation retired by the owner's word 28.10 and 10.11.2026 (docs/TESTING.md): the mutation list is no longer written
