@@ -7,11 +7,13 @@ Cases the direction leaves open (spaces inside the path, a very long path, non-A
 typed, never a crash.
 
 Runnable on its own: `python -B scripts/tests/test_project_decisions_doc_ref_form.py`."""
+import json
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import check, check_eq, cleanup, finish, run_script, temp_project  # noqa: E402
+from harness import PLUGIN_ROOT, check, check_eq, cleanup, finish, run_script, temp_project  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import project_decisions as PD  # noqa: E402
@@ -100,6 +102,18 @@ try:
             check(f"{name}: one stderr line, no traceback", len(lines) == 1 and "Traceback" not in done.stderr, done.stderr[-300:])
             check(f"{name}: the line names the action", lines and lines[0].startswith(
                 "project_decisions: " + args[0] + " refused - "), done.stderr[-300:])
+    # OH3-24 Q-d: the phase text's "a key stays by the person's word" record names a DOCUMENT ref (a bookkeeping row that writes
+    # nothing into config.json); the command as the text prints it, with its ref taken from the text, is accepted by `add`.
+    # (The `/profiles` record stays a pointer on purpose: the open row is what lifts the first-reader gate.)
+    p4 = (PLUGIN_ROOT / "skills" / "qa-onboarding" / "phases" / "p4-generate.md").read_text(encoding="utf-8")
+    kept = re.search(r"add --field-ref\s+(\S+) --essence \"environment integrations kept", p4)
+    check("p4 text: the integrations-kept record is found", kept is not None)
+    ref = kept.group(1) if kept else ""
+    check("p4 text: the integrations-kept ref is a document ref", ref.startswith("doc:"), ref)
+    done = cli(root, "add", "--field-ref", ref, "--essence", "environment integrations kept by the person's word: config.json",
+               "--asked", "q")
+    check_eq("p4 text: the printed command is accepted by add", done.returncode, 0)
+    check_eq("p4 text: the row holds the document ref", json.loads(done.stdout or "{}").get("field_refs"), ref)
 finally:
     cleanup(root)
 

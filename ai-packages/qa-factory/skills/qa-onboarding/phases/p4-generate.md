@@ -293,7 +293,7 @@ again, and only then continue. This is the factory's own defect, not a repair to
 hand the person: "add these four keys" for keys no test needs is exactly the halt this step
 exists to prevent. When the person's answer is that a key stays anyway, that is their word
 and it passes — record it with `project_decisions.py --root . add --field-ref
-/environment/integrations --essence "environment integrations kept by the person's word: config.json" --asked
+doc:config.json#/environment/integrations --essence "environment integrations kept by the person's word: config.json" --asked
 "<the question as it was put>"` and write the key where they said it belongs, with its `required_by` or `read_at`.
 
 Two cases of a failed login. (a) `login.refusal: body_shape` is a config problem, not a stand
