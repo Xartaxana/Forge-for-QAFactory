@@ -770,5 +770,160 @@ def test_side_cli_needs_one_mode_and_a_stand(proj, capsys):
     assert "reality" in capsys.readouterr().err and not proj.path().exists()
 
 
+# --- phase 1 (OF3-1a): the catalogue and the one reader (AR-1, AR-9, AR-13, AR-28) -----------------------------------------------
+
+FIVE_KEYS = ["product.roles", "environments.credentials_by_role", "product.sides", "environments.sides", "environments.reference_for"]
+
+
+def test_keys_are_derived_from_the_catalogue_in_todays_order():
+    assert list(PK.KEYS) == FIVE_KEYS and PK.CATALOGUE_PROBLEM == ""
+    assert PK.KEYS == {"product.roles": {"scope": "project", "compare": "role_form"},
+                       "environments.credentials_by_role": {"scope": "stand", "compare": "role_form"},
+                       "product.sides": {"scope": "project", "compare": "exact"},
+                       "environments.sides": {"scope": "stand", "compare": "exact"},
+                       "environments.reference_for": {"scope": "stand", "compare": "exact"}}
+    assert [row["key"] for row in PK.rows() if row["store"] in ("registry", "config+registry")] == FIVE_KEYS
+    assert [row["key"] for row in PK.rows("artifact_root")] == ["artifact_root"] and PK.rows("no.such.key") == []
+
+
+def test_config_only_key_refused_with_todays_text(proj):
+    expected = f"the key 'test_data.seeds' is not a project-knowledge key (the keys: {', '.join(FIVE_KEYS)}); nothing was recorded"
+    row, problem, created = proj.record(key="test_data.seeds")
+    assert (row, problem, created) == (None, expected, False) and not proj.path().exists()
+    assert PK.record_problems("artifact_root", "", "x", "known", "project", "w", "person", "conductor") == \
+        [expected.replace("'test_data.seeds'", "'artifact_root'")]
+
+
+def _table_without_section(real):
+    return lambda: {k: v for k, v in real.items() if k != "knowledge"}
+
+
+def _table_without_scope(real):
+    del real["knowledge"][PK.ROLES_KEY]["scope"]
+    return lambda: real
+
+
+def _raises(real=None):
+    def fail():
+        raise ValueError("references/config-keys.json of the plugin is unreadable (OSError: x); the plugin install is damaged - "
+                         "reinstall the plugin")
+    return fail
+
+
+@pytest.mark.parametrize("damage, kept", [(_raises, []), (_table_without_section, []), (_table_without_scope, FIVE_KEYS[1:])],
+                         ids=["config_keys_raises", "no_knowledge_section", "registry_row_without_scope"])
+def test_damaged_catalogue_refusal_names_the_damage_and_the_door(proj, monkeypatch, damage, kept):
+    import importlib
+    fake = damage(json.loads(json.dumps(CC.config_keys())))
+    monkeypatch.setattr(CC, "config_keys", fake)
+    try:
+        importlib.reload(PK)                                  # the damaged table is an INPUT: KEYS and CATALOGUE_PROBLEM are rebuilt
+        assert list(PK.KEYS) == kept and PK.CATALOGUE_PROBLEM
+        row, problem = PK.record(proj.root, key=PK.ROLES_KEY, environment="", element="auditor", state="known", scope="project",
+                                 value={"sign_in": "account"}, words="the person said so", source="person", story="T-1", by="conductor")[:2]
+        assert row is None and "catalogue is damaged" in problem and "reinstall the plugin" in problem and "nothing was recorded" in problem
+        assert PK.CATALOGUE_PROBLEM in problem and "not a project-knowledge key" not in problem and not proj.path().exists()
+        if kept:                                              # the other registry keys judge as today
+            assert PK.record_problems(PK.ACCOUNTS_KEY, "dev", "auditor", "known", "stand", "w", "person", "conductor") == []
+    finally:
+        monkeypatch.undo()
+        importlib.reload(PK)
+    assert list(PK.KEYS) == FIVE_KEYS and PK.CATALOGUE_PROBLEM == ""           # negative control: the healthy table is back
+
+
+def _put(proj, raw):
+    if raw is None:
+        proj.config.unlink()
+    else:
+        proj.config.write_bytes(raw)
+
+
+BOM = b"\xef\xbb\xbf"
+
+
+@pytest.mark.parametrize("raw, key, environment", [
+    (None, "test_data.seeds", ""),
+    (BOM, "test_data.seeds", ""),
+    (b"", "test_data.seeds", ""),
+    (b"[]", "test_data.seeds", ""),
+    (b'"x"', "test_data.seeds", ""),
+    (b"null", "test_data.seeds", ""),
+    (b'{"test_data": "x"}', "test_data.seeds", ""),
+    (b'{"test_data": {"seeds": null}}', "test_data.seeds", ""),
+    (b'{"test_data": {}}', "test_data.seeds", ""),
+    (b'{"test_data": {"seeds": "s"}}', "test_data.colours", ""),
+    (b'{"environments": "x"}', "environments[].safe_to_break", "dev"),
+    (b'{"environments": [{"name": "dev"}, {"name": "dev"}]}', "environments[].safe_to_break", "dev"),
+    (b'{"environments": [{"name": "Dev", "safe_to_break": "x"}]}', "environments[].safe_to_break", "dev"),
+    (b'{"environments": [{"name": "dev", "safe_to_break": "x"}]}', "environments[].safe_to_break", ""),
+    (b'{"artifact_root": "x"}', "artifact_root", "__damaged__"),
+], ids=["absent_config", "bom_only", "empty_file", "list_document", "string_document", "null_document", "non_dict_parent",
+        "stored_none", "path_missing", "key_with_no_row", "environments_not_a_list", "two_stands_one_name", "stand_name_case",
+        "stand_name_empty", "damaged_catalogue"])
+def test_value_toward_unknown(proj, monkeypatch, raw, key, environment):
+    _put(proj, raw)
+    if environment == "__damaged__":
+        monkeypatch.setattr(CC, "config_keys", _raises())
+        environment = ""
+    got = PK.value(proj.root, key, environment)
+    assert got["state"] == "unknown" and got["value"] is None, got
+    assert PK.value(proj.root / "nowhere", key, environment)["state"] == "unknown"      # a root with no config: never known
+
+
+@pytest.mark.parametrize("raw, key, environment, expected", [
+    (BOM + b'{"test_data": {"seeds": "factory-boy"}}', "test_data.seeds", "", "factory-boy"),
+    (b'{"test_data": {"seeds": ""}}', "test_data.seeds", "", ""),
+    (b'{"test_data": {"seeds": []}}', "test_data.seeds", "", []),
+    (b'{"environments": [{"name": "dev", "safe_to_break": "everything"}]}', "environments[].safe_to_break", "dev", "everything"),
+    (b'{"artifact_root": "qa-artifacts"}', "artifact_root", "", "qa-artifacts"),
+], ids=["bom_value_read", "empty_text_is_known", "empty_list_as_stored", "stand_value", "artifact_root"])
+def test_value_known_controls(proj, raw, key, environment, expected):
+    _put(proj, raw)
+    got = PK.value(proj.root, key, environment)
+    assert got["state"] == "known" and got["value"] == expected and got["source"] == "config" and got["problem"] == ""
+
+
+def test_value_absent_config_and_unreadable_config_say_which(proj):
+    proj.config.unlink()
+    assert PK.value(proj.root, "test_data.seeds") == {"value": None, "state": "unknown", "source": "absent", "problem": ""}
+    proj.config.write_bytes(b"{broken")
+    got = PK.value(proj.root, "test_data.seeds")
+    assert got["state"] == "unknown" and "not valid JSON" in got["problem"] and len(got["problem"]) <= 200
+    assert "no catalogue row for test_data.colours" in PK.value(proj.root, "test_data.colours")["problem"]
+
+
+def test_value_of_a_registry_row_is_the_state_reader_own_answer(proj):
+    proj.write_config(environments=[{"name": "dev", "credentials_by_role": {"auditor": {"user_key": "U", "secret_key": "S"}}}])
+    got = PK.value(proj.root, PK.ROLES_KEY)
+    assert got["state"] == PK.state(proj.root, PK.ROLES_KEY, "", "")["state"] == "unknown"
+
+
+@pytest.mark.parametrize("raw, name, found, problem", [
+    (b'{"environments": [{"name": "dev", "base_url": "u"}]}', "dev", True, ""),
+    (b'{"environments": []}', "dev", False, "the project records no stand"),
+    (b"{}", "dev", False, "the project records no stand"),
+    (b'{"environments": "x"}', "dev", False, "environments is not a list"),
+    (b'{"environments": [{"name": "dev"}, {"name": "dev"}]}', "dev", False, "two stands are named dev"),
+    (b'{"environments": [{"name": "Dev"}]}', "dev", False, "no stand is named dev"),
+    (b'{"environments": [{"name": "dev"}]}', "", False, "no stand name was given"),
+    (b'{"environments": [{"name": "dev"}]}', None, False, "no stand name was given"),
+    (b'{"environments": ["dev", 5, {"name": "dev"}]}', "dev", True, ""),
+], ids=["found", "empty_list", "absent_list", "not_a_list", "twins", "case_differs", "empty_name", "none_name", "non_dict_entries_ignored"])
+def test_environment_card_edges(proj, raw, name, found, problem):
+    _put(proj, raw)
+    got = PK.environment(name, proj.root)
+    assert got["found"] is found and got["problem"] == problem and (got["entry"] is not None) is found, got
+    assert PK.environment(name, cfg=json.loads(raw)) == got                                   # a given config reads the same
+
+
+def test_environment_card_without_a_config_says_why(proj):
+    assert PK.environment("dev")["found"] is False and PK.environment("dev")["problem"] == "no project root was given"
+    proj.config.unlink()
+    assert PK.environment("dev", proj.root) == {"found": False, "entry": None, "problem": "the project records no stand"}
+    proj.config.write_bytes(b"[]")
+    got = PK.environment("dev", proj.root)
+    assert got["found"] is False and "not a JSON object" in got["problem"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

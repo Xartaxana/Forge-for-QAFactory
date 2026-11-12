@@ -367,12 +367,78 @@ def x9_retired_surprise_ignore() -> None:
           "surprise" in kept["proposed_config"]["manual_capture"], str(kept["proposed_config"]["manual_capture"]))
 
 
+def knowledge_gaps(template: dict, table: dict) -> list:
+    """R1 (OF3-1): the template's top-level value keys and the catalogue's top-level config rows are the same set, `in_template: false`
+    honoured. Returns `<key>: <what is wrong; the door>` lines. Names only: set equality of key names, never a judgment."""
+    section = table.get("knowledge") or {}
+    door = "add a row to config-keys.json `knowledge`"
+    top = {k: row for k, row in section.items()
+           if "." not in k and "[" not in k and isinstance(row, dict) and str(row.get("store", "")).startswith("config:")}
+    bad = []
+    for key in (k for k in template if not k.endswith("_note")):
+        if key not in top:
+            bad.append(f"{key}: a template key with no catalogue row; {door}")
+        elif top[key].get("in_template") is False:
+            bad.append(f"{key}: a template key whose row says in_template: false; drop that field")
+    for key, row in top.items():
+        if key not in template and row.get("in_template") is not False:
+            bad.append(f"{key}: a row for a key the template lacks; set in_template: false or remove the row")
+    return bad
+
+
+def knowledge_rows() -> None:
+    """R1: every template key has a catalogue row and no row names a template key it does not carry; the section changes no plan."""
+    check_eq("R1: the template's top-level keys and the catalogue's rows agree", knowledge_gaps(TEMPLATE, KEYS), [])
+    check_eq("R1 negative control: a template key with no row is named, with the door",
+             knowledge_gaps(dict(TEMPLATE, some_new_key=1), KEYS),
+             ["some_new_key: a template key with no catalogue row; add a row to config-keys.json `knowledge`"])
+    hidden = copy.deepcopy(KEYS)
+    hidden["knowledge"]["cases_root"]["in_template"] = False
+    check_eq("R1 negative control: in_template false cannot hide a template key",
+             [line.split(":")[0] for line in knowledge_gaps(TEMPLATE, hidden)], ["cases_root"])
+    stray = copy.deepcopy(KEYS)
+    stray["knowledge"]["stray_fact"] = {"store": "config:stray_fact", "needed_by": [], "ask_when": None}
+    check_eq("R1 negative control: a row for a key outside the template, not marked in_template false, is named",
+             [line.split(":")[0] for line in knowledge_gaps(TEMPLATE, stray)], ["stray_fact"])
+    check("R1: artifact_root is the one top-level row outside the template",
+          KEYS["knowledge"]["artifact_root"].get("in_template") is False and "artifact_root" not in TEMPLATE)
+    check_eq("R1: every row carries a reader list and a null ask_when (phase 1 fields only)",
+             sorted(k for k, row in KEYS["knowledge"].items()
+                    if not isinstance(row.get("needed_by"), list) or row.get("ask_when") is not None), [])
+    without = {k: v for k, v in KEYS.items() if k != "knowledge"}
+    check_eq("item 1: migration_plan on the live-shaped fixture is byte-equal with the `knowledge` section present",
+             json.dumps(plan_of(fixture(), price_table_answer="builtin"), sort_keys=True),
+             json.dumps(plan_of(fixture(), price_table_answer="builtin", keys=without), sort_keys=True))
+    probe = dict(fixture(), probe_key=1)
+    with_row = table_with(removed={**KEYS["removed"], "probe_key": {"reason": "probe"}})
+    check("item 1 negative control: a table that does change the plan makes the comparison differ",
+          json.dumps(plan_of(probe, price_table_answer="builtin", keys=with_row), sort_keys=True)
+          != json.dumps(plan_of(probe, price_table_answer="builtin", keys=without), sort_keys=True))
+
+
+def removed_dead_keys() -> None:
+    """F3 (a): an old config holding a removed key gets a `removed` line with the reason and the old value; no value is used."""
+    for key, old_value in (("format_all", "poetry run ruff format"), ("records_policy", "with_story"),
+                           ("default_environment", "local-docker")):
+        old = dict(fixture(), **{key: old_value})
+        plan = plan_of(old, price_table_answer="builtin")
+        row = {r["path"]: r for r in plan["removed"]}.get(f"/{key}", {})
+        check(f"F3: removed[] lists /{key} with its old value and a reason",
+              row.get("was") == old_value and bool(row.get("reason")), str(row))
+        check(f"F3: {key} is not in proposed_config (no value is used)", key not in plan["proposed_config"])
+        check(f"F3: {key} is not a template key", key not in TEMPLATE)
+        rows = {k: v for k, v in KEYS["removed"].items() if k != key}
+        kept = plan_of(old, price_table_answer="builtin", keys=table_with(removed=rows))
+        check(f"F3 negative control: without the `removed` row {key} is kept", key in kept["proposed_config"])
+    check("F3: seeds and generators stay in the template", {"seeds", "generators"} <= set(TEMPLATE["test_data"]))
+
+
 def reinstall_equals_fresh() -> None:
     """Fresh = the template. An old config with keys missing, order reversed, older note texts and
     retired keys must end as the template, byte for byte."""
     old = copy.deepcopy(TEMPLATE)
-    for key in ("handoffs", "prompts", "retro", "records_policy", "format_changed", "format_all",
-                "requirements_sources", "strategy_documents", "metrics", "records_policy_note", "retro_note"):
+    for key in ("handoffs", "prompts", "retro", "format_changed",
+                "requirements_sources", "strategy_documents", "metrics", "retro_note"):
         del old[key]
     del old["environment"]["access"]
     old["audit_cadence_days"] = 30
@@ -1760,6 +1826,8 @@ def main() -> None:
     value_migration_normaliser()
     k3_fixture()
     x9_retired_surprise_ignore()
+    knowledge_rows()
+    removed_dead_keys()
     reinstall_equals_fresh()
     notes()
     turns_note_history()
