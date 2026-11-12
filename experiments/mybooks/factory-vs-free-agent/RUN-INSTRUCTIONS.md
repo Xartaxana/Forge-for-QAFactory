@@ -43,6 +43,18 @@
 
 ## 2. Условия старта — проверить все семь, каждое записать в «Подготовку» тетради
 
+**Состояние на 12.11.2026 17:40: все семь условий выполнены и репетиция (шаг 3) пройдена Lead** — свидетели в тетради,
+раздел «Условия 4–7 и репетиция». Оператору перед стартом остаётся короткая перепроверка, а не повтор работы:
+(1) `rev-parse HEAD` замороженного пакета и `release_fingerprint.py --check`; (2) `stand.ps1 -Action status`, затем
+`-Action seed` обоим плечам; (3) `claude auth status` → `"loggedIn": true`; (4) есть
+`arm-factory\test-automation-framework\qa-factory\config.json` и `qa-factory\local-tickets\LOCAL-1.md`; (5) хэши четырёх
+`LOCAL-1.md` равны; (6) есть `runs\free-prompt-final.md`; (7) `Test-Path arm-free\test-automation-framework\qa-factory` →
+`False`, в обеих копиях `.claude\settings.local.json` выключает `qa-factory@qafactory`; ветки копий — `exp/fvf-factory`
+и `exp/fvf-free`. Онбординг заново НЕ запускать. Имя среды драйвера — `local`.
+**Перед каждым `Start-Process` плеча в том же вызове задать**
+`$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\Users\i_mas\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\ms-playwright'`
+— по «видимому» пути `%LOCALAPPDATA%\ms-playwright` полный `chrome.exe` на этой машине не запускается (тетрадь).
+
 1. **Релиз фабрики вышел, и пакет заморожен — СДЕЛАНО 12.11.2026.** Релиз 0.11.0: PR `Xartaxana/QAFactory#1` слит
    владельцем (`5e55e30f893b0d086b5f3b04aabd2cfa8d1b685d`), тег `v0.11.0` на нём же, GitHub Release «QA Factory 0.11.0».
    Заморозка — неподвижное рабочее дерево РЕЛИЗНОГО репозитория на теге (не `main` форджа: там после релиза уже лёг
@@ -125,8 +137,9 @@
 
 ```powershell
 $env:PYTHONUNBUFFERED = "1"
+$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\Users\i_mas\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\ms-playwright'
 Start-Process -FilePath python -WorkingDirectory "C:\QAFactory\mybooks-stand\arm-factory\test-automation-framework" `
-  -ArgumentList "C:\QAFactory\exp-fvf\pkg\qa-factory\scripts\story_run.py","--task","LOCAL-1","--env","<имя среды>","--model","sonnet","--no-trace","--plugin-dir","C:\QAFactory\exp-fvf\pkg\qa-factory" `
+  -ArgumentList "C:\QAFactory\exp-fvf\pkg\qa-factory\scripts\story_run.py","--task","LOCAL-1","--env","local","--model","sonnet","--no-trace","--plugin-dir","C:\QAFactory\exp-fvf\pkg\qa-factory" `
   -RedirectStandardOutput "C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\runs\factory-1.log" `
   -RedirectStandardError "C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\runs\factory-1.err" -PassThru
 ```
@@ -134,6 +147,7 @@ Start-Process -FilePath python -WorkingDirectory "C:\QAFactory\mybooks-stand\arm
 **4.2. Плечо `free`** (промт идёт на stdin из файла):
 
 ```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\Users\i_mas\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\ms-playwright'
 Start-Process -FilePath "$env:APPDATA\npm\claude.cmd" -WorkingDirectory "C:\QAFactory\mybooks-stand\arm-free\test-automation-framework" `
   -ArgumentList "-p","--model","sonnet","--output-format","json","--permission-mode","acceptEdits","--allowedTools","Bash,Read,Write,Edit,Glob,Grep,Task,WebFetch,mcp__playwright","--mcp-config","C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\stand\free-mcp.json" `
   -RedirectStandardInput "C:\QAFactory\forge-repo\experiments\mybooks\factory-vs-free-agent\runs\free-prompt-final.md" `

@@ -95,6 +95,53 @@
    Хэш п. 2 для `LOCAL-1.md` устарел: sha256 канона и копий в обоих плечах теперь `7A7FDE710E223B8E…` (три файла
    совпали).
 
+## Условия 4–7 и репетиция — сделано 12.11.2026 17:05–17:40 (слово владельца: «Да, отсюда»)
+
+- **Плагин 0.11.0 поставлен как у нового пользователя** (`claude plugin marketplace add Xartaxana/QAFactory`,
+  `claude plugin install qa-factory@qafactory`, scope user). В плече `factory` он был включён на время онбординга, после
+  него выключен файлом `.claude\settings.local.json` (драйвер берёт пакет из `--plugin-dir`); в плече `free` выключен
+  с самого начала тем же файлом; `claude plugin list` из папки `free` → «disabled». Ветки копий: `exp/fvf-factory`,
+  `exp/fvf-free`.
+- **`/qa-factory:qa-doctor`** (17:07, 68 с): установка здорова, проект не онбордён — следующий шаг онбординг.
+- **Онбординг плеча `factory`** — одна сессия `claude -p` на Sonnet, продолжаемая `--resume` (форма без окна работает);
+  17:12–17:27, 15 минут стены, 12 ходов человека: 7 пакетов интервью (≈ 20 вопросов), сводка, одна правка сводки и
+  ТРИ «да» (см. находки). Логи ходов — `runs/onboarding-*.json` (в репозиторий не коммитятся: в них цена). Цена названа
+  владельцу в чате. Итог: `qa-factory\config.json` (стенд `local`, адаптер задач `file`, VCS «github, no delivery»,
+  записи `local_only`), `strategy\` (пять документов), `obligations.md`, `factory-backlog.md`, `records\coverage-map.md`;
+  ничего не закоммичено.
+  - Ответы **владельца** (через вопрос в этой сессии): рисковые области — «Позже»; шкала багов — стандартная; когда
+    стори протестирована — «каждое требование проверено, найденные баги описаны, сомнительные места вынесены вопросом
+    владельцу продукта».
+  - Ответы **мои** (факты стенда и следствия уже принятых решений): единственный репозиторий приложения `../MyBooks`,
+    `main`; библиотеки кейсов нет (следствие «без трекера»); стенд `local` на `http://localhost:3000` уже поднят,
+    сброс — `stand.ps1 -Action seed -Arm factory`; вход `local_login`, `EMAIL_USER` — админ, `USER_EMAIL` — обычный
+    пользователь; данные синтетические, тест убирает за собой, можно опираться на книги, категории и две учётки сида;
+    ветки `feature/<…>`, коммиты `type: summary`, записи `local_only`, без пуша и PR; `npm run lint`, `npm run
+    typecheck`, `npm ci`; сборка не общая; **ручной ходок один** (стенд один, учётки две, сброс стирает всё);
+    находки и кейсы — `markdown`; свои документы стратегии в `qa-factory/strategy/`, гайд проекта не трогать; правка
+    сводки: `src/app/api/test/*` — код продукта, не тесты.
+- **Текст стори у фабрики**: `qa-factory\local-tickets\LOCAL-1.md`; четыре файла `LOCAL-1.md` (канон, два `task\`,
+  `local-tickets\`) — sha256 `7A7FDE710E223B8E…`, совпали.
+- **Сухой прогон драйвера**: `story_run.py --task LOCAL-1 --env local --model sonnet --no-trace --plugin-dir
+  C:\QAFactory\exp-fvf\pkg\qa-factory --project <копия factory> --dry-run` → выход 0, «pipeline.json is absent: would
+  run S0 by code — ticket_adapter get --raw-dir …».
+- **Проба формы запуска `free`** (пустая папка, тот же набор флагов): первая попытка — браузер MCP не стартовал
+  (`spawn UNKNOWN`), агент честно сказал, что взял заголовок через curl. Причина — **вторая сторона ловушки
+  песочницы**: `chrome.exe` по видимому пути `%LOCALAPPDATA%\ms-playwright\…` не запускается («side-by-side
+  configuration is incorrect» / «Sandbox cannot access executable»), по настоящему пути
+  `C:\Users\i_mas\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\ms-playwright\…` — запускается.
+  `stand/free-mcp.json` переведён на настоящий путь; вторая попытка: выход 0, 13 с, 0 отказов разрешений, «The page
+  title is "Bookstore"», `out\title.txt` есть. Продолжение той же сессии (`--resume`) — тот же `session_id`,
+  `out\ok.txt` появился. **Обоим плечам при старте задаётся `PLAYWRIGHT_BROWSERS_PATH` = настоящий путь** (с ним
+  `login.spec` плеча `free` — «1 passed (9.3s)»).
+- **Рекордеру фабрики нужен Python-Playwright** (`manual_capture.py` импортирует `playwright.sync_api`), на машине его
+  не было; ни доктор, ни онбординг об этом не сказали (находка). Поставлен (слово владельца: «ставь всё что нужно»):
+  `python -m pip install playwright` → 1.65.1, `python -m playwright install chromium` → сборки `chromium-1254` и
+  `chromium_headless_shell-1254` в настоящей папке браузеров (распаковщик Python-пакета на этой машине НЕ завис).
+  Проба тем же способом, каким запускает рекордер (`chromium.launch(headless=True)` и `launch_persistent_context`),
+  на `http://localhost:3000`: «launch: Bookstore», «persistent: Bookstore», выход 0 — и с переменной пути, и без неё.
+- `runs/free-prompt-final.md` записан (текст стори дословно, команда сида плеча `free`).
+
 ## Открыто — ждёт владельца
 
 1. (сделано 12.11.2026 ≈ 17:05) **Релиз фабрики 0.11.0**: PR `Xartaxana/QAFactory#1` слит владельцем
@@ -103,7 +150,8 @@
    `C:\QAFactory\exp-fvf\pkg` — рабочее дерево `C:\QAFactory\QAFactory` на `v0.11.0`; `rev-parse HEAD` → `5e55e30…`,
    `release_fingerprint.py --check` → «ok - the tree matches references/release-fingerprint.json (version 0.11.0)».
    Пакет драйвера — `C:\QAFactory\exp-fvf\pkg\qa-factory`. Строка «на 12.11 `main` — `688ae28`, пакет 0.10.9» выше
-   устарела. Осталось: онбординг плеча `factory` (инструкция, условие 4), репетиция, прогон — оператору на Opus.
+   устарела. Онбординг и репетиция сделаны (раздел выше). Осталось: сам прогон — новой сессией (слово владельца
+   12.11.2026: «сам запуск эксперимента начну с новой сессии когда ты скажешь что всё готово»).
 2. (сделано владельцем 12.11.2026 ≈ 14:25) **Вход `claude`**: `claude auth status` → `"loggedIn": true`,
    `"authMethod": "claude.ai"`; проба `claude.cmd -p --model sonnet --output-format json` в пустой папке → выход 0,
    `result=OK`, модель `claude-sonnet-5-5`. Форма запуска с MCP-браузером по-прежнему не проверена (репетиция).

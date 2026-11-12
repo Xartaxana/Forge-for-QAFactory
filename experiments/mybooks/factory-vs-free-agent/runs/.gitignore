@@ -1,0 +1,4 @@
+# Raw session logs carry the cost of a run; money is never written to the repository (P18).
+*.json
+*.log
+*.err

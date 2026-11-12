@@ -7,7 +7,7 @@
         "@playwright/mcp@latest",
         "--isolated",
         "--executable-path",
-        "C:\\Users\\i_mas\\AppData\\Local\\ms-playwright\\chromium-1194\\chrome-win\\chrome.exe"
+        "C:\\Users\\i_mas\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Local\\ms-playwright\\chromium-1194\\chrome-win\\chrome.exe"
       ]
     }
   }
