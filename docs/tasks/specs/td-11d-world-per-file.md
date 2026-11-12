@@ -192,6 +192,17 @@ children dominate) and is decided only after D0. Gains: estimate, not measured.
 
 Summary (estimate): 120-400 s of about 3,000 CI seconds of these 16 files. The X files are routed by §7 F1/F2, never silently left.
 
+**MEASURED (D0, CI run 43120089137, 11.11.2026; table and carrier: `plans/MEASUREMENTS.md` §9).** The 16 files cost 1,242 s on CI, of
+which 389 s are world builds and 996 s child processes outside builders. Classes decided by the Lead on F4 (a) (12.11.2026, by the
+measured rows; the owner may overturn):
+- ADOPT (ceiling ≥ 10 s or ≥ 15 %): no_move_seam (77 s), refusals (69 s), stand_identity (42 s), s6 (39 s), infra_failure (38 s),
+  freshness (33 s), loop_b (32 s), probe_by_code_alternative (24 s), handoff_values (10.5 s), red_window (5 s, 18 %). Ceiling in all:
+  370 s; the real gain is lower (only scenarios that read share).
+- NOT ADOPTED, class X (builds under 6 s): s0, probe_by_code, probe_by_code_languages, words_doors, grounding_table, controller_rework.
+  Their seconds are child processes; they wait for §7 F2 (the owner).
+The provisional classes of the table above that the measurement overturns: controller_rework R -> X; probe_by_code_alternative X -> R
+(its 13 builds are 26 s of 26 s); handoff_values X -> R (borderline).
+
 ## §5 Edges (each with the invariant it protects)
 
 | # | Edge | Behaviour | Invariant |
