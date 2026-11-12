@@ -1018,6 +1018,36 @@ def one_reader_of_a_stored_time_names_what_a_naive_time_means():
         check("an unknown reading is refused by name", False)
 
 
+def a_zone_less_time_in_a_journal_row_is_read_as_utc():
+    """CX2-12 S1: the hook journal and driver-runs rows are written UTC-aware, and `driver_journal.parse_ts` reads a
+    zone-less stamp as UTC; both liveness readers of the field read it the same way, never as the machine's clock."""
+    import calendar
+    utc = float(calendar.timegm((2026, 10, 13, 10, 0, 0)))
+    root = temp_dir("qa-live-naive-utc-")
+    try:
+        project(root)
+        without_hooklib()
+        state_dir = root / "qa-factory" / "artifacts" / TICKET / "state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        # a mixed file: zone-less, zoned, empty, None and garbage stamps, one row each
+        stamps = [("2026-10-13T10:00:00", utc), ("2026-10-13T10:00:00Z", utc), ("2026-10-13T12:00:00+02:00", utc),
+                  ("", None), (None, None), ("not a time", None), (20261013, None)]
+        runs = state_dir / "driver-runs.jsonl"
+        for index, (stamp_value, expected) in enumerate(stamps):
+            runs.write_text(json.dumps({"ts": stamp_value, "dispatch": "S1-x-1", "exit_code": 0}) + "\n", encoding="utf-8")
+            check_eq(f"driver_session_end, row {index} ({stamp_value!r})",
+                     LIVE.driver_session_end(root, TICKET, "S1-x-1"), (expected, 0))
+        import runtime_paths as RP
+        journal = RP.record(root, "journal.jsonl")
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        for index, (stamp_value, expected) in enumerate(stamps):
+            journal.write_text(json.dumps({"ts": stamp_value, "event": "subagent_stop", "agent": "a", "task": TICKET,
+                                           "dispatch": "S1-x-1"}) + "\n", encoding="utf-8")
+            check_eq(f"_stop_records, row {index} ({stamp_value!r})", LIVE._stop_records(root)[0]["ts"], expected)
+    finally:
+        cleanup(root)
+
+
 def two_receipts_of_one_dispatch_are_read_together():
     """F-1: a running second receipt of the dispatch is never read as returned because the first one is."""
     other = NATIVE[:-1] + "2"
@@ -1972,6 +2002,7 @@ def main():
     the_rollout_reader_reads_ends_only()
     a_time_nobody_can_place_is_no_evidence()
     one_reader_of_a_stored_time_names_what_a_naive_time_means()
+    a_zone_less_time_in_a_journal_row_is_read_as_utc()
     two_receipts_of_one_dispatch_are_read_together()
     every_rollout_of_one_path_is_asked()
     a_tail_being_written_holds_the_return_back()

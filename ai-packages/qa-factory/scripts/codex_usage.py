@@ -20,17 +20,19 @@ def stamp(value):
         return None
 
 
-# What a time WITHOUT a zone means, named per reader (data, not a guess): "utc" - the host wrote it as UTC
-# (a driver entry's `started_at`, a progress record); "local" - the writer's own clock (a hook journal row, a
-# driver-runs row); "none" - nobody can place it, so it is no evidence (a rollout row's `timestamp`).
+# What a time WITHOUT a zone means, named per reader (data, not a guess): "utc" - every writer of the factory
+# stores UTC (hook journal row, driver-runs row, driver entry `started_at`, progress record), so one direction;
+# "local" - the reader's own machine clock, for a time a person typed; "none" - nobody can place it, so it is
+# no evidence (a rollout row's `timestamp`).
 NAIVE_READINGS = ("utc", "local", "none")
 
 
 def epoch_of(value, naive="utc", numbers=True):
     """Epoch seconds of an epoch number (when `numbers`) or an ISO string, else None. The ONE reader of a stored time.
 
-    `naive` says what a string with no zone means (`NAIVE_READINGS`); a string that carries a zone is read the same
-    under every reading. A bool, an unparsable string or an out-of-range time is None, never an exception."""
+    `naive` says what a string with no zone means (`NAIVE_READINGS`; default and the factory's reading: UTC, as
+    every writer stores it); a string that carries a zone is read the same under every reading. Mixed input is read
+    per value, never guessed across values. A bool, an empty string, None, an unparsable string or an out-of-range time is None, never an exception."""
     if naive not in NAIVE_READINGS:
         raise ValueError(f"epoch_of: naive must be one of {NAIVE_READINGS}, got {naive!r}")
     if isinstance(value, bool):

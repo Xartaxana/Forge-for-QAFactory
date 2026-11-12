@@ -571,7 +571,7 @@ def _stop_records(project_root) -> list:
                 continue
             if not isinstance(record, dict) or record.get("event") != "subagent_stop":
                 continue
-            when = epoch_of(record.get("ts"), naive="local", numbers=False)   # the hook's own clock
+            when = epoch_of(record.get("ts"), naive="utc", numbers=False)   # hooklib writes the journal UTC-aware; no zone reads as UTC
             stops.append({"agent": str(record.get("agent") or ""), "task": str(record.get("task") or ""),
                           "dispatch": str(record.get("dispatch") or ""),
                           "dispatch_receipt": str(record.get("dispatch_receipt") or ""),
@@ -800,7 +800,7 @@ def driver_session_end(project_root, ticket, identifier):
             continue
         if row.get("exit_code") is None:
             continue                      # a row without an exit code says nothing about ending
-        when = epoch_of(row.get("ts"), naive="local", numbers=False)   # the driver's own clock
+        when = epoch_of(row.get("ts"), naive="utc", numbers=False)   # driver_core writes UTC-aware; no zone reads as UTC, as driver_journal.parse_ts does
         last = (when, row.get("exit_code"))
     return last
 
