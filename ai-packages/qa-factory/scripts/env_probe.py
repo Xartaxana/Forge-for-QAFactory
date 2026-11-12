@@ -101,14 +101,23 @@ NOTHING_IN_STORY = "nothing in this story"
 
 
 def parse_env_file(path: Path) -> dict:
-    """A simple KEY=VALUE parser. Quotes are stripped, comments and blank lines skipped."""
+    """The ONE reading of a KEY=VALUE env file (AR-13; OH3-42): a leading BOM is dropped, comments, blank lines and lines
+    without `=` are skipped, an `export ` before the name is dropped, a line whose name is empty (`=x`) is skipped, and ONE pair
+    of equal quotes around the value is stripped (`A="x'` keeps both). Every reader of such a file calls this."""
     data = {}
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        data[key.strip()] = value.strip().strip('"').strip("'")
+        key = key.strip()
+        key = key[7:].strip() if key.startswith("export ") else key
+        if not key:
+            continue        # `=x` names nothing: it must never answer a key whose configured name is empty
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        data[key] = value
     return data
 
 
