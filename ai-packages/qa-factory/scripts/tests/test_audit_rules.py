@@ -595,6 +595,48 @@ def test_a20_portable_paths() -> None:
         check_eq(f"A20: a runtime_probes of another shape is no crash and no violation ({odd})",
                  A.non_portable_config_paths(dict(portable, **odd)), [])
 
+    # OF1-3: the rule reads the START of a file-system path, not a URL or API segment
+    for text, flagged in (
+        ("C:" + B + "Users" + B + "x", True), ("/home/x", True), ("/Users/x", True), ("~/x", True),
+        ("see `/Users/name/x` here", True), ("cd /home/x && ls", True),
+        ("https://a/users/1", False), ("http://host/users/1", False), ("/users/123", False),
+        ("GET /users/{id}", False), ("`/api/users/{id}`", False), ("https://a/Users/1", False),
+        ("https://a/home/1", False),
+    ):
+        check_eq(f"A20 path start: {text!r} is {'flagged' if flagged else 'not flagged'}",
+                 bool(A.PERSONAL_PATH.search(text)), flagged)
+        check_eq(f"A20 path start in a document line: {text!r}",
+                 len(A.non_portable_config_paths(dict(portable, test_command_templates={"q": text}))), int(flagged))
+
+    # OF1-3: the closed variety is a data file; the pattern is built from it and a bad file is a named problem
+    data_dir = temp_project("qa-factory-audit-a20-data-")
+    try:
+        good = json.loads(A.ref(A.MACHINE_PATH_MARKERS).read_text(encoding="utf-8"))
+        check_eq("A20 data: the shipped data file loads with no problem", A.PERSONAL_PATH_PROBLEM, None)
+        no_home = data_dir / "no-home.json"
+        no_home.write_text(json.dumps(dict(good, path_start_prefixes=[p for p in good["path_start_prefixes"]
+                                                                       if p != "/home/"])), encoding="utf-8")
+        pattern, problem = A.load_personal_path(no_home)
+        check_eq("A20 data: the pattern follows the data: no /home/ entry, /home/x is not flagged",
+                 (bool(pattern.search("/home/x")), bool(pattern.search("/Users/x")), problem), (False, True, None))
+        broken = data_dir / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        wrong_shape = data_dir / "shape.json"
+        wrong_shape.write_text(json.dumps({"path_start_prefixes": [], "windows_user_dirs": ["Users"]}), encoding="utf-8")
+        for label, bad in (("missing", data_dir / "nope.json"), ("broken", broken), ("wrong shape", wrong_shape)):
+            pattern, problem = A.load_personal_path(bad)
+            check(f"BAD  A20 data: a {label} data file is a named problem with its door, no traceback, no match",
+                  bool(problem) and A.MACHINE_PATH_MARKERS in problem and "reinstall" in problem
+                  and not pattern.search("/home/x"), str(problem))
+        saved = A.PERSONAL_PATH_PROBLEM
+        A.PERSONAL_PATH_PROBLEM = "A20 cannot judge: x"
+        try:
+            check_eq("BAD  A20 data: the rule reports the problem", A.personal_path_problems(), ["A20 cannot judge: x"])
+        finally:
+            A.PERSONAL_PATH_PROBLEM = saved
+    finally:
+        cleanup(data_dir)
+
     tmp = temp_project("qa-factory-audit-a20-")
     try:
         strategy = tmp / "qa-factory" / "strategy"

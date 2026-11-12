@@ -14,6 +14,7 @@ allowed-tools:
   - Glob
   - Grep
   - Bash
+  - Write
   - Agent
   - Task
 ---
@@ -32,12 +33,12 @@ the host-local spool. Missing identity is reported, usage stays unclassified; ne
 activities from prompt prose.
 
 Diagnosis, run between stories or whenever something feels wrong. It reports and names
-**one** next action. Three questions, all after the report, never instead of a fact: the
+**one** next action. Three questions after the report, never instead of a fact: the
 archive offer in step 6, `phases/repair.md`'s "is anybody working on this story?", and the
-price-table question in step 2.
-**It writes the dashboard, activity telemetry, smoke and host-probe receipts, and - only on
-a person's explicit word - `archive_task.py`'s flag and `repair.md`'s `controller.py
---operation recover|release`.** It never edits a `pipeline.json` by hand.
+price-table question in step 2; plus, once, step 2b's sample ticket when no story has one.
+**It writes the dashboard, activity telemetry, smoke and host-probe receipts, the guard-probe
+file and a release's words file (Write serves only these two), the factory's `.gitignore` block (step 3), and - only on a person's explicit word -
+`archive_task.py`'s flag and `repair.md`'s `controller.py --operation recover|release`.** It never edits a `pipeline.json` by hand.
 
 ## Execution - seven steps, in order, each one Bash call
 
@@ -53,11 +54,7 @@ python -u "${CLAUDE_PLUGIN_ROOT}/scripts/install_smoke.py" --reuse-within 24 --r
 `--reuse-within 24` reuses a passed report of this package (`SMOKE REUSED` - say so); drop
 it for a fresh run.
 
-Run once and wait. In Codex code mode print
-the **whole** shell result (`text(r)`), keeping `session_id` and `exit_code`; an outer
-`functions.wait` ends the JS cell while the shell may still run, so continue it with
-`tools.write_stdin` until `exit_code` appears. Never relaunch the smoke on an empty poll: a
-missing exit code means pending, never failed.
+Run once and wait. On Codex in code mode: `phases/repair.md`, section Codex code mode.
 
 Read the saved report afterwards. `status: running`
 means wait; a missing report means evidence is unavailable, not an outdated installation.
@@ -99,7 +96,7 @@ Read `host_integration.mechanisms` and `guard_probe` from readiness. `host_integ
 is EVIDENCE from the receipts on disk, not a label: `mixed` (opened from two tools) is a real
 state. Report invocation and behaviour separately; trust/enablement as unknown if not exposed
 - use the host's hook review UI for trust, never edit trust files. Two probes are not full
-parity. `guard_parse` in that report: `phases/repair.md`, last section.
+parity. `guard_parse` not `verified`: make the missing call yourself (`phases/repair.md`, section "Does the pre-tool guard"), then `--check` once.
 
 ### 2. Project state
 
@@ -172,11 +169,16 @@ in was never recorded: not broken - re-run `qa-onboarding`; only topic 2's acces
 ```
 python "${CLAUDE_PLUGIN_ROOT}/scripts/audit_factory.py"
 python "${CLAUDE_PLUGIN_ROOT}/scripts/role_permissions.py"
+```
+
+If `qa-factory/config.json` exists in the current directory, run:
+
+```
 python "${CLAUDE_PLUGIN_ROOT}/scripts/project_gitignore.py" --root . --check
 ```
 
-The third lists the `.gitignore` lines it lacks; `--write` rewrites the block. The
-first two take no `--next`: every `<check>: VIOLATIONS (n)` line plus its bullets is one
+Lines listed: run it with `--write` yourself and tell the person to commit
+`.gitignore`; a non-zero exit is one FACTORY NOTES line. The first two take no `--next`: every `<check>: VIOLATIONS (n)` line plus its bullets is one
 item, `no violations` needs no mention. Never re-run a detector yourself.
 
 ### 4. Where every story is
@@ -188,8 +190,8 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/stage_guard.py" --stories
 One line per story: last `done` stage, any `running`/`halted` stage or `closed <date>`
 (gate B decided, S8 done), both gate decisions, every unresolved `halts[]` entry. A closed
 story that still carries a running stage or an open dispatch ends with
-`STALE ACTIVE STATE AFTER CLOSURE — controller.py … --operation recover`: a tail, not work
-in flight. Archived stories (the flag, legacy
+`STALE ACTIVE STATE AFTER CLOSURE`: a tail, not work
+in flight; print it without its command. Archived stories (the flag, legacy
 `_archive/`) are filtered and counted in a closing line that **names** any still carrying an
 open item: archiving is "stop showing me this", not a claim the story finished. Print the
 lines; never re-open a `pipeline.json`. Factory bookkeeping is repaired by code, never by
@@ -221,28 +223,14 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/factory_dashboard.py"
 
 ### 7b. The permission block - only when asked
 
-When asked why every command needs a confirmation, print this block
-to paste into the project's `.claude/settings.json`, and say what it does and does not allow:
-
-```json
-{"permissions": {"allow": [
-  "Bash(python \"${CLAUDE_PLUGIN_ROOT}/scripts/*.py\":*)",
-  "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-  "Bash(git rev-parse:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ls:*)"
-]}}
-```
-
-Reading and the factory's own scripts, nothing else: no commit, push, tracker command or
-test framework. It saves wall-clock time, not money. **The human writes that file, not
-you**: the factory writes nothing into a project except `qa-factory/`.
+When asked why every command needs a confirmation, read `phases/permissions.md` and follow it.
 
 ## Verdict - exactly ONE next action
 
 Capability scope rules above apply first. Walk top to bottom, report the first row that
 applies, stop.
 
-`vcs_api`/`host_hooks` are never the next action unless an open story needs them (a dropped VPN
-once became a project's single next action).
+`vcs_api`/`host_hooks` are never the next action unless an open story needs them.
 
 | # | Condition | Next action |
 |---|---|---|
@@ -255,8 +243,8 @@ once became a project's single next action).
 | 5 | a capability is `missing` with `remedy.owner: user` | that `remedy`, printed in full - `missing` means the host answered and refused |
 | 5a | a capability is not `ok` with `remedy.owner: factory` - an unreachable host, an unrun probe, a factory defect | NOT an action: print it, own it, next row. Never ask a person to fix the factory or turn a dropped network into a credentials errand |
 | 5b | a required capability is `not_configured` or `unknown` with `remedy.owner: user` | that `remedy`; distinguish an unrun probe, inconclusive evidence and a session-only check |
-| 6 | a story has an unresolved `halts[]` entry | that halt's own instruction, for that ticket |
-| 6a | a closed story still carries a running/halted stage or an open dispatch (the STALE line) | `controller.py --task-root <T> --operation recover` (owner: factory) |
+| 6 | a story has an unresolved `halts[]` entry | that halt's own instruction, for that ticket, in plain words - never a script name |
+| 6a | a closed story still carries a running/halted stage or an open dispatch (the STALE line) | the stale tail of `<T>`: ask "is anybody working on `<T>`?", then `phases/repair.md` |
 | 7 | a story sits at `gates.A` or `gates.B` with no `decision` recorded | "answer gate A/B for `<ticket>`" |
 | 8 | step 3 found any violation | the first `<check>` line, verbatim |
 | 9 | otherwise | `/qa-factory:qa-story <ticket>` - the latest touched open ticket; none named when every story is closed |
@@ -267,7 +255,7 @@ once became a project's single next action).
 PLUGIN: qa-factory <version> — <path>   (or: version not reported - plugin older than 0.2.0)
 SMOKE: <one line: PASSED / FAILED and why>
 
-READINESS: ok - <n> of <n>            (or: <n> of <n>, your help is needed)
+READINESS: ok - <n> of <n>   (or: <k> of <n>, your help is needed | <k> of <n>, the rest in FACTORY NOTES)
   <capability>  ok  <evidence_ref>    ... one line each, no history
   tracker_write  confirmed <date> | no: <reason> | not checked (the probe runs and records)
 
@@ -284,10 +272,15 @@ AUDIT
   ... (only violating checks; if none, print "AUDIT: clean")
 
 Next action: <exactly one line>
+
+FACTORY NOTES (nothing for you to do)      ... only when there is one
+  <what, in plain words>: <the fact, one line>
 ```
 
 Rules of printing:
 
+- **The person gets a skill, a closed question or an action of their own - never a factory script, flag or plugin path.** Run such a step yourself, or name the skill that owns it; a script's `reason` is addressed to you.
+- **Nothing for the person goes last**, under `FACTORY NOTES (nothing for you to do)`: each non-`ok` `remedy.owner: factory` row, `ACTIVITY NOT RECORDED`, a failed `.gitignore` write, a repeated guard refusal - the fact in one plain line, no alarm wording. No working tree, `git status` or own writes. A `remedy.owner: user` row keeps READINESS at "your help is needed".
 - **Steps are printed by `remedy.owner`, not by the capability's `owner`.** The capability's
   owner says whose domain the gap is; `remedy.owner` says who must act: an unreachable host is
   nobody's fault (`owner: factory`), yet only a person turns a VPN on (`remedy.owner: user`).
@@ -297,19 +290,15 @@ Rules of printing:
   can take itself come before anything asked of a person.
 - **What is legitimately `not_configured`** (`remedy.kind: not_a_defect`, e.g. an empty
   `cases_root`) is an ordinary line in the first part. No third bucket: everything outside
-  "here is what to do" reads as "all is well", and that is true.
+  "here is what to do" reads as "all is well", and that is true (FACTORY NOTES is not: READINESS counts its rows).
 - **An unreachable host is reported once, above the capabilities it explains**, which say "not
   verified" and nothing about credentials.
 - **Next action is drawn only from what is genuinely addressed to the person.** With no
   `owner: user` row, the next action is the work itself, not "go sort out the diagnostics".
 
-The complete repository inventory follows this block and is exempt from the line limit.
+FACTORY NOTES and the complete repository inventory follow this block; both are exempt from the line limit.
 
 ## Never report a green it cannot back
-
-Its green lines are worth something only while they are backed: readiness once reported
-`ticket_adapter: ok - reachable per config` for a CLI that was not installed, the doctor
-repeated it, and the first story halted in S0 on a missing executable.
 
 - **A line is as good as its evidence.** Print what the script printed and never upgrade a
   status while summarizing; a row settled by a probe in step 2b is backed by its receipt.
@@ -319,16 +308,15 @@ repeated it, and the first story halted in S0 on a missing executable.
 
 ## What this skill never does
 
-- Never asks a clarifying question to produce a **fact**: facts come from a script or a git/
-  file check. Its questions are decisions - the archive offer, `repair.md`'s and the price table's - plus the
-  sample ticket in step 2b when no story supplies one.
+- Never asks a clarifying question to produce a **fact**; its questions are those of the opening section.
 - Never sets `archived` by its own judgement: only `archive_task.py` on a person's word.
-- Never writes a config, a strategy file or anything under `artifacts/` - that is
+- Never writes a config, a strategy file or anything under `artifacts/` except `repair.md`'s words file - that is
   `qa-onboarding` and `qa-story`. A read-only probe is not writing; its receipts live in `state/`.
 - Never fixes an audit finding itself: names it, names its owner, moves on. Its only repairs
-  are `controller.py --operation recover` and, on their word, `release` (`phases/repair.md`).
-- Never debugs the factory. Evidence missing after one `--prepare`/pair/`--check` is one line
-  - `unknown / owner: factory`, the fact, one recommendation - never a grep of the plugin.
+  are `controller.py --operation recover` and, on their word, `release` (`phases/repair.md`),
+  plus the `.gitignore` block of step 3.
+- Never debugs the factory. Evidence missing after one `--prepare`/pair/`--check` is one FACTORY
+  NOTES line - the fact, one recommendation - never a grep of the plugin.
 # Evidence capability checks
 
 Inspect configured selectors, reporters and manual-evidence artifact paths read-only. Report a

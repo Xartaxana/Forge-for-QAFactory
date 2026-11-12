@@ -22,7 +22,7 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "synthetic-role-gaps"
 MONEY_KEYS = {"cost", "subtotal_usd", "total_cost_usd", "priced_subtotal_usd", "priced_subtotal_exact_usd",
               "price_low_usd", "price_high_usd"}
 DOLLAR_DIGIT = re.compile(r"\$\s?\d")
-PERSONAL_PATH = re.compile(r"C:\\Users\\|/Users/|/home/", re.IGNORECASE)
+from audit_factory import PERSONAL_PATH  # the one pattern of rule A20, built from references/machine-path-markers.json
 
 
 def load_fixture():

@@ -3,8 +3,8 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Run qa-doctor in a fresh git repository where the qa-factory plugin is installed but qa-onboarding has never been run.",
-      "expected_output": "Reports the install smoke result, notes there is no qa-factory/config.json, skips the readiness and stories sections, and ends with exactly one next action: run /qa-factory:qa-onboarding.",
+      "prompt": "Run qa-doctor in a fresh git repository where the qa-factory plugin is installed but qa-onboarding has never been run. qa-factory/state/ already holds this run's smoke receipt and .gitignore has no factory block.",
+      "expected_output": "Reports the install smoke result, notes there is no qa-factory/config.json, skips the readiness and stories sections, and ends with exactly one next action: run /qa-factory:qa-onboarding. No .gitignore line and no warning about committing qa-factory/state/ appear: a project that is not onboarded is asked for nothing but onboarding.",
       "files": [],
       "assertions": [
         {
@@ -14,6 +14,10 @@
         {
           "name": "no-fabricated-readiness",
           "description": "The response does not print a readiness table or claim a capability status, since readiness.py has nothing to report without config.json."
+        },
+        {
+          "name": "no-gitignore-demand-before-onboarding",
+          "description": "The project_gitignore.py check is not run and the report carries no .gitignore line, no step about it and no warning about committing qa-factory/state/; the only next action is onboarding."
         }
       ]
     },
@@ -45,19 +49,19 @@
         },
         {
           "name": "dashboard-rebuilt",
-          "description": "The report confirms factory_dashboard.py was run as the one write this skill performs; no other file is claimed to have been created or modified."
+          "description": "The report names where to open the rebuilt dashboard; it does not narrate other files it wrote, the working tree or git status."
         }
       ]
     },
     {
       "id": 4,
       "prompt": "Ask what files qa-doctor creates or modifies when it runs.",
-      "expected_output": "States that qa-doctor creates and modifies no files in the project except rebuilding qa-factory/state/factory-dashboard.html, and that it never writes config, strategy, or artifact files, never answers a gate, and never asks a question.",
+      "expected_output": "States that qa-doctor writes the dashboard, activity telemetry, its smoke and host-probe receipts, the guard-probe file and the factory's own .gitignore block (after onboarding), and only on a person's explicit word archives a story or runs recover or release; that it never writes config, strategy, or artifact files (the words file of a release excepted), never answers a gate, and asks only the questions after its report (archive offer, is anybody working on this story, price table); plus, once before it, step 2b's sample ticket when no story supplies one.",
       "files": [],
       "assertions": [
         {
           "name": "dashboard-is-only-write",
-          "description": "The only file named as written or modified is the dashboard; qa-onboarding and qa-story are cited as owning every other write."
+          "description": "The writes named are exactly the charter's: dashboard, telemetry, receipts, guard-probe file, the factory's .gitignore block, and word-gated archive and recover or release; qa-onboarding and qa-story are cited as owning every other write, and the questions named are the three after the report plus the sample ticket of step 2b, asked once before it when no story supplies one."
         }
       ]
     },
@@ -152,7 +156,7 @@
     {
       "id": 9,
       "prompt": "Run qa-doctor on Claude Code. After host_probe.py --prepare, the two echo calls and --check, the result is status unverified with an empty checks object: no guard receipt arrived.",
-      "expected_output": "One report row: host_hooks unknown, owner factory, the observed fact (no guard receipt in this session after the probe pair), one recommendation. The doctor does not open host_probe.py, hooks.json or any other plugin file, does not grep the plugin, and does not repeat the probe with variations.",
+      "expected_output": "One FACTORY NOTES line (nothing for the person to do), not a row above it: the host hooks are unknown, the observed fact (no guard receipt in this session after the probe pair), one recommendation. READINESS does not read ok. The doctor does not open host_probe.py, hooks.json or any other plugin file, does not grep the plugin, and does not repeat the probe with variations.",
       "files": [],
       "assertions": [
         {
@@ -161,7 +165,7 @@
         },
         {
           "name": "owner-is-factory",
-          "description": "The row says unknown with owner factory and states the observed fact; it does not call the hooks broken and does not ask the person to fix anything."
+          "description": "The FACTORY NOTES line says the hooks are unknown (owner factory) and states the observed fact; it does not call the hooks broken and does not ask the person to fix anything."
         },
         {
           "name": "one-probe-only",
@@ -240,7 +244,7 @@
     {
       "id": 13,
       "prompt": "Run qa-doctor from a folder nested in a git repository, where the project has no qa-factory/config.json yet (not onboarded). host_probe.py --prepare and --check are the only way the doctor knows to see the hooks.",
-      "expected_output": "host_probe.py refuses with exit 3 and writes nothing. The doctor does not dispatch the allow/deny pair and does not dispatch the context probe. host_hooks is reported as unknown with owner factory, with the fact that the project is not onboarded. The next step is onboarding. No qa-factory folder appears at the root of the repository.",
+      "expected_output": "host_probe.py refuses with exit 3 and writes nothing. The doctor does not dispatch the allow/deny pair and does not dispatch the context probe. host_hooks is reported as unknown with owner factory, as a FACTORY NOTES line with the fact that the project is not onboarded. The next step is onboarding. No qa-factory folder appears at the root of the repository.",
       "files": [],
       "assertions": [
         {
@@ -262,6 +266,58 @@
         {
           "name": "nothing-created-at-repo-root",
           "description": "No qa-factory folder was created at the root of the repository by the probe."
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "Run qa-doctor in an onboarded project. After the allow/deny pair host_probe.py --check reports guard_parse unverified for the file-write family, and .gitignore lacks the factory block.",
+      "expected_output": "The doctor writes a throwaway line with the host's file tool to its guard-probe file and runs --check once more; the check's reason text is never shown to the person. If the family is still unverified, one FACTORY NOTES line says in plain words which call has no clean record. The doctor runs project_gitignore.py --write itself and the main part carries one line asking the person to commit .gitignore. No step addressed to the person names a factory script, a script flag or a plugin path.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "guard-write-by-the-doctor",
+          "description": "The doctor writes the throwaway line with the host's file tool and re-runs --check; it does not hand the call to the person."
+        },
+        {
+          "name": "one-recheck-only",
+          "description": "Exactly one extra --check runs after the doctor's own call; no second --prepare and no loop."
+        },
+        {
+          "name": "reason-not-relayed",
+          "description": "The reason text of the probe (for example 'Make one ordinary call of each shape ... then re-run --check') never reaches the person."
+        },
+        {
+          "name": "gitignore-block-written-by-the-doctor",
+          "description": "The doctor runs project_gitignore.py --write itself, without asking, and the report carries one line telling the person to commit .gitignore; it is neither a violation nor the next action. A failed write is one FACTORY NOTES line."
+        },
+        {
+          "name": "no-factory-script-in-person-steps",
+          "description": "No step addressed to the person contains a *.py file, run-py.cmd, ${CLAUDE_PLUGIN_ROOT} or a flag of a script; a command of the person's own tool (glab auth login) and a /qa-factory: skill stay allowed."
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "Run qa-doctor right after onboarding: the context probe returned no injection receipt (injection: unverified), qa-factory/records/journal.jsonl is untracked, and the cost summary in qa-factory/state/ was updated.",
+      "expected_output": "READINESS counts the rows and says the rest is in FACTORY NOTES. The last block, FACTORY NOTES (nothing for you to do), states in one plain line that the role-context delivery has no receipt in this session yet. Nothing about git status, untracked files, a commit that was not made or what the doctor wrote in state/ appears anywhere.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "no-factory-rows-in-main",
+          "description": "No row with remedy owner factory stands above the FACTORY NOTES block."
+        },
+        {
+          "name": "no-working-tree-narration",
+          "description": "The report contains no git status, no untracked or unindexed file, no 'I did not commit' and no mention of what the doctor wrote in state/."
+        },
+        {
+          "name": "fact-in-notes-without-alarm",
+          "description": "The injection fact is a line of FACTORY NOTES and does not use 'failed', 'could not' or 'not confirmed' wording that reads as a breakage."
+        },
+        {
+          "name": "readiness-not-green",
+          "description": "The READINESS line does not read 'ok - n of n' while a note stands; it says the rest is in FACTORY NOTES, and when a person-owned row also exists it keeps 'your help is needed'."
         }
       ]
     }
