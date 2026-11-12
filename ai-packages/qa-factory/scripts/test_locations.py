@@ -10,6 +10,7 @@ refusal and never a permission.
 This module is the whole of that reading and nothing else writes it:
 
   is_test_path(path, cfg, base=, root=)   one verdict, six keys, never raises
+  area(path, cfg, ...) / recorded(cfg, ...)  which area a path lies in; did the project record its tests for it
   location_problems(cfg, root)            what in `test_locations` opens nothing, one sentence each
   whole_root_conflict(target, cfg, root)  the entry that covers a whole protected root and the root
   suggest(cfg, root, max_files)           candidate locations found by the usual test names
@@ -362,18 +363,19 @@ def _split_pattern(ctx: _Ctx, value: str):
     return prefix, "/".join(kept).lower(), all(not re.sub(r"[*?.]", "", s) for s in kept)
 
 
-def _recognition(ctx: _Ctx, t: str):
-    """(source, where, kind) of the first recognition-only carrier that names `t`, else None. These
-    carriers (`run.levels`, `profiles[].roots.test`, `tests_root`) never grant anything: they say where
-    the project's tests are, and every consumer reads them through this one function.
+def _live_carriers(ctx: _Ctx, t=None) -> list:
+    """The LIVE recognition-only carriers, in the order the verdict reads them: [(source, where, prefix, rest, wild_only)]
+    for every `run.levels` pattern, then every `profiles[].roots.test` and `tests_root` (rest is None for those two: they
+    name a folder). The one place that says which values are ignored, read by `_recognition` and by `recorded` (AR-13).
 
-    A value that names the whole project or the application (`""`, `"."`, a prefix at or above the project
-    root or app_root with nothing but wildcards after it) is ignored, and so is one that covers a protected
-    root whole when `t` lies in that root: a carrier never makes everything a test (S12, S13)."""
+    A value that names the whole project or the application (`""`, `"."`, a prefix at or above the project root or
+    app_root with nothing but wildcards after it) is ignored, and so is one that covers a protected root whole when `t`
+    lies in that root: a carrier never makes everything a test (S12, S13). With no `t` the second rule is not applied."""
     def held_whole(prefix: str, wild_only: bool) -> bool:
-        return wild_only and any(_inside(t, absolute) and _inside(absolute, prefix)
-                                 for _shown, absolute, _entry in ctx.protected)
+        return t is not None and wild_only and any(_inside(t, absolute) and _inside(absolute, prefix)
+                                                   for _shown, absolute, _entry in ctx.protected)
 
+    live = []
     run = ctx.cfg.get("run")
     levels = run.get("levels") if isinstance(run, dict) else None
     for level, patterns in (levels.items() if isinstance(levels, dict) else []):
@@ -383,11 +385,7 @@ def _recognition(ctx: _Ctx, t: str):
             prefix, rest, wild_only = _split_pattern(ctx, value)
             if (wild_only and ctx.at_or_above(prefix)) or held_whole(prefix, wild_only):
                 continue
-            pattern = _glob_literal(prefix) + ("/" + rest if rest else "")
-            # `factory_dashboard.level_for`'s two forms; `*` crosses `/`, both sides are lower-case
-            if fnmatch.fnmatchcase(t, pattern) or fnmatch.fnmatchcase(t, pattern.rstrip("/") + "/*"):
-                kind = "folder" if (not rest or rest.endswith("**")) else "file"
-                return "run.levels", f"run.levels:{level} {value}", kind
+            live.append(("run.levels", f"run.levels:{level} {value}", prefix, rest, wild_only))
     profiles = ctx.cfg.get("profiles")
     carriers = []
     for profile in profiles if isinstance(profiles, list) else []:
@@ -405,9 +403,121 @@ def _recognition(ctx: _Ctx, t: str):
         prefix = _norm(given if given.is_absolute() else ctx.root_p / given)
         if ctx.at_or_above(prefix) or held_whole(prefix, True):
             continue
-        if _inside(t, prefix):
+        live.append((source, where, prefix, None, True))
+    return live
+
+
+def _recognition(ctx: _Ctx, t: str):
+    """(source, where, kind) of the first recognition-only carrier that names `t`, else None. These
+    carriers (`run.levels`, `profiles[].roots.test`, `tests_root`) never grant anything: they say where
+    the project's tests are, and every consumer reads them through this one function (the live ones: `_live_carriers`)."""
+    for source, where, prefix, rest, _wild in _live_carriers(ctx, t):
+        if source == "run.levels":
+            pattern = _glob_literal(prefix) + ("/" + rest if rest else "")
+            # `factory_dashboard.level_for`'s two forms; `*` crosses `/`, both sides are lower-case
+            if fnmatch.fnmatchcase(t, pattern) or fnmatch.fnmatchcase(t, pattern.rstrip("/") + "/*"):
+                kind = "folder" if (not rest or rest.endswith("**")) else "file"
+                return "run.levels", where, kind
+        elif _inside(t, prefix):
             return source, where, "folder"
     return None
+
+
+# --- recorded: did the project say where its tests are, for the area a path lies in -------------------------
+
+def _deepest_base(ctx: _Ctx, t: str):
+    """The DEEPEST of app_root and the project root that holds `t` (normalised), None when neither does. The one rule
+    of step 4 and of `area`."""
+    bases = [b for b in (ctx.app_n, ctx.root_n) if _inside(t, b)]
+    return max(bases, key=len) if bases else None
+
+
+def _area_of(ctx: _Ctx, t: str) -> str:
+    deepest = _deepest_base(ctx, t)
+    if deepest is None:
+        return ""
+    return "app" if deepest == ctx.app_n else "project"  # a tie (app_root is the project root): the application
+
+
+def _area_carriers(ctx: _Ctx, area: str, t=None) -> list:
+    """The carriers that record where tests are for `area`: "app" has `test_locations` (live entries); "project" has the
+    live `run.levels`, `roots.test` and `tests_root` whose literal place lies in the project area. A project-root
+    carrier whose place lies in the application area records nothing for either area."""
+    if area == "app":
+        return [CONFIG_KEY] if ctx.entries() else []
+    if area != "project":
+        return []
+    found = []
+    for source, _where, prefix, _rest, _wild in _live_carriers(ctx, t):
+        if _area_of(ctx, prefix) == "project" and source not in found:
+            found.append(source)
+    return found
+
+
+def area(path, cfg, *, base=None, root=None) -> str:
+    """"app" when `path` lies inside app_root and no deeper inside the project root, "project" when it lies inside the
+    project root and not inside app_root (a tie, app_root being the project root, is "app"), "" when neither holds it or
+    the answer cannot be had. A relative path is taken from `base` (default `root`). Never raises."""
+    try:
+        ctx = _Ctx(cfg, root)
+        return _area_of(ctx, _target(ctx, path, base))
+    except Exception:
+        return ""
+
+
+def _target(ctx: _Ctx, path, base) -> str:
+    given = Path(str(path if path is not None else ""))
+    if not given.is_absolute():
+        given = (Path(base) if base is not None else ctx.root_p) / given
+    return _norm(given)
+
+
+def recorded(cfg, *, root=None, path=None, base=None) -> tuple:
+    """(is it recorded, the carriers that record it, the area): did the project record where its tests are, FOR THE AREA
+    `path` lies in? The application area has one carrier, `test_locations`; the project area (inside the project root,
+    outside app_root) has `run.levels`, `profiles[].roots.test` and `tests_root`, each only for a place inside it - a word
+    about one area never changes the other. With no `path` the answer is "any area" (True when either is recorded; the
+    area is ""). Never raises: any failure is (False, [], "")."""
+    try:
+        ctx = _Ctx(cfg, root)
+        if path is None:
+            found = _area_carriers(ctx, "app") + _area_carriers(ctx, "project")
+            return bool(found), found, ""
+        if not str(path).strip():
+            return False, [], ""
+        t = _target(ctx, path, base)
+        where = _area_of(ctx, t)
+        found = _area_carriers(ctx, where, t)
+        return bool(found), found, where
+    except Exception:
+        return False, [], ""
+
+
+def recorded_names(cfg, *, root=None) -> tuple:
+    """(every existing area is recorded, the lower-case literal last folder segments of the live FOLDER carriers): the
+    reading of `test_files`' "name" consumer, which has no path and so no area. The project area exists unless app_root is
+    the project root. A carrier whose last folder segment has a wildcard names no literal folder. Never raises."""
+    try:
+        ctx = _Ctx(cfg, root)
+        app_on = bool(_area_carriers(ctx, "app"))
+        exists = ctx.app_n != ctx.root_n
+        project_on = bool(_area_carriers(ctx, "project"))
+        names = set()
+
+        def keep(segment):
+            if segment and not any(c in segment for c in "*?["):
+                names.add(segment.lower())
+
+        for _shown, segs, _covered in ctx.entries():
+            if len(segs) > 1 and segs[-1] == "**":
+                keep(segs[-2])
+        for _source, _where, prefix, rest, _wild in _live_carriers(ctx):
+            if _area_of(ctx, prefix) != "project" or (rest and not rest.endswith("**")):
+                continue
+            keep(prefix.rstrip("/").rsplit("/", 1)[-1])
+        return app_on and (project_on or not exists), names
+    except Exception:
+        return False, set()
 
 
 def _marker_hit(segs, is_folder: bool, table: dict, name: str = ""):
@@ -433,10 +543,7 @@ def _is_test_path(path, cfg, base, root) -> dict:
     if not text.strip():
         return _verdict(False, "none", "", "", "", "no path was given")
     is_folder = text.endswith(("/", "\\"))
-    given = Path(text)
-    if not given.is_absolute():
-        given = (Path(base) if base is not None else ctx.root_p) / given
-    t = _norm(given)
+    t = _target(ctx, text, base)
     # 1. A colon after the drive is an alternate data stream (`app.ts:x.spec.ts`): a write to a stream of
     # an application file is never a test-location write, so no config carrier may match.
     stream = ":" in t[2:]
@@ -460,11 +567,19 @@ def _is_test_path(path, cfg, base, root) -> dict:
     if held is not None and ctx.entries():
         return _verdict(False, "none", "", "", "",
                         f"inside application code '{held}' and in none of the project's test locations")
+    # 3b. the project recorded where its tests are for the area this path lies in (the application: `test_locations`; the
+    # test repository: `run.levels`, `roots.test`, `tests_root`): only the record decides there, the usual names never do
+    where_area = _area_of(ctx, t)
+    carriers = _area_carriers(ctx, where_area, t)
+    if carriers:
+        what = "application code" if where_area == "app" else "test repository"
+        return _verdict(False, "none", "", "", "",
+                        f"the project recorded where its tests are for this {what} ({', '.join(carriers)}) and this "
+                        "path is in none of them")
     # 4. the usual test names, relative to the DEEPEST of app_root and the project root that holds it
-    bases = [b for b in (ctx.app_n, ctx.root_n) if _inside(t, b)]
-    if not bases:
+    deepest = _deepest_base(ctx, t)
+    if deepest is None:
         return _verdict(False, "none", "", "", "", "outside the project and the application")
-    deepest = max(bases, key=len)
     table, why = markers()
     if why:
         return _verdict(False, "none", "", "", "",
@@ -489,6 +604,9 @@ def is_test_path(path, cfg, *, base=None, root=None) -> dict:
     "run.levels" | "roots.test" | "tests_root" | "markers" | ""), `kind` ("folder" | "file" | ""), `where` (the
     entry or carrier as written, or `<list>:<marker>`) and `reason` (one English sentence); never raises:
     any exception is `test=False, by="none"` with the exception's type in the reason.
+
+    The usual names run (step 4) only where the project recorded nothing for the AREA the path lies in (`recorded`):
+    where it did, a path no carrier names is no test (step 3b, B-355) - the list is a hint, the record decides.
 
     `root` is the project root (default `hooklib.project_root()`), `base` the folder a relative `path` is
     taken from (default `root`); a trailing `/` or `\\` on `path` means a folder. Consumers choose by
