@@ -18,6 +18,21 @@ conductor (S5): go on»). Дирижёр: «Recorded no waiver, because the pers
 
 Свидетель: `runs/factory-12.log` (строки «conductor: ask_person …»); `notebook.md`, «Ход прогона», 19:05–19:07.
 
+Второй экземпляр того же класса, 20:46 (`kind: exit_limit`, S5): вариант (a) обещал «`round` — the automator gets one more
+turn … with the check's exact words **and your answer as its instruction**». Ответ `round` + две строки указаний роли не
+принят: «Your answer began with `round` but carried extra text, so the question did not take it… write only the word `round`»
+(`runs/factory-19.log`). Вопрос обещает передать слова человека роли и сам же отказывает им (FR-8, FR-10, AR-24). Жетон —
+первая строка, остальное — слова для роли: так должно читаться.
+
+Третий экземпляр, 21:11 (`kind: exit_limit`, S5, окно 1, `S5-qa-automator-4`): вариант (c) `go on` предложен вопросом и не может
+быть исполнен ни с какими словами. `driver_dialog.pass_block` (через `_exit_go_on`) пишет `waiver.py --block <строка проверки>`,
+а строка `s5_precheck` несёт в тексте починки заглушку `qa(obligations=["<plan obligation id>"])`; `waiver.py` отказывает:
+«still holds the placeholder <plan obligation id>, which names nothing… Nothing was recorded» (`runs/factory-22.log`,
+`state/driver-question-details.md` копии плеча). Вопрос возвращается с тем же набором, где `round`/`fresh` невозможны (FV1-19) —
+живой остаётся только `stop` (FR-2: дверь, которой нельзя воспользоваться; FR-57: тупик; FR-5). Блок пропуска должен строиться из
+того, что проверка называет (место и поле), а не из её текста починки; или `waiver.py` отрезает текст `— fix: …` до проверки
+заглушек. Тест: exit_limit с находкой, чья строка починки несёт `<…>`, + ответ `go on` → пропуск записан.
+
 ## Что сделать (предложение оператора)
 
 Варианты дирижёра, предложенные человеку, — закрытые жетоны формы `human-questions.md`, их читает код и исполняет без второго
