@@ -149,6 +149,13 @@ def classification_of_every_kind_and_its_boundaries():
     beyond = "x" * (301 - len("refuses")) + "refuses"        # and one character BEYOND it
     check_eq("a validator phrase ending at character 300 counts", F.classify(at, m), "validator")
     check_eq("one ending at character 301 does not", F.classify(beyond, m), None)
+    for rid, text, want in (
+            ("single-line-must-be-one-of", "stage must be one of s0, s1, s2", "validator"),
+            ("compound-multi-line-keeps-class",
+             "plan.yaml is refused:\n  - stage must be one of s0, s1\n  - missing required field: id", "validator"),
+            ("prose-one-of-is-not-friction", "the answer came back as one of the usual values", None),
+            ("empty-text", "", None)):
+        check_eq(f"a refusal spelled `must be one of` [{rid}]", F.classify(text, m), want)
     check("the story's own tests are not ours", F.is_project_test("test_login.py", m)
           and F.is_project_test("login_test.py", m) and not F.is_project_test("probe.py", m))
 
