@@ -110,7 +110,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from role_cli import epilog, refuse, run_guarded  # noqa: E402
+from role_cli import RefusingParser, command_from_argv, epilog, refuse, run_guarded  # noqa: E402
 import hooklib  # noqa: E402
 import local_keys  # noqa: E402
 import runtime_paths as RP  # noqa: E402
@@ -1394,7 +1394,8 @@ def selftest() -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
+    ap = RefusingParser(
+        command=command_from_argv("external_writes.py"),
         description="External-writes executor — bugs and cases, after gate B",
         epilog=epilog("external_writes.py"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1417,8 +1418,7 @@ def main() -> int:
                            lambda: record_result(Path(args.record), args.external_id.strip(),
                                                 args.url.strip(), args.remote_revision.strip()))
     if not args.ticket:
-        print("a ticket id is required (or --selftest)", file=sys.stderr)
-        return 2
+        return refuse(command_from_argv("external_writes.py"), "a ticket id is required (or --selftest)")
     try:
         return run(args.ticket, load_config(), args.yes, args.preview, args.phase)
     except Exception as e:

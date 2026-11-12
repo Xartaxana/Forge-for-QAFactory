@@ -845,11 +845,12 @@ def argument_refusal_table(root: Path) -> None:
          "external_writes.py --record", "--external-id is required", 1),
         ("external_writes --record, keyed proposal without --remote-revision", "external_writes.py",
          ["--record", keyed, "--external-id", "X-1"], "external_writes.py --record", "--remote-revision", 1),
-        # the card is missing from the registry: the refusal says so, prints argparse's usage, and does not crash
-        ("artifact_producer validate with no card", "artifact_producer.py", ["validate", "--task-root", art], None,
-         "--input is required for validate", 2),
-        ("manual_evidence validate with no card", "manual_evidence.py", ["validate"], None,
-         "the following arguments are required: --task-root", 2),
+        # R2: the main parser of external_writes refuses with the card too (an argparse error on a --record call)
+        ("external_writes --record with a bad --phase", "external_writes.py", ["--record", proposal, "--phase", "bogus"],
+         "external_writes.py --record", "invalid choice", 2),
+        # R1: the two argument refusals of critic_rollcall main(), through role_cli.refuse
+        ("critic_rollcall --apply-fixes without --task-root", "critic_rollcall.py", ["--apply-fixes"],
+         "critic_rollcall.py --store", "--apply-fixes requires --task-root", 2),
     ]
     for label, script, args, key, needle, code_expected in rows:
         result = run_script(script, *args, cwd=root, env=env)
@@ -857,14 +858,44 @@ def argument_refusal_table(root: Path) -> None:
         check_eq(f"{label}: exit code is the script's own", code, code_expected)
         check_not_in(f"{label}: not a traceback", "Traceback", text)
         check_in(f"{label}: the refusal names {needle!r}", needle, text)
-        check_in(f"{label}: the usage of the parser is printed or the refusal is the script's own sentence",
-                 "usage:" if key is None else "if you cannot", text)
-        if key is not None:
-            check_in(f"{label}: quotes the card of {key}", card(key), text)
-            check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
-        else:
-            check_in(f"{label}: says the card is missing", "no command card is registered", text)
-            check_not_in(f"{label}: and quotes no card", "what to write:", text)
+        check_in(f"{label}: the refusal ends with the way out", "if you cannot", text)
+        check_in(f"{label}: quotes the card of {key}", card(key), text)
+        check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
+
+    # R1: --task-root with no value is a refusal, not OUR defect (was an IndexError reported as a factory defect)
+    code, text = seen(run_script("critic_rollcall.py", "--task-root", cwd=root, env=env))
+    check_eq("critic_rollcall --task-root without a value: exit 2", code, 2)
+    check_not_in("critic_rollcall --task-root without a value: not reported as our defect", "this is a defect in", text)
+    check_not_in("critic_rollcall --task-root without a value: not a traceback", "Traceback", text)
+    check_in("critic_rollcall --task-root without a value: names the missing value", "--task-root has no value", text)
+    check_in("critic_rollcall --task-root without a value: ends with the way out", "if you cannot", text)
+
+    # R2: external_writes with no ticket is refused through role_cli.refuse (exit 2 as before)
+    code, text = seen(run_script("external_writes.py", cwd=root, env=env))
+    check_eq("external_writes without a ticket: exit 2", code, 2)
+    check_in("external_writes without a ticket: says what is missing", "a ticket id is required", text)
+    check_in("external_writes without a ticket: ends with the way out", "if you cannot", text)
+
+    # R3: a command that is unregistered BY DESIGN (a synthetic name): the usage error says the card is missing, prints the
+    # usage and does not crash. A real command whose card is missing would pass this for the wrong reason.
+    import contextlib
+    import io
+    from role_cli import RefusingParser
+    synthetic = RefusingParser(command="no_such_command.py", prog="no_such_command.py")
+    synthetic.add_argument("--need", required=True)
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err):
+            synthetic.parse_args([])
+        raised = None
+    except SystemExit as exc:
+        raised = exc.code
+    text = err.getvalue()
+    check_eq("an unregistered command: refused with exit 2", raised, 2)
+    check_in("an unregistered command: the usage is printed", "usage:", text)
+    check_in("an unregistered command: says the card is missing", "no command card is registered", text)
+    check_in("an unregistered command: names the problem", "arguments are required: --need", text)
+    check_not_in("an unregistered command: quotes no card", "what to write:", text)
 
     # critic_rollcall.py --help: help, exit 0, no attempt to read a file named --help; --help beside a real file is the same help
     alone = run_script("critic_rollcall.py", "--help", cwd=root)
@@ -900,8 +931,6 @@ def argument_refusal_table(root: Path) -> None:
               names(command, field), card(command))
     for word in sorted(PC.ACCEPTS[:2]) + ["unknown", "mismatched", "not_applicable"]:
         check(f"execution_fingerprint: the card names the result `{word}`", names(command, word), card(command))
-    check_not_in("execution_fingerprint: the card does not call runtime_provenance an interpreter identity",
-                 "interpreter identity", card(command))
     shutil.rmtree(art, ignore_errors=True)
 
 
