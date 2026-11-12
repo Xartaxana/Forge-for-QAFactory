@@ -1,0 +1,840 @@
+{
+ "source": "test_no_move_seam.py",
+ "common": "no_move_seam_common",
+ "shim": true,
+ "parts": [
+  "test_no_move_seam_n1_n9",
+  "test_no_move_seam_n2b_n15",
+  "test_no_move_seam_sites",
+  "test_no_move_seam_k4s",
+  "test_no_move_seam_c26_g27_f2"
+ ],
+ "names": [
+  {
+   "name": "TWO",
+   "kind": "assign",
+   "home": "no_move_seam_common",
+   "_line": 25
+  },
+  {
+   "name": "QUESTION",
+   "kind": "assign",
+   "home": "no_move_seam_common",
+   "_line": 26
+  },
+  {
+   "name": "verdict",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 29
+  },
+  {
+   "name": "rig",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 36
+  },
+  {
+   "name": "raised",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 56
+  },
+  {
+   "name": "n1_one_why_at_a_time",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 63,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n2_the_filter",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 101,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n3_options_authoritative",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 133,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n4_the_cap",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 166,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n5_gate_kinds_carry_their_moves",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 186,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n5c_approve_is_open_only_at_a_gate_with_no_decision",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 217,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n2c_the_stages_a_rework_may_name",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 250,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n9_edges_and_ties",
+   "kind": "def",
+   "home": "test_no_move_seam_n1_n9",
+   "_line": 273,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "FACTS",
+   "kind": "assign",
+   "home": "no_move_seam_common",
+   "_line": 314
+  },
+  {
+   "name": "seam_asked",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 318
+  },
+  {
+   "name": "answer",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 327
+  },
+  {
+   "name": "take",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 333
+  },
+  {
+   "name": "logged_rig",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 342
+  },
+  {
+   "name": "n2b_the_facts_are_read_from_the_project",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 352,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n5b_a_token_never_reaches_a_gate_recorder",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 377,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n6_s1_review_keeps_today",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 392,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n7_the_words_file_round_trip",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 413,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n7a_a_lone_cr_still_makes_one_words_file",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 452,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n7b_tokens_by_code",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 474,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n7c_a_delivery_flag_cannot_capture_a_seam_answer",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 519,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n8_by_hand_becomes_an_option",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 531,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n8b_the_lead_is_shown_only_when_the_prose_drops_a_kept_fact",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 575,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n10_infra_inside_the_call_is_an_exit",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 596,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n11_a_refusal_outside_guarded_is_a_question",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 612,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n12_unreadable_conductor_answer",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 648,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n12b_the_defect_row_reaches_the_real_journal",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 679,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n13_a_megabyte_answer",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 719,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n14_price_labels_that_cannot_be_read",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 736,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n15_a_gave_up_stop_files_the_free_answer_for_its_dispatch",
+   "kind": "def",
+   "home": "test_no_move_seam_n2b_n15",
+   "_line": 775,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "SITE_Q",
+   "kind": "assign",
+   "home": "no_move_seam_common",
+   "_line": 793
+  },
+  {
+   "name": "site_state",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 796
+  },
+  {
+   "name": "n16_site_doors",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 803,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n17_site_fallback",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 855,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "real_rules",
+   "kind": "assign",
+   "home": "test_no_move_seam_sites",
+   "_line": 988
+  },
+  {
+   "name": "n18_package_unread",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 991,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "take_package",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1036
+  },
+  {
+   "name": "n19_ticket_changed_unread",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1045,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n20_the_funnel_reads_new_words",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1070,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n21_keep_at_the_stuck_threshold",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1094,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "GATE_WORDS",
+   "kind": "assign",
+   "home": "test_no_move_seam_sites",
+   "_line": 1127
+  },
+  {
+   "name": "GATE_FOUR",
+   "kind": "assign",
+   "home": "test_no_move_seam_sites",
+   "_line": 1128
+  },
+  {
+   "name": "n22_the_gate_raised_again_over_an_open_seam_question",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1131,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n23_a_conductor_continue_at_a_gate_shows_the_gate_again",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1167,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "OPEN_FOR_PROSE",
+   "kind": "assign",
+   "home": "test_no_move_seam_sites",
+   "_line": 1197
+  },
+  {
+   "name": "RESTART_STOP",
+   "kind": "assign",
+   "home": "test_no_move_seam_sites",
+   "_line": 1198
+  },
+  {
+   "name": "LIVE_S1_QUESTION",
+   "kind": "assign",
+   "home": "test_no_move_seam_sites",
+   "_line": 1201
+  },
+  {
+   "name": "prose_of",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1208
+  },
+  {
+   "name": "el12_site_doors_are_not_moves",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1214,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n_next_the_repair_limit_doors_are_not_moves",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1226,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "n_next_the_s7_doors_are_never_a_move_word",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1237,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "_site_ok",
+   "kind": "def",
+   "home": "no_move_seam_common",
+   "_line": 1261
+  },
+  {
+   "name": "el16_the_prose_names_no_extra_token",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1269,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "el16b_edges_of_the_prose_reader",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1298,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "k4_the_refusal_is_read_as_its_problems",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1319,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "cc15_the_offers_of_a_stage_closed_by_code",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1337,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "rd1_20_the_s8_summary_run_has_its_door",
+   "kind": "def",
+   "home": "test_no_move_seam_sites",
+   "_line": 1377,
+   "_runs": [
+    "func:main:iter"
+   ]
+  },
+  {
+   "name": "el12_the_exit_limit_questions_own_doors_are_no_moves_word",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1408,
+   "_section": "# --- t-764 (C1-5d2, EL12 on the REAL data): ONE block, at the end of the file -----------",
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "CTRL_BODY",
+   "kind": "assign",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1424,
+   "_section": "# --- t-835 (C2-5s, class K4): the driver's record of the standing refusal: ONE block at t"
+  },
+  {
+   "name": "CTRL_REFUSAL",
+   "kind": "assign",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1427
+  },
+  {
+   "name": "k4s_rig",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1430
+  },
+  {
+   "name": "k4s_fresh",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1435
+  },
+  {
+   "name": "k4s_record",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1441
+  },
+  {
+   "name": "k4s_state",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1445
+  },
+  {
+   "name": "k4s_lines_are_the_readers",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1450,
+   "_runs": [
+    "func:k4s_run:iter"
+   ]
+  },
+  {
+   "name": "k4s_the_writer",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1472,
+   "_runs": [
+    "func:k4s_run:iter"
+   ]
+  },
+  {
+   "name": "k4s_the_erasers",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1518,
+   "_runs": [
+    "func:k4s_run:iter"
+   ]
+  },
+  {
+   "name": "k4s_the_go_on_note",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1554,
+   "_runs": [
+    "func:k4s_run:iter"
+   ]
+  },
+  {
+   "name": "k4s_wr7_live_and_the_cross_node_pins",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1577,
+   "_runs": [
+    "func:k4s_run:iter"
+   ]
+  },
+  {
+   "name": "k4s_fix_round",
+   "kind": "def",
+   "home": "test_no_move_seam_k4s",
+   "_line": 1620,
+   "_runs": [
+    "func:k4s_run:iter"
+   ]
+  },
+  {
+   "name": "C26_FACTS",
+   "kind": "assign",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1674,
+   "_section": "# --- t-856 (C2-6): the `rework` option carries \"args\", the token carries the person's wor"
+  },
+  {
+   "name": "C26_ARGS",
+   "kind": "assign",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1676
+  },
+  {
+   "name": "c26_option",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1679
+  },
+  {
+   "name": "c26_verdict",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1683
+  },
+  {
+   "name": "c26_validate",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1688
+  },
+  {
+   "name": "c26_args_are_validated_and_carried",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1696,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "c26_rig",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1726
+  },
+  {
+   "name": "c26_a_chosen_call_runs_or_asks_literally",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1732,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "c26_restart_refused_is_held_and_the_conductor_is_not_called",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1783,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "c26_a_refused_rework_goes_to_the_conductor_through_the_seam",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1809,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "c26_a_release_by_any_road_hands_its_words_to_the_relaunch",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1842,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "c26_fix_round_t873",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1860,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "n24_the_seam_set_is_the_seam",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1928,
+   "_section": "# --- t-834 (C1-8): the seam set A27 exempts is the seam the Driver has ------------------",
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "G27",
+   "kind": "assign",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1943,
+   "_section": "# --- t-884 (C2-7): the fallback site carries the site's words (t-722 \u00a75.1, \u00a75.2) --------"
+  },
+  {
+   "name": "g27_state",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1946
+  },
+  {
+   "name": "g27_the_fallback_question_at_a_gate",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1951,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "g27_the_floor_at_a_gate",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 1992,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "g27_a_rework_from_the_fallback_goes_to_the_conductor_with_the_original_words",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2013,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "rd1_19_gate_b_assert_stricter_road_is_open",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2034,
+   "_runs": [
+    "u1:call"
+   ]
+  },
+  {
+   "name": "F2_OPEN",
+   "kind": "assign",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2050,
+   "_section": "# --- t-1936 F2 (N3): which move takes `args` and which is never an option are DATA column"
+  },
+  {
+   "name": "F2_DASH",
+   "kind": "assign",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2051
+  },
+  {
+   "name": "f2_spec",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2056
+  },
+  {
+   "name": "f2_check",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2068
+  },
+  {
+   "name": "test_args_column_reads_data",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2074,
+   "_runs": [
+    "F2_TESTS"
+   ]
+  },
+  {
+   "name": "test_args_on_null_column_dropped_and_journaled",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2096,
+   "_runs": [
+    "F2_TESTS"
+   ]
+  },
+  {
+   "name": "test_missing_column_compat_rework_only",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2117,
+   "_runs": [
+    "F2_TESTS"
+   ]
+  },
+  {
+   "name": "test_bad_column_value_unreadable",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2140,
+   "_runs": [
+    "F2_TESTS"
+   ]
+  },
+  {
+   "name": "test_dash_moves_not_offerable",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2166,
+   "_runs": [
+    "F2_TESTS"
+   ]
+  },
+  {
+   "name": "test_not_offered_refusal_quotes_row_reason",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2182,
+   "_runs": [
+    "F2_TESTS"
+   ]
+  },
+  {
+   "name": "test_moves_section_says_args_and_never_an_option",
+   "kind": "def",
+   "home": "test_no_move_seam_c26_g27_f2",
+   "_line": 2191,
+   "_runs": [
+    "F2_TESTS"
+   ]
+  }
+ ],
+ "statements": []
+}
