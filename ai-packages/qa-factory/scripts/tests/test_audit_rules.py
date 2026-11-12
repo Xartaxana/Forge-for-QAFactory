@@ -368,6 +368,21 @@ def test_a13_asked_column() -> None:
         check_eq("GOOD A13: test data answered 'unknown' everywhere is still answered",
                  A.required_facts_without_a_deferral(only_unknowns, backlog, profile), [])
 
+        # OF3-1 item 6: theme 3 and `data_cleanup` read `test_data` through one reader; ids = the block's shape.
+        import env_probe
+        for name, block, finding, cleanup_state in (
+                ("template block (every key blank)", {"accounts_by_role": "", "seeds": "", "cleanup_owner": ""}, 1, "unknown"),
+                ("no block", None, 1, "unknown"),
+                ("a string", "x", 1, "unknown"),
+                ("all unknown (an answer)", {k: "unknown" for k in ("accounts_by_role", "seeds", "cleanup_owner")}, 0, "unknown"),
+                ("one recorded key", {"seeds": "factories", "cleanup_owner": ""}, 0, "unknown")):
+            cfg = {k: v for k, v in answered.items() if k != "test_data"}
+            if block is not None:
+                cfg["test_data"] = block
+            check_eq("OF3-1 theme 3 join: %s -> findings" % name,
+                     len(A.required_facts_without_a_deferral(cfg, backlog, profile)), finding)
+            check_eq("OF3-1 theme 3 join: %s -> data_cleanup state" % name, env_probe.data_cleanup(cfg, "")[0], cleanup_state)
+
         empty = {"code_repos": [], "protected_app_paths": [], "environments": [],
                  "environment": {}, "test_data": {"accounts_by_role": "", "seeds": "",
                                                   "shared_records": []},
