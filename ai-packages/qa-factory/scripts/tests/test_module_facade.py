@@ -11,6 +11,7 @@ The three failure classes of a naive facade (plan critic X1) are the rows `patch
 that is patched and then loses its function), `builtin_open_through_the_facade` (a builtin a part only
 reads), and `facade_own_main_from_import` (a free name of the facade's own code)."""
 import importlib
+import importlib.machinery
 import os
 import subprocess
 import sys
@@ -447,7 +448,162 @@ def row_empty_parts(ck):
     ck("no parts: a new name lands in the facade", f.own == 1 and not hasattr(f, "nowhere"))
 
 
+LIVE_PART = (
+    "import functools\n"
+    "DATA = 1\n"
+    "def deco(fn):\n    @functools.wraps(fn)\n    def wrapper(*a):\n        return fn(*a)\n    return wrapper\n"
+    "@deco\ndef decorated():\n    return deco_only_name\n"
+    "def outer():\n    def inner():\n        return nested_name\n    return [x for x in range(3) if comp_name]\n"
+    "class K:\n    attr = 1\n"
+    "    @classmethod\n    def cm(cls):\n        return cm_name\n"
+    "    @staticmethod\n    def sm():\n        return sm_name\n"
+    "    @property\n    def prop(self):\n        return prop_name\n"
+    "    def meth(self):\n        global rebound_name\n        rebound_name = 1\n        return meth_name\n"
+    "PARTIAL = functools.partial(decorated)\n"
+    "TABLE = {'k': lambda: table_name}\n"
+)
+
+
+dis_scan = module_facade._scan_dis        # the one copy of the reference: the module's own fallback
+
+
+def state_of(facade):
+    return type(facade).__module_facade_state__
+
+
+def row_recorded_set_equals_loader_set(ck):
+    """The recorded set built from the code the import already made equals the one from the loader's module code,
+    but for what only the module-level code reads while it runs (class-body decorators, dunders)."""
+    f, a, _ = world("rs", LIVE_PART)
+    loader_code = compile((TMP / "rs_a.py").read_text(encoding="utf-8"), "rs_a.py", "exec")
+    access, _ = dis_scan(loader_code)
+    old = (set(vars(a)) | access) - module_facade._MACHINERY
+    new = set(state_of(f).recorded[0])
+    import_time_only = {"__module__", "__qualname__", "classmethod", "staticmethod", "property"}
+    ck("every loader-code name is recorded but the import-time-only ones", old - new <= import_time_only, sorted(old - new))
+    ck("nothing is recorded that the loader code does not show", not (new - old), sorted(new - old))
+    ck("names read only inside a nested function, a comprehension, a classmethod, a staticmethod, a property, "
+       "a decorated function, a lambda in a container are recorded",
+       {"nested_name", "comp_name", "cm_name", "sm_name", "prop_name", "meth_name", "deco_only_name",
+        "table_name"} <= new, sorted(new))
+    ck("a `global` store inside a method is seen: the name is recorded", "rebound_name" in new)
+    ck("no part is left unreachable", state_of(f).skipped == {"rs_a": []}, state_of(f).skipped)
+    with mock.patch.object(f, "table_name", 5, create=True):
+        ck("a patch of a name only a lambda in a table reads is written into that part", vars(a).get("table_name") == 5)
+    ck("and leaves no trace after", "table_name" not in vars(a) and not hasattr(f, "table_name"))
+
+
+def row_no_second_compile(ck):
+    """The loader is not asked for the part's code at install."""
+    asked: list = []
+    original = importlib.machinery.SourceFileLoader.get_code
+
+    def counting(self, name):
+        asked.append(name)
+        return original(self, name)
+
+    with mock.patch.object(importlib.machinery.SourceFileLoader, "get_code", counting):
+        write("nc", "a", "X = 1\ndef get():\n    return X\n")
+        write("nc", "g", PART_A)
+        write("nc", "facade", "import nc_a\nimport module_facade\nmodule_facade.install(__name__, [nc_a])\n")
+        f = load("nc", "facade")
+        load("nc", "g")
+        loaded = list(asked)
+        ck("the import itself asked the loader (control: the counter works)", "nc_a" in loaded and "nc_facade" in loaded)
+        asked.clear()
+        sys.modules["nc_again"] = types.ModuleType("nc_again")
+        module_facade.install("nc_again", [sys.modules["nc_a"]])
+        ck("install of a part with no `global` line asks the loader for nothing", asked == [], asked)
+        sys.modules["nc_again2"] = types.ModuleType("nc_again2")
+        module_facade.install("nc_again2", [sys.modules["nc_g"]])
+        ck("a part with a `global` line is read through the loader, that part only", asked == ["nc_g"], asked)
+    ck("the facade works", f.X == 1 and f.get() == 1)
+    sys.modules.pop("nc_again", None)
+    sys.modules.pop("nc_again2", None)
+
+
+def row_constants_only_part(ck):
+    f, a, _ = world("co", "X = 1\nNAME = 'x'\n")
+    ck("a part with no functions: the recorded set is its dict keys",
+       state_of(f).recorded[0] == frozenset(set(vars(a)) - module_facade._MACHINERY), sorted(state_of(f).recorded[0]))
+    f.X = 2
+    ck("a write reaches it and reads back", a.X == 2 and f.X == 2 and f.NAME == "x")
+    ck("nothing is skipped", state_of(f).skipped == {"co_a": []})
+
+
+def row_callable_object_skipped(ck):
+    source = ("class C:\n    def __call__(self):\n        return call_name\n"
+              "obj = C()\ndef f():\n    return f_name\n")
+    f, a, _ = world("sk", source)
+    ck("the callable object is listed, the function is not", state_of(f).skipped == {"sk_a": ["obj"]}, state_of(f).skipped)
+    ck("the class method of that object is still reached through its class", "call_name" in state_of(f).recorded[0])
+    ck("the function's names are recorded", "f_name" in state_of(f).recorded[0])
+
+
+def row_scan_equals_dis(ck):
+    long_source = "\n".join(f"v{i} = g{i}" for i in range(300)) + "\ndef big():\n" + "\n".join(
+        f"    global s{i}\n    s{i} = g{i}" for i in range(300)) + "\n    del s0\n    return [o.attr for o in ()]\n"
+    for label, code in (("a code with 300 globals (EXTENDED_ARG)", compile(long_source, "long.py", "exec")),
+                        ("the fixture part", compile(LIVE_PART, "live.py", "exec")),
+                        ("module_facade itself", compile(Path(module_facade.__file__).read_text(encoding="utf-8"),
+                                                          "module_facade.py", "exec")),
+                        ("this test file", compile(Path(__file__).read_text(encoding="utf-8"), "t.py", "exec"))):
+        got, expected = module_facade._scan_fast(code), dis_scan(code)     # the raw road itself, not masked by a fallback
+        ck(f"the fast scan equals dis on {label}: accesses", got[0] == expected[0], sorted(got[0] ^ expected[0])[:5])
+        ck(f"the fast scan equals dis on {label}: rebinds", got[1] == expected[1], sorted(got[1] ^ expected[1])[:5])
+        ck(f"_scan equals dis on {label}", module_facade._scan(code) == expected)
+    ck("a name only used as an attribute is not recorded", "attr" not in module_facade._scan(
+        compile(long_source, "long.py", "exec"))[0])
+
+
+def row_fast_scan_active(ck):
+    """Red on the day a Python breaks the raw road: the process would silently run the slow `dis` road."""
+    module_facade._scan(compile("x = y\n", "t.py", "exec"))
+    ck("on this Python the fast scan is active", module_facade._fast_ok is True, module_facade._fast_ok)
+    ck("the probe itself agrees", module_facade._fast_agrees())
+    with mock.patch.object(module_facade, "_scan_fast", lambda code: 1 / 0), \
+            mock.patch.object(module_facade, "_fast_ok", None):
+        code = compile("a = b\n", "t.py", "exec")
+        got = module_facade._scan(code)
+        ck("a failing fast road turns the process to dis", module_facade._fast_ok is False and got == dis_scan(code))
+
+
+def row_loose_global_refused(ck):
+    """The shape the live walk cannot reach: a function held only as an attribute of a module-level instance."""
+    part = ("CACHE = None\nclass Reg:\n    pass\ninst = Reg()\n"
+            "def _f():\n    global CACHE\n    CACHE = 1\ninst.fn = _f\ndel _f\n")
+    f, a, b = world("lg", part, "from %p%a import CACHE\n", install=False)
+    ck("control: the walk alone does not reach the function", "_f" not in vars(a)
+       and not any(c.co_name == "_f" for c in module_facade._live_codes(a)[0]))
+    try:
+        module_facade.install("lg_facade", [a, b])
+        ck("refused: a `global` rebinding in code the dict does not reach", False)
+    except ValueError as err:
+        ck("refused: a `global` rebinding in code the dict does not reach, naming the name",
+           "CACHE" in str(err) and "lg_a" in str(err), str(err))
+
+
+def row_global_in_method_refused(ck):
+    """The M2 refusal reaches a `global` rebinding inside a method and inside a nested function."""
+    part = "CACHE = None\nclass K:\n    def fill(self):\n        def deep():\n            global CACHE\n            CACHE = 1\n        deep()\n"
+    for key, facade_body, other in (("gm", "from %p%a import CACHE\n", None), ("gn", "", "from %p%a import CACHE\n")):
+        f, a, b = world(key, part, other, facade_body=facade_body, install=False)
+        try:
+            module_facade.install(f"{key}_facade", [a] if b is None else [a, b])
+            ck(f"refused ({key})", False)
+        except ValueError as err:
+            ck(f"refused ({key}): the copy is named", "CACHE" in str(err), str(err))
+
+
 ROWS = [
+    ("recorded set equals the loader-code set", row_recorded_set_equals_loader_set),
+    ("install compiles nothing a second time", row_no_second_compile),
+    ("a part of constants only", row_constants_only_part),
+    ("a callable object is skipped, not an error", row_callable_object_skipped),
+    ("the fast scan equals dis", row_scan_equals_dis),
+    ("fast scan is active", row_fast_scan_active),
+    ("global in unreachable code is refused", row_loose_global_refused),
+    ("global in a method or nested function is refused", row_global_in_method_refused),
     ("live read of a part global", row_live_read),
     ("read after a part rebinds through global", row_read_after_global_rebind),
     ("unknown name", row_unknown_name),

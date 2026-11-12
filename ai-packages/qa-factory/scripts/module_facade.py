@@ -24,10 +24,16 @@ no cache. A name bound nowhere raises `AttributeError` exactly as a module does.
 module dict at install, because the interpreter would otherwise call it before the parts).
 
 WRITES. At install the facade records, per part, the names the part binds at module level and the GLOBAL
-names its code accesses (`dis` over the module code and every nested code object: LOAD/STORE/DELETE of
+names its code accesses (`dis` over every code object and its nested ones: LOAD/STORE/DELETE of
 GLOBAL or NAME, builtin names such as `open` included; a name only used as an attribute, `o.x`, is not
-recorded; the code comes from the part's loader, so a cached bytecode file makes it cheap), and the
-same for the facade's own code (the frame that calls `install`). `facade.n = v`, `setattr`, and
+recorded; the code objects are the ones the import ALREADY built, reached from the part's dict: its
+functions, the members of its classes, staticmethod/classmethod/property/partial/`__wrapped__` inner
+functions, closure cells, defaults, and functions inside module-level containers; nothing is compiled a
+second time, but for the loader code of a part whose source has a `global` line, read for its rebinding names
+only. The module's own top-level code is not kept by Python: what it accessed at import time is
+over and what it bound is the dict, which is read. A module-level callable object whose code is not
+reachable is listed per part in the state's `skipped`, never an error), and the same for the facade's
+own code (the frame that calls `install`). `facade.n = v`, `setattr`, and
 `mock.patch.object(facade, n, v)` write `n` into the facade's dict when the facade binds it or its own
 code accesses it, into every part whose recorded set holds `n`; a name bound nowhere at all is created
 in the facade's dict. `del facade.n` removes `n` from the same places where it is present and raises
@@ -43,7 +49,11 @@ the facade's code) or another part binds: that copy would read stale; the code t
 every bare reader of it must live in one part, outsiders read it through the facade.
 
 NOT COVERED, the same as for one plain module today: `from facade import x` taken by an outside module is a
-COPY of the value at that moment, not reached by a later patch. Not reached either: a name a part reads or
+COPY of the value at that moment, not reached by a later patch. Writes do not reach code that is reachable
+neither from a part's dict nor from its classes (a function held only as an attribute of a module-level
+instance, or in a foreign registry); for the `global` rebinding such code can do, a part whose source has a
+line starting with `global` takes its rebinding names from its loader's module code instead (the REFUSED
+check stays whole). Not reached either: a name a part reads or
 binds only through a string (`globals()["x"]`, `getattr(module, "x")`), a part imported after install, and
 a builtin read as a free name by code that is neither a part nor the facade's own module code. A direct
 write into a part module (`part.x = v`, or its own non-`global` rebinding) bypasses the facade: the mirrored
@@ -55,6 +65,8 @@ through `run_py_entry.run_as_main`).
 THREADS. Writes (and deletes) take a re-entrant lock; reads take none and walk the part dicts in a plain loop.
 """
 import dis
+import functools
+import re
 import sys
 import threading
 import types
@@ -69,10 +81,18 @@ _MACHINERY = frozenset({
 _GLOBAL_OPS = frozenset({"LOAD_GLOBAL", "STORE_GLOBAL", "DELETE_GLOBAL", "LOAD_NAME", "STORE_NAME",
                          "DELETE_NAME", "LOAD_FROM_DICT_OR_GLOBALS"} & set(dis.opmap))
 _REBIND_OPS = frozenset({"STORE_GLOBAL", "DELETE_GLOBAL"})
+# `dis.get_instructions` builds an object per instruction and cost 0.23 s over the driver's 872 code objects; the
+# scan reads the raw bytes for the few opcodes it wants. The test table compares it with `dis` on every run.
+_SCAN_OPS = tuple(dis.opmap[name] for name in sorted(_GLOBAL_OPS))
+_REBIND_CODES = frozenset(dis.opmap[name] for name in _REBIND_OPS)
+_EXTENDED_ARG = dis.opmap["EXTENDED_ARG"]
+_LOAD_GLOBAL = dis.opmap["LOAD_GLOBAL"]
+_GLOBAL_ARG_SHIFTED = sys.version_info >= (3, 11)      # LOAD_GLOBAL's low argument bit says "push NULL" from 3.11 on
 
 
-def _scan(code: types.CodeType):
-    """(names `code` and its nested code objects access as globals, names they rebind through `global`)."""
+def _scan_dis(code: types.CodeType):
+    """The reference scan, by `dis`: (names `code` and its nested code objects access as globals, names they
+    rebind through `global`). The fallback of `_scan` and the oracle of its test."""
     access: set = set()
     rebound: set = set()
     stack = [code]
@@ -87,15 +107,142 @@ def _scan(code: types.CodeType):
     return access - _MACHINERY, rebound - _MACHINERY
 
 
-def _code_of(part: types.ModuleType):
-    """The module code of `part` from its loader, or None when it has no source loader."""
-    spec = getattr(part, "__spec__", None)
-    get_code = getattr(getattr(spec, "loader", None), "get_code", None)
-    return get_code(spec.name) if get_code is not None else None
+_PROBE = ("\n".join(f"v{i} = g{i}" for i in range(300)) + "\n"
+          "def f():\n    global s1, s2\n    s1 = g1\n    del s2\n    return [o.attr for o in g3]\n"
+          "class C:\n    k = g4\n    def m(self):\n        return g5\n")
+_fast_ok = None         # None: not compared yet; True: the raw scan equals `dis` on this Python; False: `dis` is used
+
+
+def _fast_agrees() -> bool:
+    try:
+        probe = compile(_PROBE, "<module_facade probe>", "exec")
+        return _scan_fast(probe) == _scan_dis(probe)
+    except Exception:       # any decoding error on this Python: the slow road
+        return False
+
+
+def _scan(code: types.CodeType):
+    """`_scan_dis` of `code`, by the fast road when this Python agrees with `dis` on a fixed probe (compared once
+    per process); a code object the fast road cannot decode goes to `_scan_dis` alone."""
+    global _fast_ok
+    if _fast_ok is None:
+        _fast_ok = _fast_agrees()
+    if _fast_ok:
+        try:
+            return _scan_fast(code)
+        except Exception:
+            pass
+    return _scan_dis(code)
+
+
+def _scan_fast(code: types.CodeType):
+    """The same answer as `_scan_dis`, read from the raw opcode bytes."""
+    access: set = set()
+    rebound: set = set()
+    stack = [code]
+    while stack:
+        current = stack.pop()
+        raw = current.co_code
+        ops = raw[::2]                      # the opcode bytes; the argument byte follows each at raw[2 * k + 1]
+        names = current.co_names
+        for op in _SCAN_OPS:
+            k = ops.find(op)
+            while k >= 0:
+                arg, j, shift = raw[2 * k + 1], k - 1, 8
+                while j >= 0 and ops[j] == _EXTENDED_ARG:      # the high bytes of a long argument
+                    arg |= raw[2 * j + 1] << shift
+                    j, shift = j - 1, shift + 8
+                name = names[arg >> 1 if op == _LOAD_GLOBAL and _GLOBAL_ARG_SHIFTED else arg]
+                access.add(name)
+                if op in _REBIND_CODES:
+                    rebound.add(name)
+                k = ops.find(op, k + 1)
+        stack.extend(const for const in current.co_consts if isinstance(const, types.CodeType))
+    return access - _MACHINERY, rebound - _MACHINERY
+
+
+_CONTAINERS = (list, tuple, set, frozenset)
+_GLOBAL_LINE = re.compile(rb"(?m)^\s*global\s")
+
+
+def _live_codes(part: types.ModuleType):
+    """(code objects of the functions and methods the import of `part` ALREADY built and that run on its globals,
+    the names its classes bind, names of the part's callables that are not reachable that way). Python keeps no
+    module code object, so what the module-level code itself accessed at import time is not here: it is over, and
+    what it bound is the dict."""
+    globals_of = part.__dict__
+    codes: list = []
+    seen: set = set()
+    skipped: list = []
+    members: set = set()        # what the class bodies bound: the old module-code scan saw them as STORE_NAME
+
+    def visit(obj, top: str | None = None):
+        if id(obj) in seen:
+            return
+        seen.add(id(obj))
+        if isinstance(obj, types.FunctionType):
+            ours = obj.__globals__ is globals_of
+            if ours:
+                codes.append(obj.__code__)
+            for cell in obj.__closure__ or ():
+                try:
+                    visit(cell.cell_contents)
+                except ValueError:          # an empty cell
+                    pass
+            if ours:
+                for default in (*(obj.__defaults__ or ()), *(obj.__kwdefaults__ or {}).values()):
+                    visit(default)
+            visit(vars(obj).get("__wrapped__"))
+        elif isinstance(obj, type):
+            if getattr(obj, "__module__", None) == part.__name__:
+                members.update(key for key in vars(obj) if not (key.startswith("__") and key.endswith("__")))
+                for member in list(vars(obj).values()):
+                    visit(member)
+        elif isinstance(obj, dict):
+            for member in list(obj.values()):
+                visit(member)
+        elif isinstance(obj, _CONTAINERS):
+            for member in list(obj):
+                visit(member)
+        elif isinstance(obj, (staticmethod, classmethod, types.MethodType)):
+            visit(obj.__func__)
+        elif isinstance(obj, property):
+            for member in (obj.fget, obj.fset, obj.fdel):
+                visit(member)
+        elif isinstance(obj, functools.partial):
+            visit(obj.func)
+            visit(obj.args)
+            visit(obj.keywords)
+        elif isinstance(obj, functools.cached_property):
+            visit(obj.func)
+        elif "__wrapped__" in (getattr(obj, "__dict__", None) or ()):
+            visit(obj.__dict__["__wrapped__"])      # functools.lru_cache and every other wrapper that says what it wraps
+        elif top is not None and callable(obj) and not isinstance(obj, types.BuiltinFunctionType):
+            skipped.append(top)         # a callable object: whatever code it runs is not reachable from here
+
+    for key, value in list(globals_of.items()):
+        visit(value, key)
+    return codes, members, skipped
+
+
+def _loader_code(part: types.ModuleType):
+    spec = part.__spec__
+    return spec.loader.get_code(spec.name)
+
+
+def _has_global_statement(part: types.ModuleType) -> bool:
+    """True when the part's source has a line starting with `global` (a hit in a string or comment only costs
+    time), or when the source cannot be read: then the rebinding names come from the loader's module code."""
+    try:
+        with open(part.__spec__.origin, "rb") as handle:
+            return _GLOBAL_LINE.search(handle.read()) is not None
+    except (OSError, TypeError, ValueError):
+        return True
 
 
 def _prepare(name: str, parts, own_code: types.CodeType):
-    """Validate the call and scan the code; nothing is changed. Returns (facade, parts, recorded, rebound, own)."""
+    """Validate the call and scan the code; nothing is changed.
+    Returns (facade, parts, recorded, rebound, own, skipped)."""
     facade = sys.modules.get(name)
     if not isinstance(facade, types.ModuleType):
         raise ValueError(f"module_facade.install: {name!r} is not an imported module")
@@ -112,13 +259,20 @@ def _prepare(name: str, parts, own_code: types.CodeType):
         if any(mod is other for other in mods):
             raise ValueError(f"module_facade.install: part {part!r} is given twice")
         mods.append(mod)
-    recorded, rebound = [], []
+    recorded, rebound, skipped = [], [], {}
     for mod in mods:
-        code = _code_of(mod)
-        if code is None:
+        if not hasattr(getattr(getattr(mod, "__spec__", None), "loader", None), "get_code"):
             raise ValueError(f"module_facade.install: cannot read the code of part {mod.__name__!r} "
                              "(it has no source loader); a part is an imported module of a file")
-        access, stored = _scan(code)
+        codes, members, skipped[mod.__name__] = _live_codes(mod)
+        access = set(members)
+        stored: set = set()
+        for code in codes:
+            got_access, got_stored = _scan(code)         # the one scan; only where the code objects come from differs
+            access |= got_access
+            stored |= got_stored
+        if _has_global_statement(mod):                   # code the walk cannot reach may rebind: the old road, this part only
+            stored = _scan(_loader_code(mod))[1]
         recorded.append(frozenset((set(mod.__dict__) | access) - _MACHINERY))
         rebound.append(stored)
     for i, stored in enumerate(rebound):
@@ -129,7 +283,7 @@ def _prepare(name: str, parts, own_code: types.CodeType):
                 raise ValueError(f"module_facade.install: {attr!r} is rebound through `global` in part "
                                  f"{mods[i].__name__!r} and also bound in {copies[0]}: that copy would read stale; "
                                  "keep the rebinding code and every bare reader in one part")
-    return facade, mods, recorded, set().union(*rebound), _scan(own_code)[0]
+    return facade, mods, recorded, set().union(*rebound), _scan(own_code)[0], skipped
 
 
 class _Shadow:
@@ -147,8 +301,9 @@ class _Shadow:
 class _State:
     """Everything one installed facade knows; the facade class only forwards to it."""
 
-    def __init__(self, name, ns, dicts, recorded, own, home, chained):
+    def __init__(self, name, ns, dicts, recorded, own, home, chained, skipped=None):
         self.name, self.ns, self.dicts = name, ns, dicts
+        self.skipped = skipped or {}        # debug: {part name: names of its callable objects whose code was not reachable}
         self.recorded, self.own, self.home, self.chained = recorded, own, home, chained
         self.lock = threading.RLock()       # a value's __del__ may write through the facade while we hold it
         self.shadows: dict = {}
@@ -272,7 +427,7 @@ def install(name: str, parts) -> None:
     code is the facade's own place for writes. ValueError names the problem (a part that is not an
     imported module, the facade itself as a part, a part twice, a second install, a name that would read
     stale) and leaves the module a plain module."""
-    facade, mods, recorded, rebound, own = _prepare(name, parts, sys._getframe(1).f_code)
+    facade, mods, recorded, rebound, own, skipped = _prepare(name, parts, sys._getframe(1).f_code)
     ns = facade.__dict__
     dicts = tuple(mod.__dict__ for mod in mods)
     chained = ns.pop("__getattr__", None)
@@ -284,5 +439,5 @@ def install(name: str, parts) -> None:
     for key, i in home.items():
         if key not in rebound and key not in ns:
             ns[key] = dicts[i][key]
-    state = _State(name, ns, dicts, tuple(recorded), own, home, chained)
+    state = _State(name, ns, dicts, tuple(recorded), own, home, chained, skipped)
     facade.__class__ = type("_Facade", (_Facade,), {"__module_facade_state__": state})
