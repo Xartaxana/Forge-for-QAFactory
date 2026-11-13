@@ -954,6 +954,69 @@ def argument_refusal_table(root: Path) -> None:
     shutil.rmtree(art, ignore_errors=True)
 
 
+def bare_parser_table(root: Path) -> None:
+    """OF5-11: ONE table, script x (a call with a missing argument / a call with one unknown extra argument): a usage error of a
+    script that has a card refuses with the card (exit 2, no traceback), as RC1-10 did for its scripts. A script whose command has
+    no card (grounding_section.py) says so and prints the usage. Then the guard: a script whose command has a card builds no
+    bare `argparse.ArgumentParser` (a closed token read from the source; it judges no meaning), with an allow-list that only shrinks."""
+    import os
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+    stray = "--no-such-flag-of5-11"
+    # (label, script, args, card key or None = no card is registered, what the refusal names)
+    rows = [
+        ("case_versions --pin, no --task-root", "case_versions.py", ["--pin"], "case_versions.py --pin", "--task-root"),
+        ("case_versions --pin, an unknown extra argument", "case_versions.py", ["--pin", "TC-1", "v1", "--task-root", str(root), stray],
+         "case_versions.py --pin", stray),
+        ("execution_fingerprint, no arguments", "execution_fingerprint.py", [], "execution_fingerprint.py", "spec"),
+        ("execution_fingerprint, an unknown extra argument", "execution_fingerprint.py", ["spec.json", stray],
+         "execution_fingerprint.py", stray),
+        ("manifest_put --fragment without a value", "manifest_put.py", ["--fragment"], "manifest_put.py --fragment", "--fragment"),
+        ("manifest_put --fragment, an unknown extra argument", "manifest_put.py", ["--task", "QA-1", "--fragment", "{}", stray],
+         "manifest_put.py --fragment", stray),
+        ("red_sandbox --diagnostic, no --request", "red_sandbox.py", ["--diagnostic"], "red_sandbox.py --diagnostic", "--request"),
+        ("red_sandbox --diagnostic, an unknown extra argument", "red_sandbox.py",
+         ["--diagnostic", "--request", "r.json", stray], "red_sandbox.py --diagnostic", stray),
+        # no card is registered for grounding_section.py: the refusal says so and keeps the usage (the registry test names the gap)
+        ("grounding_section, no arguments", "grounding_section.py", [], None, "--task"),
+        ("grounding_section, an unknown extra argument", "grounding_section.py", ["--task", "QA-1", "--show", "X", stray], None, stray),
+        # external_writes: its main parser has no sub-commands, the card is the one of --record
+        ("external_writes --record, an unknown extra argument", "external_writes.py", ["--record", "p.json", stray],
+         "external_writes.py --record", stray),
+    ]
+    for label, script, args, key, needle in rows:
+        code, text = seen(run_script(script, *args, cwd=root, env=env))
+        check_eq(f"{label}: exit 2", code, 2)
+        check_not_in(f"{label}: not a traceback", "Traceback", text)
+        check_in(f"{label}: the usage is printed", "usage:", text)
+        check_in(f"{label}: the refusal names {needle!r}", needle, text)
+        if key:
+            check_in(f"{label}: quotes the card of {key}", card(key), text)
+            check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
+        else:
+            check_in(f"{label}: says the card is missing", "no command card is registered", text)
+            check_not_in(f"{label}: quotes no card", "what to write:", text)
+
+    # the guard (shrink-only): the scripts of the registry build no bare ArgumentParser, but those named here, each with its reason
+    allowed = {"critic_rollcall.py": "its bare parser lives only in print_help, which builds the usage text and parses nothing"}
+    bare = {}
+    for script in sorted({c.split()[0] for c in COMMANDS}):
+        source = (PLUGIN_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        lines = [n for n, line in enumerate(source.splitlines(), 1) if "ArgumentParser(" in line and "RefusingParser(" not in line
+                 and not line.lstrip().startswith("#")]
+        if lines:
+            bare[script] = lines
+    check("a script whose command has a card builds no bare argparse.ArgumentParser, but the allow-list",
+          sorted(set(bare) - set(allowed)) == [], f"bare parsers: {sorted(set(bare) - set(allowed))} at {bare}")
+    check("the allow-list holds only what is still true (an entry whose script converted is deleted: the list only shrinks)",
+          sorted(set(allowed) - set(bare)) == [], f"stale entries: {sorted(set(allowed) - set(bare))}")
+    check("the allow-list has at most one entry (a raise is a named decision, not an edit)", len(allowed) <= 1, str(sorted(allowed)))
+    # negative control: the guard's own reading finds a bare parser in a source that has one
+    sample = "p = argparse.ArgumentParser(description='x')\nq = RefusingParser(command='c')\n# ArgumentParser(__doc__) was the old call\n"
+    check("the guard's reading: a bare parser line is found; a RefusingParser line and a comment are not",
+          [n for n, line in enumerate(sample.splitlines(), 1) if "ArgumentParser(" in line and "RefusingParser(" not in line
+           and not line.lstrip().startswith("#")] == [1])
+
+
 def main() -> int:
     root = temp_project()
     try:
@@ -1018,6 +1081,7 @@ def main() -> int:
         # --- HF1-12: every card's own example, fed to its command, is ACCEPTED -----------------------------------
         subprocess_examples(root)
         argument_refusal_table(root)
+        bare_parser_table(root)
     finally:
         cleanup(root)
     manual_examples()

@@ -117,7 +117,7 @@ from hooklib import project_root, read_json, story_root  # noqa: E402
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
 from person_words import door  # noqa: E402
-from role_cli import (REPAIR_MARKER, command_from_argv, epilog, refuse,  # noqa: E402
+from role_cli import (REPAIR_MARKER, RefusingParser, command_from_argv, epilog, refuse,  # noqa: E402
                       run_guarded)
 
 EXIT_BAD_ARGS = 2
@@ -2793,7 +2793,8 @@ def selftest() -> int:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(
+    ap = RefusingParser(
+        command=command_from_argv("manifest_put.py"),
         description="merge a fragment into automation-manifest.json",
         epilog=epilog("manifest_put.py"),
         formatter_class=argparse.RawDescriptionHelpFormatter)

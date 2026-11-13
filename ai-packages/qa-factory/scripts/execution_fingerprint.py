@@ -26,7 +26,7 @@ from diff_scope import executable_sha, marker_names
 from detector_verdict import compound
 from env_probe import STAND_ADDRESS_KEYS
 from event_store import content_hash
-from role_cli import command_from_argv, epilog, run_guarded
+from role_cli import RefusingParser, command_from_argv, epilog, run_guarded
 from profile_contract import ACCEPTS, acceptable_provenance, refusal_text, validate_runtime_provenance
 
 
@@ -890,9 +890,9 @@ def _whole_file_code_sha(path) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     epilog=epilog("execution_fingerprint.py"),
-                                     formatter_class=argparse.RawTextHelpFormatter)
+    parser = RefusingParser(command=command_from_argv("execution_fingerprint.py"), description=__doc__,
+                            epilog=epilog("execution_fingerprint.py"),
+                            formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("spec", type=Path)
     args = parser.parse_args()
     print(json.dumps(build(json.loads(args.spec.read_text(encoding="utf-8")))))

@@ -29,7 +29,7 @@ import artifact_sections as AS  # noqa: E402
 import contract  # noqa: E402
 import hooklib  # noqa: E402
 import planning_contract as PC  # noqa: E402
-from role_cli import epilog, refuse, run_guarded, command_from_argv  # noqa: E402
+from role_cli import RefusingParser, epilog, refuse, run_guarded, command_from_argv  # noqa: E402
 
 COMMAND = "grounding_section.py"
 
@@ -142,7 +142,8 @@ def main() -> int:
         console_io.utf8_stdio()
     except ImportError:
         pass
-    ap = argparse.ArgumentParser(description=__doc__, epilog=epilog(COMMAND), formatter_class=argparse.RawTextHelpFormatter)
+    ap = RefusingParser(command=command_from_argv(COMMAND), description=__doc__, epilog=epilog(COMMAND),
+                        formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--task", required=True)
     ap.add_argument("--task-root", default=None, dest="task_root")
     what = ap.add_mutually_exclusive_group(required=True)
