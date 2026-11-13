@@ -30,9 +30,10 @@ defect inside the guard freezes the story where the person's word cannot reach i
 Those entries carry `fail_closed: True`, `escalates_after: <n>` and `escalation`, and
 `--check` fails an entry that has neither a pass nor an escalation.
 
-SCOPE, and its limits. Scanned refusal by refusal: the hook scripts that can end a
-dispatch before the role does any work (`stage_guard.py`, `inject_context.py`,
-`guard_pre_tool.py`, and `native_context.py` - SubagentStart, and the packet `inject_context` stages). A refusal there is `deny(...)`, `block(...)`, or a raised
+SCOPE, and its limits. Scanned refusal by refusal: the hook scripts in `SCANNED` that can
+end a dispatch before the role does any work: `stage_guard.py`, `inject_context.py`,
+`guard_pre_tool.py`, `native_context.py` (SubagentStart, and the packet `inject_context`
+stages), `codex_roles.py`, `host_adapter.py`. A refusal there is `deny(...)`, `block(...)`, or a raised
 `StateConflict`/`ValueError` that reaches the CLI. `controller.py` and `stage_done.py` are
 registered as `operation` entries instead of line by line: the controller's validator raises
 in 160+ places across every operation, and a census of those is not a registry anyone would

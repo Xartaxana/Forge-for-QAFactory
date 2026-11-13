@@ -107,16 +107,21 @@ def with_bound_dispatch(existing, task, dispatch, bound_at) -> list:
     return held + [{"task_id": task, "dispatch_id": dispatch, "bound_at": bound_at if _number(bound_at) else 0}]
 
 
-def receipt_files(root) -> list:
+def receipt_files(root, skipped=None) -> list:
     """THE scanner of the receipt directory: `[(path, receipt)]` in `hooklib.sorted_paths` order. A file that is
     not JSON, not an object or empty names nothing and is left out, never raised: no receipt of the directory
-    can fail the reading of another (the read is `hooklib.read_json`, ax. 16). Other readers of the directory
-    (`worker_lifecycle.bindings`, `dispatch_liveness.host_bindings`, `story_step._release_binding`, the
-    `tool_use_id` scan of `record`) are queued to converge here (CX2-10), not folded by CX1-9."""
+    can fail the reading of another (the read is `hooklib.read_json`, ax. 16). `skipped`, when a list, receives the
+    paths whose read gave nothing (unreadable, not JSON, no object, empty) so a caller can say so; a well-formed
+    `{}` is no skip and stays silent. Default callers are unchanged. Other readers of the directory
+    (`worker_lifecycle.bindings`, `dispatch_liveness.host_bindings`, `story_step._release_binding`)
+    are queued to converge here (CX2-10), not folded by CX1-9."""
     found = []
     for path in sorted_paths((Path(root) / 'qa-factory/state/host-dispatches').glob('*.json')):
-        data = read_json(path, {}, kind=dict, errors=Exception)
-        if data:
+        data = read_json(path, None, kind=dict, errors=Exception)
+        if data is None:
+            if skipped is not None:
+                skipped.append(path)
+        elif data:
             found.append((path, data))
     return found
 
@@ -234,6 +239,21 @@ def enrich(event):
     return event
 
 
+def _unreadable(event, path, text, said=None):
+    """The ONE road for "a broken receipt or controller file was skipped" (F5): one `person_signal` per path, never
+    raises (a signal must not change how the hook ends). `said` (a set the caller owns) keeps ONE call per path inside
+    one `record`; across hooks `person_signal`'s own `once_key` says it once per session."""
+    import hooklib
+    if said is not None:
+        if str(path) in said:
+            return
+        said.add(str(path))
+    try:
+        hooklib.person_signal(event, "host_receipt_unreadable", f"host_dispatch: {text}", once_key=str(path))
+    except Exception:
+        pass
+
+
 def record(event):
     from hooklib import project_root, artifact_root, role_name, is_story_folder
     from stage_guard import resolve_ticket
@@ -246,7 +266,12 @@ def record(event):
         for identity in (event.get("agent_id"), event.get("session_id")):
             path = Path(event['host_binding']) if event.get('host_binding') else binding_path(project_root(event), identity)
             if identity and path.is_file():
-                receipt = json.loads(path.read_text(encoding="utf-8"))
+                receipt = read_json(path, None, kind=dict, errors=Exception)
+                if receipt is None:
+                    _unreadable(event, path, f"the receipt {path} cannot be read as a JSON object, so it was not marked "
+                                "terminal and was left as it is. Rewrite it as a JSON object or delete it; until then "
+                                "the worker it names may still count as running.")
+                    continue
                 if identity not in {receipt.get('agent_id'), receipt.get('task_path')}:
                     continue
                 receipt.update(status="terminal", terminal_source="SubagentStop")
@@ -273,8 +298,12 @@ def record(event):
         from host_probe import note_no_launch_id
         note_no_launch_id(project_root(event), event)   # the probe of THIS call stays unverified, and says why
         return
-    for existing in sorted_paths((project_root(event)/'qa-factory/state/host-dispatches').glob('*.json')):
-        bound = json.loads(existing.read_text(encoding='utf-8'))
+    said, skipped = set(), []
+    scanned = receipt_files(project_root(event), skipped=skipped)
+    for path in skipped:
+        _unreadable(event, path, f"the receipt {path} cannot be read as a JSON object and was skipped in the launch scan; "
+                    "rewrite it as a JSON object or delete it.", said)
+    for existing, bound in scanned:
         if event.get('tool_use_id') and bound.get('tool_use_id') == event['tool_use_id'] and bound.get('parent_session_id') == event.get('session_id'):
             # SubagentStart can bind the UUID before spawn returns its path-only result.
             returned_path = response.get('task_path') or response.get('task_name')
@@ -289,7 +318,13 @@ def record(event):
             return
     from host_probe import bind_injection
     diagnostic = bind_injection(project_root(event), event, agent)
-    task, facts = resolve_ticket(event)
+    try:
+        task, facts = resolve_ticket(event)
+    except (ValueError, OSError):    # a broken project config (`artifact_root`): no story is named, the receipt is still written
+        task, facts = "", {}
+        config = project_root(event) / "qa-factory/config.json"
+        _unreadable(event, config, f"{config} cannot be read, so the dispatch named no story; the receipt was written "
+                    "without one. Fix the project config; `story_step.py bind` ties the receipt later.", said)
     if not task and facts.get("exploration"):
         # An exploration has no story: its receipt carries the exploration identity (`explore:<slug>`), which `enrich`
         # copies into the child's events, so its stop is attributed to it and to no story (XT1-2).
@@ -313,14 +348,34 @@ def record(event):
         active = next((a for a in doc.get('activities',[]) if doc.get('active_stack') and a['activity_id']==doc['active_stack'][-1]), {})
         receipt['activity'] = active
         receipt['activity_id'] = active.get('activity_id')
-    if task and is_story_folder(artifact_root(event), task):     # an `explore:<slug>` id, or an alias spelling, is no story folder: the receipt is still written below
-        path = artifact_root(event) / task / "state/controller.json"
+    try:
+        folders = artifact_root(event)
+    except (ValueError, OSError):
+        folders = None
+        config = project_root(event) / "qa-factory/config.json"
+        _unreadable(event, config, f"{config} cannot be read, so the receipt was written without a dispatch id; "
+                    "`story_step.py bind` ties it later.", said)
+    if folders is not None and task and is_story_folder(folders, task):     # an `explore:<slug>` id, or an alias spelling, is no story folder: the receipt is still written below
+        path = folders / task / "state/controller.json"
         if path.is_file():
-            state = json.loads(path.read_text(encoding="utf-8"))
-            matches = [d for d in state.get("dispatches", {}).values()
-                       if d.get("role") == role and d.get("status") == "running"]
-            if len(matches) == 1:
+            state = read_json(path, None, kind=dict, errors=Exception)
+            if state is None:
+                _unreadable(event, path, f"{path} cannot be read as a JSON object; the receipt was written without a "
+                            "dispatch id; `story_step.py bind` ties it later.", said)
+                state = {}
+            records = state.get("dispatches")
+            entries = list(records.values()) if isinstance(records, dict) else []
+            matches = [d for d in entries if isinstance(d, dict) and d.get("role") == role and d.get("status") == "running"]
+            usable = len(matches) == 1 and isinstance(matches[0].get("id"), str)
+            if usable:
                 receipt["dispatch_id"] = matches[0]["id"]
+            if (records is not None and not isinstance(records, dict)) or not all(isinstance(d, dict) for d in entries) \
+                    or (len(matches) == 1 and not usable):
+                # An odd shape names no dispatch (never a raise) and is said once: a controller file whose shape
+                # the lookup cannot use is a gap the person may want to know (FR-4, AR-28), not a silent pass.
+                _unreadable(event, path, f"{path} has a shape the dispatch lookup cannot use (`dispatches` is no object, "
+                            "an entry is no object, or the running entry has no string id); the receipt was written "
+                            "without a dispatch id; `story_step.py bind` ties it later.", said)
     atomic_json(binding_path(project_root(event), agent), receipt)
 
 

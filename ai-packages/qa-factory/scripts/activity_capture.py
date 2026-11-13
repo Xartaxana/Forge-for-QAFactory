@@ -54,8 +54,12 @@ def activity_path(event, session):
         legacy = Path(tempfile.gettempdir()) / "qa-factory-activities" / identity / f"{session}.json"
         source = spool if spool.is_file() else legacy
         if source.is_file() and not target.exists():
-            atomic_json(target, json.loads(source.read_text(encoding="utf-8")))
-            source.unlink()
+            # A spool that is no JSON object (broken, empty, a list) is not migrated: it is left where it is and the
+            # target is returned, so the hook that asked never raises (axis 16: the ONE reader, `read_json`).
+            carried = hooklib.read_json(source, None, kind=dict, errors=Exception)
+            if carried is not None:
+                atomic_json(target, carried)
+                source.unlink()
         return target
     return spool
 
