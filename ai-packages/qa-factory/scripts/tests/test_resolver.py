@@ -1315,9 +1315,129 @@ def k11_dashboard_fallback() -> None:
         restore_process()
 
 
+BAD_TICKETS = ("..", "a/b", "a\\b", "C:x")
+
+
+def _story_state(project: Path, dispatch_record: dict | None) -> None:
+    folder = project / "qa-factory" / "artifacts" / "T" / "state"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "controller.json").write_text(json.dumps({"dispatches": {"D": dispatch_record or {}}}), encoding="utf-8")
+
+
+def b1_artifacts_dir_root() -> None:
+    """OH5-11 B1: `artifacts_dir(..., root=)` resolves under the root given, the component check unchanged."""
+    base = scratch()
+    plain, custom, broken = (base / "plain"), (base / "custom"), (base / "broken")
+    for project, cfg in ((plain, None), (custom, '{"artifact_root": "custom"}'), (broken, "{not json")):
+        (project / "qa-factory").mkdir(parents=True)
+        if cfg is not None:
+            (project / "qa-factory" / "config.json").write_text(cfg, encoding="utf-8")
+    rows = [
+        ("no config", plain, plain.resolve() / "qa-factory" / "artifacts" / "T"),
+        ("artifact_root: custom", custom, custom.resolve() / "custom" / "T"),
+    ]
+    for label, project, expected in rows:
+        check(f"B1 artifacts_dir(root=): {label} -> {expected.parent.name}/T", hooklib.artifacts_dir("T", root=project) == expected)
+    check("B1 artifacts_dir(root=): a broken config is a ValueError", _refused(lambda: hooklib.artifacts_dir("T", root=broken)))
+    for ticket in BAD_TICKETS + ("",):
+        check(f"B1 artifacts_dir(root=): ticket {ticket!r} is a ValueError", _refused(lambda: hooklib.artifacts_dir(ticket, root=plain)))
+    check("B1 artifacts_dir(root=None) equals artifact_root(None) / T (the cwd project)",
+          hooklib.artifacts_dir("T") == hooklib.artifact_root(None) / "T")
+
+
+def b2_binding_is_active() -> None:
+    """OH5-11 B2: `binding_is_active(root, binding)` - a doubtful receipt stays ACTIVE (True)."""
+    import worker_lifecycle as WL
+    base = scratch()
+    for ticket in BAD_TICKETS:
+        check(f"B2 binding_is_active: ticket {ticket!r} -> True", WL.binding_is_active(base, {"task_id": ticket, "dispatch_id": "D"}) is True)
+    rows = [("accepted", {"status": "accepted"}, False), ("running", {"status": "running"}, True), ("no status", {}, True)]
+    for label, record, expected in rows:
+        project = base / f"p-{label.replace(' ', '-')}"
+        _story_state(project, record)
+        check(f"B2 binding_is_active: controller.json under root, dispatch {label} -> {expected}",
+              WL.binding_is_active(project, {"task_id": "T", "dispatch_id": "D"}) is expected)
+
+
+def b3_blocking_text() -> None:
+    """OH5-11 B3: the door names the story folder under the ROOT the receipts were read from."""
+    import worker_lifecycle as WL
+    base = scratch()
+    text = WL._blocking_text([{"dispatch_id": "D"}], base, "T", None)
+    check("B3 _blocking_text names <root>/qa-factory/artifacts/T", str(base.resolve() / "qa-factory" / "artifacts" / "T") in text)
+
+
+def b4_survivor_is_used() -> None:
+    """OH5-11 B4 (spy): `binding_is_active` reads the story through `hooklib.artifacts_dir(root=)`."""
+    import worker_lifecycle as WL
+    base = scratch()
+    calls, real = [], hooklib.artifacts_dir
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs.get("root"))
+        return real(*args, **kwargs)
+
+    hooklib.artifacts_dir = spy
+    try:
+        WL.binding_is_active(base, {"task_id": "T", "dispatch_id": "D"})
+    finally:
+        hooklib.artifacts_dir = real
+    check("B4 binding_is_active: exactly one hooklib.artifacts_dir call, with root=<the root>", calls == [base])
+
+
+def b5_stop_branch() -> None:
+    """OH5-11 B5 (t-212 E7): the stop branch of `guard` reads the story under the root, a refused ticket is a refused stop."""
+    import worker_lifecycle as WL
+    base = scratch()
+
+    def receipts(project: Path, task: str) -> None:
+        folder = project / "qa-factory" / "state" / "host-dispatches"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "r.json").write_text(json.dumps({"task_name": "X", "task_path": "X", "task_id": task, "dispatch_id": "D",
+                                                   "status": "running"}), encoding="utf-8")
+
+    def stop(project: Path) -> tuple:
+        real_root, real_dir, calls = hooklib.project_root, hooklib.artifacts_dir, []
+
+        def spy(*args, **kwargs):
+            calls.append(kwargs.get("root"))
+            return real_dir(*args, **kwargs)
+
+        hooklib.project_root, hooklib.artifacts_dir = (lambda event=None: project), spy
+        code = 0
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()) as out:
+                try:
+                    WL.guard({"tool_name": "interrupt_agent", "tool_input": {"target": "X"}})
+                except SystemExit as exc:
+                    code = exc.code or 0
+        finally:
+            hooklib.project_root, hooklib.artifacts_dir = real_root, real_dir
+        return code, err.getvalue() + out.getvalue(), calls
+
+    rows = [("cancellation recorded", "T", {"status": "running", "cancellation": {"cause": "user_stop"}}, False),
+            ("no cancellation", "T", {"status": "running"}, True),
+            ("ticket ..", "..", {"status": "running", "cancellation": {"cause": "user_stop"}}, True)]
+    for label, task, record, blocks in rows:
+        project = (base / f"s-{label.replace(' ', '-').replace('..', 'dots')}").resolve()
+        _story_state(project, record)
+        receipts(project, task)
+        code, text, calls = stop(project)
+        check(f"B5 guard stop branch: {label} -> {'blocked' if blocks else 'not blocked'}", (code == 2) is blocks)
+        if blocks:
+            check(f"B5 guard stop branch: {label} -> the text says stop denied", "stop denied" in text)
+        if task == "T":
+            check(f"B5 guard stop branch: {label} -> artifacts_dir called with root=<project>", calls == [project])
+
+
 def main() -> None:
     os.environ[SKIP] = "1"
     try:
+        b1_artifacts_dir_root()
+        b2_binding_is_active()
+        b3_blocking_text()
+        b4_survivor_is_used()
+        b5_stop_branch()
         k1_containment()
         k1_alias_and_links()
         project_battery()
