@@ -3546,6 +3546,14 @@
     "tests/story_run_common.py"
    ]
   },
+  "test_place_of_draft_observation.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): the draft's observation field joins its place",
+   "covers": [
+    "place_answers.py",
+    "references/artifact-contract-run.md"
+   ]
+  },
   "test_pinned_lifecycle.py": {
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",

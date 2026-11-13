@@ -1669,12 +1669,13 @@ def p4_lines(base: Path) -> None:
         f'- Q4 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
         f'- Q5 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
     ]
-    want_minimal = ["- Q1 answered: reading b", "- Q2 answered: reading a", "- Q3 kept open until the report; do not ask it again",
-                    "- Q4 answered: reading a", "- Q5 answered: reading a"]
+    want_minimal = [f"- Q1 answered: reading b; the person's words: {WORDS_1_ONE_LINE}",
+                    f"- Q2 answered: reading a; {SAME_AS_Q1}", "- Q3 kept open until the report; do not ask it again",
+                    f"- Q4 answered: reading a; {SAME_AS_Q1}", f"- Q5 answered: reading a; {SAME_AS_Q1}"]
     for stage, role in (("S3", "qa-test-strategist"), ("S4", "qa-case-designer")):
         shown, minimal, full = p4_decisions(root, stage, role)
         check_eq(f"K1 hf2-7 P4: {stage} - the brief names every decided question, in register order (T8), the open Q6 not", shown, want_shown)
-        check_eq(f"K1 hf2-7 P4: {stage} - the minimal list is the id and the letter, no words", minimal, want_minimal)
+        check_eq(f"K1 hf2-7 P4: {stage} - the minimal list is the id, the letter and the words (once; the kept-open line has none)", minimal, want_minimal)
         check_eq(f"K1 hf2-7 P4: {stage} - the same words are in the full file ONCE, whole (the other lines point at them)",
                  ("\n".join(full).count("Q3: until the report"), full[0].endswith("the person's words: " + TQR.WORDS_1.strip())),
                  (1, True))
@@ -1707,6 +1708,40 @@ def p4_lines(base: Path) -> None:
     check_in("K1 hf2-7 P4: without task_root the journal copy stays (today's output)", "- answer: S3 question stop:", journal_only)
 
 
+def p4_min_words(base: Path) -> None:
+    """RC2-1: the minimal line of a free-text answer carries the words cut at DECISION_CHARS_MIN by `_short`."""
+    root = TQR.write_story(base / "minwords", [TQR.q("Q1"), TQR.q("Q2")])
+    limit, pointer = brief_pack.DECISION_CHARS_MIN, "the whole text is in <decisions>"
+
+    def minimal_of(*words) -> list:
+        (root / "work" / "question-answers.jsonl").unlink(missing_ok=True)
+        for qid, text in zip(("Q1", "Q2"), words):
+            QR.record(root, qid, "answered", text, "S2 stop", "person", TQR.row_hash_of(root, qid), reading="a")
+        return [m for _f, _s, m in brief_pack.question_answer_lines(root)[0]]
+
+    lead = "- Q1 answered: reading a; the person's words: "
+    check_eq("RC2-1: words shorter than the limit are whole, no pointer", minimal_of("w" * (limit - 1)), [lead + "w" * (limit - 1)])
+    check_eq("RC2-1: words of exactly the limit are whole, no pointer", minimal_of("w" * limit), [lead + "w" * limit])
+    check_eq("RC2-1: one character more is cut by `_short` and points at the side file", minimal_of("w" * (limit + 1)),
+             [lead + "w" * (limit - 3) + "...; " + pointer])
+    check_eq("RC2-1: the same words under two questions are carried once", minimal_of("same words", "same words"),
+             [lead + "same words", "- Q2 answered: reading a; the person's words: the same text as under Q1"])
+    check_eq("RC2-1: a two-line answer is folded by `_short` as the sisters fold it", minimal_of("first line\nsecond\tline\xa0end"),
+             [lead + "first line second line end"])
+
+    # words the register cannot hold (empty, blanks, not a string): the line is as it was, and nothing raises
+    real = QR.answers_for_brief
+    try:
+        for label, words in (("empty", ""), ("only blanks", " \n\t\xa0 "), ("None", None), ("a zero", 0)):
+            QR.answers_for_brief = lambda _root, w=words: {"unreadable": False, "answers": [
+                {"id": "Q1", "status": "answered", "reading": "a", "reading_text": "", "where": "S2 stop", "words": w}]}
+            lines = brief_pack.question_answer_lines(root)[0]
+            check_eq(f"RC2-1: {label} words - the minimal line is as before (id and letter)", [m for _f, _s, m in lines], ["- Q1 answered: reading a"])
+            check_in(f"RC2-1: {label} words - the full line says not recorded", "the person's words: not recorded", lines[0][0])
+    finally:
+        QR.answers_for_brief = real
+
+
 def p4_long_words(base: Path) -> None:
     root = TQR.write_story(base / "long", [TQR.q("Q1")])
     limit = brief_pack.DECISION_CHARS
@@ -1724,7 +1759,10 @@ def p4_long_words(base: Path) -> None:
     check_eq("K3 hf2-7 P4: one character beyond it points at the side file - no half of the words in the brief",
              shown, [f'- Q1 answered {STOP_WORDS}: reading a - "reading 0"; the person\'s words: the whole text is in <decisions>'])
     check_eq("K3 hf2-7 P4: ...the full file has them whole", full, [head + at + "w"])
-    check_eq("K3 hf2-7 P4: ...and the minimal line is the id and the letter, no words", minimal, ["- Q1 answered: reading a"])
+    folded = "w" * (limit - len(head) + 1)      # one line of `w`: what the minimal line cuts (RC2-1)
+    cut_words = folded[:brief_pack.DECISION_CHARS_MIN - 3] + "..."
+    check_eq("K3 hf2-7 P4: ...and the minimal line carries the words cut at DECISION_CHARS_MIN, with the pointer (RC2-1)", minimal,
+             [f"- Q1 answered: reading a; the person's words: {cut_words}; the whole text is in <decisions>"])
     result = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", None, root)
     check("K3 hf2-7 P4: the pointer is what makes `build` write the side file (truncated is read from `<decisions>`)",
           any("<decisions>" in x for x in result[0]))
@@ -1817,9 +1855,20 @@ def p4_build(root: Path, task: Path) -> None:
         check_not_in("H10 hf2-7 P4 (build): the lifted halt is not in the brief", "open halt", brief)
         # t-1765 X1 fix-3: the SD head is form, outside the budget (own cap SD_HEAD_MAX_BYTES), so the 6 KB pin is on the body.
         check("K1 hf2-7 P4 (build): the brief body is under 6 KB", built["budget_bytes"] <= 6 * 1024, str(built["budget_bytes"]))
+        # RC2-1 fix round (t-448 F3): at level 1 the cut minimal line names the side file by its path, never the literal placeholder
+        QR.record(task, "Q1", "answered", "w" * 300, "S2 stop", "person", TQR.row_hash_of(task, "Q1"), reading="b")
+        real_ceiling = brief_pack.BRIEF_MAX_BYTES
+        brief_pack.BRIEF_MAX_BYTES = 1       # the ladder runs to its last rung: level 1
+        try:
+            tight = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+        finally:
+            brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        check_in("RC2-1 (build, level 1): the Q1 line is cut and says where the whole text is",
+                 "the whole text is in qa-factory/artifacts/QA-9/work/briefs/S4-qa-case-designer-1-decisions.md", tight)
+        check_not_in("RC2-1 (build, level 1): no literal `<decisions>` placeholder is left in the brief", "<decisions>", tight)
         pipeline["halts"][0]["resolved"] = False
         pipeline_file.write_text(json.dumps(pipeline), encoding="utf-8")
-        again = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+        again =brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
         check_in("H11 hf2-7 P4 (build): the same halt not resolved is in the brief", "open halt S2: 2 blocking question(s)", again)
         # the brief of a story with no register is the brief it always was
         readiness.unlink()
@@ -3191,6 +3240,35 @@ def main() -> None:
         prompt = story_step._prompt("QA-9", story_step._stages()["S1"], "qa-scout", "S1-qa-scout-9", [], "")
         check_not_in("the prompt then carries no brief line", "Read qa-factory/artifacts/QA-9/work/briefs", prompt)
 
+        # RC2-2: the note is the helper's own `brief: ` line, not the last line of stdout + stderr
+        brief_file = task / story_step.BRIEF_REL.format(dispatch_id="S1-qa-scout-10")
+        brief_file.parent.mkdir(parents=True, exist_ok=True)
+        brief_file.write_text("# brief\n", encoding="utf-8")
+
+        def note_for(code: int, out: str) -> tuple:
+            story_step._run = lambda script, *a: (code, out) if script == "brief_pack.py" else real_run(script, *a)
+            try:
+                return story_step._brief("QA-9", "S1", "qa-scout", "S1-qa-scout-10", task)
+            finally:
+                story_step._run = real_run
+
+        try:
+            check_eq("RC2-2: a stderr-like line after the brief line does not replace it",
+                     note_for(0, "brief: wrote 3 KB\nwarning: something on stderr")[1], "brief: wrote 3 KB")
+            check_eq("RC2-2: two brief lines - the last one", note_for(0, "brief: first\nbrief: second\nnoise")[1], "brief: second")
+            check_eq("RC2-2: control - no prefix at code 0: the last line, as before", note_for(0, "one\ntwo")[1], "two")
+            check_eq("RC2-2: empty output at code 0: an empty note, as before", note_for(0, "")[1], "")
+            check_eq("RC2-2: leading blanks before the prefix still count", note_for(0, "  brief: padded\nnoise")[1], "brief: padded")
+            check_eq("RC2-2: another case is no prefix: the last line", note_for(0, "Brief: x\nnoise")[1], "noise")
+            refused = note_for(3, "brief: wrote 3 KB\nboom")
+            check_eq("RC2-2: a non-zero code stays a refusal even with a brief line (no path, the last line as before)",
+                     (refused[0], refused[1]),
+                     ("", "brief_pack: no brief for S1-qa-scout-10 (boom) - the role works from the inputs above"))
+            check_eq("RC2-2: a non-zero code and no output: `exit <code>`, as before", note_for(3, "")[1],
+                     "brief_pack: no brief for S1-qa-scout-10 (exit 3) - the role works from the inputs above")
+        finally:
+            brief_file.unlink(missing_ok=True)
+
         # --- the S5 automator brief ---------------------------------------------------------
         seed_story_for_s5(task, root, "Gate A: approved. Proceed to S5 as it stands; no split.")
         seed_branch(task)   # CX1-7 (k): the real run's record and manifest, so the 6 KB checks below carry the Branch check line
@@ -3564,6 +3642,7 @@ def main() -> None:
     try:
         p4_lines(base)
         p4_long_words(base)
+        p4_min_words(base)
         p4_breakage(base)
         p4_halts(base)
     finally:
