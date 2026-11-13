@@ -694,7 +694,8 @@ class DriverDispatch:
             lines += self.s7_place_lines(dispatch)         # E3b.1: the ONE site, before `extra`; fresh, scribe-reject and seam rework alike
             lines += self.s7_neighbour_lines(dispatch)     # t-2187 N6: the neighbourhood hint, beside the place lines, the same triage dispatches
         lines += list(extra)
-        lines.append(f"Plugin root: {self.plugin} — factory scripts are `python {self.scripts}/<name>.py`; "
+        import runtime_paths as RP
+        lines.append(f"Plugin root: {self.plugin} — factory scripts are `{RP.script_command('<name>.py', self.plugin, must_exist=False)}`; "
                      "the rule layer is in your system prompt, do not read the plugin's files.")
         lines.append("Your final message is the handoff form only:\n" + HANDOFF_FORM)
         full_prompt = "\n".join(lines)
@@ -2488,7 +2489,8 @@ class DriverDispatch:
                              "--env", reference, "--items", "free", "--actor", actors[0], *(["--actor2", actors[1]] if len(actors) > 1 else []))
         out_rel = (SG.optional_outputs(row) or ("work/reference-snapshot.yaml",))[0]
         replace = (self.task_root / out_rel).is_file()      # the story is made again over an old snapshot: `put` replaces it
-        put = (f"python \"{self.scripts}/reference_snapshot.py\" put --task-root {self.task_root} --reference {reference} --items-file <items.yaml>"
+        import runtime_paths as RP
+        put = (RP.script_command("reference_snapshot.py", self.plugin) + f" put --task-root {self.task_root} --reference {reference} --items-file <items.yaml>"
                + (" --replace" if replace else ""))
         shape = ("The file is block YAML: `items:` - one mapping per behaviour: id (plain id), area, user_path, observed, evidence (a list of "
                  "{path, quote} from a capture of THIS walk) and/or old_test (<file>:<line>), locators_portable (yes | no | unknown) - and a "
@@ -3865,7 +3867,8 @@ class DriverDispatch:
         a pointer. A list that could not be computed whole says so in the brief and in ONE printed line, never "none" (AR-28). The
         brief only TELLS the analyst an answer is owed; whether a place is answered is the register's business at the close (P1)."""
         base = f"qa-factory/artifacts/{self.task}/"
-        py = '`python "${CLAUDE_PLUGIN_ROOT}/scripts/'
+        import runtime_paths as RP
+        cmd = lambda name: RP.script_command(name, self.plugin)     # noqa: E731  (OH8-4: the one spelling, the copy that serves the role)
         try:
             import place_answers
             data = place_answers._data()
@@ -3874,7 +3877,7 @@ class DriverDispatch:
             listed = place_answers._list_lines(found, states)
         except Exception as exc:
             print(f"S7: the places to settle could not be listed ({type(exc).__name__}: {exc})")
-            return [f"The list of places to settle could not be computed whole ({type(exc).__name__}: {exc}): run {py}place_answers.py\" list "
+            return [f"The list of places to settle could not be computed whole ({type(exc).__name__}: {exc}): run `{cmd('place_answers.py')} list "
                     f"--task-root {base}` and settle what it lists."] + self.s7_session_line(dispatch)
         if found["unreadable"]:
             print("S7: the places to settle could not be computed whole: " + "; ".join(f"{rec}: {why}" for rec, why in found["unreadable"]))
@@ -3893,10 +3896,10 @@ class DriverDispatch:
                   "impossible), `draft` (bug: the file name of your draft under work/bug-drafts/, whose `reproduction` holds "
                   "`{kind: walk, evidence: evidence/place-answer-<place id>.json, observed: what you saw}` and whose `confirmation` is "
                   "`unconfirmed`). `place_answers.py write --help` lists the rest.",
-                  f"Capture each place under its own case `settle-<place id>`: {py}manual_capture.py\" ui|http --task-root {base} "
+                  f"Capture each place under its own case `settle-<place id>`: `{cmd('manual_capture.py')} ui|http --task-root {base} "
                   "--case settle-<place id>` (`ui` also needs `--steps-file`, `http` needs `--method` and `--url`; the capture is the evidence "
                   "your answer quotes).",
-                  f"Commands: {py}place_answers.py\" list --task-root {base}` prints the places with their states; {py}place_answers.py\" write "
+                  f"Commands: `{cmd('place_answers.py')} list --task-root {base}` prints the places with their states; `{cmd('place_answers.py')} write "
                   f"--task-root {base} --dispatch {disp} --place <place id> --file <your answer, a JSON file>` records one answer "
                   "(`--replace` replaces an answer you gave)."]
         return lines + self.s7_session_line(dispatch)
@@ -3907,7 +3910,8 @@ class DriverDispatch:
         `references/place-answers.json`) with the command for the rest. `bug_neighbours` formats and counts; this only hands it over (FR-15).
         A table that could not be computed whole says so in the brief and in ONE printed line, never "none" (AR-28). A hint: the brief
         does not ask the analyst to merge anything (AR-29)."""
-        command = f'`python "${{CLAUDE_PLUGIN_ROOT}}/scripts/bug_neighbours.py" --task-root qa-factory/artifacts/{self.task}/`'
+        import runtime_paths as RP
+        command = f'`{RP.script_command("bug_neighbours.py", self.plugin)} --task-root qa-factory/artifacts/{self.task}/`'
         try:
             import bug_neighbours
             import place_answers
@@ -3948,24 +3952,25 @@ class DriverDispatch:
         if not isinstance(record, dict):
             return []
         base = f"qa-factory/artifacts/{self.task}/"
-        py = '`python "${CLAUDE_PLUGIN_ROOT}/scripts/'
-        door = (f"capture with {py}manual_capture.py\" ui|http --task-root {base} --case settle-<place id>`")
+        import runtime_paths as RP
+        cmd = lambda name: RP.script_command(name, self.plugin)     # noqa: E731  (OH8-4: the one spelling, the copy that serves the role)
+        door = (f"capture with `{cmd('manual_capture.py')} ui|http --task-root {base} --case settle-<place id>`")
         if record.get("failed"):
             return [f"no walk session: {record.get('why') or record['failed']}; capture with `manual_capture.py ui|http --case settle-<place>`"
-                    f" ({py}manual_capture.py\" ui|http --task-root {base} --case settle-<place id>`), or answer `impossible` with that why."]
+                    f" (`{cmd('manual_capture.py')} ui|http --task-root {base} --case settle-<place id>`), or answer `impossible` with that why."]
         if record.get("state") != "ready":
             return []                   # closed with its dispatch: nothing to offer
         items = ",".join(record.get("items") or [self.S7_SETTLE_ITEMS])
         skipped = [str(i) for i in record.get("skipped") or []]
-        out = [f"The walk session `{dispatch}` is open (its items are the place ids: `{items}`): {py}walk_session.py\" step|look|final "
+        out = [f"The walk session `{dispatch}` is open (its items are the place ids: `{items}`): `{cmd('walk_session.py')} step|look|final "
                f"--task-root {base} --walk {dispatch} --item <place id> --line \"<one step>\"` (or `--steps-file <file>`), one step or a short "
                f"obvious run per call; its captures are under settle-<place id>, where your answer's `seen.capture` points. If a call says "
-               f"it ended: {py}walk_session.py\" open --task-root {base} --walk {dispatch} --place settle --items {items} "
+               f"it ended: `{cmd('walk_session.py')} open --task-root {base} --walk {dispatch} --place settle --items {items} "
                f"--actor {self.S7_SETTLE_ACTOR} --parent-pid {os.getpid()}` reopens it for the same walk; if it cannot open, {door}, or "
                "answer `impossible` with why 'the walk session could not be opened'."]
         if skipped:
             out.append("Places the session cannot carry (their id is no plain id): " + ", ".join(f"`{i}`" for i in skipped)
-                       + f"; capture each with {py}manual_capture.py\" ui|http --task-root {base} --case settle-<place id>`.")
+                       + f"; capture each with `{cmd('manual_capture.py')} ui|http --task-root {base} --case settle-<place id>`.")
         return out
 
     def s7_settle_session(self, dispatch: str, resume: bool = False) -> bool:

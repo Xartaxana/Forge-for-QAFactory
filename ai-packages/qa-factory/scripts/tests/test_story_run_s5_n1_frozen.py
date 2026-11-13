@@ -19,6 +19,7 @@ Volatile fields, masked on both sides (each mask named here and nowhere else):
   - M4 the line ending of a prompt (`\\r\\n` where the driver writes text on Windows): `\\n`;
   - M5 the key `noted` of the driver state is left out of `state_keys` (it holds one-time notes, written by whichever code path met them).
 A difference that is not one of these is a finding: a change of the serial road. Never mask it.
+Refreshed 13.11.2026 at 5efb17e (OH8-4 C11, t-340): calls.json only; the card head's <plugin>/scripts/<name>.py became one double-quoted word in every prompt (s5: 9, s6: 2); events, state_keys and console byte-equal.
 
 Capture (a builder or a lead, once, on the pre-TR3-6 tree, never in CI):
     python -B scripts/tests/test_story_run_s5_n1_frozen.py --capture <fixtures dir>

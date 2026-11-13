@@ -230,6 +230,19 @@ def _empty_stand_answers() -> dict:
             "texts": {}, "table": "unreadable"}
 
 
+def _expand_tokens(value):
+    """Every string of the loaded table (nested in lists and dicts) through `runtime_paths.expand_script_tokens`: the one
+    reader resolves `{script:<name>.py}` here, so no consumer sees a token (AR-13)."""
+    import runtime_paths
+    if isinstance(value, str):
+        return runtime_paths.expand_script_tokens(value)
+    if isinstance(value, list):
+        return [_expand_tokens(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _expand_tokens(v) for k, v in value.items()}
+    return value
+
+
 def stand_answers() -> dict:
     """`references/stand-answers.json`, read once per path - the ONE reader of that table (mirrors
     `http_client.tables()`). Absent, unreadable, not an object, or without `codes`/`order`: empty tables with `table:
@@ -240,6 +253,7 @@ def stand_answers() -> dict:
         try:
             data = json.loads(Path(STAND_ANSWERS_PATH).read_text(encoding="utf-8"))
             if isinstance(data, dict):
+                data = _expand_tokens(data)
                 for name in ("codes", "no_answer", "order", "login_remedies"):
                     if isinstance(data.get(name), list):
                         loaded[name] = [row for row in data[name] if isinstance(row, dict)]

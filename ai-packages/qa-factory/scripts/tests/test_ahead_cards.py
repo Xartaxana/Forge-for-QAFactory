@@ -168,6 +168,10 @@ ON_CARD_RE = re.compile(r"`([A-Za-z0-9_]+\.py)[^`]*`\s*(?:\([^)]*on your card[^)
 CHARTER_CARD_SCRIPTS = {("qa-runner", "manual_evidence.py"), ("qa-failure-analyst", "bug_records.py"),
                         ("qa-failure-analyst", "bug_snapshot.py"), ("qa-doc-scribe", "report_facts.py"),
                         ("qa-retro-analyst", "retro_numbers.py")}
+# the data files a role reads raw or through the table's one reader (OH8-4 Part 2), and the two scripts they name by marker
+DATA_CARRIERS = ("references/templates/requirements-register.md", "handoffs/s0-setup-to-scout.yaml",
+                 "references/stand-answers.json")
+DATA_CARD_SCRIPTS = {("qa-requirements-tester", "branch_accounting.py"), ("qa-scout", "ticket_adapter.py")}
 
 
 def charter_card_join() -> None:
@@ -186,9 +190,43 @@ def charter_card_join() -> None:
             check(f"{role}: {name} is named 'on your card' and is on the card", name in flat)
     check("the join finds exactly the five scripts the charters name (not vacuous)", found == CHARTER_CARD_SCRIPTS,
           str(sorted(found ^ CHARTER_CARD_SCRIPTS)))
-    carriers = sorted((PLUGIN / "agents").glob("*.md")) + sorted((PLUGIN / "references" / "slices").rglob("*.md"))
+    carriers = (sorted((PLUGIN / "agents").glob("*.md")) + sorted((PLUGIN / "references" / "slices").rglob("*.md"))
+                + [PLUGIN / rel for rel in DATA_CARRIERS])
     bad = [str(p.relative_to(PLUGIN)) for p in carriers if "claude_plugin_root" in p.read_text(encoding="utf-8").lower()]
-    check("no charter and no slice carries the host root variable", not bad, str(bad))
+    check("no charter, no slice and no data carrier a role reads carries the host root variable", not bad, str(bad))
+
+    # data files a role reads RAW name a script with the card marker; the role that reads each has it on its card (OH8-4 Part 2)
+    readers = {
+        "references/templates/requirements-register.md":
+            {role for role, entry in brief_pack.ROLE_FILES.items()
+             if "plugin:references/templates/requirements-register.md" in json.dumps(entry)},
+        "handoffs/s0-setup-to-scout.yaml": {str(handoff.template("s0-setup-to-scout").data.get("to_role") or "")},
+    }
+    data_found = set()
+    for rel, roles_reading in readers.items():
+        check(f"{rel}: a role reads it", bool(roles_reading - {""}), str(roles_reading))
+        text = (PLUGIN / rel).read_text(encoding="utf-8")
+        for role in sorted(roles_reading - {""}):
+            flat = "\n".join(list(brief_pack.TOOLING.get(role, [])) + list(brief_pack.TOOLING_MANUAL.get(role, [])))
+            for name in dict.fromkeys(ON_CARD_RE.findall(text)):
+                data_found.add((role, name))
+                check(f"{rel}: {role} is told {name} 'on your card' and it is on the card", name in flat)
+    check("the data join finds exactly the two scripts the data files name (not vacuous)", data_found == DATA_CARD_SCRIPTS,
+          str(sorted(data_found ^ DATA_CARD_SCRIPTS)))
+
+    # the stand-answers table reaches its readers with the script spelled, never as a token
+    import env_probe
+    import runtime_paths as RP
+    env_probe.reload_stand_answers()
+    table = env_probe.stand_answers()
+    check("login_recheck starts with the survivor's command for env_probe.py",
+          table["login_recheck"].startswith(RP.script_command("env_probe.py")), table["login_recheck"][:90])
+    l3 = next((r for r in table["login_remedies"] if r.get("id") == "L3"), {})
+    check("the L3 remedy holds the survivor's command for stand_health.py",
+          RP.script_command("stand_health.py") in str(l3.get("remedy")), str(l3.get("remedy")))
+    check("no string of the loaded table holds a script token", "{script:" not in json.dumps(table))
+    check("no string of the loaded table names a script missing from this copy",
+          "(missing from the plugin copy at" not in json.dumps(table), json.dumps(table)[:90])
 
 
 def main() -> None:
@@ -340,8 +378,190 @@ def main() -> None:
         shutil.rmtree(root, ignore_errors=True)
 
     charter_card_join()
+    role_text_roots()
 
     harness.finish("test_ahead_cards")
+
+
+def role_text_roots() -> None:
+    """OH8-4 (AR-8, AR-13, AR-15): a text a ROLE reads names a package script by the absolute path of the copy that serves it,
+    spelled by `runtime_paths.script_command` - never by `${CLAUDE_PLUGIN_ROOT}` and never by a hand spelling. One row per site
+    (C1-C13), each built through the REAL function. The temp root holds a `$`: the survivor single-quotes it, a hand spelling
+    (double quotes) fails (b). Imports stay inside this function (the module header belongs to no part)."""
+    import contextlib
+    import io
+    import types
+    from harness import check_not_in
+    import runtime_paths as RP
+    import driver_dispatch as DD
+    import driver_stage_s7 as DS7
+    import controller as CT
+    import execution_request as ER
+    import handoff_check as HC
+    import place_answers
+    import runtime_probe
+    import stage_done
+    import story_step
+    import first_look
+    import s5_plan
+    import story_run_common as common
+
+    tmp = harness.temp_dir("qa-textroots-")
+    root = tmp / "qa$copy"                      # the `$` forces the survivor's single-quote form
+    spaced = tmp / "qa copy"                    # E2: one shell word in double quotes
+    names = ("place_answers.py", "manual_capture.py", "bug_neighbours.py", "walk_session.py", "investigation.py",
+             "investigation_probe.py", "exploratory_findings.py", "manual_evidence.py", "runtime_probe.py", "plan_row.py",
+             "handoff_check.py", "reference_snapshot.py", "s5_plan.py", "waiver.py")
+    for folder in (root, spaced):
+        (folder / "scripts").mkdir(parents=True)
+        for name in names:
+            (folder / "scripts" / name).write_text("", encoding="utf-8")
+    story = tmp / "qa-factory" / "artifacts" / "QA-9"
+    story.mkdir(parents=True)
+    real_root = RP.package_root
+
+    def judge(site: str, text: str, where: Path = root, exist: bool = True) -> None:
+        paths = re.findall(r"python '([^']+)'", text)
+        check(f"{site}: no claude_plugin_root in the text", "claude_plugin_root" not in text.lower(), text[:300])
+        check(f"{site}: a single-quoted survivor command is named", bool(paths), text[:300])
+        prefix = where.as_posix() + "/scripts/"
+        check(f"{site}: every command starts at this copy's scripts/ and the script exists",
+              bool(paths) and all(p.startswith(prefix) and (not exist or Path(p).is_file()) for p in paths), str(paths))
+
+    def quiet(call, *args, **kwargs):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return call(*args, **kwargs)
+
+    real_places = place_answers.places
+    real_containers = runtime_probe.containers
+    real_init = s5_plan.init
+    real_walk_actors = first_look.walk_actors
+    real_controller = CT.Controller
+    try:
+        # driver rows: the copy the driver dispatches is `self.plugin` (F1)
+        driver = types.SimpleNamespace(task="QA-9", task_root=story, plugin=root, state={},
+                                   S7_SETTLE_ACTOR=DD.DriverDispatch.S7_SETTLE_ACTOR, S7_SETTLE_ITEMS=DD.DriverDispatch.S7_SETTLE_ITEMS)
+        driver.s7_session_line = lambda dispatch: DD.DriverDispatch.s7_session_line(driver, dispatch)
+        place_answers.places = lambda task_root: {"places": [{"id": "P-1", "sources": ["open"], "refs": {}, "title": "t",
+                                                              "expectation_hint": ""}], "unreadable": []}
+        judge("C1 s7_place_lines", "\n".join(quiet(DD.DriverDispatch.s7_place_lines, driver, "S7-1")))
+        place_answers.places = real_places
+        judge("C2 s7_neighbour_lines", "\n".join(quiet(DD.DriverDispatch.s7_neighbour_lines, driver, "S7-1")))
+        driver.state = {"s7_walk": {"S7-1": {"state": "ready", "items": ["P-1"], "skipped": ["bad id"]},
+                                    "S7-2": {"failed": "stand", "why": "no stand"}}}
+        judge("C3 s7_session_line (ready and failed)", "\n".join(DD.DriverDispatch.s7_session_line(driver, "S7-1")
+                                                                 + DD.DriverDispatch.s7_session_line(driver, "S7-2")))
+        judge("C4 investigation_lines", "\n".join(quiet(DS7.DriverStageS7.investigation_lines, driver)))
+
+        sent: list = []
+        steps = types.SimpleNamespace(
+            task="QA-9", task_root=story, plugin=root, state={},
+            s7_outcome=lambda life, ident: None, controller_state=lambda: {}, s7_mark=lambda *a, **k: None,
+            save_state=lambda: None,
+            rework=lambda stage, role, cases, reason, **kw: sent.append(list(kw.get("extra") or [])))
+        flagged = {"case": "TC-1", "attempt_id": "a1",
+                   "contradiction": {"then": 1, "runner_said": "x", "quote": "q", "evidence": "work/e.txt"}}
+        quiet(DS7.DriverStageS7.s7_rejudge_round, steps, flagged, "TC-1", "life-1")
+        judge("C5 s7_rejudge_round (the `extra` of the S6 rework)", "\n".join(sent[0]) if sent else "")
+
+        # the window: the controller, the walk actors and the role launch are stubs; `self.py` is the walk-session call
+        class StubController:
+            def __init__(self, *a, **k):
+                pass
+
+            def state(self):
+                return {}
+
+            def prepare(self, request):
+                return {"dispatch_request": dict(request)}
+
+            def apply(self, kind, request):
+                return {}
+        CT.Controller = StubController
+        first_look.walk_actors = lambda *a, **k: {"actors": ["guest"], "left": []}
+        launched: list = []
+        window = types.SimpleNamespace(
+            task="QA-9", task_root=story, plugin=root, project=tmp, config={}, py=lambda *a, **k: (0, ""),
+            record_running=lambda *a, **k: None,
+            run_role=lambda stage, role, **kw: launched.append("\n".join(kw.get("extra") or [])))
+        quiet(DD.DriverDispatch.s1_reference_window, window, "S1", {"row": {"role": "qa-runner", "purpose": "reference_walk"},
+                                                                    "references": {"Prod": "old"}})
+        judge("C12 s1_reference_window (the `put` command in the role's extra)", launched[0] if launched else "")
+        CT.Controller = real_controller
+        first_look.walk_actors = real_walk_actors
+
+        # C11: the REAL driver over a seeded story, `run_claude` stubbed to take the prompt; E2: a root with a space is one word
+        class Taken(Exception):
+            pass
+        seeded, _seeded_task, env = common.seed("QA-9")
+        try:
+            real = common.driver_for(seeded, env, "QA-9")
+            prompts: list = []
+
+            def take(kind, prompt, **kw):
+                prompts.append(prompt)
+                raise Taken()
+            real.run_claude = take
+            real.plugin = spaced
+            try:
+                quiet(real.run_role, "S1", "qa-scout")
+            except Taken:
+                pass
+            head = next((ln for ln in (prompts[0] if prompts else "").splitlines() if ln.startswith("Plugin root:")), "")
+            check("C11 run_role: the card head names one double-quoted word of the spaced copy",
+                  f'`python "{spaced.as_posix()}/scripts/<name>.py"`' in head, head)
+            check("C11 run_role: no claude_plugin_root, no hand spelling", "claude_plugin_root" not in head.lower()
+                  and "python " + str(spaced) not in head, head)
+        finally:
+            harness.cleanup(seeded)
+
+        # the code-built texts of the process that runs (R): the survivor's default root is replaced for the rows
+        RP.package_root = lambda: root
+        probe_cfg = {"implementation_repos": [{"repo_id": "app", "local_path": "app", "execution_profile_id": "api"}]}
+
+        def silent_docker():
+            raise OSError("no docker")
+        runtime_probe.containers = silent_docker
+        judge("C6 _probe_door (the stand must be up)", ER._probe_door(probe_cfg, "api"))
+        door = ER._probe_door(probe_cfg, "api", task_root=story, project_root=tmp)
+        check("C6 _probe_door: the door is not empty", bool(door), door)
+        (root / "scripts" / "runtime_probe.py").rename(root / "scripts" / "runtime_probe.py.off")
+        try:
+            gap = ER._probe_door(probe_cfg, "api")
+        finally:
+            (root / "scripts" / "runtime_probe.py.off").rename(root / "scripts" / "runtime_probe.py")
+        check_in("C6-E4 a copy without runtime_probe.py: the gap text", "`runtime_probe.py` (missing from the plugin copy at ", gap)
+        check_not_in("C6-E4 ... and no `python ` path", "python ", gap)
+
+        written = quiet(stage_done._s3_remark_package, story, [{"message": "a finding"}], b"{}", ["TC-1"])
+        check("C8 _s3_remark_package: the package is written", bool(written[2]) and Path(written[2]).is_file(), str(written))
+        judge("C8 _s3_remark_package (the written file)", Path(written[2]).read_text(encoding="utf-8") if written[2] else "")
+
+        form = "qa-factory/artifacts/QA-9/work/handoffs/S1-qa-scout-1.yaml"
+        check("C9 premise: qa-scout has Bash", host_adapter.role_has_bash("qa-scout"))
+        judge("C9 _prompt", story_step._prompt("QA-9", {"inputs": []}, "qa-scout", "S1-qa-scout-1", [], "", form=form))
+
+        problem = HC.Problem("header.verdict", "not filled", kind="blank")
+        judge("C10 refusal_text", HC.refusal_text(tmp / "form.yaml", "s0-setup-to-scout", [problem], "qa-scout"))
+
+        def unreadable(task_root, controller):
+            raise s5_plan.PlanUnreadable("the plan is not valid JSON")
+        s5_plan.init = unreadable
+        plan_controller = types.SimpleNamespace(state=lambda: {"dispatches": {"S5-1": {"stage": "S5", "role": "qa-automator",
+                                                                                      "purpose": CT.S5_PLAN}}})
+        notes = story_step._s5_plan_init("QA-9", story, plan_controller, "S5-1")
+        s5_plan.init = real_init
+        judge("C13a _s5_plan_init (the plan is unreadable)", "\n".join(notes))
+        switch = {"stamped": {"mode": "driver"}, "current": "desktop", "stage": "S5"}
+        judge("C13b run_mode_refusal", story_step.run_mode_refusal("QA-9", switch))
+    finally:
+        RP.package_root = real_root
+        place_answers.places = real_places
+        runtime_probe.containers = real_containers
+        s5_plan.init = real_init
+        first_look.walk_actors = real_walk_actors
+        CT.Controller = real_controller
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

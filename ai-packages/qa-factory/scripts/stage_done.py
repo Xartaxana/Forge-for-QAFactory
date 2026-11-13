@@ -648,7 +648,7 @@ def _s3_remark_package(task_root: Path, found: list, plan_bytes: bytes, wheres: 
         lines += ["", "## Rows",
                   f"Plan rows to repair, by id, in {plan_rel}. A row's lines move after any edit, so find a row afresh: "
                   "`Grep -n` its quoted id in the plan, then `Read` with `offset`/`limit`; with a shell, "
-                  f"`python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/plan_row.py\" --task {task} --show --row <id>` prints a "
+                  f"`{RP.script_command('plan_row.py')} --task {task} --show --row <id>` prints a "
                   "row with its line numbers and `--map` lists every row."]
         lines += [f"- {place}: no id; locate it by its position in the plan's rows" if _NO_ID_ROW.fullmatch(place)
                   else f"- {place}" for place in wheres]

@@ -2748,7 +2748,8 @@ def _probe_door(cfg: dict, profile: str, task_root=None, project_root=None) -> s
     gets none either - gate A refuses to derive a probe there, and the entry would compare the wrong tree."""
     if registered_probe(cfg, profile) is not None or _probe_gap(cfg, profile)[0] or not _has_checkout(cfg, profile):
         return ""
-    command = f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/runtime_probe.py" --suggest --write --profile {_word(profile)}'
+    import runtime_paths as RP      # lazy: only a refusal on its way out builds this text (OH8-4 E9)
+    command = f'{RP.script_command("runtime_probe.py")} --suggest --write --profile {_word(profile)}'
     try:
         import runtime_probe
         running = _narrowed_names(cfg, profile, list(runtime_probe.containers()), task_root, project_root)

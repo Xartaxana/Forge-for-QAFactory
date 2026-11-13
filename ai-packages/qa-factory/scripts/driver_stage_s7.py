@@ -697,7 +697,8 @@ class DriverStageS7:
         states and the form note. A target list that cannot be computed is one printed line and a line telling the role to ask for it.
         What the role still decides: which target to probe, what to ask the stand, how to record what it saw."""
         base = f"qa-factory/artifacts/{self.task}/"
-        py = '`python "${CLAUDE_PLUGIN_ROOT}/scripts/'
+        import runtime_paths as RP
+        cmd = lambda name: RP.script_command(name, self.plugin)     # noqa: E731  (OH8-4: the one spelling, the copy that serves the role)
         lines = ["This dispatch is an INVESTIGATION (purpose `investigation`), not a triage and not a rework: a `Rework reason: investigation` "
                  "line above, if any, is the controller's purpose word.",
                  "The triage judge line and `work/judge-triage.json`, if present, are not your input: the triage is done."]
@@ -707,7 +708,7 @@ class DriverStageS7:
             found = investigation.open_targets(self.task_root, budget)
         except Exception as exc:
             print(f"S7: the targets of the investigation could not be listed ({type(exc).__name__}: {exc})")
-            return lines + [f"The factory could not list the targets ({type(exc).__name__}: {exc}): run {py}investigation.py\" unresolved "
+            return lines + [f"The factory could not list the targets ({type(exc).__name__}: {exc}): run `{cmd('investigation.py')} unresolved "
                             f"--task-root {base}` and investigate what it lists, within the caps of references/investigation-budget.json."]
         if found["unresolved"]:
             lines.append("Findings to investigate:")
@@ -730,10 +731,10 @@ class DriverStageS7:
                 used = "unknown"
             lines.append(f"Caps of this investigation: {p} probes per pass (used so far: {used}), {r} per target, {t} minutes from the first probe; at most "
                          f"{p // r} targets (P divided by R, rounded down) can reach `reproduced` - choose which ones.")
-        lines += [f"Commands: {py}investigation_probe.py\" http --task-root {base} --dispatch <your dispatch id> --target <target id> --method GET "
-                  f"--url <address>` sends ONE read-only request; {py}investigation_probe.py\" record --task-root {base} --dispatch <your "
+        lines += [f"Commands: `{cmd('investigation_probe.py')} http --task-root {base} --dispatch <your dispatch id> --target <target id> --method GET "
+                  f"--url <address>` sends ONE read-only request; `{cmd('investigation_probe.py')} record --task-root {base} --dispatch <your "
                   "dispatch id> --target <target id> --kind <observation|unresolved_question|coverage_gap> --statement <what you saw> "
-                  f"--why-not-a-bug <why> --status <status>` writes what you saw; {py}exploratory_findings.py\" list --task-root {base}` "
+                  f"--why-not-a-bug <why> --status <status>` writes what you saw; `{cmd('exploratory_findings.py')} list --task-root {base}` "
                   "shows the register.",
                   "End states of a target, exactly one active line each: `reproduced` / `not_reproduced` / `environment_event` / "
                   "`unverified` (k of R) / `unresolved_question` / `coverage_gap`.",
@@ -1037,7 +1038,8 @@ class DriverStageS7:
             self.s7_mark(life, ident, outcome="limit")
             return
         block = row.get("contradiction") if isinstance(row.get("contradiction"), dict) else {}
-        command = (f"python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/manual_evidence.py\" rejudge --task-root \"{self.task_root}\" --case {case}"
+        import runtime_paths as RP
+        command = (RP.script_command("manual_evidence.py", self.plugin) + f" rejudge --task-root \"{self.task_root}\" --case {case}"
                    + (f" --of-attempt {attempt}" if attempt else "")
                    + " --result <pass|fail|inconclusive> --actual \"<what the captures show>\" --then-quote \"<n>=<words>\" "
                      "--reason \"<why the first verdict was wrong, or why it stands>\"")
