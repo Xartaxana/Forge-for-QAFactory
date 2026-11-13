@@ -26,7 +26,7 @@ Volatile fields, masked on both sides (each mask named here and nowhere else):
   - M5 the key `noted` of the driver state is left out of `state_keys` (it holds one-time notes, written by whichever code path met them);
   - M6 a duration or a process id a console line prints (`12.3s`, `pid 123`): replaced by `<secs>` and `<pid>` (none appeared at capture; the
     mask is the same one a progress line would need and stays inert while no such text is printed);
-  - M7 the two byte figures of the `note: brief: ... (5,480 B, 4,174 B against the ceiling)` line: replaced by `<bytes>` (they count the real brief, which
+  - M7 the byte figure(s) of the `note: brief: ... (5,480 B, 4,174 B against the ceiling)` line (since FV1-4 N1 one figure: `(5,738 B)`): replaced by `<bytes>` (they count the real brief, which
     depends on the install path length, AR-4); applied to the live console and to the fixture text at compare time, the rest of the line stays.
 A difference that is not one of these is a finding: a change of the serial road. Never mask it.
 
@@ -35,6 +35,7 @@ Capture (a builder or a lead, once, on the tree before C1, never in CI):
 Retaken on 12.11.2026 at tree 8afd343 (the owner's word, t-107): the prompt gained the input line of the story's first-look record (`work/first-look.yaml`,
 `brief_pack.FIRST_LOOK_FILE`) and the brief note prints `N budget B against the ceiling` (2b1b36c); `events` and `state_keys` came out byte-equal.
 Refreshed 13.11.2026 at 5efb17e (OH8-4 C11, t-340): calls.json only; the card head's <plugin>/scripts/<name>.py became one double-quoted word in every prompt (s5: 9, s6: 2); events, state_keys and console byte-equal.
+Retaken on 13.11.2026 after FV1-4 N1 (8207150, the brief is rendered once and whole, no size ladder) by the owner's word: console.json only; the brief note prints `(N B)`, and M7 masks that form too.
 
 This file is CI's (`story_run_*` is a slow-tier name): a builder never runs the compare in CI's place (plans/builder-rules.md 7b).
 """
@@ -158,12 +159,12 @@ def mask(text: str, root, task_root) -> str:
     return mask_brief_bytes(text)
 
 
-BRIEF_BYTES = re.compile(r"\(\d[\d,]* B, \d[\d,]* (?:budget )?B against the ceiling\)")      # both labels the product has printed: `N B, N B` and `N B, N budget B`
+BRIEF_BYTES = re.compile(r"\(\d[\d,]* B(?:, \d[\d,]* (?:budget )?B against the ceiling)?\)")      # the forms the product has printed: `N B, N B`, `N B, N budget B` and (FV1-4 N1) `N B`
 
 
 def mask_brief_bytes(text: str) -> str:
     """M7: the two byte figures of the `note: brief:` line depend on the install path (AR-4), so they are replaced by `<bytes>`; the rest of the line (the label included) stays."""
-    return BRIEF_BYTES.sub(lambda m: "(<bytes> B, <bytes> " + ("budget " if "budget" in m.group(0) else "") + "B against the ceiling)", text)
+    return BRIEF_BYTES.sub(lambda m: "(<bytes> B)" if "against" not in m.group(0) else "(<bytes> B, <bytes> " + ("budget " if "budget" in m.group(0) else "") + "B against the ceiling)", text)
 
 
 def enter(driver, world):
