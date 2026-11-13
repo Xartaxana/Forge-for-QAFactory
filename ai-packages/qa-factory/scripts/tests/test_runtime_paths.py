@@ -565,6 +565,31 @@ def k5_script_command() -> None:
           RP.script_command("runtime_paths.py") == RP.script_command("runtime_paths.py", RP.package_root()))
 
 
+def k5_expand_script_tokens() -> None:
+    """OH8-4 Part 2: `{script:<name>.py}` in a data text becomes `script_command(name, root)`; anything else comes back unchanged
+    (E13). One table, rows named by edge id, `root=` passed explicitly."""
+    real = _package_copy("qa factory")
+    dollar = _package_copy("qa$tok")
+    bare = _package_copy("qa-tok-bare", with_script=False)
+    rows = {
+        "T-ok an existing script": ("run {script:x.py} now", real, f"run {RP.script_command('x.py', real)} now"),
+        "T-$ a dollar root is single-quoted": ("{script:x.py} --probe", dollar, f"python '{dollar.as_posix()}/scripts/x.py' --probe"),
+        "T-missing the gap text": ("{script:x.py}", bare, RP.script_command("x.py", bare)),
+        "T-two both tokens": ("{script:x.py} and {script:x.py}", real, f"{RP.script_command('x.py', real)} and {RP.script_command('x.py', real)}"),
+        "T-none no token": ("plain text {user_key}", real, "plain text {user_key}"),
+        "T-bad empty": ("{script:}", real, "{script:}"),
+        "T-bad dot-dot": ("{script:../x.py}", real, "{script:../x.py}"),
+        "T-bad slash": ("{script:a/b.py}", real, "{script:a/b.py}"),
+        "T-bad extension": ("{script:x.txt}", real, "{script:x.txt}"),
+    }
+    for row, (text, root, want) in rows.items():
+        got = RP.expand_script_tokens(text, root)
+        check(f"K5b {row}", got == want, got)
+    check("K5b T-missing holds no python path", "python " not in RP.expand_script_tokens("{script:x.py}", bare))
+    for row, value in (("None", None), ("int", 5)):
+        check(f"K5b T-nonstr {row} comes back as is", RP.expand_script_tokens(value, real) is value)
+
+
 def _story_in(artifact_root_value, name: str = "QA-9") -> tuple:
     """(project, story folder): a marked project whose config says `artifact_root` (None: the template's default), the story folder created
     where `hooklib.artifact_root` says it lives (the expectation is read from the writer, never spelled here)."""
@@ -665,6 +690,7 @@ def main() -> None:
         k3_census()
         k4_known_artifacts_grounding()
         k5_script_command()
+        k5_expand_script_tokens()
         k6_story_text()
     finally:
         os.chdir(CWD0)

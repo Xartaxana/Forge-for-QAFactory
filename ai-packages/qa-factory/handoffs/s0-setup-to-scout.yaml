@@ -55,10 +55,11 @@ environment:
   pending: <true|false>                 # true: the stand question travels with the source review
   none_configured: <true|false>         # true: say so once, plan on, stop nothing here
 
-# The tools S0 proved before this dispatch, with the command lines spelled out. A dispatch that
-# names the role's references but not its script hands the role a job with no tool for it.
+# The tools S0 proved before this dispatch, named by script; the scout's card carries each command
+# with its absolute path. A dispatch that names the role's references but not its script hands the
+# role a job with no tool for it.
 tools:
-  ticket_adapter: "python ${CLAUDE_PLUGIN_ROOT}/scripts/ticket_adapter.py"
+  ticket_adapter: "`ticket_adapter.py` (on your card)"
   ticket_adapter_proved: <true|false>   # readiness §5 ran it; false blocks this dispatch
   judge_mode: <on|advisory|none>
 

@@ -110,10 +110,10 @@
     {"id": "L2", "codes": [401, 403],
      "remedy": "Check the account or its secret: the values of {user_key} and of the secret key in the env file (their values are never shown)."},
     {"id": "L3", "from": 500, "to": 599, "outcomes": ["skipped"],
-     "remedy": "Look at the stand, not the login: python \"${CLAUDE_PLUGIN_ROOT}/scripts/stand_health.py\" --probe."},
+     "remedy": "Look at the stand, not the login: {script:stand_health.py} --probe."},
     {"id": "L4", "any": true, "remedy": ""}
   ],
-  "login_recheck": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/env_probe.py\" --project-root . --json and record its login.record as environment.access.login_probe",
+  "login_recheck": "{script:env_probe.py} --project-root . --json and record its login.record as environment.access.login_probe",
   "remedy": {
     "with_recipe": "Restarting is the conductor's move when it is authorized; the recorded recipe (environments[{name}].bring_up): {recipe}",
     "no_recipe": "No restart recipe is recorded for this stand (environments[].bring_up)."
