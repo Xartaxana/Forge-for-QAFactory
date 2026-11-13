@@ -918,6 +918,7 @@ def t261_the_integration_lines_of_the_driver() -> None:
         cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
         driver = driver_for(root, env, task)
         driver.py = lambda script, *a, **k: (0, "")
+        driver.unread = lambda *a, **k: "continue"       # FV1-3: words code could not read go to the conductor; this test judges what code prints
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
             driver.take_question_answer("S3", "S3-qa-test-strategist-1", "Q1: a\nQA-9_TC_001: accept as blocked\n")

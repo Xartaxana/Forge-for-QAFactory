@@ -21,7 +21,7 @@
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
 | 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-30 | L | ожидает | — | — | — |
-| 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-9 | M | ожидает | — | — | — |
+| 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-27 | L | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -91,6 +91,18 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261113-perepis-vyhodov-draivera-dva-klona-chitatel-json-i-hesh-prompta.md` | находка, id — | два клона переписи выходов драйвера: строгий читатель JSON (`known_red`) и хэш промпта (`author_input_sha`) | `scripts/tests/dry_exits.py`, `scripts/tests/known_red.py`, `scripts/tests/dry_stub.py` | пачка 2, FV2-13 | нет | критик узла P1-b N1 (F9, F10) |
 | `findings/20261113-perepis-vyhodov-draivera-dolgi-lead-n-l-i-put-ci.md` | находка, id — | долги слияния N1 (N-L: оси карты 18/34/17, вопрос 9, путь реестра, ключ `keep` N3) и перепись вне пути CI | `docs/SIBLING_MAP.md`, `docs/tasks/critic-diff-brief.md`, `scripts/tests/test-layers.json` | пачка 2, FV2-14 | нет | критик узла P1-b N1 (F12) |
 | `findings/20261113-run-suite-i-story-budget-bez-zapisi-v-reestre-otkazov-klass-po-route.md` | находка, id — | у текстов `executor_unavailable` и `STORY BUDGET` нет записи в реестре отказов; класс — строками `route:<name>` переписи | `scripts/tests/fixtures/driver-exits/classes.json`, `scripts/tests/dry_exits.py` | пачка 2, FV2-15 | нет | критик узла P1-b N1 (F1, Q1); слово Lead |
+| `findings/20261114-doroga-ostanovki-seam-stop-ne-pishet-stroku-otvetov-i-plan-lines-teryayutsya.md` | находка, id — | ветка ответа, где шов дирижёра вернул `Stop`, не пишет строку `driver-answers.jsonl`; `plan_lines` теряются; строка теста повторного запуска | `scripts/driver_machine.py`, `scripts/driver_dispatch.py`, `scripts/tests/test_story_run_loop_b_threshold.py` | пачка 2, FV2-16 | нет | критик узла FV1-3 (Q1, Q3, Q6); FR-7 |
+| `findings/20261114-karty-reestra-gate-a-b-idut-k-dirizheru-bez-instrukcii-i-obratnoj-pechati.md` | находка, id — | карточки реестра на гейтах A/B идут к дирижёру без инструкции и обратной печати вопросного останова: одна ли дорога | `scripts/driver_machine.py` | пачка 2, FV2-17 | нет | критик узла FV1-3 (Q2); P31 |
+| `findings/20261114-hvost-prompta-dirizhera-sobiraetsya-v-pyati-mestah.md` | находка, id — | хвост prompt дирижёра собирается в пяти местах; один строитель | `scripts/driver_conductor.py`, `scripts/driver_machine.py`, `scripts/driver_stage_build.py` | пачка 2, FV2-18 | нет | критик узла FV1-3 (Q4) |
+| `findings/20261114-record-answers-ne-nazyvaet-id-propushchennye-kak-tot-zhe-otvet.md` | находка, id — | `record_answers` не называет id, пропущенные как тот же ответ: «recorded by code: nothing» про записанное | `scripts/question_register.py` | пачка 2, FV2-19 | нет | критик узла FV1-3 (Q5); FV1-13 |
+| `findings/20261114-told-world-skaniruet-paket-dvazhdy.md` | находка, id — | `told_world` дважды сканирует пакет широким сканом; один общий скан | `scripts/tests/test_stage_joints.py` | пачка 2, FV2-20 | нет | критик темы T1 (Q-a) |
+| `findings/20261114-rows-for-vozvrashchaet-pustoe-kogda-stroki-ne-prochitany.md` | находка, id — | `rows_for` возвращает `[]` для нечитаемых строк: неизвестное как «требования нет» | `scripts/stage_joints.py` | пачка 2, FV2-21 | нет | критик темы T1 (Q-b, T3a); AR-28 |
+| `findings/20261114-check-id-zapisi-skvoznyh-vyhodov-nesut-sostoyanie-walk-error.md` | находка, id — | сквозные записи `check_id` несут состояние `walk_error`, хотя это не ошибка | `scripts/refusal_registry.py` | пачка 2, FV2-22 | нет | критик темы T1 (Q-c, T2) |
+| `findings/20261114-told-dublikaty-chitatelej-i-row-requirement-na-60-strok.md` | находка, id — | копии читателей переписи «told» и `_row_requirement` на 61 строку | `scripts/stage_joints.py`, `scripts/tests/test_stage_joints.py` | пачка 2, FV2-23 | нет | критик темы T1 (Q-d, Q-e) |
+| `findings/20261114-covered-pokryvaet-id-lyubym-pod-id.md` | находка, id — | `covered()` засчитывает id любым `<id>.<часть>`, правило C14 уже | `scripts/tests/test_stage_joints.py` | пачка 2, FV2-24 | нет | критик темы T1 (Q-f, T1r) |
+| `findings/20261114-legacy-legs-i-unsited-tolko-potolok.md` | находка, id — | `legacy_legs` и `unsited` — только потолок; выбор равенства или потолка с причиной | `scripts/stage_joints.py` | пачка 2, FV2-25 | нет | критик темы T1 (Q-g); Lead |
+| `findings/20261114-gruppa-tolko-dirizhera-chitaetsya-iz-note-cherez-regex.md` | находка, id — | группа «только дирижёр» читается из `note` регулярным выражением; нужно поле строки | `scripts/tests/test_stage_joints.py`, `scripts/tests/fixtures/judgment-census.json` | пачка 2, FV2-26 | нет | критик темы T1 (Q-i) |
+| `findings/20261114-t1-zametki-osevoj-blok-kommita-i-owner-v-otchyote-t1a.md` | находка, id — | две записки темы T1: осевой блок коммита не перечисление; неверный владелец в отчёте T1a | `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | пачка 2, FV2-27 | нет | критик темы T1 (Q-h, Q-j) |
 
 ## Входящие
 

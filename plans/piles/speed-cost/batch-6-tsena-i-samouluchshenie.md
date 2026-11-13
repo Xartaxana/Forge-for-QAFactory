@@ -21,7 +21,7 @@
 | Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
 |---|---|---|---|---|---|---|
 | SC6-1 | П2 | Ретро называет самую дорогую стадию и один конкретный срез: обязательная находка в хартии `qa-retro-analyst.md` (раздел `kind: craft`) с цитатой чисел из `retro-numbers.json`; код только несёт числа (`findings/20261104-retro-nazyvaet-samuyu-doroguyu-stadiyu-i-srez.md`; слово владельца 04.11.2026; P27, P18; FR-47; AR-29) | builder → critic | `ai-packages/qa-factory/agents/qa-retro-analyst.md`, `ai-packages/qa-factory/scripts/tests/test_charters_s8_s9.py`, `ai-packages/qa-factory/scripts/tests/test_gate_brief_and_retro.py` | — | принято: 7da38c2 (t-432) |
-| SC6-2 | П2 | M9: число запусков тестов по стадиям S5–S7 с длительностью и числом тестов — в `retro-numbers.json` (носитель `driver-runs.jsonl` / `events.jsonl`); ретро печатает «лишние запуски: N, цена: $/мин» рядом с ценой стадии; тест измерителя (`findings/20261104-m9-lishnie-zapuski-testov-v-tsene-stadii.md`; спека t-1765 §3; FR-28, FR-41, FR-51; P18, P24; AR-12) | designer → builder → critic | `ai-packages/qa-factory/scripts/retro_numbers.py`, `ai-packages/qa-factory/scripts/tests/test_gate_brief_and_retro.py` | — | в работе |
+| SC6-2 | П2 | M9: число запусков тестов по стадиям S5–S7 с длительностью и числом тестов — в `retro-numbers.json` (носитель `driver-runs.jsonl` / `events.jsonl`); ретро печатает «лишние запуски: N, цена: $/мин» рядом с ценой стадии; тест измерителя (`findings/20261104-m9-lishnie-zapuski-testov-v-tsene-stadii.md`; спека t-1765 §3; FR-28, FR-41, FR-51; P18, P24; AR-12) | designer → builder → critic | `ai-packages/qa-factory/scripts/retro_numbers.py`, `ai-packages/qa-factory/scripts/tests/test_gate_brief_and_retro.py` | — | принято: d07737f (t-661) |
 
 ## Ход
 
@@ -29,6 +29,7 @@
 
 - 04.11 — пачка открыта (D-0044): SC6-1 и SC6-2 — находки чтения статьи Домнича; файлы в `findings/` и строки узлов тем же ходом.
 - 13.11 — SC6-2: в работе (билдер идёт).
+- 14.11 — SC6-2: принято, ветка `wip/sc6-2` слита в main коммитом d07737f (отчёт волны 2 `docs/tasks/specs/reports/20261113-wave2-integration-report.md`).
 
 ## Живые доказательства
 
