@@ -2866,6 +2866,16 @@ def md_table(text: str, heading: str) -> list:
     return rows
 
 
+def md_column(header, name) -> "int | None":
+    """Index of the FIRST column of a table header (`md_table`'s first row) whose cell, stripped, backticks off and lower case,
+    equals `name` EXACTLY (a prefix is not a match); None when there is none, and for an empty header or a None name (never raises).
+    A caller that wants a looser rule (`startswith`, `in`) keeps it on its own side."""
+    if not header or not name:
+        return None
+    want = str(name).strip().strip("`").lower()
+    return next((i for i, cell in enumerate(header) if str(cell).strip().strip("`").strip().lower() == want), None)
+
+
 # --- test-plan.md ----------------------------------------------------------------------------
 
 def parse_plan(path: Path) -> list:

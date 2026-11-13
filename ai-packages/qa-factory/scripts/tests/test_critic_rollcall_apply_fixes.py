@@ -214,7 +214,47 @@ def test_skip_prints_a_skip_line_in_a_child_process_that_inherited_the_pytest_va
     check("the child prints the SKIP line", "SKIP: why" in proc.stdout, proc.stdout + proc.stderr)
 
 
+def _roll(header: str, *rows: str) -> str:
+    return "## Roll-call\n\n" + header + "\n" + "|---" * (header.count("|") - 1) + "|\n" + "".join(r + "\n" for r in rows)
+
+
+# (id, header, rows, md_column answer for "note", the row notes parse_rollcall reads, `note_col` of _read_rounds)
+NOTE_COLUMN_CASES = (
+    ("no-note-column", "| plan row | case | reviewed |", ("| TS-1 | TC-1 | yes |",), None, [None], False),
+    ("note-column-empty-cell", "| plan row | case | reviewed | note |", ("| TS-1 | TC-1 | yes |  |",), 3, [""], True),
+    ("header-backticks-spaces", "| plan row | case | reviewed |  ` Note `  |", ("| TS-1 | TC-1 | yes | said |",), 3, ["said"], True),
+    ("two-same-name-first", "| plan row | note | reviewed | note |", ("| TS-1 | first | yes | second |",), 1, ["first"], True),
+    ("prefix-not-matched", "| plan row | case | reviewed | notes |", ("| TS-1 | TC-1 | yes | said |",), None, [None], False),
+    ("header-no-rows", "| plan row | case | reviewed | note |", (), 3, [], True),
+    ("header-no-rows-no-note", "| plan row | case | reviewed |", (), None, [], False),
+)
+
+
+def test_note_column_is_found_by_one_helper() -> None:
+    root = temp_project("qa-factory-critic-note-col-")
+    try:
+        for label, header, rows, want_at, want_notes, want_col in NOTE_COLUMN_CASES:
+            text = _roll(header, *rows)
+            cells = C.md_table(text, R.ROLLCALL_HEADING)[0]
+            check_eq(f"{label}: md_column of the header", C.md_column(cells, "note"), want_at)
+            check_eq(f"{label}: parse_rollcall row notes", [r["note"] for r in R.parse_rollcall(text)], want_notes)
+            path = root / f"{label}.md"
+            path.write_text(text + "\nVerdict: approve\n", encoding="utf-8")
+            got = R._read_rounds([path], None, [])
+            check_eq(f"{label}: _read_rounds note_col", [r["note_col"] for r in got], [want_col])
+    finally:
+        cleanup(root)
+
+
+def test_md_column_empty_header() -> None:
+    for label, header, name in (("md-column-empty-header", [], "note"), ("md-column-empty-header-none-name", ["note"], None),
+                                ("md-column-empty-header-none", None, "note"), ("md-column-empty-name", ["note"], "")):
+        check_eq(f"{label}: None, never a raise", C.md_column(header, name), None)
+
+
 if __name__ == "__main__":
+    test_note_column_is_found_by_one_helper()
+    test_md_column_empty_header()
     test_synthetic_fix_lands_and_reports_json()
     test_ambiguous_find_stays_a_reported_debt()
     test_cli_apply_fixes_prints_json_and_exits_clean()
