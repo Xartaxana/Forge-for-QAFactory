@@ -692,6 +692,8 @@ def artifact_root(event: dict | None = None, root: Path | None = None) -> Path:
     # `utf-8-sig`, but the exception stays: a broken config must raise here, not become `{}` (through `read_json`) and
     # silently put the artifacts into the default root (AR-28, AR-4).
     cfg = json.loads(config.read_text(encoding="utf-8-sig")) if config.exists() else {}
+    if not isinstance(cfg, dict):
+        raise ValueError("qa-factory/config.json is not a JSON object; fix it by hand or move it aside and run onboarding again")
     value = cfg.get("artifact_root")
     if value is None:
         return project / "qa-factory" / "artifacts"
