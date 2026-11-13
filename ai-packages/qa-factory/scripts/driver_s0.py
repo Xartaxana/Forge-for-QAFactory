@@ -1080,7 +1080,7 @@ class DriverS0:
         if not entries:
             return sets
         if contract.product_implied(entries):   # no entry is a real side of this team: `product` is implied (PC2-7; as story_sides(root=) reads it)
-            entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "source": "default"})
+            entries.setdefault("product", contract.product_default_entry())
         try:
             for name in sorted(entries):
                 entry = entries[name]

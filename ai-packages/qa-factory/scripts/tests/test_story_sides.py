@@ -459,6 +459,80 @@ def driver_cases():
                  (contract.story_sides(pipeline)["backend"]["deliverable"], s0_state(task_root).get("s0_block")), (True, None))
     finally:
         harness.cleanup(root)
+    # PC3-1 (t-057 N1, N6): the re-read after a registry repair records what S0 would have recorded with a readable registry -
+    # same merge (registry + launch words + the person's answers), same `product` default. Ids name the case in every label.
+    def seed_backend_theirs(root):
+        PK.record(root, key=PK.SIDES_KEY, environment="", element="backend", state="known", scope="project",
+                  value={"deliverable": False, "settles_by": "platform team"}, words="theirs", source="person", story="S-0", by="conductor")
+        PK.record(root, key=PK.STAND_SIDES_KEY, environment="dev", element="backend", state="known", scope="stand",
+                  value={"reality": SUBSTITUTED}, words="the stand", source="person", story="S-0", by="conductor")
+
+    def break_registry(root):
+        PK.record_path(root).parent.mkdir(parents=True, exist_ok=True)
+        PK.record_path(root).write_text("{not json", encoding="utf-8")
+
+    root, task_root, env = s0_project("PROJ-1", config=stands)
+    try:
+        seed_backend_theirs(root)
+        control = s0_run(root, env, "PROJ-1", "--side", "ui=real")
+        control_sides = strip(s0_pipeline(task_root)["sides"])
+        check_eq("reread-launch-words (control): a readable registry at S0 with `--side ui=real` records ui, backend, and no `product`",
+                 (control.returncode, sorted(control_sides)), (0, ["backend", "ui"]), control.stdout[-400:] + control.stderr[-300:])
+    finally:
+        harness.cleanup(root)
+    root, task_root, env = s0_project("PROJ-1", config=stands)
+    try:
+        break_registry(root)
+        s0_run(root, env, "PROJ-1", "--side", "ui=real")
+        out = s0_run(root, env, "PROJ-1")
+        pipeline = s0_pipeline(task_root)
+        check_eq("reread-still-unreadable: the registry still broken keeps the mark and records no side",
+                 (out.returncode, bool(pipeline.get("sides_unknown")), "sides" in pipeline), (0, True, False), out.stdout[-400:] + out.stderr[-300:])
+        PK.record_path(root).unlink()
+        seed_backend_theirs(root)
+        out = s0_run(root, env, "PROJ-1")
+        pipeline = s0_pipeline(task_root)
+        check_eq("reread-launch-words: the launch's `--side ui=real` survives the repair, so the re-read equals S0 with a readable registry",
+                 (out.returncode, bool(pipeline.get("sides_unknown")), strip(pipeline.get("sides") or {})), (0, False, control_sides),
+                 out.stdout[-400:] + out.stderr[-300:])
+    finally:
+        harness.cleanup(root)
+    root, task_root, env = s0_project("PROJ-1", config=stands)
+    try:
+        break_registry(root)
+        s0_run(root, env, "PROJ-1", "--side", "ui=real")
+        state_path = task_root / "state" / "driver-state.json"
+        state = s0_state(task_root)
+        state.setdefault("launch", {})["sides_answers"] = {"ui": False}      # the person said `another team's` before the repair
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        PK.record_path(root).unlink()
+        seed_backend_theirs(root)
+        out = s0_run(root, env, "PROJ-1")
+        sides = strip(s0_pipeline(task_root).get("sides") or {})
+        check_eq("reread-person-answer: an answer given before the repair reaches the record (ui another team's, source person) and `product` follows",
+                 (out.returncode, sides.get("ui"), sides.get("product")),
+                 (0, {"reality": "real", "deliverable": False, "source": "person"}, product_default), out.stdout[-400:] + out.stderr[-300:])
+    finally:
+        harness.cleanup(root)
+    for case, rows_after in (("reread-all-real-registry", (("ui", True, ""),)), ("reread-empty-registry", ())):
+        root, task_root, env = s0_project("PROJ-1", config=stands)
+        try:
+            break_registry(root)
+            s0_run(root, env, "PROJ-1")
+            PK.record_path(root).unlink()
+            for name, deliverable, settles_by in rows_after:
+                PK.record(root, key=PK.SIDES_KEY, environment="", element=name, state="known", scope="project",
+                          value={"deliverable": deliverable, "settles_by": settles_by}, words="ours", source="person", story="S-0", by="conductor")
+            out = s0_run(root, env, "PROJ-1")
+            pipeline = s0_pipeline(task_root)
+            check_eq(f"{case}: no non-real side and no reference: the mark lifts, no side (`product` included) is written",
+                     (out.returncode, bool(pipeline.get("sides_unknown")), "sides" in pipeline), (0, False, False), out.stdout[-400:] + out.stderr[-300:])
+        finally:
+            harness.cleanup(root)
+    import contract
+    first, second = contract.product_default_entry(), contract.product_default_entry()
+    first["settles_by"] = "x"
+    check_eq("product_default_entry: the values, and a fresh dict on every call", (second, first is second), (product_default, False))
     # t-2277 batch 2b W2 (1, 2): the answer is the PROJECT's (a registry row) and a later word overwrites it; the next story reads the latest
     root, task_root, env = s0_project("PROJ-1", config=repos)
     try:

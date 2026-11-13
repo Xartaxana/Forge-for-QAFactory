@@ -5710,6 +5710,13 @@ def product_implied(sides) -> bool:
                    for entry in entries)
 
 
+def product_default_entry() -> dict:
+    """THE one spelling of the implicit `product` side record (`reality` real, `deliverable` true, `source` default) that the S0 record
+    (`Driver.s0_sides_sets`) and the re-read after a registry repair (`Driver.sides_reread`) add when `product_implied` says so.
+    A fresh dict on every call: a caller may add keys to it without touching another's."""
+    return {"reality": "real", "deliverable": True, "source": "default"}
+
+
 def registry_sides(root, env_name=None) -> dict:
     """The registry leg of the sides, read ONLY through `project_knowledge.subjects` and `state` (never the file):
     `{"sides": {name: {reality, deliverable (None = no row says), settles_by, reference, source: registry, registry_key}},

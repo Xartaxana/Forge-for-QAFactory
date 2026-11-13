@@ -846,27 +846,26 @@ class DriverMachine:
         if not pipeline.get("sides_unknown"):
             return
         import contract
-        read = contract.registry_sides(self.project, pipeline.get("environment"))
-        if read["problem"]:
-            print(f"{self.task}: the project's sides are still unknown ({read['problem']})")
+        got = self._sides_entries(pipeline.get("environment"))      # the S0 merge: registry + launch words + the person's answers
+        if got["problem"]:
+            print(f"{self.task}: the project's sides are still unknown ({got['problem']})")
             return
         sets, now = ["sides_unknown="], _now()
         if not pipeline.get("sides"):
-            entries = {}
-            for name, row in sorted(read["sides"].items()):
-                if row["reality"] and (row["reality"] != self.SIDE_REAL or row["reference"]):
-                    entries[name] = row
+            entries = got["entries"]
             if entries:
-                if contract.product_implied(read["sides"]):     # over the registry's sides, never the filtered `entries`
-                    entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "settles_by": "", "reference": None,
-                                                   "source": "default"})
-                for name, row in entries.items():
+                if contract.product_implied(entries):           # over the merged entries, as `s0_sides_sets` does
+                    entries.setdefault("product", contract.product_default_entry())
+                for name, row in sorted(entries.items()):
                     attrs = {"reality": row["reality"], "source": row["source"], "at": now}
-                    if row["deliverable"] is not None:
-                        attrs.update(deliverable="true" if row["deliverable"] else "false")
+                    deliverable = row.get("deliverable")
+                    if deliverable is None and row["reality"] == self.SIDE_REAL:
+                        deliverable = True                  # as S0 spells a real side nobody answered about (a non-real one stays unanswered)
+                    if deliverable is not None:
+                        attrs.update(deliverable="true" if deliverable else "false")
                         if row.get("settles_by"):
                             attrs.update(settles_by=row["settles_by"])
-                    if row["reference"]:
+                    if row.get("reference"):
                         attrs.update(reference=row["reference"])
                     sets += self.side_set_args(name, **attrs)
         self.py("stage_done.py", "--task", self.task, *[part for item in sets for part in ("--set", item)], check=True)
