@@ -15,15 +15,21 @@ Fields code fills (`handoff_check._code_fills`) stay as the template wrote them 
 import json
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+import grammar  # noqa: E402
 import handoff  # noqa: E402
 import handoff_check  # noqa: E402
 
 RULES_PATH = HERE / "fixtures" / "form-fill-rules.json"
+REFERENCES = HERE.parents[1] / "references"
+ROLE_WRITER = " (the role)"          # the predicate of driver_runner (`writer == "<role> (the role)"`): a role writes the output
+HINT = re.compile(r"<[^<>\n]+>")
+FRONT_KEY = re.compile(r"^([A-Za-z_][\w-]*):\s?(.*)$")
+BODY = "body:"
 VARIANT_BASE, OMIT_OPTIONAL, EMPTY_LISTS = "base", "omit_optional", "empty_lists"
 AT_LIMIT, BEYOND_LIMIT = "at_limit", "beyond_limit"
 ALT = re.compile(r"alt:(\d+)")
@@ -57,6 +63,7 @@ class FillContext:
     cases: list = field(default_factory=list)
     bugs: list = field(default_factory=list)
     requirements: list = field(default_factory=list)
+    dispatch_id: str = ""        # what the token `<dispatch>` reads; empty keeps the token unfillable (the caller names it)
 
 
 @dataclass(frozen=True)
@@ -470,8 +477,267 @@ def write_dispatch_form(task_root, dispatch_id: str, contract: str, ctx: FillCon
     leave. Raises NotFillable (never writes a half-filled form) and ValueError for a dispatch id that is not one plain file name."""
     if not DISPATCH_ID.fullmatch(str(dispatch_id)):
         raise ValueError(f"dispatch id {dispatch_id!r} is not one plain file name (letters, digits, `.`, `_`, `-`)")
-    filled = fill_form(contract, ctx, verdict=verdict, overrides=overrides).require()
+    filled = fill_form(contract, replace(ctx, dispatch_id=str(dispatch_id)), verdict=verdict, overrides=overrides).require()
     path = Path(task_root) / "work" / "handoffs" / f"{dispatch_id}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(filled.text.encode("utf-8"))
     return path
+
+
+# ------------------------------------------------------------------------------------------------ the outputs of the stages
+@dataclass
+class FilledArtifact:
+    output: str
+    files: dict            # path inside the world -> text; `project:<rel>` for a project-level file
+    fills: list
+    unfillable: list
+    left_for_code: list
+
+    def require(self) -> "FilledArtifact":
+        """The output itself, or `NotFillable` naming the first field it could not fill (and how many more)."""
+        if self.unfillable:
+            first = self.unfillable[0]
+            more = f" (and {len(self.unfillable) - 1} more)" if len(self.unfillable) > 1 else ""
+            raise NotFillable(self.output, first.path, first.hint, first.why + more)
+        return self
+
+
+@dataclass(frozen=True)
+class ByCode:
+    output: str
+    writer: str            # artifact-writers.json: the code that writes it; the filler does not
+
+
+@dataclass(frozen=True)
+class NotCovered:
+    output: str
+    why: str               # the row of `not_covered` in form-fill-rules.json
+
+
+class Unclassified(Exception):
+    """An output the table cannot place (E23): no writer, or a role-written output with no template and no `not_covered` row."""
+
+    def __init__(self, output: str, why: str):
+        super().__init__(f"output {output}: {why}")
+        self.output, self.why = output, why
+
+
+_REFERENCE_CACHE: dict = {}
+
+
+def _reference(name: str) -> dict:
+    """A reference table of the package, read loud (a missing or broken file raises: an empty table must never read as "no outputs")."""
+    if name not in _REFERENCE_CACHE:
+        _REFERENCE_CACHE[name] = json.loads((REFERENCES / name).read_text(encoding="utf-8"))
+    return _REFERENCE_CACHE[name]
+
+
+def stage_outputs() -> list:
+    """`[(stage id, output name)]` read out of references/stages.json: every `outputs` entry and every `optional_dispatches[].output`, in the
+    file's order, a pair once. Never a literal list."""
+    pairs = []
+    for stage in _reference("stages.json")["stages"]:
+        names = list(stage.get("outputs") or []) + [d["output"] for d in stage.get("optional_dispatches") or []
+                                                    if isinstance(d, dict) and d.get("output")]
+        for name in names:
+            if (stage["id"], name) not in pairs:
+                pairs.append((stage["id"], name))
+    return pairs
+
+
+def writer_of(output: str) -> str:
+    """The `writer` artifact-writers.json names for the output; `Unclassified` when it names none (never a default)."""
+    entry = (_reference("artifact-writers.json").get("artifacts") or {}).get(output)
+    writer = entry.get("writer") if isinstance(entry, dict) else None
+    if not isinstance(writer, str) or not writer.strip():
+        raise Unclassified(output, "no writer in artifact-writers.json")
+    return writer
+
+
+def classify(output: str) -> str:
+    """`"code"` (the writer is code), `"role"` (a role writes it and a row of `artifact_templates` shapes it) or `"not_covered"` (a role
+    writes it and a row of `not_covered` says why the filler cannot); anything else raises `Unclassified`."""
+    writer = writer_of(output)
+    if not writer.endswith(ROLE_WRITER):
+        return "code"
+    templated = output in rules()["artifact_templates"]
+    named = output in rules()["not_covered"]
+    if templated and named:
+        raise Unclassified(output, "role-written, and both a template and a not_covered row name it")
+    if templated:
+        return "role"
+    if named:
+        return "not_covered"
+    raise Unclassified(output, "role-written, neither template nor not_covered")
+
+
+def _text_of(raw: str, path: str, generic: str, ctx: FillContext, fills: list, unfillable: list):
+    """The value of one text of a template: a token from the context, a hint filled by the rules (the SAME rules as forms), or the text
+    itself. `raw` is the whole hint (angle brackets included) or a text; an unfillable hint is listed and the text stays as written."""
+    tokens = rules()["context_tokens"]
+    if raw.strip() in tokens or (not handoff.is_placeholder(raw) and any(t in raw for t in tokens)):
+        text, missing = raw, []
+        for token, key in tokens.items():
+            if token in text:
+                given = getattr(ctx, key, "")
+                if given:
+                    text = text.replace(token, str(given))
+                else:
+                    missing.append((token, key))
+        if missing:
+            unfillable.append(Unfillable(path, raw, "; ".join(f"the contract's token {t} has no key `{k}` in the context" for t, k in missing)))
+            return raw
+        fills.append(Fill(path, raw, text, "token"))
+        return text
+    if handoff.is_placeholder(raw) and raw.strip():
+        gen, why = _generate(raw, handoff._spec_of_value(generic, raw), path)
+        if gen is None:
+            unfillable.append(Unfillable(path, raw, why))
+            return raw
+        fills.append(Fill(path, raw, gen.values[0], gen.rule))
+        return gen.values[0]
+    return raw
+
+
+def _json_nodes(node, path: str = "", generic: str = "") -> list:
+    """`[(path, generic path, parent, key)]` of every node under `node`, parents first (`a.b[0].c`, generic `a.b[].c`)."""
+    out = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else str(key)
+            gen = f"{generic}.{key}" if generic else str(key)
+            out.append((here, gen, node, key))
+            out += _json_nodes(value, here, gen)
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            out.append((f"{path}[{i}]", f"{generic}[]", node, i))
+            out += _json_nodes(value, f"{path}[{i}]", f"{generic}[]")
+    return out
+
+
+def _fill_json(output: str, row: dict, ctx: FillContext, overrides: dict, fills: list, unfillable: list) -> str:
+    tree = json.loads(json.dumps(row["template"]))
+    nodes = _json_nodes(tree)
+    known = {n[0] for n in nodes} | {n[1] for n in nodes}
+    for key in overrides:
+        if key not in known:
+            unfillable.append(Unfillable(key, "", f"override names no field of {output}"))
+    ops, covered = [], []
+    for position, (path, generic, parent, key) in enumerate(nodes):
+        found, value = _override_for(path, generic, overrides)
+        if any(path.startswith(c + ".") or path.startswith(c + "[") for c in covered):
+            if found:
+                unfillable.append(Unfillable(path, "", "the override cannot land: an override on a section above it already replaces or removes it"))
+            continue
+        if found:
+            ops.append((position, parent, key, value))
+            fills.append(Fill(path, parent[key] if isinstance(parent[key], str) else "", value, "override"))
+            covered.append(path)
+        elif isinstance(parent[key], str):
+            parent[key] = _text_of(parent[key], path, generic, ctx, fills, unfillable)
+    for _position, parent, key, value in sorted(ops, key=lambda op: op[0], reverse=True):
+        if value is ABSENT:
+            del parent[key]
+        else:
+            parent[key] = value
+    return json.dumps(tree, indent=2, ensure_ascii=False) + "\n"
+
+
+def _fill_md(output: str, row: dict, ctx: FillContext, overrides: dict, fills: list, unfillable: list) -> str:
+    """A markdown template: front matter keys (`key: <hint>`) and body lines. A hint in a table row goes through `grammar.escape_cell`.
+    Override keys: a front matter key, or `body:<label>` — the FIRST template line (outside the front matter) whose text starts with the
+    label; ABSENT removes the line, any other value replaces the whole line."""
+    lines = row["template"].split("\n")
+    front_end = 0
+    if lines and lines[0].strip() == "---":
+        front_end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), 0)
+    labels = {}                                         # line index -> label of the line
+    for i, text in enumerate(lines):
+        in_front = front_end and i <= front_end
+        found = FRONT_KEY.match(text) if in_front and 0 < i < front_end else None
+        if found:
+            labels[i] = found.group(1)
+        elif text.strip() and not in_front:
+            labels[i] = BODY + text.strip()
+    chosen = {}                                         # line index -> override value
+    for key, value in overrides.items():
+        if key.startswith(BODY):
+            at = next((i for i, label in labels.items() if label.startswith(BODY) and label[len(BODY):].startswith(key[len(BODY):])), None)
+        else:
+            at = next((i for i, label in labels.items() if label == key), None)
+        if at is None:
+            unfillable.append(Unfillable(key, "", f"override names no field of {output}"))
+        else:
+            chosen[at] = value
+    out = []
+    for i, text in enumerate(lines):
+        label = labels.get(i)
+        if i in chosen:
+            fills.append(Fill(label, text, chosen[i], "override"))
+            if chosen[i] is not ABSENT:
+                out.append(str(chosen[i]) if label.startswith(BODY) else f"{label}: {chosen[i]}")
+            continue
+        if label is None or not HINT.search(text):
+            out.append(text)
+            continue
+        table = text.lstrip().startswith("|")
+        gen_path = label if not label.startswith(BODY) else f"line{i + 1}"
+
+        def swap(match, label=label, gen_path=gen_path, table=table):
+            logged, problems = [], []
+            value = _text_of(match.group(0), gen_path, gen_path, ctx, logged, problems)
+            fills.extend(Fill(label, f.hint, f.value, f.rule) for f in logged)
+            unfillable.extend(Unfillable(label, u.hint, u.why) for u in problems)
+            return grammar.escape_cell(value) if table else str(value)
+        out.append(HINT.sub(swap, text))
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def fill_artifact(output: str, ctx: FillContext, *, variant: str = VARIANT_BASE, overrides=None):
+    """`FilledArtifact` for a role-written output with a template row, `ByCode` for an output code writes, `NotCovered` for one the filler
+    does not do (the row says why); `Unclassified` for an output the tables cannot place. Only `base` is a variant of an output in this
+    group; any other name raises ValueError. `overrides`: `{path: value | ABSENT}`, the grammar of 3.5 (a JSON path `a.b[0].c` /
+    `a.b[].c`; a front matter key or `body:<label>` for markdown); an override that names no field is an `Unfillable` (E20)."""
+    if variant != VARIANT_BASE:
+        raise ValueError(f"{output}: {variant!r} is not a variant of this output; its variants are {[VARIANT_BASE]}")
+    kind = classify(output)
+    if kind == "code":
+        return ByCode(output, writer_of(output))
+    if kind == "not_covered":
+        return NotCovered(output, rules()["not_covered"][output])
+    row = rules()["artifact_templates"][output]
+    if output.endswith("/"):
+        why = "a directory output is filled one file per id of the context; no group has landed that yet"
+        return FilledArtifact(output, {}, [], [Unfillable(output, "", why)], [])
+    fills, unfillable = [], []
+    if row["format"] == "json":
+        text = _fill_json(output, row, ctx, dict(overrides or {}), fills, unfillable)
+    elif row["format"] == "md":
+        text = _fill_md(output, row, ctx, dict(overrides or {}), fills, unfillable)
+    else:
+        raise ValueError(f"{output}: the template format {row['format']!r} is not one the filler writes yet (`json`, `md`)")
+    return FilledArtifact(output, {output: text}, fills, unfillable, [])
+
+
+def write_outputs(task_root, project_root, result: FilledArtifact) -> list:
+    """Write the files of a filled output into the world: a story file under `task_root`, a `project:<rel>` file under
+    `<project_root>/qa-factory/<rel>`. Raises NotFillable for a half-filled output (nothing is written) and ValueError for a path that
+    would leave its root (E22: the filler writes only inside the world it is given); every file is checked BEFORE the first is written."""
+    result.require()
+    plan = []
+    for rel, text in result.files.items():
+        project = rel.startswith("project:")
+        base = (Path(project_root) / "qa-factory") if project else Path(task_root)
+        inner = rel[len("project:"):] if project else rel
+        target = (base / inner).resolve()
+        parts = re.split(r"[\\/]", inner)
+        if not inner or Path(inner).is_absolute() or inner.startswith(("/", "\\")) or ".." in parts \
+                or not target.is_relative_to(base.resolve()) or target == base.resolve():
+            raise ValueError(f"{result.output}: the path {rel!r} does not stay inside {base} - the filler writes only inside the world it is given")
+        plan.append((target, text))
+    written = []
+    for target, text in plan:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(text.encode("utf-8"))
+        written.append(target)
+    return written

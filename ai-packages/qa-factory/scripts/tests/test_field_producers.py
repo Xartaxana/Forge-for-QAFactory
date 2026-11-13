@@ -401,13 +401,14 @@ def every_form_fills_from_its_own_hints() -> None:
         ctx = FF.FillContext(author_dispatch="S2-author-1")
         for contract in forms:
             spec = handoff.spec(contract)
+            cx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id=f"{contract}-w1")     # the dispatch the world reads the form as
             listed = FF.variants(contract)
             if len(listed) < max(len(words) if "header.verdict" in spec else 1, 1):
                 short.append(contract)
             for index_of, (verdict, variant) in enumerate(listed):
                 rows += 1
                 row = f"{contract}[{verdict}/{variant}]"
-                filled = FF.fill_form(contract, ctx, verdict=verdict, variant=variant)
+                filled = FF.fill_form(contract, cx, verdict=verdict, variant=variant)
                 if index_of == 0:
                     fields += len(filled.fills) + len(filled.left_for_code) + len(filled.unfillable)
                     left_total += len(filled.left_for_code)
@@ -464,6 +465,149 @@ def every_form_fills_from_its_own_hints() -> None:
     print(f"forms {len(forms)}, variants {rows}, fields {fields}, unfillable {len(seen)}, left_for_code {left_total}")
 
 
+def _stage_json_outputs() -> set:
+    """The output names of references/stages.json, read here a second time and by its own keys: the pin against `stage_outputs()`."""
+    names = set()
+    for stage in json.loads((harness.PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))["stages"]:
+        names.update(stage.get("outputs") or [])
+        names.update(d["output"] for d in stage.get("optional_dispatches") or [] if isinstance(d, dict) and d.get("output"))
+    return names
+
+
+def every_stage_output_fills_or_is_named() -> None:
+    """P1-a N2a (C8): every output of every stage is classified into exactly one of three named results (`FilledArtifact`, `ByCode`,
+    `NotCovered`), and a filled one is read by its own reader (`validate_artifacts.collect_errors`).
+
+    Row id `output: <name>[<variant>]`. A role-written output with neither a template nor a `not_covered` row, an output with no
+    writer, a stale row, an unfillable hint and a refusal on a filled output are red rows. An output no reader refuses even with its first
+    required field gone is NAMED in the summary (`outputs no reader refuses`), a `NotCovered` one too; neither is red (E7, E21)."""
+    import form_filler as FF
+    import validate_artifacts as VA
+    ctx = FF.FillContext(task_key="TP1-1", dispatch_id="S1-dispatch-1")
+    try:
+        pairs = FF.stage_outputs()
+    except Exception as exc:                       # an unreadable table is red, never "no outputs"
+        check("stage_outputs() reads references/stages.json", False, f"{type(exc).__name__}: {exc}")
+        return
+    names = list(dict.fromkeys(name for _stage, name in pairs))
+    listed = _stage_json_outputs()
+    check("the table walked outputs of the stages", bool(names) and bool(listed), f"{len(names)} / {len(listed)}")
+    for name in sorted(listed - set(names)):
+        check(f"output {name}: stages.json names it, the table has no row", False, "stage_outputs() does not return it")
+    for name in sorted(set(names) - listed):
+        check(f"table row {name} names no output of stages.json", False, "stage_outputs() returns it")
+    tables = FF.rules()
+    for section in ("artifact_templates", "not_covered"):
+        for key in tables[section]:
+            if key not in names:
+                check(f"stale fill row {key}", False, f"{section} names an output no stage of stages.json lists")
+                continue
+            try:
+                code_written = not FF.writer_of(key).endswith(FF.ROLE_WRITER)
+            except FF.Unclassified:
+                continue                           # said by the row of the output itself
+            if code_written:
+                check(f"stale fill row {key}", False, f"{section} names an output whose writer is code ({FF.writer_of(key)})")
+    root = harness.temp_dir()
+    by_code, not_covered, unread, rows, filled_count = 0, [], [], 0, 0
+
+    def task_root_of(world):
+        return world / "qa-factory" / "artifacts" / ctx.task_key
+
+    def refusals(world, result) -> list:
+        return [e for path in FF.write_outputs(task_root_of(world), world, result) for e in VA.collect_errors(path, {})]
+    try:
+        for name in names:
+            row = f"output: {name}[base]"
+            try:
+                kind = FF.classify(name)
+            except FF.Unclassified as exc:
+                check(str(exc), False, "the table cannot place this output")
+                continue
+            try:
+                result = FF.fill_artifact(name, ctx)
+            except Exception as exc:               # E14 by analogy: an exception is never a pass
+                check(f"{row}: crashed: {type(exc).__name__}", False, str(exc))
+                continue
+            rows += 1
+            if isinstance(result, FF.ByCode):
+                by_code += 1
+                check(row, kind == "code" and result.writer == FF.writer_of(name) and bool(result.writer.strip()), f"{kind} / {result.writer!r}")
+            elif isinstance(result, FF.NotCovered):
+                not_covered.append((name, result.why))
+                check(row, kind == "not_covered" and bool(result.why.strip()), f"{kind} / {result.why!r}")
+            else:
+                filled_count += 1
+                check(f"{row}: classified as role", kind == "role", kind)
+                for u in result.unfillable:
+                    check(f"unfillable output {name}:{u.path} «{u.hint}»", False, u.why)
+                if result.unfillable:
+                    continue
+                template = tables["artifact_templates"][name]
+                contract_lines = [ln.rstrip() for ln in (harness.PLUGIN_ROOT / template["contract"]).read_text(encoding="utf-8").splitlines()]
+                check(f"output: {name}[anchor]", template["anchor"] in contract_lines, f"{template['contract']} has no line {template['anchor']!r}")
+                errors = refusals(root / "base", result)
+                check(row, errors == [], "; ".join(e[:160] for e in errors[:3]))
+                required = template.get("required") or []
+                if not required:
+                    unread.append(name)            # nothing to remove: no broken variant can be built
+                    continue
+                broken = FF.fill_artifact(name, ctx, overrides={required[0]: FF.ABSENT})
+                variant = f"ABSENT {required[0]}"
+                check(f"output: {name}[{variant}]: the override lands", not broken.unfillable, str([(u.path, u.why) for u in broken.unfillable]))
+                if not broken.unfillable and not refusals(root / f"broken-{rows}", broken):
+                    unread.append(name)
+        # the rows of the interface itself (E20, E22, the escape of a cell, determinism)
+        manifest, register, understanding = "work/context-manifest.json", "work/requirements-register.md", "understanding.md"
+        for name, overrides, wanted in (
+                (manifest, {"nowhere.x": 1}, "nowhere.x"), (manifest, {"related[3].key": "x"}, "related[3].key"),
+                (register, {"nowhere": 1}, "nowhere"), (understanding, {"body:## Nowhere": FF.ABSENT}, "body:## Nowhere")):
+            got = FF.fill_artifact(name, ctx, overrides=overrides)
+            check(f"output: {name}[override missing path {wanted}]",
+                  [u.path for u in got.unfillable] == [wanted] and got.unfillable[0].why == f"override names no field of {name}",
+                  str([(u.path, u.why) for u in got.unfillable]))
+        landed = json.loads(FF.fill_artifact(manifest, ctx, overrides={"related[].key": "ZZ-9", "related[0].source": "one"}).files[manifest])
+        check(f"output: {manifest}[override section[] and section[0]]", landed["related"][0]["key"] == "ZZ-9" and landed["related"][0]["source"] == "one",
+              str(landed["related"]))
+        check(f"output: {register}[override front matter key lands verbatim]",
+              "confidence: low\n" in FF.fill_artifact(register, ctx, overrides={"confidence": "low"}).files[register], "no `confidence: low` line")
+        check(f"output: {understanding}[override body line ABSENT removes the line]",
+              "## Why this change" not in FF.fill_artifact(understanding, ctx, overrides={"body:## Why this change": FF.ABSENT}).files[understanding], "heading kept")
+        check(f"output: {manifest}[same input, same bytes]", FF.fill_artifact(manifest, ctx).files == FF.fill_artifact(manifest, ctx).files, "bytes differ")
+        check(f"output: {manifest}[token with no key in the context]", [u.path for u in FF.fill_artifact(manifest, FF.FillContext(task_key="")).unfillable] == ["ticket"],
+              "the empty task key was written")
+        cell = FF._fill_md("synthetic", {"template": "| <TICKET> | x |\n"}, FF.FillContext(task_key="A|B"), {}, [], [])
+        check("output: synthetic table row[a bar in a cell goes through grammar.escape_cell]", cell == "| A\\|B | x |\n", repr(cell))
+        for name, bad in (("a parent step", "../escape.txt"), ("a step inside", "work/../../escape.txt"), ("an absolute path", str(root / "abs.txt")),
+                          ("a project parent step", "project:../escape.txt"), ("an empty path", "")):
+            try:
+                FF.write_outputs(task_root_of(root / "e22"), root / "e22", FF.FilledArtifact("synthetic", {"work/ok.txt": "x", bad: "y"}, [], [], []))
+                check(f"output: synthetic[write_outputs refuses {name}]", False, "no error")
+            except ValueError:
+                check(f"output: synthetic[write_outputs refuses {name}]", not (task_root_of(root / "e22") / "work" / "ok.txt").exists() and not (root / "escape.txt").exists(),
+                      "something was written before the refusal")
+        placed = FF.write_outputs(task_root_of(root / "e22"), root / "e22", FF.FilledArtifact("synthetic", {"work/ok.txt": "x", "project:probe.md": "y"}, [], [], []))
+        check("output: synthetic[write_outputs: a story file under the task root, a project file under qa-factory/]",
+              placed == [(task_root_of(root / "e22") / "work" / "ok.txt").resolve(), (root / "e22" / "qa-factory" / "probe.md").resolve()], str(placed))
+        try:
+            FF.write_outputs(task_root_of(root / "e22"), root / "e22", FF.FilledArtifact("synthetic", {"work/never.txt": "x"}, [], [FF.Unfillable("a", "<h>", "why")], []))
+            check("output: synthetic[write_outputs refuses a half-filled output]", False, "no error")
+        except FF.NotFillable:
+            check("output: synthetic[write_outputs refuses a half-filled output]", not (task_root_of(root / "e22") / "work" / "never.txt").exists(), "a file was written")
+        try:
+            FF.fill_artifact(manifest, ctx, variant="empty_lists")
+            check(f"output: {manifest}[a variant the output does not have raises]", False, "no error")
+        except ValueError:
+            check(f"output: {manifest}[a variant the output does not have raises]", True)
+    finally:
+        harness.cleanup(root)
+    check("the table classified every output of the stages", rows == len(names), f"{rows} of {len(names)}")
+    print(f"outputs {len(names)}, filled {filled_count}, by code: {by_code}, not covered {len(not_covered)}")
+    for name, why in not_covered:
+        print(f"not covered: {name} — {why}")
+    print(f"outputs no reader refuses: {', '.join(unread) if unread else 'none'}")
+
+
 def main() -> None:
     every_required_field_has_a_producer_or_a_declared_gap()
     the_two_paths_this_walk_wired()
@@ -471,6 +615,7 @@ def main() -> None:
     known_red_ledger_cases()
     form_filler_hint_cases()
     every_form_fills_from_its_own_hints()
+    every_stage_output_fills_or_is_named()
     finish("test_field_producers")
 
 

@@ -22,6 +22,87 @@
     "<dispatch>": "dispatch_id",
     "<the author's dispatch>": "author_dispatch"
   },
-  "artifact_templates": {},
-  "not_covered": {}
+  "artifact_templates": {
+    "work/context-manifest.json": {
+      "contract": "references/artifact-contract-grounding.md",
+      "anchor": "## `context-manifest.json`",
+      "format": "json",
+      "template": {
+        "ticket": "<TICKET>",
+        "issue_type": "<the ticket's own type, as the tracker names it>",
+        "acceptance_criteria": ["<one acceptance criterion as the ticket words it>"],
+        "implementation": {
+          "source": "<diff|current-code|none|ungrounded>",
+          "mr": "<the merge request reference>",
+          "branch": "<the branch name>",
+          "commit": "<the commit id>",
+          "diff_path": "work/impl-diff.txt"
+        },
+        "implementations": [
+          {
+            "repo": "<the repository name>",
+            "source": "<diff|current-code|none|ungrounded>",
+            "mr": "<the merge request reference>",
+            "branch": "<the branch name>",
+            "commit": "<the commit id>",
+            "diff_path": "work/impl-diff.txt"
+          }
+        ],
+        "related": [
+          {
+            "key": "<the related ticket key>",
+            "kind": "<implementation|blocker|bug|mention>",
+            "source": "<where in this ticket the key was read>"
+          }
+        ],
+        "witness": "<what the scout read, one sentence>"
+      },
+      "required": ["ticket", "acceptance_criteria", "implementation"]
+    },
+    "work/requirements-register.md": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "## `requirements-register.md`",
+      "format": "md",
+      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nids: [<R-n>]\nby_source: {ac: 1}\nconfidence: <high|low>\n---\n\n# Requirements register\n\n## Register\n\n| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact | delta | code_says |\n|---|---|---|---|---|---|---|---|---|---|\n| <R-n> | <one verifiable statement of the story> | ac | - | yes | <AC-n> | expected-contract:spec | none | new | unknown |\n\n## Contradiction matrix\n\n| R | story | ac |\n|---|---|---|\n| <R-n> | silent | silent |\n",
+      "required": ["task", "created", "ids", "by_source", "confidence"]
+    },
+    "work/requirements-readiness.json": {
+      "contract": "references/artifact-contract-json.md",
+      "anchor": "## `requirements-readiness.json`",
+      "format": "json",
+      "template": {
+        "verdict": "<ready|blocked>",
+        "goal_summary": "<one sentence: what the story is for>",
+        "aspects": {},
+        "open_questions": [],
+        "register": {"total": "<n>", "by_source": {"ac": 1}},
+        "confidence": "<high|low>"
+      },
+      "required": ["verdict", "goal_summary", "aspects", "open_questions", "register", "confidence"]
+    },
+    "understanding.md": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "## `understanding.md`",
+      "format": "md",
+      "template": "## Why this change\n\n<one sentence on why the change exists>\n\n## What we verify\n\n- <R-n>: <what is verified, one sentence>\n\n## What we do not verify, and why\n\n- none\n\n## What else the change may touch\n\n- <one area the change may touch>\n\n## Questions without which testing is pointless\n\n- none\n",
+      "required": ["body:## Why this change", "body:## What we verify", "body:## What we do not verify", "body:## What else the change may touch", "body:## Questions without which"]
+    }
+  },
+  "not_covered": {
+    "work/impl-diff.txt": "no contract shape: a diff text; the story kit supplies it",
+    "test-plan.md": "group N2b not landed",
+    "work/test-plan.json": "group N2b not landed",
+    "work/grounding.yaml": "group N2b not landed",
+    "work/test-cases/": "group N2b not landed",
+    "work/s5-plan.json": "group N2c not landed",
+    "work/s5-notes/": "group N2c not landed",
+    "work/evidence/manual/<case>/tried.md": "group N2c not landed",
+    "work/triage.json": "group N2d not landed",
+    "work/bug-drafts/": "group N2d not landed",
+    "test-report.md": "group N2d not landed",
+    "project:bugs/": "group N2d not landed",
+    "project:obligations.md": "group N2d not landed",
+    "retro.md": "group N2d not landed",
+    "project:factory-backlog.md": "group N2d not landed"
+  }
 }
