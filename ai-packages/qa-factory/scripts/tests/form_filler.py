@@ -109,6 +109,8 @@ class Filled:
     fills: list
     unfillable: list
     left_for_code: list
+    literal_text: list = field(default_factory=list)       # paths whose value is text a `literal_text` row names (an angle bracket that is no hint)
+    kept_in_contract: list = field(default_factory=list)   # (path, hint text): contract-owned values with a hint no token names, kept as the contract wrote them
 
     def require(self) -> "Filled":
         """The form itself, or `NotFillable` naming the first field it could not fill (and how many more)."""
@@ -285,14 +287,17 @@ class _Survey:
         self.has_verdict = verdict is not None
         self.words = list(verdict.options) if verdict is not None and verdict.options else None
         self.items = []
-        tokens = rules()["context_tokens"]
+        self.kept = []                      # (path, raw): contract-owned values that carry a hint no token names - the contract's, kept as written
+        tokens = {**rules()["context_tokens"], **rules().get("form_field_tokens", {})}
         for path, node in sorted(self.tmpl.nodes.items(), key=lambda kv: kv[1].line):
             generic = ROW_INDEX.sub("[]", path)
             raw = "" if node.value is None else str(node.value)
             if handoff.owned_by_contract(path):
-                # the contract writes these itself; only a context token inside one (`inputs[0].path`) is the filler's to substitute
+                # the contract writes these itself; only a token inside one (`inputs[0].path`) is the filler's to substitute
                 if isinstance(node.value, str) and any(tok in raw for tok in tokens):
                     self.items.append(_Item(path, generic, raw, node, self.spec.get(generic), "token"))
+                elif isinstance(node.value, str) and HINT.search(raw) and _literal_text(raw) is None:
+                    self.kept.append((path, raw))
                 continue
             fspec = self.spec[generic]
             if _hint_list(node.value):                      # `["<reason>"]`: every element is a hint of its own, filled by the same rules
@@ -309,6 +314,8 @@ class _Survey:
                     kind = "code" if handoff_check._code_fills(path) else "token"      # a value code fills is code's, token or not
                 elif HINT.search(raw) and _literal_text(raw) is None:
                     kind = "code" if handoff_check._code_fills(path) else "embedded"   # a hint inside a value, named by no token and no literal-text row
+                elif HINT.search(raw):
+                    kind = "literal"                                                   # text that carries an angle bracket, named by a literal-text row
                 else:
                     kind = "keep"
                 self.items.append(_Item(path, generic, raw, node, fspec, kind))
@@ -316,7 +323,7 @@ class _Survey:
                 self.items.append(_Item(path, generic, raw, node, fspec, "verdict"))
             elif handoff_check._code_fills(path):
                 self.items.append(_Item(path, generic, raw, node, fspec, "code"))
-            elif raw.strip() in rules()["context_tokens"]:
+            elif raw.strip() in tokens:
                 self.items.append(_Item(path, generic, raw, node, fspec, "token"))
             else:
                 gen, why = _generate(raw, fspec, path)
@@ -395,6 +402,21 @@ def _section_span(lines: list, name: str):
     return start, last
 
 
+def _finish_token(item, text: str, missing: list, ops: list, fills: list, unfillable: list) -> None:
+    """Close a value whose tokens were substituted: a token with no value, or a hint STILL left in the text (a hint that is no token), is an
+    `Unfillable` - never a value that leaves the filler carrying a hint (AR-28) - unless a `literal_text` row names the text."""
+    if missing:
+        unfillable.append(Unfillable(item.path, item.raw, "; ".join(missing)))
+        return
+    left = HINT.findall(text)
+    if left and _literal_text(text) is None:
+        unfillable.append(Unfillable(item.path, item.raw, f"after the tokens were filled the value still carries {left}: a hint that no context token "
+                                                          "names and no `literal_text` row of form-fill-rules.json covers (E10)"))
+        return
+    ops.append((item.node, "set", text, item.path))
+    fills.append(Fill(item.path, item.raw, text, "token"))
+
+
 def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = VARIANT_BASE, overrides=None) -> Filled:
     """The form of `contract` filled from its own hints: every field the role fills gets the value its hint says (the first
     alternative in the base variant), a field code fills stays as written, and a hint nothing fits is listed in `unfillable`.
@@ -449,6 +471,7 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
         if key not in matched:
             unfillable.append(Unfillable(key, "", f"override names no field of {contract}"))
     ops = []                                          # (node, "set" | "delete", value, path)
+    literal, deferred = [], []
     for item in survey.items:
         head = item.path.split(".")[0].split("[")[0]
         found, value = _override_for(item.path, item.generic, overrides)
@@ -465,6 +488,9 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
             continue
         if item.kind == "keep":
             continue
+        if item.kind == "literal":
+            literal.append(item.path)
+            continue
         if item.kind == "token":
             text, missing = item.raw, []
             for token, key in rules()["context_tokens"].items():
@@ -473,12 +499,11 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
                     if given:
                         text = text.replace(token, str(given))
                     else:
-                        missing.append((token, key))
-            if missing:
-                unfillable.append(Unfillable(item.path, item.raw, "; ".join(f"the contract's token {t} has no key `{k}` in the context" for t, k in missing)))
-            else:
-                ops.append((item.node, "set", text, item.path))
-                fills.append(Fill(item.path, item.raw, text, "token"))
+                        missing.append(f"the contract's token {token} has no key `{key}` in the context")
+            if any(token in text for token in rules().get("form_field_tokens", {})):
+                deferred.append((item, text, missing))      # a token the form's own field gives: known once every field has its value
+                continue
+            _finish_token(item, text, missing, ops, fills, unfillable)
             continue
         if item.kind == "code":
             if variant == OMIT_OPTIONAL and item.fspec.optional:
@@ -524,6 +549,17 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
         value = _issued(value, ctx)
         ops.append((item.node, "set", value, item.path))
         fills.append(Fill(item.path, item.raw, value, gen.rule))
+    for item, text, missing in deferred:
+        given_by = {path: value for _node, action, value, path in ops if action == "set"}
+        for token, field_path in rules()["form_field_tokens"].items():
+            if token not in text:
+                continue
+            value = given_by.get(field_path)
+            if isinstance(value, str) and value.strip() and not HINT.search(value):
+                text = text.replace(token, value)
+            else:
+                missing.append(f"the contract's token {token} reads the field `{field_path}` of this form, which gives no plain value (it was {value!r})")
+        _finish_token(item, text, missing, ops, fills, unfillable)
     doc = survey.tmpl
     for node, action, value, path in sorted(ops, key=lambda op: op[0].line, reverse=True):
         if action == "delete":
@@ -534,7 +570,7 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
     for name, span, drop in sorted((s for s in spans if s[1]), key=lambda s: s[1][0], reverse=True):
         doc.lines[span[0]:span[1] + 1] = [] if drop else [f"{name}: []"]
     text = doc.text()
-    return Filled(contract, word_text, variant, text, handoff.parse(text).data, fills, unfillable, left)
+    return Filled(contract, word_text, variant, text, handoff.parse(text).data, fills, unfillable, left, literal, list(survey.kept))
 
 
 def write_dispatch_form(task_root, dispatch_id: str, contract: str, ctx: FillContext, verdict, *, overrides=None) -> Path:
@@ -654,13 +690,44 @@ def test_file_languages(source: dict) -> list:
     table = _reference(Path(source["file"]).name)
     for section in source["sections"]:
         names += list(table.get(section) or {})
-    if source.get("runner_keys"):
-        try:
-            markers = json.loads((REFERENCES / Path(source["runner_keys"]).name).read_text(encoding="utf-8"))
-            names += [k for k, v in markers.items() if isinstance(v, dict)]
-        except Exception:                               # said by every row of the family: `marker_form` names the file
-            pass
+    names += _runner_keys(source)
     return sorted(dict.fromkeys(names))
+
+
+def _runner_keys(source: dict) -> list:
+    """The runner keys the `runner_keys` file of `source` names (object entries); none when the row names no file or the file cannot be read."""
+    if not source.get("runner_keys"):
+        return []
+    try:
+        markers = json.loads((REFERENCES / Path(source["runner_keys"]).name).read_text(encoding="utf-8"))
+        return [k for k, v in markers.items() if isinstance(v, dict)]
+    except Exception:                                   # said by every row of the family: `marker_form` names the file
+        return []
+
+
+def reverse_walk_languages(source: dict) -> tuple:
+    """`(names, notes)` for the reverse walk: `test_file_languages` with every runner key collapsed onto the language the data already links
+    it to - a `languages` row `{"like": <language>}` of a `test_file:<lang>` template row - so one file and one refusal is ONE ledger row
+    (`@pytest` is the Python file). A runner key with no such link, or one whose language is not walked, is walked as before and `notes`
+    (name -> why) says so: the row prints it. No pair is written in this code."""
+    names = test_file_languages(source)
+    links = {}
+    for key, row in rules()["artifact_templates"].items():
+        table = row.get("languages") if LANG in key and isinstance(row.get("languages"), dict) else {}
+        for lang, entry in table.items():
+            if isinstance(entry, dict) and isinstance(entry.get("like"), str) and entry["like"].strip():
+                links[lang] = entry["like"]
+    runner = set(_runner_keys(source))
+    out, notes = [], {}
+    for name in names:
+        target = links.get(name)
+        if target and target != name and target in names:
+            continue                                    # the runner key of a language that is walked: the same file
+        out.append(name)
+        if name in runner:
+            notes[name] = (f"runner key `{name}` has no `like` link to a walked language in the template rows, so it is walked on its own"
+                           if not target else f"runner key `{name}` links to `{target}`, which is not a walked language, so it is walked on its own")
+    return out, notes
 
 
 def marker_form(lang: str, row: dict) -> tuple:

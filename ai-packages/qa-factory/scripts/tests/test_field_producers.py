@@ -42,37 +42,30 @@ ROUNDS = harness.FIXTURES / "form-rounds.json"
 ROUNDS_REL = "scripts/tests/fixtures/form-rounds.json"
 WALK: dict = {}          # row id -> True/False for EVERY row this file checks: what `known_red.reconcile` judges (P1-a N3 item 7)
 OUTCOMES: dict = {}      # (agree label, reader row id) -> the verdict of its forward round row: what C4 compares
-_LEDGER_IDS: list = []
+LANG_NOTES: dict = {}    # language -> why the reverse walk walks it on its own (a runner key with no language link): printed in the row
+_LOADED: dict = {}
 
 
-def _ledger_ids() -> set:
-    if not _LEDGER_IDS:
+def _loaded(section: str) -> dict:
+    """The rows of one ratcheted section of the registry, read ONCE through `known_red.load` (the one loader of both sections)."""
+    if section not in _LOADED:
         try:
-            _LEDGER_IDS.append(set(KR.load(ROUNDS)))
+            _LOADED[section] = KR.load(ROUNDS, section)
         except Exception:                          # the reconcile row says why the ledger cannot be read
-            _LEDGER_IDS.append(set())
-    return _LEDGER_IDS[0]
-
-
-def _not_in_world() -> dict:
-    """`not_in_world` of the registry: row id -> the reason the round's world lacks the input. NOT defects of main, so not ledger rows."""
-    try:
-        rows = json.loads(ROUNDS.read_text(encoding="utf-8")).get("not_in_world", {})
-    except Exception:                              # the reconcile row says why the registry cannot be read
-        return {}
-    return rows if isinstance(rows, dict) else {}
+            _LOADED[section] = {}
+    return _LOADED[section]
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
     """`harness.check`, plus the walk record the ledger is judged against. A red row the ledger names prints as KNOWN RED and is not
     failed twice: the reconcile row at the end is its judge (it fails a row the ledger does not name, and a ledger row that is green)."""
     WALK[name] = WALK.get(name, True) and bool(ok)
-    if not ok and name in _ledger_ids():
+    if not ok and name in _loaded("known_red"):
         print(f"KNOWN RED {name}" + (f" — {detail}" if detail else ""))
         harness.RESULTS.append((True, name))
         return False
-    if not ok and name in _not_in_world():
-        print(f"NOT IN WORLD {name} — {_not_in_world()[name]}")
+    if not ok and name in _loaded(KR.WORLD_SECTION):
+        print(f"NOT IN WORLD {name} — {_loaded(KR.WORLD_SECTION)[name].reason}")
         harness.RESULTS.append((True, name))
         return False
     return harness.check(name, ok, detail)
@@ -246,6 +239,47 @@ def known_red_ledger_cases() -> None:
         harness.cleanup(root)
 
 
+def not_in_world_ratchet_cases() -> None:
+    """The `not_in_world` section is a ratchet like `known_red` (re-review N1): same loader, a `raised_by` on every row, a count pin that holds
+    in both directions. One table, the row name is the case. Each row: (name, file text, expected); expected is ("error", text the
+    LedgerError names) or ("pin", the text the pin problem must contain, or None when the pin holds)."""
+    good = '{"reason": "no diff in the world", "raised_by": "Lead, 2026-11-13"}'
+    two = '"pins": {"not_in_world": 2}, "not_in_world": {"a": %s, "b": %s}' % (good, good)
+    cases = [
+        ("row without raised_by", '{"not_in_world": {"a": {"reason": "x"}}}', ("error", "raised_by None")),
+        ("row with whitespace raised_by", '{"not_in_world": {"a": {"reason": "x", "raised_by": "  "}}}', ("error", "raised_by")),
+        ("row with null raised_by", '{"not_in_world": {"a": {"reason": "x", "raised_by": null}}}', ("error", "raised_by None")),
+        ("row without a reason", '{"not_in_world": {"a": {"raised_by": "Lead"}}}', ("error", "reason None")),
+        ("row with an unknown key", '{"not_in_world": {"a": {"reason": "x", "raised_by": "Lead", "node": "FV1-1"}}}', ("error", "unknown key")),
+        ("a string row (the old shape)", '{"not_in_world": {"a": "x"}}', ("error", "is str")),
+        ("count equals the pin", "{" + two + "}", ("pin", None)),
+        ("count above the pin", '{"pins": {"not_in_world": 1}, "not_in_world": {"a": %s, "b": %s}}' % (good, good), ("pin", "holds 2 rows, above pins.not_in_world 1")),
+        ("count below the pin", '{"pins": {"not_in_world": 3}, "not_in_world": {"a": %s, "b": %s}}' % (good, good), ("pin", "stale pin")),
+        ("missing pin", '{"not_in_world": {"a": %s}}' % good, ("pin", "pins.not_in_world is None")),
+        ("pin is a string", '{"pins": {"not_in_world": "1"}, "not_in_world": {"a": %s}}' % good, ("pin", "pins.not_in_world is '1'")),
+        ("pin is a bool", '{"pins": {"not_in_world": true}, "not_in_world": {"a": %s}}' % good, ("pin", "pins.not_in_world is True")),
+        ("pins is not an object", '{"pins": [1], "not_in_world": {}}', ("pin", "pins.not_in_world is None")),
+        ("section absent, pin 0", '{"pins": {"not_in_world": 0}}', ("pin", None)),
+        ("section absent, no pin", '{"pins": {}}', ("pin", "pins.not_in_world is None")),
+        ("section absent, pin above 0", '{"pins": {"not_in_world": 1}}', ("pin", "stale pin")),
+    ]
+    root = harness.temp_dir()
+    try:
+        for name, text, expected in cases:
+            path = root / "ledger.json"
+            path.write_text(text, encoding="utf-8")
+            try:
+                rows = KR.load(path, KR.WORLD_SECTION)
+                got = KR.pin_problem(path, KR.WORLD_SECTION, len(rows))
+            except KR.LedgerError as exc:
+                check(f"not_in_world ratchet: {name}", expected[0] == "error" and expected[1] in str(exc), f"{exc} / wanted {expected}")
+                continue
+            ok = expected[0] == "pin" and (got is None if expected[1] is None else got is not None and expected[1] in got)
+            check(f"not_in_world ratchet: {name}", ok, f"{got!r} / wanted {expected}")
+    finally:
+        harness.cleanup(root)
+
+
 SYNTHETIC_FORM = """schema_version: 1
 contract: synthetic
 stage: S3
@@ -278,6 +312,11 @@ probe:
   free: <what is being checked, one sentence>
   no_list: <one of vocabulary.no_such_list>
   dispatch: "work/handoffs/<dispatch>.yaml"
+  partial: work/<TICKET>/<a part no token names>.md
+
+inputs:
+  - path: <cases_root>/<area>/<case>.md
+  - path: work/probes/<instance>.json
 
 rows:
   - key: <one sentence>
@@ -286,6 +325,7 @@ rows:
     other: <one sentence>
 
 artifacts:
+  cases_root: <the store the cases live in>
   run_witness: <path of the run_suite summary with the exit code and the totals line>
 """
 
@@ -307,6 +347,7 @@ def form_filler_hint_cases() -> None:
     import form_filler as FF
     ABS = FF.ABSENT
     ctx = FF.FillContext(author_dispatch="S2-author-1")
+    cases = FF.FillContext(author_dispatch="S2-author-1", cases=["TC-001"])
     levels = handoff_allowed("test_levels")
     rows = [
         # (name, ctx, variant, overrides, path, expected value | ABS | "<missing>")
@@ -351,6 +392,14 @@ def form_filler_hint_cases() -> None:
         ("token <the author's dispatch> with no author_dispatch (E12)", FF.FillContext(), "base", None, "<unfillable>", "probe.author"),
         ("<TICKET> -> ctx.task_key", FF.FillContext(task_key="ZZ-9", author_dispatch="a"), "base", None, "header.window", "ZZ-9"),
         ("same input, same bytes", ctx, "base", None, "<same bytes>", True),
+        # N2 (re-review): no value leaves the filler carrying a hint; the contract's own hints are named, not skipped
+        ("token <TICKET> filled and another hint left in the value is unfillable", cases, "base", None, "<unfillable>", "probe.partial"),
+        ("<cases_root> is filled from the form's own cases_root field", cases, "base", None, "inputs[0].path", "filled cases_root/general/TC-001.md"),
+        ("<cases_root> follows the value the form gives its cases_root field", cases, "base", {"artifacts.cases_root": "store"}, "inputs[0].path", "store/general/TC-001.md"),
+        ("<cases_root> of a form with no cases_root field is unfillable", cases, "base", {"artifacts.cases_root": ABS}, "<unfillable>", "inputs[0].path"),
+        ("<cases_root> with no case in the world is unfillable naming the token", ctx, "base", None, "<unfillable>", "inputs[0].path"),
+        ("kept_in_contract: a contract-owned hint no token names is counted", cases, "base", None, "<kept_in_contract>", "inputs[1].path"),
+        ("kept_in_contract: and stays as the contract wrote it", cases, "base", None, "inputs[1].path", "work/probes/<instance>.json"),
     ]
     root = harness.temp_dir()
     saved = handoff.CONTRACTS
@@ -367,6 +416,8 @@ def form_filler_hint_cases() -> None:
                     ok = expected in got and all(u.why.startswith("override names no field of synthetic") for u in filled.unfillable if u.path == expected)
                 else:
                     ok = expected in got
+            elif path == "<kept_in_contract>":
+                got, ok = [p for p, _hint in filled.kept_in_contract], expected in [p for p, _hint in filled.kept_in_contract]
             elif path == "<left_for_code>":
                 got, ok = filled.left_for_code, expected in filled.left_for_code
             elif path == "<same bytes>":
@@ -441,6 +492,7 @@ def every_form_fills_from_its_own_hints() -> None:
         return cache[0]
     handoff.vocabulary = vocabulary_once
     seen, rows, fields, left_total, short = {}, 0, 0, 0, []
+    literal_total, kept = 0, []
     try:
         _form_world(root)
         ctx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id="negative-w1", cases=["TC-001"])
@@ -457,6 +509,8 @@ def every_form_fills_from_its_own_hints() -> None:
                 if index_of == 0:
                     fields += len(filled.fills) + len(filled.left_for_code) + len(filled.unfillable)
                     left_total += len(filled.left_for_code)
+                    literal_total += len(filled.literal_text)
+                    kept += [f"kept_in_contract {contract}:{path} «{hint if len(hint) <= 100 else hint[:97] + '...'}»" for path, hint in filled.kept_in_contract]
                 for u in filled.unfillable:
                     seen.setdefault((contract, u.path, u.hint), u.why)
                 skip = {u.path for u in filled.unfillable}
@@ -507,7 +561,10 @@ def every_form_fills_from_its_own_hints() -> None:
         check(f"unfillable {contract}:{path} «{hint}»", False, why)
     check("the walk walked forms, variants and fields", bool(forms) and rows > 0 and fields > 0, f"{len(forms)}, {rows}, {fields}")
     check("every form has at least as many variants as header_verdicts words", not short, str(short))
-    print(f"forms {len(forms)}, variants {rows}, fields {fields}, unfillable {len(seen)}, left_for_code {left_total}")
+    for line in kept:                                  # named, never silently skipped: the contract's own values that still read as hints
+        print(line)
+    print(f"forms {len(forms)}, variants {rows}, fields {fields}, unfillable {len(seen)}, literal {literal_total}, left_for_code {left_total}, "
+          f"kept_in_contract {len(kept)}")
 
 
 def _stage_json_outputs() -> set:
@@ -998,7 +1055,8 @@ def _round_world(FF, root):
         FF.write_outputs(task, world, made[output].require())
     case_path = next(task / rel for rel in made["work/test-cases/"].files)
     # What CODE makes, made by the product's own writer on this world (never by hand): the pinned case version (case_versions) and
-    # the size (sizing). The other code-made inputs stay out of the world: see the report (B1(b)); their rows stay in the ledger.
+    # the size (sizing). The other code-made inputs stay out of the world: their rows are the `not_in_world` section of form-rounds.json (a
+    # ratchet of its own: reason + raised_by on every row, a count pin), not `known_red` rows.
     import case_versions as CV
     import sizing
     CV.pin(task, CV.create_version(CV.store_root(task), case_path))
@@ -1204,14 +1262,18 @@ def _expand(row: dict, FF, languages: list) -> list:
     return out
 
 
-def _languages(data: dict) -> list:
-    """The languages of the reverse walk, read out of the table the registry names (`languages_source`): never a list in this file."""
+def _languages(data: dict, reverse: bool = False) -> list:
+    """The languages of a walk, read out of the table the registry names (`languages_source`): never a list in this file. The reverse walk
+    (`reverse=True`) gets the runner keys collapsed onto their language (N4) and leaves `LANG_NOTES` for a key it could not collapse."""
     import form_filler as FF
     source = _section(data, "languages_source", dict)
     names: list = []
     if source:
         try:
             names = FF.test_file_languages(source)         # the one reader (F5, axis 34)
+            if reverse:
+                names, notes = FF.reverse_walk_languages(source)
+                LANG_NOTES.update(notes)
         except Exception as exc:
             check("languages_source is readable", False, f"{source}: {type(exc).__name__}: {exc}")
     if source and not names:
@@ -1229,7 +1291,7 @@ def every_reader_takes_what_its_writer_writes() -> None:
     data = _rounds()
     readers = _section(data, "readers", list)
     writers = data.get("writers") if isinstance(data.get("writers"), dict) else {}
-    languages = _languages(data)
+    languages = _languages(data, reverse=True)
     if readers is None:
         return
     root = harness.temp_dir()
@@ -1263,6 +1325,8 @@ def every_reader_takes_what_its_writer_writes() -> None:
                     ok, detail, obs = False, f"crashed: {type(exc).__name__}: {exc}", None
                 if pair.get("agree") and pair.get("writer"):
                     OUTCOMES[(pair["agree"], rid)] = ok
+                if pair.get("lang") in LANG_NOTES:
+                    detail = f"{LANG_NOTES[pair['lang']]}; {detail}"
                 check(rid, ok, detail[:600])
     finally:
         harness.cleanup(root)
@@ -1271,7 +1335,7 @@ def every_reader_takes_what_its_writer_writes() -> None:
     families = {str(r.get("family")) for r in readers}
     check("the registry holds the pinned number of reader rows", len(readers) == pins.get("readers"), f"{len(readers)} rows, pin {pins.get('readers')}")
     check("the registry holds the pinned number of reader families", len(families) == pins.get("families"), f"{len(families)} families, pin {pins.get('families')}")
-    print(f"readers {len(readers)}, pairs {walked}, languages {len(languages)}")
+    print(f"readers {len(readers)}, pairs {walked}, languages {len(languages)}" + "".join(f"; note: {why}" for why in LANG_NOTES.values()))
 
 
 def every_derived_field_meets_its_deriver() -> None:
@@ -1382,23 +1446,27 @@ def red_rows_equal_the_known_red_ledger() -> None:
     except KR.LedgerError as exc:
         check("known_red: the ledger loads", False, str(exc))
         return
-    world = _not_in_world()
-    for rid, why in world.items():
-        if not isinstance(why, str) or not why.strip():
-            harness.check(f"not_in_world: {rid}", False, "a not_in_world row names its reason")
-        elif rid in ledger:
+    try:
+        world = KR.load(ROUNDS, KR.WORLD_SECTION)          # the same loader: a row with no reason or no raised_by is a load error
+    except KR.LedgerError as exc:
+        check(f"{KR.WORLD_SECTION}: the section loads", False, str(exc))
+        return
+    for rid in world:
+        if rid in ledger:
             harness.check(f"not_in_world: {rid}", False, "the row is in known_red too: a row is a defect or a world gap, not both")
         elif rid not in WALK:
             harness.check(f"not_in_world: {rid}", False, f"unknown row: {rid} is no row of the walk; remove it from not_in_world in this commit")
         elif WALK[rid]:
             harness.check(f"not_in_world: {rid}", False, f"stale: {rid} is green; remove its not_in_world row in this commit")
+    pin = KR.pin_problem(ROUNDS, KR.WORLD_SECTION, len(world))        # the count is a ratchet both ways (equality, like the file's other pins)
+    harness.check(f"{KR.WORLD_SECTION}: the count equals its pin", pin is None, pin or "")
     verdict = KR.reconcile({k: v for k, v in WALK.items() if k not in world}, ledger, ledger_path=ROUNDS_REL)
     for line in verdict.known:
         print(line)
     for problem in verdict.problems:
         harness.check(problem.split(" — ")[0], False, problem)
     harness.check("known_red: the red rows of the walk are exactly the ledger", verdict.ok, f"{len(verdict.problems)} problems")
-    print(f"known red rows {len(verdict.known)}, rows walked {len(WALK)}")
+    print(f"known red rows {len(verdict.known)}, not in world rows {len(world)}, rows walked {len(WALK)}")
 
 
 def main() -> None:
@@ -1406,6 +1474,7 @@ def main() -> None:
     the_two_paths_this_walk_wired()
     the_sensitivity_gap_is_reported_not_hidden()
     known_red_ledger_cases()
+    not_in_world_ratchet_cases()
     form_filler_hint_cases()
     every_form_fills_from_its_own_hints()
     every_stage_output_fills_or_is_named()

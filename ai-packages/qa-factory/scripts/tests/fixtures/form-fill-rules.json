@@ -1,5 +1,5 @@
 {
-  "_about": "Rules of tests/form_filler.py (P1-a spec 3.2, 3.5): which generator fills which kind of hint of a handoff form. First matching rule wins. `when`: max_len (the reader's spec holds a length limit), kind:choice / kind:boolean (the reader's spec reads the hint as a closed list); `pattern`: a full match against the text inside the angle brackets. A hint no rule fits is never guessed: the filler reports it as unfillable. The generators are named in form_filler.GENERATORS.",
+  "_about": "Rules of tests/form_filler.py (P1-a spec 3.2, 3.5): which generator fills which kind of hint of a handoff form. First matching rule wins. `when`: max_len (the reader's spec holds a length limit), kind:choice / kind:boolean (the reader's spec reads the hint as a closed list); `pattern`: a full match against the text inside the angle brackets. `context_tokens`: a token a path of the contract names, read from the FillContext key; `form_field_tokens`: a token read from the value the SAME form gives the named field (no such field in the form: the value is unfillable, naming the token); `literal_text`: a value with an angle bracket that is text, not a hint. A hint no rule fits is never guessed: the filler reports it as unfillable. The generators are named in form_filler.GENERATORS.",
   "rules": [
     {"id": "limit", "when": "max_len", "gen": "limit"},
     {"id": "closed-boolean", "when": "kind:boolean", "gen": "first_option"},
@@ -24,6 +24,9 @@
     "<the author's dispatch>": "author_dispatch",
     "<case>": "first_case",
     "<area>": "area"
+  },
+  "form_field_tokens": {
+    "<cases_root>": "artifacts.cases_root"
   },
   "literal_text": [
     {"id": "command-template", "pattern": "^[a-z][a-z0-9_]*\\.py\\s"},
