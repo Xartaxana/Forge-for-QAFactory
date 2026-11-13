@@ -1977,13 +1977,33 @@ def _capture(event) -> bool:
     # already carries one, so a False here guarantees has_factory_activity ends up False too.
     likely_factory = is_factory_activity(activities)
     binding = {}
+    inherited = False       # True only where a usable parent activity replaced `activities` (one road for "nothing inherited")
+    attribution_gap = ""    # why the child's attribution could not be inherited ("" = nothing is missing; FR-41, P18)
     if event.get('host_binding'):
-        binding = json.loads(Path(event['host_binding']).read_text(encoding='utf-8'))
-        if binding.get('activity'):
-            # The child's dispatch belongs to its parent's explicit invocation, even after the parent returns.
-            inherited = dict(binding['activity'])
-            inherited['segments'] = [dict(inherited['segments'][-1], end_time=None)]
-            activities = [inherited]
+        # A receipt that is no JSON object (broken, empty, a list) inherits nothing: the capture still completes and the
+        # session total is unchanged, and the gap is printed through `telemetry_coverage.attribution` (never a raise).
+        read = read_json(event['host_binding'], None, kind=dict, errors=Exception)
+        if read is None:
+            attribution_gap = f"incomplete: host_binding {event['host_binding']} unreadable"
+        else:
+            binding = read
+            activity = binding.get('activity')
+            if activity:
+                segments = activity.get('segments') if isinstance(activity, dict) else None
+                if isinstance(segments, list) and segments and all(isinstance(s, dict) for s in segments):
+                    # The child's dispatch belongs to its parent's explicit invocation, even after the parent returns.
+                    child_activity = dict(activity)
+                    child_activity['segments'] = [dict(segments[-1], end_time=None)]
+                    activities = [child_activity]
+                    inherited = True
+                else:
+                    attribution_gap = f"incomplete: host_binding {event['host_binding']} has no usable activity"
+        if attribution_gap:
+            hooklib.person_signal(event, "host_receipt_unreadable",
+                                  f"cost_capture: the host binding {event['host_binding']} could not give the child's "
+                                  "activity, so this session's cost was captured without inheriting it and its "
+                                  "attribution is incomplete. Rewrite the receipt as a JSON object with an activity "
+                                  "that has segments, or delete it.", once_key=str(event['host_binding']))
     key_inputs = {"files": [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in files],
                   "prices": prices, "catalogue": catalogue.get("catalogue_revision"),
                   "activities": content_hash(activities_doc), "binding": binding, "wait_cap": wait_cap,
@@ -2031,7 +2051,7 @@ def _capture(event) -> bool:
          if likely_factory else None), own_chain=False, forms=forms, person_rule=person_rule)
     main_checkpoint = checkpoint
     # the turn that started an activity is the activity's (not for a child dispatch, whose activity is inherited, nor for a Codex rollout, whose "human" rows are unmeasured, nor with no readable person rule)
-    activities = start_turn_activities(activities, main_events) if person_rule and not binding.get("activity") and not codex_metadata(tpath) else activities
+    activities = start_turn_activities(activities, main_events) if person_rule and not inherited and not codex_metadata(tpath) else activities
     scan_checkpoints[str(tpath.resolve())] = checkpoint
     external_calls = merge_external_calls(external_calls, inferred_external_calls(
         tools, markers, forms=forms, problems=form_problems))
@@ -2296,7 +2316,8 @@ def _capture(event) -> bool:
                                "external_usage": "incomplete" if "forms_problem" in external else "complete"
                                if not external_calls or all(
                                    x.get("usage_status") == "available" and x.get("cost_usd") is not None
-                                   for x in external_calls) else "partial"},
+                                   for x in external_calls) else "partial",
+                               **({"attribution": attribution_gap} if attribution_gap else {})},
         "priced_subtotal_exact_usd": str(sum((Decimal(str((v.get("valuation") or {}).get("subtotal_usd","0"))) for v in by_model.values()), Decimal("0"))),
         "priced_subtotal_usd": float(sum((Decimal(str((v.get("valuation") or {}).get("subtotal_usd","0"))) for v in by_model.values()), Decimal("0"))),
         "session_id": session_id,
