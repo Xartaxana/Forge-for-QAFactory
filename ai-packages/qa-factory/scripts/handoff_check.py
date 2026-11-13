@@ -2972,6 +2972,37 @@ def _answer_text(path: Path, out: _Outcome) -> int:
     return 1
 
 
+TWO_CONTRACTS_NOTE = ("If this stage has two contracts, add --to <contract> "
+                      "(the contracts are listed in handoffs/index.yaml).")
+
+
+def _door_to(path: Path) -> tuple:
+    """`(flag, note)` for the door of the not-UTF-8 refusal: the form's own `contract:` line is read from its bytes
+    (read-only, never written back), mapped through the index to the row's `to`; the flag is ` --to <to>` only when
+    `handoff_init.py` without it would resolve another contract (a secondary row, a stage with two). A single-contract
+    stage gives `("", "")`: the door is as it always was. A line that cannot be found or mapped (FR-59: no guess) gives
+    `("", <sentence naming the option>)`."""
+    unknown = ("", TWO_CONTRACTS_NOTE + " ")
+    try:
+        text = path.read_bytes().decode("utf-8", errors="replace")
+        found = re.search(r"^contract:\s*['\"]?([A-Za-z0-9_.-]+)", text, re.M)
+        if not found:
+            return unknown
+        rows = [row for row in handoff.index().get("handoffs", []) if str(row.get("contract") or "") == found.group(1)]
+        tos = {str(row.get("to") or "") for row in rows}
+        if len(rows) != 1 or "" in tos:
+            return unknown
+        row = rows[0]
+        stage, role, to = str(row.get("stage") or row.get("gate") or ""), str(row.get("from") or ""), tos.pop()
+        if handoff.contract_of(stage, role) == found.group(1):
+            return "", ""
+        if handoff.contract_of(stage, role, to) == found.group(1):
+            return f" --to {to}", ""
+    except Exception:                       # noqa: BLE001 - an unreadable index is an unknown, never a guess
+        pass
+    return unknown
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", required=True)
@@ -3004,14 +3035,16 @@ def main() -> int:
         # The form is named by its file name, not its path: the driver keeps the first 200 characters of this line
         # (story_run.py), and the door is its tail. `--dispatch` is part of the door: without it `handoff_init.py` writes
         # the default `-1` form and leaves this one broken.
-        print(f"handoff_check: {path.name} is not UTF-8, left untouched. Start it again: "
-              f"handoff_init.py --task <T> --stage <S> --role <role> --dispatch {path.stem} --force")
+        to_flag, unsure = _door_to(path)
+        print(f"handoff_check: {path.name} is not UTF-8, left untouched. {unsure}Start it again: "
+              f"handoff_init.py --task <T> --stage <S> --role <role>{to_flag} --dispatch {path.stem} --force")
         return 2
     doc = handoff.parse(form_text)
     contract = str(doc.get("contract") or "")
     if not contract:
         print("handoff_check: the form does not name its `contract:` - it was not written by "
-              "handoff_init.py. Start it with: handoff_init.py --task <T> --stage <S> --role <role>")
+              "handoff_init.py. Start it with: handoff_init.py --task <T> --stage <S> --role <role>. "
+              + TWO_CONTRACTS_NOTE)
         return 2
     try:
         handoff.spec(contract)
