@@ -3714,7 +3714,7 @@
     "tests/test_probe_by_code.py"
    ]
   },
-  "test_probe_by_code_languages.py": {
+  "test_probe_by_code_languages_cli.py": {
    "layer": "gate_named",
    "why": "named by gate-registry.json",
    "covers": [
@@ -3726,6 +3726,41 @@
     "proof_level.py",
     "reporters.py",
     "tests/harness.py",
+    "tests/probe_by_code_languages_common.py",
+    "tests/probe_entries.py",
+    "tests/test_probe_by_code.py"
+   ]
+  },
+  "test_probe_by_code_languages_plan.py": {
+   "layer": "gate_named",
+   "why": "named by gate-registry.json",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "onboarding_probe.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "reporters.py",
+    "tests/harness.py",
+    "tests/probe_by_code_languages_common.py",
+    "tests/probe_entries.py",
+    "tests/test_probe_by_code.py"
+   ]
+  },
+  "test_probe_by_code_languages_ts_playwright.py": {
+   "layer": "gate_named",
+   "why": "named by gate-registry.json",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "onboarding_probe.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "reporters.py",
+    "tests/harness.py",
+    "tests/probe_by_code_languages_common.py",
     "tests/probe_entries.py",
     "tests/test_probe_by_code.py"
    ]
