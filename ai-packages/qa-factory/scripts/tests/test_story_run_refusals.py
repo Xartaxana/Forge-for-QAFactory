@@ -155,7 +155,7 @@ def refusal_round_trip_gate_and_routing() -> None:
         check_eq("a recorded gate decision costs no conductor session",
                  len(stub_calls(root)) - quiet, 0)
 
-        runs = jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the run record rows (P1-v N1) are counted apart
         check_eq("driver-runs.jsonl has the conductor line", runs[-1]["kind"], "conductor")
 
         # --- a known refusal never reaches the conductor -------------------------------------
