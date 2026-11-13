@@ -142,6 +142,22 @@ def test_k1_a_general_glob_ahead_of_a_specific_one_is_reported_as_shadowed(tmp_p
     assert found and found[0]["kind"] == "shadowed"
 
 
+@pytest.mark.parametrize("registry, files, double, none", [
+    # a file under two features (a wildcard in one, an explicit glob in the other): reported by file, with both ids
+    ([("F01", ["scripts/*.py"]), ("F02", ["scripts/x.py"])], ["scripts/x.py", "scripts/y.py"],
+     [("scripts/x.py", ["F01", "F02"])], []),
+    # a file under none
+    ([("F01", ["scripts/x.py"]), ("F02", ["docs/*.md"])], ["scripts/x.py", "scripts/z.py"], [], ["scripts/z.py"]),
+    # a clean registry; an empty-glob-matching feature is not an error
+    ([("F01", ["scripts/x.py"]), ("F02", ["nothing/*.py"])], ["scripts/x.py"], [], []),
+], ids=["double", "none", "clean"])
+def test_registry_conflicts_both_directions(tmp_path, registry, files, double, none):
+    feats = reg(tmp_path, [feat(fid, fid, globs) for fid, globs in registry])
+    found = fm.registry_conflicts(feats, [fm.PACKAGE + "/" + f for f in files])
+    assert [(d["path"], d["features"]) for d in found["double"]] == [(fm.PACKAGE + "/" + p, ids) for p, ids in double]
+    assert found["none"] == [fm.PACKAGE + "/" + p for p in none]
+
+
 def test_glob_semantics():
     rx, spec = fm.compile_glob("scripts/tests/test_*.py")
     assert rx.match("scripts/tests/test_a.py") and not rx.match("scripts/tests/sub/test_a.py")

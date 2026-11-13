@@ -250,6 +250,21 @@ def find_overlaps(features: list, repo_paths) -> list:
     return found
 
 
+def registry_conflicts(features: list, repo_paths) -> dict:
+    """Strict one-owner-per-file view of the registry (F6-49): {'double': [{'path', 'features'}], 'none': [path]}.
+    'double' = every path two or more features match, whatever the specificity (find_overlaps tolerates a
+    specific glob beating a general one; this does not); 'none' = a path under the package root (the only
+    root --check (b) treats as attributable) that no feature matches. Pure read; nothing wired to --check yet."""
+    double, none = [], []
+    for p in repo_paths:
+        hits = feature_hits(features, p)
+        if len(hits) >= 2:
+            double.append({"path": p, "features": [features[i]["id"] for i, _s in hits]})
+        elif not hits and split_root(p)[0] == "package":
+            none.append(p)
+    return {"double": double, "none": none}
+
+
 # ============================================================================================
 # files: index, walk, git
 # ============================================================================================
