@@ -281,6 +281,8 @@ def refusal_rig(root: Path, win: dict):
     d.refusal_dispatch = lambda refusal: "S5-qa-code-critic-2"
     d.window_key = lambda stage, dispatch: "S5|CASE"
     d.save_state = lambda: None
+    d.journal_rows = []
+    d.journal_run = lambda record: d.journal_rows.append(record)
     d.refusal_lines = lambda refusal, items=None: list(items or [])
     d.question_from_refusal = lambda refusal, stage: "THE FALLBACK LEAD"
     d.probe_gap_lead = SR.Driver.probe_gap_lead

@@ -275,9 +275,15 @@ def test_the_real_pack_archive_is_read_and_the_schema_pin_holds(tmp_path):
     assert set(ci.REQUIRED) <= set(got.manifest) and got.manifest["schema"] == ci.collect_pack.SCHEMA
     assert got.identity.startswith(got.install8 + "-" + got.stamp + "-")
     assert len(got.project_id) == 12 and len(got.install_id) == 32
+    # CL4-1 J1: a real pack with a capped window the driver state still holds -> its ignored entry travels and the intake prints it
+    looped = ci.open_archive(real_archive(tmp_path / "loops", driver_state={"window_rounds": {"S5|c1": [{"outcome": "cap"}]}}))
+    story = next(s for s in looped.manifest["stories"] if s["task"] == "TP1-12345")
+    assert story["loop_ignored"] == [{"where": "driver-state.json window_rounds S5|c1 cap", "why": "no usable time, so never a signal"}]
+    assert isinstance(story["ignored"], list)
+    assert any("loop ignored: 1" in e["text"] for e in ci.stall_elements(looped))
 
 
-def real_archive(tmp_path):
+def real_archive(tmp_path, driver_state=None):
     sys.path.insert(0, str(ci.REPO / "ai-packages" / "qa-factory" / "scripts"))
     import collect_pack as cp
     import machine_facts as mf
@@ -291,6 +297,9 @@ def real_archive(tmp_path):
     story = root / "qa-factory" / "artifacts" / "TP1-12345"
     story.mkdir(parents=True)
     (story / "pipeline.json").write_text(json.dumps({"plugin_version": "0.9.0"}), encoding="utf-8")
+    if driver_state is not None:
+        (story / "state").mkdir()
+        (story / "state" / "driver-state.json").write_text(json.dumps(driver_state), encoding="utf-8")
     (story / "retro.md").write_text("# retro\n\n## What went wrong, and what to do about it\n\nthe gate said no twice, see `scripts/traceability.py`\n\n## Other\n\nx\n", encoding="utf-8")
     (tmp_path / "words.txt").write_text("the first step was slow", encoding="utf-8")
     red = mf.compile_redactor(mf.load_rules(), project_root=str(root), plugin_root=str(cp.PACKAGE_ROOT), pythons=(sys.executable,), home="C:\\Users\\Zq", tmp=tempfile.gettempdir(),
@@ -619,12 +628,15 @@ def test_a_story_that_looped_is_laid_out_like_a_stalled_one(tree, work, capsys):
     stories = [{"task": "T1", "stalled": False, "looped": True, "loop_signals": [{"id": "L2", "where": "driver-state.json window_rounds", "at": None}]},
                {"task": "T2", "stalled": False, "looped": None, "loop_signals": []},
                {"task": "T3", "stalled": False, "looped": False, "loop_signals": []},
-               {"task": "T4", "stalled": False}]
+               {"task": "T4", "stalled": False},
+               {"task": "T5", "stalled": "x", "looped": False},      # I6: a hostile pair reads as unknown at the intake as at the collector
+               {"task": "T6", "stalled": False, "looped": 0}]
     path = build(arch, {}, doc={"stories": stories})
     _code, out, _ = run(tree, inbox, path, capsys=capsys)
-    assert "ELEMENTS in=2" in out and "stall=2 " in out
+    assert "ELEMENTS in=4" in out and "stall=4 " in out
     assert ci.stall_laid_out(stories[0]) and ci.stall_laid_out(stories[1])
     assert not ci.stall_laid_out(stories[2]) and not ci.stall_laid_out(stories[3])
+    assert ci.stall_laid_out(stories[4]) and ci.stall_laid_out(stories[5])
 
 
 def test_the_layout_text_of_a_looped_only_story_says_stalled_no(monkeypatch):
@@ -639,6 +651,33 @@ def test_the_layout_text_of_a_looped_only_story_says_stalled_no(monkeypatch):
     assert texts["T1"] == "stalled: no\nlooped: yes\nL1 | w | x"
     assert texts["T2"].splitlines()[0] == "stalled: unknown" and texts["T3"].splitlines()[0] == "stalled: yes"
     assert texts["T3"].splitlines()[1] == "looped: unknown"
+    # CL4-1 N4: the ignored lists are printed; the pair is read by collect_stall.loop_state (I1-I5, I7-I10)
+    lo = lambda *items: [{"where": w, "why": y} for w, y in items]    # noqa: E731
+    cases = [
+        ("T4", {"stalled": True, "stall_signals": [{"id": "K3", "where": "w3", "at": "a"}], "ignored": lo(("iw", "no usable time, so never a signal")),
+                "looped": True, "loop_signals": [{"id": "L2", "where": "lw", "at": "b"}], "loop_ignored": lo(("lw2", "y2"), ("lw3", "y3"))},
+         "stalled: yes\nK3 | w3 | a\nignored: 1\niw | no usable time, so never a signal\nlooped: yes\nL2 | lw | b\nloop ignored: 2\nlw2 | y2\nlw3 | y3"),
+        ("T5", {"stalled": False, "looped": True, "ignored": [], "loop_ignored": []}, "stalled: no\nlooped: yes"),
+        ("T6", {"stalled": False, "looped": True, "loop_ignored": "x"}, "stalled: no\nlooped: yes\nloop ignored: unreadable (str)"),
+        ("T7", {"stalled": False, "looped": True, "loop_ignored": [1, {"where": "w", "why": "y"}]}, "stalled: no\nlooped: yes\nloop ignored: 1\nw | y"),
+        ("T8", {"stalled": "x", "looped": 0}, "stalled: unknown\nlooped: unknown"),
+        ("T9", {"stalled": False, "looped": True, "loop_ignored": [{"where": None, "why": 3}, {"where": {"a": [1]}, "why": "y"}]},
+         "stalled: no\nlooped: yes\nloop ignored: 2\nNone | 3\n{'a': [1]} | y"),
+        ("T10", {"stalled": False, "looped": True, "loop_ignored": lo(("w\ud800", "ü"))}, "stalled: no\nlooped: yes\nloop ignored: 1\nw\ud800 | ü"),
+        ("T12", {"stalled": 1, "looped": True}, "stalled: unknown\nlooped: yes"),
+        # F1 (topic critic): an explicit null is not a list and not an absent key; both keys go through the one branch
+        ("T13", {"stalled": False, "looped": True, "ignored": None, "loop_ignored": None},
+         "stalled: no\nignored: unreadable (NoneType)\nlooped: yes\nloop ignored: unreadable (NoneType)"),
+    ]
+    texts.clear()
+    ci.stall_elements(types.SimpleNamespace(manifest={"stories": [dict(story, task=task) for task, story, _ in cases]}))
+    for task, _story, want in cases:
+        assert texts[task] == want, task
+    big = {"task": "T11", "stalled": False, "looped": True, "loop_ignored": [{"where": "w%d" % i, "why": "y"} for i in range(1000)]}    # I9: AT and beyond any limit: carried whole
+    texts.clear()
+    ci.stall_elements(types.SimpleNamespace(manifest={"stories": [big]}))
+    got = texts["T11"].splitlines()
+    assert len(got) == 1003 and got[2] == "loop ignored: 1000" and got[-1] == "w999 | y", "T11"
 
 
 def test_a_stalled_story_and_a_retro_become_elements_with_safe_ids(tree, work, capsys):
