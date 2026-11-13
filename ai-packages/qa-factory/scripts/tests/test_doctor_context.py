@@ -551,6 +551,100 @@ class NativeStageRefusal(unittest.TestCase):
                            and s['call'].startswith(entry['call'])]
                 self.assertEqual(len(covered), 1)
 
+    def test_dispatch_valueerrors_and_every_other_raise_of_the_host_modules_have_an_a24_row(self):
+        """OH7-2: B-8 (`check_override`, two raises) and B-9 (`rewritten_input`) are keyed by the text they raise,
+        and so is every other refusal of the two files the scanner now reads."""
+        import refusal_registry as RR
+        self.assertIn('codex_roles.py', RR.SCANNED)
+        self.assertIn('host_adapter.py', RR.SCANNED)
+        line_entries = [e for e in RR.REGISTRY if e.get('kind') != 'operation']
+        live = [s for s in RR.sites(RR.PLUGIN_ROOT) if s['file'] in ('codex_roles.py', 'host_adapter.py')]
+        wanted = [('codex_roles.py', 'check_override', 'Native Codex role missing'),
+                  ('codex_roles.py', 'check_override', 'Native {role} {key} mismatch'),
+                  ('host_adapter.py', 'rewritten_input', 'Explicit desktop model/effort overrides')]
+        for file, function, head in wanted:
+            with self.subTest(refusal=head):
+                sites = [s for s in live if (s['file'], s['function']) == (file, function) and s['call'].startswith(head)]
+                self.assertEqual(len(sites), 1, 'the scanner no longer sees the raise')
+                rows = [e for e in line_entries if RR._covers(e, sites[0])]
+                self.assertEqual(len(rows), 1, f'{file}:{function} `{head}` has no single A24 row')
+                self.assertTrue(rows[0]['unpassable_because'] or rows[0]['override'])
+        for site in live:
+            with self.subTest(site=f"{site['file']}:{site['function']}:{site['call'][:40]}"):
+                self.assertEqual(sum(1 for e in line_entries if RR._covers(e, site)), 1)
+
+    def test_every_host_adapter_refusal_speaks_its_registry_text(self):
+        """OH7-2 fix round (F2-1): one table drives each refusal row of `host_adapter.py` through its PUBLIC function
+        and asserts the raised or blocked text starts with the registry row's `call` (the row's test field is this test).
+        Rows keyed by source text rather than by the rendered message (HA-call-shape, HA-no-command-text,
+        HA-role-read-only, the connector rows) are not in the table: their test fields name the test that reaches them."""
+        import host_adapter as HA
+        import refusal_registry as RR
+        by_id = {e['id']: e for e in RR.REGISTRY}
+        begin, end = '*** Begin Patch', '*** End Patch'
+
+        def wrap(*body):
+            return '\n'.join((begin,) + body + (end,))
+
+        def raises(fn, *args):
+            try:
+                fn(*args)
+            except ValueError as error:
+                return str(error)
+            self.fail('no ValueError raised')
+
+        def blocks(event):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+                HA.role_policy(event, {'schema_version': 1})
+            self.assertEqual(caught.exception.code, 2)
+            return err.getvalue()
+
+        def call_of(ident):
+            return by_id[ident]['call']
+
+        codex = {'host': 'codex'}
+        cases = [
+            ('HA-event-not-object', lambda: raises(HA.normalize, 5), call_of('HA-event-not-object')),
+            ('HA-event-not-object-list', lambda: raises(HA.normalize, ['x']), call_of('HA-event-not-object')),
+            ('HA-tool-input-not-object', lambda: raises(HA.normalize, dict(codex, tool_name='Read', tool_input=5)),
+             call_of('HA-tool-input-not-object')),
+            ('HA-patch-not-text', lambda: raises(HA.patch_operations, 5), call_of('HA-patch-not-text')),
+            ('HA-patch-envelope', lambda: raises(HA.patch_operations, 'garbage'), call_of('HA-patch-envelope')),
+            ('HA-patch-path', lambda: raises(HA.patch_operations, wrap('*** Add File: ')), call_of('HA-patch-path')),
+            ('HA-patch-orphan-content', lambda: raises(HA.patch_operations, wrap('+x')),
+             call_of('HA-patch-orphan-content')),
+            ('HA-patch-move', lambda: raises(HA.patch_operations, wrap('*** Add File: a', '*** Move to: b')),
+             call_of('HA-patch-move')),
+            ('HA-patch-move-empty', lambda: raises(HA.patch_operations, wrap('*** Update File: a', '*** Move to: ')),
+             call_of('HA-patch-move-empty')),
+            ('HA-patch-line', lambda: raises(HA.patch_operations, wrap('*** Update File: a', '???')),
+             call_of('HA-patch-line')),
+            ('HA-patch-empty', lambda: raises(HA.patch_operations, wrap()), call_of('HA-patch-empty')),
+            ('HA-role-nested-delegation',
+             lambda: blocks(dict(codex, tool_name='Agent', agent_type='qa-scout', tool_input={})),
+             call_of('HA-role-nested-delegation')),
+            ('HA-doctor-no-tools',
+             lambda: blocks(dict(codex, tool_name='Read', factory_diagnostic=True, tool_input={})),
+             call_of('HA-doctor-no-tools')),
+            ('HA-stdin-chars',
+             lambda: blocks(HA.normalize(dict(codex, tool_name='write_stdin', tool_input={'chars': 'x'}))),
+             call_of('HA-stdin-chars')),
+            ('HA-exec-tty',
+             lambda: blocks(HA.normalize(dict(codex, tool_name='exec_command', tool_input={'cmd': 'ls', 'tty': True}))),
+             call_of('HA-exec-tty')),
+        ]
+        rows = {ident for ident, _, _ in cases}
+        for ident in ('HA-event-not-object', 'HA-tool-input-not-object', 'HA-patch-not-text', 'HA-patch-envelope',
+                      'HA-patch-path', 'HA-patch-orphan-content', 'HA-patch-move', 'HA-patch-move-empty',
+                      'HA-patch-line', 'HA-patch-empty', 'HA-role-nested-delegation', 'HA-doctor-no-tools',
+                      'HA-stdin-chars', 'HA-exec-tty'):
+            self.assertIn(ident, rows)
+            self.assertIn('test_doctor_context.py', by_id[ident]['test'], f'{ident} must cite this test')
+        for ident, run, head in cases:
+            with self.subTest(row=ident):
+                self.assertTrue(run().startswith(head))
+
 
 DOOR = ('context diagnostic requires current allow/deny evidence in this host session; '
         'run host_probe.py --prepare, its two native commands, then --check')
