@@ -86,7 +86,7 @@ def refusal_round_trip_gate_and_routing() -> None:
         system = Path(calls[0]["sysfile"])
         check("the rule layer travels as the appended system prompt", system.is_file() and "Your factory rules" in system.read_text(encoding="utf-8"))
         check_in("with the resolved task packet", "Resolved task packet", system.read_text(encoding="utf-8"))
-        runs = jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record, counted apart
         check_eq("driver-runs.jsonl has the one role line", len(runs), 1)
         check_eq("with the session id", runs[0].get("session_id"), "sess-S1-qa-scout-1")
         check_eq("the cost", runs[0].get("total_cost_usd"), 0.0123)

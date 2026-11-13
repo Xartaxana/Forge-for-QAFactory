@@ -782,17 +782,22 @@ class DriverRunner:
         `references/run-record.json` (read ONLY through `driver_journal.run_record`, once per process) names it, else `unclassified`
         with ONE note line (per distinct token, and ONE for a table that is missing, unreadable, without the key or not a list of
         names - every kind is then `unclassified`). Never raises, never stops the call (P1)."""
-        mine = self.__dict__
-        table = mine.get("_resume_kind_table")
+        try:
+            table = self._resume_kind_table         # ad hoc, absent from __init__ (driver-layers.json `attributes`)
+        except AttributeError:
+            table = None
         if table is None:
             import driver_journal
             names, why = driver_journal.run_record_names("resume_kinds")
             if why:
                 print(why, flush=True)
-            table = mine["_resume_kind_table"] = names
+            table = self._resume_kind_table = names
         if isinstance(token, str) and token in table:
             return token
-        said = mine.setdefault("_resume_kind_said", set())
+        try:
+            said = self._resume_kind_said
+        except AttributeError:
+            said = self._resume_kind_said = set()
         key = token if isinstance(token, str) else repr(token)
         if table and key not in said:
             said.add(key)

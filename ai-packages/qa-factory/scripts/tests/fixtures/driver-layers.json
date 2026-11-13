@@ -3,7 +3,8 @@
  "setup_import": "hooklib",
  "l8_skip": ["driver_golden.py", "driver_trace.py", "test_driver_golden.py"],
  "allowed_importers": [
-  {"importer": "story_step.py", "part": "driver_timing", "reason": "story_step.start imports driver_timing inside the function (story_step.py:889) for the call's clock (_settle_clock): a part read by a script outside the family, declared here as found; rerouting it through story_run would make the step script import the whole driver"}
+  {"importer": "story_step.py", "part": "driver_timing", "reason": "story_step.start imports driver_timing inside the function (story_step.py:889) for the call's clock (_settle_clock): a part read by a script outside the family, declared here as found; rerouting it through story_run would make the step script import the whole driver"},
+  {"importer": "run_counters.py", "part": "driver_timing", "reason": "P1-v N4: the counted reader of one run calls driver_timing.report and reads two of its constants (driver_timing.py, a part read by a script outside the family, declared here as found); a read-only reader must not import the whole driver through story_run"}
  ],
  "about": "The driver layer map (t-301 N0): the home of every name of story_run.py (and later of the driver_* modules), the attributes, state keys and ad-hoc attributes that cross layers, the string-dispatch tables, the upward-edge exceptions (shrink-only, pinned in test_driver_layers.py) and the tests that read the driver source. Read by test_driver_layers.py and driver_golden.py only (FR-44); the nodes N1-N5 edit the rows of the names they move.",
  "layers": [["driver_chains"], ["driver_core"], ["driver_timing"], ["driver_runner"], ["driver_dialog"], ["driver_conductor"], ["driver_dispatch"], ["driver_s0", "driver_sources"], ["driver_stage_plan", "driver_stage_build", "driver_stage_s5", "driver_stage_s6", "driver_stage_s7", "driver_stage_s8s9"], ["driver_gates"], ["driver_machine"], ["story_run"]],
@@ -169,6 +170,13 @@
   {"name": "Driver.rebuild_report", "kind": "method", "home": "driver_stage_s8s9", "row": 43},
   {"name": "Driver.record_running", "kind": "method", "home": "driver_dispatch", "row": 44, "note": "C1-7c (t-1257): the ONE writer of a registered dispatch's `running` record (kind G; skipped on a controller-completed stage and on a rework); resume_role, run_manual_block, _act_relaunch and the never-launched branch call it"},
   {"name": "Driver.resume_role", "kind": "method", "home": "driver_dispatch", "row": 44},
+  {"name": "Driver.RESUME_UNCLASSIFIED", "kind": "classconst", "home": "driver_runner", "note": "P1-v W2: the resume_kind of a token the run record's resume_kinds does not name"},
+  {"name": "Driver.resume_kind_of", "kind": "method", "home": "driver_runner", "note": "P1-v W2: the resume_kind of a resumed row, once-per-process table read through driver_journal.run_record_names"},
+  {"name": "Driver.S0_TAKEN_WORDS", "kind": "classconst", "home": "driver_s0", "note": "FV1-11: the words of a pass the factory took itself (a title read from the first line)"},
+  {"name": "Driver.s0_taken", "kind": "method", "home": "driver_s0", "note": "FV1-11: the one comparison with S0_TAKEN_WORDS"},
+  {"name": "Driver.s0_record_pass", "kind": "method", "home": "driver_s0", "note": "FV1-11: the one writer of an S0 pass record"},
+  {"name": "Driver.s0_pass_phrase", "kind": "method", "home": "driver_s0", "note": "FV1-11: how a pass reads in a line of the story's record"},
+  {"name": "Driver.take_checks_line", "kind": "staticmethod", "home": "driver_dispatch", "note": "P1-v W0 (F17): the machine `checks:` line of story_step finish taken out of the text"},
   {"name": "Driver.walk_before", "kind": "method", "home": "driver_dispatch", "row": 44, "note": "t-1957 N5s: code before a walk lane (run report, app card, walk_session open); run_manual_block calls it"},
   {"name": "Driver.walk_reopen", "kind": "method", "home": "driver_dispatch", "row": 44, "note": "t-1957 N5s (E5s.6): resume_role reopens a walk session that is not ready before the resume words"},
   {"name": "Driver.s1_window_owed", "kind": "method", "home": "driver_dispatch", "row": 44, "note": "t-2277 batch 2b D: the one test of 'has this story an S1 reference window'; read by stage_simple, rework and the relaunch of an S1 scout rework"},
@@ -1097,6 +1105,8 @@
   {"name": "host", "owner": "driver_core", "set_in_init": true, "note": "codex-1: the CLI the roles run under (--host or driver.host)"},
   {"name": "infra_rules", "owner": "driver_core", "set_in_init": true},
   {"name": "last_where", "owner": "driver_machine", "set_in_init": false, "note": "ad hoc: absent from __init__"},
+  {"name": "_resume_kind_table", "owner": "driver_runner", "set_in_init": false, "note": "ad hoc: absent from __init__ (P1-v W2: the resume_kinds names, read once per process by resume_kind_of)"},
+  {"name": "_resume_kind_said", "owner": "driver_runner", "set_in_init": false, "note": "ad hoc: absent from __init__ (P1-v W2: the tokens resume_kind_of has already noted)"},
   {"name": "max_boundaries", "owner": "driver_chains", "set_in_init": true},
   {"name": "model", "owner": "driver_core", "set_in_init": true},
   {"name": "model_explicit", "owner": "driver_core", "set_in_init": true, "note": "codex-1: whether --model was named (continue_command repeats it on Codex only then)"},

@@ -897,8 +897,8 @@ def the_same_fact_derives_under_the_same_name():
         cases = root / "work" / "test-cases" / "area"
         cases.mkdir(parents=True, exist_ok=True)
         (cases / "TC-003.md").write_text(
-            "\n".join(["---", "id: TC-003", "covers: [R-3, R-9]", "plan_row: TS-3", "---",
-                       "", "Given x", ""]),
+            "\n".join(["---", "id: TC-003", "covers: [R-3, R-9]", "---",
+                       "", "Plan row: TS-3", "", "Given x", ""]),      # FV2-1: the plan row is the body line, never a front-matter key
             encoding="utf-8")
 
         class Art:
@@ -922,7 +922,7 @@ def the_same_fact_derives_under_the_same_name():
                  H._requirements_of(art, None, {"case": "TC-004"})[0], "R-2")
         check_eq("B-405: a case that covers no R-id derives nothing (the field stays the role's to fill)",
                  H._requirements_of(art, None, {"case": "TC-005"}), None)
-        check_eq("the plan row comes from the case's own front matter",
+        check_eq("the plan row comes from the case's own `Plan row:` body line",
                  H._plan_row_of(art, None, {"case": "TC-003"})[0], "TS-3")
         check_eq("a row that is not a case derives nothing",
                  H._plan_row_of(art, None, {"id": "SRC-1"}), None)
