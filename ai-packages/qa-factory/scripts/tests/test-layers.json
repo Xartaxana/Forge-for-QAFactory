@@ -79,7 +79,8 @@
    "why": "SS1-11 F5 stand lessons reach the app card and rebuild it",
    "covers": [
     "app_card.py",
-    "project_knowledge.py"
+    "project_knowledge.py",
+    "tests/test_app_card.py"
    ]
   },
   "test_arch_check.py": {
@@ -3560,7 +3561,8 @@
    "why": "table (B.2 criterion 5): the draft's observation field joins its place",
    "covers": [
     "place_answers.py",
-    "references/artifact-contract-run.md"
+    "references/artifact-contract-run.md",
+    "tests/test_place_answers.py"
    ]
   },
   "test_pinned_lifecycle.py": {
