@@ -22,18 +22,18 @@
     "qa-retro-analyst": 14075
   },
   "process_ratchet_tokens": {
-    "qa-scout": 13975,
+    "qa-scout": 13971,
     "qa-requirements-tester": 11280,
-    "qa-test-strategist": 15396,
-    "qa-case-designer": 12083,
+    "qa-test-strategist": 15392,
+    "qa-case-designer": 12079,
     "qa-case-critic": 15929,
-    "qa-automator": 18690,
-    "qa-code-critic": 17597,
-    "qa-runner": 14428,
-    "qa-failure-analyst": 16333,
-    "qa-bug-reporter": 13918,
-    "qa-doc-scribe": 16954,
-    "qa-retro-analyst": 13206
+    "qa-automator": 18685,
+    "qa-code-critic": 17593,
+    "qa-runner": 14417,
+    "qa-failure-analyst": 16322,
+    "qa-bug-reporter": 13914,
+    "qa-doc-scribe": 16943,
+    "qa-retro-analyst": 13198
   },
   "target_tokens": 6000,
   "target_confirmed_by": ""
