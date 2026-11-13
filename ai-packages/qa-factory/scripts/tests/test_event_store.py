@@ -300,47 +300,55 @@ class EventStoreTests(unittest.TestCase):
                     error = exc
             return folder, target, error
 
-        folder = self.root / "E-1"
-        folder.mkdir()
-        event_store._publish(folder / "t.json", write)
-        self.assertRegex(Path(names[-1]).name, r"^t\.json\.[0-9a-f]{8}\.tmp$", "E-1 shape")
-        self.assertEqual((folder / "t.json").read_text(encoding="utf-8"), "value")
-        self.assertEqual(list(folder.glob("*.tmp")), [])
-        suffix = Path(names[-1]).name[len("t.json"):]
+        suffix = "." + "0" * event_store.TEMP_NAME_HEX + ".tmp"
 
-        folder, target, error = run("E-2a", ["aaaaaaaa"], ["bbbbbbbb"])
-        self.assertIsNone(error, "E-2a")
-        self.assertEqual(target.read_text(encoding="utf-8"), "value")
-        self.assertEqual((folder / "t.json.aaaaaaaa.tmp").read_bytes(), b"other", "E-2a")
-        self.assertFalse((folder / "t.json.bbbbbbbb.tmp").exists(), "E-2a")
+        with self.subTest(row="E-1"):
+            folder = self.root / "E-1"
+            folder.mkdir()
+            event_store._publish(folder / "t.json", write)
+            self.assertRegex(Path(names[-1]).name, r"^t\.json\.[0-9a-f]{8}\.tmp$", "E-1 shape")
+            self.assertEqual((folder / "t.json").read_text(encoding="utf-8"), "value")
+            self.assertEqual(list(folder.glob("*.tmp")), [])
 
-        taken = ["%08x" % i for i in range(7)]
-        folder, target, error = run("E-2b", taken, ["ffffffff"])
-        self.assertIsNone(error, "E-2b")
-        self.assertEqual(target.read_text(encoding="utf-8"), "value")
-        for token in taken:
-            self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2b")
-        self.assertEqual(sorted(p.name for p in folder.glob("*.tmp")), sorted("t.json.%s.tmp" % t for t in taken))
+        with self.subTest(row="E-2a"):
+            folder, target, error = run("E-2a", ["aaaaaaaa"], ["bbbbbbbb"])
+            self.assertIsNone(error, "E-2a")
+            self.assertEqual(target.read_text(encoding="utf-8"), "value")
+            self.assertEqual((folder / "t.json.aaaaaaaa.tmp").read_bytes(), b"other", "E-2a")
+            self.assertFalse((folder / "t.json.bbbbbbbb.tmp").exists(), "E-2a")
 
-        taken = ["%08x" % i for i in range(8)]
-        folder, target, error = run("E-2c", taken, ["ffffffff"])
-        self.assertIsInstance(error, FileExistsError, "E-2c")
-        self.assertFalse(target.exists(), "E-2c")
-        for token in taken:
-            self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2c")
-        self.assertEqual(len(list(folder.glob("*.tmp"))), 8, "E-2c")
+        with self.subTest(row="E-2b"):
+            taken = ["%08x" % i for i in range(7)]
+            folder, target, error = run("E-2b", taken, ["ffffffff"])
+            self.assertIsNone(error, "E-2b")
+            self.assertEqual(target.read_text(encoding="utf-8"), "value")
+            for token in taken:
+                self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2b")
+            self.assertEqual(sorted(p.name for p in folder.glob("*.tmp")),
+                             sorted("t.json.%s.tmp" % t for t in taken))
 
-        self.assertEqual(len(suffix), native_context.TEMP_NAME_EXTRA, "E-3")
-        self.assertEqual(native_context.TEMP_NAME_EXTRA, 13)
-        for length, total in ((143, 259), (144, 260)):
-            root = "C:\\" + "p" * (length - 3)
-            slot = native_context._slot(root, "s", "qa_scout__qa_1")
-            self.assertEqual(len(str(slot)) + len(suffix), total, "E-3 root %d" % length)
+        with self.subTest(row="E-2c"):
+            taken = ["%08x" % i for i in range(8)]
+            folder, target, error = run("E-2c", taken, ["ffffffff"])
+            self.assertIsInstance(error, FileExistsError, "E-2c")
+            self.assertFalse(target.exists(), "E-2c")
+            for token in taken:
+                self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2c")
+            self.assertEqual(len(list(folder.glob("*.tmp"))), 8, "E-2c")
 
-        self.assertTrue(re.search(n8a, "x/t.json" + suffix), "E-4 8 hex")
-        self.assertTrue(re.search(n8a, "x/t.json." + "a" * 32 + ".tmp"), "E-4 32 hex")
-        for bad in (7, 9):
-            self.assertFalse(re.search(n8a, "x/t.json." + "a" * bad + ".tmp"), "E-4 %d hex" % bad)
+        with self.subTest(row="E-3"):
+            self.assertEqual(len(suffix), native_context.TEMP_NAME_EXTRA, "E-3")
+            self.assertEqual(native_context.TEMP_NAME_EXTRA, 13)
+            for length, total in ((143, 259), (144, 260)):
+                root = "C:\\" + "p" * (length - 3)
+                slot = native_context._slot(root, "s", "qa_scout__qa_1")
+                self.assertEqual(len(str(slot)) + len(suffix), total, "E-3 root %d" % length)
+
+        with self.subTest(row="E-4"):
+            self.assertTrue(re.search(n8a, "x/t.json" + suffix), "E-4 8 hex")
+            self.assertTrue(re.search(n8a, "x/t.json." + "a" * 32 + ".tmp"), "E-4 32 hex")
+            for bad in (7, 9):
+                self.assertFalse(re.search(n8a, "x/t.json." + "a" * bad + ".tmp"), "E-4 %d hex" % bad)
 
     def test_other_permission_errors_are_not_retried(self):
         target = self.root / "pipeline.json"
