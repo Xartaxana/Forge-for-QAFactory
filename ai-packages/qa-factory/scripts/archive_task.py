@@ -192,7 +192,7 @@ def cmd_candidates(days: int, as_json: bool) -> int:
 
 def cmd_archive(ticket: str, note: str, force: bool) -> int:
     path = artifact_root() / ticket / "pipeline.json"
-    if not path.exists():
+    if not hooklib.is_story_folder(artifact_root(), ticket) or not path.exists():     # an alias or `../x` is no story (OH8-2)
         print(f"{ticket}: no pipeline.json at {path} — nothing to archive", file=sys.stderr)
         return EXIT_NOT_FOUND
     data = read_json(path)
@@ -233,7 +233,7 @@ def cmd_archive(ticket: str, note: str, force: bool) -> int:
 
 def cmd_undo(ticket: str) -> int:
     path = artifact_root() / ticket / "pipeline.json"
-    if not path.exists():
+    if not hooklib.is_story_folder(artifact_root(), ticket) or not path.exists():
         print(f"{ticket}: no pipeline.json at {path}", file=sys.stderr)
         return EXIT_NOT_FOUND
     data = read_json(path)

@@ -6,7 +6,8 @@ import os
 import sys
 from pathlib import Path, PureWindowsPath
 from event_store import EventStore, StateConflict, atomic_json, TEMP_NAME_HEX
-from hooklib import person_signal, sorted_paths
+import hooklib
+from hooklib import sorted_paths
 
 PROBE_TASK = 'qa_factory_context_probe'
 NAME_HEX = 32
@@ -166,7 +167,7 @@ def _said_write_failure(event, data, what, exc) -> None:
         print(text, file=sys.stderr)
     except Exception:
         pass
-    person_signal(event, 'inject', text, task=data.get('task_id'))
+    hooklib.person_signal(event, 'inject', text, task=data.get('task_id'))
 
 
 def stage(root, event, role, context, ticket):
@@ -237,8 +238,8 @@ def deliver(root, event):
                          'session (' + names + ') and the host did not say which one this child belongs to, so no '
                          'context was delivered; relaunch the role under a unique task name.')
             print(ambiguity, file=sys.stderr)
-            person_signal(event, 'inject', ambiguity, task=None,
-                          once_key=ambiguous_once_key(role, [x[1].get('task_name') for x in chosen]))
+            hooklib.person_signal(event, 'inject', ambiguity, task=None,
+                                  once_key=ambiguous_once_key(role, [x[1].get('task_name') for x in chosen]))
         if len(chosen) != 1:
             return
         path, data = chosen[0]

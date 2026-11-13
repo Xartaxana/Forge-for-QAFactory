@@ -206,8 +206,7 @@ def _named_ticket(event: dict) -> tuple:
     if not ticket:
         return "", facts
     root = artifact_root()
-    in_text = [name for name in facts.get("named") or [] if hooklib.is_one_component(name)
-               and (root / name / "pipeline.json").is_file()]
+    in_text = [name for name in facts.get("named") or [] if hooklib.is_story_with_pipeline(root, name)]
     named = (ticket == facts.get("explicit") or in_text == [ticket]
              or facts.get("slug_matches") == [ticket] or facts.get("env_task") == ticket)
     return (ticket if named else ""), facts
@@ -239,6 +238,7 @@ def _identity(event: dict, agent: str) -> tuple[str, dict]:
     except Exception:
         slug, problem = "", ""        # an exception is not an exploration
     rejected = ""
+    spelled = ""
     if slug:
         import exploration
         task = exploration.task_id(slug)
@@ -252,6 +252,20 @@ def _identity(event: dict, agent: str) -> tuple[str, dict]:
                 rejected = problem or "unreadable"
         except Exception:
             rejected = ""
+        if hooklib.is_one_component(task):
+            # OH8-2 (F3): an explicit id that is ANOTHER SPELLING of a story folder (`T.`, `t`, the 8.3 name, a junction
+            # alias) is no story's key: the file system would open that folder, and its audit is not this id's. It is
+            # "unknown-task", a full audit, never a pass (FR-59, AR-28). An id with no folder and no twin (`NOPE`) is
+            # unchanged; a broken project config is the gate's other paths' business.
+            try:
+                folders = artifact_root()
+                other = "" if hooklib.is_story_folder(folders, task) else hooklib.other_spelling(folders, task)
+                if other:
+                    spelled = f"\n  explicit id {task!r} is another spelling of folder {other!r}; keys are matched exactly"
+            except (ValueError, OSError):
+                spelled = ""
+            if spelled:
+                task = "unknown-task"
     if not task:
         try:
             stages = SG.stages_of_role(SG.stage_model(), agent)
@@ -309,7 +323,9 @@ def _identity(event: dict, agent: str) -> tuple[str, dict]:
         scope["exploration"] = slug      # not part of the key; `main` ends an exploration stop on it
     if rejected:
         scope["exploration_rejected"] = rejected
-    if task == "unknown-task" and facts is not None:
+    if spelled:
+        scope["identity_facts"] = spelled
+    elif task == "unknown-task" and facts is not None:
         # what the decision read, for the header of the audit nobody scoped (not part of the key below)
         try:
             scope["identity_facts"] = SG.identity_facts(facts)
