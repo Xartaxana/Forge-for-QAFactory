@@ -37,7 +37,7 @@ sys.path.insert(0, str(HERE))
 import artifact_sections as AS  # noqa: E402
 import hooklib  # noqa: E402
 from install_paths import _atomic_write  # noqa: E402  (the byte writer: temp beside, flushed, `os.replace`)
-from role_cli import (REPAIR_MARKER, command_from_argv, epilog, refuse,  # noqa: E402
+from role_cli import (REPAIR_MARKER, RefusingParser, command_from_argv, epilog, refuse,  # noqa: E402
                       run_guarded)
 
 COMMAND = "plan_row.py"
@@ -373,8 +373,8 @@ def main() -> int:
         console_io.utf8_stdio()
     except ImportError:
         pass
-    ap = argparse.ArgumentParser(description=__doc__, epilog=epilog("plan_row.py"),
-                                 formatter_class=argparse.RawTextHelpFormatter)
+    ap = RefusingParser(command=command_from_argv(COMMAND), description=__doc__, epilog=epilog("plan_row.py"),
+                       formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--task", required=True)
     ap.add_argument("--task-root", default=None)
     ap.add_argument("--row", dest="rows", action="append", default=[],

@@ -26,24 +26,23 @@ the plugin root, not `skills/qa-doctor/` ("Resolving the plugin root"); an empty
 variable is not a missing installation.
 At entry run `"${CLAUDE_PLUGIN_ROOT}/hooks/run-py.cmd" activity_capture.py --action start --type doctor`.
 It finds the session itself. `ACTIVITY NOT RECORDED` is a finding, `owner: factory`.
-Keep it open through questions, gates and interrupted continuations. Right before the
+Keep it open through questions, gates and continuations. Right before the
 final response run `--action end --type doctor --after-response`; a nested workflow returning
 to its caller ends without `--after-response`. Before onboarding approval boundaries stay in
 the host-local spool. Missing identity is reported, usage stays unclassified; never infer
 activities from prompt prose.
 
-Diagnosis, run between stories or whenever something feels wrong. It reports and names
+Diagnosis, run between stories or when something feels wrong. It reports and names
 **one** next action. Three questions after the report, never instead of a fact: the
 archive offer in step 6, `phases/repair.md`'s "is anybody working on this story?", and the
 price-table question in step 2; plus, once, step 2b's sample ticket when no story has one.
 **It writes the dashboard, activity telemetry, smoke and host-probe receipts, the guard-probe
-file and a release's words file (Write serves only these two), the factory's `.gitignore` block (step 3), and - only on a person's explicit word -
+file and a release's words file (Write: these two only), the factory's `.gitignore` block (step 3), and - only on a person's explicit word -
 `archive_task.py`'s flag and `repair.md`'s `controller.py --operation recover|release`.** It never edits a `pipeline.json` by hand.
 
 ## Execution - seven steps, in order, each one Bash call
 
-Never re-derive with Read/Glob/Grep what a script answers in one call. Use its summary
-verbatim; do not re-judge it.
+Never re-derive with Read/Glob/Grep what a script answers; use its summary verbatim.
 
 ### 1. Install smoke
 
@@ -51,10 +50,9 @@ verbatim; do not re-judge it.
 python -u "${CLAUDE_PLUGIN_ROOT}/scripts/install_smoke.py" --reuse-within 24 --report "qa-factory/state/doctor-install-smoke-latest.json"
 ```
 
-`--reuse-within 24` reuses a passed report of this package (`SMOKE REUSED` - say so); drop
-it for a fresh run.
+`--reuse-within 24` reuses a passed report of this package (say `SMOKE REUSED`); drop it for a fresh run.
 
-Run once and wait. On Codex in code mode: `phases/repair.md`, section Codex code mode.
+On Codex in code mode: `phases/repair.md`, section Codex code mode.
 
 Read the saved report afterwards. `status: running`
 means wait; a missing report means evidence is unavailable, not an outdated installation.
@@ -68,9 +66,8 @@ establishes the old-install verdict; pending or truncated output does not.
 ### 1b. Live hook behaviour - on every host
 
 Report sandbox denials separately from plugin/auth failures. Follow `INSTALL.md`, "Codex
-project access"; never rewrite host permissions or loop on blocked probes. Every host: Codex
-through `hooks/codex.json`, Claude Code through `hooks/hooks.json` - the probe reacts to hook
-events, not to a product name.
+project access"; never rewrite host permissions or loop on blocked probes. Every host (Codex:
+`hooks/codex.json`, Claude Code: `hooks/hooks.json`): the probe reacts to hook events.
 
 Run `host_probe.py --prepare` (it finds its own session) through the installed
 launcher, then execute the two returned echo commands as separate native shell calls in the
@@ -95,8 +92,7 @@ dispatch: it collects no project evidence and writes nothing.
 Read `host_integration.mechanisms` and `guard_probe` from readiness. `host_integration.host`
 is EVIDENCE from the receipts on disk, not a label: `mixed` (opened from two tools) is a real
 state. Report invocation and behaviour separately; trust/enablement as unknown if not exposed
-- use the host's hook review UI for trust, never edit trust files. Two probes are not full
-parity. `guard_parse` not `verified`: make the missing call yourself (`phases/repair.md`, section "Does the pre-tool guard"), then `--check` once.
+- use the host's hook review UI for trust, never edit trust files. `guard_parse` not `verified`: make the missing call yourself (`phases/repair.md`, section "Does the pre-tool guard"), then `--check` once.
 
 ### 2. Project state
 
@@ -126,7 +122,7 @@ With profiles, print `profiles` and `implementation_repos` separately. Diagnose 
 selected contours: an unselected browser or mobile dependency never reddens an API contour.
 `ready` requires verified adapter support, executable/cwd probes, runtime/dependency evidence
 and resolvable scoped commands; unknown provenance, SHA, adapter support or hook availability
-stays unknown. Doctor never runs project tests, installs dependencies, deploys the
+stays unknown. Never runs project tests, installs dependencies, deploys the
 application, or calls independent profile results a global green.
 
 Print every `repository_inventory.repositories[]` row, ready ones included, then the
@@ -194,7 +190,7 @@ story that still carries a running stage or an open dispatch ends with
 in flight; print it without its command. Archived stories (the flag, legacy
 `_archive/`) are filtered and counted in a closing line that **names** any still carrying an
 open item: archiving is "stop showing me this", not a claim the story finished. Print the
-lines; never re-open a `pipeline.json`. Factory bookkeeping is repaired by code, never by
+lines. Factory bookkeeping is repaired by code, never by
 hand: `${CLAUDE_SKILL_DIR}/phases/repair.md`.
 
 ### 5. The report and the one next action
@@ -240,7 +236,7 @@ applies, stop.
 | 2 | not a git repository | `cd` into the project's git working tree and re-run |
 | 3 | no `qa-factory/config.json` | `/qa-factory:qa-onboarding` |
 | 4 | `config_schema` capability not `ok` | re-run `/qa-factory:qa-onboarding` - cite the `migration_hint` keys |
-| 5 | a capability is `missing` with `remedy.owner: user` | that `remedy`, printed in full - `missing` means the host answered and refused |
+| 5 | a capability is `missing` with `remedy.owner: user` | that `remedy` in full, in the person's words - `missing` means the host answered and refused |
 | 5a | a capability is not `ok` with `remedy.owner: factory` - an unreachable host, an unrun probe, a factory defect | NOT an action: print it, own it, next row. Never ask a person to fix the factory or turn a dropped network into a credentials errand |
 | 5b | a required capability is `not_configured` or `unknown` with `remedy.owner: user` | that `remedy`; distinguish an unrun probe, inconclusive evidence and a session-only check |
 | 6 | a story has an unresolved `halts[]` entry | that halt's own instruction, for that ticket, in plain words - never a script name |
@@ -262,7 +258,7 @@ READINESS: ok - <n> of <n>   (or: <k> of <n>, your help is needed | <k> of <n>, 
   <capability>  <status>  owner: <owner>      ... only when help IS needed
     <one line: what is unavailable, in plain words>
     <one line: what this costs AND what still works>
-    -> <numbered steps, each executable as written>
+    -> <numbered steps: the person's own actions or a /qa-factory: skill, no script lines>
 
 STORIES
   <ticket>  last done: <Sn>  active: <Sn running|halted|none|closed <date>>  gate A: <d>  gate B: <d>
@@ -279,15 +275,14 @@ FACTORY NOTES (nothing for you to do)      ... only when there is one
 
 Rules of printing:
 
-- **The person gets a skill, a closed question or an action of their own - never a factory script, flag or plugin path.** Run such a step yourself, or name the skill that owns it; a script's `reason` is addressed to you.
-- **Nothing for the person goes last**, under `FACTORY NOTES (nothing for you to do)`: each non-`ok` `remedy.owner: factory` row, `ACTIVITY NOT RECORDED`, a failed `.gitignore` write, a repeated guard refusal - the fact in one plain line, no alarm wording. No working tree, `git status` or own writes. A `remedy.owner: user` row keeps READINESS at "your help is needed".
+- **The person gets a skill, a closed question or an action of their own - never a factory script, flag or plugin path.** You run only a read-only probe or a script within the writes listed above; a decision is then one closed question (`references/human-questions.md`) and you run it on the answer. Any other step: name the skill that owns it. A step only they can do (access, a secret) is an action in words; nothing for them: say so in a line.
+- **Nothing for the person goes last**, under `FACTORY NOTES (nothing for you to do)`: each non-`ok` `remedy.owner: factory` row, `ACTIVITY NOT RECORDED`, `injection: unverified` after the probe (no receipt yet), a failed `.gitignore` write, a repeated guard refusal - the fact in one plain line, no alarm wording. No working tree, `git status` or own writes. A `remedy.owner: user` row keeps READINESS at "your help is needed".
 - **Steps are printed by `remedy.owner`, not by the capability's `owner`.** The capability's
   owner says whose domain the gap is; `remedy.owner` says who must act: an unreachable host is
   nobody's fault (`owner: factory`), yet only a person turns a VPN on (`remedy.owner: user`).
-  A `remedy.owner: factory` row gets no steps and is never the next action.
+  A `remedy.owner: factory` row gets no steps.
 - **A step needing something the person does not hold says where to get it**, with the minimal
-  rights: a bare command that will stop and ask for a token is not a step. Routes the factory
-  can take itself come before anything asked of a person.
+  rights. Routes the factory can take itself come first.
 - **What is legitimately `not_configured`** (`remedy.kind: not_a_defect`, e.g. an empty
   `cases_root`) is an ordinary line in the first part. No third bucket: everything outside
   "here is what to do" reads as "all is well", and that is true (FACTORY NOTES is not: READINESS counts its rows).
@@ -302,9 +297,8 @@ FACTORY NOTES and the complete repository inventory follow this block; both are 
 
 - **A line is as good as its evidence.** Print what the script printed and never upgrade a
   status while summarizing; a row settled by a probe in step 2b is backed by its receipt.
-- **Silence is not a pass.** A section with nothing to show says so ("no stories yet").
-- **The verdict line is not an opinion.** It comes from the table above; `/qa-factory:qa-story`
-  is row 9 only. Diagnostic API gaps and an unused case library stay visible, blocking nothing.
+- **Silence is not a pass.** A section with nothing says so ("no stories yet").
+- **The verdict line is not an opinion.** It comes from the table above. Diagnostic API gaps and an unused case library stay visible, blocking nothing.
 
 ## What this skill never does
 

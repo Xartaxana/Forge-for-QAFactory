@@ -1115,6 +1115,22 @@ def test_check_table(tmp_path, capsys, case):
     assert text in capsys.readouterr().out
 
 
+WORDING = {                                                  # OF4-13: (action, text the refusal output must carry)
+    "no-doubled-or": (lambda r: edit(r, "plain"), "; or a later commit line"),
+    "bare-name-hint": (lambda r: edit(r, "plain"), "(the bare file name, no folder) in this commit message"),
+}
+
+
+@pytest.mark.parametrize("case", WORDING)
+def test_check_refusal_wording(tmp_path, capsys, case):
+    root = base_repo(tmp_path)
+    action, text = WORDING[case]
+    action(root)
+    assert tq.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert text in out and "or or" not in out
+
+
 def test_check_rebase_entry_repairs(tmp_path, capsys):
     root = base_repo(tmp_path)
     _bad_entry(root)
@@ -2051,7 +2067,7 @@ def test_check_history_reads_each_blob_once_and_keeps_its_verdicts(tmp_path, mon
     c2 = edit(root, "edge", "test_k00.py", "import test_q1\n")                                  # a new kept -> quarantined import edge
     edit(root, "again", "test_k01.py", "# changed\n")                                           # touches tests, adds no edge
     want = [(c1, "quarantined file test_q1.py was changed, deleted or renamed -- expected a line 'quarantine-edit: test_q1.py -- <reason>' "
-                 "in this commit message"),
+                 "(the bare file name, no folder) in this commit message"),
             (c2, "new import edge test_k00.py -> test_q1.py (kept -> quarantined) -- expected 'quarantine-import: test_k00.py -> test_q1.py -- <reason>'")]
     calls = []
     real = tq._git

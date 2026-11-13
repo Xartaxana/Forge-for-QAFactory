@@ -211,22 +211,14 @@ def key_role(name: str) -> str:
 
 
 def env_file_keys(path: Path) -> list[str]:
-    """The NAMES an env file declares, in file order. Values are never read."""
-    keys: list[str] = []
+    """The NAMES an env file declares, in file order (each name once, at its first place). Values are never read here: the
+    one reader (`env_probe.parse_env_file`) parses the file and the values are thrown away."""
+    import env_probe
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return keys
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name = line.split("=", 1)[0].strip()
-        if name.lower().startswith("export "):
-            name = name[7:].strip()
-        if KEY_NAME_RE.match(name) and name not in keys:
-            keys.append(name)
-    return keys
+        parsed = env_probe.parse_env_file(path)
+    except (OSError, ValueError):
+        return []
+    return [name for name in parsed if KEY_NAME_RE.match(name)]
 
 
 def _is_env_file(name: str) -> bool:

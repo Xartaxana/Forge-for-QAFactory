@@ -1438,7 +1438,7 @@ def test_runs_line(task) -> str:
 
 def tab_automation(_board, taskruns, cases, ob_counts=None, archived_hidden=0, ob_list=None,
                    testing_html="", obligations_html="", bugs=None):
-    # Open task obligations (state/obligations.md) — the first section of the "Testing" tab:
+    # Open task obligations (qa-factory/obligations.md) — the first section of the "Testing" tab:
     # task obligations live here, not in the shared banner above the tabs (only signals stay there).
     out = [obligations_html] if obligations_html else []
     delivery_html = delivery_summary_html(taskruns)
@@ -3822,7 +3822,7 @@ def main(argv=None) -> None:
     # banner was ALSO computed here out of state/metrics-board.md — a file no role writes
     # any more — and then silently overwritten by the newer one before the page was assembled.
 
-    # Open obligations from state/obligations.md (written by S8/S9): count + oldest age.
+    # Open obligations from qa-factory/obligations.md (written by S8/S9): count + oldest age.
     # The full section lives on the "Testing" tab (first in its content) — the banner above
     # the tabs keeps only signals, no tables.
     ob_path = ledger_path(root, "obligations.md")
@@ -3868,7 +3868,7 @@ def main(argv=None) -> None:
             obligations_html = (f"<section class='alert'><h2>Remaining checks: {len(open_obs)}{age_note}"
                                 + (f" &middot; ready to perform {len(ripe)}" if ripe else "") + "</h2>"
                                 f"<table class='tight1'><tr><th>id</th><th>essence</th><th>trigger</th><th>status</th></tr>{obs_rows}</table>"
-                                "<p class='nd'>Ledger: qa-factory/state/obligations.md; written by S8/S9, reviewed at the next applicable story preflight.</p></section>")
+                                "<p class='nd'>Ledger: qa-factory/obligations.md; written by S8/S9, reviewed at the next applicable story preflight.</p></section>")
 
     # The factory's deferred decisions (onboarding/gates) from factory-backlog.md: a debt of
     # the factory's own setup, not a task obligation. No file/section — the list is empty; closed

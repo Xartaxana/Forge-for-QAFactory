@@ -1522,6 +1522,11 @@ _DOORS = {
 _ACCEPT = 'or a later commit line "quarantine-accept: <sha> -- <reason>"'
 
 
+def _edit_refusal(n):
+    return (f"quarantined file {n} was changed, deleted or renamed -- expected a line 'quarantine-edit: {n} -- <reason>' "
+            f"(the bare file name, no folder) in this commit message")
+
+
 def _commits(root, first):
     out = []
     for rng, flag in ((first, ["-1"]), (f"{first}..HEAD", [])):
@@ -1629,7 +1634,7 @@ def _merge_edits(root, sec, sha, parents, new, msg, flagged):
         res = _blob_id(root, sha, rel)
         blobs = {p: _blob_id(root, p, rel) for p in holders}
         if any(blobs[p] != res and not any(q != p and blobs.get(q, "-") == res and n in base for q in holders) for p in holders):
-            out.append(f"quarantined file {n} was changed, deleted or renamed -- expected a line 'quarantine-edit: {n} -- <reason>' in this commit message")
+            out.append(_edit_refusal(n))
     return out
 
 
@@ -1691,7 +1696,7 @@ def check_history(root):
             if f"{TESTS_REL}/{n}" in names and not (
                     _DOORS["purge"].search(msg) or n in [m for m in _DOORS["edit"].findall(msg)]):
                 flagged.add(n)
-                found.append(f"quarantined file {n} was changed, deleted or renamed -- expected a line 'quarantine-edit: {n} -- <reason>' in this commit message")
+                found.append(_edit_refusal(n))
         if len(parents) > 1:
             found += _merge_edits(root, sec, sha, parents, new, msg, flagged)
         for n in sorted(gone["quarantine"]):
@@ -1750,7 +1755,7 @@ def cmd_check(args, ctx):
     bad = check_history(ctx.root)
     problems = _rebase_problems(ctx.root, layers)
     for sha, text in bad:
-        _say(f"quarantine check: {sha[:8]}: {text}; or {_ACCEPT}")
+        _say(f"quarantine check: {sha[:8]}: {text}; {_ACCEPT}")
     for p in problems:
         _say("quarantine check: " + p)
     _say("quarantine check: %d violation(s)" % (len(bad) + len(problems)))

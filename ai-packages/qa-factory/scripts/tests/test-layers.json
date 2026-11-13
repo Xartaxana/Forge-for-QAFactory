@@ -128,6 +128,7 @@
     "references/artifact-contract-run.md",
     "references/artifact-writers.json",
     "references/stages.json",
+    "tests/dashboard_fixture.py",
     "tests/harness.py"
    ]
   },
@@ -6234,6 +6235,17 @@
     "s5_precheck.py",
     "tms_publication.py",
     "traceability.py",
+    "tests/harness.py"
+   ]
+  },
+  "test_task_root_project_door.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): the project of a --task-root story is found by the one walk",
+   "covers": [
+    "branch_accounting.py",
+    "judge_diff.py",
+    "judge_results.py",
+    "walk_timing.py",
     "tests/harness.py"
    ]
   },

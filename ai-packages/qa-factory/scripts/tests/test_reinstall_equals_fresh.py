@@ -829,8 +829,76 @@ def crlf_comparison(tmp: Path) -> None:
     print(f"INFO: K5-CRLF (CRLF fixture, both trees, negative control) took {time.time() - started:.1f} s")
 
 
+def run_coverage(root: Path, *flags) -> tuple:
+    """check_coverage.py as a person's shell runs it: (exit code, stdout) - the real script, in its own process."""
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", CLAUDE_PROJECT_DIR=str(root))
+    done = subprocess.run([sys.executable, "-B", str(OA.HERE / "check_coverage.py"), "--root", str(root), *flags], cwd=str(root), env=env,
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return done.returncode, done.stdout
+
+
+STALE_RECEIPT_REL = "qa-factory/state/coverage-map.receipt.json"
+
+
+def k_stale_receipt(tmp: Path) -> None:
+    """The coverage receipt is carried (OH3-9): a reinstall keeps it and the check compares it like every other caller does. A receipt
+    that disagrees with the map is a REJECT recorded in the regenerate step; the apply still completes and the receipt stays byte for byte."""
+    def apply_spied(root: Path, label: str):
+        git_init(root)
+        calls = []
+        real = OA._run_script
+
+        def spy(r, script, args=()):
+            out = real(r, script, args)
+            calls.append((script, list(args), out))
+            return out
+        OA._run_script = spy
+        try:
+            made = OA.plan(root, migrate(root), date=DATE)
+            done = approve_and_apply(root, made, label, fold=True)
+        finally:
+            OA._run_script = real
+        return done, [c for c in calls if c[0] == "check_coverage.py"]
+
+    root = copy_fixture(tmp / "k-stale")
+    done, cov = apply_spied(root, "onboarding:stale")
+    check_eq("stale-receipt reinstall: the apply ran the coverage check ONCE, without --ignore-receipt, rc 0 (the carried receipt binds the moved map)",
+             [("--ignore-receipt" in c[1], c[2]["rc"]) for c in cov], [(False, 0)])
+    check_eq("stale-receipt reinstall: the receipt stays in state/ and is not in the retire record (carried)",
+             (os.path.exists(root / STALE_RECEIPT_REL), [r["result"] for r in done["retired"] if r["rel_path"] == STALE_RECEIPT_REL]), (True, []))
+    # a receipt that disagrees with the map, planted BEFORE the apply: reported, not hidden, not deleted
+    bad = copy_fixture(tmp / "k-stale-bad")
+    old = json.loads((FIX / STALE_RECEIPT_REL).read_text(encoding="utf-8"))
+    old["map_sha256"] = "0" * 64        # it binds map bytes that are not the current ones
+    planted = json.dumps(old)
+    put(bad, STALE_RECEIPT_REL, planted)
+    planted_bytes = (bad / STALE_RECEIPT_REL).read_bytes()
+    done_bad, cov_bad = apply_spied(bad, "onboarding:stale-bad")
+    print(f"INFO: stale-receipt regenerate note: {[c[2].get('note') for c in cov_bad]}")
+    check_eq("stale-receipt reinstall over a receipt that disagrees with the map: the apply completes (applied True), the regenerate step's coverage run is rc 1 "
+             "with a note naming the receipt, and the receipt is kept byte for byte",
+             (done_bad["applied"], [(c[2]["rc"], "receipt" in str(c[2].get("note", ""))) for c in cov_bad],
+              (bad / STALE_RECEIPT_REL).read_bytes() if (bad / STALE_RECEIPT_REL).exists() else None),
+             (True, [(1, True)], planted_bytes))
+    # the script itself, on a project holding a stale receipt (the fixture's, beside the carried map in records/)
+    probe = tmp / "k-stale-probe"
+    shutil.copytree(root, probe)
+    put(probe, STALE_RECEIPT_REL, planted)
+    rc, out = run_coverage(probe)
+    check("stale-receipt: a stale receipt is a REJECT", rc == 1 and "REJECT" in out, f"rc={rc} {out[:200]}")
+    # a fresh, matching receipt that disagrees with the cases: REJECT
+    fresh = tmp / "k-fresh"
+    shutil.copytree(root, fresh)
+    check_eq("fresh-receipt precondition: --write binds a receipt to the map", run_coverage(fresh, "--write")[0], 0)
+    case = next((fresh / "qa-factory/artifacts/QA-1/work/test-cases").rglob("*.md"))
+    case.write_text(case.read_text(encoding="utf-8").replace("status:", "status: Automated #", 1) if "status:" in case.read_text(encoding="utf-8")
+                    else case.read_text(encoding="utf-8").replace("---\n", "---\nstatus: Automated\n", 1), encoding="utf-8")
+    rc, out = run_coverage(fresh)
+    check("fresh-receipt: a matching receipt that disagrees with the cases is REJECT", rc == 1 and "REJECT" in out, f"rc={rc} {out[:300]}")
+
+
 def main() -> None:
-    smoke = "--smoke" in sys.argv[1:]
+    smoke ="--smoke" in sys.argv[1:]
     tmp = temp_dir("qa-reinstall-equals-fresh-")
     try:
         a, b, took = the_comparison(tmp)
@@ -849,6 +917,7 @@ def main() -> None:
         plans_on_copies(tmp, b)
         k_lock(tmp)
         k_git(tmp)
+        k_stale_receipt(tmp)
         tables_and_migration()
         print(f"INFO: both installs (case A and case B, real readiness/dashboard/coverage scripts) took {took:.1f} s")
     finally:

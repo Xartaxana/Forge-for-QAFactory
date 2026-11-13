@@ -116,9 +116,10 @@ def old_project() -> Path:
 # records none, so every plan over it opens that pointer and the apply refuses until it is answered. The cases below are
 # about retirement, not about the question, so they pass the person's answer like a headless caller does (--answers).
 ACCESS_PTR = "/environment/access"
-ACCESS = {"kind": "oidc_password", "command": "", "url": "https://sso.example.test/login", "client_id_key": "OIDC_CLIENT",
-          "realm_key": "OIDC_REALM", "user_key": "STAND_USER", "secret_key": "STAND_SECRET", "user_field": "", "secret_field": "", "token_key": "",
-          "unauth_status": [302], "login_probe": {}}
+# OH3-17: built from the template's own access block, so a new template key never reddens this fixture
+ACCESS = {**copy.deepcopy(TEMPLATE["environment"]["access"]), "kind": "oidc_password", "url": "https://sso.example.test/login",
+          "client_id_key": "OIDC_CLIENT", "realm_key": "OIDC_REALM", "user_key": "STAND_USER", "secret_key": "STAND_SECRET",
+          "unauth_status": [302]}
 
 
 def migration(root: Path, **kw) -> dict:

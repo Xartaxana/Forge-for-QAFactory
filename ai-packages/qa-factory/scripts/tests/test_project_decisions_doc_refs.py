@@ -229,7 +229,40 @@ def k6b_6_edges() -> None:
         cleanup(root)
 
 
+def of4_8_config_written_only_on_change() -> None:
+    """OF4-8: `resolve` writes config.json only when a pointer's value changed; an unchanged value leaves its BYTES alone."""
+    pointer = "/impact_scale/degraded/priority"
+    files = ["qa-factory/strategy/test-strategy.md", "qa-factory/strategy/aspect-profile.md"]
+    compact = '{"app_root":".","impact_scale":{"degraded":{"priority":"P2","severity":"minor"}}}'
+    crlf = '{\r\n  "impact_scale": {\r\n    "degraded": {"priority": "P2", "severity": "minor"}\r\n  },\r\n  "app_root": "."\r\n}\r\n'
+    # (label, config bytes, value given, rewritten?)
+    cases = (("unchanged-value-CRLF", crlf.encode("utf-8"), "P2", False),
+             ("unchanged-value-BOM", b"\xef\xbb\xbf" + compact.encode("utf-8"), "P2", False),
+             ("changed-value", crlf.encode("utf-8"), "P0", True))
+    for label, raw, value, rewritten in cases:
+        root = project(compact_config=False)
+        try:
+            config = root / "qa-factory" / "config.json"
+            config.write_bytes(raw)
+            PD.upsert(root, field_refs=[pointer], essence=ESSENCE, asked="batch 1: q", scope="project", owner="user")
+            closed = PD.resolve(root, "DD-1", "d", "r", {pointer: value}, files, MARKER)
+            check_eq(f"OF4-8 ({label}): the decision is closed either way", closed["status"], "closed")
+            if rewritten:
+                check("OF4-8 (%s): a changed value is written" % label, config.read_bytes() != raw)
+                check_eq(f"OF4-8 ({label}): ...with the new value", json.loads(config.read_text(encoding="utf-8"))["impact_scale"]["degraded"]["priority"], value)
+            else:
+                check_eq(f"OF4-8 ({label}): config.json bytes are identical", config.read_bytes(), raw)
+                # a recovery repeat: the receipt is pending again, the markers are already gone, the file is still not touched
+                path = root / "qa-factory" / "state" / "decision-transactions" / "DD-1.json"
+                path.write_text(json.dumps({**receipt(root, "DD-1"), "status": "pending"}), encoding="utf-8")
+                PD.resolve(root, "DD-1", "d", "r", {pointer: value}, files, MARKER)
+                check_eq(f"OF4-8 ({label}): a recovery repeat leaves the bytes identical", config.read_bytes(), raw)
+        finally:
+            cleanup(root)
+
+
 k6b_1_refs_form()
+of4_8_config_written_only_on_change()
 k6b_2_doc_only_row()
 k6b_3_mixed_row()
 k6b_4_pointer_with_doc_in_it()
