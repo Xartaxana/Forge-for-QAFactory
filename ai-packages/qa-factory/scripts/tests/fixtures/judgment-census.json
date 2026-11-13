@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "about": "The judgment census (t-1765 node A3, AR-29): one row per check unit of scripts/*.py outside scripts/tests/ - what it judges (class), on whose path it stands (roles), whom it serves (owner). Read by scripts/tests/test_judgment_census.py and by tools/architecture_gate.py (the `ratchet` object); not read by any project (axis 18). `blocks` is computed by the test, never written here; `blocks_override: false` (with a `note`) is the only hand mark. Classes: shape, xref, word-list, meaning-proxy, meaning, safety; owner: data, judgment, intent. Ceilings only go down. Blind spot: a subclass of `ValueError` or `StateConflict` raised by its own name is invisible to `refusal_registry.sites` (it matches the literal names); legitimate when the subclass is caught and never reaches a role, but a subclass chosen to keep a ratchet down is not seen - the critic's question 11 and calibration check 41 catch it.",
- "ratchet": {"word-list": 0, "meaning-proxy": 8, "meaning": 24, "safety": 55, "breach": 1, "blocks_overrides": 10, "blocking_per_role": {"qa-automator": 169, "qa-bug-reporter": 135, "qa-case-critic": 160, "qa-case-designer": 135, "qa-code-critic": 134, "qa-doc-scribe": 135, "qa-failure-analyst": 136, "qa-requirements-tester": 153, "qa-retro-analyst": 135, "qa-runner": 136, "qa-scout": 135, "qa-test-strategist": 167, "conductor": 474}},
+ "ratchet": {"word-list": 0, "meaning-proxy": 8, "meaning": 24, "safety": 55, "breach": 1, "blocks_overrides": 10, "blocking_per_role": {"qa-automator": 169, "qa-bug-reporter": 135, "qa-case-critic": 160, "qa-case-designer": 135, "qa-code-critic": 134, "qa-doc-scribe": 135, "qa-failure-analyst": 136, "qa-requirements-tester": 153, "qa-retro-analyst": 135, "qa-runner": 136, "qa-scout": 135, "qa-test-strategist": 167, "conductor": 475}},
  "rows": [
   {"file": "acceptance.py", "function": "stage_acceptance_errors", "class": "shape", "roles": ["qa-case-critic", "conductor"], "owner": "data"},
   {"file": "acceptance.py", "function": "validate_window", "class": "shape", "roles": ["conductor"], "owner": "data"},
@@ -253,6 +253,7 @@
   {"file": "device_stand.py", "function": "session_check", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "diff_pass.py", "function": "run", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "driver_timing.py", "function": "check", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "env_probe.py", "function": "_env_file_names", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "environment_preparation.py", "function": "_validate_step", "class": "safety", "roles": ["conductor"], "owner": "intent"},
   {"file": "environment_record.py", "function": "_refuse", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "environment_record.py", "function": "_story_context", "class": "shape", "roles": ["conductor"], "owner": "data"},

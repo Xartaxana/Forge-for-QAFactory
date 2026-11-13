@@ -8,12 +8,13 @@ from pathlib import Path
 from codex_usage import metadata, scan
 from activity_capture import update
 from event_store import atomic_json
+import hooklib
 
 
 def recover(root, transcript, boundaries, write=False):
     root, transcript = Path(root).resolve(), Path(transcript).resolve()
     meta=metadata(transcript);session=meta.get('id')
-    if not session or any(c in session for c in '/\\:'):raise ValueError('Unsupported session identity')
+    if not hooklib.is_one_component(session):raise ValueError('Unsupported session identity')
     usage,*_,adapter=scan(transcript)
     facts={}
     with transcript.open(encoding='utf-8') as stream:

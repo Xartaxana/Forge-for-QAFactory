@@ -99,4 +99,21 @@ They raise the same way via :282 and are not in this census.
 1. Hook files: `exit_gate.py` (OF4-10 covers :287/:759), `host_dispatch.py` record (Codex), `stage_guard.py`, `guard_pre_tool.py`, `inject_context.py`, `gate_shown.py`, `dashboard_refresh.py` + `cost_capture.py`.
 2. Non-hook CLIs without a catch: one wrap per CLI, or `role_cli.run_guarded`.
 3. Catch-alls and tuple catches: decide per site whether the silent default is acceptable (FR-59: an unknown is not a pass).
-4. The 32 unverified lines need a second scout pass before the builder nodes are cut.
+4. The 32 unverified lines need a second scout pass before the builder nodes are cut. This was done by t-312; see below.
+
+## Second pass: scout t-312 (2026-11-13, read-main at origin/main 58b3667)
+
+The heading's "32" is a miscount: the list names **30** lines, and all 30 are classified. No line has drifted. The coordinator spot-checked two rows: window_budget:301 (S, falls back to `base/"artifacts"`) and stand_identity:191-192 (S, `return {}`).
+
+| class | sites |
+|---|---|
+| T: traceback on a CLI | archive_task 146, 194, 235; audit_factory 454, 528, 586, 1502, 1514 (`main` runs a1..a24 with no try); check_coverage 97; factory_dashboard 400, 475, 493, 675, 1029, 3915 (direct CLI); probe_by_code 4750 (catches MineRefusal only; `story_root` at :8339 may refuse first; not settled); source_exclusions 540 (`--revoke`; contradicts the intent pinned at test_config_projection.py:410-427); traceability 1842 |
+| S: silent default | factory_dashboard 1245 (no bugs); factory_dashboard 3915 on the **cost_capture hook** route (dashboard_refresh re-raises; cost_capture `__main__` prints "COST CAPTURE INCOMPLETE", exit 0, no signal); stand_identity 178 (`{}`), 210 (`""`); window_budget 301 (**hook** precompact_guard; falls back to `<root>/artifacts`); driver_journal 346 (`[]`) |
+| P: unknown passed on | factory_dashboard 3061 ("not available"); probe_by_code 6959 (`""` read as a role, the refusal side); planning_contract 362 (five detectors give UNREADABLE exit 3, run by exit_gate); runtime_paths 766 (the reason ends in `project_for_task`'s ValueError with a door); baseline_contract 66 (an error string in the list) |
+| R: refusal | probe_by_code 7799 (door JUDGE_DOOR); estimate_record 44 (JSON `invalid_estimate`, exit 2, no door) |
+
+Not traced (one hop only): the callers of `collect_cases`, `project_for_task` and `execution_request:123`; `gate_brief:3787` into gate_shown; how exit_gate reads exit 3.
+
+Forks for the node's Lead:
+1. Which S and P sites stay as they are (FR-59).
+2. Whether the CLI tracebacks are wrapped one by one or through `role_cli.run_guarded`.
