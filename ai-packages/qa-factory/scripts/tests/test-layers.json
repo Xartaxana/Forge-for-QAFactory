@@ -2241,6 +2241,15 @@
     "tests/harness.py"
    ]
   },
+  "test_handoff_init.py": {
+   "layer": "table",
+   "why": "AR-22 handoff_init.py --purpose: the row of a purpose has a producer; one table of calls, input from the CLI included",
+   "covers": [
+    "handoff.py",
+    "handoff_init.py",
+    "tests/harness.py"
+   ]
+  },
   "test_handoff_inline_values.py": {
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
