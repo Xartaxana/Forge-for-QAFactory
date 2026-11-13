@@ -34,6 +34,7 @@ Capture (a builder or a lead, once, on the tree before C1, never in CI):
     python -B scripts/tests/test_story_run_s6_w1_frozen.py --capture <fixtures dir>
 Retaken on 12.11.2026 at tree 8afd343 (the owner's word, t-107): the prompt gained the input line of the story's first-look record (`work/first-look.yaml`,
 `brief_pack.FIRST_LOOK_FILE`) and the brief note prints `N budget B against the ceiling` (2b1b36c); `events` and `state_keys` came out byte-equal.
+Refreshed 13.11.2026 at 5efb17e (OH8-4 C11, t-340): calls.json only; the card head's <plugin>/scripts/<name>.py became one double-quoted word in every prompt (s5: 9, s6: 2); events, state_keys and console byte-equal.
 
 This file is CI's (`story_run_*` is a slow-tier name): a builder never runs the compare in CI's place (plans/builder-rules.md 7b).
 """

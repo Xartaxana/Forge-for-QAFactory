@@ -2832,8 +2832,9 @@ def refusal_text(form_path, contract: str, problems: list, role: str, *, kept=()
     out = [f"handoff_check: {contract} is not ready - {len(problems)} field(s) below.", f"  form: {form_path}"]
     out += ["  " + problem.line() for problem in problems]
     if shell:
+        import runtime_paths as RP      # lazy: only a refusal on its way out builds this text (OH8-4 E9)
         out += ["  Fill every field with this one command (replace each <...>; a line left as <...> writes nothing):",
-                f'python "{HERE.as_posix()}/handoff_check.py" --file {_arg(form_path)} --fix --values - <<\'EOF\'',
+                f'{RP.script_command("handoff_check.py")} --file {_arg(form_path)} --fix --values - <<\'EOF\'',
                 skeleton, "EOF"]
         if kept:
             out.append(f"or, in any shell or none: Rewrite {sibling} WHOLE with the same lines - yours that passed "
