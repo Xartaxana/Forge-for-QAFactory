@@ -4295,7 +4295,10 @@ def plan_result(task_root: Path, dispatch_id: str | None = None) -> dict:
     # note that says the hints were not checked (AR-28), not a crash and not a pass.
     rows, why = SP.hint_rows(task_root)
     notes = [str(n) for n in notes] + ([f"not checked: the grouping hints of the plan ({why})"] if why else [])
-    hints = [_hint("plan", row["case"], row["message"], row["fix"], row["tag"]) for row in rows]
+    # TQ2-1 K2: the case critic's merge the plan neither follows nor answers: the same advice, the same row shape, the same printer
+    merges, merge_why = SP.merge_hint_rows(task_root)
+    notes += [f"not checked: the case-critic merge hints of the plan ({merge_why})"] if merge_why else []
+    hints = [_hint("plan", row["case"], row["message"], row["fix"], row["tag"]) for row in rows + merges]
     return {"ok": not findings, "findings": findings, "hints": hints, "notes": notes, "cases": [],
             "expectation_changes": {"pairs": [], "unmeasured": []}, "unchecked": [], "plan": True}
 

@@ -911,12 +911,18 @@ def _owed_pair_errors(live: dict, in_scope, answers: dict, shown: int) -> tuple:
     return errors, notes
 
 
-def _carries(note: str, partners: list, cfg) -> bool:
-    """Does `note` hold `PARAMETRISE_TOKEN` (any case, spaces collapsed) followed by every id of `partners`? (S9: a superset is fine.)"""
+def parametrise_group(note, cfg) -> list:
+    """THE one reader of the ids after the FIRST `PARAMETRISE_TOKEN` of a note (AR-13): spaces collapsed, the token in any case, the
+    ids from `contract.case_ids` in order, no repeat. `[]` when the token is absent or the note is None. Never raises on its own."""
     import contract as C
     flat = " ".join(str(note or "").split())
     found = re.search(re.escape(PARAMETRISE_TOKEN), flat, re.IGNORECASE)
-    return bool(found) and set(partners) <= set(C.case_ids(flat[found.end():], cfg=cfg))
+    return list(dict.fromkeys(C.case_ids(flat[found.end():], cfg=cfg))) if found else []
+
+
+def _carries(note: str, partners: list, cfg) -> bool:
+    """Does `note` hold `PARAMETRISE_TOKEN` (any case, spaces collapsed) followed by every id of `partners`? (S9: a superset is fine.)"""
+    return bool(partners) and set(partners) <= set(parametrise_group(note, cfg))
 
 
 def _merge_concern_errors(rounds_new_first: list, answers: dict, artifacts) -> tuple:

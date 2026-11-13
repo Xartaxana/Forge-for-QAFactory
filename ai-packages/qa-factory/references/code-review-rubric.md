@@ -19,6 +19,10 @@ named (your charter's list). Judge what code cannot:
   parameterized; an `apart_reason` that is not another setup, surface or fixture; a case expected
   red inside a consolidated body. A `remark`, never a `blocker` on its own; the window may
   parameterize and declare the `deviation`.
+- **An unanswered case-critic merge.** A `parametrise into one test:` concern (the case-concerns
+  file, `--check` merge hints) that the plan neither follows with one test nor answers by an
+  `apart_reason` naming another setup, surface or fixture: a `blocker`, even where a grouping hint
+  names the same tests. Only the plan makes them one test for certain.
 - **Level and fit** (K6, K7). Not a level above what the Then needs, no
   new test where one can be extended, no repeat of an existing test, the manifesto rung. A
   row with no `level` or `fit` is "not checked", never "matches".

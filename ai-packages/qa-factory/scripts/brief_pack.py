@@ -1990,6 +1990,79 @@ def _rel(task_root, name: str) -> str:
     return RP.story_text(task_root, name)
 
 
+def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, write: bool, scope=None) -> dict:
+    """What an S5 plan role is told of the S4 case critic's carried concerns (TQ2-1 K2): `{head, files, sides}`. `scope` None is the
+    PLAN dispatch (every concern, `placement: plan`); a list is a LEGACY window (the concerns of ITS cases by the windows' own placer,
+    `s5_plan.concerns_for_scope`). The list is a side file `<id>-case-concerns.md` printed by the one printer of remarks
+    (`s5_plan.remark_lines`); the head holds counts and what to do. An empty outcome says which empty it is (none carried / none
+    raised in N rounds / none for this window), a round the receipt did not measure is named (never "none carried", FR-41), and a
+    failed read says so. Never raises: the brief is built whatever happens here (AR-28)."""
+    plan, author = scope is None, role == "qa-automator"
+    verb = ("group the tests" if plan else "automate") if author else "judge"
+    head, files, sides = [], [], {}
+    try:
+        import contract as C
+        import critic_rollcall as CR
+        sp = _sp()
+        report = sp.concern_report(task_root, state)
+        why = ""
+        if plan:
+            shown = [dict(c, placement="plan") for c in report["concerns"]]
+        else:
+            shown, why = sp.concerns_for_scope(task_root, state, report["concerns"], scope)
+        cfg = C.case_config(task_root)
+        groups = [CR.parametrise_group(c.get("problem"), cfg) for c in shown]
+        asked = [g for g in groups if len(g) >= 2]
+        n, k = len(shown), len(asked)
+        if not plan:
+            def held(ident):
+                return any(key == str(ident) or ident in C.case_ids(str(key), cfg=cfg) for key in scope)
+            elsewhere = sum(1 for g in asked if not all(held(i) for i in g))
+        if n:
+            name = f"{dispatch_id}-case-concerns.md"
+            rel = _rel(task_root, "work/briefs/" + name)
+            sides[name] = ("# The case critic's concerns carried to automation\n\n" + "\n".join(sp.remark_lines(shown)) + "\n")
+            files.append(f"- {rel} - the case critic's concerns (CC-n)" + ("" if write else " (not written in this run)")
+                         + ("; the windows get the same lines" if plan else " for the cases of this window"))
+            token = CR.PARAMETRISE_TOKEN
+            if plan and author:
+                text = (f"The case critic carried {n} concern(s) to automation ({k} ask to parametrise cases into one test): {rel}. "
+                        f"Answer each in the plan: a `{token}` concern is one parameterized test over its cases, or each test that "
+                        "holds them says why in `apart_reason`")
+            elif plan:
+                text = (f"The case critic carried {n} concern(s) to automation ({k} ask to parametrise cases into one test): {rel}. "
+                        "Judge whether the plan answers each (rubric «On the plan»)")
+            elif author:
+                text = (f"The case critic carried {n} concern(s) for the cases of this window ({k} ask to parametrise cases into one "
+                        f"test): {rel}. Answer each in `plan_remarks` (applied / not_applicable with why); a `{token}` concern is "
+                        "one parameterized test over its cases")
+            else:
+                text = (f"The case critic carried {n} concern(s) for the cases of this window: {rel}. The automator answers each in "
+                        "`plan_remarks`; judge each answer (C12)")
+            text = _short(text, HEAD_LINE_CHARS)
+            if not plan and author:     # said whole, never cut off by the line's bound: they are the residual (K2-E12, E13)
+                if elsewhere:
+                    text += (f"; {elsewhere} name a case of another window: they cannot be merged here, say so in the row")
+                if why:
+                    text += f"; not filtered to this window ({_text_whole(why)})"
+            head.append(text)
+        elif not report["rounds"]:
+            files.append("- case critic's concerns: none carried")
+        elif not plan and report["concerns"]:
+            files.append(f"- case critic's concerns: none for the cases of this window ({len(report['concerns'])} for other windows)")
+        else:
+            files.append(f"- case critic's concerns: none raised in {report['rounds']} accepted round(s)")
+        if report["silent"]:
+            head.append(f"Case critic's concerns: {len(report['silent'])} findings file(s) gave none because a round could not be read "
+                        "against the critic's receipt (the file changed after it, or its roll-call is broken); read the rows marked "
+                        f"`approve_with_concerns` there before you {verb}")
+            files += [f"- {path} - case critic's findings that gave no concern (receipt): read it" for path in report["silent"]]
+    except Exception as exc:  # noqa: BLE001 - the brief is built; the line says what could not be read
+        return {"head": [f"Case critic's concerns: could not be read ({_text_whole(exc)}); read the rows marked `approve_with_concerns` "
+                         f"in work/test-cases/**/critic-findings.md before you {verb}"], "files": [], "sides": {}}
+    return {"head": head, "files": files, "sides": sides}
+
+
 def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str, state, write: bool, project: Path) -> dict:
     """What the PLAN dispatch of S5 reads (step 1): `{head, files, sides}`. The plan itself - or, when it is over the guard's whole-read
     cap, the parts of it as the windows will cut it (`s5_plan.window_slice`, one side file per window, each written whole and
@@ -2015,6 +2088,14 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
             head.append(f"`s5_plan.py --check` prints {len(rows)} grouping hint(s): tests at one level in one file that each prove "
                         "one case. Judge whether they share setup and action and whether each `apart_reason` holds (rubric «On the "
                         "plan»); a test left unmerged is a remark, never a blocker on its own")
+        merges, merge_why = _sp().merge_hint_rows(task_root)
+        if merge_why:
+            head.append(f"merge hints not computed ({_text_whole(merge_why)}); compare the case-concerns file with the plan's tests "
+                        "yourself")
+        elif merges:
+            head.append(f"`s5_plan.py --check` prints {len(merges)} merge hint(s): cases the case critic asked to parametrise into one "
+                        "test sit in separate tests with no `apart_reason`. Each unanswered one is a blocker (rubric «On the plan»), "
+                        "even where a grouping hint names the same tests")
     size = plan_path.stat().st_size if plan_path.is_file() else None
     cap, cap_why = _plan_cap()
     if size is None:
@@ -2044,6 +2125,11 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
                 files.append(f"  - {_rel(task_root,'work/briefs/' + name)} ({big} B) - window {n}"
                              + ("" if write else " (not written in this run)")
                              + (" - still over the cap: read it by ranges" if big > cap else ""))
+    # TQ2-1 K2: after the cap chain, never inside one of its branches: under the cap, over it and "slices cannot be cut" all carry it
+    got = case_concern_lines(task_root, dispatch_id, state, role, write)
+    head += got["head"]
+    files += got["files"]
+    sides.update(got["sides"])
     if not author:
         files.append(f"- {_rel(task_root,'work/handoffs/' + dispatch_id + '.yaml')} - your review form (`start` writes it right after this "
                      "brief; `finish` stamps the plan you read)")
@@ -4194,7 +4280,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     except Exception:
         controller_obj = None
     scope_text = ", ".join(scope) if scope else "the story scope"
-    # SC1-14 C2: which S5 dispatch this is. `legacy` (and every other stage or role) is the brief as it was, byte for byte.
+    # SC1-14 C2 / TQ2-1 K2: which S5 dispatch this is. `legacy` is the brief as it was plus the case critic's concerns for its
+    # window; every other stage or role is the brief as it was, byte for byte.
     s5_kind, s5_why, s5_state = "", "", None
     from controller import S5_PLAN_ROLES      # the one list of the plan's roles (no import cycle: nothing imports brief_pack at top level)
     if stage == "S5" and role in S5_PLAN_ROLES:
@@ -4254,6 +4341,10 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     elif s5_kind == "unknown":
         head.append(f"Plan form: could not be established ({s5_why}); this brief names no plan or slice - ask the conductor whether S5 "
                     f"has a plan ({PLAN_FILE}) before you write")
+    elif s5_kind == "legacy" and dispatch:
+        got = case_concern_lines(task_root, dispatch_id, s5_state, role, write and output is None, scope)
+        head += got["head"]
+        plan_files, side_files = got["files"], dict(got["sides"])
     # In the head on purpose: the head is never shrunk, and the card and the charter both defer to this line.
     head += case_form_lines(task, task_root, role)
     if stage == "S4":
