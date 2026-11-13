@@ -55,22 +55,107 @@ def test_check_b_queue_on_one_side_or_opposite_directions_is_red(tree, cli):
     assert code == 2 and "disagree on the order" in out
 
 
-@pytest.mark.parametrize("a,b,red", [
-    ("tools/x.py", "scripts/x.py", False),          # two full paths with the same basename: not the same file
-    ("x.py", "scripts/x.py", True),                  # a bare basename against a path
-    ("ai-packages/qa-factory/scripts/x.py", "scripts/x.py", True),   # the package prefix is stripped
-    ("tools/", "tools/piles.py", True),             # a directory against a file inside it
-    ("tools/*.py", "tools/piles.py", True),         # a glob against a literal
-    ("plans/piles/**", "plans/piles/forge/batch-1.md", True),
-    ("plans/piles/*", "plans/piles/forge/batch-1.md", False),   # '*' stops at a slash, as in features.json
-    ("tools/a*", "tools/ab*", True),                # two globs whose literal prefixes nest
-    ("tools/a*", "docs/b*", False),
-    ("tools\\piles.py", "tools/piles.py", True),    # a backslash is a slash
-    ("docs/x.md", "docs/y.md", False),
+PKG_TOPS = ("scripts", "references", "changelog.d")
+
+
+@pytest.mark.parametrize("a,b,tops,red", [
+    ("tools/x.py", "scripts/x.py", PKG_TOPS, False),          # two full paths with the same basename: not the same file
+    ("x.py", "scripts/x.py", PKG_TOPS, True),                  # a bare basename against a path
+    ("ai-packages/qa-factory/scripts/x.py", "scripts/x.py", PKG_TOPS, True),   # the package prefix is stripped
+    ("tools/", "tools/piles.py", PKG_TOPS, True),             # a directory against a file inside it
+    ("tools/*.py", "tools/piles.py", PKG_TOPS, True),         # a glob against a literal
+    ("plans/piles/**", "plans/piles/forge/batch-1.md", PKG_TOPS, True),
+    ("plans/piles/*", "plans/piles/forge/batch-1.md", PKG_TOPS, False),   # '*' stops at a slash, as in features.json
+    ("tools/a*", "tools/ab*", PKG_TOPS, True),                # two globs whose literal prefixes nest
+    ("tools/a*", "docs/b*", PKG_TOPS, False),
+    ("tools\\piles.py", "tools/piles.py", PKG_TOPS, True),    # a backslash is a slash
+    ("docs/x.md", "docs/y.md", PKG_TOPS, False),
+    ("ai-packages/qa-factory/", "changelog.d/", PKG_TOPS, True),      # the whole package against a package folder
+    ("ai-packages/qa-factory", "changelog.d/", PKG_TOPS, True),       # the root without its slash is the same token
+    ("ai-packages/qa-factory/", "tools/x.py", PKG_TOPS, False),       # `tools` is not a package top
+    ("ai-packages/qa-factory/", "tools/x.py", None, True),            # no tops: the safe side
+    ("ai-packages/qa-factory/", "scripts/x.py", PKG_TOPS, True),      # a literal file: the false green of an empty token is closed
+    ("ai-packages/qa-factory/", "story_run.py", PKG_TOPS, True),      # a bare basename has no resolvable place: the safe side
+    ("ai-packages/qa-factory/", "**/x.py", PKG_TOPS, True),           # a glob first segment: the safe side
+    ("ai-packages/qa-factory/", "tools/*.py", PKG_TOPS, False),       # a known top outside the package: still no overlap
+    ("   ", "tools/", PKG_TOPS, False),                             # a span of spaces is no token and overlaps nothing
 ])
-def test_check_b_token_overlap_rules(a, b, red):
-    assert piles.tokens_overlap(piles._norm_token(a), piles._norm_token(b)) is red
-    assert piles.tokens_overlap(piles._norm_token(b), piles._norm_token(a)) is red
+def test_check_b_token_overlap_rules(a, b, tops, red):
+    assert piles.tokens_overlap(piles._norm_token(a), piles._norm_token(b), tops=tops) is red
+    assert piles.tokens_overlap(piles._norm_token(b), piles._norm_token(a), tops=tops) is red
+
+
+# ---------------------------------------------------------------- (б) one developer's batches (SL-4)
+
+def vocab_for(kind, tree, monkeypatch):
+    """The developer vocabulary a `test_dev_of` row reads: a literal set, or the real reader on a tree / with git failing."""
+    if kind == "git-fails":
+        monkeypatch.setattr(piles, "git", lambda root, *a: (-1, b"git cannot run"))
+        return piles.developer_vocabulary(tree)
+    if kind == "untracked":
+        put(tree, "logs/journal/dev1.jsonl", "{}\n")
+        stage(tree, "logs/journal/dev1.jsonl")
+        put(tree, "logs/journal/dev2.jsonl", "{}\n")                       # on disk, not in the index
+        return piles.developer_vocabulary(tree)
+    return frozenset(kind.split("+")) if kind else frozenset()
+
+
+@needs_git
+@pytest.mark.parametrize("who,kind,want", [
+    ("dev10", "dev1", None),                                   # the token is dev10, not dev1
+    ("dev1-old", "dev1", None),
+    ("dev1 → dev2 (передача)", "dev1+dev2", None),              # two slugs
+    ("Ира", "dev1", None),
+    ("владелец (Lead)", "dev1", None),
+    ("—", "dev1", None),
+    ("", "dev1", None),
+    ("DEV1, 13.11.2026", "dev1", "dev1"),                      # case is folded, the date goes
+    ("Lead dev1 (Opus), 13.11.2026", "dev1", "dev1"),          # lead and opus are not slugs
+    ("Lead dev1", "lead+dev1", None),                          # a journal named lead.jsonl: two slugs
+    ("dev1, 05.11.2026", "dev1", "dev1"),                      # the real values of github-move/3 and onboarding-forge/1
+    ("dev1 (Opus coord), 12.11.2026", "dev1", "dev1"),
+    ("dev1ира", "dev1", None),                                 # a slug is a whole token: a letter of another alphabet breaks it
+    ("dev12", "dev1", None),
+    ("xdev1", "dev1", None),
+    ("dev1,", "dev1", "dev1"),
+    ("(dev1)", "dev1", "dev1"),
+    ("dev1, 12.11.2026", "", None),                            # empty-vocab
+    ("dev2, 13.11.2026", "untracked", None),                   # untracked-journal-not-slug
+    ("dev1, 13.11.2026", "untracked", "dev1"),
+    ("dev1, 13.11.2026", "git-fails", None),                   # git-fails-empty-vocab
+], ids=["dev10", "dev1-old", "two-slugs-handover", "cyrillic-name", "owner-and-lead", "dash", "empty", "case-folded-with-date",
+        "lead-and-opus-are-not-slugs", "journal-named-lead", "real-github-move-3", "real-onboarding-forge-1", "dev1-cyrillic-glued", "dev12-digit-glued", "xdev1-letter-glued",
+        "dev1-comma", "dev1-parens", "empty-vocab",
+        "untracked-journal-not-slug", "tracked-journal-is-slug", "git-fails-empty-vocab"])
+def test_dev_of(tree, monkeypatch, who, kind, want):
+    assert piles.dev_of(who, vocab_for(kind, tree, monkeypatch)) == want
+
+
+def dev_batches(tree, who1, who2, w1, w2, journals=("dev1",), st2="в работе", node2="в работе"):
+    for j in journals:
+        put(tree, "logs/journal/%s.jsonl" % j, "{}\n")
+    put(tree, "plans/piles/forge/README.md", card_text("forge", "Forge", [
+        ["1", "a", "B-230", "L", "в работе", who1, "`main`", "—"], ["2", "b", "B-015", "M", st2, who2, "`pile/forge/batch-2`", "—"]]))
+    put(tree, "plans/piles/forge/batch-1-foundation.md", batch_text("forge", 1, "в работе", [node("F0-1", w1[0], w1[1])], who=who1))
+    put(tree, "plans/piles/forge/batch-2-next.md", batch_text("forge", 2, st2, [node("F0-2", w2, node2)], who=who2))
+    stage(tree, "plans/piles", "logs/journal")
+
+
+@needs_git
+@pytest.mark.parametrize("who1,who2,w1,w2,journals,code,needle", [
+    ("dev1, 12.11.2026", "dev1 (Opus), 13.11.2026", ("`scripts/tests/a.py`", "в работе"), "`scripts/tests/`", ("dev1",), 0,
+     "1 pair(s) of one developer not compared (dev1: forge/1 + forge/2; inside one developer the only guard is `owns_gate`'s WARN"),
+    ("dev1, 12.11.2026", "Ира", ("`ai-packages/qa-factory/`", "в работе"), "`scripts/x.py`", ("dev1",), 2,
+     "forge/1 and forge/2 both write: ai-packages/qa-factory/ (the whole package) ~ scripts/x.py"),
+    ("dev1, 12.11.2026", "dev2, 13.11.2026", ("`scripts/x.py`", "ожидает"), "`scripts/x.py`", ("dev1", "dev2"), 2,
+     "forge/1 and forge/2 both write: scripts/x.py"),                      # a waiting node of a taken batch keeps its zone (F-D1 (3))
+    ("dev1, 12.11.2026", "dev1, 13.11.2026", ("`scripts/x.py`", "в работе"), "`scripts/x.py`", ("dev1",), 0,
+     "not compared"),                                                      # two clones, one slug: read as one developer (the accepted risk)
+], ids=["same-developer", "different-developer", "waiting-node-other-developer", "two-clones-one-slug"])
+def test_check_b_pair_by_developer(tree, cli, who1, who2, w1, w2, journals, code, needle):
+    dev_batches(tree, who1, who2, w1, w2, journals)
+    got, out = cli(tree, "check")
+    assert got == code and needle in out, out
 
 
 @needs_git

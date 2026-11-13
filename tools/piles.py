@@ -93,6 +93,7 @@ if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
 import gitcmd  # noqa: E402
+import journal_keys  # noqa: E402
 import md_regions  # noqa: E402
 # The table reader and the two line filters live in the leaf tools/md_table.py (t-797 F5-2 N3: digest_form reads tables through
 # the same objects); every name below stays an attribute of `piles` (the readers and the tests call `piles.split_cells` etc.).
@@ -1156,9 +1157,31 @@ def check_placement(ctx: Ctx) -> ItemResult:
     return res
 
 
+PACKAGE_ROOT = "ai-packages/qa-factory/"          # the whole package: the one token `_norm_token` keeps with its prefix (D.6)
+
+
 def _norm_token(tok: str) -> str:
+    """The token in the space (б) compares in: slashes forward, the package prefix dropped. The package root itself
+    (`ai-packages/qa-factory` with or without `/`) is NOT dropped to "" -- an empty token matched folders by accident --
+    it becomes PACKAGE_ROOT."""
     t = tok.strip().replace("\\", "/")
-    return t[len("ai-packages/qa-factory/"):] if t.startswith("ai-packages/qa-factory/") else t
+    if t.rstrip("/") == PACKAGE_ROOT.rstrip("/"):
+        return PACKAGE_ROOT
+    return t[len(PACKAGE_ROOT):] if t.startswith(PACKAGE_ROOT) else t
+
+
+def package_tops(root):
+    """The entries of root/ai-packages/qa-factory/ on disk (the first path segments a package path can start with), read once
+    per run; None when the folder cannot be read (then `tokens_overlap` takes the safe side)."""
+    try:
+        return tuple(sorted(e.name for e in os.scandir(Path(root) / PACKAGE_ROOT)))
+    except OSError:
+        return None
+
+
+def shown_token(tok: str) -> str:
+    """A token as a refusal prints it: never an empty name for the whole package."""
+    return "%s (the whole package)" % PACKAGE_ROOT if tok == PACKAGE_ROOT else tok
 
 
 def _is_glob(t):
@@ -1205,11 +1228,12 @@ def parse_zone(zone: str):
     patterns, errors = [], []
     for tok in tokens:
         t = _norm_token(tok)
+        whole = t == PACKAGE_ROOT                     # the bare package root is never a pattern of this space (D.6 (v))
         if t.endswith("…"):
             t = t[:-1].rstrip("/") + "/**"
         elif t.endswith("/"):
             t += "**"
-        expanded = None if (not t.strip("/*") or any(c.isspace() for c in t)) else _expand_braces(t)
+        expanded = None if (whole or not t.strip("/*") or any(c.isspace() for c in t)) else _expand_braces(t)
         if expanded is None:
             errors.append("zone part `%s` cannot be read -- expected a path, one level of {a,b}, no spaces; it matches nothing" % tok)
         else:
@@ -1217,12 +1241,21 @@ def parse_zone(zone: str):
     return patterns, errors
 
 
-def tokens_overlap(a: str, b: str) -> bool:
+def tokens_overlap(a: str, b: str, *, tops=None) -> bool:
     """Two writer tokens may touch the same file. Errs towards TRUE (a false red has doors; a false green on equal
-    literals has none)."""
+    literals has none). An empty token overlaps nothing. PACKAGE_ROOT (the whole package) overlaps y when y starts with it, or
+    y's first path segment is one of `tops` (the entries of the package folder on disk), or y has no resolvable place (a bare
+    basename, a glob first segment); with no `tops` it overlaps every y."""
+    if not a.strip() or not b.strip():
+        return False
     if a == b:
         return True
     for x, y in ((a, b), (b, a)):
+        if x == PACKAGE_ROOT:
+            first = y.split("/", 1)[0]
+            if y.startswith(PACKAGE_ROOT) or tops is None or first in tops or "/" not in y or _is_glob(first):
+                return True               # a bare basename or a glob first segment has no resolvable place: the safe side
+            continue
         if _is_glob(x) and compile_glob(x)[0].match(y):
             return True
         if _is_glob(x) and "/" not in x and compile_glob(x)[0].match(y.rsplit("/", 1)[-1]):
@@ -1243,7 +1276,7 @@ def writers_of(b: BatchFile) -> list:
     for n in b.nodes:
         if n.status in NOT_WRITING:
             continue
-        out += [_norm_token(t) for t in n.writers]
+        out += [_norm_token(t) for t in n.writers if t.strip()]          # a span of spaces writes nothing (D.6 (ii))
     return sorted(set(out))
 
 
@@ -1263,10 +1296,12 @@ def fn_lists_of(b: BatchFile) -> dict:
         if n.status in NOT_WRITING:
             continue
         for t in n.writers:
-            per.setdefault(_norm_token(t), []).append(n.lists.get(t))
+            if t.strip():
+                per.setdefault(_norm_token(t), []).append(n.lists.get(t))
     hod = {}
     for t, names in b.hod_lists.items():
-        hod.setdefault(_norm_token(t), set()).update(names)
+        if t.strip():
+            hod.setdefault(_norm_token(t), set()).update(names)
     out = {}
     for tok, entries in per.items():
         own = set().union(*[set(e) for e in entries if e])
@@ -1388,11 +1423,39 @@ def _item_reds(k, x, items, names, door):
     return msgs
 
 
-def _pair_overlap(b1, b2, k1, k2, root):
+def developer_vocabulary(root) -> frozenset:
+    """The developer slugs: the names of logs/journal/<slug>.jsonl in the git INDEX (the staged tree in a commit, the checkout in CI),
+    through journal_keys.journal_names. An untracked journal file is no slug yet. Empty when git cannot list the index. Built
+    once per run by the callers (t-367 B4, F-D2)."""
+    rc, out = git(root, "ls-files", "-z", "--", "logs/journal")
+    if rc != 0:
+        return frozenset()
+    files, _problems = journal_keys.journal_names([p for p in out.decode("utf-8", "replace").split("\0") if p])
+    return frozenset(f.slug.casefold() for f in files)
+
+
+def dev_of(who, vocab):
+    """The developer slug a `взял:` / --who text names, or None. The trailing date goes; the text is cut into tokens
+    [a-z0-9][a-z0-9-]* after casefold; the tokens that are slugs of `vocab` stay; EXACTLY one distinct slug is the answer.
+    May err only toward None ("different developers", today's rule), never to a wrong slug."""
+    if not who or not vocab:
+        return None
+    runs = re.findall(r"[\w-]+", TAKEN_DATE_RE.sub("", who).casefold())     # a slug is a WHOLE run: `dev1ира`, `dev12`, `xdev1`, `dev1_x` are not dev1
+    found = {t for t in runs if SLUG_RE.fullmatch(t) and t in vocab}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def same_developer(b1, b2, vocab) -> bool:
+    """Two batches whose takers read as ONE developer; an unreadable taker on either side is 'different'."""
+    d1 = dev_of(b1.who, vocab)
+    return d1 is not None and d1 == dev_of(b2.who, vocab)
+
+
+def _pair_overlap(b1, b2, k1, k2, root, tops=None):
     """-> the red messages of one pair of active batches ([] = green): the file lock of (б) with its two doors, the `очередь:` line
     in both preambles or (D-0048) a disjoint function list of each batch for the shared file."""
     w1, w2 = writers_of(b1), writers_of(b2)
-    pairs = sorted({(x, y) for x in w1 for y in w2 if tokens_overlap(x, y)})
+    pairs = sorted({(x, y) for x in w1 for y in w2 if tokens_overlap(x, y, tops=tops)})
     if not pairs:
         return []
     d1, d2 = _queue_dirs(b1, k1, k2), _queue_dirs(b2, k1, k2)
@@ -1403,7 +1466,7 @@ def _pair_overlap(b1, b2, k1, k2, root):
     left = [(x, y) for x, y in pairs if (x, y) not in handled]
     if not left:
         return msgs
-    hits = sorted({x if x == y else "%s ~ %s" % (x, y) for x, y in left})
+    hits = sorted({shown_token(x) if x == y else "%s ~ %s" % (shown_token(x), shown_token(y)) for x, y in left})
     names = "%s/%d and %s/%d both write: %s" % (k1[0], k1[1], k2[0], k2[1], ", ".join(hits[:3]) + (" ..." if len(hits) > 3 else ""))
     if d1 and d2:
         msgs.append("%s -- the two batches disagree on the order (%s vs %s); make both preambles say the same direction" % (
@@ -1429,12 +1492,20 @@ def check_overlap(ctx: Ctx) -> ItemResult:
             res.notes.append("WARN: %s/%d: a `функции:` line of its «Ход» lists functions for %s, which no node of the batch that still "
                              "writes names in its «Пишет в» -- ignored (the list narrows nothing; write the file in the cell as the "
                              "node does, or drop the line)" % (k[0], k[1], ", ".join(hod_ignored(b))))
+    vocab, tops, skipped = developer_vocabulary(ctx.root), package_tops(ctx.root), []
     for i in range(len(active)):
         for j in range(i + 1, len(active)):
             (b1, k1), (b2, k2) = active[i], active[j]
-            for msg in _pair_overlap(b1, b2, k1, k2, ctx.root):
+            if same_developer(b1, b2, vocab):             # D.2: inside one developer (б) does not compare
+                skipped.append("%s: %s/%d + %s/%d" % (dev_of(b1.who, vocab), k1[0], k1[1], k2[0], k2[1]))
+                continue
+            for msg in _pair_overlap(b1, b2, k1, k2, ctx.root, tops):
                 res.reds.append(Red(msg, (b1.path, b2.path)))
     res.ok = "%d active batches" % len(active)
+    if skipped:
+        res.ok += ("; %d pair(s) of one developer not compared (%s; inside one developer the only guard is `owns_gate`'s WARN over "
+                   "live dispatches of one machine; two parallel sessions of one developer are no longer blocked by (б))"
+                   % (len(skipped), ", ".join(skipped[:3]) + (", ..." if len(skipped) > 3 else "")))
     return res
 
 
@@ -2298,13 +2369,18 @@ def printable(text: str) -> str:
     return "".join(ch if ch.isprintable() else "?" for ch in text)
 
 
-def _overlap_refusal(tree: Tree, f: BatchFile, key, root) -> None:
+def _overlap_refusal(tree: Tree, f: BatchFile, key, root, who=None, vocab=None) -> None:
     """take runs (б) for the batch it takes against every active batch first, and names the queue door (P5); the function-list
-    door (D-0048) is judged the same way as in `check`."""
+    door (D-0048) is judged the same way as in `check`. A partner batch whose taker reads as the same developer as `who` is not
+    compared (D.3); an unreadable `who` or taker keeps today's rule."""
+    vocab = developer_vocabulary(root) if vocab is None else vocab
+    tops, mine = package_tops(root), dev_of(who, vocab)
     for v in tree.all_views():
         if v.file is not None and v.status in ACTIVE and (v.slug, v.n) != key:
+            if mine is not None and dev_of(v.file.who, vocab) == mine:
+                continue
             (b1, k1), (b2, k2) = sorted([(f, key), (v.file, (v.slug, v.n))], key=lambda t: (t[1][1], t[1][0]))
-            msgs = _pair_overlap(b1, b2, k1, k2, root)
+            msgs = _pair_overlap(b1, b2, k1, k2, root, tops)
             if msgs:
                 raise Refused("%s; the queue line is an append that (в) allows in a taken batch -- then run take again" % "; ".join(msgs))
 
@@ -2334,7 +2410,8 @@ def cmd_take(args, root) -> int:
     if view.row.status != f.status:
         raise Refused('the card and the batch file disagree on %s: card status "%s", batch status "%s" -- make them say the '
                       "same thing, then take" % (where, view.row.status_raw, f.status_raw))
-    _overlap_refusal(tree, f, (slug, n), root)
+    vocab = developer_vocabulary(root)
+    _overlap_refusal(tree, f, (slug, n), root, who, vocab)
     today = _today(args)
     taken, ticks = "%s, %s" % (who, today), "`%s`" % branch
     card_path, batch_path = root / pile.card_rel, root / f.path
@@ -2349,6 +2426,11 @@ def cmd_take(args, root) -> int:
     if here != "main":
         print("piles take: WARNING: the current branch is %s, not main -- the claim is visible to others only once it reaches main"
               % (here or "unknown (git failed)"))
+    mine, _why = journal_keys.developer_slug(root)
+    if mine is not None and dev_of(who, vocab) != mine:     # D.3: a writer-side guard, never a refusal; nothing when the clone's slug is unreadable
+        print('piles take: WARNING: --who reads as developer %s, but this clone\'s tools/dev.config.yaml names %s -- batches of one '
+              'developer do not block each other, so --who decides whose batches this one may share files with; take it again with '
+              'your own slug if this is not intended' % (dev_of(who, vocab) or "none", mine))
     return 0
 
 

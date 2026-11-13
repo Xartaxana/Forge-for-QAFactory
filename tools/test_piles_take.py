@@ -166,6 +166,30 @@ def test_take_runs_overlap_first_and_names_the_queue_door(tree, cli):
     assert cli(tree, "take", "forge", "2", "--who", "dev1")[0] == 0
 
 
+@needs_git
+@pytest.mark.parametrize("holder,config,code,needles,absent", [
+    ("dev1, 12.11.2026", "developer: dev1\n", 0, ("piles take: forge/2 taken by dev1",), ("WARNING: --who",)),
+    ("dev2, 12.11.2026", None, 2, ("forge/1 and forge/2 both write: tools/a.py",), ()),
+    ("dev1, 12.11.2026", "developer: dev2\n", 0,
+     ("WARNING: --who reads as developer dev1, but this clone's tools/dev.config.yaml names dev2",), ()),
+    ("dev1, 12.11.2026", None, 0, ("piles take: forge/2 taken by dev1",), ("WARNING: --who",)),
+], ids=["take-passes-own-overlaps", "take-refused-other-developer", "take-warns-who-differs-from-clone",
+        "take-no-warning-without-dev-config"])
+def test_take_by_developer(tree, cli, holder, config, code, needles, absent):
+    """D.3: batch 1 (в работе, writes tools/a.py) belongs to `holder`; batch 2 (writes the same file) is taken with --who dev1."""
+    batch2(tree, writes="`tools/a.py`")
+    git(tree, "branch", "-M", "main")
+    for who in ("dev1", "dev2"):
+        put(tree, "logs/journal/%s.jsonl" % who, "{}\n")
+    edit(tree, B1, "взял: Ира", "взял: " + holder)
+    edit(tree, CARD, "| в работе | Ира |", "| в работе | %s |" % holder)
+    if config:
+        put(tree, "tools/dev.config.yaml", config)
+    git(tree, "add", "-A")
+    got, out = cli(tree, "take", "forge", "2", "--who", "dev1")
+    assert got == code and all(n in out for n in needles) and not any(a in out for a in absent), out
+
+
 # ---------------------------------------------------------------- GM1-1: take touches files only, no board
 
 @needs_git
