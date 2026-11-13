@@ -12,7 +12,7 @@ the form as evidence. `handoffs/README.md` is the contract's own documentation; 
 three commands:
 
 ```text
-python "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_init.py"  --task <T> --stage S<n> --role <role> [--to <role>] [--dispatch <id>] [--scope TC-1,TC-2]
+python "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_init.py"  --task <T> --stage S<n> --role <role> [--to <role>] [--purpose <word>] [--dispatch <id>] [--scope TC-1,TC-2]
 python "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py" --file work/handoffs/<dispatch>.yaml --task <T> [--fix] [--values FILE|-] [--set path=value] [--json]
 python "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_help.py"  --file work/handoffs/<dispatch>.yaml [--field F] [--problem "..."] [--candidate WORD]
 ```

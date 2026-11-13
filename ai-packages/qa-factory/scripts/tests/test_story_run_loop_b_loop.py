@@ -66,7 +66,7 @@ def loop_waiver_and_journal_shapes() -> None:
         check("the saved result was consumed", (task_root / "state/driver-runs/S1-qa-scout-1.done.json").is_file())
 
         # --- journal shapes (design/driver.md) ---------------------------------------------
-        runs = jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record, counted apart
         wanted = {"ts", "kind", "role", "dispatch", "stage", "session_id", "num_turns", "total_cost_usd",
                   "duration_ms", "resumed", "exit_code", "is_error", "model"}
         check("every driver-runs line has the documented keys", all(wanted <= set(r) for r in runs))

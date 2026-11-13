@@ -574,6 +574,92 @@ def s5_window_is_refused_in_one_list():
         cls, text = refused(window(instances=[broken]))
         check("inside ONE instance the first failure stops it (the hash behind it is not judged)",
               "requires execution_fingerprint" in text and "obligation_hash must bind" not in text, text[:300])
+        # FV1-19c: the finish reads `obligation_refs` through the ONE reader, `contract.obligation_ref_problems` (strict)
+        import contract as _C
+        SHAPE_TEXT = "coverage v2 instance requires unique obligation_refs with exact hashes"
+        PLAN_TEXT = "instance obligation_refs do not match the current approved plan"
+        IDS_TEXT = "instance obligation IDs must match obligation_refs"
+        FPRINT_TEXT = "requires execution_fingerprint"
+        real_plan = c._plan_document()
+        real_rows = real_plan.get("rows") if isinstance(real_plan, dict) else real_plan
+        ob1 = real_rows[0]["coverage_obligations"][0]
+        ob1_hash = content_hash(ob1)
+
+        def with_plan(rows, win):
+            saved, c._plan_document = c._plan_document, (lambda: rows)
+            try:
+                return refused(win)
+            finally:
+                c._plan_document = saved
+
+        def with_refs(refs, **over):
+            return instance("i", obligation_refs=refs, obligation_ids=[r["obligation_id"] for r in refs
+                                                                      if isinstance(r, dict) and "obligation_id" in r],
+                            obligation_hash=content_hash(refs), **over)
+
+        def head(text):
+            # the refusal's first item, without the "gap checks did not run" tail the tier appends
+            return text.split(" (the window's gap checks")[0]
+
+        def kind_of(cls, text):
+            return "shape" if SHAPE_TEXT in text else ("plan" if PLAN_TEXT in text else "later")
+
+        good = {"obligation_id": "OB-TS-1", "obligation_hash": ob1_hash}
+        cases = {
+            "valid": ([good], real_rows, "later"),
+            "stale hash": ([dict(good, obligation_hash="x")], real_rows, "plan"),
+            "missing hash": ([{"obligation_id": "OB-TS-1"}], real_rows, "shape"),
+            "unknown id": ([dict(good, obligation_id="OB-9")], real_rows, "plan"),
+            "empty map": ([good], [{"id": "TS-1"}], "plan"),
+        }
+        for name, (refs, rows, want) in cases.items():
+            # (c) the verdict equals the kind list of the one predicate (the valid case is stopped at the fingerprint, which
+            # comes AFTER the refs: reaching it proves the refs passed)
+            kinds = {k for k, _ in _C.obligation_ref_problems(refs, _C.obligation_map(rows), strict=True)}
+            expected = "shape" if "shape" in kinds else ("plan" if kinds else "later")
+            cls, text = with_plan(rows, window(instances=[with_refs(refs, **({} if want != "later" else {"execution_fingerprint": ""}))]))
+            got = kind_of(cls, text)
+            check(f"FV1-19c (c) {name}: the finish's verdict is the predicate's ({expected})",
+                  got == expected == want and (cls is StateConflict) == (want == "plan")
+                  and (want != "later" or FPRINT_TEXT in text), f"{got} {expected} {cls} {text[:200]}")
+        # (a) the five old verdict texts, byte for byte, on their old inputs
+        cls, text = refused(window(instances=[instance("i", obligation_refs=[])]))
+        check("FV1-19c (a) empty refs: the shape text, ValueError", cls is ValueError and head(text) == SHAPE_TEXT, f"{cls} {text}")
+        cls, text = refused(window(instances=[instance("i", obligation_refs=[good, dict(good)])]))
+        check("FV1-19c (a) an id twice: the shape text, ValueError", cls is ValueError and head(text) == SHAPE_TEXT, f"{cls} {text}")
+        cls, text = refused(window(instances=[instance("i", execution_fingerprint="")]))
+        check("FV1-19c (a) no fingerprint: its text, ValueError", cls is ValueError and head(text).endswith(FPRINT_TEXT), f"{cls} {text}")
+        cls, text = refused(window(instances=[dict(with_refs([dict(good, obligation_hash="x")]))]))
+        check("FV1-19c (a) a stale hash: the plan text, StateConflict", cls is StateConflict and head(text) == PLAN_TEXT, f"{cls} {text}")
+        cls, text = refused(window(instances=[instance("i", obligation_ids=["OB-OTHER"])]))
+        check("FV1-19c (a) ids differ from refs: the ids text, ValueError", cls is ValueError and head(text) == IDS_TEXT, f"{cls} {text}")
+        # (b) order: a broken list never reaches the hash comparison; a missing fingerprint still comes before a stale hash
+        cls, text = refused(window(instances=[with_refs([{"obligation_id": "OB-TS-1"}, dict(good, obligation_hash="x")])]))
+        check("FV1-19c (b) a broken list with a stale hash beside it: the shape text, never the plan text",
+              cls is ValueError and head(text) == SHAPE_TEXT, f"{cls} {text}")
+        cls, text = refused(window(instances=[with_refs([dict(good, obligation_hash="x")], execution_fingerprint="")]))
+        check("FV1-19c (b) a stale hash and no fingerprint: the fingerprint text comes first",
+              cls is ValueError and head(text).endswith(FPRINT_TEXT) and PLAN_TEXT not in text, f"{cls} {text}")
+        # (d) a plan obligation in a schema-1 row is in the map; (f) the same id in two rows: the LAST object is hashed
+        schema1 = [{"id": "TS-1", "schema_version": 1, "coverage_obligations": [ob1]}]
+        cls, text = with_plan(schema1, window(instances=[with_refs([good], execution_fingerprint="")]))
+        check("FV1-19c (d) an obligation of a schema-1 row is known: the refs pass to the fingerprint",
+              head(text).endswith(FPRINT_TEXT), f"{cls} {text}")
+        twice = [{"id": "A", "coverage_obligations": [dict(ob1, behavior="first")]},
+                 {"id": "B", "coverage_obligations": [dict(ob1, behavior="last")]}]
+        cls, text = with_plan(twice, window(instances=[with_refs([dict(good, obligation_hash=content_hash(dict(ob1, behavior="last")))],
+                                                                 execution_fingerprint="")]))
+        check("FV1-19c (f) one id in two rows: the hash of the LAST object passes", head(text).endswith(FPRINT_TEXT), f"{cls} {text}")
+        cls, text = with_plan(twice, window(instances=[with_refs([dict(good, obligation_hash=content_hash(dict(ob1, behavior="first")))])]))
+        check("FV1-19c (f) ...and the hash of the FIRST object is stale", cls is StateConflict and head(text) == PLAN_TEXT, f"{cls} {text}")
+        # (g) E27: a non-string id or hash is a shape problem now (earlier it was refused at the plan comparison)
+        sevens = [{"obligation_id": 7, "obligation_hash": content_hash({"obligation_id": "7"})},
+                  {"obligation_id": "OB-TS-1", "obligation_hash": 123}]
+        for refs in sevens:
+            cls, text = with_plan([{"id": "TS-1", "coverage_obligations": [{"obligation_id": "7"}]}, real_rows[0]],
+                                  window(instances=[with_refs([refs])]))
+            check(f"FV1-19c (g) {sorted(refs.items())[:1]}: the shape text, ValueError (E27)",
+                  cls is ValueError and head(text) == SHAPE_TEXT, f"{cls} {text}")
         # schema_version != 2 on a coverage v2 story: the v2 checks name themselves as skipped
         cls, text = refused(window(schema_version=1, input_hash="other"))
         check("a window that is not schema_version 2 names the coverage v2 checks it skipped",

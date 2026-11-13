@@ -117,7 +117,7 @@ from hooklib import project_root, read_json, story_root  # noqa: E402
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
 from person_words import door  # noqa: E402
-from role_cli import (REPAIR_MARKER, command_from_argv, epilog, refuse,  # noqa: E402
+from role_cli import (REPAIR_MARKER, RefusingParser, command_from_argv, epilog, refuse,  # noqa: E402
                       run_guarded)
 
 EXIT_BAD_ARGS = 2
@@ -2423,6 +2423,20 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
               + ". " + REPAIR_MARKER + ". " + _word_door(task_root, task, fragment.get("expectation_changes")),
               file=sys.stderr)
         return EXIT_BAD_FRAGMENT
+    # The hashes of `obligation_refs` (and the row's derived ids and hash) are the code's alone (FV1-19, AR-14): a role sends
+    # obligation ids, the stamp writes the rest from the plan BEFORE the row-hash check below, the merge view and the commit
+    # (`merge` stays pure and replays old journals as they are). A fragment the stamp refuses leaves the manifest as it was.
+    plan_notes = []
+    plan_map = C.plan_obligation_map(task_root, plan_notes)
+    for plan_note in plan_notes:
+        print(f"manifest_put: note: {plan_note}", file=sys.stderr)
+    # The stored bindings go to the stamp so a hash-less binding patch (a receipt, a sensitivity) never refreshes a STALE
+    # stored binding hash by itself: only a re-sent `design_assessment` re-judges it (FV1-19 B1, AR-28).
+    fragment, ref_problems = C.stamp_obligation_refs(fragment, plan_map, _current_rows(task_root, "obligation_bindings"))
+    if ref_problems:
+        print("manifest_put: " + _problems_text(task_root, "obligation-refs", ref_problems)
+              + ". " + REPAIR_MARKER + ".", file=sys.stderr)
+        return EXIT_BAD_FRAGMENT
     # A hand-typed `obligation_hash` is refused before the commit (EP1-38, AR-14): the code builds it from the refs.
     hash_problems = obligation_hash_problems(fragment, _current_tests(task_root))
     if hash_problems:
@@ -2793,7 +2807,8 @@ def selftest() -> int:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(
+    ap = RefusingParser(
+        command=command_from_argv("manifest_put.py"),
         description="merge a fragment into automation-manifest.json",
         epilog=epilog("manifest_put.py"),
         formatter_class=argparse.RawDescriptionHelpFormatter)

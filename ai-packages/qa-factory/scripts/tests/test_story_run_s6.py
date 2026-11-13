@@ -64,6 +64,15 @@ from story_run_common import (  # noqa: E402
 import no_move as NM  # noqa: E402
 
 
+def owed_words(row) -> str:
+    """The text of an owed journal row: its arguments, and the file `--notes-file` names (FV1-4 N0: a person's words travel by a file)."""
+    args = [str(a) for a in row["args"]]
+    text = " ".join(args)
+    if "--notes-file" in args:
+        text += "\n" + Path(args[args.index("--notes-file") + 1]).read_text(encoding="utf-8")
+    return text
+
+
 def s5_critic_finish_passes_window() -> None:
     """t-079 (FR-5/FR-48): the last window's critic closes S5 only over a window record; code builds it
     (window_record.py) and passes it to story_step finish. A failed build: finish runs without --window."""
@@ -1860,7 +1869,7 @@ def c16b_stand_confirm_is_priced_and_its_answers_have_executors() -> None:
         eq("C16b stand_confirm (C-F3): the stand is set whatever the journal does",
            (s0_pipeline(task_root).get("environment"), s0_pipeline(task_root).get("environment_pending")), ("Local", True))
         eq("C16b stand_confirm (C-F3): ...and the refused `human_answer` row of the words is OWED",
-           [(r["script"], "human_answer" in r["args"], any("stand at S6: Local" in a for a in r["args"])) for r in driver.state.get("owed_rows") or []],
+           [(r["script"], "human_answer" in r["args"], "stand at S6: Local" in owed_words(r)) for r in driver.state.get("owed_rows") or []],
            [("log_append.py", True, True)])
         journal_ok[0] = True
         with contextlib.redirect_stdout(io.StringIO()):
@@ -1954,7 +1963,7 @@ def c16b_gate_a_dry_is_a_priced_question_with_three_executors() -> None:
         with contextlib.redirect_stdout(io.StringIO()):
             driver.take_answer(Path(d2_answer(root, "reapprove")))
         eq("C16b gate A dry (C-F3): a refused journal row is owed, as a `human_answer` row of those words",
-           [(r["script"], "human_answer" in r["args"], any("gate A recorded dry (reapprove): " in a for a in r["args"])) for r in driver.state.get("owed_rows") or []],
+           [(r["script"], "human_answer" in r["args"], "gate A recorded dry (reapprove): " in owed_words(r)) for r in driver.state.get("owed_rows") or []],
            [("log_append.py", True, True)])
         eq("C16b gate A dry (C-F3): ...and the reopening still ran with the words", [op for op, _data in calls], ["semantic_reopen"])
         driver.py = base_py

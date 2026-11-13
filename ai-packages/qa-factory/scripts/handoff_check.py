@@ -427,17 +427,24 @@ def _requirements_of(art, doc, row=None):
 
 
 def _plan_row_of(art, doc, row=None):
-    """The plan row this case answers — the case file's own front matter says it (`plan_row:`).
+    """The plan row this case answers, read by the contract's one reader (`contract.case_plan_row`: the body line `Plan row: TS-n`).
 
     Not from the plan: the plan is written before the cases exist and names none of them, so the
-    only place this fact lives is the case the designer wrote."""
+    only place this fact lives is the case the designer wrote. A front-matter key `plan_row:` is not the contract's
+    carrier and is never read, not even as a fallback: a case holding both answers by the body line. An absent or
+    unreadable case file, or a case with no body line, gives None (no value), never a raise."""
+    from s5_precheck import case_files_named  # the one strict-by-name lookup (t-911): lazy, as in `_case_front_matter`
     case = str((row or {}).get("case") or (row or {}).get("id") or "")
     bare = C.split_case_key(case, art.root)[1]
     if not C.is_case_id(bare, art.root):
         return None
-    value = _case_front_matter(art, bare).get("plan_row") or ""
-    found = re.search(r"TS-\d+", value)
-    return (found.group(0), f"{case}.md front matter `plan_row`") if found else None
+    for path in case_files_named(art.root / "work" / "test-cases", bare):
+        try:
+            value = C.case_plan_row(path)
+        except OSError:
+            return None
+        return (value, f"{case}.md `Plan row:` line") if value else None
+    return None
 
 
 def _delivery_ready(art, doc, row=None):
@@ -599,14 +606,23 @@ DERIVERS = {
 }
 
 
-# The same fact under the same name, in whatever section a contract puts it. Judgement fields
-# (`reason`, `state`, `what`, `origin`) are deliberately absent: those are the role's to write,
-# and a deriver there would be code answering a question that was asked of a person's stand-in.
-BY_LEAF = {
-    "case_version": _case_version,
-    "requirements": _requirements_of,
-    "plan_row": _plan_row_of,
+# A fact code reads only where the contract's row IS a case (the designer's S4 rows): keyed by the FULL field path,
+# `<contract>:<generic path>`, never by the leaf name. The same leaf elsewhere - the S3 plan row's `requirements`, the S3
+# register count `inputs_read[].requirements`, the S8 filed bug's `requirements` - is the role's: no deriver can answer it
+# there (FV2-2). Judgement fields (`reason`, `state`, `what`, `origin`) are deliberately absent. `case_version` is no row
+# here: every contract holds it as `scope[].case_version`, a `DERIVERS` key.
+BY_PATH = {
+    "s4-designer-to-case-critic:scope[].requirements": _requirements_of,
+    "s4-designer-to-runner:scope[].requirements": _requirements_of,
+    "s4-designer-to-case-critic:scope[].plan_row": _plan_row_of,
+    "s4-designer-to-runner:scope[].plan_row": _plan_row_of,
 }
+
+
+def _by_path(contract, path):
+    """The deriver `BY_PATH` names for this field of this contract, or None. Row indexes are generalised; an empty, absent
+    or unknown contract names none, so the field stays the role's (AR-28: the label errs only toward the role)."""
+    return BY_PATH.get(f"{contract or ''}:{INDEXED.sub('[]', str(path or ''))}")
 
 
 # ------------------------------------------------------------------- what code can verify
@@ -1493,7 +1509,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                     continue
                 problems.append(Problem(
                     section, "no rows. One row per item in scope: the id, a state and a reason "
-                             f"of at most 80 characters. {_row_sentence(row_form(spec, section, _template_nodes(contract))[1])}",
+                             f"of at most 80 characters. {_row_sentence(row_form(spec, section, _template_nodes(contract), contract=contract)[1])}",
                     "write the rows as index lines in the values file, then run this check again"))
     # F4 (AR-10, AR-28, AR-29): a verdict that sends the window back owes the sections the contract's `rows_owed_when`
     # lists; an empty one (nothing, or only the template row) is a presence gap returned to the role. Only the
@@ -1503,7 +1519,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         rows = doc.data.get(section)
         if not (_is_empty_section(doc, spec, section) or (isinstance(rows, list) and all(handoff.only_template(r) for r in rows))):
             continue
-        keys = row_form(spec, section, _template_nodes(contract))[1]               # this contract's own row paths: S2-S4 rows are not S5 rows
+        keys = row_form(spec, section, _template_nodes(contract), contract=contract)[1]             # this contract's own row paths: S2-S4 rows are not S5 rows
         cause = f"; cause is one of {', '.join(handoff.allowed('repair_causes'))}" if any(k.endswith(".cause") for k in keys) else ""
         problems.append(Problem(
             section, f"no rows. The verdict {verdict_word} sends the window back, so each thing the author must change "
@@ -1546,8 +1562,10 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
             # `cases[]` is the same pin, read from the same links file. Registering it per full
             # path meant the designer typed "pending case_versions.py --all (no Bash available to
             # this role)" into a field code could fill from `story-case-links.json` — the role
-            # could not even run the script its own field names (TP1-13797, 26.09).
-            deriver = DERIVERS.get(generic) or BY_LEAF.get(generic.rsplit(".", 1)[-1])
+            # could not even run the script its own field names (TP1-13797, 26.09). The same fact
+            # under the same name lives in `DERIVERS` by its generic path; a fact that holds only in
+            # some contracts is keyed by contract and path in `BY_PATH` (FV2-2).
+            deriver = DERIVERS.get(generic) or _by_path(contract, generic)
             got = deriver(art, doc, _row_of(doc, path)) if deriver else None
             if got and got[0] not in (None, "", []):
                 handoff.set_value(doc, path, got[0])
@@ -2174,19 +2192,19 @@ def _concrete_head(generic: str, nodes, held=()) -> str:
     return re.sub(r"\[\d+\]$", "", _concrete(generic, nodes, held))
 
 
-def _row_lists(spec: dict, nodes=None) -> dict:
+def _row_lists(spec: dict, nodes=None, contract="") -> dict:
     """`{list name: [paths of its row 0]}` of the lists of ROWS in a contract's spec, in the spec's order (HF8-7).
 
     A list of rows is the prefix before the first `[].` of a path (`scope[].id` -> `scope`; a nested prefix such as
     `environment.preconditions_accepted_as_blocked[].case` is kept whole); `blocked.tried[]` is a list of values, not
     of rows. Every `[]` of a path reads the first row of the template that holds it (`_concrete`; `[0]` with no
     template); a leaf list of values keeps its index (`execution[0].preconditions[0]`).
-    A path the contract writes itself (`owned_by_contract`) or code fills (`_code_fills`) is not the role's: it is left
+    A path the contract writes itself (`owned_by_contract`) or code fills (`_code_fills`, by `contract` and path) is not the role's: it is left
     out, and a list with nothing left is not a list of rows (the role is never shown a path it cannot write)."""
     out = {}
     for generic in spec:
         head, sep, _rest = generic.partition("[].")
-        if not sep or handoff.owned_by_contract(generic) or _code_fills(generic):
+        if not sep or handoff.owned_by_contract(generic) or _code_fills(generic, contract):
             continue
         path = _concrete_head(generic, nodes)
         if path:
@@ -2199,13 +2217,13 @@ def _list_key(name: str) -> str:
     return re.sub(r"(?:\[\d+\])+$", "", name or "")
 
 
-def row_form(spec: dict, name: str = "", nodes=None) -> tuple:
+def row_form(spec: dict, name: str = "", nodes=None, contract="") -> tuple:
     """`(list name, paths of its row 0)`: the ONE hint of how a row of a list is written (HF8-7, AR-13/AR-15).
 
     The list is `name` (indexes taken off) when it is a list of rows; else the first of `handoff.REQUIRED_LISTS` the
     contract has; else the first by the spec's order. No list of rows -> `("", [])`. The contract decides which list
     and which fields (AR-1); code only shows the form of the line."""
-    lists = _row_lists(spec, nodes)
+    lists = _row_lists(spec, nodes, contract)
     key = _list_key(name)
     if key not in lists:
         key = next((n for n in handoff.REQUIRED_LISTS if n in lists), next(iter(lists), ""))
@@ -2236,7 +2254,7 @@ def _row_sentence(paths: list, depth: int = 1) -> str:
     return f'a row of a list is written one line per key: `"{first}": <value>`, the next row `"{later}"`'
 
 
-def _nested_rows(spec: dict, name: str, nodes=None) -> tuple:
+def _nested_rows(spec: dict, name: str, nodes=None, contract="") -> tuple:
     """`(paths of one row, depth)` of a list INSIDE a row, named by `name` with its own indexes (`rounds[0].changed`):
     the row's paths keep the indexes of `name`, so the next row of that list is `rounds[0].changed[1].file`, not the
     next row of the outer list (HF8-28, F8). A name with no index, or one that is no list of rows, gives `([], 0)`;
@@ -2249,7 +2267,7 @@ def _nested_rows(spec: dict, name: str, nodes=None) -> tuple:
     prefix = INDEXED.sub("[]", key) + "[]."
     paths = []
     for generic in spec:
-        if not generic.startswith(prefix) or handoff.owned_by_contract(generic) or _code_fills(generic):
+        if not generic.startswith(prefix) or handoff.owned_by_contract(generic) or _code_fills(generic, contract):
             continue
         path = _concrete_head(generic, nodes, [int(i) for i in held])
         if path:
@@ -2285,11 +2303,11 @@ class _ValuesHints:
         key = ("hint", name, strict)
         if key not in self._memo:
             spec = self.spec_once()
-            if strict and spec and _list_key(name) not in _row_lists(spec, self.nodes_once()):
-                nested, depth = _nested_rows(spec, name, self.nodes_once())
+            if strict and spec and _list_key(name) not in _row_lists(spec, self.nodes_once(), self.contract):
+                nested, depth = _nested_rows(spec, name, self.nodes_once(), self.contract)
                 self._memo[key] = (_row_sentence(nested, depth), tuple(nested)) if nested else ("", ())
             else:
-                _list, paths = row_form(spec, name, self.nodes_once())
+                _list, paths = row_form(spec, name, self.nodes_once(), self.contract)
                 self._memo[key] = (_row_sentence(paths), tuple(paths))
         return self._memo[key]
 
@@ -2301,7 +2319,7 @@ class _ValuesHints:
         dotted = re.sub(r"\.([0-9]+)(?=\.|$)", lambda m: f"[{int(m.group(1))}]", name)
         if dotted != name and VALUE_PATH.match(dotted) and spec:
             if (INDEXED.sub("[]", dotted) in spec and not handoff.owned_by_contract(dotted)
-                    and not _code_fills(dotted)):
+                    and not _code_fills(dotted, self.contract)):
                 return ("" if dotted.endswith("]") else _row_sentence([dotted])), (dotted,)
         if header:
             return self.hint(header)
@@ -2722,16 +2740,17 @@ def form_view(form_path):
 # processes in one scout's S1). Now a form that is not ready is refused in ONE block with ONE ready command: a skeleton
 # of `path: value` lines - the allowed values inline, a line for every path to fill, the door of a problem that lives on
 # another path - and the same lines can be written to the values file by a role that has no shell.
-def _code_fills(path: str) -> bool:
+def _code_fills(path: str, contract) -> bool:
     """Whether `--fix` fills this field itself: the ONE answer. A path (row indexes generalised) is code-filled when it
-    has a deriver (`DERIVERS`), is a list a deriver fills whole (`LIST_DERIVERS`), its leaf is a fact code reads under one
-    name everywhere (`BY_LEAF`), or it is a claim a verifier covers (`CLAIMS`). A role that cannot produce such a field
-    must not be refused for leaving it blank (FR-11) - the writing check at `finish` fills it, or refuses it with its own
-    reason; `test_field_producers.derived_paths` reads the same dictionaries."""
+    has a deriver (`DERIVERS`), is a list a deriver fills whole (`LIST_DERIVERS`), the contract and the full path name a
+    deriver (`BY_PATH`), or it is a claim a verifier covers (`CLAIMS`). An empty or unknown contract names none (AR-28).
+    A role that cannot produce such a field must not be refused for leaving it blank (FR-11) - the writing check at
+    `finish` fills it, or refuses it with its own reason; `test_field_producers.derived_paths` reads the same
+    dictionaries."""
     generic = INDEXED.sub("[]", path)
     if generic in DERIVERS or generic.removesuffix("[]") in LIST_DERIVERS:
         return True
-    if generic.rsplit(".", 1)[-1] in BY_LEAF:
+    if _by_path(contract, generic) is not None:
         return True
     return generic.startswith("claims.") and generic[len("claims."):] in CLAIMS
 
@@ -2792,7 +2811,7 @@ def values_skeleton(problems: list, contract: str, role: str, *, kept=()) -> str
                 add(path, generic)
             elif sections.get(path) == "list" and any(g.startswith(path + "[].") for g in spec):
                 for g in spec:
-                    if not g.startswith(path + "[].") or handoff.owned_by_contract(g) or _code_fills(g):
+                    if not g.startswith(path + "[].") or handoff.owned_by_contract(g) or _code_fills(g, contract):
                         continue                         # the role cannot write it (M-9): code fills it
                     leaf = g.endswith("[]")              # a list of values in a row: one line, written whole (FR-2)
                     where = _concrete_head(g, nodes)                     # the row of the template that holds it (F9)
@@ -2899,7 +2918,7 @@ def values_report(form_path, values_text: str, *, artifacts_root=None) -> Values
     root = Path(artifacts_root) if artifacts_root else form.parent.parent.parent
     doc, _fixed, found, _judged, _derived = check(doc, contract, Artifacts(root, dispatch=form.stem),
                                                   fix=True, use_judge=False)
-    problems += [p for p in found if not (p.kind == "blank" and _code_fills(p.path))]
+    problems += [p for p in found if not (p.kind == "blank" and _code_fills(p.path, contract))]
     named = {p.path for p in problems}
     return ValuesReport(problems, role, [raw for path, _value, _line, raw in written if path not in named],
                         contract, blocked_said)
@@ -2945,7 +2964,7 @@ def _answer_json(out: _Outcome) -> int:
                       "problems": [{"path": p.path, "problem": p.text, "fix": p.fix,
                                     "kind": p.kind, "also": list(p.also),
                                     # a blank `--fix` fills itself (the `values_report` rule): the stop-time reader skips it (SC2-38, F-2)
-                                    "code_fills": bool(p.kind == "blank" and _code_fills(p.path)),
+                                    "code_fills": bool(p.kind == "blank" and _code_fills(p.path, out.contract)),
                                     **({"limit": p.limit} if p.limit else {})}
                                    for p in out.problems]}, ensure_ascii=False, indent=1))
     return 1 if out.problems else 0
@@ -2980,7 +2999,8 @@ TWO_CONTRACTS_NOTE = ("If this stage has two contracts, add --to <contract> "
 def _door_to(path: Path) -> tuple:
     """`(flag, note)` for the door of the not-UTF-8 refusal: the form's own `contract:` line is read from its bytes
     (read-only, never written back), mapped through the index to the row's `to`; the flag is ` --to <to>` only when
-    `handoff_init.py` without it would resolve another contract (a secondary row, a stage with two). A single-contract
+    `handoff_init.py` without it would resolve another contract (a secondary row, a stage with two); a row that carries a
+    `purpose` and is found only by it also prints ` --purpose <purpose>` after `--to`. A single-contract
     stage gives `("", "")`: the door is as it always was. A line that cannot be found or mapped (FR-59: no guess) gives
     `("", <sentence naming the option>)`."""
     unknown = ("", TWO_CONTRACTS_NOTE + " ")
@@ -2999,6 +3019,9 @@ def _door_to(path: Path) -> tuple:
             return "", ""
         if handoff.contract_of(stage, role, to) == found.group(1):
             return f" --to {to}", ""
+        purpose = str(row.get("purpose") or "")
+        if purpose and handoff.contract_of(stage, role, to, purpose) == found.group(1):
+            return f" --to {to} --purpose {purpose}", ""      # a row found only by its purpose (S5's plan): both flags
     except Exception:                       # noqa: BLE001 - an unreadable index is an unknown, never a guess
         pass
     return unknown

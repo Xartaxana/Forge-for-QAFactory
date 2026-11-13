@@ -78,7 +78,7 @@
     "test_probe_by_code.py": 221.4,
     "test_probe_by_code_alternative.py": 53.9,
     "test_probe_by_code_copy.py": 40.7,
-    "test_probe_by_code_languages.py": 209.2,
+    "test_probe_by_code_languages_cli.py": 40.1,
     "test_probe_debt.py": 24.9,
     "test_probe_gap_word.py": 68.6,
     "test_probe_product_publish.py": 18.6,

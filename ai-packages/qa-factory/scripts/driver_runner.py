@@ -281,9 +281,14 @@ class DriverRunner:
 
     def answer_row(self, prefix: str, words: str, *, what: str, extra=()) -> None:
         """The `human_answer` row of a person's words, owed when the journal refuses it (FR-8: every later brief reads these rows).
-        `extra`: arguments between `--task` and `--notes` (the one caller that names its `--by`)."""
-        self.owe_row("log_append.py", "--event", "human_answer", "--task", self.task, *extra, "--notes", _answer_note(prefix, words),
-                     what=what)
+        `extra`: arguments between `--task` and `--notes` (the one caller that names its `--by`).
+        The note goes to the journal BY A FILE (`--notes-file`, kept in `state/words`, never deleted): a command line cuts a long or
+        multi-line text, and an owed row replays the same path whole. A blank note writes no file and passes `--notes` as before; a
+        write that fails raises `OSError` (the words are never put on the command line instead)."""
+        import person_words
+        note = _answer_note(prefix, words)
+        notes = person_words.notes_args(self.state_dir.parent, "", "journalnote", note)
+        self.owe_row("log_append.py", "--event", "human_answer", "--task", self.task, *extra, *notes, what=what)
 
     def py_trace(self, script: str, *args, why: str) -> None:
         """A script nothing decides on (kind T, a `# remains:` door with its reason in the call): `why` is the invariant that makes its failure safe, and it is MANDATORY (an
@@ -777,17 +782,22 @@ class DriverRunner:
         `references/run-record.json` (read ONLY through `driver_journal.run_record`, once per process) names it, else `unclassified`
         with ONE note line (per distinct token, and ONE for a table that is missing, unreadable, without the key or not a list of
         names - every kind is then `unclassified`). Never raises, never stops the call (P1)."""
-        mine = self.__dict__
-        table = mine.get("_resume_kind_table")
+        try:
+            table = self._resume_kind_table         # ad hoc, absent from __init__ (driver-layers.json `attributes`)
+        except AttributeError:
+            table = None
         if table is None:
             import driver_journal
             names, why = driver_journal.run_record_names("resume_kinds")
             if why:
                 print(why, flush=True)
-            table = mine["_resume_kind_table"] = names
+            table = self._resume_kind_table = names
         if isinstance(token, str) and token in table:
             return token
-        said = mine.setdefault("_resume_kind_said", set())
+        try:
+            said = self._resume_kind_said
+        except AttributeError:
+            said = self._resume_kind_said = set()
         key = token if isinstance(token, str) else repr(token)
         if table and key not in said:
             said.add(key)

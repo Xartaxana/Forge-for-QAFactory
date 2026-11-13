@@ -1874,53 +1874,114 @@ BROWSER_COPY = ("Items can carry tags\n\nAs a warehouse operator I want tags (se
 
 
 def s0_title_question() -> None:
-    """K-F2: a text with NO `# ` line (what a browser copy is) is not a dead end: the adapter takes the first line as the
-    title and the driver asks the person ONCE (`ticket_title`); `go on` is a pass recorded once and a rerun is silent;
-    `retry` after they added a title line reads the file again and asks nothing."""
+    """K-F2 (FV1-11): a text with NO `# ` line (what a browser copy is) is not a stop: the adapter takes the first line as the
+    title and the driver keeps it without a question, as the line "title taken from the first line" of the story's
+    record and a finding filed once; a rerun is silent."""
     task = "QA-1"
     root, task_root, env = s0_project(task, git=False)          # no git: readiness stops S0 once, so there is a rerun
     try:
         browser = root / "browser-copy.md"
         browser.write_bytes(BROWSER_COPY.encode("utf-8"))
         out = s0_run(root, env, task, "--ticket-file", str(browser))
-        eq("K-F2: a text with no `# ` line asks about the title (never a refusal): exit 3, block `ticket_title`",
-           (out.returncode, s0_state(task_root).get("s0_block"), "carries no title" in out.stdout), (3, "ticket_title", False), out.stdout[-900:])
-        ask = s0_question(task_root)
-        check("K-F2: the question says what was taken as the title, that `go on` keeps it, and the way to add a title line and `retry`",
-              all(part in ask for part in ('"Items can carry tags"', "I took its first line as the title",
-                                           "(a) `go on` — that line will do as the title", "line that starts with `# `",
-                                           "(b) `retry` — put the title ", "(c) paste the ticket again with a title",
-                                           "(d) `stop` — stop the story here; nothing runs")), ask)
-        eq("K-F2: every option has its three price lines", price_broken(ask), [])
-        eq("K-F2: the question obeys human-questions.md", rules_broken(ask), [])
-        eq("K-F2: nothing is written before the person answers", ((task_root / "pipeline.json").exists(), (task_root / "work" / "ticket-snapshot.json").exists()), (False, False))
-        out = s0_answer(root, env, task, "go on")
-        eq("K-F2: `go on` keeps the title; S0 goes on and readiness (no git here) asks next: exit 3", (out.returncode, s0_state(task_root).get("s0_block")), (3, "readiness"), out.stdout[-900:])
+        eq("K-F2: a text with no `# ` line is NOT stopped on the title: the first stop is readiness (no git here), exit 3",
+           (out.returncode, s0_state(task_root).get("s0_block"), "carries no title" in out.stdout), (3, "readiness", False), out.stdout[-900:])
         snapshot = snapshot_of(task_root)
         eq("K-F2: the snapshot has the first line as its title, `title_from` first_line, and the 2 criteria of the paste (read by the same parser)",
            (snapshot["title"], snapshot["provenance"].get("title_from"), snapshot["acceptance_criteria"]),
            ("Items can carry tags", "first_line", ["A tag can be added to an item.", "A tag can be removed from an item."]))
         out = s0_answer(root, env, task, "go on")
-        eq("K-F2: the rerun after the readiness answer does NOT ask about the title again (the pass survives the rerun): exit 0", out.returncode, 0, out.stdout[-900:] + out.stderr[-400:])
-        passes = [w for w in s0_pipeline(task_root)["warnings"] if "passed by the person's word" in w]
-        check_in("K-F2: the pass is a line of the story's record, once", "S0: the ticket-title check passed by the person's word: \"go on\"", passes)
-        eq("K-F2: and filed once as a finding in the person's words (FR-4)", s0_findings(root).count("idempotency:s0-pass:QA-1:ticket_title"), 1)
+        eq("K-F2: the rerun after the readiness answer finishes and does not ask about the title: exit 0", out.returncode, 0, out.stdout[-900:] + out.stderr[-400:])
+        passes = [w for w in s0_pipeline(task_root)["warnings"] if "title taken from the first line" in w]
+        check_in("K-F2: the taking is a line of the story's record, once, with the taken title quoted",
+                 'S0: the ticket-title check: title taken from the first line (kept without asking): "Items can carry tags"', passes)
+        eq("K-F2: the line is there once", len(passes), 1)
+        eq("K-F2: and filed once as a finding (FR-4)", s0_findings(root).count("idempotency:s0-pass:QA-1:ticket_title"), 1)
         eq("K-F2: no conductor", stub_calls(root), [])
     finally:
         harness.cleanup(root)
-    # the door `retry`: they add the title line to their file and the question does not come back
+
+
+def fv111_title_taken_without_a_question() -> None:
+    """FV1-11, one parameterised case at the unit (`s0_criteria`): a title the reader took from the first line is kept
+    without a stop; no title at all, the key as the title and an empty text keep the `ticket_no_title` halt; a title
+    with another problem (the criteria gap) still stops for THAT problem; a `ticket_title` question stored before the
+    change and answered `go on` is accepted as it was."""
+    import story_run
+    task = "QA-1"
     root, task_root, env = s0_project(task)
     try:
-        browser = root / "browser-copy.md"
-        browser.write_bytes(BROWSER_COPY.encode("utf-8"))
-        s0_run(root, env, task, "--ticket-file", str(browser))
-        eq("K-F2 setup: asked about the title", s0_state(task_root).get("s0_block"), "ticket_title")
-        browser.write_bytes(("# Items can carry tags\n\n" + BROWSER_COPY.split("\n\n", 1)[1]).encode("utf-8"))
-        out = s0_answer(root, env, task, "retry", "--ticket-file", str(browser))
-        eq("K-F2: after a `# ` title line is added, `retry` reads the file again, asks nothing and finishes: exit 0", out.returncode, 0, out.stdout[-900:] + out.stderr[-400:])
-        snapshot = snapshot_of(task_root)
-        eq("K-F2: the title is the `# ` line now, with no `title_from`; no pass was recorded",
-           ("title_from" in snapshot["provenance"], "ticket_title" in s0_findings(root)), (False, False))
+        driver = driver_for(root, env, task)
+        first_line = {"source": "person_pasted", "title_from": "first_line"}
+        head = "S0: the ticket-title check: title taken from the first line (kept without asking)"
+        room = driver.S0_LINE_LIMIT - len(head) - len(': ""')     # 95: the title fits whole up to here
+        cut = chr(0x2026)
+        rows = (
+            # id, ticket, expected (kind, block), the story-record line the taken pass reads as (None: not taken)
+            ("FIRST-LINE-TITLE", {"title": "Items can carry tags", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Items can carry tags"'),
+            ("TITLE-AT-THE-LIMIT", {"title": "T" * room, "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "' + "T" * room + '"'),
+            ("TITLE-BEYOND-THE-LIMIT", {"title": "T" * (room + 1), "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "' + "T" * (room - 1) + cut + '"'),
+            ("TITLE-LONG-NON-ASCII", {"title": "T" * 200 + " é中", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "' + "T" * (room - 1) + cut + '"'),
+            ("TITLE-NON-ASCII", {"title": "Café 中文 tags", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Café 中文 tags"'),
+            ("TITLE-WITH-A-DOUBLE-QUOTE", {"title": 'Say "hi" to tags', "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Say "hi" to tags"'),
+            ("TITLE-WITH-WHITESPACE", {"title": "Items\tcan\x07 carry   tags", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Items can\x07 carry tags"'),
+            ("TITLE-PLUS-OTHER-PROBLEM", {"title": "Acceptance criteria", "description": "prose under the heading", "acceptance_criteria": [],
+                                          "provenance": first_line}, ("stop", "ticket_incomplete"), head + ': "Acceptance criteria"'),
+            ("NO-TITLE", {"title": "", "acceptance_criteria": ["a"], "provenance": {"source": "person_pasted"}}, ("stop", "ticket_no_title"), None),
+            ("NO-TITLE-FROM-FIRST-LINE", {"title": "", "acceptance_criteria": ["a"], "provenance": first_line}, ("stop", "ticket_no_title"), None),
+            ("KEY-AS-TITLE", {"title": task, "acceptance_criteria": ["a"], "provenance": first_line}, ("stop", "ticket_no_title"), None),
+        )
+        for name, ticket, expected, phrase in rows:
+            driver.state.pop("s0_block", None)
+            driver.state.pop("s0_passes", None)
+            driver._s0_passed = []
+            try:
+                driver.s0_criteria(ticket, "through the tracker")
+                got = ("line", None)
+            except story_run.Person:
+                got = ("stop", driver.state.get("s0_block"))
+            eq(f"FV1-11 {name}: what the check raised", got, expected)
+            kept = (driver.state.get("s0_passes") or {}).get("ticket_title") or {}
+            eq(f"FV1-11 {name}: the taken line is in the story record exactly when it was taken",
+               (kept.get("words") == driver.S0_TAKEN_WORDS, [driver.s0_pass_phrase(b, w) for b, w in driver._s0_passed if b == "ticket_title"]),
+               (phrase is not None, [phrase] if phrase else []))
+            eq(f"FV1-11 {name}: the line is one line inside the limit",
+               all(len(p) <= driver.S0_LINE_LIMIT and "\n" not in p for p in [driver.s0_pass_phrase(b, w) for b, w in driver._s0_passed]), True)
+        # RESUME-OLD-QUESTION: a stop stored before the change, answered `go on` after it
+        driver.state.pop("s0_passes", None)
+        driver._s0_passed = []
+        driver.state.update(s0_block="ticket_title", pending_words={"S0": "go on"},
+                            s0_ask={"kind": "halt", "text": "old question", "doors": {"retry": "retry", "go on": "go on"},
+                                    "problems": ["title taken from the first line"], "paste": True})
+        driver.s0_read_word()
+        eq("FV1-11 RESUME-OLD-QUESTION: `go on` to the stored question is a pass with the person's words",
+           ((driver.state.get("s0_passes") or {}).get("ticket_title") or {}).get("words"), "go on")
+        driver.state.pop("s0_passes", None)
+        driver.state.update(s0_block="ticket_title", pending_words={"S0": "retry"},
+                            s0_ask={"kind": "halt", "text": "old question", "doors": {"retry": "retry", "go on": "go on"},
+                                    "problems": ["title taken from the first line"], "paste": True})
+        driver.s0_read_word()
+        eq("FV1-11 RESUME-OLD-QUESTION: `retry` to the stored question records no pass and leaves no block",
+           ("ticket_title" in (driver.state.get("s0_passes") or {}), driver.state.get("s0_block")), (False, None))
+        driver.state.update(s0_passes={"ticket_title": {"words": "go on", "at": "x", "problems": ["title taken from the first line"], "witness": "w"}})
+        driver._s0_passed = []
+        driver.s0_criteria({"title": "Items can carry tags", "acceptance_criteria": ["a"], "provenance": first_line}, "through the tracker")
+        eq("FV1-11 RESUME-OLD-QUESTION: the check takes that pass (not overwritten by the factory's) and reads it as the person's word",
+           [driver.s0_pass_phrase(b, w) for b, w in driver._s0_passed],
+           ["S0: the ticket-title check passed by the person's word: \"go on\""])
+        # a pass the factory took BEFORE the title was stored with it (temporal): the phrase reads without the quote, never "None"
+        driver.state.update(s0_passes={"ticket_title": {"words": driver.S0_TAKEN_WORDS, "at": "x", "problems": ["title taken from the first line"], "witness": "w"}})
+        eq("FV1-11 STORED-TAKEN-PASS-WITHOUT-TITLE: the phrase is printed without the quote",
+           driver.s0_pass_phrase("ticket_title", driver.S0_TAKEN_WORDS), "S0: the ticket-title check: title taken from the first line (kept without asking)")
+        eq("FV1-11 PERSON-WORDS: the print of the person's own words is as before (unquoted, and the record line quotes them)",
+           (driver.s0_pass_phrase("ticket_title", "go on", quoted_words=False), driver.s0_pass_phrase("ticket_title", "go on")),
+           ("S0: the ticket-title check passed by the person's word", "S0: the ticket-title check passed by the person's word: \"go on\""))
     finally:
         harness.cleanup(root)
 
@@ -2233,6 +2294,7 @@ def t287_texts_name_the_file_read() -> None:
     root, task_root, env = s0_project(task)
     try:
         driver = driver_for(root, env, task)
+        driver._s0_passed = []                       # `s0()` makes it at its start; the taken title appends to it
         # --- the texts, at the unit: file named / not named; markdown / wiki / older snapshot ---
         def ask_of(ticket, file, how="from the ticket file"):
             try:
@@ -2242,23 +2304,11 @@ def t287_texts_name_the_file_read() -> None:
             return ""
         driver.state.pop("s0_block", None)
         titled = {"title": "Items can carry tags", "acceptance_criteria": ["a"], "provenance": {"source": "person_pasted", "title_from": "first_line"}}
-        text = ask_of(titled, stored)
-        check("item 6: the title question names the file read (relative to the project) twice: where it was read and where to put the title",
-              text.count(f"`{stored}`") == 2 and "(the file" in text, text)
-        check("item 6: ... and an older snapshot (no `markup`) reads as markdown: the `# ` wording, not the wiki one",
-              "no line starts with `# `" in text and "`title:" not in text, text)
-        eq("item 6: the title question obeys human-questions.md", [r for r in rules_broken(text) if r != "no_how_to_answer"], [])
-        driver.state.pop("s0_block", None)
-        text = ask_of(titled, None)
-        check("item 6: with no file (nothing was read from one) the wording is as it was: `at the top of your text`, no file named",
-              "at the top of your text" in text and "the file" not in text, text)
+        eq("item 6 (FV1-11): a title taken from the first line asks nothing, with or without a file named (the title question is gone)",
+           (ask_of(titled, stored), ask_of(titled, None)), ("", ""))
         driver.state.pop("s0_block", None)
         wiki = {"title": "Items can carry tags", "acceptance_criteria": ["a"], "provenance": {"source": "person_pasted", "title_from": "first_line", "markup": "wiki"}}
-        text = ask_of(wiki, stored)
-        check("item 1 (wiki): the title question for a wiki text says a `# ` line is an item there and asks for a `title:` line of the header, naming the file",
-              "a line that starts with `# ` is a list item in this kind of text" in text and "`title: <the title>`" in text and text.count(f"`{stored}`") == 2
-              and "no line starts with `# `" not in text, text)
-        eq("item 1 (wiki): that text obeys human-questions.md", [r for r in rules_broken(text) if r != "no_how_to_answer"], [])
+        eq("item 1 (wiki, FV1-11): a wiki text's first-line title asks nothing either", ask_of(wiki, stored), "")
         driver.state.pop("s0_block", None)
         lost = "## Acceptance criteria\n\nThe operator can tag an item."
         text = ask_of({"title": "T", "description": lost, "acceptance_criteria": [], "provenance": {"source": "person_pasted"}}, stored)
@@ -2304,14 +2354,8 @@ def t287_texts_name_the_file_read() -> None:
         wiki = root / "wiki-paste.md"
         wiki.write_text("Items can carry tags\n\nAs a warehouse operator I want tags.\n\nh2. Acceptance Criteria\n# A tag can be added.\n# A tag can be removed.\n", encoding="utf-8")
         out = s0_run(root, env, task, "--ticket-file", str(wiki))
-        eq("item 1 (wiki, end to end): the text has no title line: the `ticket_title` question, exit 3", (out.returncode, s0_state(task_root).get("s0_block")), (3, "ticket_title"), out.stdout[-900:])
-        ask = s0_question(task_root)
-        check("item 6 / item 1: it names the file the flag gave and the wiki wording",
-              "(the file `wiki-paste.md`)" in ask and "a list item in this kind of text" in ask and "\"Items can carry tags\"" in ask, ask)
-        eq("item 1: the question obeys human-questions.md", rules_broken(ask), [])
-        out = s0_answer(root, env, task, "go on", "--ticket-file", str(wiki))
         snapshot = snapshot_of(task_root)
-        eq("item 1 (wiki, end to end): `go on` keeps the title; the snapshot has the 2 `# ` items as criteria, markup wiki, the sentence below the title in the description",
+        eq("item 1 (wiki, end to end, FV1-11): the title is kept without a question; the snapshot has the 2 `# ` items as criteria, markup wiki, the sentence below the title in the description",
            (out.returncode, snapshot["title"], snapshot["acceptance_criteria"], snapshot["provenance"]["markup"], snapshot["description"].startswith("As a warehouse operator")),
            (0, "Items can carry tags", ["A tag can be added.", "A tag can be removed."], "wiki", True), out.stdout[-900:] + out.stderr[-400:])
     finally:
@@ -3046,6 +3090,7 @@ def main() -> None:
          s0_owners_of_a_failed_read,
          t287_config_owner_is_the_ticket_read_question,
          t287_texts_name_the_file_read,
+         fv111_title_taken_without_a_question,
          s0_flags_precedence_unit,
          g10_s0_criteria_table,
          g10_s0_headings_unreadable,

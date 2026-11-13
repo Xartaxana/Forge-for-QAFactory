@@ -963,7 +963,7 @@ def rules_weight(rows: list, model: str = "", cost_cfg: dict | None = None, mode
     # (`injection_role`), common (`injection_common`), brief - and `bytes` stays the sum of THOSE four, not the load's
     # `total_bytes`. A role whose layer is null or PARTLY unreadable (`measured: false` on a file layer) is unmeasured and
     # named in `unmeasured_roles` (the renderer prints it beside the total), never priced at 0 or as a whole (FR-41). The brief is
-    # a ceiling by design (`measured: false`, bytes present), so only its bytes are asked.
+    # an allowance by design (`measured: false`, bytes present), so only its bytes are asked.
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import role_load
@@ -1344,24 +1344,22 @@ def run_block_metrics(task_root: Path) -> dict:
     dispatches = controller_state.get("dispatches") or {}
     windows: dict = {}
     executions = []
-    for bp in sorted_paths(block_dir.glob("*.json")):
-        block = read_json(bp, {})
-        if not isinstance(block, dict):
+    found_attempts, _ids, _damaged = _run_attempts(task_root)     # one reading of "a launch": a reparse is no job (SC6-2)
+    for found in found_attempts:
+        if found["chosen"] is None:
             continue
-        purpose = block.get("purpose") or (block.get("request") or {}).get("purpose")
-        if block.get("import_provenance") or purpose not in \
-                {"initial", "repair_verify", "diagnostic", "flaky_diagnostic"}:
-            continue
-        window = (dispatches.get(block.get("dispatch_id")) or {}).get("window")
+        first, block = found["first"]["data"], found["chosen"]["data"]
+        purpose = _block_purpose(first)
+        window = (dispatches.get(first.get("dispatch_id")) or {}).get("window")
         label = f"window {window}" if window is not None else "unscoped"
         windows[label] = windows.get(label, 0) + 1
-        start = block.get("attempt_started_at")
+        start = first.get("attempt_started_at")
         for row in block.get("results") or []:
             if not isinstance(row, dict):
                 continue
             executions.append({
                 "instance": row.get("instance_id"), "status": row.get("status"),
-                "fingerprint": row.get("input_fingerprint") or block.get("input_fingerprint"),
+                "fingerprint": row.get("input_fingerprint") or first.get("input_fingerprint"),
                 "started_at": start, "purpose": purpose})
     executions.sort(key=lambda r: r.get("started_at") or "")
     last_pass_fp: dict = {}
@@ -1386,7 +1384,7 @@ def run_block_metrics(task_root: Path) -> dict:
 # question (AR-13). The unit is the executed instance, the same number `run_block_metrics` prints as `executions`.
 TEST_RUN_CAUSES_FILE = Path(__file__).resolve().parents[1] / "references" / "test-run-causes.json"
 UNKNOWN_IDS_SHOWN = 10          # launch ids the retro line names before "and N more" (the JSON keeps them all)
-_BLOCK_RUN_PURPOSES = {"initial", "repair_verify", "diagnostic", "flaky_diagnostic"}   # the set run_block_metrics counts
+_BLOCK_RUN_PURPOSES = {"initial", "repair_verify", "diagnostic", "flaky_diagnostic"}   # the purposes that are runs (`_block_verdict`, read by both counters)
 
 
 def test_run_causes():
@@ -1434,39 +1432,84 @@ def _instance_name(value):
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _block_launches(block_dir: Path) -> tuple:
-    """The launches the run blocks on disk make: `(launches, block ids, unreadable)`. A block whose `purpose` or `results`
-    is not the shape the factory writes is counted in `unreadable` and read no further: one story's damaged block never
-    stops the retro or the dashboard (AR-2). A block with no purpose, an import and a purpose that is no run are skipped,
-    as `run_block_metrics` skips them."""
-    launches, block_ids, unreadable = [], set(), 0
-    if not block_dir.is_dir():
-        return launches, block_ids, unreadable
-    for bp in sorted_paths(block_dir.glob("*.json")):
-        block = read_json(bp, {})
-        if not isinstance(block, dict):
-            unreadable += 1
+def _block_verdict(block: dict) -> str:
+    """One run block: `ok` (a launch), `skip` (an import, or a purpose that is no run: as `run_block_metrics` skips them) or
+    `bad` (its `purpose` or `results` is not the shape the factory writes)."""
+    request = block.get("request") if isinstance(block.get("request"), dict) else {}
+    purpose = block.get("purpose") or request.get("purpose")
+    if block.get("import_provenance"):
+        return "skip"
+    if purpose is not None and not isinstance(purpose, str):
+        return "bad"
+    if purpose not in _BLOCK_RUN_PURPOSES:
+        return "skip"
+    results = block.get("results")
+    if results is not None and not isinstance(results, list):
+        return "bad"
+    return "ok"
+
+
+def _block_purpose(block: dict):
+    request = block.get("request") if isinstance(block.get("request"), dict) else {}
+    return block.get("purpose") or request.get("purpose")
+
+
+def _run_attempts(task_root: Path) -> tuple:
+    """The ONE reading of what a launch is, shared by `_block_launches` and `run_block_metrics` (AR-13): `(attempts, block
+    ids, damaged files)`. ONE launch is ONE attempt: a `--reparse-block` file keeps the attempt, the times, the dispatch,
+    the purpose and the fingerprint of the block it supersedes (NOT its data seed or its import mark: `run_suite.
+    reparse_run_block` writes neither), so each attempt is `{"id", "first", "seed_known", "chosen"}`:
+    - `first` is the attempt's ORIGINAL block (depth 0, else the first of the chain when the original is not readable): the
+      identity of the launch (seed, fingerprint, times, dispatch, purpose) is read from it;
+    - `seed_known` is False when the original is not readable: the seed is then unknown, not absent (AR-28);
+    - `chosen` is the deepest block of the chain whose shape is readable, the one whose results and execution status
+      stand; None when the attempt is no launch: an import on ANY block of the chain (a reparse does not carry the mark), a
+      purpose that is no run, or no readable block at all.
+    `damaged files` counts every file whose JSON is not an object plus every block whose `purpose` or `results` is not the
+    shape the factory writes; a damaged file is never a second launch (AR-2). `block ids` holds every attempt id and every
+    block id."""
+    import run_history as RH           # lazy: the one reader that orders blocks and knows reparses (AR-13)
+    items, bad = RH.read_run_blocks(task_root)
+    damaged, block_ids = len(bad), set()
+    chains: dict = {}
+    for item in items:
+        chains.setdefault(item["attempt"] or item["name"], []).append(item)
+    attempts = []
+    for attempt, chain in chains.items():
+        for item in chain:
+            block_ids.add(str(item["data"].get("block_id") or Path(item["name"]).stem))
+        block_ids.add(str(attempt))
+        verdicts = [_block_verdict(item["data"]) for item in chain]
+        damaged += verdicts.count("bad")
+        first = next((item for item in chain if item["depth"] == 0), chain[0])
+        chosen = None
+        if not any(item["data"].get("import_provenance") for item in chain):
+            for item, verdict in zip(reversed(chain), reversed(verdicts)):
+                if verdict != "bad":
+                    chosen = item if verdict == "ok" else None
+                    break
+        attempts.append({"id": str(attempt), "first": first, "seed_known": first["depth"] == 0, "chosen": chosen})
+    return attempts, block_ids, damaged
+
+
+def _block_launches(task_root: Path) -> tuple:
+    """The launches the run blocks on disk make: `(launches, block ids, damaged files)`; what a launch is: `_run_attempts`.
+    A damaged block falls back to the previous block of its attempt; an attempt with no readable block is no launch (one
+    story's damaged block never stops the retro or the dashboard, AR-2)."""
+    attempts, block_ids, damaged = _run_attempts(task_root)
+    launches = []
+    for found in attempts:
+        if found["chosen"] is None:
             continue
-        request = block.get("request") if isinstance(block.get("request"), dict) else {}
-        purpose = block.get("purpose") or request.get("purpose")
-        if block.get("import_provenance"):
-            continue
-        if purpose is not None and not isinstance(purpose, str):
-            unreadable += 1
-            continue
-        if purpose not in _BLOCK_RUN_PURPOSES:
-            continue
-        results = block.get("results")
-        if results is not None and not isinstance(results, list):
-            unreadable += 1
-            continue
-        block_id = str(block.get("block_id") or block.get("attempt_id") or bp.stem)
-        block_ids.add(block_id)
-        launches.append({"id": block_id, "purpose": purpose, "dispatch_id": block.get("dispatch_id"),
-                         "status": block.get("execution_status"), "started": str(block.get("attempt_started_at") or ""),
-                         "entries": [(_instance_name(row.get("instance_id")), row) for row in results or []
+        first, block = found["first"]["data"], found["chosen"]["data"]
+        launches.append({"id": found["id"], "purpose": _block_purpose(first),
+                         "dispatch_id": first.get("dispatch_id"), "status": block.get("execution_status"),
+                         "started": first.get("attempt_started_at"), "ended": first.get("attempt_ended_at"),
+                         "fingerprint": first.get("input_fingerprint"), "seed": first.get("data_seed_contract"),
+                         "seed_known": found["seed_known"],
+                         "entries": [(_instance_name(row.get("instance_id")), row) for row in block.get("results") or []
                                      if isinstance(row, dict)]})
-    return launches, block_ids, unreadable
+    return launches, block_ids, damaged
 
 
 def _job_launches(jobs: list, block_ids: set, table: dict, never_ran) -> tuple:
@@ -1502,7 +1545,10 @@ def _job_launches(jobs: list, block_ids: set, table: dict, never_ran) -> tuple:
             apart["no_totals"] += 1
         named = [str(one) for one in selected or [] if str(one).strip()]
         launches.append({"id": job_id, "purpose": purpose, "dispatch_id": request.get("dispatch_id"),
-                         "status": state, "started": str(job.get("created_at") or ""),
+                         "status": state, "started": job.get("created_at"), "ended": None,
+                         "fingerprint": request.get("input_fingerprint"),
+                         "seed": (request.get("execution") if isinstance(request.get("execution"), dict) else {}
+                                  ).get("data_seed_contract"),
                          "entries": [(one, None) for one in named] or [(None, None)]})
     return launches, apart
 
@@ -1561,7 +1607,7 @@ def test_run_counts(task_root: Path) -> dict:
     `runs` is the number of executed instances (the number `run_block_metrics` prints as `executions`; the test pins
     them equal on 14857: "5 tests, 31 runs"); `launches` the blocks or jobs that made them; `probes` the red_probe jobs,
     which have no run block and are outside `runs`; `baselines` the `evidence_phase: baseline` jobs, which have none either.
-    `unreadable_blocks` counts run blocks whose shape is damaged. `by_cause` sums to `runs`. A launch comes from
+    `unreadable_blocks` counts the run block FILES that are damaged (not JSON, or a `purpose` / `results` of the wrong shape). `by_cause` sums to `runs`. A launch comes from
     `work/run-blocks/*.json` where the block is on disk (it names every instance that ran), else from the job in
     `state/execution-jobs` through `JobStore.jobs()` (its `selected_instance_ids`). A job that executed nothing
     (`status` not completed, or `execution_status` in `_NEVER_RAN_STATES`) is `not_executed`; a plain `not_executed`
@@ -1594,13 +1640,13 @@ def test_run_counts(task_root: Path) -> dict:
         never_ran = ER._NEVER_RAN_STATES
         unreadable = max(0, len(list(job_dir.glob("*.json"))) - len(jobs))
     jobs_by_id = {str(job.get("job_id")): job for job in jobs}
-    launches, block_ids, unreadable_blocks = _block_launches(block_dir)
+    launches, block_ids, unreadable_blocks = _block_launches(task_root)
     job_launches, apart = _job_launches(jobs, block_ids, table, never_ran)
     launches += job_launches
     unreadable += apart["unreadable"]
     for order, launch in enumerate(launches):
         launch["order"] = order
-    launches.sort(key=lambda item: (item["started"], item["order"]))
+    launches.sort(key=lambda item: (str(item["started"] or ""), item["order"]))
     cause_of = _cause_reader(task_root, table, jobs_by_id)
     seen: dict = {}
     by_cause: dict = {}
@@ -1624,12 +1670,122 @@ def test_run_counts(task_root: Path) -> dict:
         for instance, row in launch["entries"]:
             if instance:
                 seen[instance] = {"launch": launch, "row": row}
+    launch_rows, by_stage = _launch_rows(task_root, launches)
     return {"known": True, "tests": len(per_test), "runs": runs, "launches": len(launches), "probes": apart["probes"],
             "per_test": dict(sorted(per_test.items())), "by_purpose": dict(sorted(by_purpose.items())),
             "by_cause": {cause: by_cause[cause] for cause in causes if cause in by_cause},
             "unknown_jobs": unknown_ids, "not_executed": apart["not_executed"], "no_totals": apart["no_totals"],
             "baselines": apart["baselines"], "no_instances": no_instances, "unreadable": unreadable,
-            "unreadable_blocks": unreadable_blocks, "carrier": carrier}
+            "unreadable_blocks": unreadable_blocks, "carrier": carrier,
+            "by_stage": by_stage, "launch_rows": launch_rows}
+
+
+def _absent_time(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _launch_seconds(started, ended) -> tuple:
+    """`(seconds, why)` of one launch: a number of seconds, or None and exactly one reason. A negative span is NOT clamped
+    (`span_seconds` would print 0): a clock defect never shrinks to "0 s" (FR-41)."""
+    if _absent_time(ended):
+        return None, "no end time recorded"
+    if _absent_time(started):
+        return None, "no start time recorded"
+    if not isinstance(started, str) or not isinstance(ended, str):
+        return None, "the time cannot be read"
+    a, b = moment(started), moment(ended)
+    if a is None or b is None or (a.tzinfo is None) != (b.tzinfo is None):
+        return None, "the time cannot be read"
+    seconds = (b - a).total_seconds()
+    return (round(seconds, 1), "") if seconds >= 0 else (None, "ends before it starts")
+
+
+def _repeat_of(launch: dict, earlier: dict) -> tuple:
+    """`(repeat, repeat_of)` of one launch against the latest earlier launch of the same test set. The error direction is
+    fixed: a repeat is "yes" only when every input the record holds is equal and named; it errs toward "no" / "not
+    established", never toward "yes" when an input changed (SC6-2 3.3). Purpose and status are not consulted."""
+    names = [name for name, _row in launch["entries"]]
+    before = earlier.get(frozenset(name for name in names if name)) if names else None
+    if before is None:
+        return "no", None
+    one, two = launch.get("fingerprint"), before["launch"].get("fingerprint")
+    good = [isinstance(f, str) and bool(f.strip()) for f in (one, two)]
+    if all(good) and one != two:
+        return "no", None
+    known = launch.get("seed_known", True) and before["launch"].get("seed_known", True)
+    if known and launch.get("seed") != before["launch"].get("seed"):
+        return "no", None
+    if not known or not all(good) or None in names or before["unnamed"]:   # an unknown seed is no equal seed (AR-28)
+        return "not established", None
+    return "yes", before["launch"]["id"]
+
+
+def _launch_rows(task_root: Path, launches: list) -> tuple:
+    """`(launch_rows, by_stage)`: one row per launch in launch order, and the sums per stage (SC6-2). The stage is the one
+    of the controller's dispatch record of the launch, else the stage in the dispatch id, else `unattributed`. The rows hold
+    facts only: that a launch ran the same tests over the same recorded inputs as an earlier one is a fact; whether it
+    was needed is the retro role's judgment (AR-29)."""
+    stages = {row["id"]: row["stage"] for row in dispatch_rounds(task_root)}
+    earlier: dict = {}
+    rows, by_stage, distinct = [], {}, {}
+    for launch in launches:
+        did = launch.get("dispatch_id")
+        parsed = DISPATCH_ID.match(did) if isinstance(did, str) else None
+        stage = stages.get(str(did)) if did is not None else None
+        stage = stage or (parsed.group(1) if parsed else None) or "unattributed"
+        names = [name for name, _row in launch["entries"]]
+        named = frozenset(name for name in names if name)
+        seconds, why = _launch_seconds(launch.get("started"),launch.get("ended"))
+        repeat, repeat_of = _repeat_of(launch, earlier)
+        rows.append({"id": launch["id"], "stage": stage, "purpose": launch["purpose"], "tests": len(named),
+                     "runs": len(names), "seconds": seconds, "seconds_why": why or None,
+                     "repeat": repeat, "repeat_of": repeat_of})
+        earlier[named] = {"launch": launch, "unnamed": None in names}
+        bucket = by_stage.setdefault(stage, {"launches": 0, "runs": 0, "tests": 0, "seconds": 0.0, "not_timed": 0,
+                                             "repeats": 0, "repeat_seconds": 0.0, "repeats_not_timed": 0,
+                                             "repeats_not_established": 0})
+        distinct.setdefault(stage, set()).update(named)
+        bucket["launches"] += 1
+        bucket["runs"] += len(names)
+        if seconds is None:
+            bucket["not_timed"] += 1
+        else:
+            bucket["seconds"] = round(bucket["seconds"] + seconds, 1)
+        if repeat == "yes":
+            bucket["repeats"] += 1
+            if seconds is None:
+                bucket["repeats_not_timed"] += 1
+            else:
+                bucket["repeat_seconds"] = round(bucket["repeat_seconds"] + seconds, 1)
+        elif repeat == "not established":
+            bucket["repeats_not_established"] += 1
+    for stage, bucket in by_stage.items():
+        bucket["tests"] = len(distinct[stage])
+    return rows, dict(sorted(by_stage.items()))
+
+
+def _time_words(seconds, launches: int, not_timed: int) -> str:
+    """The time of `launches` launches of which `not_timed` carry no duration: a partial sum is said so (FR-41)."""
+    if launches and not_timed >= launches:
+        return "time not measured"
+    return clock(seconds) + (f", {not_timed} not measured" if not_timed else "")
+
+
+def test_run_cell(counts, stage: str) -> str:
+    """The stage table's `Test runs` cell, the ONE place its words are made. `n/a`: no carrier, or facts written before the
+    stage split existed; `0`: a carrier and no launch of this stage (never "no data")."""
+    if not isinstance(counts, dict) or not counts.get("known") or not isinstance(counts.get("by_stage"), dict):
+        return "n/a"
+    bucket = counts["by_stage"].get(stage)
+    if not isinstance(bucket, dict):
+        return "0"
+    text = (f"{_plural(bucket['launches'], 'launch', 'launches')}, {_plural(bucket['runs'], 'run', 'runs')}, "
+            f"{_time_words(bucket['seconds'], bucket['launches'], bucket['not_timed'])}; "
+            f"repeats over unchanged inputs: {bucket['repeats']} "
+            f"({_time_words(bucket['repeat_seconds'], bucket['repeats'], bucket['repeats_not_timed'])})")
+    if bucket["repeats_not_established"]:
+        text += f", {bucket['repeats_not_established']} not established"
+    return text
 
 
 def test_run_sentence(counts) -> str:
@@ -1659,6 +1815,9 @@ def test_run_lines(counts) -> list:
     lines = [f"**Test runs:** {test_run_sentence(counts)}"]
     if not counts.get("known"):
         return lines
+    if counts.get("launches"):
+        lines.append("- money of a test run: not attributed — a run is executed by code, and the role's spend around "
+                     "it is not recorded per call.")
     odd = []
     if counts.get("not_executed"):
         odd.append(f"{_plural(counts['not_executed'], 'job', 'jobs')} executed nothing and "
@@ -2558,8 +2717,9 @@ def render(data: dict, left_out: bool = True) -> str:
                   f"Friction: unknown — {type(exc).__name__}: {exc}"]
     # "Wall time" is the stage's clock; "Machine time" is that minus the waits for a person inside it. A facts file
     # written before `stage_machine_s` has no such column to fill: it prints `unknown`, never the wall time again.
-    lines += ["", "| Stage | Dispatches | Requests | Tokens | Cost | Wall time | Machine time |",
-              "|---|---|---|---|---|---|---|"]
+    lines += ["", "| Stage | Dispatches | Requests | Tokens | Cost | Wall time | Machine time | Test runs |",
+              "|---|---|---|---|---|---|---|---|"]
+    run_counts = data.get("test_run_counts")
     times = data.get("stage_times") or {}
     machine_times = data.get("stage_machine_s") or {}
     for stage, bucket in sorted((data.get("by_stage") or {}).items()):
@@ -2571,11 +2731,16 @@ def render(data: dict, left_out: bool = True) -> str:
         lines.append(f"| {stage} | {bucket['dispatches']} | {bucket['requests']} | "
                      f"{bucket['tokens']:,} | {money(bucket['cost'])}"
                      + (" (incomplete)" if bucket.get("incomplete") else "")
-                     + f" | {spent} | {clock(machine_times.get(stage))} |")
+                     + f" | {spent} | {clock(machine_times.get(stage))} | {test_run_cell(run_counts, stage)} |")
     orch = data.get("orchestrator") or {}
     lines.append(f"| orchestrator | 1 | {orch.get('requests', 0)} | "
                  f"{orch.get('tokens', 0):,} | {money(orch.get('cost'))} | "
-                 f"- | {clock(orch.get('machine_s'))} |")
+                 f"- | {clock(orch.get('machine_s'))} | - |")
+    outside = sorted(stage for stage in ((run_counts or {}).get("by_stage") if isinstance(run_counts, dict) else None) or {}
+                     if stage not in (data.get("by_stage") or {}))
+    if outside and run_counts.get("known"):
+        lines += ["", "**Test runs outside the stage table:** "
+                  + "; ".join(f"{stage}: {test_run_cell(run_counts, stage)}" for stage in outside)]
     lines += ["", "| Role | Dispatches | Requests | Tokens | Cost |", "|---|---|---|---|---|"]
     for role, bucket in sorted((data.get("by_role") or {}).items()):
         lines.append(f"| {role} | {bucket['dispatches']} | {bucket['requests']} | "

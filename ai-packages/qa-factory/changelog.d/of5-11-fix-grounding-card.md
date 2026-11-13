@@ -1,0 +1,1 @@
+- `grounding_section.py` now has a command card in the registry (the pre-tool guard already handed it to a role), so a usage error of it quotes the card; and a call error of `red_sandbox.py` now opens with the standard `usage: red_sandbox.py ...` line instead of its whole module docstring (the docstring stays as the `--help` description).

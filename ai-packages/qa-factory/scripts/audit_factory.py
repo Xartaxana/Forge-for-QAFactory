@@ -196,6 +196,7 @@ CLI_SCRIPTS = {
     "artifact_producer", "runtime_paths", "delivery_summary",
     "gate_brief", "retro_numbers", "story_budget", "window_budget", "role_permissions",
     "stand_lease", "stand_health", "node_ids",
+    "run_counters",   # the counted reader of one run (P1-v N4): `run_counters.py --task <KEY> [--json]`, run by a person and the forge's scoreboard; reads only, no hook and no driver runs it
     "device_stand",   # the stand of a device surface (EP1-41b): a ready device, an answering driver server, with --deep one session; `device_stand.py --project-root . --json [--deep]`, run by a person, the onboarding and the conductor; no hook runs it
     "project_env",   # which environment the project's tests run in (C3-18): `project_env.py <root> [--profile <config.json>] [--json]`, run by a person and the conductor; the launch sites import it
     "case_stamp", "project_gitignore", "install_paths", "story_version",

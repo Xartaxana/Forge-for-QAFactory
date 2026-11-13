@@ -1201,7 +1201,7 @@ def _settled_lines(task_root, plan_rows, mapping, cases) -> dict:
     answered-reader is `gate_brief.answered_questions` (AR-13: `question_register` + `question_register.closes`); the text of an
     answer is `question_register.answer_text`. Every ref answered: `expected value settled by the person (Q7): <words WHOLE>
     [answers file: <path>]` (several: `Q7: words; Q8: words`) - this is the value the automator asserts, so it is never cut
-    short of `brief_pack.person_words_whole` (whole up to its maximum, then a cut that says so and names the file); some ref
+    short of `brief_pack.person_words_whole` (whole, at any size: no cut); some ref
     not answered: `expected value not settled yet; unanswered: Q8` and no settled claim. The register absent or unreadable, or the
     answers file absent or not read in full: no line (today's brief; an unknown is not a fact, FR-41/AR-28)."""
     out = {}

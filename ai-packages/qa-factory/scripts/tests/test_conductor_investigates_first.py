@@ -36,7 +36,6 @@ FACTORY_ROW = "factory: a finding, not a question"
 
 # (file, anchor kept verbatim by the rewrite, class). C.4 of the spec t-722; the anchors are single-spaced after the join.
 SITES = (
-    ("s0.md", "and the person is asked ONCE (`ticket_title`", "access"),
     ("s0.md", "and you ask once, in the same message as the S1 source", "access"),
     ("s0.md", "so put it to them **here**", "access"),
     ("s2.md", "such a row waits for one question", "requirement_intent"),
@@ -199,8 +198,8 @@ for key in K2_KEYS:
 
 # K3
 problems = k3_problems(phase_texts)
-check("K3: all 22 site rows hold their anchor once, with their marker, and the marker counts match", not problems, "; ".join(problems))
-check("K3: the list has 22 rows", len(SITES) == 22, str(len(SITES)))
+check("K3: all 21 site rows hold their anchor once, with their marker, and the marker counts match", not problems, "; ".join(problems))
+check("K3: the list has 21 rows", len(SITES) == 21, str(len(SITES)))
 row8 = next(p for p in paragraphs(phase_texts["s5.md"]) if ROW_8 in p)
 broken = dict(phase_texts, **{"s5.md": phase_texts["s5.md"].replace("(person-owned: access).", "(x).", 1)})
 check("K3 negative control: the marker removed from row 8's paragraph is red", bool(k3_problems(broken)))

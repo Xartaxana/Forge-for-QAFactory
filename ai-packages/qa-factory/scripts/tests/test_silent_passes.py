@@ -83,7 +83,8 @@ def k1_owed_then_written() -> None:
         row = rows[0]
         check_eq("K1: the row keeps its script, its try count and a stage id",
                  (row["script"], row["tries"], row["exit"], bool(re.fullmatch(r"S\d", row["stage"]))), ("log_append.py", 1, 2, True))
-        check_in("K1: the row carries the words by ARGUMENT, for the second write", "S2 test: my words", " ".join(row["args"]))
+        kept = Path(row["args"][row["args"].index("--notes-file") + 1])      # FV1-4 N0: the words travel by a file, kept for the second write
+        check_in("K1: the row carries the words by a FILE, for the second write", "S2 test: my words", kept.read_text(encoding="utf-8"))
         result, out = quiet(driver.owed_rows_step)
         check_eq("K1: the drain writes it: nothing asked", result, None)
         check_eq("K1: the row left the list", on_disk(task_root)["owed_rows"], [])

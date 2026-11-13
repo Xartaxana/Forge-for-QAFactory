@@ -49,7 +49,7 @@
    "tagged": 0
   },
   "branch_accounting.py::s5_problems": {
-   "bare": 1,
+   "bare": 3,
    "tagged": 0
   },
   "case_versions.py::_empty_answer": {
@@ -337,7 +337,7 @@
    "tagged": 0
   },
   "manifest_put.py::run": {
-   "bare": 15,
+   "bare": 16,
    "tagged": 0
   },
   "manual_capture.py::_blocked": {

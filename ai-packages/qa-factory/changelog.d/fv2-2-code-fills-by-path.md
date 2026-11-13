@@ -1,0 +1,1 @@
+- the handover check marks a field "code fills this" by its contract and full path, not by its leaf name: the S3 plan row's and register count's requirements and the S8 filed bug's requirements are the role's again, named in the refusal and asked by the guard (FV2-2)

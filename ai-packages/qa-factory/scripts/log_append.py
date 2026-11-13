@@ -200,6 +200,9 @@ def main() -> None:
                     help="reject reason family: a short stable label; for a role with a rubric, name the failed dimension")
     ap.add_argument("--witness", default="")
     ap.add_argument("--notes", default="")
+    ap.add_argument("--notes-file", dest="notes_file", default=None,
+                    help="the notes as a file (UTF-8), read whole by person_words.read; instead of --notes. A person's words go this "
+                         "way: a command line cuts a long or multi-line text")
     ap.add_argument("--field", action="append", default=[], help="extra fields key=value")
     ap.add_argument("--seeded", action="store_true", help="a test/training event (not a live incident)")
     args = ap.parse_args()
@@ -210,6 +213,14 @@ def main() -> None:
         import person_words
         try:
             args.reason = person_words.read(args.reason or None, args.reason_file, "--reason", "--reason-file")
+        except ValueError as e:
+            print(f"JOURNAL: {e}", file=sys.stderr)
+            sys.exit(1)
+    if args.notes_file is not None:
+        # FV1-4 N0: the twin door for the notes (a person's answer travels whole by a file); `--notes ""` (the default) is not words.
+        import person_words
+        try:
+            args.notes = person_words.read(args.notes or None, args.notes_file, "--notes", "--notes-file")
         except ValueError as e:
             print(f"JOURNAL: {e}", file=sys.stderr)
             sys.exit(1)

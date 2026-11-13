@@ -20,7 +20,8 @@
 
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
-| 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-26 | L | ожидает | — | — | — |
+| 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-30 | L | ожидает | — | — | — |
+| 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-9 | M | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -70,6 +71,20 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261113-sravnenie-net-krasnyh-testov-na-bagi.md` | находка | Сравнение (ж): ни один автотест не падает на найденной поломке | хартия S5/S7 | пачка 1, FV1-25 | нет | LR2-1 сравнение, FV1-20 |
 | `findings/20261113-sravnenie-ne-udalos-eto-svoya-nedodelka.md` | находка | Сравнение (з): «не удалось проверить» смешивает невозможность и недоделку | форма отчёта | пачка 1, FV1-26 | нет | LR2-1 сравнение, FV1-18 |
 | `findings/20261112-s2-kartochka-i-reestr-stadij-rashodyatsya.md` | находка | Карточка S2 «один диспатч», `stages.json` — критик-приёмщик; замысел S2 — вопрос владельцу | `skills/qa-story/phases/s2.md`, `references/stages.json` | пачка 1, FV1-12 | нужно | LR2-1 |
+| `findings/20261113-trebovanie-proverki-rol-uznaet-v-moment-otkaza.md` | находка | Требование проверки роль узнаёт в момент отказа: три новых экземпляра; один механизм на класс, не строка на отказ | `scripts/hooklib.py`, `scripts/guard_pre_tool.py`, `scripts/refusal_registry.py` | пачка 1, FV1-27 | дано 13.11.2026 | LR2-1, FV1-18, FV1-19; `onboarding-hooks`, `driver-hosts`, `execution-probes` |
+| `findings/20261113-pervyj-vzglyad-ne-dohodit-do-avtomatora.md` | находка | «Первый взгляд» не доходит до автоматора S5 по существу, в прогоне он к тому же пуст по ложному «no stand» | `scripts/brief_pack.py`, `scripts/first_look.py` | пачка 1, FV1-28 | дано 13.11.2026 | LR2-1, FV1-5, FV1-29 |
+| `findings/20261113-avtomatoru-ne-dan-hodok-po-stendu.md` | находка | У автоматора S5 нет ходока по стенду: не может сам посмотреть, когда первый взгляд пуст или неверен | `agents/qa-automator.md`, `scripts/brief_pack.py` | пачка 1, FV1-29 | дано 13.11.2026 | LR2-1, FV1-28, FV1-18 |
+| `findings/20261113-zapret-bez-dveri-s5-precheck-slovo-ne-provodit.md` | находка | 7 семейств `s5_precheck` не проходят ни по какому слову человека; класс — проход словом с записью | `scripts/s5_precheck.py`, `scripts/exit_gate.py` | пачка 1, FV1-30 | дано по классу; открытое ожидание — отдельная идея | спека сухой стори R-L5; FV1-19 |
+| **Пачка 2** | | | | | | |
+| `findings/20261113-chitatel-plan-row-chitaet-klyuch-kotorogo-net-v-kontrakte.md` | находка, id — | `_plan_row_of` читает ключ шапки `plan_row:`, которого нет в контракте кейса; читать через `contract.case_plan_row` | `scripts/handoff_check.py`, `references/form-rounds.json` | пачка 2, FV2-1 | нет | критик P1-a (P2); FV1-14 |
+| `findings/20261113-by-leaf-requirements-pomechaet-polya-kotorye-kod-ne-zapolnyaet.md` | находка, id — | Метка «заполняет код» по имени листа `requirements` покрывает поля S3/S8, которых код не заполняет; ключ — полный путь | `scripts/handoff_check.py` | пачка 2, FV2-2 | нет | критик P1-a (P5); FV2-1 |
+| `findings/20261113-py-test-dva-chitatelya-odnogo-voprosa-vybor-po-id-uzla.md` | находка | `is_pytest_command` и `node_id_selection` по-разному отвечают на `py.test`; единственный ответ — ключ данных | `scripts/execution_request.py`, `scripts/run_suite.py` | пачка 2, FV2-3 | нет | FV1-18 (K2, FIX-1) |
+| `findings/20261113-vyhody-stadii-kotorye-ne-otkazyvaet-ni-odin-chitatel.md` | находка | 8 выходов стадий, которых не отказывает ни один читатель, 6 не покрыты; `requirements-readiness.json` без `verdict` проходит | `scripts/validate_artifacts.py` | пачка 2, FV2-4 | нет | критик P1-a (P6, Q1) |
+| `findings/20261113-ledger-krasnyh-strok-sklevaet-povtornyj-id-cherez-i.md` | находка | Реестр красных строк сливает повторный id через И, второй кейс скрыт; повторный id — отказ | реестр красных строк P1-a | пачка 2, FV2-5 | нет | критик P1-a (Q2) |
+| `findings/20261113-chastnyj-vyzov-i-dvojnoj-gard-papki-zhurnala-progona.md` | находка | Частный `runtime_paths._package_fingerprint` из `driver_journal`; гард «строка не создаёт папку стори» в двух копиях | `scripts/runtime_paths.py`, `scripts/driver_machine.py` | пачка 2, FV2-6 | нет | критик P1-v (QUEUE-3, QUEUE-4) |
+| `findings/20261113-tekst-s5-md-ob-otkazah-markera-ustarel-posle-fv1-19.md` | находка | `s5.md:309-311` называет отказ маркера «не в строке плана кейса», маркер судится по всему плану | `skills/qa-story/phases/s5.md` | пачка 2, FV2-7 | нет | FV1-19 (Q-2) |
+| `findings/20261113-role-load-ne-proveryaet-tipy-allowances-brief.md` | находка | `role_load.settings` не проверяет типы `allowances.brief` / `brief_charter_head`: сырой `ValueError` | `scripts/role_load.py` | пачка 2, FV2-8 | нет | FV1-4 (Q7) |
+| `findings/20261113-formy-vybora-testa-tolko-dlya-pytest-i-playwright.md` | находка | «Селекторы проверены» читается только у `pytest` и `playwright-test`; jest, vitest, dotnet-test навсегда `no_selection_form` | `references/launch-causes.json` | пачка 2, FV2-9 | нет | FV1-18 (QUEUE); FV2-3 |
 
 ## Входящие
 

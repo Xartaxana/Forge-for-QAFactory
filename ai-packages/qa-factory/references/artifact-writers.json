@@ -200,7 +200,7 @@
     },
     "state/brief-sizes.jsonl": {
       "writer": "brief_pack.py",
-      "why": "one line per dispatched brief ({ts, stage, role, dispatch, bytes, budget_bytes?, ceiling?, over?}), appended by brief_pack.build (one O_APPEND write; not on --dry-run or --output); a record for the forge's scoreboard (run_counters), never read or compared with the ceiling inside a run; a missing file means no sizes recorded; a brief built twice has two lines and the reader de-duplicates"
+      "why": "one line per dispatched brief ({ts, stage, role, dispatch, bytes}; lines written before FV1-4 may carry budget_bytes, ceiling, over, which no reader here reads), appended by brief_pack.build (one O_APPEND write; not on --dry-run or --output); a record for the forge's scoreboard (run_counters), never read or compared with a size inside a run; a missing file means no sizes recorded; a brief built twice has two lines and the reader de-duplicates"
     },
     "state/walks/": {
       "writer": "walk_session.py",

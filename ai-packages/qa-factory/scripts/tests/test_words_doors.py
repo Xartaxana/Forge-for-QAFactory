@@ -456,7 +456,8 @@ def part_doors_hold_the_whole_words_clause() -> None:
     (the check refuses a cut inside a word, so the text must not invite one); one row per door."""
     clause = person_words.WHOLE_PART
     check_in("the clause says whole words and no cut inside a word", "never a cut inside a word", clause)
-    for name in ("branch_accounting.py", "controller.py", "critic_rollcall.py", "planning_contract.py", "s5_precheck.py"):
+    # `s5_precheck.py` left the list (FV1-30a): its door names the finding's tag or whole id, not a part of the line
+    for name in ("branch_accounting.py", "controller.py", "critic_rollcall.py", "planning_contract.py"):
         text = (SCRIPTS / name).read_text(encoding="utf-8")
         at = [m.start() for m in re.finditer(r'<part of the line>', text) if "--block" in text[max(0, m.start() - 60):m.start()]]
         check(f"G-3 {name}: a printed `<part of the line>` door exists", bool(at))
@@ -493,7 +494,8 @@ def open_door(root: Path, text: str, ticket: str, stage: str, head: str = ""):
     argv = []
     for token in shlex.split(span[:span.index(FLAG)]):
         for placeholder, value in (("<TICKET>", ticket), ("<T>", ticket), ("<id>", ticket),
-                                   ("<S>", stage), ("<part of the line>", head)):
+                                   ("<S>", stage), ("<part of the line>", head),
+                                   ("<the finding's tag, or its whole id>", head)):
             token = token.replace(placeholder, value)
         argv.append(token)
     left = [t for t in argv if "<" in t and ">" in t]
@@ -723,8 +725,10 @@ def row_19_20_21_detectors() -> None:
         # C2-1 (§6 row 21): the word is taken from a PRINTED line. The fixture gives four findings: two of the
         # `obligations` family (a word passes them, at the source) and two of `run_mapping`/`bindings` (no word
         # passes them, `*` included: their lines carry `WORDS_REFUSED_AT_SOURCE ... family`).
+        # FV1-30a: one road for every family - the word is the finding's TAG (or its whole id, or `*`), never a part of its printed
+        # line - so the word is the tag of the first `obligations` finding; the other three findings stand and no word is `family`
         wanted = next(line for line in lines if line.startswith("- [obligations "))
-        head = whole_cut(wanted.strip().lstrip("- "))
+        head = re.search(r"\[obligations (\S+)\]", wanted).group(1).split(":", 2)[2]
         import exit_gate
         check("21 s5_precheck: the gate's own re-run refuses", bool(exit_gate.detector_errors("qa-automator")))
         done, _, _ = open_door(root, run.stdout, OJ.TICKET, "S5", head)
@@ -733,20 +737,20 @@ def row_19_20_21_detectors() -> None:
                               .read_text(encoding="utf-8"))
         records = exit_gate.detector_errors("qa-automator")
         blocking, passed = exit_gate.judge_words(records, pipeline, "S5")
-        check_eq("21 s5_precheck: the word taken from the printed line passed its finding at the SOURCE; the gate "
-                 "holds the two families no word passes, and passes nothing itself",
-                 ([b.refused for b in blocking], passed), (["family", "family"], []))
+        check_eq("21 s5_precheck: the tag word passed its finding at the SOURCE; the other three stand, none is `family` "
+                 "(every family is passable now), and the gate passes nothing itself",
+                 ([b.refused for b in blocking], passed), (["", "", ""], []))
         star = {"stage_overrides": [{"stage": "S5", "match": "*", "decision": "all of it",
                                      "at": "2026-10-01T10:00:00"}]}
         blocking, passed = exit_gate.judge_words(records, star, "S5")
-        check_eq("21 s5_precheck: `*` does not pass them either: the tag of the source stands above it",
-                 ([b.refused for b in blocking], passed), (["family", "family"], []))
+        check_eq("21 s5_precheck: `*` at the gate passes the three standing records, as it always passed a source's records",
+                 ([b.refused for b in blocking], len(passed)), ([], 3))
         bound = next(line for line in lines if line.startswith("- [bindings "))
         word = {"stage_overrides": [{"stage": "S5", "match": whole_cut(bound.lstrip("- ")), "decision": "x",
                                      "at": "2026-10-01T10:00:00"}]}
         blocking, passed = exit_gate.judge_words(records, word, "S5")
-        check_eq("21 s5_precheck: a word taken from the line of a family nobody can pass leaves it blocked",
-                 ([b.refused for b in blocking], passed), (["family", "family"], []))
+        check_eq("21 s5_precheck: a word taken from the printed line of a finding is judged at the SOURCE only: the gate leaves "
+                 "all three blocked", ([b.refused for b in blocking], passed), (["", "", ""], []))
     finally:
         cleanup(root)
 
@@ -1853,7 +1857,186 @@ def row_repo_words_cli() -> None:
         cleanup(root)
 
 
+def _s5_completion(prefix: str, word_passes):
+    """FV1-30a fixture: a real controller story whose S5 completion by the author's mechanical dispatch is accepted once its green run
+    exists. `word_passes` replaces `s5_precheck.word_passes` (a list of rows, or an exception to raise): the selection of the word is
+    the rows of `test_s5_precheck`; what is judged HERE is where the controller records it. Returns `(task root, controller,
+    complete, journal lines)`: `complete(key)` applies the completion, `journal()` reads `state/passed-by-person.jsonl`."""
+    import hashlib
+    import s5_precheck as P
+    import test_s5_process as S5
+    from event_store import content_hash
+    root, task = ctrl_project(prefix)
+    c = S5.s5_task(task, ("TC-1",))
+    S5.dispatch(c, task, "a1", scope=("TC-1",))
+    S5.dispatch(c, task, "k1", role="qa-code-critic", scope=("TC-1",))
+    S5.dispatch(c, task, "a2", scope=("TC-1",), accept=False, repair_cause="mechanical", reason="TC-1: a sleep -> a wait")
+    obligation = next(ob for row in json.loads((task / "work" / "test-plan.json").read_text(encoding="utf-8"))["rows"]
+                      for ob in row.get("coverage_obligations") or [])
+    refs = [{"obligation_id": obligation["obligation_id"], "obligation_hash": content_hash(obligation)}]
+    proof = S5.evidence(task, "proof.json")
+
+    def complete(rounded: bool, key: str):
+        probe = {"verdict": "intended_failure", "input_hash": "H0", "expected_location": "a", "actual_location": "a",
+                 "expected_reason": "r", "actual_reason": "r", "failure_kind": "assertion", "mutation_kind": "assertion",
+                 "proof_level": "live", "obligation_ids": [obligation["obligation_id"]], "obligation_refs": refs,
+                 "obligation_hash": content_hash(refs), "assertion_id": "t.py:9", "defect_location": "src.py:4",
+                 "evidence_ref": proof["path"]}
+        record = {"schema_version": 2, "input_hash": "h", "required_quality_checks": [], "author_dispatch_id": "a1",
+                  "reviewer_dispatch_id": "k1", "quality_receipts": [], "scope_instances": {"TC-1": ["test_x"]},
+                  "instances": [{"schema_version": 2, "instance_id": "test_x", "input_hash": "H1", "outcome": "passed",
+                                 "execution_fingerprint": "fp-1", "review": {"verdict": "approved", "input_hash": "H0"},
+                                 "change_disposition": "new_or_changed", "change_basis_ref": "diff",
+                                 "obligation_ids": [obligation["obligation_id"]], "obligation_refs": refs,
+                                 "obligation_hash": content_hash(refs), "assertion_id": "t.py:9", "defect_location": "src.py:4",
+                                 "probe": probe, "evidence_refs": [proof]}]}
+        if rounded:
+            record["mechanical_round"] = S5.ROUND
+        (task / "work" / "s5-window.json").write_text(json.dumps(record), encoding="utf-8")
+        receipt = {"path": "work/s5-window.json", "sha256": hashlib.sha256((task / "work" / "s5-window.json").read_bytes()).hexdigest()}
+        return c.apply("accept", {"id": "a2", "status": "accepted", "stage_complete": True, "window": record,
+                                  "evidence_refs": [proof, receipt], "idempotency_key": key})
+
+    def fake(*_args, **_kwargs):
+        if isinstance(word_passes, Exception):
+            raise word_passes
+        return list(word_passes)
+    P.word_passes = fake
+    return root, task, c, complete, S5
+
+
+def row_fv130a_the_controller_records_what_the_word_passed() -> None:
+    """FV1-30a (4): an ACCEPTED S5 completion records every finding a person's word passed, by name, through the one writer; a
+    refused completion writes nothing; no word writes nothing; a recording that cannot be made leaves the completion accepted and
+    says so on stderr; the cuts of the writer lose nothing (AT and BEYOND: `decision` 1000/1001, `finding_id` 400/401)."""
+    import s5_precheck as P
+    real = P.word_passes
+    at = "2026-10-01T10:00:00+00:00"
+    finding = "bindings:TC-1:no-bindings"
+    try:
+        # one accepted completion with a word by tag: exactly one line, `block` = the finding id, `word_at` = the word's `at`
+        root, task, c, complete, S5 = _s5_completion("qa-words-door-fv30a-",
+                                                       [{"finding_id": finding, "decision": "go on, the person knows", "at": at}])
+        try:
+            journal = task / "state" / "passed-by-person.jsonl"
+            lines = lambda: [json.loads(x) for x in journal.read_text(encoding="utf-8").splitlines()] if journal.is_file() else []  # noqa: E731
+            check_in("a completion with no mechanical round is refused", "mechanical_round", refused_text(lambda: complete(False, "no-round")))
+            check_eq("a REFUSED completion writes nothing (the call sits after the refusals)", lines(), [])
+            check_in("a completion with no green run is refused too", "mechanical_green", refused_text(lambda: complete(True, "no-green")))
+            check_eq("...and writes nothing", lines(), [])
+            S5.run_block(task, "b1", "a2", "fp-1", "H1", "test_x")
+            check_eq("the ACCEPTED completion goes through", refused_text(lambda: complete(True, "done")), "")
+            got = [line for line in lines() if line["block"] == finding]
+            check_eq("ONE line, the stage and the dispatch, the finding id as the block, the word's own time as `word_at`",
+                     [(x["stage"], x["dispatch"], x["block"], x["decision"], x["word_at"], x["by"]) for x in got],
+                     [("S5", "a2", finding, "go on, the person knows", at, "human")])
+            # AT / BEYOND, the writer's cuts: `decision` 1000 whole / 1001 cut, `finding_id` 400 whole / 401 cut with the whole beside it
+            state = c.state()
+            for label, rows, expect in (
+                    ("decision of 1000", [{"finding_id": finding, "decision": "d" * 1000, "at": at}],
+                     lambda x: len(x["decision"]) == 1000 and x["word_at"] == at and "finding_id" not in x),
+                    ("decision of 1001", [{"finding_id": finding, "decision": "d" * 1001, "at": at}],
+                     lambda x: len(x["decision"]) == 1000 and x["word_at"] == at),
+                    ("a 24 KB decision", [{"finding_id": finding, "decision": "d" * 24 * 1024, "at": at}],
+                     lambda x: len(x["decision"]) == 1000 and x["word_at"] == at),
+                    ("finding id of 400", [{"finding_id": "b:" + "c" * 398, "decision": "x", "at": at}],
+                     lambda x: len(x["block"]) == 400 and "finding_id" not in x),
+                    ("finding id of 401", [{"finding_id": "b:" + "c" * 399, "decision": "x", "at": at}],
+                     lambda x: len(x["block"]) == 400 and x["finding_id"] == "b:" + "c" * 399)):
+                P.word_passes = lambda *_a, **_k: rows
+                before = len(lines())
+                c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+                added = lines()[before:]
+                check(f"{label}: one line, cut as the writer cuts it, with the pointer to the whole", len(added) == 1 and expect(added[0]), str(added))
+            P.word_passes = lambda *_a, **_k: []
+            before = len(lines())
+            c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+            check_eq("no word passed anything: no line", len(lines()), before)
+            # a recording that cannot be made: never silent, never a failed step
+            for why, make in (("word_passes raises", lambda: RuntimeError("boom")), ):
+                def raising(*_a, **_k):
+                    raise make()
+                P.word_passes = raising
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+                check_in(f"{why}: one stderr line", "passed-by-person: not recorded (RuntimeError: boom)", err.getvalue())
+                check_eq(f"{why}: and no line", len(lines()), before)
+            saved = sys.modules.get("s5_precheck")
+            sys.modules["s5_precheck"] = None
+            err = io.StringIO()
+            try:
+                with redirect_stderr(err):
+                    c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+            finally:
+                sys.modules["s5_precheck"] = saved
+            check_in("s5_precheck does not import: one stderr line", "passed-by-person: not recorded (", err.getvalue())
+            check_eq("...and no line", len(lines()), before)
+        finally:
+            P.word_passes = real
+            cleanup(root)
+        # the completion is accepted although the recording failed
+        root, task, c, complete, S5 = _s5_completion("qa-words-door-fv30a2-", RuntimeError("boom"))
+        try:
+            S5.run_block(task, "b1", "a2", "fp-1", "H1", "test_x")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                text = refused_text(lambda: complete(True, "done"))
+            check_eq("a recording that fails: the completion is ACCEPTED", (text, c.state()["stages"]["S5"]["status"]), ("", "completed"))
+            check_in("...and says so on stderr", "passed-by-person: not recorded (RuntimeError: boom)", err.getvalue())
+        finally:
+            P.word_passes = real
+            cleanup(root)
+    finally:
+        P.word_passes = real
+
+
+def row_fv130a_no_second_question() -> None:
+    """FV1-30a: an instance whose no-run-row finding a person's word passed at the S5 exit is not refused a second time by the window
+    gap check (`_s5_gap_problems`, FR-7) and an instance not passed still is; `_plan_refusal` records nothing (F4)."""
+    import acceptance
+    import s5_precheck as P
+    import test_s5_process as S5
+    root, task = ctrl_project("qa-words-door-fv30a3-")
+    real_validate, real_passes = acceptance.validate_window, P.word_passes
+    try:
+        c = S5.s5_task(task, ("TC-1",))
+        acceptance.validate_window = lambda window, root_: ["product:test_x", "product:test_y", "stale_run:test_x"]
+        d, p = {"id": "a2", "scope": ["TC-1"]}, {}
+        P.word_passes = lambda *_a, **_k: []
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        check("no word: both instances are refused", "product:test_x" in text and "product:test_y" in text, text)
+        P.word_passes = lambda *_a, **_k: [{"finding_id": "run_mapping:TC-1:no-row-test_x", "check": "run_mapping", "case": "TC-1",
+                                            "tag": "no-row-test_x", "decision": "go on", "at": "t"}]
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        check("the passed instance is not refused a second time; the other still is; another gap of the passed one still is",
+              "product:test_x" not in text and "product:test_y" in text and "stale_run:test_x" in text, text)
+        P.word_passes = lambda *_a, **_k: [{"finding_id": "bindings:TC-1:no-bindings", "check": "bindings", "case": "TC-1",
+                                            "tag": "no-bindings", "decision": "go on", "at": "t"}]
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        check("a pass of ANOTHER finding (`no-bindings`) lets no instance go", "product:test_x" in text and "product:test_y" in text, text)
+
+        def boom(*_a, **_k):
+            raise RuntimeError("boom")
+        P.word_passes = boom
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        check("a reader that cannot answer lets nothing go (the refusing direction)", "product:test_x" in text and "product:test_y" in text, text)
+        # critic F4: `_plan_refusal` (it runs inside `validate`, on probes and refused requests) records nothing: the recording of
+        # its pass is queued by the Lead
+        journal = task / "state" / "passed-by-person.jsonl"
+        (task / "pipeline.json").write_text(json.dumps({"ticket": TICKET, "stage_overrides": [
+            {"stage": "S5", "match": "plan before windows", "decision": "the person lets it", "at": "2026-10-01T10:00:00+00:00"}]}),
+            encoding="utf-8")
+        check_eq("a word passes the plan refusal (as before)", c._plan_refusal("plan before windows", "no plan yet", "Door: x."), [])
+        check_eq("...and `_plan_refusal` writes no record (F4: queued)", journal.is_file(), False)
+    finally:
+        acceptance.validate_window, P.word_passes = real_validate, real_passes
+        cleanup(root)
+
+
 def main() -> None:
+    row_fv130a_the_controller_records_what_the_word_passed()
+    row_fv130a_no_second_question()
     row_repo_words_cli()
     row_words_carry()
     row_settle_order()

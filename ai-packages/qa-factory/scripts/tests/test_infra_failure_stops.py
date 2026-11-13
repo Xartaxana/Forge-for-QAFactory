@@ -39,7 +39,7 @@ def k2_auth_stops_the_driver():
                  (record.get("call"), record.get("stage"), record.get("role"), record.get("dispatch")),
                  ("role", "S1", "qa-scout", "S1-qa-scout-1"))
         check("K2: and no session is stored for it", "S1-qa-scout-1" not in (held.get("sessions") or {}))
-        runs = T.jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in T.jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record, counted apart
         check_eq("K2: one journal line for the one invocation", len(runs), 1)
         check_eq("K2: it carries subtype, infra, rule and retry",
                  (runs[0].get("subtype"), runs[0].get("infra"), runs[0].get("infra_rule"), runs[0].get("retry")),

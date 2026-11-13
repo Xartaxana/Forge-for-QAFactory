@@ -1,0 +1,363 @@
+{
+  "_about": "Rules of tests/form_filler.py (P1-a spec 3.2, 3.5): which generator fills which kind of hint of a handoff form. First matching rule wins. `when`: max_len (the reader's spec holds a length limit), kind:choice / kind:boolean (the reader's spec reads the hint as a closed list); `pattern`: a full match against the text inside the angle brackets. `context_tokens`: a token a path of the contract names, read from the FillContext key; `form_field_tokens`: a token read from the value the SAME form gives the named field (no plain value in the form: the FillContext key `context_fallback_tokens` names, when it holds one, else the value is unfillable, naming the token); `literal_text`: a value with an angle bracket that is text, not a hint. A hint no rule fits is never guessed: the filler reports it as unfillable. The generators are named in form_filler.GENERATORS.",
+  "rules": [
+    {"id": "limit", "when": "max_len", "gen": "limit"},
+    {"id": "closed-boolean", "when": "kind:boolean", "gen": "first_option"},
+    {"id": "closed-list", "when": "kind:choice", "gen": "first_option"},
+    {"id": "file-function-or-test-id", "pattern": "file::function or T-n of the planned test", "gen": "values", "values": ["file::function", "T-1"]},
+    {"id": "id-path", "pattern": "(?=[^ ]*[./])[\\w./]*[A-Z]{2,}-n[\\w./]*", "gen": "id_in_path"},
+    {"id": "id-or-empty-list", "pattern": "[A-Z]{1,4}-(?:n|m|ID),\\s+or (?:the|an) empty list", "gen": "id_prefix", "empty": true},
+    {"id": "id-alternatives", "pattern": "(?:[A-Z]{1,4}-(?:n|m|ID)|case id)(?:(?:,\\s+or\\s+|,\\s+|\\s+or\\s+)(?:[A-Z]{1,4}-(?:n|m|ID)|case id))+", "gen": "alternatives"},
+    {"id": "id-or-word", "pattern": "[A-Z]{1,4}-(?:n|m|ID)\\b.*\\b(?:or (?:an )?area|or tracker key|or path|or the source)\\b.*", "gen": "id_prefix", "word_alternative": "area-1"},
+    {"id": "id-prefix", "pattern": "[A-Z]{1,4}-(?:n|m|ID)\\b.*", "gen": "id_prefix"},
+    {"id": "case-id-of-the-world", "pattern": "(?:case id|instance or case id|case or instance id)", "gen": "world_ids", "from": "cases"},
+    {"id": "count-n", "pattern": "n", "gen": "literal", "value": 1},
+    {"id": "count-n-of-m", "pattern": "n of m(?:, or a dash)?", "gen": "literal", "value": "1 of 1"},
+    {"id": "count-r-of-2", "pattern": "r of 2", "gen": "literal", "value": "1 of 2"},
+    {"id": "number-literal", "pattern": "\\d+", "gen": "hint_number"},
+    {"id": "free-text-or-empty-list", "pattern": ".*(?:,|\\s)or (?:the|an) empty list", "gen": "free_text", "empty": true},
+    {"id": "free-text", "pattern": ".+", "gen": "free_text"}
+  ],
+  "context_tokens": {
+    "<TICKET>": "task_key",
+    "<dispatch>": "dispatch_id",
+    "<the author's dispatch>": "author_dispatch",
+    "<case>": "first_case",
+    "<area>": "area"
+  },
+  "form_field_tokens": {
+    "<cases_root>": "artifacts.cases_root"
+  },
+  "context_fallback_tokens": {
+    "<cases_root>": "cases_root"
+  },
+  "literal_text": [
+    {"id": "command-template", "pattern": "^[a-z][a-z0-9_]*\\.py\\s"},
+    {"id": "git-add-prose", "pattern": "^`git add -A` and `git add <dir>` are forbidden"}
+  ],
+  "artifact_tokens": {
+    "<case id>": "case_id",
+    "<bug id>": "bug_id"
+  },
+  "artifact_templates": {
+    "test-plan.md": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "## `test-plan.md`",
+      "format": "md",
+      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nrows_total: 1\ncandidates: 0\nplanned: 1\n---\n\n# Test plan\n\nPyramid: api 1\n\n## Plan\n\n| TS | what we verify | R | defect hypothesis | impact class | priority | observable | oracle | disposition + reason | fit | level | technique |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n| <TS-n> | <what is verified, one plain line> | <R-n> | error-path @ <the place the defect would live> | blocked-flow | P1 | expected-contract:spec | requirement:<R-n> | `automate` — <why this row is worth automating> | new | api | <the technique applied> |\n\n## Recommended regression\n\nNo regression: <why no existing test defends the blast radius>\n",
+      "required": ["body:## Plan", "task", "created", "rows_total", "candidates", "planned"]
+    },
+    "plan_md_row": {
+      "subkind_of": "test-plan.md",
+      "row_of": "test-plan.md",
+      "path": "test-plan.md"
+    },
+    "work/test-plan.json": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "`work/test-plan.json` is `{\"rows\": [ ... ]}` — the rows for the scripts, a",
+      "format": "json",
+      "template": {
+        "rows": [
+          {
+            "id": "<TS-n>",
+            "schema_version": 2,
+            "risk_policy_revision": "factory-starter-v1",
+            "r": ["<R-n>"],
+            "what_we_verify": "<what is verified, one plain line>",
+            "defect_hypothesis": "error-path @ the place the defect would live",
+            "impact_class": "blocked-flow",
+            "priority": "P1",
+            "observable": "expected-contract:spec",
+            "oracle": "requirement:R-1",
+            "disposition": "automate",
+            "reason": "<why this row is worth automating>",
+            "fit": "new",
+            "level": "api",
+            "technique": "<the technique applied>",
+            "impact": "moderate",
+            "likelihood": "medium",
+            "confidence": "medium",
+            "risk_rationale": "<what goes wrong for a person when this fails>",
+            "risk_source_refs": ["register:R-1"],
+            "coverage_refs": [],
+            "unknowns": [],
+            "verification_depth": "normal",
+            "required_scenarios": ["<one scenario the row must cover>"],
+            "test_level_rationale": "<why this level of the pyramid>",
+            "design_review_required": false,
+            "source_conflict": false,
+            "oracle_unknown": false,
+            "question_refs": [],
+            "if_answered": {},
+            "coverage_contract_revision": "coverage-observation-v1",
+            "coverage_obligations": [
+              {
+                "obligation_id": "OB-1",
+                "requirement_refs": [{"ref": "<R-n>", "revision": "r1"}],
+                "behavior": "<what the obligation says, one sentence>",
+                "oracle_source_ref": "R-1",
+                "oracle_status": "resolved",
+                "applicable_scenarios": [{"id": "sc1", "variant": "positive", "rationale": "<why this scenario applies>"}],
+                "observation_boundary": "<where the behaviour is observed>",
+                "completion_condition": "<when the check may read its result>",
+                "coverage_links": [],
+                "decision": "new",
+                "remaining_gap": "none",
+                "planned_check_refs": ["c1", "c2"],
+                "execution_scope": "current_task",
+                "sufficiency_review": {
+                  "author_dispatch": "S3-qa-test-strategist-1",
+                  "input_hash": "<the hash of the inputs read>",
+                  "rationale": "<why the planned checks are enough>",
+                  "author_dispatch_id": "S3-qa-test-strategist-1"
+                },
+                "observation_contract": {
+                  "claim_kind": ["ordinary"],
+                  "oracle_ref": {"ref": "R-1", "revision": "r1"},
+                  "controls": [],
+                  "completion_ref": "c2",
+                  "surfaces": [{"id": "S-1", "boundary": "API", "status": "planned", "assertion_ref": "c1"}],
+                  "independent_expectations": [],
+                  "source_conflicts": []
+                }
+              }
+            ],
+            "coverage_delta": {
+              "baseline_kind": "initial",
+              "initial_scope_rationale": "<why this first plan has this scope>",
+              "entries": [{"obligation_id": "OB-1", "disposition": "gap", "rationale": "<why the delta is a gap>", "gap_reason": "<what no existing test covers>"}],
+              "planned_instance_ids": ["i1"],
+              "counts": {"logical_cases_before": 0, "logical_cases_after": 1, "executable_instances_before": 0, "executable_instances_after": 1}
+            }
+          }
+        ]
+      },
+      "required": ["rows"]
+    },
+    "plan_json_row": {
+      "subkind_of": "work/test-plan.json",
+      "row_of": "work/test-plan.json",
+      "path": "work/test-plan.json"
+    },
+    "work/grounding.yaml": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "`work/grounding.yaml` has ONE reader, `planning_contract.read_grounding` (a missing or empty file,",
+      "format": "yaml",
+      "template": "rows:\n  - id: <G-n>\n    label: behaviour_change\n    reason: <why the hunk carries this label>\nclaims:\n  - r: <R-n>\n    row: <G-n>\n    requirement: <the requirement line as the register words it>\n    impact: degraded\n    before: <what the code did before>\n    before_ref: absent\n    now: <what the code does now>\n    now_ref: diff:src/app.py:1\n    differs: \"yes\"\n    question: raise\n    ask:\n      question: <the question asked of the person>\n      source_says: [{quote: a quote of the source, where: register R-1}]\n      severity: major\n      owner_role: po_ba\n",
+      "required": ["body:rows:", "body:claims:"],
+      "left_for_code": ["schema_version", "implementation_source", "null_outcome", "diff", "hunks", "refactoring_share", "requirement_coverage", "base_slice", "orphans", "register_sha256", "blast_radius"]
+    },
+    "first_look_rows": {
+      "subkind_of": "work/first-look.yaml",
+      "contract": "references/artifact-contract-first-look.md",
+      "anchor": "## The rows you send",
+      "format": "yaml",
+      "path": "work/first-look-rows.yaml",
+      "template": "rows:\n  - req: <R-n>\n    status: confirms\n    why: <what the walker saw, one sentence>\n    evidence:\n      - work/evidence/manual/survey-<R-n>/a1/http-1.json\n    quote: <words copied from the capture>\n    path:\n      url: /cart\n      steps:\n        - <the step the walker took>\ngaps:\n  - <R-n>: <what could not be established>\n",
+      "required": ["body:rows:"]
+    },
+    "work/test-cases/": {
+      "contract": "references/artifact-contract.md",
+      "anchor": "## `test-cases/<area>/<case id>.md`",
+      "format": "md",
+      "ids": "cases",
+      "file_name": "general/<case id>.md",
+      "cites": {"body:Plan row:": "P"},
+      "template": "---\nid: <case id>\ntitle: <one line saying what the case checks>\narea: general\npriority: P1\nstatus: Draft\nchannel: auto\nreuse_decision: new\nupdated: 2026-11-13\ntask: <TICKET>\ncovers: [<R-n>]\ndefect_class: error-path\nbasis: requirement:<R-n>\nthen_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"<R-n>\"}]\n---\n\n# <case id>\n\nRequirements: <R-n>\nPlan row: <TS-n>\n\n## Steps\n\n1. <the first step the case takes>\n\n## Then\n\n1. <what must hold after the steps>\n\n## Obligation coverage\n\n| part | oracle | boundary | Then and evidence | residual gap |\n|---|---|---|---|---|\n| <the part of the obligation> | requirement:<R-n> | <the boundary observed> | Then 1 | none |\n",
+      "required": ["id", "title", "area", "priority", "status", "channel", "reuse_decision", "updated"]
+    },
+    "case": {
+      "subkind_of": "work/test-cases/",
+      "row_of": "work/test-cases/",
+      "dir": "work/test-cases/",
+      "one": true
+    },
+    "manifest_row": {
+      "subkind_of": "work/automation-manifest.json",
+      "contract": "references/artifact-contract-automation.md",
+      "anchor": "## `automation-manifest.json`",
+      "format": "json",
+      "ids": "cases",
+      "one": true,
+      "dir": "work/",
+      "file_name": "automation-manifest.json",
+      "row_fields": {
+        "from": "window_record.REQUIRED_ROW_FIELDS",
+        "at": "tests",
+        "shapes": {"obligation_refs": [{"obligation_id": "<OB-n>", "obligation_hash": "<the hash of the obligation>"}]}
+      },
+      "template": {
+        "tests": [
+          {
+            "case": "<case id>",
+            "covers": ["<case id>"],
+            "file": "qa-factory/tests/<case id>_test.py",
+            "marker": "<case id>",
+            "instance_id": "test_the_case",
+            "shape": "new",
+            "status": "green",
+            "critic_verdict": "approved"
+          }
+        ],
+        "run_witness": "evidence/sanity.json exit 0 1 passed"
+      },
+      "required": ["tests", "run_witness"]
+    },
+    "test_file:<lang>": {
+      "subkind_of": "work/automation-manifest.json",
+      "contract": "references/case-markers.json",
+      "anchor": "  \"decorator_prefix\": \"@pytest.mark.\",",
+      "format": "text",
+      "markers": "references/case-markers.json",
+      "marker_key": {"python": "pytest"},
+      "ids": "cases",
+      "one": true,
+      "dir": "project:",
+      "languages": {
+        "python": {
+          "file_name": "tests/<case id>_test.py",
+          "template": "import pytest\n\n\n{marker}(case=\"<case id>\", then=[1], obligations=[\"OB-1\"])\ndef test_the_case():\n    assert 1 + 1 == 2\n"
+        },
+        "pytest": {"like": "python"}
+      },
+      "required": ["body:@pytest.mark.qa"]
+    },
+    "work/context-manifest.json": {
+      "contract": "references/artifact-contract-grounding.md",
+      "anchor": "## `context-manifest.json`",
+      "format": "json",
+      "template": {
+        "ticket": "<TICKET>",
+        "issue_type": "<the ticket's own type, as the tracker names it>",
+        "acceptance_criteria": ["<one acceptance criterion as the ticket words it>"],
+        "implementation": {
+          "source": "<diff|current-code|none|ungrounded>",
+          "mr": "<the merge request reference>",
+          "branch": "<the branch name>",
+          "commit": "<the commit id>",
+          "diff_path": "work/impl-diff.txt"
+        },
+        "implementations": [
+          {
+            "repo": "<the repository name>",
+            "source": "<diff|current-code|none|ungrounded>",
+            "mr": "<the merge request reference>",
+            "branch": "<the branch name>",
+            "commit": "<the commit id>",
+            "diff_path": "work/impl-diff.txt"
+          }
+        ],
+        "related": [
+          {
+            "key": "<the related ticket key>",
+            "kind": "<implementation|blocker|bug|mention>",
+            "source": "<where in this ticket the key was read>"
+          }
+        ],
+        "witness": "<what the scout read, one sentence>"
+      },
+      "required": ["ticket", "acceptance_criteria", "implementation"]
+    },
+    "work/requirements-register.md": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "## `requirements-register.md`",
+      "format": "md",
+      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nids: [<R-n>]\nby_source: {ac: 1}\nconfidence: <high|low>\n---\n\n# Requirements register\n\n## Register\n\n| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact | delta | code_says |\n|---|---|---|---|---|---|---|---|---|---|\n| <R-n> | <one verifiable statement of the story> | ac | - | yes | <AC-n> | expected-contract:spec | none | new | unknown |\n\n## Contradiction matrix\n\n| R | story | ac |\n|---|---|---|\n| <R-n> | silent | silent |\n",
+      "required": ["task", "created", "ids", "by_source", "confidence"]
+    },
+    "work/requirements-readiness.json": {
+      "contract": "references/artifact-contract-json.md",
+      "anchor": "## `requirements-readiness.json`",
+      "format": "json",
+      "template": {
+        "verdict": "<ready|blocked>",
+        "goal_summary": "<one sentence: what the story is for>",
+        "aspects": {},
+        "open_questions": [],
+        "register": {"total": "<n>", "by_source": {"ac": 1}},
+        "confidence": "<high|low>"
+      },
+      "required": ["verdict", "goal_summary", "aspects", "open_questions", "register", "confidence"]
+    },
+    "understanding.md": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "## `understanding.md`",
+      "format": "md",
+      "template": "## Why this change\n\n<one sentence on why the change exists>\n\n## What we verify\n\n- <R-n>: <what is verified, one sentence>\n\n## What we do not verify, and why\n\n- none\n\n## What else the change may touch\n\n- <one area the change may touch>\n\n## Questions without which testing is pointless\n\n- none\n",
+      "required": ["body:## Why this change", "body:## What we verify", "body:## What we do not verify", "body:## What else the change may touch", "body:## Questions without which"]
+    },
+    "work/triage.json": {
+      "contract": "references/artifact-contract-run.md",
+      "anchor": "## `triage.json`",
+      "format": "json",
+      "template": {
+        "triage": [
+          {
+            "test": "test_removed_node[chromium]",
+            "verdict": "APP_BUG",
+            "evidence": "<what the run showed: the failure as the run report words it>",
+            "detail": "<why this verdict, one sentence in the task's terms>"
+          }
+        ]
+      },
+      "required": ["triage"]
+    },
+    "work/bug-drafts/": {
+      "contract": "references/artifact-contract-run.md",
+      "anchor": "## `bug-drafts/*.json`",
+      "format": "json",
+      "ids": "bugs",
+      "id_field": "bug_id",
+      "id_token": "<bug id>",
+      "file_name": "<bug id>.json",
+      "cites": {"case": "TC"},
+      "template": {
+        "title": "<one line: what is broken>",
+        "impact": "degraded",
+        "violates": "requirement:R-1",
+        "case": "<TC-n>",
+        "triage_ref": {"instance_id": "test_removed_node[chromium]", "attempt_id": "a1"},
+        "manual_steps": ["<what a person does in the product to see the defect>"],
+        "red_test": {"path": "tests/test_diff.py::test_removed_node", "command": "pytest tests/test_diff.py::test_removed_node"},
+        "confirmation": "unconfirmed"
+      },
+      "required": ["title", "impact", "violates", "case", "triage_ref", "manual_steps", "red_test", "confirmation"]
+    },
+    "test-report.md": {
+      "contract": "references/artifact-contract-results.md",
+      "anchor": "## `test-report.md`",
+      "format": "md",
+      "per_case": "<case id>",
+      "template": "# <TICKET> — test report\n\n**The change.** <one paragraph: what the change is, in the product's words>\n\nR-n is a requirement, TC-n a test case, TS-n a plan row, BUG-n a bug.\n\n`delivery_ready: <yes|after_checks|no>`\n\n## Proven — <n> green tests\n\n- <R-n>: <the requirement in words>\n\n## Product bugs — 0\n\nnone found\n\n## Left with you\n\n1. <what is left, in the case's words> (<R-n>, <case id>). To check: <the Then, quoted>. Needed: <the account or decision that is missing>.\n\n## Skipped by the plan (approved at gate A)\n\nnone\n\n## Not proven, and what it costs\n\nnone\n\n## Factory defects — nothing is wanted from you\n\n<what the factory's own bookkeeping got wrong, in words>\n\n## Size\n\nForecast: <size_initial>\nFact: <size_final>\n\n## Where to look\n\n- understanding.md\n- test-plan.md\n- retro.md\n- the appendix below\n\n## Appendix — traceability\n\n| R | case | result |\n|---|---|---|\n| <R-n> | <case id> | pass |\n",
+      "required": ["body:## Proven", "body:## Product bugs", "body:## Left with you", "body:## Not proven", "body:## Factory defects", "body:## Size", "body:## Where to look", "body:## Appendix"]
+    },
+    "project:bugs/": {
+      "contract": "references/artifact-contract-run.md",
+      "anchor": "## `bugs/BUG-n.md` — the filing header (HF8-21)",
+      "format": "md",
+      "ids": "bugs",
+      "id_field": "bug_id",
+      "id_token": "<bug id>",
+      "dir": "project:bugs/",
+      "file_name": "<bug id>.md",
+      "cites": {"cases": "TC"},
+      "template": "---\nid: <bug id>\ntitle: <one line: what is broken>\nseverity: major\nstatus: Open\narea: general\nfound_by: qa-factory\ncreated: 2026-11-13\nviolates: requirement:R-1\nimpact: degraded\nconfirmation: unconfirmed\nred_test_none: manual check only\nsource_draft: work/bug-drafts/<bug id>.json\ncases: [<TC-n>]\nrequirements: [<R-n>]\n---\n\n# <bug id>\n\n## User impact\n\n<what a person cannot do because of this defect>\n\n## Initial state\n\n<the state the product is in before the steps>\n",
+      "required": ["id", "title", "severity", "status", "area", "found_by", "created", "violates", "source_draft", "cases", "requirements"]
+    },
+    "retro.md": {
+      "contract": "references/artifact-contract-results.md",
+      "anchor": "## `retro.md`",
+      "format": "md",
+      "template": "# <TICKET> — retro\n\n## What went wrong and what to do about it\n\n- <a number, its diagnosis in plain words, and the change it argues for>\n\n## Time per stage\n\n<the time each stage took, in words>\n\n## Human wait per gate\n\n<how long each gate waited for the person>\n\n## Cost per role\n\n<the cost per role, in the units the run recorded>\n\n## Marathons\n\n<each marathon with its tool histogram>\n\n## Redundant runs\n\n<the redundant-run count>\n\n## Rejects by reason family\n\n<the rejects, grouped by reason family>\n\n## Gate A disposition overrides\n\n<the overrides the person made at gate A, or none>\n\n## Forecast and actual\n\n<the forecast against the actual>\n\n## The closing question\n\n<the human's verbatim answer to the one closing question>\n",
+      "required": ["body:## What went wrong and what to do about it"]
+    }
+  },
+  "not_covered": {
+    "work/impl-diff.txt": "no contract shape: a diff text; the story kit supplies it",
+    "work/s5-plan.json": "shape is the skeleton s5_plan.py --init writes; no contract template",
+    "work/s5-notes/": "free notes, no contract shape",
+    "work/evidence/manual/<case>/tried.md": "no contract heading; the recorder's build reads it",
+    "project:obligations.md": "no shape in artifact-contract.md \"Project-level files\"",
+    "project:factory-backlog.md": "no shape in artifact-contract.md \"Project-level files\""
+  }
+}
