@@ -1759,7 +1759,7 @@ _REGISTRY_TOKEN = re.compile(r"""\s*,\s*|\s+|"[^"]*"|'[^']*'|[^\s,"']+""")
 _REGISTRY_READ_SUBS = ("show", "state", "lessons")
 
 
-def registry_write_call(low: str, script: str, subs: tuple) -> bool:
+def registry_write_call(low: str, script: str, subs: tuple, reads: tuple = _REGISTRY_READ_SUBS) -> bool:
     """PK2-9: does `low` run `<script>` with one of the write subcommands `subs`, wherever the subcommand stands after the
     script's name (option tokens may come first: `project_knowledge.py --task T role`)? One helper for every registry
     script (AR-15). Tokens after the name are walked up to the end of the command (a newline, `;`, `&`, `|`, `]`).
@@ -1769,7 +1769,7 @@ def registry_write_call(low: str, script: str, subs: tuple) -> bool:
     skipped. A read subcommand (`show`, `state`, `lessons`) ends the walk as a read. The argument-list form
     (`['x.py', '--task', 'T', 'role']`, commas between the items) has no value-skipping: every item may be the subcommand."""
     write = re.compile(r"(?:%s)(?![\w-])" % "|".join(subs))
-    read = re.compile(r"(?:%s)(?![\w-])" % "|".join(_REGISTRY_READ_SUBS))
+    read = re.compile(r"(?:%s)(?![\w-])" % "|".join(reads))
     for named in re.finditer(re.escape(script) + r"""["']?""", low):
         flag_before, comma = False, False
         for token in _REGISTRY_TOKEN.finditer(low, named.end()):
@@ -1819,9 +1819,9 @@ def human_word_check(event: dict, cfg: dict) -> None:
                or ("source_exclusions.py" in low and re.search(r"--(?:load|revoke)(?![\w-])", low))
                # The person's word about which build a stand runs (t-300 Q12): with these a role could confirm
                # its own build and unblock its own run. `show` and `validate` only read, and stay open (FR-39).
-               # The subcommand is the word right after the script (the CLI has no option before it): after a space,
-               # or after the comma of an argument list (`['stand_identity.py', 'confirm', ...]`).
-               or re.search(r"stand_identity\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|confirm|forget|unconfirm)(?![\w-])", low)
+               # The subcommand is found after the script's name wherever it stands among option tokens
+               # (`stand_identity.py --task X confirm`, or an argument list): `registry_write_call`, one helper for every script.
+               or registry_write_call(low, "stand_identity.py", ("record", "confirm", "forget", "unconfirm"), ("show", "validate"))
                # What the person accepted ONCE as a property of the environment, and taking it back (B-414): the same door shape
                or registry_write_call(low, "environment_record.py", ("record", "revoke"))
                # What the person said about the product's roles and the stand's accounts, and taking it back (PK0-8): the same door shape;
@@ -1830,11 +1830,11 @@ def human_word_check(event: dict, cfg: dict) -> None:
                # B-416 M10: `report_adapt.py kind` writes the config's report kind and `forget` takes the helper's row back (it would
                # reset the one-turn bound); `config_write_check` reacts only to a `config.json` path word, and this script names none,
                # so the role door is closed here for both. `understood` and `show` stay open.
-               or re.search(r"report_adapt\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:kind|forget)(?![\w-])", low)
+               or registry_write_call(low, "report_adapt.py", ("kind", "forget"), ("show", "understood"))
                # t-721 D4: `story_step.py decide` records the person's decision about a dispatch (the S5 cases they run
                # themselves, work left open, a stage closed as it is). With it a role could hand its own cases to the
                # person, or close its own stage: closed to every role, like the other doors that record their word.
-               or re.search(r"story_step\.py[\"']?(?:\s*,\s*|\s+)[\"']?decide(?![\w-])", low))
+               or registry_write_call(low, "story_step.py", ("decide",), ("finish",)))
     if not records:
         return
     from_role = (str((event or {}).get("agent_type") or (event or {}).get("agent_name") or "").strip()

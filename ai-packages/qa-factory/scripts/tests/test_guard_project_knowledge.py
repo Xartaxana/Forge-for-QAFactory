@@ -71,6 +71,32 @@ def test_option_before_subcommand_is_recognised():
     assert _word("") is None and _word(None) is None
 
 
+def test_option_before_subcommand_sibling_scripts():
+    """The sibling recognisers (`stand_identity.py`, `report_adapt.py`, `story_step.py`) take the same helper: options before the
+    subcommand, the argument list, a read subcommand open, a bare option value equal to a write word refused (as PK2-9)."""
+    cases = []
+    for script, writes, reads, longer in (
+            ("stand_identity.py", ("record", "confirm", "forget", "unconfirm"), ("show", "validate"), "confirmed"),
+            ("report_adapt.py", ("kind", "forget"), ("show", "understood"), "kinds"),
+            ("story_step.py", ("decide",), ("finish",), "decide-later")):
+        for label, options in (("none", ""), ("opt-value", "--task X "), ("flag", "--force "), ("two", "--task X --root R ")):
+            for sub in writes:
+                cases.append((f"python -B {script} {options}{sub} --id X", True, f"{script} {label} {sub}"))
+            for sub in reads:
+                cases.append((f"python -B {script} {options}{sub}", False, f"{script} {label} {sub}"))
+            cases.append((f"python -B {script} {options}{longer}", False, f"{script} {label} longer token"))
+        cases.append((f"python -c \"import subprocess; subprocess.run(['{script}','--task','X','{writes[0]}'])\"",
+                      True, f"{script} list form"))
+        cases.append((f"python {script} --note {writes[0]} {reads[0]}", True, f"{script} unquoted value: refusal direction"))
+        cases.append((f"python {script}", False, f"{script} name only"))
+    for command, blocked, label in cases:
+        assert (_word(command) is not None) == blocked, f"{label}: {command}"
+        assert _word(command, who={}) is None, f"{label}: conductor {command}"
+    assert _word("python stand_identity.py validate --file confirm.json") is None     # K34: a read verb ends the walk
+    assert _word("stand_identity.py") is None and _word("") is None and _word(None) is None
+    assert _word("python stand_identity.py --task X confirm") is not None      # the mandatory case
+
+
 def test_show_stays_open():
     assert _word("python project_knowledge.py show") is None
     assert _word("python -c \"import subprocess; subprocess.run(['project_knowledge.py', 'show'])\"") is None
