@@ -500,7 +500,16 @@ def roster(root, cfg, stand) -> dict:
         import config_contract as CC
         import gate_preflight as GP
         rows, out["problem"] = load(root)
-        cfg = _config(root, cfg)
+        data, _, unreadable = _read(root, cfg)
+        config_unknown = bool(unreadable)
+        if config_unknown:    # the file is there and cannot be read: the CONFIG part (stand roles, accounts) is UNKNOWN, not "none"
+            # (AR-28, FR-59); the registry rows do not depend on the config and are kept whole (AR-24); both facts are said
+            door = (f"qa-factory/config.json is there but cannot be read ({unreadable}); the roles of the stand accounts and which role "
+                    "has an account are not known; repair that file (or move it aside and run onboarding again) and ask again")
+            out["problem"] = f"{out['problem']}; {door}" if out["problem"] else door
+            cfg = {}
+        else:
+            cfg = data if isinstance(data, dict) else {}
         stand = str(stand or "").strip()
         seen = set()
         newest = {}
@@ -530,7 +539,8 @@ def roster(root, cfg, stand) -> dict:
                 out["elements"].append({"role": name, "state": KNOWN, "source": "legacy_config", "sign_in": "account",
                                         "story": "", "at": "", "id": None})
         for element in out["elements"]:
-            element["account"] = (state(root, ACCOUNTS_KEY, stand, element["role"], cfg)["state"] == KNOWN) if stand else None
+            element["account"] = None if config_unknown else \
+                ((state(root, ACCOUNTS_KEY, stand, element["role"], cfg)["state"] == KNOWN) if stand else None)
     except Exception as exc:
         out["problem"] = out["problem"] or f"the record of project knowledge could not be read ({type(exc).__name__})"
     return out

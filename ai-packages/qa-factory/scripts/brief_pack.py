@@ -1620,7 +1620,9 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
     open until the report - read ONLY through `QR.answers_for_brief` (AR-13: the answers file is the carrier, not the
     journal). A decision that no longer holds (the row changed since, `with_designer`, open) has no line: the
     question is asked again. `shown` keeps the words when the line fits DECISION_CHARS and points at the side file
-    when it does not; `minimal` is the id and the letter, no words; the same words under several questions are
+    when it does not; `minimal` is the id, the letter and the words cut at DECISION_CHARS_MIN (when cut, the line ends
+    "; the whole text is in <decisions>", and `build` replaces `<decisions>` by the side file's path at level 1; none for
+    a kept-open or not-needed line); the same words under several questions are
     carried once (`said` is those texts, for `decisions` to drop the journal copies of them). One line, first, says
     the answers could not be read when the store reports it (a broken line, a non-object line, an unreadable file)."""
     view = QR.answers_for_brief(task_root)
@@ -1640,18 +1642,27 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
         else:
             head, short = f"{qid} answered {where}, in the person's own words", f"{qid} answered in the person's own words"
         key = _plain_words(item["words"])
+        # the words ride on the minimal line too (FR-8): cut at DECISION_CHARS_MIN by the sisters' helper, with the
+        # pointer when cut; a line with no words, and the kept-open / not-needed lines, stay as they were
+        minimal_clause = ""
         if not key:
             clause = "the person's words: not recorded"
         elif key in first:
             clause = f"the person's words: the same text as under {first[key]}"
+            minimal_clause = clause
         else:
             first[key] = qid
             said.append(key)
             clause = "the person's words: " + person_words_whole(key, project, holder)
+            minimal_clause = "the person's words: " + _short(key, DECISION_CHARS_MIN)
+            if len(re.sub(r"\s+", " ", key).strip()) > DECISION_CHARS_MIN:
+                minimal_clause += "; the whole text is in <decisions>"      # one prefix per line; `build` puts the side file's path in
+        if item["status"] == QR.DEFERRED or item["status"] == "not_needed":
+            minimal_clause = ""
         full = f"- {head}; {clause}"
         fits = len(" ".join(full.split())) <= DECISION_CHARS
         shown = " ".join(full.split()) if fits else f"- {head}; {WORDS_BY_REFERENCE}"
-        entries.append((full, shown, f"- {short}"))
+        entries.append((full, shown, f"- {short}; {minimal_clause}" if minimal_clause else f"- {short}"))
     return entries, said
 
 
@@ -2552,10 +2563,12 @@ def _stand_pick(cfg: dict, env_name: str) -> tuple:
 
 def _env_file_key_names(block: dict, project: Path) -> tuple:
     """(names | None, rel): the key NAMES of the stand's env file that look like an account or a secret
-    (`env_probe.SECRET_NAME`) - never a value, and not the process environment. None: the file is configured and cannot be read."""
+    (`env_probe.SECRET_NAME`) and have the shape of a key name (`project_inventory.KEY_NAME_RE`, the one shape both names-only
+    readers share) - never a value, and not the process environment. None: the file is configured and cannot be read."""
     import env_probe as EP
     import gate_preflight as GP
     import manual_capture as MC
+    from project_inventory import KEY_NAME_RE
     files = GP.configured_env_files(block, project)[0]      # the files the login reads: `env_file` and `env_files`
     if not files:
         return [], ""
@@ -2564,7 +2577,8 @@ def _env_file_key_names(block: dict, project: Path) -> tuple:
     if not there:
         return None, rel
     try:
-        return list(dict.fromkeys(k for p in there for k in EP.parse_env_file(p) if EP.SECRET_NAME.search(k))), rel
+        return list(dict.fromkeys(k for p in there for k in EP.parse_env_file(p)
+                                if EP.SECRET_NAME.search(k) and KEY_NAME_RE.match(k))), rel
     except OSError:
         return None, rel
 
@@ -4387,7 +4401,9 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         elif dec_level == 2:
             parts += [line.replace("<decisions>", side["decisions"]) for line in shown]
         elif dec_level == 1:
-            parts += minimal       # PC2-6 O-c: the pointer to the side file is `Not in the brief`'s line, once
+            # a cut line names the side file by its path (never the literal placeholder, FR-37); the `Not in the brief` line stays the one
+            # pointer for the rest (PC2-6 O-c)
+            parts += [line.replace("<decisions>", side["decisions"]) for line in minimal]
         else:       # only the probe of `over_ceiling` asks for it: no brief is built at this level (N4, F-3)
             parts.append(f"- {len(full)} recorded decision(s): {side['decisions']}")
         if omitted or over_line:

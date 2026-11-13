@@ -1158,5 +1158,71 @@ def test_environment_card_without_a_config_says_why(proj):
     assert got["found"] is False and "not a JSON object" in got["problem"]
 
 
+@pytest.mark.parametrize("raw, problem_names_config", [
+    (b"{broken", True),
+    (b"[]", True),
+    (b"", True),
+    (None, False),
+    (b'{"environments": []}', False),
+    (b'{"product": "x", "environments": "x"}', False),
+], ids=["broken_json", "non_object_list", "empty_file", "absent_file_control", "no_roles_key_control", "wrong_type_control"])
+def test_roster_says_an_unreadable_config_is_unknown(proj, raw, problem_names_config):
+    _put(proj, raw)
+    got = PK.roster(proj.root, None, "dev")
+    assert set(got) == {"elements", "removed", "problem"} and got["elements"] == [] and got["removed"] == []
+    assert bool(got["problem"]) is problem_names_config, got
+    if problem_names_config:
+        assert "qa-factory/config.json is there but cannot be read (" in got["problem"] and "repair" in got["problem"]
+        assert "Traceback" not in got["problem"] and ".py" not in got["problem"]
+
+
+def _registry_with_answers(proj):
+    proj.facts([role_fact("PK-1", "auditor", "not_needed", "2026-11-01T10:00:00+00:00"),
+                role_fact("PK-2", "editor", "known", "2026-11-01T10:05:00+00:00")])
+    proj.config.write_bytes(b"{broken")
+
+
+def test_roster_unreadable_config_keeps_the_registry_roles_and_the_account_unknown(proj):
+    """PK2-14 fix round (critic t-448 B1): the registry rows do not depend on the config; only the config part and `account` are unknown."""
+    _registry_with_answers(proj)
+    got = PK.roster(proj.root, None, "dev")
+    assert [(e["role"], e["state"], e["account"]) for e in got["elements"]] == [("editor", "known", None)], got
+    assert [r["role"] for r in got["removed"]] == ["auditor"] and got["problem"], got
+    assert "cannot be read (" in got["problem"] and "not known" in got["problem"]
+
+
+def test_notice_from_handoff_on_an_unreadable_config_never_overwrites_the_person(proj):
+    _registry_with_answers(proj)
+    strategist_form(proj, "product_roles:\n  - role: auditor\n    sign_in: account\n    where: R-1\n"
+                          "  - role: editor\n    sign_in: account\n    where: R-2\nblocked: none\n")
+    assert PK.notice_from_handoff(proj.root, proj.task, "T-1") == []
+    assert len(proj.rows()) == 2
+    assert PK.state(proj.root, PK.ROLES_KEY, "", "auditor")["state"] == "not_needed"
+    assert PK.state(proj.root, PK.ROLES_KEY, "", "editor")["state"] == "known"
+
+
+def test_roster_unreadable_config_keeps_the_registry_problem_too(proj):
+    proj.path().parent.mkdir(parents=True, exist_ok=True)
+    proj.path().write_text("{broken", encoding="utf-8")
+    proj.config.write_bytes(b"[]")
+    got = PK.roster(proj.root, None, "dev")
+    assert got["elements"] == [] and got["problem"].count(";") >= 1 and "qa-factory/config.json" in got["problem"], got
+
+
+def test_state_and_roster_with_a_given_cfg_ignore_the_file(proj):
+    proj.config.write_bytes(b"{broken")
+    cfg = {"environments": [{"name": "dev", "credentials_by_role": {"auditor": AUDITOR}}]}
+    got = PK.roster(proj.root, cfg, "dev")
+    assert got["problem"] == "" and [e["role"] for e in got["elements"]] == ["auditor"] and got["elements"][0]["account"] is True
+    assert PK.state(proj.root, PK.ACCOUNTS_KEY, "dev", "auditor", cfg)["state"] == "known"
+
+
+@pytest.mark.parametrize("raw", [b"{broken", b"[]", b""], ids=["broken_json", "non_object_list", "empty_file"])
+def test_account_state_on_an_unreadable_config_is_unknown(proj, raw):
+    proj.config.write_bytes(raw)
+    got = PK.state(proj.root, PK.ACCOUNTS_KEY, "dev", "auditor")
+    assert got["state"] == "unknown" and got["row"] is None
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

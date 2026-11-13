@@ -450,7 +450,12 @@ def _brief(task: str, stage_id: str, role: str, dispatch_id: str, task_root: Pat
                      "--dispatch", dispatch_id)
     rel = _project_rel(task, BRIEF_REL, dispatch_id)
     if code == 0 and (task_root / BRIEF_REL.format(dispatch_id=dispatch_id)).is_file():
-        return rel, (out.splitlines()[-1] if out else "")
+        # the note is the helper's own line (`brief: ...`, the last one), not whatever came last on stderr (AR-22);
+        # no such line: the last line, as before. The exit code and the file decided the refusal above - a prefixed
+        # line never turns the refusal path below into a success.
+        lines = out.splitlines()
+        own = [line.strip() for line in lines if line.lstrip().startswith("brief: ")]
+        return rel, (own[-1] if own else (lines[-1] if lines else ""))
     tail = out.splitlines()[-1] if out else f"exit {code}"
     return "", f"brief_pack: no brief for {dispatch_id} ({tail}) - the role works from the inputs above"
 
