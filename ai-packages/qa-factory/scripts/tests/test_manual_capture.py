@@ -2030,6 +2030,26 @@ def of3_1e_one_env_file_parse():
         names, _rel = brief_pack._env_file_key_names({"env_files": ["harness/one.env", "harness/two.env"]}, t.project)
         check_eq("brief_pack names the keys of BOTH files, `export` and BOM read as the names", sorted(names or []),
                  ["ONE_TOKEN_A", "ONE_TOKEN_B", "ONE_TOKEN_C"])
+        # project_inventory.env_file_keys: names only, the same table; a name must also match KEY_NAME_RE
+        # (2-64 chars, so the one-letter names above give none)
+        import project_inventory
+        for label, text, want in rows:
+            env.write_bytes(text.encode("utf-8"))
+            check_eq(f"project_inventory.env_file_keys: {label}", project_inventory.env_file_keys(env),
+                     [k for k in want if project_inventory.KEY_NAME_RE.match(k)])
+        name_rows = [
+            ("a BOM before the first key", "﻿AB=1\nCD=2", ["AB", "CD"]),
+            ("export lower case dropped", "export AB=1", ["AB"]),
+            ("EXPORT upper case is part of the name, so no key name", "EXPORT AB=1", []),
+            ("a name starting with a digit is not a key name", "1AB=x\nCD=2", ["CD"]),
+            ("a name with a dash is not a key name", "A-B=x\nCD=2", ["CD"]),
+            ("a repeated name is listed once, at its first place", "AB=1\nCD=2\nAB=3", ["AB", "CD"]),
+            ("an empty file", "", []),
+        ]
+        for label, text, want in name_rows:
+            env.write_bytes(text.encode("utf-8"))
+            check_eq(f"project_inventory.env_file_keys: {label}", project_inventory.env_file_keys(env), want)
+        check_eq("project_inventory.env_file_keys: an absent file", project_inventory.env_file_keys(env.parent / "nowhere.env"), [])
     finally:
         S.cleanup(t)
 
