@@ -146,7 +146,9 @@ one, which is what makes this rule a check rather than a hope.
    When discovery found no address for a stand, **ask for it outright** — a stand with no
    reachable address is not an environment entry, and `environments.md` forbids "a
    placeholder URL substituted because nobody answered". "No address found" means no
-   `env_file_addresses` row of a non-sample file (`sample: false`). The stand question proposes
+   `env_file_addresses` row of a non-sample file (`sample: false`; these are the `--access --json`
+   fields, and the plain render shows the same as the line `http address origins in env files:`, a
+   sample's row prefixed `sample `, `(has a path, not shown)` for `has_path`, and `only a sample:`). The stand question proposes
    the non-sample origin with its file ("`.env`: `BASE_URL` → http://localhost:3000") and, when
    `has_path` is true, asks the person for the base path the file's value carries; when two
    non-sample files disagree, both are shown with their files and the person picks, you do not

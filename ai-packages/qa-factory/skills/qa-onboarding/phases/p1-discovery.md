@@ -144,9 +144,11 @@ per slot, the env file chosen, and the code-only key list. When no login call si
 or the only evidence is a scheme `access.kind` does not model (a cookie session, mTLS), that
 is a finding to **ask** outright — never a kind bent into the nearest neighbour. You never read
 values out of an env file: the inventory gives the address origins it may (`env_file_addresses`,
-each with its file and a sample flag); every other value — names only.
+each with its file and a sample flag; in `--access --json`; in the plain render, the line
+`http address origins in env files:` with a sample's row prefixed `sample ` and `(has a path, not shown)` for
+`has_path`, and `only a sample:` when `env_file_is_sample`); every other value — names only.
 
-The env file is shown to the person with the file it came from. A row of `env_file_addresses` with
+Every env value shown to the person names the file it came from. A row of `env_file_addresses` with
 `sample: true` is a sample's value, shown (if at all) only as "the sample file `<path>` shows ...",
 apart from the stand's facts, and never as the stand's. When `has_path` is true the file's value
 carries a path the inventory does not show: record that, and phase 2 asks the person for the full
