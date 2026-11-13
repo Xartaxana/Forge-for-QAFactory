@@ -599,7 +599,8 @@ def call(tool: str, root: Path, rel: str, role="qa-automator", ticket=TICKET, **
     return event
 
 
-HOW = ("If this file is a test that has to live inside the application tree, do not write it another way: "
+HOW = ("If this file is a test that has to live in a place no recorded carrier of its area covers "
+       "(inside the application tree, or in the test repository), do not write it another way: "
        "name the path in your handover and halt. The person can open test files there for the automator; "
        "only when they agreed to that, the orchestrator records their words as they were given: waiver.py "
        "--task <TICKET> --stage S5 --block \"protected test path: <folder/ or pattern>\" --words-file <file> "
@@ -1081,6 +1082,16 @@ def part_patch_move_key() -> None:
                      ("gone.txt", False, "delete"), ("added.txt", False, "add")])
 
 
+def part_refusal_matches_rule() -> None:
+    # The case the refusal describes is the case the S5 rule describes (FR-37): the clause is read from s5.md.
+    rule = " ".join((SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s5.md").read_text(encoding="utf-8").split())
+    clause = "that has to live in a place no recorded carrier of its area covers (inside the application tree, or in the test repository)"
+    check_in("s5.md still states the case with this clause", clause, rule)
+    check_in("the refusal text (test copy) states the case as s5.md does", clause, HOW)
+    import guard_app_under_test as guard
+    check_in("the refusal text the guard emits states the case as s5.md does", clause, guard.TEST_PATH_HOW)
+
+
 def main() -> None:
     os.environ.pop("QA_FACTORY_TASK", None)  # a person's word for the story would name one: not here
     root = temp_dir("qa-tpg-grammar-")
@@ -1110,6 +1121,7 @@ def main() -> None:
     part_legacy_port()
     part_notices_to_journal()
     part_patch_move_key()
+    part_refusal_matches_rule()
     finish("test_protected_test_path")
 
 

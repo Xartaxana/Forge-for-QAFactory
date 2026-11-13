@@ -22,7 +22,8 @@ from config_contract import editable_strategy_paths
 AUTOMATOR = "qa-automator"
 # What an automator blocked inside the application tree is told (M15). The orchestrator records
 # the person's words; the role names the path in its handover and halts, it never writes around.
-TEST_PATH_HOW = ("If this file is a test that has to live inside the application tree, do not write it "
+TEST_PATH_HOW = ("If this file is a test that has to live in a place no recorded carrier of its area covers "
+                 "(inside the application tree, or in the test repository), do not write it "
                  "another way: name the path in your handover and halt. The person can open test files "
                  "there for the automator; only when they agreed to that, the orchestrator records their words "
                  "as they were given: waiver.py --task <TICKET> --stage S5 --block \"protected test path: "
