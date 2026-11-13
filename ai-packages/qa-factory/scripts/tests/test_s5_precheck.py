@@ -3018,8 +3018,9 @@ def the_verdict_is_one_line_per_finding() -> None:
     import detector_verdict as DETV
     import tempfile
     env = P._finding("environment", "TC-1", "the stand lacks a login", "name the variable", "stand-login")
-    mani = P._finding("manifest", "TC-1", "the manifest row has no file", "write the file", "no-file")
-    oracle = P._finding("oracle", "TC-1", "the Then left open", "assert the value", "open-then")
+    # FV1-30a: every finding but two tags is word-passable, so the findings "no word passes" are the two that WAIT (`open-oracle-asserted-*`)
+    mani = P._finding("oracle", "TC-1", "Then 1 is asserted over an open expectation", "answer the question", "open-oracle-asserted-1")
+    oracle = P._finding("oracle", "TC-1", "Then 2 is asserted over an open expectation", "answer the question", "open-oracle-asserted-2")
     out = printed({"ok": False, "findings": [env, mani, oracle], "hints": [{"check": "smell", "message": "twins",
                    "fix": "parametrize"}], "notes": ["a note"], "cases": ["TC-1"]})
     lines = out.splitlines()
@@ -3046,7 +3047,7 @@ def the_verdict_is_one_line_per_finding() -> None:
              "finding", out)
     check_not_in("...and never names `--block \"*\"` as a door", '--block "*"', out)
     # no passable family at all: passed_by_word returns before it imports the waiver; the label and the tags stay
-    only = [mani, P._finding("smell", "TC-1", "sleep", "poll", "sleep-1")]
+    only = [mani, oracle]
     out = printed({"ok": False, "findings": P.passed_by_word(Path(tempfile.gettempdir()), only, []), "hints": [],
                    "notes": [], "cases": []})
     check_in("zero passable families: the label is in the header", DETV.WORDS_AT_SOURCE, out)
@@ -3074,17 +3075,17 @@ def the_verdict_is_one_line_per_finding() -> None:
              "unmigrated output (t-772 m3)",
              (bool(parsed["defects"]), parsed["unmigrated"], parsed["findings"],
               empty_code), (True, "", [], 1))
-    # a word copied from the PRINTED line passes the finding here (it is judged against the line, not only the old text)
+    # FV1-30a: a phrase of the PRINTED line is no longer a word that passes (one road, `_names`); the tag the line carries is
     import waiver as W
     root = temp_project("qa-s5-line-word-")
     try:
-        pipeline = {"task": "QA-500"}
-        W.apply_stage_override(pipeline, "S5", "[environment environment:TC-1:stand-login] the stand lacks",
-                               "the person lets it stand", "2026-10-01T10:00:00+00:00")
-        (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
-        left = P.passed_by_word(root, [env, mani], [])
-        check_eq("a word taken from the printed line passes its finding and leaves the other", [f["id"] for f in left],
-                 [mani["id"]])
+        for word, passes in (("[environment environment:TC-1:stand-login] the stand lacks", False), ("stand-login", True)):
+            pipeline = {"task": "QA-500"}
+            W.apply_stage_override(pipeline, "S5", word, "the person lets it stand", "2026-10-01T10:00:00+00:00")
+            (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+            left = P.passed_by_word(root, [env, mani], [])
+            check_eq(f"a word copied from the printed line passes {'its finding' if passes else 'nothing'}; a tag word passes its finding "
+                     "and leaves the other", [f["id"] for f in left], [mani["id"]] if passes else [env["id"], mani["id"]])
     finally:
         cleanup(root)
 
@@ -3893,7 +3894,9 @@ def a_sleep_in_the_fixtures_of_a_test_is_the_windows_code_only_when_it_changed()
         check("F3: advice asks nothing (no `?` in the fix)", bool(findings) and "?" not in findings[0]["fix"])
         # X7-2: advice is not a finding of the gate - no recorded word applies to it, and no judge is asked about it
         sleeper = findings[0]
-        check("X7-2: ... it is not word-passable and has no word door", not P._passable(sleeper) and "word_door" not in sleeper)
+        # (FV1-30a: `_passable` is now every finding but two tags, so the proof is the level: advice never enters `findings`)
+        check("X7-2: ... it is advice, never a finding a word is read over, and has no word door",
+              sleeper["level"] == "advice" and "word_door" not in sleeper)
         check_eq("X7-2: ... and no judge question exists for a smell any more", P._judge_plan(sleeper, task, {"TC-1": [parsed]}, {"TC-1": CASE_MD}), None)
         check("X7-2: ... and it carries no code excerpt for a judge", "code_excerpt" not in sleeper)
         check_eq("AK1: nothing else is said", notes, [])
@@ -4525,7 +4528,151 @@ def a_then_row_does_not_swallow_the_thens_behind_a_red() -> None:
              M.then_remainder_problems(Path("/nonexistent-root"), {"then_bindings": [blocked], "unresolved": [then_row]}), [])
 
 
+def _with_words(*words) -> Path:
+    """A throwaway story folder whose `pipeline.json` carries `words` (`(match, decision, at)` or a ready record)."""
+    root = temp_dir("qa-s5-road-")
+    records = [w if isinstance(w, dict) else {"stage": "S5", "match": w[0], "decision": w[1] if len(w) > 1 else "the person lets it stand",
+                                              "at": w[2] if len(w) > 2 else "2026-10-01T10:00:00+00:00"} for w in words]
+    (root / "pipeline.json").write_text(json.dumps({"task": "QA-500", "stage_overrides": records}), encoding="utf-8")
+    return root
+
+
+def a_word_by_tag_passes_every_family_but_the_two_that_wait() -> None:
+    """FV1-30a (1): `_passable` is every finding except `open-oracle-asserted-*` and `then-remainder-unrecorded-*`; one row per
+    family 1-4, 6, 7 of the spec's table (the word is the finding's tag: the finding leaves and the note says so), plus the families
+    that were passable before (`environment`, `obligations`) on the same road, and the two tags a word - `*` included - never passes."""
+    rows = (("manifest", "TC-1", "row-fields-missing"), ("bindings", "TC-1", "no-bindings"), ("bindings", "TC-1", "ghost-i1"),
+            ("oracle", "TC-1", "dispute-unstated"), ("oracle", "TC-1", "case-is-oracle"), ("run_mapping", "TC-1", "no-row-i1"),
+            ("plan", "", "plan-unreadable"), ("sides", "TC-1", "sides-undeclared-i1"), ("environment", "TC-1", "stand-login"),
+            ("obligations", "TC-1", "obligation-id-TS-1-O1"), ("bindings", "TC-1", "then-remainder-shape-1"))
+    for check_name, case, tag in rows:
+        finding = P._finding(check_name, case, f"a {check_name} problem", "repair it", tag)
+        root, notes = _with_words((tag, "go on")), []
+        try:
+            left = P.passed_by_word(root, [finding], notes)
+            check_eq(f"{check_name}:{tag}: the word by its tag passes it", (left, len(notes)), ([], 1))
+            check_in(f"{check_name}:{tag}: and the note carries the person's words", "passed by the person's word: go on", notes[0] if notes else "")
+            check_eq(f"{check_name}:{tag}: it is passable and carries no refusal line", (P._passable(finding), P.refusal_cause(finding)), (True, ""))
+        finally:
+            cleanup(root)
+    waits = (P._finding("oracle", "TC-1", "Then 1 is asserted open", "answer", "open-oracle-asserted-1"),
+             P._finding("bindings", "TC-1", "a Then of the case waits", "name it", f"{P.THEN_REMAINDER_WAITS}1"))
+    for finding in waits:
+        for match in (P._finding_tag(finding), "*", finding["id"]):
+            root, notes = _with_words((match,)), []
+            try:
+                check_eq(f"{finding['id']}: the word {match!r} passes nothing, `*` included",
+                         (P.passed_by_word(root, [finding], notes), notes), ([finding], []))
+            finally:
+                cleanup(root)
+        check_eq(f"{finding['id']}: not passable", P._passable(finding), False)
+
+
+def one_road_selects_the_word_for_the_finding() -> None:
+    """FV1-30a (2, 3): every input of the spec's table about words, on ONE road for every family; `*` passes each passable finding
+    of the stage and records it by name; a word the finding is not named by passes nothing and leaves no note."""
+    case = "TP1-13797_TC_002"
+    run_row = P._finding("run_mapping", case, "no run block carries a result row for i1 — x", "run it", "no-row-i1")
+    bound = P._finding("bindings", case, "bindings missing: the case has 2 Then clause(s) and no row", "add rows", "no-bindings")
+    other = P._finding("bindings", "TC-9", "bindings missing: the case has 1 Then clause(s) and no row", "add rows", "no-bindings")
+    waiting = P._finding("oracle", case, "Then 1 is asserted open", "answer", "open-oracle-asserted-1")
+    early = "2026-09-30T04:00:00+00:00"
+
+    def ids(*words, findings=(run_row, bound)) -> tuple:
+        root, notes = _with_words(*words), []
+        try:
+            left = P.passed_by_word(root, list(findings), notes)
+            return sorted(f["id"] for f in left), len(notes)
+        finally:
+            cleanup(root)
+
+    both = sorted([run_row["id"], bound["id"]])
+    check_eq("`*` passes every passable finding of the stage, each noted; the waiting one stands",
+             ids(("*",), findings=(run_row, bound, other, waiting)), ([waiting["id"]], 3))
+    check_eq("a case id given on the run-mapping finding passes neither: `bindings` STANDS (t-108)", ids((case,)), (both, 0))
+    check_eq("the run-mapping finding is passed by its WHOLE id and the bindings one stands",
+             ids((run_row["id"],)), ([bound["id"]], 1))
+    check_eq("the run-mapping finding is passed by its tag and the bindings one stands", ids(("no-row-i1",)), ([bound["id"]], 1))
+    check_eq("the tag `no-bindings` passes every `no-bindings` finding of the stage, each noted",
+             ids(("no-bindings",), findings=(run_row, bound, other)), ([run_row["id"]], 2))
+    for phrase in ("case", "bindings missing", "no run block carries a result row for i1", "run it", "TC-9"):
+        check_eq(f"a word of the message or the fix ({phrase!r}), not a tag and not an id, passes nothing and leaves no note",
+                 ids((phrase,)), (both, 0))
+    check_eq("the id of another finding of the same case does not pass this one", ids((bound["id"],), findings=(run_row,)),
+             ([run_row["id"]], 0))
+    check_eq("a part of a tag does not name it", ids(("bindings",), ("row",), ("no",)), (both, 0))
+    for label, word in (("an empty word", ""), ("a whitespace-only word", "   "), ("a placeholder", "<the finding's tag>"),
+                        ("a revoked word", {"stage": "S5", "match": "*", "decision": "go on", "at": early, "revoked_at": "2026-10-02T10:00:00+00:00"}),
+                        ("a word of another stage", {"stage": "S3", "match": "*", "decision": "go on", "at": early}),
+                        ("a word with no decision", {"stage": "S5", "match": "*", "decision": "", "at": early})):
+        check_eq(f"{label} passes nothing", ids(word if isinstance(word, dict) else (word,)), (both, 0))
+    # time: a finding with `pair_at` keeps the rule of today; one without has no time and passes if the word names it
+    pair = dict(P._finding("oracle", case, "a test changed after its red run", "restore it", "changed-after-red-test_x"), pair_at="2026-09-30T05:00:00+00:00")
+    root, notes = _with_words(("changed-after-red", "go on", early)), []
+    try:
+        left = P.passed_by_word(root, [pair], notes)
+        check_eq("a stage-wide word given BEFORE the pair's green run: `predating`, as today",
+                 ([f.get("refused") for f in left], notes), (["predating"], []))
+        check_eq("...and the refusal reads as the cause of the source", P.refusal_cause(left[0]), "predating")
+    finally:
+        cleanup(root)
+    check_eq("a word given before a finding that has no `pair_at` passes it", ids(("no-bindings", "go on", "2020-01-01T00:00:00+00:00"),
+                                                                                    findings=(bound,)), ([], 1))
+    root = _with_words(("no-bindings", "go on", "2020-01-01T00:00:00+00:00"))
+    try:
+        left, passes = P._judge_words(root, [bound], [])
+        check_eq("...and the pass carries the word's own `at` and decision", (left, passes),
+                 ([], [{"finding_id": bound["id"], "decision": "go on", "at": "2020-01-01T00:00:00+00:00"}]))
+    finally:
+        cleanup(root)
+    # a 24 KB word naming the tag: passes, the pass holds the decision whole (the cut is the writer's, `_record_person_pass`)
+    big = "x" * 24 * 1024
+    root = _with_words(("no-bindings", big))
+    try:
+        left, passes = P._judge_words(root, [bound], [])
+        check_eq("a 24 KB word naming the tag passes, the pass keeps it whole", (left, len(passes[0]["decision"])), ([], 24 * 1024))
+    finally:
+        cleanup(root)
+    check_eq("no pipeline, no words: nothing passes and nothing raises", P.passed_by_word(Path(temp_dir("qa-s5-none-")), [bound], []), [bound])
+
+
+def the_result_carries_the_word_passes_and_the_helper_reads_them() -> None:
+    """FV1-30a (3, 4a): `word_passes` is a top-level field of `run`'s result - `[]` with no word, never absent; with a word it
+    equals the notes, one row per pass; `word_passes(task_root, scope)` returns the same rows for the scope and writes nothing."""
+    import waiver as W
+    root = temp_project("qa-s5-wpfield-")
+    try:
+        task = filter_story(root)
+        param_run(task, "r1", 0, "failed", "P-new", "X")
+        param_run(task, "g1", 10, "passed", "P-new", "Y")
+        result = P.run(task)
+        check_eq("no word: the field is there and is []", ("word_passes" in result, result.get("word_passes")), (True, []))
+        check_eq("no word: the helper says [] too", P.word_passes(task), [])
+        finding = car(result)[0]
+        own = P._pair_tag(result["expectation_changes"]["pairs"][0])
+        pipeline = {"task": "QA-500"}
+        W.apply_stage_override(pipeline, "S5", own, "the person lets the test stand", "2026-10-01T10:00:00+00:00")
+        (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        before = sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file())
+        result = P.run(task)
+        expected = [{"finding_id": finding["id"], "decision": "the person lets the test stand", "at": "2026-10-01T10:00:00+00:00"}]
+        check_eq("a word: the field holds the pass, and the finding left", (result["word_passes"], len(car(result))), (expected, 0))
+        check_eq("the field and the notes are the same passes", len(result["word_passes"]),
+                 "\n".join(result["notes"]).count("passed by the person's word"))
+        scope = P.scope_cases(task, manifest_of(task), None)
+        check_eq("the helper returns them for the scope", P.word_passes(task, scope), expected)
+        check_eq("...for no scope (every case)", P.word_passes(task), expected)
+        check_eq("...and nothing for a scope the finding is not in", P.word_passes(task, ["TC-NOT-HERE"]), [])
+        check_eq("the helper is pure: no file written, none changed",
+                 sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file()), before)
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
+    a_word_by_tag_passes_every_family_but_the_two_that_wait()
+    one_road_selects_the_word_for_the_finding()
+    the_result_carries_the_word_passes_and_the_helper_reads_them()
     a_then_row_does_not_swallow_the_thens_behind_a_red()
     a_relative_oracle_on_an_unasserted_base_is_refused()
     a_copy_of_existing_code_is_advice_for_the_critic()
