@@ -240,6 +240,66 @@ def a_form_that_is_not_utf8_is_refused_whole_and_never_rewritten() -> None:
         cleanup(root)
 
 
+NOTE = "If this stage has two contracts, add --to <contract> (the contracts are listed in handoffs/index.yaml)."
+S4_DONE = {"<T>": "QA-9", "<S>": "S4", "<role>": "qa-case-designer"}
+
+
+def _s4_runner_form(art: Path, dispatch: str) -> Path:
+    """A form of a stage with TWO contracts: S4 `qa-case-designer` has `s4-designer-to-case-critic` (the one an unnamed
+    `--to` resolves to) and the secondary `s4-designer-to-runner` (handoffs/index.yaml)."""
+    run_script("handoff_init.py", "--task", "QA-9", "--stage", "S4", "--role", "qa-case-designer",
+               "--to", "qa-runner", "--dispatch", dispatch, "--task-root", str(art))
+    return art / "work" / "handoffs" / f"{dispatch}.yaml"
+
+
+def the_not_utf8_door_names_the_receiver_on_a_stage_with_two_contracts() -> None:
+    """K15b/c/d: SC2-43, FR-2, AR-9 - (b) a not-UTF-8 form of the SECONDARY contract of S4 prints `--to qa-runner` in the door, the
+    door as printed runs (exit 0) and the new form is of that contract, not of the stage's usual one; the single-contract S2 door
+    is byte-equal to the old text. (c) a form whose `contract:` line cannot be read gets the sentence and no `--to` (FR-59: no
+    guess). (d) the `form does not name its contract` refusal carries the sentence too."""
+    root = temp_project("qa-values-k15b-")
+    try:
+        art = _story(root)
+        form = _s4_runner_form(art, "S4-qa-case-designer-2")
+        form.write_bytes(form.read_bytes() + b"\n# \xff\xfe\n")
+        before = form.read_bytes()
+        code, out = _hc(art, form)
+        check_eq("K15b: exit 2, one line, bytes the same", (code, len(out.splitlines()), form.read_bytes() == before), (2, 1, True))
+        check_in("K15b: the door names the receiver, before the dispatch",
+                 f"--role <role> --to qa-runner --dispatch {form.stem} --force", out)
+        check_not_in("K15b: no sentence when the contract is known", NOTE, out)
+        door = out.strip().split("Start it again: handoff_init.py ", 1)[1].split()
+        done = run_script("handoff_init.py", *[S4_DONE.get(word, word) for word in door], "--task-root", str(art))
+        check_eq("K15b: the printed door runs (exit 0)", done.returncode, 0)
+        check_eq("K15b: and the form is of the secondary contract, rewritten",
+                 (form.read_bytes() != before, _doc(form).get("contract")), (True, "s4-designer-to-runner"))
+        # single-contract stage: the old door, byte for byte
+        form2 = _form(art, "S2-qa-requirements-tester-3")
+        form2.write_bytes(form2.read_bytes() + b"\n# \xff\n")
+        code, out2 = _hc(art, form2)
+        check_eq("K15b: a single-contract stage keeps the old door, byte-equal", out2.strip(),
+                 f"handoff_check: {form2.name} is not UTF-8, left untouched. Start it again: "
+                 f"handoff_init.py --task <T> --stage <S> --role <role> --dispatch {form2.stem} --force")
+        # (c) the contract line is unreadable
+        form3 = _s4_runner_form(art, "S4-qa-case-designer-3")
+        raw = form3.read_bytes().replace(b"contract: s4-designer-to-runner", b"contract: \xff\xfe")
+        form3.write_bytes(raw)
+        code, out3 = _hc(art, form3)
+        check_eq("K15c: exit 2, bytes untouched", (code, form3.read_bytes() == raw), (2, True))
+        check_in("K15c: the sentence names the option", NOTE, out3)
+        check_not_in("K15c: and no guessed --to", "--to qa-", out3)
+        check_in("K15c: the door stays its tail", f"--dispatch {form3.stem} --force", out3)
+        # (d) the form names no contract
+        bare = art / "work" / "handoffs" / "bare.yaml"
+        bare.write_text("header: {}\n", encoding="utf-8")
+        code, out4 = _hc(art, bare)
+        check_eq("K15d: exit 2", code, 2)
+        check_in("K15d: the sentence is in the refusal", NOTE, out4)
+        check_not_in("K15d: and no guessed --to", "--to qa-", out4)
+    finally:
+        cleanup(root)
+
+
 def the_not_utf8_answer_is_plain_text_even_with_json() -> None:
     """K16: E16 - with `--json` the same single plain line, exit 2 (as `no such file` and `no contract` answer): the
     caller parses stdout as JSON first and, when that fails, reads the LAST line as the reason (story_step.py,
@@ -290,6 +350,7 @@ if __name__ == "__main__":
     a_failed_rename_is_a_problem_in_the_answer_not_a_lost_outcome()
     values_pending_is_empty_once_the_file_is_consumed()
     a_form_that_is_not_utf8_is_refused_whole_and_never_rewritten()
+    the_not_utf8_door_names_the_receiver_on_a_stage_with_two_contracts()
     the_not_utf8_answer_is_plain_text_even_with_json()
     the_not_utf8_door_survives_the_drivers_clip_on_a_long_path()
     finish("test_handoff_values_main_block")
