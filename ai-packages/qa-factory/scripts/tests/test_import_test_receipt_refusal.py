@@ -90,3 +90,7 @@ def test_the_cli_refuses_in_a_line_never_in_a_traceback(case, tmp_path):
     if case == "story that does not exist":
         assert done.stderr.lstrip().startswith("import_test_receipt.py"), done.stderr
     assert sorted(p.relative_to(story).as_posix() for p in story.rglob("*")) == before
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))
