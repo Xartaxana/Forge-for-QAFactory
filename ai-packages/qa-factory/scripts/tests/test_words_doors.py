@@ -2115,7 +2115,7 @@ def row_fv130b_person_passes() -> None:
         rows, why = waiver.person_passes(root)
         check("E2: the path cannot be read (a directory): `(None, why)`, never a pass", rows is None and "could not be read" in why, str((rows, why)))
         journal.rmdir()
-        at, at2 = "2026-10-01T10:00:00+00:00", "2026-10-01T11:00:00+00:00"
+        at = "2026-10-01T10:00:00+00:00"
         (root / "pipeline.json").write_text(json.dumps({"stage_overrides": [
             {"stage": "S5", "match": "*", "decision": "the person's whole word " + "w" * 3000, "at": at}]}), encoding="utf-8")
         good = {"ts": "2026-10-01T10:05:00+00:00", "stage": "S5", "dispatch": "a2", "block": "run_mapping:TC-1:no-row-x", "decision": "short",
