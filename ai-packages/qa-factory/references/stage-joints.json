@@ -1,12 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "note": "The census of the stage joints (F6-51): for every check the factory makes of a role, what produces the thing it demands and where the role is told it. scripts/stage_joints.py walks code -> registry, registry -> code and demand -> told (selftest.py --contracts); a leg that does not exist today is a declared gap under a shrink-only ratchet. `friction.same_class_gate_blocks` is the count of one class of gate block at which the retro says it is a finding.",
   "friction": {
     "same_class_gate_blocks": 3
   },
   "joints": [
     {
-      "check": "exit:scoped_errors",
+      "check": "exit_gate:scoped",
       "stages": [
         "S1",
         "S2",
@@ -90,7 +90,7 @@
       }
     },
     {
-      "check": "exit:detector_errors",
+      "check": "exit_gate:detector_errors",
       "stages": [
         "S2",
         "S3",
@@ -113,7 +113,7 @@
       "joint": null
     },
     {
-      "check": "exit:witness_errors",
+      "check": "exit_gate:witness_errors",
       "stages": [
         "S1",
         "S2",
@@ -180,7 +180,7 @@
       "joint": null
     },
     {
-      "check": "exit:grounding_errors",
+      "check": "exit_gate:grounding",
       "stages": [
         "S2"
       ],
@@ -204,7 +204,7 @@
       "joint": null
     },
     {
-      "check": "exit:case_identity_errors",
+      "check": "exit_gate:case_identity",
       "stages": [
         "S4"
       ],
@@ -228,7 +228,7 @@
       "joint": null
     },
     {
-      "check": "exit:digest_errors",
+      "check": "exit_gate:digest",
       "stages": [
         "S1",
         "S2",
@@ -278,7 +278,7 @@
       }
     },
     {
-      "check": "exit:required_outputs_errors",
+      "check": "exit_gate:required_outputs",
       "stages": [
         "S1",
         "S2",
@@ -354,7 +354,7 @@
       "joint": null
     },
     {
-      "check": "exit:text_end_after_handback",
+      "check": "exit_gate:text_end_after_handback",
       "stages": [
         "S1",
         "S2",
@@ -395,9 +395,12 @@
       "joint": null
     },
     {
-      "check": "detector:S2:qa-requirements-tester:branch_accounting.py",
+      "check": "branch_accounting:*",
       "stages": [
-        "S2"
+        "S2",
+        "S3",
+        "S4",
+        "S5"
       ],
       "producers": [
         {
@@ -413,12 +416,63 @@
           ],
           "demands": [],
           "demands_from": "check:script"
+        },
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the work the detector re-runs over",
+          "told": [
+            {
+              "path": "references/slices/<role>/handoff-keys.md",
+              "anchor": "## Outputs"
+            },
+            {
+              "path": "references/slices/<role>/artifact-contract-plan.md",
+              "anchor": "branch_accounting"
+            }
+          ],
+          "demands": [],
+          "demands_from": "check:script"
+        },
+        {
+          "roles": [
+            "qa-case-critic"
+          ],
+          "field": "the work the detector re-runs over",
+          "told": [
+            {
+              "path": "agents/<role>.md",
+              "anchor": "## Outputs"
+            }
+          ],
+          "demands": [],
+          "demands_from": "check:script",
+          "gap": {
+            "leg": "demands",
+            "ref": "F6-51/4",
+            "why": "the gate re-runs branch_accounting.py at the case critic's stop; no file the case critic receives names it"
+          }
+        },
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the work the detector re-runs over",
+          "told": [
+            {
+              "path": "references/slices/<role>/handoff-keys.md",
+              "anchor": "## Outputs"
+            }
+          ],
+          "demands": [],
+          "demands_from": "check:script"
         }
       ],
       "joint": null
     },
     {
-      "check": "detector:S3:qa-test-strategist:planning_contract.py",
+      "check": "planning_contract:*",
       "stages": [
         "S3"
       ],
@@ -444,34 +498,7 @@
       }
     },
     {
-      "check": "detector:S3:qa-test-strategist:branch_accounting.py",
-      "stages": [
-        "S3"
-      ],
-      "producers": [
-        {
-          "roles": [
-            "qa-test-strategist"
-          ],
-          "field": "the work the detector re-runs over",
-          "told": [
-            {
-              "path": "references/slices/<role>/handoff-keys.md",
-              "anchor": "## Outputs"
-            },
-            {
-              "path": "references/slices/<role>/artifact-contract-plan.md",
-              "anchor": "branch_accounting"
-            }
-          ],
-          "demands": [],
-          "demands_from": "check:script"
-        }
-      ],
-      "joint": null
-    },
-    {
-      "check": "detector:S4:qa-case-critic:critic_rollcall.py",
+      "check": "critic_rollcall:*",
       "stages": [
         "S4"
       ],
@@ -494,35 +521,7 @@
       "joint": null
     },
     {
-      "check": "detector:S4:qa-case-critic:branch_accounting.py",
-      "stages": [
-        "S4"
-      ],
-      "producers": [
-        {
-          "roles": [
-            "qa-case-critic"
-          ],
-          "field": "the work the detector re-runs over",
-          "told": [
-            {
-              "path": "agents/<role>.md",
-              "anchor": "## Outputs"
-            }
-          ],
-          "demands": [],
-          "demands_from": "check:script",
-          "gap": {
-            "leg": "demands",
-            "ref": "F6-51/4",
-            "why": "the gate re-runs branch_accounting.py at the case critic's stop; no file the case critic receives names it"
-          }
-        }
-      ],
-      "joint": null
-    },
-    {
-      "check": "detector:S5:qa-automator:s5_precheck.py",
+      "check": "s5_precheck:*",
       "stages": [
         "S5"
       ],
@@ -545,30 +544,7 @@
       "joint": null
     },
     {
-      "check": "detector:S5:qa-automator:branch_accounting.py",
-      "stages": [
-        "S5"
-      ],
-      "producers": [
-        {
-          "roles": [
-            "qa-automator"
-          ],
-          "field": "the work the detector re-runs over",
-          "told": [
-            {
-              "path": "references/slices/<role>/handoff-keys.md",
-              "anchor": "## Outputs"
-            }
-          ],
-          "demands": [],
-          "demands_from": "check:script"
-        }
-      ],
-      "joint": null
-    },
-    {
-      "check": "detector:S8:qa-doc-scribe:check_coverage.py",
+      "check": "check_coverage:*",
       "stages": [
         "S8"
       ],
@@ -591,7 +567,7 @@
       "joint": null
     },
     {
-      "check": "window:expectation_change_gaps",
+      "check": "acceptance:expectation_change_gaps",
       "stages": [
         "S5"
       ],
@@ -611,7 +587,7 @@
       "joint": null
     },
     {
-      "check": "window:empty_scope",
+      "check": "acceptance:empty_scope",
       "stages": [
         "S5"
       ],
@@ -631,7 +607,7 @@
       "joint": null
     },
     {
-      "check": "window:quality",
+      "check": "acceptance:quality",
       "stages": [
         "S5"
       ],
@@ -654,7 +630,7 @@
       }
     },
     {
-      "check": "window:malformed_instance",
+      "check": "acceptance:malformed_instance",
       "stages": [
         "S5"
       ],
@@ -674,7 +650,7 @@
       "joint": null
     },
     {
-      "check": "window:handed_to_person",
+      "check": "acceptance:handed_to_person",
       "stages": [
         "S5"
       ],
@@ -694,7 +670,7 @@
       "joint": null
     },
     {
-      "check": "window:handed_unconfirmed",
+      "check": "acceptance:handed_unconfirmed",
       "stages": [
         "S5"
       ],
@@ -714,7 +690,7 @@
       "joint": null
     },
     {
-      "check": "window:stale_run",
+      "check": "acceptance:stale_run",
       "stages": [
         "S5"
       ],
@@ -734,7 +710,7 @@
       "joint": null
     },
     {
-      "check": "window:change_disposition",
+      "check": "acceptance:change_disposition",
       "stages": [
         "S5"
       ],
@@ -754,7 +730,7 @@
       "joint": null
     },
     {
-      "check": "window:probe_gap",
+      "check": "acceptance:probe_gap",
       "stages": [
         "S5"
       ],
@@ -774,7 +750,7 @@
       "joint": null
     },
     {
-      "check": "window:probe_gap_unrecorded",
+      "check": "acceptance:probe_gap_unrecorded",
       "stages": [
         "S5"
       ],
@@ -794,7 +770,7 @@
       "joint": null
     },
     {
-      "check": "window:evidence",
+      "check": "acceptance:evidence",
       "stages": [
         "S5"
       ],
@@ -814,7 +790,7 @@
       "joint": null
     },
     {
-      "check": "window:blocked_by_env",
+      "check": "acceptance:blocked_by_env",
       "stages": [
         "S5"
       ],
@@ -834,7 +810,7 @@
       "joint": null
     },
     {
-      "check": "window:review",
+      "check": "acceptance:review",
       "stages": [
         "S5"
       ],
@@ -854,7 +830,7 @@
       "joint": null
     },
     {
-      "check": "window:obligation_binding",
+      "check": "acceptance:obligation_binding",
       "stages": [
         "S5"
       ],
@@ -874,7 +850,7 @@
       "joint": null
     },
     {
-      "check": "window:obligation_hash",
+      "check": "acceptance:obligation_hash",
       "stages": [
         "S5"
       ],
@@ -894,7 +870,7 @@
       "joint": null
     },
     {
-      "check": "window:assertion_identity",
+      "check": "acceptance:assertion_identity",
       "stages": [
         "S5"
       ],
@@ -914,7 +890,7 @@
       "joint": null
     },
     {
-      "check": "window:defect_location",
+      "check": "acceptance:defect_location",
       "stages": [
         "S5"
       ],
@@ -934,7 +910,7 @@
       "joint": null
     },
     {
-      "check": "window:change_basis",
+      "check": "acceptance:change_basis",
       "stages": [
         "S5"
       ],
@@ -954,7 +930,7 @@
       "joint": null
     },
     {
-      "check": "window:contradicts_requirement",
+      "check": "acceptance:contradicts_requirement",
       "stages": [
         "S5"
       ],
@@ -974,7 +950,7 @@
       "joint": null
     },
     {
-      "check": "window:sensitivity",
+      "check": "acceptance:sensitivity",
       "stages": [
         "S5"
       ],
@@ -994,7 +970,7 @@
       "joint": null
     },
     {
-      "check": "window:product",
+      "check": "acceptance:product",
       "stages": [
         "S5"
       ],
@@ -1014,7 +990,7 @@
       "joint": null
     },
     {
-      "check": "window:stale_review",
+      "check": "acceptance:stale_review",
       "stages": [
         "S5"
       ],
@@ -1034,7 +1010,7 @@
       "joint": null
     },
     {
-      "check": "window:semantic_sensitivity",
+      "check": "acceptance:semantic_sensitivity",
       "stages": [
         "S5"
       ],
@@ -1054,7 +1030,7 @@
       "joint": null
     },
     {
-      "check": "window:probe_level",
+      "check": "acceptance:probe_level",
       "stages": [
         "S5"
       ],
@@ -1074,7 +1050,7 @@
       "joint": null
     },
     {
-      "check": "window:probe_evidence",
+      "check": "acceptance:probe_evidence",
       "stages": [
         "S5"
       ],
@@ -1094,7 +1070,7 @@
       "joint": null
     },
     {
-      "check": "window:mechanical_green",
+      "check": "acceptance:mechanical_green",
       "stages": [
         "S5"
       ],
@@ -1114,7 +1090,7 @@
       "joint": null
     },
     {
-      "check": "window:probe_mutation_kind",
+      "check": "acceptance:probe_mutation_kind",
       "stages": [
         "S5"
       ],
@@ -1139,5 +1115,31 @@
       "node": "F6-51",
       "gaps": 5
     }
-  ]
+  ],
+  "when_kinds": [
+    "always",
+    "shell",
+    "no_shell",
+    "plan",
+    "window",
+    "manual",
+    "first_look",
+    "not_first_look",
+    "walk",
+    "conductor_answer"
+  ],
+  "when_exclusive": [
+    [
+      "first_look",
+      "not_first_look"
+    ],
+    [
+      "plan",
+      "window"
+    ]
+  ],
+  "told_ratchet": {
+    "hand_cards": 12,
+    "legacy_legs": 9
+  }
 }

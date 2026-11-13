@@ -21,6 +21,12 @@ A leg that honestly does not exist today is a declared `gap` (ref + reason) unde
 `told` and `demands` are PER ROLE: an entry lists the roles it speaks for, a `<role>` in a path is expanded for each,
 and each role is judged on its own files. A `code:` producer is "told" where it is CALLED on the factory's path.
 
+The file is read ONLY through `load_rows` (schema 2; a file of another schema is `(None, why)`, AR-13, AR-28). Its row keys are
+the check ids code writes: `exit_gate:<family>` (an exit family), `<script stem>:*` (a detector script), `acceptance:<kind>` (a
+window gap kind). The KIND of a key (exit, detector, window) is the member function's that produced it - `universe()` returns
+`{key: {"kind", "where", "stages"}}` - and no reader classifies a key by its text. The lookups (`row_for`, `rows_for`) and the
+renderers (`told_text`, `told_line`, `fill`) are the one road a requirement takes from a row to a receiver.
+
 The walker is a measurer (FR-28) and a validator, so it writes nothing (FR-45): `audit()` is pure over what it is
 given and the real tree is its default. Heavy imports (`null_outcomes`, `stage_guard`, `inject_context`,
 `validate_artifacts`, `acceptance`) are taken inside the functions: the retro reads `threshold()` and must not import
@@ -42,7 +48,22 @@ sys.path.insert(0, str(HERE))
 DATA = PLUGIN / "references" / "stage-joints.json"
 KEY = "same_class_gate_blocks"
 FRICTION_MIN = 2
-TOP_KEYS = ("schema_version", "note", "friction", "joints", "ratchet")
+SCHEMA = 2                                          # the one schema this reader reads; a file of another is `(None, why)`
+TOP_KEYS = ("schema_version", "note", "friction", "joints", "ratchet", "when_kinds", "when_exclusive", "told_ratchet")
+TOLD_RATCHET_KEYS = ("hand_cards", "legacy_legs")   # the counters of this node; `unsited` joins with its check (T1c)
+KIND_EXIT, KIND_DETECTOR, KIND_WINDOW = "exit", "detector", "window"
+KINDS = (KIND_EXIT, KIND_DETECTOR, KIND_WINDOW)     # set by the member function that produced a key, never read from its text
+EXIT_NAMESPACE = "exit_gate"                        # the namespace of a family the exit gate names itself
+WINDOW_NAMESPACE = "acceptance"
+ANY = "*"                                           # a row key `<stem>:*`; a row's stages `*`; a role list `["*"]`
+MOVE_PREFIX = "move:"                               # a `when` token naming a move of `conductor-actions.json`
+CAPABILITY_TOKENS = ("always", "shell", "no_shell")  # the `when` tokens a role's tools decide; every other token is a dispatch's
+PLACEHOLDERS = ("T", "ID", "home")                  # the three words `fill` replaces
+FORM_CARRIER = "handoff_form"
+ROW_FIELDS_CARRIER = "window_record.REQUIRED_ROW_FIELDS"
+COMMANDS_CARRIER = "role-commands.json"
+PHASE_KEYS_CARRIER = "validate_artifacts.PHASE_JSON_KEYS"
+FORM_TEXT = "every `required` field of your handoff form (section `Handoff form` of this page)"
 ROW_KEYS = ("check", "stages", "producers", "joint")
 ENTRY_KEYS = ("roles", "code", "field", "told", "demands", "demands_from", "gap", "role_leg")
 ENTRY_REQUIRED = ("field", "told")
@@ -73,12 +94,15 @@ def _leaves(node) -> list:
 
 
 def exit_members(src: str, filename: str = "exit_gate.py") -> tuple:
-    """`({key: where}, [walk errors])`: the families collected into `errors` by `all_errors` and `main`.
+    """`({key: member}, [walk errors])`: the families collected into `errors` by `all_errors` and `main`; a member is
+    `{"kind": "exit", "where": str, "stages": None}` (a family is not judged by the stage rule).
 
     Every `errors = ...` / `errors += ...` in those two bodies (nested statements included: `ast.walk`) has its value
     split at `+`; a leaf that is a call of a bare name in `EXIT_WRAPPERS` (`own(family(...), "check")`) is replaced by its
     first positional argument, repeatedly, BEFORE the next rule runs (a wrapper with no argument is a walk error; the wrapper
-    name is never a member). A leaf that is a call of a bare name is a family (the aggregator and `list` are not). A call of
+    name is never a member). A leaf that is a call of a bare name is a family (the aggregator and `list` are not): its key is
+    the id the innermost wrapper gives it - a str literal, else a walk error, never a key made from a name - or, with no
+    wrapper, `exit_gate:<callee>`. A call of
     anything else (an attribute, a subscript) is a shape the walk cannot name: a walk error, never skipped (E6). A leaf
     that is no call (a name, a comprehension) is neither a member nor an error."""
     try:
@@ -101,7 +125,7 @@ def exit_members(src: str, filename: str = "exit_gate.py") -> tuple:
             if not any(isinstance(t, ast.Name) and t.id == "errors" for t in targets):
                 continue
             for leaf in _leaves(value):
-                bad = False
+                bad, wrapper = False, None
                 while (isinstance(leaf, ast.Call) and isinstance(leaf.func, ast.Name)
                        and leaf.func.id in EXIT_WRAPPERS):
                     if not leaf.args:
@@ -109,12 +133,21 @@ def exit_members(src: str, filename: str = "exit_gate.py") -> tuple:
                                       f"`{leaf.func.id}` with no argument in `errors`; extend the walk or simplify the call")
                         bad = True
                         break
-                    leaf = leaf.args[0]
+                    wrapper, leaf = leaf, leaf.args[0]      # the innermost wrapper names the id (`with_check` keeps the first)
                 if bad or not isinstance(leaf, ast.Call):
                     continue
                 if isinstance(leaf.func, ast.Name):
-                    if leaf.func.id not in EXIT_SKIP:
-                        members.setdefault(f"exit:{leaf.func.id}", f"{filename}::{fn.name}:{leaf.lineno}")
+                    if leaf.func.id in EXIT_SKIP:
+                        continue
+                    key = f"{EXIT_NAMESPACE}:{leaf.func.id}"
+                    if wrapper is not None:
+                        given = wrapper.args[1] if len(wrapper.args) > 1 else None
+                        if not (isinstance(given, ast.Constant) and isinstance(given.value, str) and given.value):
+                            errors.append(f"cannot read the check at {filename}:{wrapper.lineno} - the check id given to "
+                                          f"`{wrapper.func.id}` at line {wrapper.lineno} is not a text; write the id as a literal")
+                            continue
+                        key = given.value
+                    members.setdefault(key, {"kind": KIND_EXIT, "where": f"{filename}::{fn.name}:{leaf.lineno}", "stages": None})
                 else:
                     errors.append(f"cannot read the check at {filename}:{leaf.lineno} - a call of a "
                                   f"{type(leaf.func).__name__} in `errors`; extend the walk or simplify the call")
@@ -122,14 +155,20 @@ def exit_members(src: str, filename: str = "exit_gate.py") -> tuple:
 
 
 def detector_members(model: dict, filename: str = "stages.json") -> dict:
-    """`{key: where}` for the blocking detectors of the stage model (the advisers - `advice` - never block)."""
+    """`{key: member}` for the blocking detectors of the stage model (the advisers - `advice` - never block). One member
+    per script: its key is `<script stem>:*` (the stem is the namespace of its check ids), its `stages` the ids of every
+    stage whose `detectors` list it, in `stages.json` order, its `where` the first of them."""
     out = {}
     for stage in model.get("stages") or []:
         advisers = {str(s) for s in stage.get("advice") or []}
-        for role, scripts in (stage.get("detectors") or {}).items():
+        for scripts in (stage.get("detectors") or {}).values():
             for script in scripts or []:
-                if str(script) not in advisers:
-                    out.setdefault(f"detector:{stage.get('id')}:{role}:{script}", f"{filename} {stage.get('id')}")
+                if str(script) in advisers:
+                    continue
+                member = out.setdefault(f"{Path(str(script)).stem}:{ANY}", {
+                    "kind": KIND_DETECTOR, "where": f"{filename} {stage.get('id')}", "stages": []})
+                if str(stage.get("id")) not in member["stages"]:
+                    member["stages"].append(str(stage.get("id")))
     return out
 
 
@@ -153,9 +192,10 @@ def _kinds(leaf, names: dict):
 
 
 def window_members(src: str, names: dict, filename: str = "acceptance.py") -> tuple:
-    """`({key: where}, [walk errors])`: the gap kinds `validate_window` appends. A `gaps.append(X)` stands for the kind of
+    """`({key: member}, [walk errors])`: the gap kinds `validate_window` appends, keyed `acceptance:<kind>`; a member is
+    `{"kind": "window", "where": str, "stages": None}`. A `gaps.append(X)` stands for the kind of
     the leftmost leaf of X (a constant, a module name resolved through `names`, or both branches of a conditional);
-    a `gaps.extend(<expr>)` stands for `window:<f>` for each call of a bare name `f` inside it. Any other shape is a
+    a `gaps.extend(<expr>)` stands for `acceptance:<f>` for each call of a bare name `f` inside it. Any other shape is a
     walk error (E6). Many sites of one kind are one member."""
     try:
         tree = ast.parse(src)
@@ -182,14 +222,14 @@ def window_members(src: str, names: dict, filename: str = "acceptance.py") -> tu
                               f"a {type(_leftmost(arg)).__name__}, not a text, a module text or a conditional of two; "
                               "extend the walk or simplify the call")
             for kind in kinds or []:
-                members.setdefault(f"window:{kind}", where)
+                members.setdefault(f"{WINDOW_NAMESPACE}:{kind}", {"kind": KIND_WINDOW, "where": where, "stages": None})
         else:
             called = [n.func.id for n in ast.walk(arg) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
             if not called:
                 errors.append(f"cannot read the check at {filename}:{call.lineno} - gaps.extend of an expression "
                               "with no call of a named function; extend the walk or simplify the call")
             for name in called:
-                members.setdefault(f"window:{name}", where)
+                members.setdefault(f"{WINDOW_NAMESPACE}:{name}", {"kind": KIND_WINDOW, "where": where, "stages": None})
     return members, errors
 
 
@@ -200,7 +240,9 @@ def acceptance_names() -> dict:
 
 
 def universe(exit_src=None, stages=None, acceptance_src=None, names=None) -> tuple:
-    """`({key: where}, [walk errors])` of the three kinds. Every argument has the real default."""
+    """`({key: {"kind", "where", "stages"}}, [walk errors])` of the three kinds. Every argument has the real default. The
+    kind of a key is the one its member function gave it (`exit_members`, `detector_members`, `window_members`); no reader
+    classifies a key by its text."""
     if exit_src is None:
         exit_src = (HERE / "exit_gate.py").read_text(encoding="utf-8")
     if stages is None:
@@ -289,7 +331,7 @@ def _base(artifact) -> str:
 def demand_tokens(carrier, role: str, check: str, env: Env) -> tuple:
     """`(tokens, why)`: what a carrier says the gate demands of `role`, read through the existing table (B-2)."""
     if carrier == "check:script":
-        return [check.rsplit(":", 1)[-1]], ""
+        return [f"{check.split(':', 1)[0]}.py"], ""     # the stem is the id's namespace (`<stem>:*`), not a kind
     if carrier == "stages.json:witness":
         found = (env.model.get("witness") or {}).get(role)
         return ([_base(found)] if found else []), ""
@@ -310,12 +352,183 @@ def demand_tokens(carrier, role: str, check: str, env: Env) -> tuple:
     return [], f"unknown carrier {carrier!r}"
 
 
+# ------------------------------------------------------------- the rows: the one reader, the lookups, the renderers
+def load_rows(path=None) -> tuple:
+    """`(data, "")`, or `(None, why)` - THE reader of `stage-joints.json` (AR-13); every code read of the file goes through it.
+    `path` None is the module's `DATA`, taken at the call (a caller that re-points `DATA` is read).
+    It wraps `null_outcomes.load_data`, so an absent, unreadable or malformed file has the reasons it always had; a file of
+    a schema other than `SCHEMA` is `(None, "<name> has schema_version <v>; this reader reads 2")`. An unknown is a reason,
+    never a pass and never an empty registry (AR-28)."""
+    import null_outcomes
+    path = Path(path) if path else DATA
+    data, why = null_outcomes.load_data(path)
+    if data is None:
+        return None, why
+    version = data.get("schema_version")
+    if type(version) is not int or version != SCHEMA:
+        return None, f"{path.name} has schema_version {version}; this reader reads {SCHEMA}"
+    return data, ""
+
+
+def _rows_data(data):
+    """`(data, rows, why)`: `data` as given (a rows dict, as `load_rows` returns it) or the real file; `rows` None with a
+    reason when there are none to read."""
+    if data is None:
+        data, why = load_rows()
+        if data is None:
+            return None, None, why
+    rows = data.get("joints") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return None, None, "stage-joints.json `joints` is not a list"
+    return data, [r for r in rows if isinstance(r, dict)], ""
+
+
+def row_for(check, data=None) -> tuple:
+    """`(row | None, why)` of a check id: the row keyed by exactly this id, else the row keyed by its namespace
+    `<stem>:*`. Two rows for the id: the first and `why = "two rows"` (the walk is red on it, K5); none: `(None, why)`."""
+    _data, rows, why = _rows_data(data)
+    if rows is None:
+        return None, why
+    check = str(check)
+    for wanted in (check, f"{check.split(':', 1)[0]}:{ANY}"):
+        hit = [r for r in rows if r.get("check") == wanted]
+        if hit:
+            return hit[0], "two rows" if len(hit) > 1 else ""
+    return None, f"no row for {check}"
+
+
+def _states_requirement(row: dict) -> bool:
+    """A row is told to a receiver only with `requirement` XOR `requirement_from` (a row with neither is told by its v1 legs)."""
+    own, carrier = row.get("requirement"), row.get("requirement_from")
+    has_own = isinstance(own, str) and bool(own.strip())
+    has_carrier = isinstance(carrier, str) and bool(carrier.strip())
+    return has_own != has_carrier
+
+
+def _has_shell(role: str) -> bool:
+    try:
+        import host_adapter
+        return bool(host_adapter.role_has_bash(role, PLUGIN))
+    except Exception:  # noqa: BLE001 - the one default of every text written to a role: no shell (FR-2)
+        return False
+
+
+def _mapped_roles() -> set:
+    """The roles of `inject-map.json` (what `roles: ["*"]` stands for); empty when the map cannot be read."""
+    import null_outcomes
+    data, _why = null_outcomes.load_data(PLUGIN / "references" / "inject-map.json")
+    return set((data or {}).get("roles") or {})
+
+
+def _row_names(row: dict, role: str, mapped) -> bool:
+    for entry in row.get("producers") or []:
+        roles = entry.get("roles") if isinstance(entry, dict) else None
+        if isinstance(roles, list) and (role in roles or (ANY in roles and role != "conductor" and role in mapped())):
+            return True
+    return False
+
+
+def _row_at(row: dict, stages) -> bool:
+    mine = row.get("stages")
+    mine = [mine] if isinstance(mine, str) else mine
+    if not isinstance(mine, list):
+        return False
+    return ANY in stages or ANY in mine or bool(set(map(str, mine)) & set(map(str, stages)))
+
+
+def _row_holds(row: dict, role: str, facts) -> bool:
+    """Do the `when` tokens of the row hold? ALL must. A capability token is the role's (its tools); with `facts` None every
+    dispatch group holds (the page); with a dict the dispatch tokens are read from it - for the conductor `{"moves": [ids]}`.
+    An unknown or unstated token holds: the error direction is toward more text, never an omitted row (parent 2.4 (2))."""
+    for token in row.get("when") or ["always"]:
+        if token == "always":
+            continue
+        if token in CAPABILITY_TOKENS:
+            if (token == "shell") != _has_shell(role):
+                return False
+        elif facts is None:
+            continue
+        elif role == "conductor":
+            if str(token).startswith(MOVE_PREFIX) and str(token)[len(MOVE_PREFIX):] not in (facts.get("moves") or []):
+                return False
+        elif token in facts and not facts[token]:
+            return False
+    return True
+
+
+def rows_for(role: str, stages, dispatch=None, data=None) -> list:
+    """The rows a receiver is told: rows that state a requirement (`_states_requirement`), name `role` in a producer (`["*"]` is
+    every role of `inject-map.json`, never the conductor), run at one of `stages` (`["*"]` is every stage), and whose `when`
+    holds (`_row_holds`; `dispatch` is None or a facts dict). File order; `[]` when the rows cannot be read."""
+    data, rows, _why = _rows_data(data)
+    if rows is None:
+        return []
+    stages, cache = list(stages or []), {}
+
+    def mapped() -> set:                                  # read once, and only when a row says `*`
+        if "roles" not in cache:
+            cache["roles"] = _mapped_roles()
+        return cache["roles"]
+    return [r for r in rows if _states_requirement(r) and _row_names(r, role, mapped) and _row_at(r, stages)
+            and _row_holds(r, role, dispatch)]
+
+
+def _carrier_expected(row: dict) -> tuple:
+    """`(text, why)` of a `requirement_from` row: the carrier's own words, read at the call (lazy import)."""
+    carrier, key = str(row.get("requirement_from")), str(row.get("carrier_key") or "")
+    if carrier == FORM_CARRIER:
+        return FORM_TEXT, ""
+    if carrier == PHASE_KEYS_CARRIER:
+        import validate_artifacts
+        keys = validate_artifacts.PHASE_JSON_KEYS.get(key)
+        return (f"`{key}` carries the keys " + ", ".join(f"`{k}`" for k in keys), "") if keys else ("", f"no keys for `{key}`")
+    if carrier == ROW_FIELDS_CARRIER:
+        import window_record
+        return "; ".join(f"`{name}`: {spec.what}" for name, spec in window_record.REQUIRED_ROW_FIELDS.items()), ""
+    if carrier == COMMANDS_CARRIER:
+        import role_cli
+        found = role_cli.entry(key)
+        parts = [str(found["input"])] if found.get("input") else []
+        parts += [f"how to prove it: {found['verify']}"] if found.get("verify") else []
+        return ("; ".join(parts), "") if parts else ("", f"no command `{key}`")
+    return "", f"unknown carrier {carrier!r}"
+
+
+def told_text(row) -> tuple:
+    """`(expected, door)` - THE composer of what a row tells (the page, the conductor section and a refusal all call it).
+    `requirement` is the sentence; `requirement_from` is read from its carrier. A row that cannot be read gives a sentence
+    saying so, never an exception and never an empty text (a missing row is never a pass, FR-59)."""
+    row = row if isinstance(row, dict) else {}
+    door = str(row.get("door") or "")
+    if isinstance(row.get("requirement"), str) and row["requirement"].strip():
+        return row["requirement"].strip(), door
+    try:
+        text, why = _carrier_expected(row) if row.get("requirement_from") else ("", "the row states no requirement")
+    except Exception as exc:  # noqa: BLE001
+        text, why = "", f"{type(exc).__name__}"
+    return (text or f"(the factory's requirement row {row.get('check')} could not be read: {why}; this is a factory defect)"), door
+
+
+def fill(text, values) -> str:
+    """`text` with exactly `<T>`, `<ID>`, `<home>` replaced from `values`; a value that is missing or empty leaves its placeholder."""
+    values = values if isinstance(values, dict) else {}
+    return re.sub(r"<(" + "|".join(PLACEHOLDERS) + r")>",
+                  lambda m: str(values[m.group(1)]) if values.get(m.group(1)) not in (None, "") else m.group(0), str(text))
+
+
+def told_line(row, values=None) -> str:
+    """THE line renderer: `- [<check>] <expected> Door: <door>.`; `fill` is applied when `values` is given."""
+    expected, door = told_text(row)
+    line = f"- [{row.get('check') if isinstance(row, dict) else None}] {expected} Door: {door}."
+    return line if values is None else fill(line, values)
+
+
 # ------------------------------------------------------------------------------------- the data's shape
 def _shape_problems(data: dict) -> list:
     out = [f"stage-joints.json has an unknown key `{k}`" for k in data if k not in TOP_KEYS]
     out += [f"stage-joints.json lacks `{k}`" for k in TOP_KEYS if k not in data]
-    if data.get("schema_version") != 1:
-        out.append(f"stage-joints.json schema_version is {data.get('schema_version')!r}, this reader reads 1")
+    if type(data.get("schema_version")) is not int or data.get("schema_version") != SCHEMA:
+        out.append(f"stage-joints.json schema_version is {data.get('schema_version')!r}, this reader reads {SCHEMA}")
     if not isinstance(data.get("note"), str) or len(data.get("note").strip()) < NOTE_MIN:
         out.append(f"stage-joints.json `note` is shorter than {NOTE_MIN} characters - say what the file is")
     friction = data.get("friction")
@@ -330,6 +543,24 @@ def _shape_problems(data: dict) -> list:
     if isinstance(data.get("joints"), list) and not data["joints"]:
         out.append("stage-joints.json has no joint rows (`joints` is empty): a lost file is not a state - the walk "
                    "meets checks in code")
+    kinds = data.get("when_kinds")
+    if "when_kinds" in data and (not isinstance(kinds, list) or not kinds
+                                 or not all(isinstance(k, str) and k.strip() for k in kinds) or len(set(kinds)) != len(kinds)):
+        out.append("stage-joints.json `when_kinds` is not a non-empty list of distinct texts")
+    groups = data.get("when_exclusive")
+    if "when_exclusive" in data and (not isinstance(groups, list) or not all(
+            isinstance(g, list) and len(g) >= 2 and all(isinstance(k, str) for k in g) for g in groups)):
+        out.append("stage-joints.json `when_exclusive` is not a list of lists of at least two kinds")
+    elif isinstance(groups, list) and isinstance(kinds, list):
+        out += [f"stage-joints.json `when_exclusive` names `{k}`, which is not in `when_kinds`"
+                for g in groups for k in g if k not in kinds]
+    told = data.get("told_ratchet")
+    if "told_ratchet" in data:
+        if not isinstance(told, dict) or set(told) != set(TOLD_RATCHET_KEYS):
+            out.append(f"stage-joints.json `told_ratchet` is not an object holding exactly {', '.join(TOLD_RATCHET_KEYS)}")
+        else:
+            out += [f"stage-joints.json told_ratchet.{k} is {told[k]!r}, a count (an integer, 0 or more) is expected"
+                    for k in TOLD_RATCHET_KEYS if not _is_count(told[k])]
     return out
 
 
@@ -489,8 +720,9 @@ def _entry_problems(check: str, index: int, entry, env: Env) -> tuple:
 
 
 # --------------------------------------------------------------------------------------- one row, the rows
-def _row_problems(row, env: Env, stage_ids: set) -> tuple:
-    """`(problems, [declared gap legs])` of one row."""
+def _row_problems(row, env: Env, stage_ids: set, detectors: dict) -> tuple:
+    """`(problems, [declared gap legs])` of one row. `detectors` is `detector_members(env.model)`: a row keyed by one of
+    its members runs at exactly the stages the model gives that member (the key's text names no stage)."""
     if not isinstance(row, dict):
         return ["stage-joints: a joint row is not an object"], []
     check = str(row.get("check"))
@@ -506,8 +738,9 @@ def _row_problems(row, env: Env, stage_ids: set) -> tuple:
     elif not all(s in stage_ids for s in stages):
         out.append(f"stage-joints: {check}: `stages` names {[s for s in stages if s not in stage_ids]}, "
                    "which are no stage of stages.json")
-    elif check.startswith("detector:") and stages != [check.split(":")[1]]:
-        out.append(f"stage-joints: {check}: `stages` is {stages}, a detector row runs at the stage in its key")
+    elif check in detectors and stages != detectors[check]["stages"]:
+        out.append(f"stage-joints: {check}: `stages` is {stages}, a detector row runs at the stages whose detectors list its "
+                   f"script: {', '.join(detectors[check]['stages'])}")
     producers, gaps = row["producers"], []
     if not isinstance(producers, list) or not producers:
         out.append(f"stage-joints: {check}: `producers` is empty - an entry for each writer, or an entry whose gap "
@@ -542,7 +775,7 @@ def _joint_problems(check: str, joint, env: Env) -> list:
     return out
 
 
-def _direction_a(rows: list, uni: dict) -> list:
+def _direction_a(rows: list, uni: dict) -> list:    # uni: {key: member}, member = {"kind", "where", "stages"}
     """Every check in code has exactly one row; a row for a check the walk does not meet is stale."""
     out, seen = [], {}
     for row in rows:
@@ -553,9 +786,9 @@ def _direction_a(rows: list, uni: dict) -> list:
             out.append(f"stage-joints: {key} has two rows")
         if key not in uni:
             out.append(f"stage-joints: row {key}: stale - the walk does not meet this check; remove the row or fix its key")
-    for key, where in uni.items():
+    for key, member in uni.items():
         if key not in seen:
-            out.append(f"stage-joints: {key} is a check in code ({where}) and has no row in references/stage-joints.json - "
+            out.append(f"stage-joints: {key} is a check in code ({member['where']}) and has no row in references/stage-joints.json - "
                        "add its producer and where the role is told (FR-38, AR-10)")
     return out
 
@@ -563,7 +796,7 @@ def _direction_a(rows: list, uni: dict) -> list:
 def _pins(uni: dict, pins: dict) -> list:
     out = []
     for kind, pinned in (pins or {}).items():
-        got = sum(1 for key in uni if key.split(":", 1)[0] == kind)
+        got = sum(1 for member in uni.values() if member["kind"] == kind)     # the producer's kind, never the key's text
         if got != pinned:
             out.append(f"{kind} checks: {got}, pinned {pinned}")
     return out
@@ -607,13 +840,12 @@ def audit(data=None, uni=None, pins=None, env=None, path=None) -> Report:
     """Walk the registry against the package and say what has no home. Everything is injectable; the defaults are the
     real tree. `data` may be a str (the reason the file could not be read) - red, never an empty registry (E8).
 
-    uni   `universe()`'s answer: ({key: where}, [walk errors]);  env   an `Env`;  pins  {kind: size} (red in both
-    directions);  path  the data file to read when `data` is None."""
+    uni   `universe()`'s answer: ({key: {"kind", "where", "stages"}}, [walk errors]);  env   an `Env`;  pins  {kind: size}
+    (red in both directions);  path  the data file to read when `data` is None (through `load_rows`)."""
     report = Report()
     red = report.problems.append
     if data is None:
-        import null_outcomes
-        data, why = null_outcomes.load_data(Path(path) if path else DATA)
+        data, why = load_rows(path)
         if data is None:
             red(f"stage-joints: {why}")
             return report
@@ -631,21 +863,22 @@ def audit(data=None, uni=None, pins=None, env=None, path=None) -> Report:
     rows = data["joints"]
     report.problems.extend(_direction_a(rows, uni))
     stage_ids = {str(s.get("id")) for s in env.model.get("stages") or [] if isinstance(s, dict)}
+    detectors = detector_members(env.model)          # from the model, not from the injectable `uni`
     declared = []
     for row in rows:
-        problems, legs = _row_problems(row, env, stage_ids)
+        problems, legs = _row_problems(row, env, stage_ids, detectors)
         report.problems.extend(problems)
         declared += legs
     report.problems.extend(_ratchet(data, len(declared)))
     c = report.counts
-    c.update({kind: sum(1 for key in uni if key.split(":", 1)[0] == kind) for kind in ("exit", "detector", "window")})
+    c.update({kind: sum(1 for member in uni.values() if member["kind"] == kind) for kind in KINDS})
     c.update({"rows": len(rows), "gaps": len(declared), "held": sum(1 for r in rows if isinstance(r, dict) and r.get("joint")),
               "role_leg": sum(1 for r in rows if isinstance(r, dict) for e in r.get("producers") or []
                               if isinstance(e, dict) and e.get(ROLE_LEG_KEY) == ROLE_LEG_NOT_WALKED)})
     for leg in LEGS:
         c[leg] = declared.count(leg)
-    report.no_detector = [str(s.get("id")) for s in env.model.get("stages") or []
-                          if not any(k.startswith(f"detector:{s.get('id')}:") for k in uni)]
+    run_at = {stage for member in detectors.values() for stage in member["stages"]}
+    report.no_detector = [str(s.get("id")) for s in env.model.get("stages") or [] if str(s.get("id")) not in run_at]
     return report
 
 
@@ -654,8 +887,7 @@ def threshold(path=None):
     """The count of one class of gate block at which the retro says it is a finding, or None when the registry cannot
     say (absent file, bad JSON, no `friction`, not an integer of at least 2). None is "threshold unknown" to the reader,
     never a hidden default (E9)."""
-    import null_outcomes
-    data, _why = null_outcomes.load_data(Path(path) if path else DATA)
+    data, _why = load_rows(path)
     friction = (data or {}).get("friction")
     value = friction.get(KEY) if isinstance(friction, dict) else None
     return value if _is_count(value, FRICTION_MIN) else None
@@ -676,8 +908,7 @@ def main(argv=None) -> int:
         if path is None:
             print("stage_joints: --data needs a file", file=sys.stderr)
             return USAGE_EXIT
-    import null_outcomes
-    data, why = null_outcomes.load_data(Path(path) if path else DATA)
+    data, why = load_rows(path)
     if data is None:
         import detector_verdict
         print(detector_verdict.unreadable_line(why))
