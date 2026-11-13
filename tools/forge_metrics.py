@@ -250,19 +250,10 @@ def find_overlaps(features: list, repo_paths) -> list:
     return found
 
 
-def registry_conflicts(features: list, repo_paths) -> dict:
-    """Strict one-owner-per-file view of the registry (F6-49): {'double': [{'path', 'features'}], 'none': [path]}.
-    'double' = every path two or more features match, whatever the specificity (find_overlaps tolerates a
-    specific glob beating a general one; this does not); 'none' = a path under the package root (the only
-    root --check (b) treats as attributable) that no feature matches. Pure read; nothing wired to --check yet."""
-    double, none = [], []
-    for p in repo_paths:
-        hits = feature_hits(features, p)
-        if len(hits) >= 2:
-            double.append({"path": p, "features": [features[i]["id"] for i, _s in hits]})
-        elif not hits and split_root(p)[0] == "package":
-            none.append(p)
-    return {"double": double, "none": none}
+def unattributed_package_files(features: list, repo_paths) -> list:
+    """Paths under the package root (the only root --check (b) treats as attributable) that no feature matches.
+    Overlaps are NOT judged here: a specific glob beating a general one is by design (find_overlaps judges ties)."""
+    return [p for p in repo_paths if split_root(p)[0] == "package" and not feature_hits(features, p)]
 
 
 # ============================================================================================
@@ -1208,6 +1199,15 @@ def run_check(root=ROOT, base=None, features=None):
         if classify_path(features, p) is None:
             bad_files += 1
             offenders.append(("b", p, f"new package file {p} matches no feature"))
+    # (d) EVERY tracked package file must match a feature (one `git ls-files`; none/failed = not checked, no fail)
+    tracked_now = tracked_files(root)
+    d_warnings = []
+    if not tracked_now:
+        d_warnings.append("not checked: (d) tracked package files -- "
+                          + ("git ls-files is unavailable" if tracked_now is None else "git ls-files lists no file"))
+    else:
+        for p in unattributed_package_files(features, tracked_now):
+            offenders.append(("d", p, f"tracked package file {p} matches no feature (expected: add it to a feature in {REGISTRY_REL})"))
     # (c) new journal events dated FEATURE_FROM or later without a feature
     # CR is stripped on both sides: a Windows checkout (core.autocrlf=true) has CRLF on disk and LF
     # in the base commit, and the same event must not read as new because of its line ending
@@ -1254,10 +1254,10 @@ def run_check(root=ROOT, base=None, features=None):
         unc = [r["path"] for r in new_findings if r["feature"] is None]
         counts.update({"new_findings": len(new_findings), "findings_unclassified": len(unc),
                        "unclassified_finding_files": unc})
-    return offenders, counts, sha, row_warnings + fwarns
+    return offenders, counts, sha, row_warnings + fwarns + d_warnings
 
 
-_DOORS = {"a": DOOR_ROW, "b": DOOR_FILE, "c": DOOR_EVENT}
+_DOORS = {"a": DOOR_ROW, "b": DOOR_FILE, "c": DOOR_EVENT, "d": DOOR_FILE}
 
 
 def _findings_part(counts) -> str:
@@ -1290,7 +1290,7 @@ def render_check(offenders, counts, sha, warn=False, warnings=()) -> str:
     L = [f"{head}: {len(offenders)} offender(s) against base {sha[:7]} "
          f"(new rows {counts['new_rows']}, " + (fpart + ", " if fpart else "")
          + f"new package files {counts['new_package_files']}, new events needing a feature {counts['new_events']})"]
-    for kind in ("a", "b", "c"):
+    for kind in ("a", "b", "c", "d"):
         mine = [o for o in offenders if o[0] == kind]
         if not mine:
             continue

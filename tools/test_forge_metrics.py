@@ -142,20 +142,34 @@ def test_k1_a_general_glob_ahead_of_a_specific_one_is_reported_as_shadowed(tmp_p
     assert found and found[0]["kind"] == "shadowed"
 
 
-@pytest.mark.parametrize("registry, files, double, none", [
-    # a file under two features (a wildcard in one, an explicit glob in the other): reported by file, with both ids
-    ([("F01", ["scripts/*.py"]), ("F02", ["scripts/x.py"])], ["scripts/x.py", "scripts/y.py"],
-     [("scripts/x.py", ["F01", "F02"])], []),
-    # a file under none
-    ([("F01", ["scripts/x.py"]), ("F02", ["docs/*.md"])], ["scripts/x.py", "scripts/z.py"], [], ["scripts/z.py"]),
-    # a clean registry; an empty-glob-matching feature is not an error
-    ([("F01", ["scripts/x.py"]), ("F02", ["nothing/*.py"])], ["scripts/x.py"], [], []),
-], ids=["double", "none", "clean"])
-def test_registry_conflicts_both_directions(tmp_path, registry, files, double, none):
-    feats = reg(tmp_path, [feat(fid, fid, globs) for fid, globs in registry])
-    found = fm.registry_conflicts(feats, [fm.PACKAGE + "/" + f for f in files])
-    assert [(d["path"], d["features"]) for d in found["double"]] == [(fm.PACKAGE + "/" + p, ids) for p, ids in double]
-    assert found["none"] == [fm.PACKAGE + "/" + p for p in none]
+def test_k1_shipped_registry_has_no_unattributed_tracked_package_file():
+    """F6-49: the REAL registry covers every tracked package file (the direction t-1411 left red)."""
+    tracked = fm.tracked_files(ROOT)
+    if not tracked:
+        pytest.skip("git ls-files is unavailable or empty here")
+    feats = fm.load_registry(ROOT / fm.REGISTRY_REL)
+    assert any(fm.split_root(p)[0] == "package" for p in tracked), "no package file tracked -- a vacuous pass"
+    assert fm.unattributed_package_files(feats, tracked) == []
+
+
+@pytest.mark.parametrize("tracked, offenders, warned", [
+    (["ai-packages/qa-factory/scripts/x.py", "ai-packages/qa-factory/scripts/z.py"],
+     ["ai-packages/qa-factory/scripts/z.py"], False),                                  # unattributed file reported
+    (["ai-packages/qa-factory/scripts/x.py", "docs/other.md"], [], False),             # clean; a non-package file is not judged
+    ([], [], True),                                                                    # empty ls-files: not checked, no fail
+    (None, [], True),                                                                  # unavailable: not checked, no fail
+], ids=["unattributed", "clean", "ls-files-empty", "ls-files-unavailable"])
+@needs_git
+def test_check_direction_d_tracked_package_files(tmp_path, monkeypatch, tracked, offenders, warned):
+    root, base = _frepo(tmp_path)
+    feats = reg(tmp_path, [feat("F01", "a", ["scripts/x.py"])])
+    monkeypatch.setattr(fm, "tracked_files", lambda _root: tracked)
+    found, _counts, _sha, warnings = fm.run_check(root, base, features=feats)
+    assert [o[1] for o in found if o[0] == "d"] == offenders
+    for o in found:
+        if o[0] == "d":
+            assert "matches no feature" in o[2] and "expected: add it to a feature in plans/features.json" in o[2]
+    assert any(w.startswith("not checked: (d)") for w in warnings) is warned
 
 
 def test_glob_semantics():
@@ -829,6 +843,8 @@ def test_k12_control_the_same_event_with_a_registered_feature_is_not_an_offender
 @needs_git
 def test_k12_only_the_lines_added_to_a_file_the_base_has_are_new(tmp_path, capsys):
     root, _base = _check_repo(tmp_path)
+    write_registry(root / "plans" / "features.json", [feat("F06", "driver", ["scripts/story_run.py", "scripts/codex_roles.py"]),
+                                                      feat("F19", "forge", ["docs/**", "plans/**", "tools/**", "logs/**"], root="repo")])  # (d): codex_roles.py is tracked now
     put(root, DEV_FILE, DEV_CREATED + "\n" + ev_line("2026-10-02T10:00:00", "t-001") + "\n")     # untagged, but COMMITTED below
     base2 = commit_all(root, "second base", "2026-10-02T11:00:00")
     with open(root / DEV_FILE, "a", encoding="utf-8", newline="\n") as f:
@@ -842,6 +858,8 @@ def test_k12_only_the_lines_added_to_a_file_the_base_has_are_new(tmp_path, capsy
 @needs_git
 def test_k12_crlf_in_a_developer_file_does_not_make_its_old_events_look_new(tmp_path, capsys):
     root, _base = _check_repo(tmp_path)
+    write_registry(root / "plans" / "features.json", [feat("F06", "driver", ["scripts/story_run.py", "scripts/codex_roles.py"]),
+                                                      feat("F19", "forge", ["docs/**", "plans/**", "tools/**", "logs/**"], root="repo")])  # (d): codex_roles.py is tracked now
     put(root, DEV_FILE, DEV_CREATED + "\n" + ev_line("2026-10-02T10:00:00", "t-001") + "\n")
     base2 = commit_all(root, "second base", "2026-10-02T11:00:00")
     p = root / DEV_FILE
