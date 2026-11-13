@@ -513,7 +513,9 @@ def _corpus(package_root: Path) -> dict:
             continue
         for current, dirs, files in os.walk(base):
             here = Path(current).relative_to(package_root).as_posix()
-            dirs[:] = [d for d in dirs if d != "__pycache__" and f"{here}/{d}" != "scripts/tests"]
+            # `scripts/tests` and `skills/<any>/evals` are not readers: the first judges, the second is prose about the factory
+            dirs[:] = [d for d in dirs if d != "__pycache__" and f"{here}/{d}" != "scripts/tests"
+                       and not (here.startswith("skills/") and here.count("/") == 1 and d == "evals")]
             for name in files:
                 path = Path(current, name)
                 rel = path.relative_to(package_root).as_posix()

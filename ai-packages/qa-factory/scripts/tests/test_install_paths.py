@@ -897,7 +897,32 @@ def section_in_home() -> None:
         check_eq(f"OH3-9 in_home {ident}: {path!r}", I.in_home(path, TABLE, fold=fold), want)
 
 
+EVAL_TEXT = "the stale file state/probe-z.json is deleted by its class"
+CORPUS_ROWS = [
+    # ident, files of the tmp package, readers expected for the key `state/probe-z.json`
+    ("eval-text-only", {"skills/x/evals/evals.json": EVAL_TEXT}, []),
+    ("eval-and-real-reader", {"skills/x/evals/evals.json": EVAL_TEXT, "scripts/x.py": "P = 'state/probe-z.json'\n"}, ["scripts/x.py"]),
+    ("neither", {"scripts/x.py": "pass\n", "skills/x/evals/evals.json": "{}"}, []),
+    ("evals-dir-empty", {"skills/x/evals/.keep": "", "scripts/x.py": "pass\n"}, []),
+    ("evals-dir-absent", {"skills/x/SKILL.md": "pass\n"}, []),
+    ("skill-md-beside-evals-is-a-reader", {"skills/x/evals/evals.json": EVAL_TEXT, "skills/x/SKILL.md": "reads state/probe-z.json\n"},
+     ["skills/x/SKILL.md"]),
+    ("deeper-evals-folder-also-prose", {"skills/x/evals/files/case.md": EVAL_TEXT}, []),
+]
+
+
+def section_corpus_evals() -> None:
+    """OF4-1: text under skills/*/evals/ is prose about the factory, not a reader of a path."""
+    for ident, files, want in CORPUS_ROWS:
+        pkg = tmp_package(files)
+        try:
+            check_eq(f"OF4-1 corpus {ident}: readers of the key", I._grep(I._corpus(pkg), "state/probe-z.json"), want)
+        finally:
+            cleanup(pkg)
+
+
 def main() -> None:
+    section_corpus_evals()
     section_regenerated_basis()
     section_in_home()
     section_stand_identity()
