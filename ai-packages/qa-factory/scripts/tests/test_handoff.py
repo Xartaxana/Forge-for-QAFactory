@@ -888,8 +888,9 @@ def the_same_fact_derives_under_the_same_name():
     TP1-13797, 26.09: a form carried 1,422 fields and code filled six. The designer typed
     `case_version: "pending case_versions.py --all (no Bash available to this role)"` into a field
     that `story-case-links.json` answers — the role has no Bash and could not run the script its
-    own field names, so it wrote prose into a record. `id`, `path`, `case_version`, `requirements`,
-    `plan_row` are facts; `reason`, `state`, `what` are the role's and stay the role's.
+    own field names, so it wrote prose into a record. `id`, `path`, `case_version` are facts; `requirements` and
+    `plan_row` are facts of a CASE row (S4), keyed by contract and path (`BY_PATH`); `reason`, `state`, `what` are the
+    role's and stay the role's.
     """
     import handoff_check as H
     root = temp_dir("qa-handoff-leaf-")
@@ -926,9 +927,13 @@ def the_same_fact_derives_under_the_same_name():
                  H._plan_row_of(art, None, {"case": "TC-003"})[0], "TS-3")
         check_eq("a row that is not a case derives nothing",
                  H._plan_row_of(art, None, {"id": "SRC-1"}), None)
+        for key in H.BY_PATH:
+            contract, generic = key.split(":", 1)
+            check(f"BY_PATH names a field of its contract: {key}", generic in handoff.spec(contract))
+            check(f"BY_PATH is not shadowed by DERIVERS: {key}", generic not in H.DERIVERS)
         check("judgement fields have no deriver, on purpose",
-              not ({"reason", "state", "what", "origin"} & set(H.BY_LEAF)))
-        check_in("and the identity fields do", "case_version", H.BY_LEAF)
+              not ({"reason", "state", "what", "origin"} & {k.rsplit(".", 1)[-1] for k in H.BY_PATH}))
+        check_in("and the case pin is filled under its one name", "scope[].case_version", H.DERIVERS)
     finally:
         cleanup(root)
 

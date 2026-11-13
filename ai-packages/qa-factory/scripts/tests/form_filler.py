@@ -313,9 +313,9 @@ class _Survey:
                 self.items.append(_Item(path, generic, raw, node, fspec, "gen" if gen else "nogen", gen, why))
             elif not handoff.is_placeholder(node.value):
                 if any(tok in raw for tok in tokens):
-                    kind = "code" if handoff_check._code_fills(path) else "token"      # a value code fills is code's, token or not
+                    kind = "code" if handoff_check._code_fills(path, self.contract) else "token"      # a value code fills is code's, token or not
                 elif HINT.search(raw) and _literal_text(raw) is None:
-                    kind = "code" if handoff_check._code_fills(path) else "embedded"   # a hint inside a value, named by no token and no literal-text row
+                    kind = "code" if handoff_check._code_fills(path, self.contract) else "embedded"   # a hint inside a value, named by no token and no literal-text row
                 elif HINT.search(raw):
                     kind = "literal"                                                   # text that carries an angle bracket, named by a literal-text row
                 else:
@@ -323,7 +323,7 @@ class _Survey:
                 self.items.append(_Item(path, generic, raw, node, fspec, kind))
             elif path == "header.verdict":
                 self.items.append(_Item(path, generic, raw, node, fspec, "verdict"))
-            elif handoff_check._code_fills(path):
+            elif handoff_check._code_fills(path, self.contract):
                 self.items.append(_Item(path, generic, raw, node, fspec, "code"))
             elif raw.strip() in tokens:
                 self.items.append(_Item(path, generic, raw, node, fspec, "token"))
