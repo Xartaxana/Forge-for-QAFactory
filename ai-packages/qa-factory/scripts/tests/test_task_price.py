@@ -1058,7 +1058,12 @@ KIND_CASES = [
     ("key not a list of strings: the fallback",
      lambda: _kinds_priced([{"kind": "launched"}, GATE_REPAIR], '{"no_call_kinds": ["delivery", 3]}'), "incomplete", 1),
     ("key absent: the fallback", lambda: _kinds_priced([{"kind": "delivery"}, GATE_REPAIR], "{}"), "incomplete", 1),
+    ("key an EMPTY list: the fallback", lambda: _kinds_priced([{"kind": "launched"}, GATE_REPAIR], '{"no_call_kinds": []}'),
+     "incomplete", 1),
 ]
+for _kind in ("trace_failed", "rows_given_up", "stopped_by_person", "note"):
+    KIND_CASES.append((f"signed kind {_kind} without a session is not counted",
+                       lambda _k=_kind: _shipped([{"ts": "2026-09-30T10:07:00+00:00", "kind": _k}]), "agrees", 0))
 for label, run, status, count in KIND_CASES:
     got = run()
     check_eq(f"FV1-21 {label}: status", got["status"], status)

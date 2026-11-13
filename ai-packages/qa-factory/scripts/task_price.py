@@ -549,11 +549,11 @@ NO_CALL_KINDS_FALLBACK = ("delivery", "launched")   # the two kinds the code kne
 
 
 def _no_call_kinds() -> frozenset:
-    """The journal `kind`s whose writer launches no model call (`no_call_kinds` in references/driver-journal-kinds.json),
+    """The journal `kind`s whose row carries no session and no money of its own (`no_call_kinds` in references/driver-journal-kinds.json),
     read through the package's one reference reader. The fallback is the two kinds of before, never an empty list."""
     table = hooklib.load_ref_json("driver-journal-kinds.json")
     kinds = table.get("no_call_kinds") if isinstance(table, dict) else None   # the reader returns any parsed value
-    if isinstance(kinds, list) and all(isinstance(k, str) for k in kinds):
+    if isinstance(kinds, list) and kinds and all(isinstance(k, str) for k in kinds):
         return frozenset(kinds)
     return frozenset(NO_CALL_KINDS_FALLBACK)
 
@@ -564,7 +564,9 @@ def _rows_without_session(root, task) -> int:
     record. A `delivery` row is no call at all and never counts, and neither does a `launched` row (t-363 B2):
     it is the START of a call whose end row follows it, with no session and no money of its own - counting it
     made every driver story's price `incomplete`. The kinds that launch no call are DATA: `no_call_kinds` of
-    `references/driver-journal-kinds.json` (AR-1), `gate_repair` (a round of code moves) among them. A kind not listed
+    `references/driver-journal-kinds.json` (AR-1): a kind is listed only when its row carries no session and no money of
+    its own and every model call its writer starts is journalled by its own `run_claude` end row (`gate_repair` is one:
+    a round can dispatch a role, and that role has its own rows). A kind not listed
     still counts when it has no session (an unknown is never "complete", FR-41). A row that carries a session id is
     bound like any other row, whatever its kind. The list falls back to `delivery` and `launched` when the file is
     absent, unreadable, not an object, or its key is absent or not a list of strings; never to an empty list."""

@@ -6,8 +6,9 @@ The cost capture only ever sees `orchestrator` with no agents, so the journal is
 of who did what. Import-only: the dashboard, the retro and the metrics read it through here, so
 that a session is bound to a task, priced and labelled the same way on every page.
 
-For a resumed session the CLI returns the CUMULATIVE price of the session in `total_cost_usd`, so a naive sum over rows
-overcounts; `task_price` is the reader that accounts for it. What the journal's `total_cost_usd` means is NOT the same in every journal. Measured 30.09 on
+What the journal's `total_cost_usd` holds is NOT the same in every journal. A fresh session's row holds the price of
+that session; a resumed session's row holds either a running total of the session or the cost of one call, depending on the
+journal, so a naive sum over rows can overcount ($64.34 against $24.32 on LR2-1). Measured 30.09 on
 four real runs: in cmp1 the figure is a running total of a resumed session (it never falls); in
 three others it FALLS inside a session (driver3 session 29240aa1: $0.78, $9.51, $3.39, $0.19),
 because there the figure is the cost of ONE call. Reading "the last row" of the second kind
