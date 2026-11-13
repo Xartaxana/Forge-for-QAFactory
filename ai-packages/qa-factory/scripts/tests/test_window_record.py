@@ -2360,7 +2360,7 @@ def fv1_30b_n6_the_three_judges_read_the_one_survivor():
         class Stop(Exception):
             pass
 
-        def finish_options(live, gaps):
+        def finish_options(live, gaps, succeed=False):
             seen: list = []
 
             class Recorder:
@@ -2372,8 +2372,21 @@ def fv1_30b_n6_the_three_judges_read_the_one_survivor():
 
                 def prepare(self, options):
                     seen.append(dict(options))
+                    if succeed:
+                        return {"accept_request": {"evidence_refs": []}}
                     raise Stop()
-            saved = {n: getattr(story_step, n) for n in ("Controller", "_task_root", "_stages", "_handoff_check", "_evidence", "_role_receipts")}
+
+                def apply(self, _kind, _request):
+                    return None
+            stub_names = ("Controller", "_task_root", "_stages", "_handoff_check", "_evidence", "_role_receipts")
+            if succeed:   # the tail of `finish` after `apply`: the stand-ins say nothing, so the output holds only the let-go notes
+                stub_names += ("_release_binding", "_no_change_note", "config_finding", "_post_work", "_next", "_judge_line", "_run")
+            saved = {n: getattr(story_step, n) for n in stub_names}
+            if succeed:
+                story_step._run = lambda *_a: (0, "")
+                story_step._release_binding, story_step._no_change_note = lambda *_a: None, lambda *_a: None
+                story_step.config_finding, story_step._post_work = lambda *_a: [], lambda *_a: []
+                story_step._next, story_step._judge_line = lambda *_a: {}, lambda *_a: ""
             story_step.Controller, story_step._task_root = Recorder, lambda _t: tmp
             story_step._stages = lambda: {"S5": {"roles": ["qa-automator", "qa-code-critic"]}}
             story_step._handoff_check = lambda *_a: ("green", "", "")
@@ -2412,6 +2425,31 @@ def fv1_30b_n6_the_three_judges_read_the_one_survivor():
             check_not_in(f"n4 (finish): an index that is {label}: nothing is let go, no pair (today)", "unresolved", options)
         options, _ = finish_options(index_of([refs_word]), [])
         check_not_in("a window with no gap: no pair (today)", "unresolved", options)
+        _, said = finish_options(index_of([refs_word]), mixed, succeed=True)
+        check_in("f4: finish, prepare and apply succeed: the let-go line is printed as a note",
+                 "note: passed by the person's word: obligation_binding:A", said)
+        check_not_in("f4: ... and only the let-go line, not the kept gap", "passed by the person's word: probe_gap:B", said)
+        _, said = finish_options(index_of([]), mixed, succeed=True)
+        check_not_in("f4: no word: no let-go note", "passed by the person's word", said)
+
+        # the shared helper `word_kept`: input order, never raises, None and empty
+        word = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [ran("A"), ran("B")]}
+        real_live_kept = s5_precheck.live_word_index
+        try:
+            s5_precheck.live_word_index = index_of([refs_word])
+            check_eq("word_kept: the let-go line leaves, the order of the rest is kept",
+                     WR.word_kept(["probe_gap:B", "obligation_binding:A", "review:A"], word, tmp, "d1"),
+                     (["probe_gap:B", "review:A"], ["obligation_binding:A"]))
+            check_eq("word_kept: empty input: nothing, nothing", WR.word_kept([], word, tmp, "d1"), ([], []))
+            for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+                s5_precheck.live_word_index = live
+                check_eq(f"word_kept: an index that is {label}: every line kept, none let go",
+                         WR.word_kept(["obligation_binding:A", "x"], word, tmp, "d1"), (["obligation_binding:A", "x"], []))
+            s5_precheck.live_word_index = index_of([refs_word])
+            check_eq("word_kept: a window that is no dict: every line kept", WR.word_kept(["obligation_binding:A"], None, tmp, "d1"),
+                     (["obligation_binding:A"], []))
+        finally:
+            s5_precheck.live_word_index = real_live_kept
 
         # n2: window_record.run
         def run_with(live, gaps):

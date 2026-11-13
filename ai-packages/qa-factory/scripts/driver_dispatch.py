@@ -956,14 +956,8 @@ class DriverDispatch:
                 # `window_record.word_let_go` over the LIVE index, BEFORE the test below; the let-go lines are not
                 # printed here (this returns a tuple; `window_record.run` prints them as notes). An index that cannot be
                 # built, or any exception, lets nothing go.
-                try:
-                    import s5_precheck
-                    import window_record
-                    index = s5_precheck.live_word_index(task_root, list(record.get("scope_instances") or {}) or None,
-                                                        dispatch or path.stem)
-                    window_gaps = window_record.word_let_go(window_gaps, record, index)[0]
-                except Exception:
-                    pass
+                import window_record
+                window_gaps = window_record.word_kept(window_gaps, record, task_root, dispatch or path.stem)[0]
             for gap in window_gaps:
                 if not (gap.startswith(HANDED_OUTCOME + ":") or gap in owned):
                     return ()

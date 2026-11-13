@@ -2543,15 +2543,8 @@ def finish(args) -> int:
                 # derived over a kept gap that is not derivable today; a let-go line is PRINTED as a note, never dropped
                 # silently; an index that cannot be built (None) or any exception lets nothing go: today's behaviour.
                 if gaps:
-                    try:
-                        import s5_precheck
-                        import window_record
-                        index = s5_precheck.live_word_index(task_root, list(loaded.get("scope_instances") or {}) or None,
-                                                            args.dispatch_id)
-                        kept_gaps, let_go = window_record.word_let_go(gaps, loaded, index)
-                    except Exception:
-                        kept_gaps, let_go = gaps, []
-                    gaps = kept_gaps
+                    import window_record
+                    gaps, let_go = window_record.word_kept(gaps, loaded, task_root, args.dispatch_id)
                     decision_notes.extend(f"passed by the person's word: {line}" for line in let_go)
                 blocked_ids = _blocked_ids(gaps)
                 # t-721 (3.2): cases that list no instance and that the manifest carries as handed to the person.
