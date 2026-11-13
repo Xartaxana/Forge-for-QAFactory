@@ -271,8 +271,11 @@ def render_triage(report: dict) -> str:
 # --- --bugs ----------------------------------------------------------------------------
 
 def _project_bugs_dir(task_root: Path) -> Path:
-    # task_root is qa-factory/artifacts/<TICKET>; bugs live at qa-factory/bugs, two levels up.
-    return task_root.parent.parent / "bugs"
+    # Bugs live at <project>/qa-factory/bugs; the project is found by the one walk, so a story under a custom artifact_root
+    # reads the same folder. A story under no project keeps the old arithmetic (two levels up): it has no config to read.
+    import runtime_paths
+    project = runtime_paths.nearest_project(task_root)
+    return (project / "qa-factory" if project else task_root.parent.parent) / "bugs"
 
 
 def _existing_bug_view(path: Path) -> dict:

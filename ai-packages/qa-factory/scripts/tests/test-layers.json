@@ -6237,6 +6237,17 @@
     "tests/harness.py"
    ]
   },
+  "test_task_root_project_door.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): the project of a --task-root story is found by the one walk",
+   "covers": [
+    "branch_accounting.py",
+    "judge_diff.py",
+    "judge_results.py",
+    "walk_timing.py",
+    "tests/harness.py"
+   ]
+  },
   "test_test_files.py": {
    "layer": "table",
    "why": "table (B.2 criterion 5): test file identification",

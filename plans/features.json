@@ -1054,6 +1054,7 @@
       "root": "package",
       "globs": [
         "scripts/tests/test_stage_of_dispatch.py",
+        "scripts/tests/test_task_root_project_door.py",
         "scripts/conductor_stop.py",
         "scripts/agent_autobind.py",
         "scripts/tests/test_conductor_stop.py",
