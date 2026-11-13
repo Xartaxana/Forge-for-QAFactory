@@ -55,6 +55,7 @@ import math
 import time
 from pathlib import Path
 from codex_usage import epoch_of, first_row, iso_of
+import hooklib
 from hooklib import read_json, sorted_paths
 
 ALIVE = "alive"
@@ -763,6 +764,13 @@ def _may_be_this_dispatch(binding, role, ticket, began) -> bool:
     return not (began is not None and recorded is not None and recorded < began - _CLOCK_SKEW_S)
 
 
+def driver_state_file(project_root, ticket, name):
+    """One of the driver's files of a story (`state/<name>`), under the CONFIGURED artifact root - the one reader of that
+    root, `hooklib.artifact_root` (AR-13). A config it cannot read raises (OSError / ValueError): it is never the default
+    folder, which would answer from the wrong place (AR-28); the callers turn it into `unknown`."""
+    return hooklib.artifact_root(root=Path(project_root)) / str(ticket) / "state" / name
+
+
 def driver_session_end(project_root, ticket, identifier):
     """`(epoch, exit_code)` of the LAST session the driver recorded for this dispatch, or None.
 
@@ -787,7 +795,7 @@ def driver_session_end(project_root, ticket, identifier):
     B-268 (`driver-state.json` `in_flight`, read by `in_flight_entry`); it is a rung in `state()`, and
     this row stays the proof of a process that ENDED.
     """
-    path = Path(project_root) / "qa-factory" / "artifacts" / str(ticket) / "state" / "driver-runs.jsonl"
+    path = driver_state_file(project_root, ticket, "driver-runs.jsonl")   # raises on a config it cannot read (see `_state`)
     if not identifier or not path.is_file():
         return None
     last = None
@@ -924,10 +932,10 @@ def in_flight_entry(project_root, ticket, identifier):
     """The driver's own `in_flight` entry of this dispatch (B-268: `state/driver-state.json`, written when the
     process starts and removed when it returns), or None - no file, no entry, unreadable. Each dispatch is
     looked up by its own id, so two windows running side by side are two entries read on their own."""
-    path = Path(project_root) / "qa-factory" / "artifacts" / str(ticket) / "state" / "driver-state.json"
     if not identifier:
         return None
     try:
+        path = driver_state_file(project_root, ticket, "driver-state.json")
         held = json.loads(path.read_text(encoding="utf-8-sig")).get("in_flight")
     except (OSError, ValueError, AttributeError):
         return None
@@ -1028,7 +1036,14 @@ def _state(project_root, ticket, dispatch, now=None) -> dict:
 
     # The driver's own record of the process ending. Placed here on purpose: a transcript still
     # being written wins, so a role that is genuinely working is never declared returned.
-    ended = driver_session_end(project_root, ticket, identifier)
+    try:
+        ended = driver_session_end(project_root, ticket, identifier)
+    except (OSError, ValueError, AttributeError) as exc:
+        # The root of the driver's files cannot be read (a broken config.json): the end row cannot be looked for, and
+        # no later rung may close the dispatch on that silence - absence closes nothing (config-keys.json), so: unknown.
+        return {"state": UNKNOWN, "last_at": None,
+                "evidence": [f"the artifact root could not be read from qa-factory/config.json ({exc}); "
+                             "the driver's records of this dispatch were not looked at"] + evidence}
     if ended:
         when, code = ended
         return {"state": RETURNED, "last_at": when,
