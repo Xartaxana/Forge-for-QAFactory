@@ -2942,6 +2942,35 @@ def n2_summaries_name_their_whole() -> None:
         with patched(case_forms, problems=lambda cfg: []):
             check_eq("case_form_lines: no problem, no problem lines", len(brief_pack.case_form_lines("QA-9", task, "qa-automator")), 1)
 
+        # one row per remaining function id of the class: the text is whole at the old bound, beyond it and at 10x
+        import archive_task
+        import handoff_check
+        import manual_evidence as ME
+        import walk_session as WS
+        check_eq("_assumption_lines: both lines whole (no cut mark, the last words present)",
+                 [l.endswith(e) and "..." not in l[-12:] for l, e in zip(brief_pack._assumption_lines({}),
+                                                                           ("never a Then's expected value.", "`then_bindings[].about`."))], [True, True])
+        for size in (100, 101, 1000):
+            text = "n" * size
+            with patched(brief_pack.config_contract, siblings=lambda tr: [Path("other")]), patched(brief_pack, last_accepted_form=lambda o, s, r: "f.yaml",
+                                                                                                    _resolve=lambda f, o, p: ("disp", None)):
+                with patched(handoff_check, form_view=lambda p, _t=text: types.SimpleNamespace(data={"tried": [], "tried_note": _t})):
+                    empty = brief_pack.prior_retro_lines(task, root)
+                check_in(f"prior_retro_lines: a {size}-character tried_note is whole", f"is empty ({text})", "\n".join(empty))
+                with patched(handoff_check, form_view=lambda p, _t=text: (_ for _ in ()).throw(ValueError(_t))):
+                    bad = brief_pack.prior_retro_lines(task, root)
+                check_in(f"prior_retro_lines: a {size}-character unreadable-form reason is whole", f"cannot be read ({text});", "\n".join(bad))
+            with patched(FL_MOD := __import__("first_look"), read=lambda tr, _t=text: {"problem": _t, "rows": [], "null": None, "stale": False}):
+                check_in(f"first_look_input_line: a {size}-character problem is whole", f"no first look - {text}", brief_pack.first_look_input_line(task, "d", "1 B"))
+            with patched(FL_MOD, walk_actors=lambda *a, _t=text: {"accounts": [], "none": [], "problem": _t}), patched(WS, data=lambda: {"max_actors": 3}):
+                check_in(f"_first_look_accounts: a {size}-character problem is whole", f"cannot be read ({text}):", brief_pack._first_look_accounts(task, "s", []))
+            with patched(FL_MOD, read_attempt=lambda tr: {"walk": "w", "env": "s"}, register_ids=lambda tr, _t=text: ([], _t)), \
+                    patched(WS, read_record=lambda tr, w: {}), patched(brief_pack, _first_look_accounts=lambda *a: "acc"):
+                check_in(f"first_look_runner_lines: a {size}-character why is whole", f"holds none or cannot be read ({text});", "\n".join(brief_pack.first_look_runner_lines(task)))
+            with patched(ME, request_actors=lambda tr, case, _t=text: ([], _t)):
+                lines, _keys = brief_pack._case_actor_lines(task, ["TC-1"])
+            check_in(f"_case_actor_lines: a {size}-character reason is whole", f"actors could not be read ({text})", "\n".join(lines))
+
         # exploration_lines (2g): the failure to write the cells file is named with the exception text whole
         blocker = root / "cells-blocker"
         blocker.write_text("x", encoding="utf-8")

@@ -373,6 +373,16 @@ def n2_could_not_lines_name_the_whole_text():
             finally:
                 SP.load = real_load
             check_in(f"plan_lines: a {size}-character failure text is whole in the head", f"could not be cut ({'p' * size});", got["head"][0])
+        real_cap, real_slice = brief_pack._plan_cap, SP.window_slice
+        brief_pack._plan_cap = lambda: (1, "")           # the plan is over the cap: the slices are asked for
+        for size in (100, 101, 1000):
+            SP.window_slice = lambda *a, _s="s" * size, **k: (_ for _ in ()).throw(RuntimeError(_s))
+            try:
+                got = brief_pack.plan_dispatch_lines(task, "QA-1", "S5-plan-x-1", AUTHOR, {}, False, project)
+            finally:
+                SP.window_slice = real_slice
+            check_in(f"plan_dispatch_lines: a {size}-character slice failure is whole", f"could not be cut ({'s' * size}):", "\n".join(got["files"]))
+        brief_pack._plan_cap = real_cap
     finally:
         cleanup(project)
 
