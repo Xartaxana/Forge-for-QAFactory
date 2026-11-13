@@ -749,3 +749,23 @@ Decision of the owner needed: yes.
 | O1 conductor launch | owner's word in the header and §9 F4; rows enter in `no_move.moves_section` selected by `open_ids` (`conductor_answer`, `move:<id>`); conductor-only groups with reasons; T9c real node; census relabels | header, 0.18, 1.1 AR-15/AR-17, 1.2 K2/K3, 2.0, 2.2, 2.3, 2.8, 2.9, E3, E24, E25, 5.1 T9c, 5.5, §9 F4/F16/F20, §10 |
 | Lead acceptance, 13.11 (t-472) | Fix round 2 accepted against review-2, no third critic pass (no architecture change). Forks: **F15 (a)** shrink-only per-role baseline `native_headroom.<role>`; **F16 (a)** move texts stay data the conductor judges; **F20 (a)** Lead check — one renderer, one seam (`no_move.moves_section`, one caller `driver_conductor.py:684`), AR-17 kept; the code critic of T9c reads §2.8-§2.9. Wave 0 (§5.6) dispatched to a designer as t-480. Wave 1 as launched differs from §5.0: T0, P1-v N0 run with P1-a N0, P1-v N3, P1-v N5, FV1-30a; FV1-18 and FV1-19 take the first freed slots (needed before T5, wave 4). Appendix A finding is filed by the Lead | §9, §5.0 |
 | O2 close everything tonight | waves 0-7 with parallel builders ≤ 6, merge orders; the rows-first cut (T1r lands all rows, migration nodes switch call sites; `unsited` ratchet, E11 both worlds); declared gaps limited to four reasoned classes; T9a no longer after T7b | §5.0, 1.1 AR-20, 1.2 K12, 2.0, E11, E16, 5.1 T1r/T5b, §7, §10 |
+
+## T0 gate — Lead decision, 13.11.2026 (t-473): NARROW, wave 2 goes on with three changes
+
+Carrier of every number: `.claude/worktrees/tbw-t0/docs/tasks/specs/reports/20261113-told-before-work-spike.md` (branch `wip/tbw-t0`, c973298).
+
+| gate number | measured | bound | reading |
+|---|---|---|---|
+| walk errors | 0 / 279 files | ≤ 5 % | go |
+| M3 precision of the stderr transport | Lead classified the 27 counted sites of the sample: refusals 17 (#1, 7, 13–16, 20–30), notes/progress 10 (#3–6, 8–10, 17–19) = 63 % | ≥ 80 % | **narrow** |
+| census join over site units | 732 / 848 = 86.3 % | ≥ 90 % | below the bound; all 116 rowless units exist only through the new transports (90 stderr-only, 22 refuse-only, 4 both); over census-visible units 732 / 732 |
+| M4 | 3 yes / 3 no | "mostly no" → narrow | borderline |
+
+Decision ("решила сама", shown to the owner): not a stop — the join shortfall is made of one cause the narrowing removes or T1 closes, and the scan itself reads every file.
+
+1. **Stderr transport narrowed (binding for T1).** A `print(..., file=sys.stderr)` / `sys.stderr.write` is a refusal site only when the NEXT statement of the same block is a failing `return` (non-zero / an `EXIT_*` name) or `sys.exit(<non-zero>)` / `raise`. On the sample this keeps all 17 refusals and drops all 10 notes (17/17). A stderr print not followed so stays a named blind spot with its count, never a site.
+2. **T1 re-measures the join first.** After (1), T1's first step prints the join again; every unit still rowless gets a census row in T1 (a NAMED raise of the census count in the verdict, AR-20 — these are CLI entry points such as `manifest_put.py:run`, `stage_done.py:run` that roles do reach, so "unknown reach" is not acceptable for them). T1 stops and returns if the join after rows is under 100 %.
+3. **`check_of` keeps its name**; its census row (`shape`, `["conductor"]`, `data`) is added in T1 together with the function (T0's non-goals forbade the fixture). The `--wide` CLI importing `test_judgment_census.units_of` for the blocking set is accepted as a dev-time path and goes to the code critic of the topic as an open layering question (FR-44).
+
+Carried into later nodes: T2 — the name `refusal` already exists in `session_identity`, `role_digest`, `onboarding_notes`, `exit_gate`; the scan tells them apart by binding to `detector_verdict`, and the constructor's own pass-through of the check parameter is exempted by name. T3a/T3b — M5: a row per SITE does not fit (35.7K–47.8K per role against 26000); a row per CHECK is what ships, and role-command rows are told only for the commands the role calls (all 31 whole = 28.4K). §2.6a split pages stay the move. T4 — M7: road (b) has 3 controller units, not 5; `_code_review_refusal` has no census row. M8: dispatch-time units are conductor-facing; `check_command` and `rule_*` stay role-facing.
+Still owed by the Lead: experiment M9 (resume of `claude -p` with the attached page) before T3b.
