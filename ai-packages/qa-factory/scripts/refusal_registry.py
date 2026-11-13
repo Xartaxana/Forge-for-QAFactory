@@ -1062,24 +1062,136 @@ def _key_text(node: ast.AST) -> str | None:
     return text[:KEY_CHARS]
 
 
-def _refusal_calls(tree: ast.AST) -> list:
+def _raised_here(func: ast.AST, raises) -> bool:
+    """Is the callee of `raise <callee>(...)` a refusal exception for this scan?
+
+    `raises` None is audit A24's scan: ONLY a bare name in REFUSAL_RAISES (read at call time).
+    A per-file spec of `raise_family` adds this file's own family names and the attribute form
+    (`mod.Name(...)`): the attribute is accepted only when a spec is given, so A24 never widens."""
+    if isinstance(func, ast.Name):
+        return func.id in REFUSAL_RAISES or (raises is not None and func.id in raises["names"])
+    if raises is None or not isinstance(func, ast.Attribute):
+        return False
+    if func.attr in REFUSAL_RAISES:
+        return True
+    return isinstance(func.value, ast.Name) and func.attr in raises["mods"].get(func.value.id, ())
+
+
+def _refusal_calls(tree: ast.AST, raises=None) -> list:
     out = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
                 and node.func.id in REFUSAL_CALLS:
             out.append(node)
         elif isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) \
-                and isinstance(node.exc.func, ast.Name) and node.exc.func.id in REFUSAL_RAISES:
+                and _raised_here(node.exc.func, raises):
             out.append(node.exc)
     return out
 
 
-def sites(plugin_root: Path | None = None, files=None) -> list:
+def _module_file(known, module: str):
+    """The scanned file a dotted module name stands for (by path, else by a unique file name), or None."""
+    rel = module.replace(".", "/") + ".py"
+    if rel in known:
+        return rel
+    tail = module.rsplit(".", 1)[-1] + ".py"
+    hits = [f for f in known if f == tail or f.endswith("/" + tail)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _file_bindings(tree: ast.AST) -> dict:
+    """What one file binds: {classes: {name: [base ref]}, imports: {local: (module, name)}, mods: {alias: module}}.
+
+    A base ref is ("n", name) for `Name` and ("a", alias-or-None, attr) for `alias.attr`; a base of any other form
+    (`make()`, a subscript) is not read."""
+    classes, imports, mods = {}, {}, {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            refs = classes.setdefault(node.name, [])
+            for base in node.bases:
+                if isinstance(base, ast.Name):
+                    refs.append(("n", base.id))
+                elif isinstance(base, ast.Attribute):
+                    refs.append(("a", base.value.id if isinstance(base.value, ast.Name) else None, base.attr))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                mods[alias.asname or alias.name.split(".")[0]] = alias.name if alias.asname else alias.name.split(".")[0]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                imports[alias.asname or alias.name] = (node.module, alias.name)
+    return {"classes": classes, "imports": imports, "mods": mods}
+
+
+def raise_family(plugin_root: Path | None = None, files=None) -> dict:
+    """{file: {"names": frozenset, "mods": {alias: frozenset}}}: the exception names that are refusals IN THAT FILE.
+
+    Resolved per file (critic t-326 B3). A name is in file F's family when it is a literal of REFUSAL_RAISES, or F's OWN
+    binding of it is in the family: a class defined in F with a family base (a bare name, `alias.Name`, closed
+    transitively), or `from M import N [as A]` where M is a scanned module whose `N` is in M's family. A class defined in F
+    that is not a family class shadows a family class of the same name defined elsewhere; a name F does not bind
+    resolves only to the literals. `mods` maps an `import M [as X]` alias of a scanned module to that module's family, for
+    the attribute form `X.Name(...)`. The family only grows over a finite set, so the loop ends on a cycle.
+    A file that does not parse is left out (the scan that reads it reports it)."""
+    root = Path(plugin_root or PLUGIN_ROOT) / "scripts"
+    known = list(SCANNED if files is None else files)
+    literals = frozenset(REFUSAL_RAISES)
+    facts = {}
+    for name in known:
+        path = root / name
+        if not path.is_file():
+            continue
+        try:
+            facts[name] = _file_bindings(ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path)))
+        except SyntaxError:
+            continue
+    fam = {f: set(literals) for f in facts}
+    grew = True
+    while grew:
+        grew = False
+        for f, fx in facts.items():
+            for cname, refs in fx["classes"].items():
+                if cname in fam[f]:
+                    continue
+                for ref in refs:
+                    if ref[0] == "n":
+                        hit = ref[1] in fam[f]
+                    else:
+                        target = _module_file(known, fx["mods"].get(ref[1], "")) if ref[1] else None
+                        hit = ref[2] in literals or (target in fam and ref[2] in fam[target])
+                    if hit:
+                        fam[f].add(cname)
+                        grew = True
+                        break
+            for local, (module, orig) in fx["imports"].items():
+                target = _module_file(known, module)
+                if local not in fam[f] and local not in fx["classes"] and target in fam and orig in fam[target]:
+                    fam[f].add(local)
+                    grew = True
+    out = {}
+    for f, fx in facts.items():
+        mods = {}
+        for alias, module in fx["mods"].items():
+            target = _module_file(known, module)
+            if target in fam:
+                mods[alias] = frozenset(fam[target])
+        for local, (module, orig) in fx["imports"].items():      # `from pkg import mod` where pkg.mod is a scanned file
+            target = _module_file(known, f"{module}.{orig}")
+            if target in fam:
+                mods[local] = frozenset(fam[target])
+        out[f] = {"names": frozenset(fam[f]), "mods": mods}
+    return out
+
+
+def sites(plugin_root: Path | None = None, files=None, raises=None) -> list:
     """Every refusal the scanner sees in SCANNED, as {file, function, call, line}.
 
     `files` (names relative to scripts/) widens or narrows the scan for a caller that needs
     the same scanner over another file set (the judgment census, t-1765); without it the
-    scan is SCANNED, exactly as audit A24 reads it."""
+    scan is SCANNED, exactly as audit A24 reads it.
+
+    `raises` (the answer of `raise_family` over the same files) widens only the RAISE sites: a package subclass
+    of a refusal exception, resolved per file, and the attribute form. Without it the scan is today's, byte for
+    byte; audit A24 (`findings`, `--check`, `--sites`) never passes it."""
     root = Path(plugin_root or PLUGIN_ROOT) / "scripts"
     found = []
     for name in (SCANNED if files is None else files):
@@ -1092,7 +1204,8 @@ def sites(plugin_root: Path | None = None, files=None) -> list:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for child in ast.walk(node):
                     owner.setdefault(id(child), node.name)
-        for call in _refusal_calls(tree):
+        spec = None if raises is None else raises.get(name, {"names": frozenset(REFUSAL_RAISES), "mods": {}})
+        for call in _refusal_calls(tree, spec):
             key = _key_text(call)
             if key is None:
                 continue
