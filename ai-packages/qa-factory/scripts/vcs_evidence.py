@@ -578,6 +578,18 @@ def api_capability(live, receipts):
     return answer
 
 
+def _story_at(parent, name) -> "Path | None":
+    """`parent/name` when it is a real story (a story folder of `parent` that holds `pipeline.json`), else None. One
+    predicate for both recognitions of `_story_root_of`: a file, a plain folder, a folder with no marker is no story."""
+    try:
+        import hooklib
+        if hooklib.is_story_folder(parent, name) and (Path(parent) / name / "pipeline.json").is_file():
+            return Path(parent) / name
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
 def _story_root_of(output) -> "Path | None":
     """The story folder `output` lies in, else None (no story is known; the caller then consults every story).
 
@@ -592,15 +604,16 @@ def _story_root_of(output) -> "Path | None":
         import hooklib
         root = hooklib.artifact_root()
         relative = resolved.relative_to(root)
-        if len(relative.parts) >= 2 and hooklib.is_story_folder(root, relative.parts[0]) \
-                and (root / relative.parts[0] / "pipeline.json").is_file():
-            return root / relative.parts[0]
+        if len(relative.parts) >= 2:
+            found = _story_at(root, relative.parts[0])
+            if found:
+                return found
     except (OSError, ValueError, AttributeError):
         pass                  # a broken config or a path outside the root: today's recognition below
     parts = resolved.parts
-    for index in range(len(parts) - 2, 0, -1):
+    for index in range(len(parts) - 3, 0, -1):
         if parts[index] == "artifacts" and parts[index - 1] == "qa-factory":
-            return Path(*parts[:index + 2])
+            return _story_at(Path(*parts[:index + 1]), parts[index + 1])      # the deepest match decides
     return None
 
 
@@ -624,10 +637,24 @@ def left_out_by_person(url, output=None):
     except Exception:
         return None       # a half-installed tree degrades to "feature absent" - never a block on its own
     story = _story_root_of(output)
-    try:
-        roots = [story] if story else sorted_paths(p for p in Path(artifact_root()).iterdir() if p.is_dir())
-    except OSError:
-        return None
+    if story:
+        roots = [story]
+    else:
+        door = ("Run it with `--output` under the story's own folder (`<artifact root>/<story>/work/`), "
+                "or say so in your handoff.")
+        try:
+            root_dir = Path(artifact_root())
+        except (OSError, ValueError) as exc:
+            return 2, ("vcs_evidence: " + str(exc) + " No story is named by --output, so the list of sources the person "
+                       "left out must be read for every story, and the story folders cannot be found: nothing was "
+                       "fetched. " + door), ""
+        try:
+            roots = sorted_paths(p for p in root_dir.iterdir() if p.is_dir())
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        except OSError as exc:
+            return 2, (f"vcs_evidence: the story folder `{root_dir}` could not be listed ({type(exc).__name__}: {exc}). "
+                       "Nothing was fetched. " + door), ""
     for root in roots:
         try:
             live = SE.live(root)
@@ -659,8 +686,12 @@ def main():
         code, text, exclusion = refused
         print(text, file=sys.stderr)
         # stdout keeps its shape (FR-14): one JSON object, like every other answer of this tool.
-        print(json.dumps({"url": args.url, "status": "excluded", "error": "left_out_by_person",
-                          "exclusion": exclusion, "fetched": False}))
+        if exclusion:
+            print(json.dumps({"url": args.url, "status": "excluded", "error": "left_out_by_person",
+                              "exclusion": exclusion, "fetched": False}))
+        else:       # nothing was checked: could not check, not "excluded" (FR-41)
+            print(json.dumps({"url": args.url, "status": "unknown", "error": "not_checked",
+                              "exclusion": "", "fetched": False}))
         return code
     result = collect(args.url, full=bool(args.output))
     try:

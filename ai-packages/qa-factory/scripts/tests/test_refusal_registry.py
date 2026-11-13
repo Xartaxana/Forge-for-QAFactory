@@ -142,7 +142,7 @@ def part_door_texts() -> None:
     saved = RP.package_root
     RP.package_root = lambda: Path("C:/qa$root/copy")
     try:
-        card = brief_pack.command_card_lines("T-1", "walk-1", (), "")
+        card = brief_pack.command_card_lines(project / "qa-factory" / "artifacts" / "T-1", "walk-1", (), "")
         want = RP.script_command("<script>", must_exist=False)
     finally:
         RP.package_root = saved

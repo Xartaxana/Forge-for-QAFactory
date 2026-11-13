@@ -1077,7 +1077,7 @@ def main() -> int:
         import brief_pack
         found = flow_requests(task_root)
         write_requests(task_root, found)
-        print(json.dumps(found, indent=2) if args.json else "\n".join(brief_pack.request_lines(found, args.task)))
+        print(json.dumps(found, indent=2) if args.json else "\n".join(brief_pack.request_lines(found, task_root)))
         return 0
     result = find(task_root)
     write_list(task_root, result)

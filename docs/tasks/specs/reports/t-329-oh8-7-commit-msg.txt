@@ -1,0 +1,70 @@
+OH8-7 (t-329): the judgment census sees refusals raised through package subclasses (c1), one named ratchet raise
+
+refusal_registry.sites(..., raises=raise_family(...)) resolves refusal exception names PER FILE (a local class with a family
+base, or a from-import of a family class of a scanned module; a local non-family class shadows; an unbound name resolves to the
+literals) and accepts the attribute form only when raises is given. The census (units_of) creates units from the default
+sites exactly as before; the widened sites only FLIP `blocks` on units found by another route; a function that refuses only
+through a subclass is PENDING, counted, and held under the test constant SUBCLASS_PENDING_CEILING = 190 (dense, red above and
+below, C7). Audit A24 and its default scan are unchanged.
+
+architecture: AR-13 -- the widening goes through the one scanner refusal_registry.sites; the census never matches raises itself (no ast.Raise in the census)
+architecture: AR-20 -- one named raise: blocking_per_role.conductor 476 -> 491 (below); the pending constant is dense and shrink-only
+architecture: AR-22 -- the new totals fields (subclass_family, subclass_pending, pending names) have their producer (units_of) and readers (C7, the totals line)
+architecture: AR-28 -- a refusal through a subclass was an unknown; it now flips blocks or is counted pending, and the remaining misses are named in BLIND_SPOT
+architecture: AR-29 -- the census (the AR-29 detector) sees the refusals through package subclasses; no class judged, no meaning row added
+judgment: adds data check refusal_registry.raise_family -- census sees refusals through package subclasses
+
+Ratchet raise (named, AR-20), census widened to subclass raises (OH8-7):
+  blocking_per_role.conductor: 476 -> 491; the 15 rows that flip, all roles [conductor], no blocks_override:
+  environment_preparation.py::_validate_step, execution_request.py::validate_request, import_test_receipt.py::validate_receipt,
+  machine_facts.py::_check, managed_dependency.py::validate_descriptor, manifest_put.py::_refuse_unmergeable,
+  probe_by_code.py::_refuse_alternative_args, ::_refuse_conditional_compilation, ::_refuse_flags, ::_refuse_overlap, ::check_on_line,
+  red_sandbox.py::_post_check, ::refuse_same_path, ticket_light.py::check_fields_table, ::check_reference_kinds.
+  No other key raised; breach stays 1; MEANING_CEILING untouched.
+
+Four questions for SUBCLASS_PENDING_CEILING (new axis-18 member):
+  (a) cost: the node that closes a file group classifies its pending functions and lowers the constant; until then a new
+      subclass-only refuser costs its author a row or a literal raise; the census run parses each file twice more (raise_family, then sites(raises=)).
+  (b) axes: below, per axis.
+  (c) detector: test_c7_the_subclass_pending_set_is_dense_and_only_shrinks (red above and below) and calibration check 35 (b).
+  (d) not skipped: the census test runs in CI on every package change (code on the path); the meaning of a pending row is
+      judged by the critic question 11 when OH8-7b and after classify it.
+
+axis 1 (policy <-> role): n/a no policy, role file or journal change
+axis 2 (per-tier exam instruments): n/a no exam instrument
+axis 3 (factory package <->): covered package change only; the release copy is made by the release step
+axis 4 (factory rules <->): n/a no factory rule, debt row or principle text changed
+axis 5 (stage twins inside): n/a no stage twin touched
+axis 6 (measurement tools <->): n/a no measurement tool touched
+axis 7 (per-test identity <->): n/a no per-test identity changed
+axis 8 (where the story): n/a no story path resolver touched
+axis 9 (is this a): n/a no test-file recognizer touched
+axis 10 (git-top readers): n/a no git-top reader touched
+axis 11 (shell-command recognizers): n/a no shell-command recognizer touched
+axis 12 (carriers of the): n/a no work-plan carrier touched
+axis 13 (the dispatch text): n/a no dispatch text touched
+axis 14 (readers of agent): n/a no transcript reader touched
+axis 15 (console stream setup): n/a no console stream setup touched
+axis 16 (one json reader): n/a no JSON reader touched
+axis 17 (detector verdict shape): n/a no detector verdict shape touched
+axis 18 (in-tree shrink-only ratchets): covered new member SUBCLASS_PENDING_CEILING with its map row in this commit; the conductor raise is named row by row
+axis 19 (one reader of): n/a no role tools line reader touched
+axis 20 (host receipt names): n/a no host receipt name touched
+axis 21 (readers of the): n/a no markdown table reader touched
+axis 22 (a host's return): n/a no host report form touched
+axis 23 (fields of a): n/a no tests[] row field touched
+axis 24 (the record of): n/a no execution record join touched
+axis 25 (freshness of a): n/a no freshness predicate touched
+axis 26 (the word stand): n/a no stand-not-confirmed word touched
+axis 27 (the profile of): n/a no profile of a test row touched
+axis 28 (the render site): n/a no row form render site touched
+axis 29 (append-only jsonl writers): n/a no jsonl appender touched
+axis 30 (the commands of): n/a no profile commands reader touched
+axis 31 (role carriers): n/a no role carrier touched
+axis 32 (where judgment lives): covered the census, the one scanner sites() and the gate: the widening lives in sites(), the census runs no second walk
+axis 33 (which dispatch am): n/a no dispatch identity reader touched
+axis 34 (one road for): covered a temporary second road (subclass-only refusers pending) is bounded by the counted constant and ends at 0 with OH8-7b and after
+axis 35 (sides of a): n/a no story sides reader touched
+axis 36 (the row written): n/a no placeholder row predicate touched
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>

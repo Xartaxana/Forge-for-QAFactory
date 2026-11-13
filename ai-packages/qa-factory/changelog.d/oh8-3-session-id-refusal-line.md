@@ -1,0 +1,1 @@
+- `cost_capture` no longer skips a refused session id silently: an id that is not one path component (not a string, empty, NUL, `..`, `a/b`) now leaves one stderr line `session id refused: <reason>`; the exit code and the hook's stream are unchanged.
