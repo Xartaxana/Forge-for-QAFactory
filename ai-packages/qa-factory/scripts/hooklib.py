@@ -199,9 +199,11 @@ def not_a_project_text(root, given: bool = True, purpose: str = "", extra_door: 
     door = f" A door that needs no project: {extra_door.strip()}." if extra_door.strip() else ""
     if not given and not above:
         end = f" {dead_end_detail.strip()}" if dead_end_detail.strip() else ""
+        elsewhere = ("run the command from inside the project, set CLAUDE_PROJECT_DIR to it, or pass --root <the project root>"
+                     if root_option else "run the command from inside it or set CLAUDE_PROJECT_DIR to it")
         return (f"{lead}this project is not onboarded yet (no qa-factory/config.json in {resolved} or above it). "
                 f"Nothing was written.{more}{end} The next step is /qa-factory:qa-onboarding; if the project is "
-                f"elsewhere, run the command from inside it or set CLAUDE_PROJECT_DIR to it.{door}")
+                f"elsewhere, {elsewhere}.{door}")
     if above:
         fix = (f"Re-run with --root {above}, or run the command from inside it." if root_option else
                f"Run the command from inside {above}, or set CLAUDE_PROJECT_DIR to it.")
