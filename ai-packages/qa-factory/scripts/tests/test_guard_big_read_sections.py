@@ -68,6 +68,7 @@ import artifact_sections as AS  # noqa: E402
 import branch_accounting as BA  # noqa: E402
 import guard_pre_tool as G  # noqa: E402
 import hooklib  # noqa: E402
+import runtime_paths as RP  # noqa: E402
 from test_artifact_sections import isolated_lines, pretty, write  # noqa: E402  (the fixtures of the map, not a second copy)
 from test_grounding_section import FIXTURE, at  # noqa: E402
 
@@ -507,13 +508,15 @@ def the_project_config(fx: Fixture, plugin_a: Path, plugin_b: Path) -> None:
     # TEMPORAL, world 1: the plugin has no config_view.py (a temp plugin copy; the guard reads its PLUGIN_ROOT at the call).
     # Both worlds are built here, so the keys hold before and after SC1-8 puts the script in the real plugin.
     check("M-6 world 1 is a plugin without config_view.py", not (plugin_a / "scripts" / "config_view.py").exists())
-    with mock.patch.object(G, "PLUGIN_ROOT", plugin_a):
+    # OH5-2 A: the door's script is asked of `runtime_paths.package_root` (the survivor's one reader); the roles' agent files
+    # are still read through G.PLUGIN_ROOT, so both are patched to the same temp plugin.
+    with mock.patch.object(G, "PLUGIN_ROOT", plugin_a), mock.patch.object(RP, "package_root", lambda: plugin_a):
         for label, role in (("the conductor / onboarding (no role)", None), (RUNNER, RUNNER), (REPORTER, REPORTER), (CRITIC, CRITIC)):
             text = fx.ask(fx.config, role=role)
             check(f"M-6 world 1, {label}: one refusal, the key door", bool(text) and key_door in text, repr(text))
             check_not_in(f"M-6 world 1, {label}: and no script that is not there", "config_view", text)
     # TEMPORAL, world 2: the plugin has config_view.py
-    with mock.patch.object(G, "PLUGIN_ROOT", plugin_b):
+    with mock.patch.object(G, "PLUGIN_ROOT", plugin_b), mock.patch.object(RP, "package_root", lambda: plugin_b):
         for label, role in (("the conductor / onboarding (no role)", None), (RUNNER, RUNNER), (REPORTER, REPORTER)):
             text = fx.ask(fx.config, role=role)
             check(f"M-6 world 2, {label} (a shell): the key door and `config_view.py --keys`",
