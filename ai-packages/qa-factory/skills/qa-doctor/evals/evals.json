@@ -320,6 +320,46 @@
           "description": "The READINESS line does not read 'ok - n of n' while a note stands; it says the rest is in FACTORY NOTES, and when a person-owned row also exists it keeps 'your help is needed'."
         }
       ]
+    },
+    {
+      "id": 16,
+      "prompt": "Run qa-doctor in an onboarded project where the capability ticket_adapter is missing with remedy.owner user (gap ticket-read-route, autorun false); its remedy steps name /qa-factory:qa-onboarding topic 7 and, as an alternative, a waiver.py --stage S1 call with the person's own words.",
+      "expected_output": "The doctor does not print the waiver.py line or any script, flag or path. It names the skill that owns the step, /qa-factory:qa-onboarding, and presents the alternative as one closed question in human-questions form (give the tracker details, or say the word and the story runs on what the route does reach). It does not run the waiver itself, because the waiver is outside its declared writes; it names the owning skill for it. READINESS stays at your help is needed.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "outside-writes-names-the-skill",
+          "description": "The doctor runs nothing outside its declared writes and read-only probes: the waiver is not run by the doctor, the owning skill is named."
+        },
+        {
+          "name": "closed-question-for-a-decision",
+          "description": "A decision of the person arrives as one closed question with options and consequences in human-questions form, with no internal label or script name."
+        },
+        {
+          "name": "no-command-line-in-person-text",
+          "description": "No text addressed to the person contains a *.py file, run-py.cmd, ${CLAUDE_PLUGIN_ROOT} or a script flag; a person-only step is phrased as an action."
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "Run qa-doctor in a project where nothing is addressed to the person, but the doctor holds service facts: injection unverified after the probe, an ACTIVITY NOT RECORDED line, and a failed .gitignore write.",
+      "expected_output": "The main part carries only the person's own actions; with none, one line says 'Nothing for you to do.' and no section is empty. Every service fact is a plain one-line entry under FACTORY NOTES (nothing for you to do), the last block, with no alarm wording and no script, flag or path.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "service-facts-in-the-tail",
+          "description": "The injection, activity and .gitignore facts all stand under FACTORY NOTES (nothing for you to do) and nowhere above it."
+        },
+        {
+          "name": "main-part-person-actions-only",
+          "description": "Above the tail there is no row with remedy owner factory and no retelling of the doctor's own steps; the person's actions only."
+        },
+        {
+          "name": "empty-main-part-says-so",
+          "description": "With nothing for the person the report says so in one line instead of leaving a section empty."
+        }
+      ]
     }
   ]
 }
