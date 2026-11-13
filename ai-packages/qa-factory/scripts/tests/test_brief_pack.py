@@ -1711,7 +1711,7 @@ def p4_lines(base: Path) -> None:
 def p4_min_words(base: Path) -> None:
     """RC2-1: the minimal line of a free-text answer carries the words cut at DECISION_CHARS_MIN by `_short`."""
     root = TQR.write_story(base / "minwords", [TQR.q("Q1"), TQR.q("Q2")])
-    limit, pointer = brief_pack.DECISION_CHARS_MIN, brief_pack.WORDS_BY_REFERENCE
+    limit, pointer = brief_pack.DECISION_CHARS_MIN, "the whole text is in <decisions>"
 
     def minimal_of(*words) -> list:
         (root / "work" / "question-answers.jsonl").unlink(missing_ok=True)
@@ -1762,7 +1762,7 @@ def p4_long_words(base: Path) -> None:
     folded = "w" * (limit - len(head) + 1)      # one line of `w`: what the minimal line cuts (RC2-1)
     cut_words = folded[:brief_pack.DECISION_CHARS_MIN - 3] + "..."
     check_eq("K3 hf2-7 P4: ...and the minimal line carries the words cut at DECISION_CHARS_MIN, with the pointer (RC2-1)", minimal,
-             [f"- Q1 answered: reading a; the person's words: {cut_words}; {brief_pack.WORDS_BY_REFERENCE}"])
+             [f"- Q1 answered: reading a; the person's words: {cut_words}; the whole text is in <decisions>"])
     result = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", None, root)
     check("K3 hf2-7 P4: the pointer is what makes `build` write the side file (truncated is read from `<decisions>`)",
           any("<decisions>" in x for x in result[0]))
@@ -1855,9 +1855,20 @@ def p4_build(root: Path, task: Path) -> None:
         check_not_in("H10 hf2-7 P4 (build): the lifted halt is not in the brief", "open halt", brief)
         # t-1765 X1 fix-3: the SD head is form, outside the budget (own cap SD_HEAD_MAX_BYTES), so the 6 KB pin is on the body.
         check("K1 hf2-7 P4 (build): the brief body is under 6 KB", built["budget_bytes"] <= 6 * 1024, str(built["budget_bytes"]))
+        # RC2-1 fix round (t-448 F3): at level 1 the cut minimal line names the side file by its path, never the literal placeholder
+        QR.record(task, "Q1", "answered", "w" * 300, "S2 stop", "person", TQR.row_hash_of(task, "Q1"), reading="b")
+        real_ceiling = brief_pack.BRIEF_MAX_BYTES
+        brief_pack.BRIEF_MAX_BYTES = 1       # the ladder runs to its last rung: level 1
+        try:
+            tight = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+        finally:
+            brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        check_in("RC2-1 (build, level 1): the Q1 line is cut and says where the whole text is",
+                 "the whole text is in qa-factory/artifacts/QA-9/work/briefs/S4-qa-case-designer-1-decisions.md", tight)
+        check_not_in("RC2-1 (build, level 1): no literal `<decisions>` placeholder is left in the brief", "<decisions>", tight)
         pipeline["halts"][0]["resolved"] = False
         pipeline_file.write_text(json.dumps(pipeline), encoding="utf-8")
-        again = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+        again =brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
         check_in("H11 hf2-7 P4 (build): the same halt not resolved is in the brief", "open halt S2: 2 blocking question(s)", again)
         # the brief of a story with no register is the brief it always was
         readiness.unlink()

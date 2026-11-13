@@ -1620,8 +1620,9 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
     open until the report - read ONLY through `QR.answers_for_brief` (AR-13: the answers file is the carrier, not the
     journal). A decision that no longer holds (the row changed since, `with_designer`, open) has no line: the
     question is asked again. `shown` keeps the words when the line fits DECISION_CHARS and points at the side file
-    when it does not; `minimal` is the id, the letter and the words cut at DECISION_CHARS_MIN (WORDS_BY_REFERENCE
-    when cut; none for a kept-open or not-needed line); the same words under several questions are
+    when it does not; `minimal` is the id, the letter and the words cut at DECISION_CHARS_MIN (when cut, the line ends
+    "; the whole text is in <decisions>", and `build` replaces `<decisions>` by the side file's path at level 1; none for
+    a kept-open or not-needed line); the same words under several questions are
     carried once (`said` is those texts, for `decisions` to drop the journal copies of them). One line, first, says
     the answers could not be read when the store reports it (a broken line, a non-object line, an unreadable file)."""
     view = QR.answers_for_brief(task_root)
@@ -1655,7 +1656,7 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
             clause = "the person's words: " + person_words_whole(key, project, holder)
             minimal_clause = "the person's words: " + _short(key, DECISION_CHARS_MIN)
             if len(re.sub(r"\s+", " ", key).strip()) > DECISION_CHARS_MIN:
-                minimal_clause += f"; {WORDS_BY_REFERENCE}"
+                minimal_clause += "; the whole text is in <decisions>"      # one prefix per line; `build` puts the side file's path in
         if item["status"] == QR.DEFERRED or item["status"] == "not_needed":
             minimal_clause = ""
         full = f"- {head}; {clause}"
@@ -4380,7 +4381,9 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         elif dec_level == 2:
             parts += [line.replace("<decisions>", side["decisions"]) for line in shown]
         elif dec_level == 1:
-            parts += minimal       # PC2-6 O-c: the pointer to the side file is `Not in the brief`'s line, once
+            # a cut line names the side file by its path (never the literal placeholder, FR-37); the `Not in the brief` line stays the one
+            # pointer for the rest (PC2-6 O-c)
+            parts += [line.replace("<decisions>", side["decisions"]) for line in minimal]
         else:       # only the probe of `over_ceiling` asks for it: no brief is built at this level (N4, F-3)
             parts.append(f"- {len(full)} recorded decision(s): {side['decisions']}")
         if omitted or over_line:
