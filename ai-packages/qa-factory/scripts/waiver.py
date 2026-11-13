@@ -374,6 +374,12 @@ STAND_NOT_CONFIRMED_BLOCK = "stand not confirmed"
 STAND_LOGIN_MISSING_BLOCK = "stand login missing"
 OWN_FORM_BLOCKS = (QUESTION_THRESHOLD_BLOCK, MODE_SWITCH_BLOCK, STAND_NOT_CONFIRMED_BLOCK, STAND_LOGIN_MISSING_BLOCK)
 
+
+def stand_block(environment: str) -> str:
+    """The block text of the stand word: the one builder both callers use (`Driver.stand_check`, `Driver.s6_no_stand`)."""
+    return f"{STAND_NOT_CONFIRMED_BLOCK}: " + (f"stand `{environment}` is not confirmed as usable" if environment else "no stand is confirmed for this story")
+
+
 # The door in backticks that ends a refusal line: ONLY a final span that IS a door - a command (`waiver.py --block ...`), so it holds
 # `--` or `.py`. A span that is the problem's own text (a case id: ``... case `TC-3` ``) stays: two lines that differ only in it
 # are two problems, and a block on one of them must not pass the other (t-842 F2, FR-4). The cost, named: a problem whose last span
