@@ -1944,6 +1944,15 @@ def fv111_title_taken_without_a_question() -> None:
         driver.s0_read_word()
         eq("FV1-11 RESUME-OLD-QUESTION: `go on` to the stored question is a pass with the person's words",
            ((driver.state.get("s0_passes") or {}).get("ticket_title") or {}).get("words"), "go on")
+        driver.state.pop("s0_passes", None)
+        driver.state.update(s0_block="ticket_title", pending_words={"S0": "retry"},
+                            s0_ask={"kind": "halt", "text": "old question", "doors": {"retry": "retry", "go on": "go on"},
+                                    "problems": ["title taken from the first line"], "paste": True})
+        driver.s0_read_word()
+        eq("FV1-11 RESUME-OLD-QUESTION: `retry` to the stored question records no pass and leaves no block",
+           ("ticket_title" in (driver.state.get("s0_passes") or {}), driver.state.get("s0_block")), (False, None))
+        driver.state.update(s0_passes={"ticket_title": {"words": "go on", "at": "x", "problems": ["title taken from the first line"], "witness": "w"}})
+        driver._s0_passed = []
         driver.s0_criteria({"title": "Items can carry tags", "acceptance_criteria": ["a"], "provenance": first_line}, "through the tracker")
         eq("FV1-11 RESUME-OLD-QUESTION: the check takes that pass (not overwritten by the factory's) and reads it as the person's word",
            [driver.s0_pass_phrase(b, w) for b, w in driver._s0_passed],

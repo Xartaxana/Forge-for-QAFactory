@@ -166,8 +166,7 @@ no row knows. Only a call that failed (`is_error` or a non-zero exit) has its te
   (t-281): the tracker's (exit 1/3) is the `ticket_read` question (`not needed`, `retry`, the ticket as text; `retry_at`
   from the object), the factory's (exit 4: a broken data table or setting, an unexpected error, or an adapter that printed
   no object) is a Refusal naming the file, and a lost login (exit 5) is an `InfraStop:auth` naming the token variable (exit 5 with owner `intermediary` is the `ticket_read` question naming the protection, not a login stop). A
-  pasted text is parsed by the same parser as a fetched description; no `# ` line is the `ticket_title` question (first line
-  taken, `go on` keeps it), a criteria section the reader lost (text under the heading, no criteria read) is the `ticket_incomplete` question (the factory's defect; paste / `go on` / stop) while a ticket with no such section is a first line of `pipeline.warnings` (D-0050), and a
+  pasted text is parsed by the same parser as a fetched description; no `# ` line takes the first line as the title without a question (gate A shows it), a criteria section the reader lost (text under the heading, no criteria read) is the `ticket_incomplete` question (the factory's defect; paste / `go on` / stop) while a ticket with no such section is a first line of `pipeline.warnings` (D-0050), and a
   snapshot already on disk is read as it is and never rewritten. The tracker agent is a write channel only.
 
 ## Child environment

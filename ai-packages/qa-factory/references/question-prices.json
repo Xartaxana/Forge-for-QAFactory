@@ -27,12 +27,6 @@
       {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "whether the ticket changed while the story waited"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
     ],
-    "s0.ticket_title": [
-      {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "whether the line taken as the title is the title"},
-      {"answer": "retry", "factory": "command", "person": "your_work", "delivery": "waits"},
-      {"answer": "paste", "factory": "command", "person": "your_work", "delivery": "unchanged"},
-      {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
-    ],
     "s0.ticket_incomplete": [
       {"answer": "paste", "factory": "command", "person": "your_work", "delivery": "unchanged"},
       {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "whether every requirement in the section the factory could not read as a list reaches the register from the description"},

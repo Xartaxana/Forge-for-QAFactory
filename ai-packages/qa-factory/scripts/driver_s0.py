@@ -1556,47 +1556,21 @@ class DriverS0:
         the driver stored (`driver-tmp/ticket-<T>.md`) - so that the question names the file the answer is read
         from, relative to the project; None when nothing was read from a file (the tracker, a kept snapshot)."""
         title = str((ticket.get("title") or "")).strip()
-        where = f" (the file `{self.s0_rel_path(source_file)}`)" if source_file else ""
         read = f"from the ticket file `{self.s0_rel_path(source_file)}`" if source_file else how
-        at_top = f"at the top of the file `{self.s0_rel_path(source_file)}`" if source_file else "at the top of your text"
         if (ticket.get("provenance") or {}).get("title_from") == "first_line" and title and title != self.task:
             problems = ["title taken from the first line"]
-            wiki = (ticket.get("provenance") or {}).get("markup") == "wiki"
-            if wiki:
-                # a text with `h2.`-style headings: `# ` is a list item there, so the title is a `title:` line of the header
-                found = ("its header has no `title:` line, and a line that starts with `# ` is a list item in this kind "
-                         "of text, never a title. I took this line as the title")
-                put = (f"in a header {at_top}: a line `title: <the title>` between two lines of three dashes")
-                seen = "no `title:` line in the header; this line was taken as the title: "
-            else:
-                found = "no line starts with `# `. I took its first line as the title"
-                put = f"on a line that starts with `# ` {at_top}"
-                seen = "no line starting with `# `; the first line was taken as the title: "
-            # FV1-11: the title the reader found is a line of the record, never a stop. The title problem is the only one
-            # this check holds, so the factory writes the pass itself, in the shape `go on` writes (`s0_record_pass`), unless
-            # the person's own `go on` (an older stop answered after this change) is stored already; the criteria check below
-            # still runs. The question under it stays for a check that carries another problem.
+            # FV1-11: the title the reader found is a line of the record, never a stop. It is the only problem this check holds
+            # (the list is this one constant, so a stored pass always covers it), so the factory writes the pass itself, in the
+            # shape `go on` writes (`s0_record_pass`), unless the person's own `go on` (a stop of an older run, answered after
+            # this change) is stored already; `s0_passed` then reads it into the story's record. The stored question is still
+            # answered by `s0_read_word`.
             if "ticket_title" not in (self.state.get("s0_passes") or {}):
+                found = ("its header has no `title:` line, and a line that starts with `# ` is a list item in this kind of text, "
+                         "never a title. I took this line as the title"
+                         if (ticket.get("provenance") or {}).get("markup") == "wiki"
+                         else "no line starts with `# `. I took its first line as the title")
                 self.s0_record_pass("ticket_title", self.S0_TAKEN_WORDS, problems, f"{found}: {title}")
-            if not self.s0_passed("ticket_title", problems):
-                self.s0_stop(
-                    "ticket_title", "halt",
-                    self.closed_question(
-                        "s0.ticket_title",
-                        f"I read the ticket you gave me for {self.task}{where} and could not find a title in it: "
-                        f"{found}: \"{self.s0_quote(title)}\". Nothing in "
-                        "your text was changed, and the criteria and the comments are read from it as they stand."
-                        "\n\nWhat I need from you is one of these:",
-                        [{"answer": "go on", "token": "go on",
-                          "says": "that line will do as the title; the story then carries a line saying that you accepted it"},
-                         {"answer": "retry", "token": "retry", "says": f"put the title {put}, and I read it again",
-                          "slots": {"what": "put the title in the ticket"}},
-                         {"answer": "paste", "says": "paste the ticket again with a title - I use that instead",
-                          "slots": {"what": "paste the ticket with a title"}},
-                         self.STOP_OPTION]),
-                    {"retry": "retry", "go on": "go on"},
-                    details=f"Ticket {self.task}, read {read}.\nWhat the reader found:\n- {seen}{title}",
-                    problems=problems, paste=True)
+            self.s0_passed("ticket_title", problems)
         elif not title or title == self.task:
             # P05 (C1-3 F2 a): a ticket with no title at all is the person's question - the paste door reads the ticket, which a
             # seam-raised refusal question would not (no `s0_block` is set there) - never "run the story again".
