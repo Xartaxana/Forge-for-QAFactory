@@ -42,16 +42,7 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
    "raised_at": [
-    "driver_machine:check_run_mode",
-    "driver_machine:take_package_answer",
-    "driver_runner:package_check"
-   ]
-  },
-  "ticket_auth": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
-   "raised_at": [
-    "driver_s0:ticket_auth_person"
+    "driver_machine:take_package_answer"
    ]
   },
   "ticket_changed": {
@@ -65,7 +56,7 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 10,
+  "unwalked": 9,
   "hook_layer": 0,
   "raised_by": []
  }

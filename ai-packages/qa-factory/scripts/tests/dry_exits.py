@@ -6,7 +6,8 @@ the driver's own tables by import (`driver_dispatch.KNOWN_REFUSALS`, `no_move.lo
 reader its walker uses, `refusal_registry.REGISTRY`, the driver sources through `harness.driver_sources`) - and compares them with the
 rows of `fixtures/driver-exits/<group>.json`, in both directions. A route, joint or keyless question kind with no row is red; so is a
 row with nothing behind it. The keys of the closed questions are NOT censused here (`test_conductor_doors.py` already does that; the
-walk rows join its `driven` set through `driven_keys`).
+walk rows join its `driven` set through `driven_keys`). A question kind is "keyless" (a row here) unless its text argument is, or is a name
+bound IN THE SAME FUNCTION to, a `closed_question(...)` / `priced_section(...)` call: those texts are the existing census's.
 
     python -B scripts/tests/dry_exits.py --check [--dir D] [--exits-dir E]   the census: 0 discrepancies or the list, and the numbers
     python -B scripts/tests/dry_exits.py --judge RESULTS.json [--dir D]      judge `{row id: bool}` against the ledger `D/known_red.json`
@@ -14,7 +15,7 @@ walk rows join its `driven` set through `driven_keys`).
 
 The label ledger is the ONE helper `known_red.py` (its reconcile, its raise door); this file only names the ledger file. Unknown never
 becomes a pass (AR-28): an unreadable or missing data file is red naming the file, never an empty census; a row with no class source
-is `class unknown`, printed and counted, never a guessed class.
+is `class unknown` and RED (E19), never a guessed class and never a pass (FR-59).
 """
 import argparse
 import ast
@@ -44,10 +45,15 @@ RATCHET_KEYS = RATCHET_COUNTS + ("raised_by",)
 REACH_RE = re.compile(r"^(story|seed|live_only|unwalked|hook_layer|after:[A-Z][A-Z0-9]*-[0-9]+[a-z]?)$")
 NEEDS_WHY = ("live_only", "unwalked")                    # `after:<finding>` always needs one too
 EXECUTABLE = ("story", "seed")                           # the reach values that mean the row is run (E20)
+COUNT_ONLY = ("unwalked", "hook_layer")                  # reaches a WALK row never carries: they are counts of the group files
 KEYED = ("closed_question", "priced_section")
 PERSON_CALLS = ("Person", "site_seam_person")
 UNMATCHED, KNOWN_FALSE = "unmatched", "known_false"
 CLASS_UNKNOWN, NOT_A_REFUSAL = "class unknown", "n/a"
+RAISE_RE = re.compile(r"^(live_only|after|unwalked|hook_layer) \| (\S.*?) \| (\S.*)$")      # "<count> | <row> | <who, where>" (F2)
+MATCH_KNOWN = "match_known"                              # the function whose literal `return "<name>", "<action>"` tuples are routes (F4)
+# The keys of a state carrier that hold a clock reading. A short closed list kept here on purpose (AR-1 inside the test layer: the
+# fingerprint must ignore them and the carriers are the controller's and the driver's own files); a key ending in `_at` is a clock too.
 TIME_KEYS = ("at", "ts", "started", "finished", "stage_started", "stage_finished", "started_at", "finished_at", "asked_at")
 STATE_DOOR = "add a row to fixtures/driver-exits/<group>.json with reach seed or live_only (or unwalked, counted in that group's ratchet) and a why_unreached"
 
@@ -149,14 +155,31 @@ def _group_problems(path: Path, data) -> list:
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             out.append(f"{where}: ratchet.{key} is {value!r}; expected a whole number of rows, 0 or more")
     raised = ratchet.get("raised_by")
-    if not isinstance(raised, list) or not all(isinstance(item, str) and item.strip() for item in raised):
-        out.append(f"{where}: ratchet.raised_by is {raised!r}; expected a list of non-empty strings, each naming who allowed one raised row")
+    if not isinstance(raised, list):
+        out.append(f"{where}: ratchet.raised_by is {raised!r}; expected a list of '<count> | <row> | <who, where>' strings")
+    else:
+        out.extend(f"{where}: ratchet.raised_by entry {item!r} does not fit; expected '<count> | <row> | <who, where>' with the count one of "
+                   f"{list(RATCHET_COUNTS)} (one entry per raised row, naming the row)" for item in raised if not _raise_entry(item))
+    out.extend(_empty_problems(where, data, ratchet))
     return out
+
+
+def _raise_entry(item):
+    """`(count name, row ref, who)` of a `raised_by` entry, or None when it does not fit the form."""
+    match = RAISE_RE.match(item) if isinstance(item, str) else None
+    return match.groups() if match else None
+
+
+def _empty_problems(where: str, data: dict, ratchet: dict) -> list:
+    """A group file that carries no row and no count says nothing: refused naming the file (AR-28, never a green empty group)."""
+    rows = any(isinstance(data.get(section), dict) and data.get(section) for section in SECTIONS)
+    counts = any(isinstance(ratchet.get(key), int) and ratchet.get(key) for key in RATCHET_COUNTS)
+    return [] if rows or counts else [f"{where}: carries no row and no ratchet count; expected the rows of its group (or delete the file)"]
 
 
 def load(directory=None) -> dict:
     """The census files glued: `{"routes": {name: row}, "joints": {...}, "kinds_without_key": {...}, "where": {(section, name): path},
-    "ratchet": {count name: [base sum]}, "raised_by": [...], "classes": {...}, "files": [...]}`. Every `*.json` of the directory except
+    "base": {count name: sum of the bases}, "raised_by": [...], "classes": {...}, "files": [...]}`. Every `*.json` of the directory except
     `classes.json` and `known_red.json` is a group file. The same id in two files, a file that cannot be read, an unknown field, a missing
     directory, no group file at all: `ExitsUnreadable` naming the file(s) - never an empty census (AR-28)."""
     directory = _directory(directory or EXITS_DIR, "driver-exits")
@@ -237,12 +260,51 @@ def _callee(node: ast.Call):
     return func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
 
 
+def _calls_keyed(expr) -> bool:
+    return any(isinstance(inner, ast.Call) and _callee(inner) in KEYED for inner in ast.walk(expr))
+
+
+def _own_nodes(node):
+    """The nodes of a function body that belong to THIS function (a nested function or lambda is another scope)."""
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        current = stack.pop()
+        yield current
+        if not isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            stack.extend(ast.iter_child_nodes(current))
+
+
+def _bindings(function) -> dict:
+    """`{name: {True|False}}` for the names a function binds by a plain assignment: True when the bound expression calls
+    `closed_question` / `priced_section`. A name bound twice, once keyed and once not, holds both (the kind is then MIXED)."""
+    bound: dict = {}
+    for node in _own_nodes(function):
+        pairs = ([(t, node.value) for t in node.targets] if isinstance(node, ast.Assign)
+                 else [(node.target, node.value)] if isinstance(node, ast.AnnAssign) and node.value is not None else [])
+        for target, value in pairs:
+            if isinstance(target, ast.Name):
+                bound.setdefault(target.id, set()).add(_calls_keyed(value))
+    return bound
+
+
+def _text_keyed(text, bound: dict) -> set:
+    """`{True}`, `{False}` or both for the text argument of a Person site: keyed when the expression calls a keyed function itself, or
+    is built from names bound in the SAME function to such a call (spec 3.2 as amended: the key often arrives one statement earlier)."""
+    if text is None:
+        return {False}
+    if _calls_keyed(text):
+        return {True}
+    names = [inner.id for inner in ast.walk(text) if isinstance(inner, ast.Name) and inner.id in bound]
+    found = set().union(*(bound[name] for name in names)) if names else set()
+    return found or {False}
+
+
 class _PersonSites(ast.NodeVisitor):
     def __init__(self, module: str):
         self.module, self.stack, self.sites = module, [], []
 
     def _function(self, node):
-        self.stack.append(node.name)
+        self.stack.append((node.name, _bindings(node)))
         self.generic_visit(node)
         self.stack.pop()
 
@@ -252,17 +314,19 @@ class _PersonSites(ast.NodeVisitor):
         if _callee(node) in PERSON_CALLS and node.args:
             first = node.args[0]
             kind = first.value if isinstance(first, ast.Constant) and isinstance(first.value, str) else None
-            rest = [*node.args[1:], *[kw.value for kw in node.keywords]]
-            keyed = any(isinstance(inner, ast.Call) and _callee(inner) in KEYED for arg in rest for inner in ast.walk(arg))
-            self.sites.append((kind, f"{self.module}:{self.stack[-1] if self.stack else '<module>'}", keyed))
+            text = node.args[1] if len(node.args) > 1 else next((kw.value for kw in node.keywords if kw.arg == "text"), None)
+            name, bound = self.stack[-1] if self.stack else ("<module>", {})
+            for keyed in sorted(_text_keyed(text, bound)):
+                self.sites.append((kind, f"{self.module}:{name}", keyed))
         self.generic_visit(node)
 
 
 def person_sites(sources=None) -> list:
     """`[(kind or None, "<module>:<function>", keyed)]` for every `Person(...)` / `site_seam_person(...)` call of the driver sources
     (`harness.driver_sources()`: the ONE reader of that set, AR-13). `kind` is the literal first argument, None when it arrives as a value
-    (a name, an f-string, an expression). `keyed` is True when `closed_question(...)` / `priced_section(...)` is called INSIDE the call's own
-    arguments - the spec's rule "the same call" (3.2). A source that does not parse is an `ExitsUnreadable`, never skipped."""
+    (a name, an f-string, an expression). `keyed` is True when the TEXT argument calls `closed_question(...)` / `priced_section(...)` or is built
+    from a name bound in the same function to such a call (spec 3.2 as amended; `_text_keyed`). A name bound twice, once keyed and once not,
+    gives the site both values (the kind is MIXED). A source that does not parse is an `ExitsUnreadable`, never skipped."""
     if sources is None:
         import harness
         sources = harness.driver_sources()
@@ -298,15 +362,44 @@ def variable_kind_sites(sources=None, sites=None) -> list:
     return sorted({at for kind, at, _keyed in sites if kind is None})
 
 
+def minted_routes(source: str) -> dict:
+    """`{name: action}` of the literal `return "<name>", "<action>"` tuples of `match_known` read from its SOURCE by AST: the routes the
+    function mints itself, before the table is consulted (the marker branches). A new marker branch is a new tuple and so a route with
+    no row (red). No such tuple at all - the function was rewritten - is `ExitsUnreadable`, never zero routes as a pass (F4)."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise ExitsUnreadable(f"driver_machine.{MATCH_KNOWN}: its source does not parse ({exc}); could not read the routes of {MATCH_KNOWN}") from exc
+    functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == MATCH_KNOWN]
+    found = {}
+    for function in functions[:1]:
+        for node in ast.walk(function):
+            pair = node.value.elts if isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple) and len(node.value.elts) == 2 else []
+            if pair and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in pair):
+                found[pair[0].value] = pair[1].value
+    if not found:
+        raise ExitsUnreadable(f"driver_machine.{MATCH_KNOWN}: could not read the routes of {MATCH_KNOWN} (no literal return \"<name>\", "
+                              f"\"<action>\" tuple found); update fixtures/driver-exits and this scan to the function's new shape")
+    return found
+
+
+def scan_minted() -> tuple:
+    """The names of the routes `match_known` mints itself, read from the source of the module that holds it."""
+    import driver_machine
+    return tuple(sorted(minted_routes(Path(driver_machine.__file__).read_text(encoding="utf-8"))))
+
+
 def scan_routes() -> dict:
-    """`{name: action}`: the 21 rows of `driver_dispatch.KNOWN_REFUSALS` BY IMPORT, plus the two classes that are no row of it:
-    `unmatched` (a text no row matches goes to the conductor: `driver_machine.match_known` returns None) and `known_false` (a refusal a G
-    step raises, `driver_core.gate_refusal`, is never routed by the table). Both are checked by calling the function; a function that stopped
-    behaving so is an `ExitsUnreadable`, not a row that silently stays."""
+    """`{name: action}`: the 21 rows of `driver_dispatch.KNOWN_REFUSALS` BY IMPORT, the routes `match_known` mints itself (`minted_routes`:
+    the marker branches), plus the two classes that are no row of the table: `unmatched` (a text no row matches goes to the conductor:
+    `driver_machine.match_known` returns None) and `known_false` (a refusal a G step raises, `driver_core.gate_refusal`, is never routed
+    by the table). Both are checked by calling the function; a function that stopped behaving so is an `ExitsUnreadable`, not a row that
+    silently stays."""
     import driver_core
     import driver_dispatch
     import driver_machine
     routes = {name: action for name, _pattern, action in driver_dispatch.KNOWN_REFUSALS}
+    routes.update(minted_routes(Path(driver_machine.__file__).read_text(encoding="utf-8")))
     if driver_machine.match_known("\u0001 text no known refusal row matches \u0001") is not None:
         raise ExitsUnreadable("driver_machine.match_known: a text no row matches no longer returns None; the `unmatched` route is not "
                               "what the census says - update fixtures/driver-exits and this scan")
@@ -353,6 +446,8 @@ class Universe:
     scanned: tuple
     errors: list = field(default_factory=list)
     kinds_total: int = 0                   # the literal kinds the driver raises, keyed or not
+    unpassable: frozenset = frozenset()    # ids of the registry records whose word does not pass: `refusal_registry.unpassable()` (AR-13)
+    minted: tuple = ()                     # the routes `match_known` mints itself (a subset of `routes`), for the numbers
 
     @classmethod
     def real(cls) -> "Universe":
@@ -373,7 +468,9 @@ class Universe:
                    kinds=scan_kinds_without_key(sites=sites), variable=variable_kind_sites(sites=sites),
                    prices=read("question-prices.json", scan_prices, {}), registry=list(refusal_registry.REGISTRY),
                    scanned=tuple(refusal_registry.SCANNED), errors=errors,
-                   kinds_total=len({kind for kind, _at, _keyed in sites if kind}))
+                   kinds_total=len({kind for kind, _at, _keyed in sites if kind}),
+                   unpassable=frozenset(str(r.get("id")) for r in refusal_registry.unpassable()),
+                   minted=read("driver_machine.match_known", scan_minted, ()))
 
 
 # ---------------------------------------------------------------------------------------------------- classes, doors
@@ -383,9 +480,10 @@ def registry_kinds(registry) -> dict:
 
 def class_of(row, classes: dict, *, section: str, action: str = "", joints=(), registry=()) -> str:
     """The class of a census row by its SOURCE (spec 3.6; the rule is data in `classes.json`, not a list here). A joint: source `stage-joints`.
-    A route whose move is `ask_person`: the source its `class_source` names - a joint check, a REGISTRY id (operation or scanned), or a
-    `question:<key>` id. A route with a code move and a kind of question are no refusal text a person reads: `n/a`. A source that is not named,
-    not found, or not in `by_source` with no default: `class unknown` - printed and counted, never a guess (FR-59)."""
+    A route whose move is `ask_person`: the source its `class_source` names - a joint check, a REGISTRY id (operation or scanned), a
+    `question:<key>` id, or any other `by_source` key directly. A route with a code move and a kind of question are no refusal text a person
+    reads: `n/a`. A source that is not named, not found, or not in `by_source` with no default: `class unknown` - RED in `check` (E19), never a
+    guess (FR-59)."""
     if section != "joints" and not (section == "routes" and action == "ask_person"):
         return NOT_A_REFUSAL
     source = "stage-joints" if section == "joints" else None
@@ -397,41 +495,39 @@ def class_of(row, classes: dict, *, section: str, action: str = "", joints=(), r
             source = "stage-joints"
         elif named in registry_kinds(registry):
             source = f"refusal_registry:{registry_kinds(registry)[named]}"
-        elif named.startswith("question:"):
+        elif named.startswith("question:") or named in classes.get("by_source", {}):
             source = named
     klass = classes.get("by_source", {}).get(source) if source else None
     return klass or classes.get("default") or CLASS_UNKNOWN
 
 
-def ban_doors(registry=None, scanned=None) -> list:
-    """The ids of the hook-layer registry records (file in `SCANNED`) whose word does not pass (`override: ""`) and whose door is not named
-    (`unpassable_because` empty or blank): FR-57, a ban is never a dead end. Only the DATA of the registry is read; the hooks are not run (F11).
-    A record whose `override` is missing or not text counts as not passable (the red direction)."""
-    if registry is None or scanned is None:
-        import refusal_registry
-        registry = refusal_registry.REGISTRY if registry is None else registry
-        scanned = refusal_registry.SCANNED if scanned is None else scanned
+def _hook_bans(universe: Universe) -> list:
+    """The registry records of the hook layer: a scanned file, no operation."""
+    return [r for r in universe.registry if r.get("file") in universe.scanned and r.get("kind") != "operation"]
+
+
+def ban_doors(universe: Universe) -> list:
+    """The ids of the hook-layer records whose word does not pass (`universe.unpassable`, read through `refusal_registry.unpassable()`, the
+    ONE reader of that fact - AR-13) and whose door is not named (`unpassable_because` empty or blank): FR-57, a ban is never a dead end.
+    Only the DATA of the registry is read; the hooks are not run (F11)."""
     out = []
-    for record in registry:
-        if record.get("file") not in scanned or record.get("kind") == "operation":
-            continue
-        override = record.get("override")
-        if isinstance(override, str) and override.strip():
-            continue
+    for record in _hook_bans(universe):
         door = record.get("unpassable_because")
-        if not isinstance(door, str) or not door.strip():
+        if str(record.get("id")) in universe.unpassable and (not isinstance(door, str) or not door.strip()):
             out.append(str(record.get("id")))
     return out
 
 
-def class_counts(universe: Universe) -> dict:
-    """The numbers of spec 3.6, recounted from the registry and the joints: hook bans the word does not pass / pass, operations, joints."""
-    scanned = [r for r in universe.registry if r.get("file") in universe.scanned and r.get("kind") != "operation"]
+def class_counts(universe: Universe, classes: dict) -> dict:
+    """The numbers of spec 3.6: hook bans the word does not pass / pass, operations (and of them the word does not pass), joints, and the
+    closed questions of `classes.json` (`question:<key>` sources whose key is in the prices)."""
+    bans = _hook_bans(universe)
     operations = [r for r in universe.registry if r.get("kind") == "operation"]
-    blank = lambda r: not (isinstance(r.get("override"), str) and r["override"].strip())     # noqa: E731
-    return {"ban_unpassable": sum(1 for r in scanned if blank(r)), "ban_passable": sum(1 for r in scanned if not blank(r)),
-            "gate_operations": len(operations), "gate_operations_unpassable": sum(1 for r in operations if blank(r)),
-            "gate_joints": len(universe.joints), "gate_questions": 2}
+    stuck = sum(1 for r in bans if str(r.get("id")) in universe.unpassable)
+    questions = [s for s in classes.get("by_source", {}) if s.startswith("question:") and s[len("question:"):] in universe.prices]
+    return {"ban_unpassable": stuck, "ban_passable": len(bans) - stuck, "gate_operations": len(operations),
+            "gate_operations_unpassable": sum(1 for r in operations if str(r.get("id")) in universe.unpassable),
+            "gate_joints": len(universe.joints), "gate_questions": len(questions)}
 
 
 # ---------------------------------------------------------------------------------------------------- the census
@@ -472,7 +568,17 @@ def check(directory=None, walk_dir=None, universe: Universe | None = None, ledge
         return report
     if not walk:
         report.notes.append(f"walk rows: none ({walk_dir or WALK_DIR} holds no rows yet; the walk nodes N4 write them)")
-    # 1. code <-> rows, both directions
+    _code_rows(census, universe, red)
+    _walk_problems(census, walk, universe, red)
+    counts = _ratchets(census, walk, universe, report)
+    _classes_and_doors(census, universe, red)
+    _ledger(Path(ledger_path or directory / "known_red.json"), red)
+    report.numbers = _numbers(census, universe, counts)
+    return report
+
+
+def _code_rows(census: dict, universe: Universe, red) -> None:
+    """Section 1 of the census: code <-> rows, both directions, and where each keyless kind is raised."""
     labels = {"routes": "route", "joints": "joint", "kinds_without_key": "kind without a key"}
     for section, code_ids in _side(universe).items():
         rows = census[section]
@@ -485,74 +591,134 @@ def check(directory=None, walk_dir=None, universe: Universe | None = None, ledge
         if row and set(row.get("raised_at") or []) != set(entry["raised_at"]):
             red(f"kind without a key {name}: raised_at {sorted(row.get('raised_at') or [])} in {census['where'][('kinds_without_key', name)]} "
                 f"differs from the driver's {entry['raised_at']}; make the row say where the question is raised")
-    # 2. walk rows: the subject of every row exists
+
+
+def _walk_problems(census: dict, walk: dict, universe: Universe, red) -> None:
+    """Section 2: the walk rows against the census, in both directions. A row's subject exists; a walk row never carries a count reach; a
+    census row that claims it is run (`seed`/`story`) has a walk row behind it (E1, AR-28)."""
     subjects = set(universe.prices) | set(census["routes"]) | set(census["joints"]) | set(census["kinds_without_key"])
+    walked = {rid.split("/", 1)[0] for rid in walk}
     for rid, row in sorted(walk.items()):
-        subject = rid.split("/", 1)[0]
+        subject, reach = rid.split("/", 1)[0], str(row.get("reach"))
         if subject not in subjects:
             red(f"walk row {rid} ({row['_path']}): {subject!r} is not a key of question-prices.json, a route, a joint or a kind without a key; "
                 f"fix the id, or add the key/route to its table")
-        if str(row.get("reach")) == "hook_layer":
-            red(f"walk row {rid}: reach hook_layer is a count, not a row (the hook refusals are not walked one by one); remove the row")
-    # 3. ratchets: the sum over the group files against their bases; a raise is named per row
+        if reach in COUNT_ONLY:
+            red(f"walk row {rid}: reach {reach} is a count of the group files, not a walk row's reach; give the row story, seed, live_only or "
+                f"after:<finding>, or remove it")
+    for section in SECTIONS:
+        for name, row in sorted(census[section].items()):
+            reach = str(row.get("reach"))
+            if reach == "hook_layer":
+                red(f"{section[:-1]} {name}: reach hook_layer is a count (the hook refusals are not rows of a group file); fix the row")
+            if reach in EXECUTABLE and name not in walked:
+                red(f"{section[:-1]} {name} ({census['where'][(section, name)]}): claims reach {reach} and no walk row names it; write the row "
+                    f"in fixtures/stories/dry-1/exits/<group>.json, or set the row's reach to unwalked and count it in the group's ratchet")
+
+
+def _raised(census: dict, walk: dict, universe: Universe) -> tuple:
+    """`({count name: [valid entry text]}, [problem])`: each `raised_by` entry names its count and ITS row; the row must exist and carry
+    that count's reach (a hook_layer entry names a scanned registry id). An entry whose row is gone, or twice for one row, is stale."""
+    refs = {"hook_layer": {str(r.get("id")) for r in _hook_bans(universe)}}
+    for key in ("live_only", "unwalked"):
+        refs[key] = {f"{section}/{name}" for section in SECTIONS for name, row in census[section].items() if row.get("reach") == key}
+        refs[key] |= {f"walk/{rid}" for rid, row in walk.items() if row.get("reach") == key}
+    refs["after"] = {f"{section}/{name}" for section in SECTIONS for name, row in census[section].items() if str(row.get("reach")).startswith("after:")}
+    refs["after"] |= {f"walk/{rid}" for rid, row in walk.items() if str(row.get("reach")).startswith("after:")}
+    valid: dict = {key: [] for key in RATCHET_COUNTS}
+    problems, seen = [], set()
+    for item in census["raised_by"]:
+        count, row, _who = _raise_entry(item)
+        if row not in refs[count]:
+            problems.append(f"ratchet {count}: stale raise {item!r}: its row {row!r} is gone or no longer has that reach; drop the entry")
+        elif (count, row) in seen:
+            problems.append(f"ratchet {count}: raise {item!r} names a row twice; one entry per row")
+        else:
+            seen.add((count, row))
+            valid[count].append(item)
+    return valid, problems
+
+
+def _ratchets(census: dict, walk: dict, universe: Universe, report: Report) -> dict:
+    """Section 3: the sum over the group files against the bases. Each count has its OWN credit: count == base + the entries of `raised_by`
+    that name that count and a live row - above it is an unnamed raise, below it a stale credit (AR-20, one stale semantics). Returns the counts."""
     counts = _count_reach(census, walk)
-    counts["hook_layer"] = sum(1 for r in universe.registry if r.get("file") in universe.scanned and r.get("kind") != "operation")
+    counts["hook_layer"] = len(_hook_bans(universe))
+    valid, problems = _raised(census, walk, universe)
+    report.problems.extend(problems)
     for name in RATCHET_COUNTS:
-        base, count, named = census["base"][name], counts[name], len(census["raised_by"])
-        if count > base + named:
-            red(f"ratchet {name}: {count} rows, above the base {base}, and ratchet.raised_by names {named} raise(s); a raise needs one named "
-                f"entry per row (who allowed it) and the base lowered back by fixing the rows - the number only shrinks")
+        base, count, named = census["base"][name], counts[name], len(valid[name])
+        if count < base:
+            report.problems.append(f"ratchet {name}: stale base: {count} rows, below the base {base}; lower the base to {count} in the group files")
+        elif count > base + named:
+            report.problems.append(f"ratchet {name}: {count} rows, above the base {base}, and ratchet.raised_by names {named} raise(s) of {name}; a "
+                                   f"raise needs one entry '{name} | <row> | <who, where>' per row, then the base is lowered back by fixing the rows")
+        elif named > max(count - base, 0):
+            report.problems.append(f"ratchet {name}: stale raise credit: {named} raised_by entr{'y' if named == 1 else 'ies'} for {name}, "
+                                   f"{max(count - base, 0)} row(s) above the base {base}; drop the surplus entry or lower the base")
         elif count > base:
-            report.notes.append(f"ratchet {name}: raised {count - base} row(s) above the base {base}, named in raised_by: {census['raised_by']}")
-        elif count < base:
-            red(f"ratchet {name}: stale base: {count} rows, below the base {base}; lower the base to {count} in the group files")
-    # 4. classes and doors of the bans
-    unknown = []
+            report.notes.append(f"ratchet {name}: raised {count - base} row(s) above the base {base}, named in raised_by: {valid[name]}")
+    return counts
+
+
+def _classes_and_doors(census: dict, universe: Universe, red) -> None:
+    """Section 4: every refusal row has a class (E19: `class unknown` is red), and every hook ban the word does not pass names its door."""
     for section in ("routes", "joints"):
         for name, row in sorted(census[section].items()):
             klass = class_of(row, census["classes"], section=section, action=universe.routes.get(name, ""),
                              joints=universe.joints, registry=universe.registry)
             if klass == CLASS_UNKNOWN:
-                unknown.append(f"{section[:-1]} {name}")
-    if unknown:
-        report.notes.append(f"class unknown: {len(unknown)} ({', '.join(unknown)}); name a class_source for each, or the source in classes.json")
-    for rid in ban_doors(universe.registry, universe.scanned):
+                red(f"{section[:-1]} {name}: class unknown; name a class_source for the row (a joint check, a REGISTRY id, question:<key> or a "
+                    f"by_source key) and its class in fixtures/driver-exits/classes.json - the class is never guessed (FR-59)")
+    for rid in ban_doors(universe):
         red(f"hook refusal {rid}: its word does not pass (override '') and unpassable_because names no door (FR-57); name the door in refusal_registry.py")
-    # 5. the label ledger of the helper
-    ledger = Path(ledger_path or directory / "known_red.json")
+
+
+def _ledger(ledger: Path, red) -> None:
+    """Section 5: the label ledger of the helper, read through it."""
     try:
         import known_red
-        rows = known_red.load(ledger)
-        stale = known_red.pin_problem(ledger, "known_red", len(rows))
+        stale = known_red.pin_problem(ledger, "known_red", len(known_red.load(ledger)))
         if stale:
             red(stale)
     except Exception as exc:  # LedgerError names the file and the row
         red(f"{ledger}: {exc}")
-    # the numbers
-    kept = sorted(set(universe.routes) - {UNMATCHED, KNOWN_FALSE})
+
+
+def _numbers(census: dict, universe: Universe, counts: dict) -> list:
+    """The NUMBER lines, each with a recount command that prints the figure(s) of its own line."""
+    minted = list(universe.minted)
+    table = len(universe.routes) - len(minted) - 2
     options = sum(len(rows) for rows in universe.prices.values())
-    by = {}
+    by: dict = {}
     for check_id in universe.joints:
         by[check_id.split(":", 1)[0]] = by.get(check_id.split(":", 1)[0], 0) + 1
-    numbers = class_counts(universe)
-    report.numbers = [
-        f"routes: {len(kept)} KNOWN_REFUSALS + 2 (unmatched, known_false) = {len(universe.routes)}   "
-        f"[recount: python -B -c \"import driver_dispatch as D; print(len(D.KNOWN_REFUSALS))\" in scripts/]",
+    n = class_counts(universe, census["classes"])
+    mixed = sorted(name for name, e in universe.kinds.items() if e["keyed_at"])
+    return [
+        f"routes: {table} KNOWN_REFUSALS + {len(minted)} minted by match_known ({', '.join(sorted(minted))}) + 2 (unmatched, known_false) = "
+        f"{len(universe.routes)}   [recount: python -B -c \"import driver_dispatch as D; print(len(D.KNOWN_REFUSALS))\" in scripts/ prints {table}; "
+        f"grep -cE 'return .marked_' driver_machine.py prints {len(minted)}]",
         f"price keys: {len(universe.prices)}, options: {options}   "
         f"[recount: python -B -c \"import no_move as N; p=N.load_question_prices(); print(len(p), sum(map(len, p.values())))\" in scripts/]",
         f"joints: {len(universe.joints)} ({', '.join(f'{k} {v}' for k, v in sorted(by.items()))})   "
         f"[recount: python -B -c \"import null_outcomes as O, stage_joints as J; print(len(O.load_data(J.DATA)[0]['joints']))\" in scripts/]",
-        f"kinds without a key: {len(universe.kinds)} of {universe.kinds_total} literal kinds; sites with a kind that arrives as a value: "
-        f"{len(universe.variable)} ({', '.join(universe.variable) or 'none'})   [recount: this file, --check]",
-        f"classes: ban word-does-not-pass {numbers['ban_unpassable']} / ban word-passes {numbers['ban_passable']} / gate operations "
-        f"{numbers['gate_operations']} (of them override '': {numbers['gate_operations_unpassable']}) / gate joints {numbers['gate_joints']} / "
-        f"gate questions {numbers['gate_questions']}   [recount: python -B -c \"import refusal_registry as R; "
-        f"print(len(R.REGISTRY), sum(1 for r in R.REGISTRY if r.get('kind')=='operation'))\" in scripts/]",
-        f"ban_doors without a named door: {len(ban_doors(universe.registry, universe.scanned))}",
-        "ratchet (rows now / base): " + ", ".join(f"{n} {counts[n]}/{census['base'][n]}" for n in RATCHET_COUNTS)
+        f"kinds without a key: {len(universe.kinds)} of {universe.kinds_total} literal kinds ({len(universe.kinds) - len(mixed)} keyless, "
+        f"{len(mixed)} mixed: {', '.join(mixed) or 'none'}); sites with a kind that arrives as a value: {len(universe.variable)} "
+        f"({', '.join(universe.variable) or 'none'})   [recount: grep -ohE \"(Person|site_seam_person)\\(\\s*['\\\"][a-z_0-9]+['\\\"]\" "
+        f"driver_*.py | sort -u | wc -l prints the literal kinds; the rows are the kinds_without_key keys of the group files]",
+        f"classes, bans: word-does-not-pass {n['ban_unpassable']} / word-passes {n['ban_passable']}   [recount: python -B -c \"import "
+        f"refusal_registry as R; b=[r for r in R.REGISTRY if r.get('file') in R.SCANNED and r.get('kind')!='operation']; u=R.unpassable(); "
+        f"print(sum(r in u for r in b), sum(r not in u for r in b))\" in scripts/]",
+        f"classes, gates: operations {n['gate_operations']} (of them override '': {n['gate_operations_unpassable']}) / joints {n['gate_joints']} / "
+        f"questions {n['gate_questions']}   [recount: python -B -c \"import refusal_registry as R, no_move as N, json; o=[r for r in R.REGISTRY "
+        f"if r.get('kind')=='operation']; c=json.load(open('tests/fixtures/driver-exits/classes.json')); p=N.load_question_prices(); "
+        f"print(len(o), sum(r in R.unpassable() for r in o), sum(s[9:] in p for s in c['by_source'] if s.startswith('question:')))\" in scripts/]",
+        f"ban_doors without a named door: {len(ban_doors(universe))}   [recount: python -B -c \"import refusal_registry as R; print(sum(1 for r in "
+        f"R.unpassable() if r.get('file') in R.SCANNED and r.get('kind')!='operation' and not str(r.get('unpassable_because') or '').strip()))\" in scripts/]",
+        "ratchet (rows now / base): " + ", ".join(f"{k} {counts[k]}/{census['base'][k]}" for k in RATCHET_COUNTS)
         + f"; raised_by {len(census['raised_by'])}",
         f"groups: {', '.join(census['groups'])}"]
-    return report
 
 
 def judge(results: dict, ledger_path) -> tuple:
@@ -713,8 +879,8 @@ def _group(name="g", **sections) -> dict:
     return {"schema": 1, "group": name, "routes": {}, "joints": {}, "kinds_without_key": {}, "ratchet": ratchet, **sections}
 
 
-def _row(reach="seed", **kw) -> dict:
-    return {"reach": reach, "seed": None, "why_unreached": kw.pop("why", None), **kw}
+def _row(reach="unwalked", **kw) -> dict:
+    return {"reach": reach, "seed": None, "why_unreached": kw.pop("why", "x"), **kw}
 
 
 def _universe(**kw) -> Universe:
@@ -727,7 +893,7 @@ def _universe(**kw) -> Universe:
 def _tree(root: Path, group=None, classes=None, ledger=None) -> Path:
     directory = root / "driver-exits"
     _write(directory / "g.json", group or _group(routes={"r1": _row(), UNMATCHED: _row()}, joints={"exit:j1": _row()},
-                                                 kinds_without_key={"k1": _row(raised_at=["m:f"])}))
+                                                 kinds_without_key={"k1": _row(raised_at=["m:f"])}, ratchet=_ratchet(unwalked=4)))
     _write(directory / "classes.json", classes or {"schema": 1, "by_source": {"stage-joints": "gate"}, "default": None})
     _write(directory / "known_red.json", ledger or {"known_red": {}, "pins": {"known_red": 0}})
     return directory
@@ -771,6 +937,33 @@ def _selftest_cases() -> list:
                 "def bare(self):\n    return Person('mix', text, 'S1')\n")
         got = scan_kinds_without_key(src(text))
         return None if got == {"mix": {"raised_at": ["m:bare"], "keyed_at": ["m:keyed"]}} else f"got {got}"
+
+    @case("scan: a text bound in the same function to a closed_question call keys the site (the key one statement earlier)")
+    def _():
+        text = ("def f(self):\n    text = self.closed_question('a.key', lead, o)\n    raise Person('alpha', text, 'S1')\n"
+                "def g(self):\n    body = self.priced_section('b.key', o)\n    return self.site_seam_person('beta', lead + body, 'S1')\n")
+        got = scan_kinds_without_key(src(text))
+        return None if got == {} else f"got {got}"
+
+    @case("scan: a text bound to a plain string in the same function stays keyless")
+    def _():
+        got = scan_kinds_without_key(src("def f(self):\n    text = 'no key here'\n    raise Person('alpha', text, 'S1')\n"))
+        return None if got == {"alpha": {"raised_at": ["m:f"], "keyed_at": []}} else f"got {got}"
+
+    @case("scan: a name bound twice in one function, once keyed and once not, makes the kind MIXED, not keyed")
+    def _():
+        text = "def f(self, c):\n    text = self.closed_question('a.key', l, o)\n    if c:\n        text = 'plain'\n    raise Person('alpha', text, 'S1')\n"
+        got = scan_kinds_without_key(src(text))
+        return None if got == {"alpha": {"raised_at": ["m:f"], "keyed_at": ["m:f"]}} else f"got {got}"
+
+    @case("scan: a key bound in ANOTHER function (or an enclosing one) does not key the site; a text= keyword is the text")
+    def _():
+        text = ("def other(self):\n    text = self.closed_question('a.key', l, o)\n"
+                "def f(self):\n    raise Person('alpha', text, 'S1')\n"
+                "def outer(self):\n    text = self.closed_question('b.key', l, o)\n    def inner():\n        raise Person('beta', text, 'S1')\n"
+                "def h(self):\n    raise Person('gamma', text=self.closed_question('c.key', l, o), stage='S1')\n")
+        got = scan_kinds_without_key(src(text))
+        return None if sorted(got) == ["alpha", "beta"] else f"got {sorted(got)}"
 
     @case("scan: a kind that arrives as a value is no row and is counted as a variable site")
     def _():
@@ -857,7 +1050,7 @@ def _selftest_cases() -> list:
     def _():
         for reach in ("live_only", "after:FV1-1"):
             directory = _tree(tmp())
-            _write(directory / "g.json", _group(routes={"r1": _row(reach)}))
+            _write(directory / "g.json", _group(routes={"r1": _row(reach, why=None)}))
             try:
                 load(directory)
             except ExitsUnreadable as exc:
@@ -907,29 +1100,141 @@ def _selftest_cases() -> list:
         report = check(directory, universe=_universe(kinds=kinds))
         return None if any("kind without a key k2" in p for p in report.problems) else f"got {report.problems}"
 
-    @case("check: unwalked rows above the base with no raised_by are red; the base lowered is the same fault")
+    # ---- the ratchet at and beyond its base (F2): each count has its own credit, one entry per extra row, naming its row, never stale
+    stay = {"joints": {"exit:j1": _row()}, "kinds_without_key": {"k1": _row(raised_at=["m:f"])}}      # two rows, reach unwalked
+
+    def ratchet_run(routes, **ratchet):
+        group = _group(routes=routes, ratchet=_ratchet(**ratchet), **stay)
+        return check(_tree(tmp(), group), universe=_universe())
+
+    both_unwalked = {"r1": _row(), UNMATCHED: _row()}                  # with `stay`: 4 rows unwalked
+    raise_r1 = "unwalked | routes/r1 | Lead, 2026-11-13"
+
+    @case("ratchet: unwalked == base needs no raise and is green")
     def _():
-        group = _group(routes={"r1": _row("unwalked", why="x"), UNMATCHED: _row()}, joints={"exit:j1": _row()},
-                       kinds_without_key={"k1": _row(raised_at=["m:f"])})
-        report = check(_tree(tmp(), group), universe=_universe())
+        report = ratchet_run(both_unwalked, unwalked=4)
+        return None if not report.problems else f"got {report.problems}"
+
+    @case("ratchet: unwalked base+1 with its named raise is green and a NOTE")
+    def _():
+        report = ratchet_run(both_unwalked, unwalked=3, raised_by=[raise_r1])
+        return None if not report.problems and any("raised 1" in n for n in report.notes) else f"{report.problems} {report.notes}"
+
+    @case("ratchet: unwalked base+1 with no raise is red naming the count and the door")
+    def _():
+        report = ratchet_run(both_unwalked, unwalked=3)
         return None if any("ratchet unwalked" in p and "raised_by" in p for p in report.problems) else f"got {report.problems}"
 
-    @case("check: a raise named in raised_by is a NOTE, one name per row")
+    @case("ratchet: unwalked base+2 with ONE raise is red (one entry per extra row)")
     def _():
-        group = _group(routes={"r1": _row("unwalked", why="x"), UNMATCHED: _row("unwalked", why="x")}, joints={"exit:j1": _row()},
-                       kinds_without_key={"k1": _row(raised_at=["m:f"])}, ratchet=_ratchet(unwalked=1, raised_by=["Lead, 2026-11-13"]))
-        report = check(_tree(tmp(), group), universe=_universe())
-        two = _group(routes={"r1": _row("unwalked", why="x"), UNMATCHED: _row("unwalked", why="x")}, joints={"exit:j1": _row()},
-                     kinds_without_key={"k1": _row(raised_at=["m:f"])}, ratchet=_ratchet(raised_by=["Lead, 2026-11-13"]))
-        refused = check(_tree(tmp(), two), universe=_universe())
-        if report.problems or not any("raised 1" in n for n in report.notes):
-            return f"named raise: {report.problems} {report.notes}"
-        return None if any("ratchet unwalked" in p for p in refused.problems) else f"two rows, one name: {refused.problems}"
+        report = ratchet_run(both_unwalked, unwalked=2, raised_by=[raise_r1])
+        return None if any("ratchet unwalked" in p and "names 1 raise" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("ratchet: a raise entry while the count sits AT its base is a stale credit, red")
+    def _():
+        report = ratchet_run(both_unwalked, unwalked=4, raised_by=[raise_r1])
+        return None if any("stale raise credit" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("ratchet: a raise entry for another count does not cover this count (cross-count credit)")
+    def _():
+        report = ratchet_run({"r1": _row("live_only"), UNMATCHED: _row()}, unwalked=3, raised_by=[raise_r1])
+        text = " ".join(report.problems)
+        return None if "ratchet live_only" in text and "ratchet unwalked" in text else f"got {report.problems}"
+
+    @case("ratchet: a raise entry whose row is gone is stale, red naming the entry")
+    def _():
+        report = ratchet_run(both_unwalked, unwalked=3, raised_by=["unwalked | routes/gone | Lead, 2026-11-13"])
+        return None if any("stale raise" in p and "routes/gone" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("ratchet: two entries for one row are refused")
+    def _():
+        report = ratchet_run(both_unwalked, unwalked=2, raised_by=[raise_r1, raise_r1 + " again"])
+        return None if any("names a row twice" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("ratchet: a raise entry that does not fit the form is refused naming the file")
+    def _():
+        directory = _tree(tmp(), _group(routes=both_unwalked, ratchet=_ratchet(unwalked=4, raised_by=["Lead, 2026-11-13"]), **stay))
+        try:
+            load(directory)
+        except ExitsUnreadable as exc:
+            return None if "g.json" in str(exc) and "<count> | <row> | <who, where>" in str(exc) else f"got {exc}"
+        return "no refusal"
+
+    # ---- E1 both ways (F3): a row that claims it is run has a walk row behind it
+    def walk_with(root: Path, rid: str, reach="seed") -> Path:
+        _write(root / "exits" / "g.json", {"schema": 1, "group": "g", "rows": [{"id": rid, "reach": reach, "start": "S1",
+                                                                              **({"why_unreached": "x"} if reach != "seed" else {})}]})
+        return root / "exits"
+
+    seed_r1 = _group(routes={"r1": _row("seed"), UNMATCHED: _row()}, ratchet=_ratchet(unwalked=3), **stay)
+
+    @case("walk: a route row claiming seed with no walk row behind it is red, with the door")
+    def _():
+        report = check(_tree(tmp(), seed_r1), universe=_universe())
+        return None if any("route r1" in p and "claims reach seed" in p and "unwalked" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("walk: the same seed row with a walk row naming it is green")
+    def _():
+        root = tmp()
+        report = check(_tree(root, seed_r1), walk_with(root, "r1/a"), universe=_universe())
+        return None if not report.problems else f"got {report.problems}"
+
+    @case("walk: a walk row with reach unwalked or hook_layer is red (a count, not a walk row's reach)")
+    def _():
+        for reach in ("unwalked", "hook_layer"):
+            root = tmp()
+            report = check(_tree(root), walk_with(root, "r1/a", reach), universe=_universe())
+            if not any("walk row r1/a" in p and f"reach {reach}" in p for p in report.problems):
+                return f"{reach}: {report.problems}"
+        return None
+
+    @case("walk: a census row with reach hook_layer is red")
+    def _():
+        report = check(_tree(tmp(), _group(routes={"r1": _row("hook_layer"), UNMATCHED: _row()}, **stay)), universe=_universe())
+        return None if any("route r1" in p and "hook_layer" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("load: a group file with no row and no count is refused naming the file")
+    def _():
+        directory = _tree(tmp())
+        _write(directory / "h.json", _group("h"))
+        try:
+            load(directory)
+        except ExitsUnreadable as exc:
+            return None if "h.json" in str(exc) and "carries no row" in str(exc) else f"got {exc}"
+        return "no refusal"
+
+    # ---- F4: the routes match_known mints
+    mint_source = ("def match_known(text):\n    if A in text:\n        return 'marked_repair', 'resume_repair'\n"
+                   "    if B in text:\n        return 'marked_person', 'ask_person'\n    return None\n")
+
+    @case("minted routes: the literal return tuples of match_known are read from its source")
+    def _():
+        got = minted_routes(mint_source)
+        return None if got == {"marked_repair": "resume_repair", "marked_person": "ask_person"} else f"got {got}"
+
+    @case("minted routes: a third marker branch is a route with no row, red until it has one")
+    def _():
+        third = mint_source.replace("    return None", "    if C in text:\n        return 'marked_third', 'continue'\n    return None")
+        routes = {"r1": "continue", UNMATCHED: "conductor", **minted_routes(third)}
+        report = check(_tree(tmp()), universe=_universe(routes=routes))
+        return None if any("route marked_third" in p and "no row" in p for p in report.problems) else f"got {report.problems}"
+
+    @case("minted routes: a rewritten match_known (no literal tuple) is refused, never zero routes")
+    def _():
+        for text in ("def match_known(text):\n    return find(text)\n", "def other():\n    return 'a', 'b'\n", "def match_known(:\n"):
+            try:
+                minted_routes(text)
+            except ExitsUnreadable as exc:
+                if "could not read the routes of match_known" not in str(exc):
+                    return f"{text!r}: {exc}"
+            else:
+                return f"{text!r}: no refusal"
+        return None
 
     @case("check: a base above the rows is a stale base")
     def _():
         group = _group(routes={"r1": _row(), UNMATCHED: _row()}, joints={"exit:j1": _row()}, kinds_without_key={"k1": _row(raised_at=["m:f"])},
-                       ratchet=_ratchet(unwalked=3))
+                       ratchet=_ratchet(unwalked=5))
         report = check(_tree(tmp(), group), universe=_universe())
         return None if any("stale base" in p for p in report.problems) else f"got {report.problems}"
 
@@ -1018,42 +1323,62 @@ def _selftest_cases() -> list:
         got = (klass({}, "routes", "continue"), klass({}, "kinds_without_key", ""))
         return None if got == (NOT_A_REFUSAL, NOT_A_REFUSAL) else f"got {got}"
 
-    @case("class: the counts split bans (word does not pass / passes), operations and joints")
+    unpassable = frozenset({"SG-1"})                 # what `refusal_registry.unpassable()` returns for `registry`: the one reader of the fact
+    prices_q = {"gate_A": [], "gate_B": [], "other": []}
+
+    @case("class: the counts split bans (word does not pass / passes), operations and joints; questions are counted in prices only")
     def _():
-        got = class_counts(_universe(registry=registry, joints=["exit:j1", "exit:j2"]))
+        got = class_counts(_universe(registry=registry, joints=["exit:j1", "exit:j2"], unpassable=unpassable, prices=prices_q),
+                           {"by_source": {"question:gate_A": "gate", "question:gate_B": "gate", "question:gone": "gate", "stage-joints": "gate"}})
         want = {"ban_unpassable": 1, "ban_passable": 1, "gate_operations": 1, "gate_operations_unpassable": 0, "gate_joints": 2, "gate_questions": 2}
         return None if got == want else f"got {got}"
 
-    @case("class: an ask_person route with no class_source is counted and printed by check, not hidden")
-    def _():
-        group = _group(routes={"r1": _row(), UNMATCHED: _row()}, joints={"exit:j1": _row()}, kinds_without_key={"k1": _row(raised_at=["m:f"])})
-        report = check(_tree(tmp(), group), universe=_universe(routes={"r1": "ask_person", UNMATCHED: "conductor"}))
-        return None if any("class unknown: 1" in n and "route r1" in n for n in report.notes) else f"got {report.notes}"
+    def unknown_check(routes, universe_routes, classes_data=None):
+        group = _group(routes=routes, joints={"exit:j1": _row()}, kinds_without_key={"k1": _row(raised_at=["m:f"])}, ratchet=_ratchet(unwalked=4))
+        return check(_tree(tmp(), group, classes_data), universe=_universe(routes=universe_routes))
 
-    # ---- item 8: ban doors
-    @case("ban_doors: override '' with no door is red with the id")
+    @case("class: an ask_person route with no class_source is RED in check, never a NOTE (E19)")
     def _():
-        got = ban_doors([{"id": "X", "file": "stage_guard.py", "override": "", "unpassable_because": ""}], ("stage_guard.py",))
+        report = unknown_check({"r1": _row(), UNMATCHED: _row()}, {"r1": "ask_person", UNMATCHED: "conductor"})
+        return None if any("route r1: class unknown" in p for p in report.problems) else f"got {report.problems} {report.notes}"
+
+    @case("class: an ask_person route naming a by_source key directly takes its class; a key nobody holds is red")
+    def _():
+        classes_data = {"schema": 1, "by_source": {"stage-joints": "gate", "route:direct": "gate"}, "default": None}
+        named = unknown_check({"r1": _row(class_source="route:direct"), UNMATCHED: _row()}, {"r1": "ask_person", UNMATCHED: "conductor"}, classes_data)
+        absent = unknown_check({"r1": _row(class_source="route:nobody"), UNMATCHED: _row()}, {"r1": "ask_person", UNMATCHED: "conductor"}, classes_data)
+        if named.problems:
+            return f"named: {named.problems}"
+        return None if any("route r1: class unknown" in p for p in absent.problems) else f"absent: {absent.problems}"
+
+    @case("class: a joint whose stage-joints source has no class and no default is red in check")
+    def _():
+        classes_data = {"schema": 1, "by_source": {}, "default": None}
+        report = unknown_check({"r1": _row(), UNMATCHED: _row()}, {"r1": "continue", UNMATCHED: "conductor"}, classes_data)
+        return None if any("joint exit:j1: class unknown" in p for p in report.problems) else f"got {report.problems}"
+
+    # ---- item 8: ban doors (the word-does-not-pass fact is read through `refusal_registry.unpassable()`; this reads the door of the ids it names)
+    def doors(records, stuck, scanned=("stage_guard.py",)):
+        return ban_doors(_universe(registry=records, scanned=scanned, unpassable=frozenset(stuck)))
+
+    @case("ban_doors: an unpassable record with no door is red with the id")
+    def _():
+        got = doors([{"id": "X", "file": "stage_guard.py", "unpassable_because": ""}], {"X"})
         return None if got == ["X"] else f"got {got}"
 
-    @case("ban_doors: a blank door counts as no door")
+    @case("ban_doors: a blank door counts as no door; a record missing the field counts as no door")
     def _():
-        got = ban_doors([{"id": "X", "file": "stage_guard.py", "override": "", "unpassable_because": "   "}], ("stage_guard.py",))
-        return None if got == ["X"] else f"got {got}"
+        got = doors([{"id": "X", "file": "stage_guard.py", "unpassable_because": "   "}, {"id": "Y", "file": "stage_guard.py"}], {"X", "Y"})
+        return None if got == ["X", "Y"] else f"got {got}"
 
     @case("ban_doors: a named door, a passable word, an operation and an unscanned file are not red")
     def _():
-        rows = [{"id": "A", "file": "stage_guard.py", "override": "", "unpassable_because": "door"},
-                {"id": "B", "file": "stage_guard.py", "override": "waiver", "unpassable_because": ""},
-                {"id": "C", "kind": "operation", "file": "stage_guard.py", "override": ""},
-                {"id": "D", "file": "other.py", "override": "", "unpassable_because": ""}]
-        got = ban_doors(rows, ("stage_guard.py",))
+        rows = [{"id": "A", "file": "stage_guard.py", "unpassable_because": "door"},
+                {"id": "B", "file": "stage_guard.py", "unpassable_because": ""},
+                {"id": "C", "kind": "operation", "file": "stage_guard.py"},
+                {"id": "D", "file": "other.py", "unpassable_because": ""}]
+        got = doors(rows, {"A", "C", "D"})              # B is passable: not in the unpassable ids
         return None if got == [] else f"got {got}"
-
-    @case("ban_doors: a record with no override field counts as not passable (the red direction)")
-    def _():
-        got = ban_doors([{"id": "X", "file": "stage_guard.py"}], ("stage_guard.py",))
-        return None if got == ["X"] else f"got {got}"
 
     # ---- item 9: the fingerprint and the same ask
     def world(root: Path, rounds=1, form="a: 1\n", status="running", asked_at="t1", controller=True) -> Path:

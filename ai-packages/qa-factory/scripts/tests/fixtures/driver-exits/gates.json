@@ -38,6 +38,15 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
   },
+  "marked_person": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group",
+   "class_source": "route:marked_person"
+  },
+  "marked_repair": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
   "missing_output": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
@@ -85,7 +94,7 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 19,
+  "unwalked": 21,
   "hook_layer": 0,
   "raised_by": []
  }
