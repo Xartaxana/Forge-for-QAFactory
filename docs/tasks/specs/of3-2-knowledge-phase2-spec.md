@@ -1010,7 +1010,24 @@ next session together with the queue line. These are stored formats on projects'
 carries K1/K2, so an objection is cheap only before K1 is dispatched. Q2 (wording of the new lines) and Q3 (a taken-back lesson does
 not revive the older one) stay the OWNER's; the nodes run on (a).
 
-STATE: READY FOR DISPATCH by the next session — review t-463 folded (19 fixes, table at the top); the second critic pass is NOT owed
+OWNER'S WORD (владелец, 13.11.2026, in the session with the Lead, on the round-3 list): the stored formats F12a-e and the order F14
+are OK ("остальное ок"). And a NEW requirement on the `asked` marker: "если ответ нужен не для одной стори, а для проекта, то
+показывается на дашборде в отложенных решениях" — an asked-and-unanswered fact whose scope is the PROJECT (not one story) is shown on
+the dashboard among the deferred decisions.
+
+Node K8 (new, opened by that word; PROJECT.md "спека, меняющая смысл" item (г): a new owner decision is a new node, it is not folded
+into K1 or K3). Direction chosen by the Lead: there is ONE carrier of deferred decisions already — the registry written by
+`scripts/project_decisions.py` (table `## Deferred decisions (onboarding/gates)`, HEADING :67; audit A13 in `audit_factory.py`) — so
+the `asked` marker of a project-scoped key gets an OPEN row there through `project_decisions`' own upsert (the recorded writer, AR-14;
+no second list, P31), carrying the question's text as the person saw it and the story and date it was asked in; recording an answer
+for that subject (K1 `record`, K4 `remember`) resolves the row through `project_decisions.resolve`; a story-only fact (no project
+scope) never gets a row. Open for the designer's short draft before dispatch (UNVERIFIED by the Lead, not read this session): which
+reader the dashboard uses for "deferred decisions" and whether it reads that table or another carrier; whether a STAND-scoped asked
+marker belongs there too (owner's word says "для проекта" — until asked, stand-scoped markers get no row); the no_trace story edge
+(§4: a comparison run leaves no trace, P8 — no row). Depends on K1 (the `asked` producer) and K3 (the ask half); critic-on-plan for
+K8's draft only (a new idea's node), not a re-review of K1-K7.
+
+STATE: READY FOR DISPATCH by the next session (K1-K7; K8 needs its short draft first) — review t-463 folded (19 fixes, table at the top); the second critic pass is NOT owed
 (PROJECT.md step 6: the fix round does not change the architecture; the Lead checked that all 19 fix ids are located in the file).
 Items marked UNVERIFIED are checked by the Lead of the dispatching session against main before the node that rests on them goes out
 (CLAUDE.md rule 11, checklist item 5). Order: phase-1 node f (ratchets R2/R3) -> K1 -> PK2-18; the groups are in §5.
