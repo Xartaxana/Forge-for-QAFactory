@@ -5,3 +5,7 @@
   still writes the receipt; `receipt_files` takes an optional `skipped` list; a cost capture whose host binding gives no
   usable activity keeps the session total and prints `telemetry_coverage.attribution: incomplete: ...`
 - the SCOPE paragraph of `refusal_registry.py` names all six scanned modules, and a test holds it to `SCANNED`
+- the activity spool read (`activity_capture.load`) goes through `hooklib.read_json` with `kind=dict`: a spool that is no JSON
+  object reads as the default document, and `host_dispatch.record` skips activity entries that are no objects; a host binding
+  with no usable activity attributes the session exactly like an unreadable one (the turn-start rule tests "inherited", not
+  "the binding names an activity"); one SubagentStop signals a broken path once

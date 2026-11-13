@@ -248,10 +248,34 @@ def _unreadable(event, path, text, said=None):
         if str(path) in said:
             return
         said.add(str(path))
-    try:
-        hooklib.person_signal(event, "host_receipt_unreadable", f"host_dispatch: {text}", once_key=str(path))
-    except Exception:
-        pass
+    hooklib.person_signal(event, "host_receipt_unreadable", f"host_dispatch: {text}", once_key=str(path))   # never raises
+
+
+_BIND_LATER = "`story_step.py bind` ties it later."
+
+
+def _controller_dispatch(folders, task, role, event, said):
+    """The id of the ONE running dispatch of `role` in the story's `state/controller.json`, or None (no file, no match,
+    several matches, an odd shape). Never raises: a file that is no JSON object, or a shape the lookup cannot use, names no
+    dispatch and is said once through `_unreadable` (FR-4, AR-28: a gap the person may want to know, not a silent pass)."""
+    path = folders / task / "state/controller.json"
+    if not path.is_file():
+        return None
+    state = read_json(path, None, kind=dict, errors=Exception)
+    if state is None:
+        _unreadable(event, path, f"{path} cannot be read as a JSON object; the receipt was written without a "
+                    f"dispatch id; {_BIND_LATER}", said)
+        return None
+    records = state.get("dispatches")
+    entries = list(records.values()) if isinstance(records, dict) else []
+    matches = [d for d in entries if isinstance(d, dict) and d.get("role") == role and d.get("status") == "running"]
+    usable = len(matches) == 1 and isinstance(matches[0].get("id"), str)
+    if (records is not None and not isinstance(records, dict)) or not all(isinstance(d, dict) for d in entries) \
+            or (len(matches) == 1 and not usable):
+        _unreadable(event, path, f"{path} has a shape the dispatch lookup cannot use (`dispatches` is no object, "
+                    "an entry is no object, or the running entry has no string id); the receipt was written "
+                    f"without a dispatch id; {_BIND_LATER}", said)
+    return matches[0]["id"] if usable else None
 
 
 def record(event):
@@ -263,6 +287,7 @@ def record(event):
         check_role_context(project_root(event), event)   # evidence of a real dispatch's context (HF8-12, W-5); never raises
         if not event.get('_exit_gate_released'):
             return  # an exit hook may still reject completion; do not race it
+        said = set()
         for identity in (event.get("agent_id"), event.get("session_id")):
             path = Path(event['host_binding']) if event.get('host_binding') else binding_path(project_root(event), identity)
             if identity and path.is_file():
@@ -270,7 +295,7 @@ def record(event):
                 if receipt is None:
                     _unreadable(event, path, f"the receipt {path} cannot be read as a JSON object, so it was not marked "
                                 "terminal and was left as it is. Rewrite it as a JSON object or delete it; until then "
-                                "the worker it names may still count as running.")
+                                "the worker it names may still count as running.", said)
                     continue
                 if identity not in {receipt.get('agent_id'), receipt.get('task_path')}:
                     continue
@@ -318,13 +343,13 @@ def record(event):
             return
     from host_probe import bind_injection
     diagnostic = bind_injection(project_root(event), event, agent)
+    config = project_root(event) / "qa-factory/config.json"
     try:
         task, facts = resolve_ticket(event)
     except (ValueError, OSError):    # a broken project config (`artifact_root`): no story is named, the receipt is still written
         task, facts = "", {}
-        config = project_root(event) / "qa-factory/config.json"
         _unreadable(event, config, f"{config} cannot be read, so the dispatch named no story; the receipt was written "
-                    "without one. Fix the project config; `story_step.py bind` ties the receipt later.", said)
+                    f"without one. Fix the project config; {_BIND_LATER}", said)
     if not task and facts.get("exploration"):
         # An exploration has no story: its receipt carries the exploration identity (`explore:<slug>`), which `enrich`
         # copies into the child's events, so its stop is attributed to it and to no story (XT1-2).
@@ -345,37 +370,22 @@ def record(event):
     session = event.get('session_id')
     if session:
         doc = load(activity_path(event, session), session)
-        active = next((a for a in doc.get('activities',[]) if doc.get('active_stack') and a['activity_id']==doc['active_stack'][-1]), {})
+        entries, stack = doc.get('activities'), doc.get('active_stack')
+        # A spool whose entries are no objects names no activity (never a raise): the receipt is still written.
+        active = next((a for a in (entries if isinstance(entries, list) else []) if isinstance(a, dict) and stack
+                       and isinstance(stack, list) and a.get('activity_id') == stack[-1]), {})
         receipt['activity'] = active
         receipt['activity_id'] = active.get('activity_id')
     try:
         folders = artifact_root(event)
     except (ValueError, OSError):
         folders = None
-        config = project_root(event) / "qa-factory/config.json"
         _unreadable(event, config, f"{config} cannot be read, so the receipt was written without a dispatch id; "
-                    "`story_step.py bind` ties it later.", said)
+                    f"{_BIND_LATER}", said)
     if folders is not None and task and is_story_folder(folders, task):     # an `explore:<slug>` id, or an alias spelling, is no story folder: the receipt is still written below
-        path = folders / task / "state/controller.json"
-        if path.is_file():
-            state = read_json(path, None, kind=dict, errors=Exception)
-            if state is None:
-                _unreadable(event, path, f"{path} cannot be read as a JSON object; the receipt was written without a "
-                            "dispatch id; `story_step.py bind` ties it later.", said)
-                state = {}
-            records = state.get("dispatches")
-            entries = list(records.values()) if isinstance(records, dict) else []
-            matches = [d for d in entries if isinstance(d, dict) and d.get("role") == role and d.get("status") == "running"]
-            usable = len(matches) == 1 and isinstance(matches[0].get("id"), str)
-            if usable:
-                receipt["dispatch_id"] = matches[0]["id"]
-            if (records is not None and not isinstance(records, dict)) or not all(isinstance(d, dict) for d in entries) \
-                    or (len(matches) == 1 and not usable):
-                # An odd shape names no dispatch (never a raise) and is said once: a controller file whose shape
-                # the lookup cannot use is a gap the person may want to know (FR-4, AR-28), not a silent pass.
-                _unreadable(event, path, f"{path} has a shape the dispatch lookup cannot use (`dispatches` is no object, "
-                            "an entry is no object, or the running entry has no string id); the receipt was written "
-                            "without a dispatch id; `story_step.py bind` ties it later.", said)
+        dispatch_id = _controller_dispatch(folders, task, role, event, said)
+        if dispatch_id:
+            receipt["dispatch_id"] = dispatch_id
     atomic_json(binding_path(project_root(event), agent), receipt)
 
 

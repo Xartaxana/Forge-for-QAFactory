@@ -64,10 +64,12 @@ def activity_path(event, session):
     return spool
 
 def load(path, session):
-    try: return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"schema_version":1,"session_id":session,"activities":[],"active_stack":[],"processed_events":{},
-                "usage_completeness":"unknown","telemetry_note":"explicit boundaries only"}
+    # A spool that is no JSON object (broken, empty, a list) reads as the default doc: the ONE reader, `read_json`.
+    doc = hooklib.read_json(path, None, kind=dict, errors=Exception)
+    if doc is not None:
+        return doc
+    return {"schema_version":1,"session_id":session,"activities":[],"active_stack":[],"processed_events":{},
+            "usage_completeness":"unknown","telemetry_note":"explicit boundaries only"}
 
 
 def close_pending(event, session):

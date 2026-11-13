@@ -718,6 +718,35 @@ class BrokenReceiptTable(unittest.TestCase):
                 self.assertEqual(calls,[str(controller)] if broken else [])
                 self.assertEqual(controller.read_bytes(),content)
 
+    def test_subagent_stop_with_host_binding_says_one_path_once(self):
+        """F5: both identities of a SubagentStop read the SAME host_binding path: one signal for it."""
+        import hooklib, host_dispatch
+        with tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+            root=self.project(tmp); path=root/'bound.json'; path.write_bytes(b'{')
+            calls,patcher=self.spied()
+            with patcher:
+                host_dispatch.record({'hook_event_name':'SubagentStop','session_id':'parent','agent_id':'AG1','host_binding':str(path),
+                                      '_exit_gate_released':True,'cwd':str(root)})
+            self.assertEqual(calls,[str(path)])
+
+    def test_non_object_activity_spool_never_stops_the_receipt(self):
+        """F3: a spool that is no object, or whose entries are no objects, names no activity; the receipt is written."""
+        import hooklib, host_dispatch
+        for label,content in (('a list',b'[]'),('a number entry beside a stack',b'{"activities":[5],"active_stack":["x"]}'),
+                              ('activities is no list',b'{"activities":5,"active_stack":["x"]}'),
+                              ('stack is no list',b'{"activities":[{"activity_id":"x"}],"active_stack":5}')):
+            with self.subTest(column='C5 activity spool shape',content=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp); event=self.spawn(root)
+                import activity_capture
+                spool=activity_capture.activity_path(event,'parent'); spool.parent.mkdir(parents=True,exist_ok=True); spool.write_bytes(content)
+                host_dispatch.record(event)
+                receipt=json.loads(host_dispatch.binding_path(root,'/root/qa_failure_analyst__tp2_2406_s7_4').read_text())
+                self.assertEqual((receipt['activity'],receipt['activity_id']),({},None))
+                self.assertEqual(spool.read_bytes(),content)
+        with tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+            root=self.project(tmp); spool=Path(tmp)/'spool.json'; spool.write_bytes(b'[]')
+            self.assertEqual(activity_capture.load(spool,'s')['activities'],[],'close_pending reads the default doc')
+
     def test_controller_shapes_name_no_dispatch(self):
         import hooklib, host_dispatch
         run={'id':'S7-1','role':'qa-failure-analyst','status':'running'}
@@ -801,11 +830,16 @@ class BrokenReceiptTable(unittest.TestCase):
                     ('segments is no list',b'{"activity":{"segments":"x"}}','has no usable activity'),
                     ('a segment is no object',b'{"activity":{"segments":[5]}}','has no usable activity')]
             cells=[(l,c,'unreadable') for l,c in unreadable]+shapes
+            first_unreadable=unreadable[0][1]
+            _,patcher=self.spied()
+            with patcher: reference,_=self.cost(root,'oh86-reference',first_unreadable)
             for index,(label,content,gap) in enumerate(cells):
                 with self.subTest(column='C6 cost capture',binding=label):
                     calls,patcher=self.spied()
                     with patcher: doc,binding=self.cost(root,f'oh86-{index}',content)
                     self.assertEqual(sum(v['tokens'] for v in doc['by_activity'].values()),total,'the session total is unchanged')
+                    self.assertEqual(doc['priced_subtotal_exact_usd'],control['priced_subtotal_exact_usd'],'the money total is unchanged')
+                    self.assertEqual(doc['by_activity'],reference['by_activity'],'nothing inherited is ONE road (F4): the same attribution as an unreadable receipt')
                     marker=doc['telemetry_coverage'].get('attribution','')
                     self.assertTrue(marker.startswith('incomplete: host_binding ') and (marker.endswith(gap) or gap=='unreadable' and marker.endswith('unreadable')),marker)
                     self.assertEqual(calls,[binding])
