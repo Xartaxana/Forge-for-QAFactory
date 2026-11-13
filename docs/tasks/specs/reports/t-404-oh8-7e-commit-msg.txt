@@ -1,0 +1,65 @@
+OH8-7e (t-404): the judgment census classifies the 32 subclass-only refusers of exploration.py, explore_step.py, manual_evidence.py, manual_capture.py, import_test_receipt.py and s7_reorder.py (the six files join SUBCLASS_UNIT_FILES as whole-file entries)
+
+Six whole-file entries are added to SUBCLASS_UNIT_FILES; no mechanism code changes.
+SUBCLASS_PENDING_CEILING 106 -> 74 (C7 is dense at the pending count, 74, whatever the number of rows written).
+
+32 rows: 11 xref, 16 shape, 5 safety. Safety by precedent: release_lock the lock is released only by its holder or on a person's word; _write_exclusive an existing import file is never overwritten by different content; _copy_evidence reporter evidence is copied without overwriting a different durable file and without a symlinked destination; import_receipt an existing immutable import receipt is never replaced by another one. Safety by the Lead's answer: _reject_destination_symlinks nothing is written outside the work directory or through a symlink. No E3 row: every one of the 32 refuses to a caller (s7_reorder.main catches ReorderRefused and turns it into exit 2, a refusal).
+Lead rule (7e): a containment/symlink guard on a path that is WRITTEN is safety; on a path that is only READ it is shape.
+answered by the Lead (7e questions 1-5): 1) exploration.py::record_answer -> xref, [conductor], data; 2) import_test_receipt.py::_reject_destination_symlinks -> safety, [conductor], data; 3) import_test_receipt.py::_safe_local -> shape, [conductor], data; 4) import_test_receipt.py::_trusted_producer -> xref, [conductor], data; 5) s7_reorder.py::_read_test -> shape, [conductor], data.
+open for the pair critic: (1) record_answer is xref: the given token is one of the frame's closed answers and agrees with the person's word when that word is itself a closed answer; the frame's stored state against the flags; the comparison is exact equality of a normalised word with the closed tokens of a closed question (FRAME_OPTIONS data), free words are never read by code, they go to the conductor, so not word-list. (3) _safe_local is shape: containment and form of a path that is READ, as manual_evidence._safe_evidence_path and red_sandbox.inside. (4) _trusted_producer is xref: config presence and shape, exactly one profile resolving, the opt-in key, a complete producer identity; a project's facts in its config (AR-3), no person's word, so not the install case. (5) _read_test is shape: read containment plus UTF-8 form, same rule as (3).
+open for the pair critic: roles of every row follow the file precedent [conductor] (exploration.py has no earlier row; explore_step.py::_run, import_test_receipt.py::validate_*, manual_*.py and s7_reorder.py::row_problems are [conductor]); exploration.py::frame and ::narrow are judged on the presence/length of the person's words and on flags only (AR-29 presence clause, accepted by the Lead), no content is read; exploration.py::_clean_stories and ::_hit_repos are shape although their texts say "one path component" (a form of a name, not a resolved containment)
+noticed, not fixed: import_test_receipt.py main has no guard of its own: an ImportError raised by import_receipt surfaces as a traceback (exit 1) while s7_reorder.main turns ReorderRefused into stderr plus exit 2
+noticed, not fixed: import_test_receipt.py::_safe_local is also the reader guard of validate_import_block (it catches ImportError and turns it into an error string), so one function is a refusal on the import path and advisory on the reader path
+
+Raise list (AR-20), reconciled by script (delta per key == new rows naming it):
+blocking_per_role.conductor: 574 -> 606 -- census classifies subclass refusers of exploration.py, explore_step.py, manual_evidence.py, manual_capture.py, import_test_receipt.py, s7_reorder.py (OH8-7e)
+safety: 67 -> 72 -- census classifies subclass refusers of exploration.py, import_test_receipt.py (OH8-7e): release_lock, _copy_evidence, _write_exclusive, import_receipt, _reject_destination_symlinks
+no other ratchet key and no existing row changed.
+
+architecture: AR-29 -- every row is a judged class per unit (32 rows: 11 xref, 16 shape, 5 safety; the 5 non-plain readings were answered by the Lead); AR-20 -- the raised keys are named above with their reconciliation; AR-13 -- no second AST walk over refusals: units_of reads the sites refusal_registry.sites(raises=raise_family(...)) already returned, refusal_registry.py untouched; AR-22 -- SUBCLASS_UNIT_FILES (producer) and units_of (its one reader) change together, both die in OH8-7h; AR-28 -- the pending set (an unknown) shrinks by an exact count (32), C7 stays dense
+judgment: adds data check test_judgment_census.SUBCLASS_UNIT_FILES -- census rows for refusals through package subclasses in exploration.py, explore_step.py, manual_evidence.py, manual_capture.py, import_test_receipt.py, s7_reorder.py, each a data check or a guard classified per unit
+tier: <model of the committer>
+
+Four questions (rule 10) for the SUBCLASS_UNIT_FILES entries:
+(a) Cost and who pays: one tuple edit (six entries) and 32 rows; the census run gets no new walk. The builder pays the classification; the critic pays one reading of every new row (pair 2: OH8-7d + OH8-7e); the Lead pays the commit and the answers to the questions.
+(b) Axes (36 on docs/SIBLING_MAP.md):
+axis 1 (policy <-> role): n/a the critic brief lists were edited by OH8-7b; CLAUDE.md rule 10 and designer rule 1 name no constant.
+axis 2 (per-tier exam instruments): n/a no exam.
+axis 3 (factory package <->): n/a test files ship as usual; no release-side step changes.
+axis 4 (factory rules <->): n/a no FR change; the temporary second road stays bounded by SUBCLASS_PENDING_CEILING and these nodes.
+axis 5 (stage twins inside): n/a the census is not a stage.
+axis 6 (measurement tools <->): n/a no measurer reads the census.
+axis 7 (per-test identity <->): n/a no per-test identity changed
+axis 8 (where the story): n/a no story path resolver touched
+axis 9 (is this a): n/a SCAN_EXCLUDE unchanged.
+axis 10 (git-top readers): n/a no git-top reader touched
+axis 11 (shell-command recognizers): n/a no shell-command recognizer touched
+axis 12 (carriers of the): covered the node is a row of batch onboarding-hooks/9 (the coordinator's move, D-0044).
+axis 13 (the dispatch text): n/a no dispatch text touched
+axis 14 (readers of agent): n/a no transcript reader touched
+axis 15 (console stream setup): n/a the test prints as before.
+axis 16 (one json reader): n/a the test reads its fixture as before.
+axis 17 (detector verdict shape): n/a the census is a test, not a detector producer.
+axis 18 (in-tree shrink-only ratchets): covered SUBCLASS_UNIT_FILES stays grow-only (six whole-file entries added); every raise named row by row; OH8-7h rewrites the clause.
+axis 19 (one reader of): n/a no role tools line reader touched
+axis 20 (host receipt names): n/a no host receipt name touched
+axis 21 (readers of the): n/a no markdown table reader touched
+axis 22 (a host's return): n/a no host report form touched
+axis 23 (fields of a): n/a no tests[] row field touched
+axis 24 (the record of): n/a no execution record join touched
+axis 25 (freshness of a): n/a no freshness predicate touched
+axis 26 (the word stand): n/a no stand-not-confirmed word touched
+axis 27 (the profile of): n/a no profile of a test row touched
+axis 28 (the render site): n/a no row form render site touched
+axis 29 (append-only jsonl writers): n/a no jsonl appender touched
+axis 30 (the commands of): n/a no profile commands reader touched
+axis 31 (role carriers): n/a no role carrier touched
+axis 32 (where judgment lives): covered census rows in the same commit as the units (C1); one scanner (sites()); rows read by critic question 11.
+axis 33 (which dispatch am): n/a no dispatch identity reader touched
+axis 34 (one road for): covered the temporary second road shrinks by 32 functions of six files; OH8-7h removes the line.
+axis 35 (sides of a): n/a no story sides reader touched
+axis 36 (the row written): n/a no placeholder row predicate touched
+(c) Detector: test_judgment_census.py -- C1 (a created unit with no row, a row whose unit vanished), C7 (pending count dense; the list-form checks on SUBCLASS_UNIT_FILES), C3 (raises); calibration checks 41 (judgment census) and 35 (b) (every raise named) in PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md.
+(d) What stops a skip: code on the path. The census test is a `keep` row (layer register) printed by scenario_walk.py --witness-for for the fixture and runs in the CI canon. A node that lists without rows gets C1 "... is a check unit (u3) with no row"; one that does not lower the ceiling gets C7 "below SUBCLASS_PENDING_CEILING"; one that lowers it too far gets C7 "above". The MEANING of each class is judged by a tier above (critic question 11), not by code.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
