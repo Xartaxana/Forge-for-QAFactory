@@ -13,7 +13,6 @@ does not hold (404) are each a named refusal or a recorded gap.
 """
 import hashlib
 import json
-import os
 import re
 import shutil
 import statistics
