@@ -2366,9 +2366,11 @@ def test_t667_d17_the_relay_note_reads_one_context_and_the_stage_default_reaches
     ctx = story_run.RelayCtx({"PC-1": "TC-9"}, [bare], rehearsal, "A", "S9")
     found = {"unread": [{"line": "TC-9: a word nobody knows", "why": "a word outside the closed list"}]}
     out = {"recorded": ["TC-8"], "unread": ["TC-9: a word nobody knows"], "note": ""}
+    import types
+    driver = types.SimpleNamespace(state={})   # FG7-8 B: the note also tells the driver's `repo_done_lines`; none here
     printed = io.StringIO()
     with contextlib.redirect_stdout(printed):
-        note = story_run.Driver._relay_note(None, out, found, ctx)
+        note = story_run.Driver._relay_note(driver, out, found, ctx)
     check_in("D17: a gap with no stage of its own is recorded under the default stage, with the context's form id",
              "- TC-9: block `stand gap: PC-1`, stage S9; takes every option above", note)
     check_in("D17: a rehearsal door with no stage is recorded under the default stage",
@@ -2377,7 +2379,7 @@ def test_t667_d17_the_relay_note_reads_one_context_and_the_stage_default_reaches
     check_in("D17: the line printed names the context's gate", "gate A: 1 line(s) of the answer look like a stand-gap answer", printed.getvalue())
     quiet = io.StringIO()
     with contextlib.redirect_stdout(quiet):
-        nothing = story_run.Driver._relay_note(None, {"recorded": [], "unread": []}, {"unread": []}, ctx)
+        nothing = story_run.Driver._relay_note(driver, {"recorded": [], "unread": []}, {"unread": []}, ctx)
     check_eq("D17: nothing recorded and nothing unread: no note, nothing printed", (nothing, quiet.getvalue()), ("", ""))
 
 

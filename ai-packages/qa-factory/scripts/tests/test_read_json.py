@@ -8,7 +8,6 @@ bytes that are not UTF-8, a nesting the parser gives up on, a path that is not a
 Runnable on its own: `python -B scripts/tests/test_read_json.py`."""
 import ast
 import json
-import os
 import sys
 from pathlib import Path
 
