@@ -1755,6 +1755,46 @@ HUMAN_WORD_MSG = ("PRE-TOOL GUARD: a person's word is recorded by the orchestrat
                   "digest — the orchestrator shows it to the person and records the answer.")
 
 
+_REGISTRY_TOKEN = re.compile(r"""\s*,\s*|\s+|"[^"]*"|'[^']*'|[^\s,"']+""")
+_REGISTRY_READ_SUBS = ("show", "state", "lessons")
+
+
+def registry_write_call(low: str, script: str, subs: tuple) -> bool:
+    """PK2-9: does `low` run `<script>` with one of the write subcommands `subs`, wherever the subcommand stands after the
+    script's name (option tokens may come first: `project_knowledge.py --task T role`)? One helper for every registry
+    script (AR-15). Tokens after the name are walked up to the end of the command (a newline, `;`, `&`, `|`, `]`).
+    The guard cannot know which flags take a value, so a bare word equal to a write subcommand opens the rule wherever it
+    stands (the error direction is refusal: `--note role show` is refused, and its door is the quoted value
+    `--note "role"`, or the conductor); a QUOTED token that follows a flag after whitespace only is that flag's value and is
+    skipped. A read subcommand (`show`, `state`, `lessons`) ends the walk as a read. The argument-list form
+    (`['x.py', '--task', 'T', 'role']`, commas between the items) has no value-skipping: every item may be the subcommand."""
+    write = re.compile(r"(?:%s)(?![\w-])" % "|".join(subs))
+    read = re.compile(r"(?:%s)(?![\w-])" % "|".join(_REGISTRY_READ_SUBS))
+    for named in re.finditer(re.escape(script) + r"""["']?""", low):
+        flag_before, comma = False, False
+        for token in _REGISTRY_TOKEN.finditer(low, named.end()):
+            text = token.group(0)
+            if text[0].isspace() or text[0] == ",":
+                if "\n" in text:
+                    break
+                comma = comma or "," in text
+                continue
+            quoted = text[0] in "\"'"
+            bare = text[1:-1] if quoted else text.lstrip("([")
+            if not quoted and text[0] in ";&|])":
+                break
+            if quoted and flag_before and not comma:
+                flag_before = False                      # `--note "role"`: the quoted value of the flag before it
+                continue
+            if write.match(bare):
+                return True
+            if read.match(bare):
+                break
+            flag_before = not quoted and text.startswith("-") and "=" not in text
+            comma = False
+    return False
+
+
 def human_word_check(event: dict, cfg: dict) -> None:
     """The commands that turn a person's words into a passed gate, or into a source left out
     before the run (`source_exclusions.py --load` / `--revoke`), are closed to every
@@ -1783,10 +1823,10 @@ def human_word_check(event: dict, cfg: dict) -> None:
                # or after the comma of an argument list (`['stand_identity.py', 'confirm', ...]`).
                or re.search(r"stand_identity\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|confirm|forget|unconfirm)(?![\w-])", low)
                # What the person accepted ONCE as a property of the environment, and taking it back (B-414): the same door shape
-               or re.search(r"environment_record\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|revoke)(?![\w-])", low)
+               or registry_write_call(low, "environment_record.py", ("record", "revoke"))
                # What the person said about the product's roles and the stand's accounts, and taking it back (PK0-8): the same door shape;
                # `show` stays open
-               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side|lesson)(?![\w-])", low)
+               or registry_write_call(low, "project_knowledge.py", ("account", "role", "revoke", "side", "lesson"))
                # B-416 M10: `report_adapt.py kind` writes the config's report kind and `forget` takes the helper's row back (it would
                # reset the one-turn bound); `config_write_check` reacts only to a `config.json` path word, and this script names none,
                # so the role door is closed here for both. `understood` and `show` stay open.
