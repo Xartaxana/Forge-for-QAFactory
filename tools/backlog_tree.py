@@ -1,4 +1,4 @@
-"""backlog_tree.py -- the piles as one JSON tree for the «Бэклог» pane (a read-only view; plans/PILES.md stays the board).
+"""backlog_tree.py -- the piles as one JSON tree for the «Бэклог» pane (a read-only view; the one view of the piles).
 
 Prints {"piles": [{"slug", "title", "batches": [{"n", "title", "status", "prio", "who", "nodes": [...]}]}], "counts": {...}}
 built with the ONE parser of the piles, tools/piles.py `load_tree` (AR-13 of the forge: no second reader of the batch files).

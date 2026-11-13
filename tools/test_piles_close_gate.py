@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import piles  # noqa: E402
-from piles_testkit import (B1, B2, CARD, GIT_VARS, LEFTOVER_OK, accept_batch1, batch_text, board_text, closed_rows, commit,  # noqa: E402
+from piles_testkit import (B1, B2, CARD, GIT_VARS, LEFTOVER_OK, accept_batch1, batch_text, closed_rows, commit,  # noqa: E402
                            edit, finding_text, freeze, git, head_hash, needs_git, node, put, rd, stage, tree_state)
 
 REAL = pathlib.Path(__file__).resolve().parent.parent
@@ -447,8 +447,7 @@ class Boom(OSError):
 
 
 @needs_git
-@pytest.mark.parametrize("step", ["write", "board"])
-def test_close_batch_that_fails_midway_puts_every_file_back(tree, cli, monkeypatch, step):
+def test_close_batch_that_fails_midway_puts_every_file_back(tree, cli, monkeypatch):
     put(tree, "plans/piles/forge/findings/B-230-opisanie.md", finding_text("B-230"))     # a finding the close deletes
     accept_batch1(tree)
     snap = tree_state(tree)
@@ -457,15 +456,11 @@ def test_close_batch_that_fails_midway_puts_every_file_back(tree, cli, monkeypat
 
     def failing_write(path, text, form):
         calls.append(path)
-        if step == "write" and len(calls) == 3:                                          # the BACKLOG and the card are already written
+        if len(calls) == 3:                                                              # the BACKLOG and the card are already written
             raise Boom("disk full")
         return real_write(path, text, form)
 
-    def failing_board(root):
-        raise Boom("board broke")                                                        # after the deletions
     monkeypatch.setattr(piles, "write_like", failing_write)
-    if step == "board":
-        monkeypatch.setattr(piles, "rebuild_board", failing_board)
     code, out = cli(tree, "close", "forge", "1", "--hash", h, "--today", "2026-10-08")
     assert code == 1 and "every file touched was put back, nothing changed" in out and "Boom" in out, out
     assert tree_state(tree) == snap and (tree / "plans/piles/forge/findings/B-230-opisanie.md").exists()
@@ -476,9 +471,13 @@ def test_close_id_that_fails_midway_puts_the_row_and_the_finding_back(tree, cli,
     freeze(tree)
     snap = tree_state(tree)
 
-    def failing_board(root):
-        raise Boom("board broke")
-    monkeypatch.setattr(piles, "rebuild_board", failing_board)
+    real_unlink = pathlib.Path.unlink
+
+    def failing_unlink(self, missing_ok=False):                                          # `close --id` writes ONE file (the BACKLOG)
+        real_unlink(self, missing_ok=missing_ok)                                         # and deletes the finding: fail after the delete
+        if self.name.startswith("B-102"):
+            raise Boom("unlink broke")
+    monkeypatch.setattr(pathlib.Path, "unlink", failing_unlink)
     code, out = cli(tree, "close", "--id", "B-102", "--word", "w", "--today", "2026-10-08")
     assert code == 1 and "nothing changed" in out and tree_state(tree) == snap
     assert list((tree / "plans/piles/forge/findings").glob("B-102*"))
@@ -712,12 +711,12 @@ def test_k13_a_file_absent_at_the_base_has_only_new_items_and_k16_an_unreadable_
 
 
 @needs_git
-def test_k14_the_board_count_line_names_the_unowned_leftovers_zero_included(tree, cli):
-    assert "; остатков без исполнителя: 0" in board_text(tree, cli)
+def test_k14_the_summary_count_line_names_the_unowned_leftovers_zero_included(tree, cli):
+    assert "; остатков без исполнителя: 0" in cli(tree, "summary")[1]
     edit(tree, B1, LEFTOVER_OK, BARE + "\n- ok | сделано: t-1")
     found = piles.leftovers_unowned(piles.load_tree(tree))
     assert [(p, item) for p, _, item in found] == [(B1, BARE)], found
-    assert "; остатков без исполнителя: 1" in board_text(tree, cli)
+    assert "; остатков без исполнителя: 1" in cli(tree, "summary")[1]
 
 
 def test_k15_the_leftover_key_regexp_knows_the_node_key_in_a_key_position_only():

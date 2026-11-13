@@ -44,31 +44,26 @@ def test_take_sets_card_and_batch_and_prints_commands(tree, cli):
     assert row == "| 2 | потом | B-015 | M | в работе | dev1, 08.10.2026 | `pile/forge/batch-2` | — |"
     head = next(l for l in rd(tree, B2).split("\n") if l.startswith("кучка:"))
     assert head == "кучка: `forge` | статус: в работе | взял: dev1, 08.10.2026 | ветка: `pile/forge/batch-2` | MR: — | стенд: не нужен"
-    assert cli(tree, "board", "--check")[0] == 0                              # the board was rebuilt
+    assert "PILES.md" not in out                                              # the printed `git add` names no board
     assert cli(tree, "check", "--all")[0] == 0                                # and the result passes the gate
 
 
 @needs_git
-@pytest.mark.parametrize("step", ["batch", "board"])
-def test_take_that_fails_after_the_card_write_puts_both_files_back(tree, cli, monkeypatch, step):
+def test_take_that_fails_after_the_card_write_puts_both_files_back(tree, cli, monkeypatch):
     take_tree(tree)
     snap = tree_state(tree)                                                   # sha256 of every file under plans/
     real_write, calls = piles.write_like, []
 
     def failing_write(path, text, form):
         calls.append(path)
-        if step == "batch" and len(calls) == 2:                               # the card is already written
+        if len(calls) == 2:                                                   # the card is already written
             raise OSError("disk full")
         return real_write(path, text, form)
 
-    def failing_board(root):
-        raise OSError("board broke")                                          # card and batch are already written
     monkeypatch.setattr(piles, "write_like", failing_write)
-    if step == "board":
-        monkeypatch.setattr(piles, "rebuild_board", failing_board)
     code, out = cli(tree, "take", "forge", "2", "--who", "dev1", "--today", "2026-10-08")
     assert code == 1 and "every file touched was put back, nothing changed" in out, out
-    assert tree_state(tree) == snap                                           # card, batch and board: the same bytes
+    assert tree_state(tree) == snap                                           # card and batch: the same bytes
 
 
 @needs_git
@@ -141,7 +136,7 @@ def test_take_preserves_crlf_and_bom(tree, cli):
     card, batch = (tree / CARD).read_bytes(), (tree / B2).read_bytes()
     assert b"\n" not in card.replace(b"\r\n", b"") and b"\n" not in batch.replace(b"\r\n", b"")
     assert batch.startswith(b"\xef\xbb\xbf") and not card.startswith(b"\xef\xbb\xbf")
-    assert "dev1, 08.10.2026" in card.decode("utf-8") and cli(tree, "board", "--check")[0] == 0
+    assert "dev1, 08.10.2026" in card.decode("utf-8")
 
 
 @needs_git
@@ -183,7 +178,7 @@ def test_take_writes_no_board_line_with_or_without_token(tree, cli, monkeypatch,
     code, out = cli(tree, "take", "forge", "2", "--who", "dev1", "--today", "2026-10-08")
     assert code == 0, out
     assert "piles take: forge/2 taken by dev1 (08.10.2026). Next:" in out
-    assert "доска" not in out and "board" not in out.replace("plans/PILES.md", "") and "issue" not in out and "glpat" not in out
+    assert "доска" not in out and "board" not in out and "PILES.md" not in out and "issue" not in out and "glpat" not in out
     assert "issue:" not in rd(tree, B2) and "| в работе | dev1, 08.10.2026 |" in rd(tree, CARD)
 
 
@@ -194,7 +189,7 @@ def test_take_runs_with_no_piles_gitlab_module(tree, cli, monkeypatch):
     _no_network(monkeypatch)
     code, out = cli(tree, "take", "forge", "2", "--who", "dev1", "--today", "2026-10-08")
     assert code == 0 and "доска" not in out and "taken by dev1" in out, out
-    assert cli(tree, "board", "--check")[0] == 0 and cli(tree, "check", "--all")[0] == 0
+    assert cli(tree, "check", "--all")[0] == 0
 
 
 @needs_git
@@ -222,8 +217,8 @@ def test_take_that_changes_nothing_or_is_refused_prints_no_board_word(tree, cli)
 def test_take_that_fails_and_is_rolled_back_prints_no_board_word(tree, cli, monkeypatch):
     take_tree(tree)
 
-    def failing_board(root):
-        raise OSError("board broke")
-    monkeypatch.setattr(piles, "rebuild_board", failing_board)
+    def failing_write(path, text, form):
+        raise OSError("disk full")
+    monkeypatch.setattr(piles, "write_like", failing_write)
     code, out = cli(tree, "take", "forge", "2", "--who", "dev1")
     assert code == 1 and "доска" not in out

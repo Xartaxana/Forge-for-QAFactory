@@ -23,7 +23,7 @@ def _scrub_git_env(monkeypatch):
 
 
 @needs_git
-def test_close_moves_archive_rows_with_hash_and_rebuilds_board(tree, cli):
+def test_close_moves_archive_rows_with_hash(tree, cli):
     accept_batch1(tree)
     h = head_hash(tree)
     code, out = cli(tree, "close", "forge", "1", "--hash", h, "--url", "https://git.example/mr/7", "--today", "2026-10-08")
@@ -36,7 +36,6 @@ def test_close_moves_archive_rows_with_hash_and_rebuilds_board(tree, cli):
     assert list(closed_rows(tree))[-1] == "B-230" and "B-462" in closed_rows(tree)                    # appended after the last closed row
     assert "статус: закрыта | взял: Ира | ветка: `main` (x) | MR: `%s` https://git.example/mr/7" % h in rd(tree, B1)
     assert "| 1 | фундамент | B-230 | L | закрыта | Ира | `main` (x) | `%s` https://git.example/mr/7 |" % h in rd(tree, CARD)
-    assert cli(tree, "board", "--check")[0] == 0 and "| B-230 | закрыто `%s` |" % h in rd(tree, "plans/PILES.md")
 
 
 @needs_git
@@ -399,7 +398,6 @@ def test_close_writes_no_board_line_with_or_without_token(tree, cli, monkeypatch
     assert "доска" not in out and "issue" not in out and "glpat" not in out
     assert out.rstrip().splitlines()[-1].startswith("  Next: git add")        # the commit instruction stays last
     assert "статус: закрыта" in rd(tree, B1) and "issue:" not in rd(tree, B1)
-    assert cli(tree, "board", "--check")[0] == 0
 
 
 @needs_git
@@ -409,7 +407,7 @@ def test_close_runs_with_no_piles_gitlab_module(tree, cli, monkeypatch):
     accept_batch1(tree)
     code, out = cli(tree, "close", "forge", "1", "--hash", head_hash(tree), "--today", "2026-10-08")
     assert code == 0 and "forge/1 closed" in out and "доска" not in out, out
-    assert "статус: закрыта" in rd(tree, B1) and cli(tree, "board", "--check")[0] == 0
+    assert "статус: закрыта" in rd(tree, B1)
 
 
 @needs_git

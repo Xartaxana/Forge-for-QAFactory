@@ -78,7 +78,6 @@ jobs:
       - run: python tools/factory_rules_index.py --check
       - run: python tools/architecture_index.py --check
       - run: python tools/agents_md.py --check
-      - run: python tools/piles.py board --check
       - name: piles frozen batches and backlog
         env:
           BASE: ${{ steps.base.outputs.base }}
