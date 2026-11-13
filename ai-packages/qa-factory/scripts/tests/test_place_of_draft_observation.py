@@ -55,3 +55,7 @@ def test_no_targets_no_exception(tmp_path):
     body = {"observation": OBS, "violates": "R-1"}
     assert PA.place_of_draft(tmp_path, "d1.json", body, [], []) == OWN
     assert PA.place_of_draft(tmp_path, "d1.json", body, [], None) == OWN
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

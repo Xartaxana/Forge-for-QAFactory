@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import contract as C  # noqa: E402
 import hooklib  # noqa: E402
-from role_cli import command_from_argv, epilog, refuse, run_guarded  # noqa: E402
+from role_cli import RefusingParser, command_from_argv, epilog, refuse, run_guarded  # noqa: E402
 from event_store import LockBroken, LockBusy, atomic_json, take_file_lock  # noqa: E402
 
 
@@ -658,7 +658,8 @@ def _empty_answer(task_root: Path, cases_dirs: list | None = None, verify: bool 
 
 def main() -> int:
     C.force_utf8()
-    parser = argparse.ArgumentParser(
+    parser = RefusingParser(
+        command=command_from_argv("case_versions.py"),
         description="create immutable case versions and pin them to a story",
         epilog=epilog("case_versions.py"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
