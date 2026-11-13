@@ -1612,6 +1612,25 @@ def _oh61_row_role_digest(name, where):
     return rel, sorted(p for _dir, _sub, names in os.walk(where) for p in names)
 
 
+def _oh61_row_event_store(name, where):
+    import event_store
+    return event_store.EventStore(where, stale_marker=name)
+
+
+def _oh61_row_selftest_slow_tests(name, where):
+    import selftest
+    return selftest._slow_tests_problem({"thresholds": {"slow_over_s": 1, "fast_under_s": 0}, "files": {name: None}})
+
+
+def _oh61_row_dependency_drift(name, where):
+    import dependency_drift
+    where.mkdir(parents=True)
+    table = {"locks": [{"file": name, "format": "toml_packages", "manager": "poetry"}],
+             "install_commands": {"poetry": ["poetry", "install"]}}
+    (where / "t.json").write_text(json.dumps(table), encoding="utf-8")
+    return dependency_drift.load_table(where / "t.json")
+
+
 def _oh61_value(outcome):
     return outcome[1] if outcome[0] == "value" else None
 
@@ -1647,12 +1666,22 @@ OH61_ROWS = (
      lambda o, n: o == ("value", ("", "")), True),
     ("role_digest", _oh61_row_role_digest, lambda o, n: o == ("value", ("", [])),
      lambda o, n: o == ("value", ("state/findings/T-digest-notes.md", ["T-digest-notes.md"])), True),
+    ("event_store", _oh61_row_event_store,
+     lambda o, n: o[:2] == ("raised", "ValueError") and o[2].startswith("stale_marker must be a plain file name"),
+     lambda o, n: o[0] == "value" and o[1].stale_marker == "T", True),
+    ("selftest_slow_tests", _oh61_row_selftest_slow_tests,
+     lambda o, n: o == ("value", f'"files" key {n!r} is not a test file name'), lambda o, n: o == ("value", None), False),
+    ("dependency_drift", _oh61_row_dependency_drift,
+     lambda o, n: o == ("value", (None, "t.json locks[0] needs a plain file name, a `format` and a `manager`")),
+     lambda o, n: o[0] == "value" and o[1][0]["locks"][0]["file"] == "T" and o[1][1] == "", True),
 )
 
 
 def oh6_1_one_component_table() -> None:
-    """OH6-1 Part A: 15 callers x 7 names. One check per cell, and (14 rows) one spy check per cell: the caller asked
-    `hooklib.is_one_component` about the exact name, so a copy that kept its own test cannot pass."""
+    """OH6-1 Part A: 18 callers x 7 names. One check per cell, and (16 rows) one spy check per cell: the caller asked
+    `hooklib.is_one_component` about the exact name, so a copy that kept its own test cannot pass. The `selftest` row is
+    not spied: the runner does not import hooklib, it keeps the named mirror `selftest._is_one_component`, and the
+    agreement row below pins the mirror to the survivor."""
     base = scratch()
     for row_id, run, refused, accepted, spied in OH61_ROWS:
         for label, name in OH61_NAMES:
@@ -1673,13 +1702,79 @@ def oh6_1_one_component_table() -> None:
                 check(f"OH6-1 {row_id}-{label} asked the survivor", name in seen, repr(seen))
 
 
+# --- OH8-3: a refused session id leaves ONE stderr line, the exit stays (FR-4, AR-28) ---------------------------------
+# (id, session id, reason fragment the line must carry; "" = a good id: reaches the scope check, no line)
+OH83_IDS = (("int", 5, "not a string (int)"), ("list", ["a"], "not a string (list)"),
+            ("nul", "a\0b", "contains a NUL character"), ("dotdot", "..", "is not one path component"),
+            ("slash", "a/b", "is not one path component"),
+            ("at80", "x" * 76 + "/b", "is not one path component"), ("beyond80", "x" * 10000 + "/b", "is not one path component"),
+            ("surrogate", "a\ud800/b", "is not one path component"), ("good", "T", ""))
+OH83_SITES = (("capture", _oh61_row_cost_capture), ("main", _oh61_row_cost_main))
+
+
+def oh8_3_session_id_refusal_line() -> None:
+    """Every id x both sites. Positive control: the good id reaches the check behind the guard and writes no line.
+    Mutation note: deleting the `print` in `cost_capture._session_id_ok` makes every refused row red (no line)."""
+    base = scratch()
+    for site, run in OH83_SITES:
+        for label, session_id, reason in OH83_IDS:
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    outcome = _oh61_outcome(lambda: run(session_id, base / f"oh83-{site}-{label}"))
+            finally:
+                restore_process()
+            lines = [ln for ln in err.getvalue().splitlines() if ln]
+            name = f"OH8-3 {site}-{label}"
+            if not reason:
+                check(f"{name} reaches the check behind the guard", outcome[0] == "value" and outcome[1][1] is True, repr(outcome)[:300])
+                check(f"{name} writes no line", lines == [], repr(lines))
+                continue
+            want = ("exit", 0) if site == "capture" else ("value", None)
+            check(f"{name} keeps its exit and reaches nothing", outcome[0] == "value" and outcome[1] == (want, False), repr(outcome)[:300])
+            check(f"{name} writes exactly one line naming the reason",
+                  len(lines) == 1 and lines[0].startswith("session id refused: ") and reason in lines[0], repr(lines)[:300])
+            check(f"{name} shows the value in at most 80 characters, no raw NUL",
+                  len(lines) == 1 and len(lines[0]) - len("session id refused: ") - len(reason) - 2 <= 80 and "\0" not in lines[0],
+                  repr(lines)[:300])
+    # an empty id never reaches a site (`event.get("session_id") or tpath.stem`); the helper itself still refuses it with a reason
+    import cost_capture
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        empty_ok = cost_capture._session_id_ok("")
+    check("OH8-3 helper-empty is refused with a reason line", not empty_ok and err.getvalue() == "session id refused: is empty\n", repr(err.getvalue()))
+
+    class ClosedStream:
+        def write(self, text):
+            raise ValueError("I/O operation on closed file")
+
+        def flush(self):
+            raise ValueError("I/O operation on closed file")
+    saved_stderr, sys.stderr = sys.stderr, ClosedStream()
+    try:
+        closed_ok = cost_capture._session_id_ok("a/b")
+    finally:
+        sys.stderr = saved_stderr
+    check("OH8-3 helper-closed-stream: a stderr write that raises is swallowed, the id is still refused", closed_ok is False)
+
+
 # the three copy shapes of "a name is one path component" (the batch row and critic t-286 fix 3)
 OH61_COPY = re.compile(r"""for \w+ in ['"]/\\\\:""")
 OH61_TUPLE = re.compile(r"""for \w+ in \(\s*['"]/['"],\s*['"]\\\\['"]""")
 OH61_PATH_NAME = re.compile(r"!= Path\(\w+\)\.name")
-# shrink-only (AR-20): copies left to the finding "is_one_component copies outside OH6-1" (onboarding-hooks)
-OH61_ALLOWED = {"event_store.py": 1,   # stale_marker: `marker != Path(marker).name`; a core file OH6-3 owns
-                "selftest.py": 1}      # _slow_tests_problem: `name != Path(name).name`; the zone of onboarding-forge/2
+def oh6_1_mirror_agreement() -> None:
+    """OH6-1 / OH8-1: the one named mirror (`selftest._is_one_component`) answers like the survivor for every name of the
+    battery and for non-str inputs; its drift from `hooklib.is_one_component` goes red here."""
+    import selftest
+    inputs = [name for _, name in OH61_NAMES] + ["", 5, None, ["a"], b"a", "a b", "a.b", "..."]
+    for value in inputs:
+        check(f"OH6-1 mirror agreement: selftest._is_one_component({value!r})",
+              selftest._is_one_component(value) == hooklib.is_one_component(value))
+
+
+# shrink-only (AR-20): event_store.py 1 -> 0 by OH8-1; selftest.py keeps ONE named mirror (`selftest._is_one_component`,
+# the runner does not import hooklib), pinned to the survivor by `oh6_1_mirror_agreement`; a raise is named in the verdict
+OH61_ALLOWED = {"selftest.py": 1}
 
 
 def oh6_1_hits(text: str, patterns=(OH61_COPY, OH61_TUPLE, OH61_PATH_NAME)) -> list:
@@ -1689,8 +1784,8 @@ def oh6_1_hits(text: str, patterns=(OH61_COPY, OH61_TUPLE, OH61_PATH_NAME)) -> l
 def oh6_1_sentinel() -> None:
     """OH6-1 Part B: no script but `hooklib.py` carries a hand copy of the one-component test. Stated blind spots: the
     `'/' in x or '\\\\' in x` form (it also hits 8 path-vs-name checks that are not copies), `os.path.basename(x) != x`
-    (it also hits reporters.py), and a reordered literal such as `"\\\\/:"`; the Part A spy table and the named node
-    are the detectors for those."""
+    (it also hits reporters.py), and a reordered literal such as `"\\\\/:"`; the Part A spy table (its
+    `dependency_drift`, `event_store` and `selftest_slow_tests` rows included) is the detector for those."""
     counts = {}
     for path in sorted(harness.SCRIPTS.glob("*.py")):
         if path.name != "hooklib.py":
@@ -1701,7 +1796,7 @@ def oh6_1_sentinel() -> None:
     stale = {n: c for n, c in OH61_ALLOWED.items() if counts.get(n, 0) < c}
     check("OH6-1 sentinel: no script outside the allowance carries a copy", over == {}, str(over))
     check("OH6-1 sentinel: the allowance is not stale (shrink the allowance)", stale == {}, str(stale))
-    check("OH6-1 sentinel: the allowance is exactly the two named sites", OH61_ALLOWED == {"event_store.py": 1, "selftest.py": 1})
+    check("OH6-1 sentinel: the allowance is the one named mirror", OH61_ALLOWED == {"selftest.py": 1})
     text = (harness.SCRIPTS / "hooklib.py").read_text(encoding="utf-8")
     start = text.index("def is_one_component")
     body = text[start:text.index("\ndef ", start + 1)]
@@ -1725,7 +1820,9 @@ def main() -> None:
     os.environ[SKIP] = "1"
     try:
         oh6_1_one_component_table()
+        oh6_1_mirror_agreement()
         oh6_1_sentinel()
+        oh8_3_session_id_refusal_line()
         b1_artifacts_dir_root()
         b2_binding_is_active()
         b3_blocking_text()
