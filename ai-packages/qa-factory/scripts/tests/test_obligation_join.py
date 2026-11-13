@@ -75,6 +75,81 @@ def put(root, fragment):
                       env={**dict(__import__("os").environ), "CLAUDE_PROJECT_DIR": str(root)})
 
 
+def _word_line(iid="test_five", fields=("obligation_refs",)) -> str:
+    """One line of `state/passed-by-person.jsonl` for the `manifest:-:row-fields-missing` finding, as the controller writes it."""
+    return json.dumps({"ts": "2026-11-13T10:00:00+00:00", "stage": "S5", "dispatch": "d1", "block": "manifest:-:row-fields-missing",
+                       "finding_id": "manifest:-:row-fields-missing", "check": "manifest", "tag": "row-fields-missing",
+                       "subjects": [{"instance_id": iid, "fields": list(fields)}], "decision": "go on",
+                       "word_at": "2026-11-13T09:59:00Z", "by": "human"}) + "\n"
+
+
+def fv1_30b_n2_refs_words() -> None:
+    """FV1-30b R5 (c1)-(c7) on CONSTRUCTED rows (S1 Q5, not measured: no real TP1-13797 manifest was read; these fixtures stand in):
+    the words are only ADDED to an obligation whose binding names an instance the record passed for `obligation_refs` and whose
+    row still has bad refs; `verified`, `person_debt`, `execution_state`, `sensitivity`, `code_validity` never move."""
+    stable = ("verified", "person_debt", "execution_state", "sensitivity", "code_validity", "design_assessment", "instance_ids")
+    plan_hash = content_hash(PLAN_ROWS[0]["coverage_obligations"][0])
+
+    def manifest(refs="absent", bindings=None, extra_tests=()):
+        row = {"case": "TC-005", "file": "tests/t.py", "instance_id": "test_five", "covers": ["TC-005"], "status": "green"}
+        if refs != "absent":
+            row["obligation_refs"] = refs
+        binding = [{"obligation_id": "TS-1-O1", "instance_ids": ["test_five"], "obligation_hash": plan_hash}]
+        return {"tests": [row, *extra_tests], "obligation_bindings": binding if bindings is None else bindings}
+
+    def project(task, mf, oid="TS-1-O1"):
+        return next(o for o in CC.coverage_projection(task, report={}, manifest=mf)["obligations"] if o["obligation_id"] == oid)
+
+    root, task = make_story()
+    try:
+        record = task / "state" / "passed-by-person.jsonl"
+        (task / "state").mkdir(exist_ok=True)
+        base = project(task, manifest())
+        check("R5 (c4) control: no record -> no words, `word_passed` absent, not verified",
+              "word_passed" not in base and "passed by the person's word" not in base["gap"] and base["verified"] is False, str(base))
+        record.write_text(_word_line(), encoding="utf-8")
+        words = "obligation_refs of test_five not established - passed by the person's word (human, 2026-11-13T10:00:00+00:00)"
+        for label, refs in (("c1: refs absent", "absent"), ("c2: refs []", []), ("c1: refs not a list", "TS-1-O1"),
+                            ("c1: refs unknown to the plan", [{"obligation_id": "TS-9-O9", "obligation_hash": "x"}]),
+                            ("c1: refs stale", [{"obligation_id": "TS-1-O1", "obligation_hash": "stale"}])):
+            item = project(task, manifest(refs))
+            check(f"R5 ({label}) -> not verified, `word_passed`, the gap ends with the person's word after the older gap",
+                  item["verified"] is False and item.get("word_passed") is True and item["gap"] == base["gap"] + "; " + words, str(item))
+            check_eq(f"R5 ({label}) -> verified, person_debt, execution, sensitivity, validity are untouched",
+                     {k: item[k] for k in stable}, {k: base[k] for k in stable})
+        good = project(task, manifest([{"obligation_id": "TS-1-O1", "obligation_hash": plan_hash}]))
+        check("R5 (c3): refs repaired (valid against the plan) -> no words, no `word_passed`",
+              "word_passed" not in good and "passed by the person's word" not in good["gap"], str(good))
+        nobinding = project(task, manifest(bindings=[]))
+        check("R5 (c6)/F16: no binding -> no `word_passed`, no words", "word_passed" not in nobinding
+              and "passed by the person's word" not in nobinding["gap"], str(nobinding))
+        two = project(task, manifest(bindings=[{"obligation_id": "TS-1-O1", "instance_ids": ["test_five"], "obligation_hash": plan_hash},
+                                               {"obligation_id": "TS-1-O1", "instance_ids": ["test_five"], "obligation_hash": plan_hash}]))
+        check("R5 (c6)/F16: two bindings of one obligation -> no words", "word_passed" not in two, str(two))
+        other = {"case": "TC-005", "file": "tests/t.py", "instance_id": "test_six", "covers": ["TC-005"], "status": "green"}
+        sibling = project(task, manifest(bindings=[
+            {"obligation_id": "TS-1-O1", "instance_ids": ["test_five"], "obligation_hash": plan_hash},
+            {"obligation_id": "TS-1-O2", "instance_ids": ["test_six"]}], extra_tests=[other]), "TS-1-O2")
+        check("R5 (c7): a second obligation bound to another, unnamed instance -> today's item, no words",
+              "word_passed" not in sibling and "passed by the person's word" not in sibling["gap"], str(sibling))
+        named = project(task, manifest(bindings=[
+            {"obligation_id": "TS-1-O1", "instance_ids": ["test_five"], "obligation_hash": plan_hash},
+            {"obligation_id": "TS-1-O2", "instance_ids": ["test_six"]}], extra_tests=[other]))
+        check("R5 (c7): ... while the named one still carries them", named.get("word_passed") is True, str(named))
+        # a record for another field, or one the table does not let a word pass: no words
+        record.write_text(_word_line(fields=("assertion_id",)), encoding="utf-8")
+        check("R5: a pass naming another field names no `obligation_refs`", "word_passed" not in project(task, manifest()))
+        record.write_text(_word_line(fields=("change_disposition",)), encoding="utf-8")
+        check("R5/E20: a pass naming only a field the table never passes -> no words", "word_passed" not in project(task, manifest()))
+        # c5: the record cannot be read -> today's item
+        record.unlink()
+        record.mkdir()
+        unreadable = project(task, manifest())
+        check_eq("R5 (c5): record unreadable -> today's item, byte for byte", unreadable, base)
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
     # --- 1. the refusal, and the one word that passes it ------------------------------------
     root, task = make_story()
@@ -324,6 +399,7 @@ def main() -> None:
     check_in("and an id no row answers to is refused, not silently ignored",
              "names no row this manifest holds", missing)
 
+    fv1_30b_n2_refs_words()
     finish("obligation join (TP2-2553)")
 
 

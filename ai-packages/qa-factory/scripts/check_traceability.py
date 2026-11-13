@@ -158,6 +158,37 @@ def _open_gaps(rows: list, req: str, plan_for_req: list, artifacts: Path) -> boo
     return True
 
 
+WORD_PASSED_THEN_GAP = "word_passed:then_unbound"
+
+
+def _word_index(artifacts: Path):
+    """FV1-30b R2: the RECORD index of the passes a person's word recorded at the S5 exit (`waiver.person_passes`, the one reader of
+    the file) - None when there is no pass to ask about (E1: no file, no change) and when the record cannot be read (an unknown is
+    never a pass, AR-28). Never raises."""
+    try:
+        import waiver
+        rows, _why = waiver.person_passes(artifacts)
+        return waiver.word_passed_index(rows) if rows else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _word_passed_thens(case: str, meta: dict, manifest: dict, index, cfg) -> list:
+    """The Thens of the case that have NO `then_bindings` row (of any status) and that the record's pass names, as the gap entries
+    `{case, gap: word_passed:then_unbound, then}`. A case with no path, a read failure or a Then with a binding row adds nothing."""
+    if index is None or not isinstance(meta, dict) or not meta.get("path"):
+        return []
+    try:
+        import traceability as T
+        thens = sorted(T.case_thens(Path(meta["path"])))
+        bound = {C.then_number(b.get("then")) for b in (manifest.get("then_bindings") or [])
+                 if isinstance(b, dict) and C.case_matches(str(b.get("case") or ""), case, cfg=cfg)}
+        return [{"case": case, "gap": WORD_PASSED_THEN_GAP, "then": n}
+                for n in thens if n not in bound and index.then(case, n, cfg=cfg)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def walk(artifacts: Path, stricter=frozenset(), handed=None) -> dict:
     """`stricter`: the cases whose triage row is the assert-stricter word with a well-formed control experiment (the delivery check
     computes it, `check_delivery._stricter_cases`); empty = the chain as it always was. `handed`: the cases the person took by
@@ -173,6 +204,7 @@ def walk(artifacts: Path, stricter=frozenset(), handed=None) -> dict:
     cases = C.case_index(artifacts)
     cfg = C.case_config(artifacts)      # RD1-2: resolved once for the whole walk, handed down to every case (E-B5)
 
+    word_index = _word_index(artifacts)
     rows = []
     for req in requirements:
         plan_for_req = [r for r in plan_rows if req in r.get("requirements", [])]
@@ -212,10 +244,21 @@ def walk(artifacts: Path, stricter=frozenset(), handed=None) -> dict:
         for case in cases_for_req:
             row = next((r for r in plan_for_req if r["ts"] == cases[case].get("plan_row")), plan_for_req[0])
             outcome, detail, gap = _case_chain(case, row, manifest, report, stricter, handed, cfg)
+            # FV1-30b R2 (D8): the walk is case-level, so a case with one green Then and one unbound Then reaches a terminal
+            # outcome and the unbound Then never reaches the verdict. A Then of this case the person's word passed at S5 ends the
+            # case's outcome here, beside the case's own gap.
+            word_gaps = _word_passed_thens(case, cases[case], manifest, word_index, cfg) if word_index is not None else []
+            if word_gaps:
+                if not outcome:
+                    gaps.append({"case": case, "gap": gap})
+                outcome = ""
+                detail = "; ".join([d for d in [detail] if d] + [
+                    f"Then {g['then']} is not bound to a test - passed by the person's word at S5" for g in word_gaps])
+                gaps.extend(word_gaps)
+            elif not outcome:
+                gaps.append({"case": case, "gap": gap})
             outcomes.append(outcome)
             details.append(detail)
-            if not outcome:
-                gaps.append({"case": case, "gap": gap})
         terminal = [o for o in outcomes if o]
         rows.append({
             "requirement": req,
