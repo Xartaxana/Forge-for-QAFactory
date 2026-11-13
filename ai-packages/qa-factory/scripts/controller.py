@@ -2419,6 +2419,18 @@ class Controller:
                         line["word_at"] = str(item["at"])
                     if len(block) > 400:
                         line["finding_id"] = block
+                    # FV1-30b: the finding's own parts and WHICH instances / Thens it was about (`waiver.person_passes` reads
+                    # them back); each only when it has a value, so a pass of a finding with no subjects is the line it was.
+                    # `subjects` is cut at 200 entries with the whole count beside it: the reader names only the 200 listed, so a
+                    # cut never passes an instance it does not list.
+                    for key in ("check", "case", "tag"):
+                        if str((item or {}).get(key) or ""):
+                            line[key] = str(item[key])
+                    subjects = [s for s in ((item or {}).get("subjects") or []) if isinstance(s, dict)]
+                    if subjects:
+                        line["subjects"] = subjects[:200]
+                        if len(subjects) > 200:
+                            line["subjects_cut"] = len(subjects)
                     handle.write(json.dumps(line, ensure_ascii=False) + "\n")
         except OSError as exc:  # a record that cannot be written must not fail the pass itself
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
@@ -2437,7 +2449,9 @@ class Controller:
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
             return
         self._record_person_pass("S5", d.get("id"), [
-            {"error": row["finding_id"], "decision": row["decision"], "at": row["at"], "by": "human"} for row in rows])
+            {"error": row["finding_id"], "decision": row["decision"], "at": row["at"], "by": "human",
+             "check": row.get("check"), "case": row.get("case"), "tag": row.get("tag"), "subjects": row.get("subjects")}
+            for row in rows])
 
     def _passed_by_person(self, stage, errors):
         """(still blocking, passed by a person's recorded word) — the factory's standing rule.
@@ -7023,6 +7037,15 @@ class Controller:
         return (previous[-1]["dispatch"], missing, moved, str(unread or "")) if missing else None
 
     def _s5_completion_problems(self, d, p, state, review):
+        """The tiers below (`_s5_completion_tiers`) with ONE live word index per call: `_s5_word_index` memoises in
+        `_s5_word_memo` for the length of this call and drops it after (a word recorded between two completions is seen by the second)."""
+        self._s5_word_memo = {}
+        try:
+            return Controller._s5_completion_tiers(self, d, p, state, review)
+        finally:
+            self._s5_word_memo = None
+
+    def _s5_completion_tiers(self, d, p, state, review):
         """Why this S5 completion, which claims the stage is done, cannot be recorded:
         `[(class, message)]`, [] when it can. `review` is the code critic's receipts item (tier 3a).
 
@@ -7077,6 +7100,11 @@ class Controller:
         # TP2-2553 the shape was learned one refusal at a time, and the
         # critic's last interval ran close to two hours for it.
         shape = window_shape_errors(window)
+        if shape:
+            # The shape lines a person's recorded word for "no run row" lets go (FV1-30b R3): ONE predicate, `word_let_go`, over
+            # the live index; `window_shape_errors` stays pure. An index that cannot be built lets nothing go.
+            from window_record import word_let_go
+            shape, _let_go = word_let_go(shape, window, self._s5_word_index(d))
         if shape:
             door = ""
             # The door follows the OUTCOME of the instance the shape line names (HF2-4b, FR-2): the person's word for
@@ -7318,19 +7346,19 @@ class Controller:
         approved_rows = approved_plan.get("rows") if isinstance(approved_plan, dict) else approved_plan
         import contract as C  # the ONE reader of a valid reference (FV1-19c, AR-13)
         approved_obligations = C.obligation_map(approved_rows)
+        index, built = None, False   # the LIVE index of the person's words (FV1-30b): built lazily, at most once per call
         for item in window.get("instances") or []:
             refs = item.get("obligation_refs")
+            # The version test FIRST, whatever word stands (FV1-30b M1, E25).
+            if item.get("schema_version", 2) != 2:
+                problems.append((ValueError, "coverage v2 instance requires unique obligation_refs with exact hashes"))
+                continue
             # `strict`: an empty map makes every reference `unknown`, never a pass (AR-28). A broken list
             # comes back as `shape` alone, so it never reaches the hash comparison below.
             ref_problems = (C.obligation_ref_problems(refs, approved_obligations, strict=True)
                             if isinstance(refs, list) and refs else [])
             ref_kinds = {kind for kind, _ in ref_problems}
-            # Within ONE instance the first failure stops: broken refs make every hash below
-            # them meaningless. Between instances the failures are collected (and merged).
-            if (item.get("schema_version", 2) != 2 or not isinstance(refs, list) or not refs
-                    or "shape" in ref_kinds):
-                problems.append((ValueError, "coverage v2 instance requires unique obligation_refs with exact hashes"))
-                continue
+            refs_bad = not isinstance(refs, list) or not refs or "shape" in ref_kinds
             # An instance the person took over never ran here, so it has no
             # execution fingerprint to give. Demanding one would leave the
             # window with exactly two ways out: invent a receipt, or claim
@@ -7338,8 +7366,32 @@ class Controller:
             # an instance the stand blocked (t-219): no run reached a verdict, and
             # `validate_window` re-derives the claim from the manifest, so a
             # hand-typed outcome buys nothing here.
-            if (not item.get("execution_fingerprint")
-                    and item.get("outcome") not in (HANDED_OUTCOME, BLOCKED_OUTCOME)):
+            no_fp = (not item.get("execution_fingerprint")
+                     and item.get("outcome") not in (HANDED_OUTCOME, BLOCKED_OUTCOME))
+            not_run = refs_passed = False
+            if refs_bad or ref_kinds or no_fp:   # only then is the index consulted (FR-55); one that cannot be built names nobody (AR-28)
+                # `ref_kinds` too: a stale or unknown ref is a problem of the ONE field `obligation_refs` a word may name (F6 (a));
+                # an instance the index does not name takes the refusals below unchanged.
+                if not built:
+                    index, built = self._s5_word_index(d), True
+                iid = str(item.get("instance_id") or "")
+                if index is not None:
+                    not_run = bool(index.instance("not_run", iid))
+                    refs_passed = bool(index.instance("row_fields_unestablished", iid, field="obligation_refs"))
+            # An instance named under `not_run` never ran: it owes no fingerprint (the footing of handed/blocked above).
+            owes_fp = no_fp and not not_run
+            if refs_passed:
+                # A word about refs is not a word about the run: the instance still owes its fingerprint. Its refs, ids and row hash are the
+                # fact the person passed (the window carries them empty, `word_passed`), so those checks are not asked of it.
+                if owes_fp:
+                    problems.append((ValueError, "coverage v2 instance requires execution_fingerprint"))
+                continue
+            # Within ONE instance the first failure stops: broken refs make every hash below
+            # them meaningless. Between instances the failures are collected (and merged).
+            if refs_bad:
+                problems.append((ValueError, "coverage v2 instance requires unique obligation_refs with exact hashes"))
+                continue
+            if owes_fp:
                 problems.append((ValueError, "coverage v2 instance requires execution_fingerprint"))
                 continue
             if ref_kinds:  # `unknown` / `stale`
@@ -7351,20 +7403,24 @@ class Controller:
             if item.get("obligation_hash") != content_hash(refs):
                 problems.append((ValueError, "instance obligation_hash must bind exact obligation_refs"))
 
-    def _s5_no_row_passed(self, d):
-        """The instance ids whose `run_mapping:<case>:no-row-<iid>` finding a person's word passed (`s5_precheck.word_passes`), a
-        set; empty when the reader cannot answer (an import or a read failure): nothing is let go on a guess."""
+    def _s5_word_index(self, d):
+        """The LIVE `waiver.word_passed_index` of the S5 findings a person's recorded word passes for this dispatch (the rows of
+        `s5_precheck.word_passes`, the reader the exit gate and the recording share), or None on ANY exception - an import, a read
+        or the reader itself: nothing is then let go on a guess (the refusing direction, AR-28, E12). The one place the finish
+        builds it; `window_record.word_let_go` and `_s5_v2_collect` read it. The composition is `s5_precheck.live_word_index` (it never
+        raises); inside one `_s5_completion_problems` call the answer is built once (`_s5_word_memo`, a temporal memo: None outside a call)."""
+        memo = getattr(self, "_s5_word_memo", None)
+        key = (str(d.get("id") or ""), tuple(str(c) for c in d.get("scope") or []))
+        if isinstance(memo, dict) and key in memo:
+            return memo[key]
         try:
             import s5_precheck as S5
-            rows = S5.word_passes(self.store.root, d.get("scope") or None, d.get("id"))
+            index = S5.live_word_index(self.store.root, d.get("scope") or None, d.get("id"))
         except Exception:
-            return set()
-        found = set()
-        for row in rows:
-            tag = str(row.get("tag") or "")
-            if row.get("check") == "run_mapping" and tag.startswith("no-row-"):
-                found.add(tag[len("no-row-"):])
-        return found
+            index = None
+        if isinstance(memo, dict):
+            memo[key] = index
+        return index
 
     def _s5_gap_problems(self, d, p, window):
         """Tier 4: what `validate_window` finds, as items - the four gap checks collected."""
@@ -7441,13 +7497,14 @@ class Controller:
                 + "): accept it as unresolved with `unresolved` naming `" + CONTRADICTS_REQUIREMENT + "` - `story_step.py finish "
                 "--task " + self._ticket() + " --dispatch-id " + str(d.get("id"))
                 + " --digest \"<digest>\"` derives that pair from the window record"))
-        # An instance whose "no run row" finding a person's word passed at the S5 exit (FV1-30a) is not refused a second time
-        # here (FR-7): the pass is read through `s5_precheck.word_passes`, the reader the exit gate and the recording share.
-        # INVARIANT: only `product:<iid>` of an instance with a passed `run_mapping` `no-row-<iid>` finding is let go; any other
-        # gap, and an instance not passed, still refuses. A reader that cannot answer lets go of nothing (the refusing direction).
-        if any(g.startswith("product:") for g in other_gaps):
-            word_passed = self._s5_no_row_passed(d)
-            other_gaps = [g for g in other_gaps if not (g.startswith("product:") and g[len("product:"):] in word_passed)]
+        # A gap a person's recorded word passed at the S5 exit (FV1-30a `product:`; FV1-30b the rest) is not refused a second time
+        # here (FR-7): ONE predicate, `window_record.word_let_go`, over the live index (`_s5_word_index`: `s5_precheck.word_passes`,
+        # the reader the exit gate and the recording share). INVARIANT: only the kinds the table lists for a fact the index names
+        # for that instance are let go (the `not_run` section on the no-run shape, a passed field's `tier4_gaps`); any other gap
+        # and an instance not named still refuse. The refusal below and `passed_green` still read what is left / the whole `gaps`.
+        if other_gaps:
+            from window_record import word_let_go
+            other_gaps, _let_go = word_let_go(other_gaps, window, self._s5_word_index(d))
         if other_gaps and (not p.get("unresolved") or not p.get("reason")):
             problems.append((StateConflict, "unresolved window: " + ", ".join(other_gaps)))
         if gaps and p.get("passed_green"):

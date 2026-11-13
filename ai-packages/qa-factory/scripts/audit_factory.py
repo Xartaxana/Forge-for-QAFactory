@@ -1684,7 +1684,7 @@ NO_MOVE_BASELINE: dict = {
     ('driver_machine.py', 'Driver._act_awaiting_stopped', 'S', 'Stop:EXIT_DONE'): 1,
     ('driver_machine.py', 'Driver._act_closed', 'S', 'Stop:EXIT_DONE'): 1,
     ('driver_machine.py', 'Driver._act_wait_existing_job', 'P', 'Person:?'): 1,
-    ('driver_machine.py', 'Driver._act_wait_existing_job', 'P', 'Person:questions'): 1,
+    ('driver_machine.py', 'Driver._act_wait_existing_job', 'P', 'builder:held_question'): 1,
     ('driver_machine.py', 'Driver._finish_saved_result', 'P', 'Person:halt'): 1,
     ('driver_machine.py', 'Driver._revoke_changed_carries', 'U', 'waiver.py'): 1,
     ('driver_machine.py', 'Driver.approve_by_option', 'P', 'builder:held_question'): 1,

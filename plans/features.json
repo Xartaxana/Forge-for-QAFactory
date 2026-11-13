@@ -409,7 +409,12 @@
         "scripts/tests/test_driver_*.py",
         "scripts/tests/state_census.py",
         "scripts/tests/test_state_portability.py",
-        "scripts/tests/fixtures/env-fact*.json"
+        "scripts/tests/fixtures/env-fact*.json",
+        "scripts/tests/dry_exits.py",
+        "scripts/tests/dry_stub.py",
+        "scripts/tests/dry_world.py",
+        "scripts/tests/fixtures/driver-exits/**",
+        "scripts/tests/fixtures/dry-walk/**"
       ],
       "stages": [],
       "words": [
@@ -712,6 +717,7 @@
         "references/config-projection.json",
         "scripts/tests/fixtures/config-projection/**",
         "scripts/window_record.py",
+        "references/word-passed-facts.json",
         "scripts/window_budget.py",
         "scripts/exit_gate.py",
         "scripts/diff_scope.py",
