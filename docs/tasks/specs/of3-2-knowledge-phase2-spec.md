@@ -1021,9 +1021,9 @@ into K1 or K3). Direction chosen by the Lead: there is ONE carrier of deferred d
 the `asked` marker of a project-scoped key gets an OPEN row there through `project_decisions`' own upsert (the recorded writer, AR-14;
 no second list, P31), carrying the question's text as the person saw it and the story and date it was asked in; recording an answer
 for that subject (K1 `record`, K4 `remember`) resolves the row through `project_decisions.resolve`; a story-only fact (no project
-scope) never gets a row. Open for the designer's short draft before dispatch (UNVERIFIED by the Lead, not read this session): which
-reader the dashboard uses for "deferred decisions" and whether it reads that table or another carrier; whether a STAND-scoped asked
-marker belongs there too (owner's word says "для проекта" — until asked, stand-scoped markers get no row); the no_trace story edge
+scope) never gets a row. STAND-scoped asked markers get a row too (владелец, 13.11.2026: "да" to "отметка про конкретный стенд тоже
+должна попадать на дашборд?"); the row names the stand. Open for the designer's short draft before dispatch (UNVERIFIED by the Lead, not read this session): which
+reader the dashboard uses for "deferred decisions" and whether it reads that table or another carrier; the no_trace story edge
 (§4: a comparison run leaves no trace, P8 — no row). Depends on K1 (the `asked` producer) and K3 (the ask half); critic-on-plan for
 K8's draft only (a new idea's node), not a re-review of K1-K7.
 
