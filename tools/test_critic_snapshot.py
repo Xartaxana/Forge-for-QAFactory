@@ -60,10 +60,15 @@ def _run_hook(payload, cwd=None) -> subprocess.CompletedProcess:
     )
 
 
+def _handoff_line(cwd: Path) -> str:
+    """F6-37: a critic dispatch names its one report path inside docs/tasks/specs/reviews."""
+    return "handoff: " + str(cwd / "docs" / "tasks" / "specs" / "reviews" / "t-1.md")
+
+
 def _critic_payload(cwd: Path, tool_name="Task") -> dict:
     return {
         "tool_name": tool_name,
-        "tool_input": {"subagent_type": "critic"},
+        "tool_input": {"subagent_type": "critic", "prompt": "Review the diff.\n" + _handoff_line(cwd)},
         "cwd": str(cwd),
     }
 
@@ -358,7 +363,7 @@ def _blocked_critic_payload(cwd: Path) -> dict:
         "tool_input": {
             "subagent_type": "critic",
             "description": "nomodelprefixlabelatall",
-            "prompt": "irrelevant",
+            "prompt": "irrelevant\n" + _handoff_line(cwd),
         },
         "cwd": str(cwd),
     }
@@ -390,6 +395,23 @@ def test_m2_1_blocked_dispatch_leaves_prior_snapshot_byte_identical(tmp_path):
     )
 
 
+def test_m2_1_handoff_refused_dispatch_leaves_prior_snapshot_byte_identical(tmp_path):
+    """e24: a critic dispatch with a valid label and NO handoff line is refused by the handoff folder check
+    (decide() exit 2): the hook exits 0 and the prior snapshot stays byte-identical."""
+    (tmp_path / "a.txt").write_text("hello", encoding="utf-8")
+    assert _run_hook(_critic_payload(tmp_path), cwd=tmp_path).returncode == 0
+    snap = tmp_path / ".claude" / "critic_snapshot.json"
+    before_bytes = snap.read_bytes()
+    no_line = {
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "critic", "description": "opus: review the diff", "prompt": "Review."},
+        "cwd": str(tmp_path),
+    }
+    result = _run_hook(no_line, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    assert snap.read_bytes() == before_bytes
+
+
 def test_m2_1_non_blocked_dispatch_still_writes_new_snapshot(tmp_path):
     """Control (the positive side of the pair): a payload with a
     CORRECT model-prefix in description -- dispatch_gate.decide() does
@@ -402,7 +424,7 @@ def test_m2_1_non_blocked_dispatch_still_writes_new_snapshot(tmp_path):
         "tool_input": {
             "subagent_type": "critic",
             "description": "sonnet: review the diff",
-            "prompt": "irrelevant",
+            "prompt": "irrelevant\n" + _handoff_line(tmp_path),
         },
         "cwd": str(tmp_path),
     }

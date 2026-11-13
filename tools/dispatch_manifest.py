@@ -21,6 +21,8 @@ dispatch's sections reads the cut, never a private line scan:
    it with include_quoted=True (t-855, F6-8: one header grammar, one answer for a relative-only owns);
  * `given_paths(cut, top_entries)` -- the paths of the given sections;
  * `handoff_paths(cut)` -- the absolute paths of the handoff sections (same loop as given_paths);
+ * `handoff_mentions(cut)` -- every path candidate of the handoff sections, relative ones too (same loop);
+ * `dispatch_kind(payload)` -- the one reader of the dispatch's kind (stripped, lower-cased, or None);
  * `path_candidates(line, top_entries)` -- the one predicate "is this word a
    path" (absolute, OR backticked with a slash and no whitespace, OR a first
    segment that is a top-level entry of the root). The caller lists the root
@@ -31,7 +33,9 @@ too many regions or inline spans), gives a DEGRADED cut: every line is prose,
 note (exit 2 only from a complete read); the registry reads the same all-prose
 cut (the allowed direction: more).
 
-WHAT IS CHECKED. `subagent_type.strip().lower() == "builder"` always; any
+WHAT IS CHECKED. (The cut is built for a non-builder prompt that holds the word owns OR hand-off; check_cut's
+answers are unchanged: the cut is only AVAILABLE for the handoff folder check.)
+`subagent_type.strip().lower() == "builder"` always; any
 other type only when its prompt has an owns section with at least one owned
 (absolute) path -- a "writing" dispatch. Everything else: (0, "", "").
 
@@ -170,6 +174,7 @@ _SKIP_PREFIX_RE = re.compile(r"^[ \t]*(?:[-*•][ \t]+)?manifest-skip:", re.IGNO
 _SEP = r"--|—"  # THE reason separator: manifest-skip, siblings 'none -- <why>', designer 'skip -- <why>'
 _SKIP_SEP_RE = re.compile(_SEP)
 _OWNS_WORD_RE = re.compile(r"\bowns\b", re.IGNORECASE)
+_HANDOFF_WORD_RE = re.compile(r"hand-?off", re.IGNORECASE)
 _INLINE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 _ABS_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|/)")
 _TOKEN_STRIP = "`'\""
@@ -645,6 +650,15 @@ def handoff_paths(cut: DispatchCut) -> list:
     return [g.path for g in _section_paths(cut, "handoff") if _ABS_PATH_RE.match(g.path)]
 
 
+def handoff_mentions(cut) -> list:
+    """Every path candidate of the handoff sections, RELATIVE and absolute, in order, deduplicated, by the same
+    loop as handoff_paths; a quoted line is never read; a None or degraded cut gives []. The reader of the
+    id-race detector, which must see a scout's relative handoff path too."""
+    if cut is None or cut.degraded:
+        return []
+    return [g.path for g in _section_paths(cut, "handoff")]
+
+
 # --- the completeness check --------------------------------------------------
 
 
@@ -681,14 +695,32 @@ def cut_payload(payload):
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         raise TypeError("tool_input is not a dict: %s" % type(tool_input).__name__)
-    subagent_type = tool_input.get("subagent_type")
-    is_builder = isinstance(subagent_type, str) and subagent_type.strip().lower() == "builder"
+    is_builder = dispatch_kind(payload) == "builder"
     prompt = tool_input.get("prompt")
     if not isinstance(prompt, str):
         prompt = ""
-    if not is_builder and not _OWNS_WORD_RE.search(prompt):
-        return is_builder, None  # no owns header is possible without the word
+    if not is_builder and not _OWNS_WORD_RE.search(prompt) and not _HANDOFF_WORD_RE.search(prompt):
+        return is_builder, None  # neither an owns nor a handoff header is possible without its word
     return is_builder, section_cut(prompt)
+
+
+def has_handoff_word(payload):
+    """True when the dispatch prompt holds the word 'handoff' / 'hand-off' (the cheap exit's own test, one reader).
+    A prompt without it has no handoff header; a prompt with it and no cut means the cut failed (an unknown).
+    False for a non-dict payload / tool_input / non-str prompt."""
+    tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
+    prompt = tool_input.get("prompt") if isinstance(tool_input, dict) else None
+    return isinstance(prompt, str) and bool(_HANDOFF_WORD_RE.search(prompt))
+
+
+def dispatch_kind(payload):
+    """The dispatch's kind: tool_input.subagent_type stripped and lower-cased when it is a non-empty str, else
+    None. The one reader of the kind (cut_payload and the handoff folder check read it here)."""
+    tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
+    kind = tool_input.get("subagent_type") if isinstance(tool_input, dict) else None
+    if isinstance(kind, str) and kind.strip():
+        return kind.strip().lower()
+    return None
 
 
 _NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s")
