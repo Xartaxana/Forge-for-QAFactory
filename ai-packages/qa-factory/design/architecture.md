@@ -217,7 +217,7 @@ The owner set four goals on 20.10.2026, one section each:
   - `dev:tools/dup_ratchet.py` with `dev:tools/dup-baseline.json`, and `dev:tools/lint_ratchet.py`.
   - `references/stage-joints.json` `ratchet` (declared gaps; only node F6-51 may lower it), checked by `stage_joints.py --check`.
   - `scripts/tests/test-layers.json`: `quarantine` shrinks only by `dev:tools/test_quarantine.py purge`, and `pin_holds` only shrinks once files have entered the quarantine. A `keep` row leaves only through that tool. The rows naming detector tests in this map change only in a phase-2 commit that names the replacement.
-- Detector: both ratchets' `--check` (CI `forge-check`); `dev:tools/test_quarantine.py check` in the same job; calibration check 35 (b); critic-diff-brief question 9.
+- Detector: both ratchets' `--check` (CI `forge-check`); `dev:tools/test_quarantine.py check` in the nightly CI job `quarantine-check`; calibration check 35 (b); critic-diff-brief question 9.
 - Breakage: B-420. Pyflakes findings brought in by merges held CI red on main until 07.10 (`dev:plans/builder-rules.md` rule 7).
 - Change check: list every row added or raised (key, old -> new, reason). A new ratchet joins axis 18 and question 9 in the commit that creates it.
 

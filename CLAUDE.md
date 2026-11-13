@@ -201,7 +201,8 @@ a rule.
    adversarial mini-battery — magnitude, nesting, encoding, empty/broken input — and every limit applied to it a
    case AT and BEYOND it, each a scenario variant row; an internal boundary gets no test. When the SessionStart line
    says `TEST QUARANTINE ALERT` or `READY TO DELETE`, the Lead tells the owner the same turn (detectors: check 33,
-   `tools/test_quarantine.py check` in `forge-check`).
+   `tools/test_quarantine.py check` in the nightly CI job
+   `quarantine-check`).
    scout: an explicit question and a completeness criterion; "X is nowhere to be found" is a valid outcome and
    requires a trail. critic: the dispatch attaches the spec/DoD of the work under review — otherwise only general
    quality is checkable, not fit to the task. A dispatch with no DoD is returned by the worker as questions, before
