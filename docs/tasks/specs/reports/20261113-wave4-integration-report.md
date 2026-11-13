@@ -27,11 +27,21 @@ Branch `wip/wave4` cut from origin/main 819a31f; four accepted topic branches me
 - driver-exits fixture ratchets (lowered, shrink-only): `s1-s4.json unwalked 14 -> 12`, `s5.json unwalked 32 -> 31`; total `unwalked 82 -> 79`. Reason: tbw-t1 renamed the 43 stage-joints (`window:X` -> `acceptance:X`, `exit:X_errors` -> `exit_gate:X`, `detector:Sn:role:tool.py` -> `tool:*`, four `branch_accounting.py` rows collapsed to one); the row keys in `scripts/tests/fixtures/driver-exits/{gates,s1-s4,s5,s6-s9}.json` were renamed to follow, every row keeping `reach: unwalked` and its `why_unreached`. Four old rows have no row of their own now because the universe has one joint where it had four.
 
 ## Hand-edited files
-`ai-packages/qa-factory/references/role-load.json`; `ai-packages/qa-factory/scripts/tests/fixtures/driver-exits/{gates,s1-s4,s5,s6-s9}.json`; `ai-packages/qa-factory/scripts/tests/fixtures/told-ratchet.json`; this report.
+`ai-packages/qa-factory/references/role-load.json`; `ai-packages/qa-factory/scripts/tests/fixtures/driver-exits/{gates,s1-s4,s5,s6-s9}.json`; `ai-packages/qa-factory/scripts/tests/fixtures/told-ratchet.json`; fix rounds: `scripts/stage_joints.py`, `scripts/tests/dry_world.py`, `scripts/tests/test_refusal_registry.py`, `agents/qa-case-designer.md`, `plans/features.json`; this report.
 
 ## Noticed, not fixed
-- Commit-gate WARN (not a refusal) on the p1b-n1 merge: 24 offenders `new package file ... matches no feature` (`scripts/tests/dry_exits.py`, `dry_stub.py`, `dry_world.py`, `fixtures/driver-exits/*.json`, `fixtures/dry-walk/seeds/probe.json`). p1b-n1's own `plans/features.json` does not name them either. Assigning them to a feature is a decision; left for the Lead (owner of the p1b-n1 pile).
+- Commit-gate WARN (not a refusal) on the p1b-n1 merge: 24 offenders `new package file ... matches no feature` (`scripts/tests/dry_exits.py`, `dry_stub.py`, `dry_world.py`, `fixtures/driver-exits/*.json`, `fixtures/dry-walk/seeds/probe.json`). p1b-n1's own `plans/features.json` does not name them either. It turned out to be a RED on CI (test_forge_metrics), fixed in round 2 by rows in F06 (see Canon).
 - Analog of the driver-exits rename: any other fixture keyed by joint names (none found by the tests that ran) would break the same way.
 
-## Canon
-Filled in below after the pipeline.
+## Canon (bare push pipelines on main, read through `tools/ci_read.py`)
+
+| run | head | result |
+|---|---|---|
+| 43521701137 | 31610de (the four merges + told-ratchet raise) | RED: `forge-check` (lint_ratchet: 3 new findings, 39 vs baseline 36) and `package-fast` 219/220 (`test_charters_s5_s9.py::test_x1_numbers_only_shrink[qa-case-designer]`); runner-facts, changes success |
+| 43523646222 | a9d69a5 (fix round 1) | `package-fast` success (qa-factory fast selftest green); `forge-check` RED: `tools/test_forge_metrics.py::test_k1_shipped_registry_has_no_unattributed_tracked_package_file` (12 p1b-n1 files with no feature) |
+| 43525161013 | 97ba490 (fix round 2) | `forge-check` success, `changes` success, `runner-facts` success, `package-fast` skipped (the commit touched only `plans/features.json`; the previous run's package-fast on a9d69a5 was green) |
+
+Fix round 1 (a9d69a5): lint findings `stage_joints.py:863` (unused `_text`), `dry_world.py:16` (unused `import os`), `test_refusal_registry.py:661` (f-string without placeholders) fixed in code, lint baseline left at 36; the `(P16)` tag that tq2-1 K1 added to the `qa-case-designer.md` charter removed (the X1 number ratchet allows 0; rule text unchanged; role-load rows unchanged, verified 186/186).
+Fix round 2 (97ba490): `plans/features.json` F06 files gain `scripts/tests/dry_exits.py`, `dry_stub.py`, `dry_world.py`, `fixtures/driver-exits/**`, `fixtures/dry-walk/**` (my choice of F06 "driver headless" as the owner is a feature-assignment guess; the Lead may move the rows). `test_forge_metrics.py` locally 81 passed, 3 skipped.
+
+Not run: the `workflow_dispatch` BATCH CANON (`canon <branch>`) -- the dispatch asked for the push pipeline only; run it if the Lead wants the full set. No red in `test_story_run_s6_w1_frozen` was seen. Defects found against accepted branches (for the Lead's log): tq2-1 K1 added `(P16)` to a charter with a 0 number ratchet and p1b-n1 added three lint findings plus 12 unregistered package files; neither branch's own run caught them.
