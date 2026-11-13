@@ -16,8 +16,10 @@ account roles and the env key NAMES), `manual_capture.login_recipe` / `sign_in_r
 
 The card is rebuilt only when its inputs change: the last line carries a hash of the inputs, and a build whose hash equals the
 file's leaves the file alone. The card is at most CARD_MAX_BYTES; beyond it the entry routes are cut, the tail line names how
-many and the file that holds them; before that, the First look section collapses to a pointer to its file. The other sections are
-bounded by their own per-line and per-list limits (below), so only the First look section and the routes give way to the limit.
+many and the file that holds them; before that, the First look section collapses to a pointer to its file. No value of the card is
+cut by characters (FV1-4 L1): every value is shown whole, through `scrub` only; a list the card caps by COUNT (profile lines, test-data
+keys and entry names, notes, page objects, First look lines) says how many were left out and the file that holds them. The other
+sections are not bounded by the limit, so only the First look section and the routes give way to it.
 
 This module holds no refusal site and no judgment: it reads data and assembles it (AR-29).
 """
@@ -39,12 +41,11 @@ PROFILE_REL = "qa-factory/strategy/project-profile.md"
 CONFIG_REL = "qa-factory/config.json"
 BRIEFS_REL = "work/briefs"
 CARD_MAX_BYTES = 8000
-FORMAT = "1"
+FORMAT = "2"                # "2": no value is cut by characters any more; a card written as "1" is rebuilt once
 
 FIRST_LOOK_REL = "work/first-look.yaml"
 FIRST_LOOK_REQ_MAX = 20     # requirements the First look section shows; the rest is `+N: work/first-look.yaml`
 FIRST_LOOK_REQ_LINES = 8    # lines one requirement shows; the rest is `+N: work/first-look.yaml`
-FIRST_LOOK_LINE_CHARS = 200
 FIRST_LOOK_POINTER = f"- First look: not shown, the card is full; read {FIRST_LOOK_REL} (an observation of the stand, never an expected value)"
 
 NO_ORACLE = "routes and data to walk with; expectations come only from the case's Thens"
@@ -54,13 +55,10 @@ NO_CONFIG = "no qa-factory/config.json above the task root (the project is not o
 DASH = "—"
 NOT_PROVEN = f"Sign-in: not proven at gate A {DASH} sign in with fill-account"
 
-LESSON_LINE_CHARS = 400   # a stand-lesson line (words cut at 200 by `project_knowledge.lessons`) is shown whole
-LINE_CHARS = 300          # one line of a free text keeps this many characters
 PROFILE_LINES = 10        # lines of a profile section the card keeps; the rest is counted
 NOTE_LINES = 12           # the newest walker notes the card keeps; the rest is counted
-NOTE_CHARS = 200
 PAGE_OBJECT_LINES = 8
-TEST_DATA_NAMES = 8       # names shown of a structured test-data key
+TEST_DATA_NAMES = 8       # names shown of a structured test-data key; the rest is `+K more: <config> <key>`
 
 _KEYWORD = (r"pass(?:word|wd|phrase)?|pwd|pw|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|authorization|credential")
 _KV = re.compile(rf"(?i)\b({_KEYWORD})s?[\"']?(?:\s*[:=]|\s+(?:is|are|was)\b)\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;\"'}}\]]+)")
@@ -84,13 +82,8 @@ def scrub(text, *, tokens: bool = True) -> str:
     return _LONG_MIXED.sub("[not printed]", out) if tokens else out
 
 
-def _clip(text, limit: int = LINE_CHARS, tokens: bool = True) -> str:
-    text = scrub(text, tokens=tokens)
-    return text if len(text) <= limit else text[:limit - 3] + "..."
-
-
 def _why(exc) -> str:
-    return _clip(f"{exc.__class__.__name__}: {exc}" if str(exc) else exc.__class__.__name__, 160, tokens=False)
+    return scrub(f"{exc.__class__.__name__}: {exc}" if str(exc) else exc.__class__.__name__, tokens=False)
 
 
 # --- reading the inputs ------------------------------------------------------------------------------------------
@@ -146,7 +139,7 @@ def _profile_section(text: str, title: str) -> list:
 
 
 def _bounded(lines: list, rel: str, limit: int = PROFILE_LINES) -> list:
-    out = [f"- {_clip(line.lstrip('-* '))}" for line in lines[:limit]]
+    out = [f"- {scrub(line.lstrip('-* '))}" for line in lines[:limit]]
     if len(lines) > limit:
         out.append(f"- (+{len(lines) - limit} more lines: {rel})")
     return out
@@ -161,9 +154,9 @@ def _stand_lines(task_root, project, cfg, cfg_why):
         return [], [], cfg_why
     import brief_pack as BP
     got = BP.manual_stand_lines(task_root, project, cfg, [], "", None)
-    stand = [_clip(x, tokens=False) for x in got if x.startswith(("- Stand:", "- API:", "- Frontend:"))]
-    stand += [_clip(x, LESSON_LINE_CHARS, tokens=False) for x in got if x.startswith("- Stand lessons:")]    # what a person taught (the walk road)
-    accounts = [_clip(x, tokens=False) for x in got if x.startswith(("- Accounts:", "- Env keys:"))]
+    stand = [scrub(x, tokens=False) for x in got if x.startswith(("- Stand:", "- API:", "- Frontend:"))]
+    stand += [scrub(x, tokens=False) for x in got if x.startswith("- Stand lessons:")]    # what a person taught (the walk road): whole
+    accounts = [scrub(x, tokens=False) for x in got if x.startswith(("- Accounts:", "- Env keys:"))]
     return stand, accounts, ""
 
 
@@ -179,7 +172,7 @@ def _route_rows(task_root):
         if not isinstance(r, dict) or not r.get("url_template"):
             continue
         url = scrub(str(r["url_template"]).split("?", 1)[0].split("#", 1)[0], tokens=False)
-        rows.append(f"- {_clip(r.get('method') or '?', 12, tokens=False)} {url} ({_clip(r.get('path') or '?', 120, tokens=False)}:{r.get('line', '?')})")
+        rows.append(f"- {scrub(r.get('method') or '?', tokens=False)} {url} ({scrub(r.get('path') or '?', tokens=False)}:{r.get('line', '?')})")
     return rows, ("" if rows else f"{FLOW_REL} lists no request")
 
 
@@ -197,15 +190,15 @@ def _signin(task_root, cfg, cfg_why):
 
     def box(sel):
         if isinstance(sel, dict):
-            return _clip(f"{sel.get('role', 'field')} \"{sel.get('name', '')}\"", 80, tokens=False)
-        return _clip(sel, 80, tokens=False)
+            return scrub(f"{sel.get('role', 'field')} \"{sel.get('name', '')}\"", tokens=False)
+        return scrub(sel, tokens=False)
 
-    lines = [f"- Sign-in route: {_clip(recipe.get('path') or '/', 120, tokens=False)}; fields: username {box(recipe.get('username'))}, "
+    lines = [f"- Sign-in route: {scrub(recipe.get('path') or '/', tokens=False)}; fields: username {box(recipe.get('username'))}, "
              f"password {box(recipe.get('password'))}, submit {box(recipe.get('submit'))}"]
     probe = hooklib.read_json(Path(task_root).joinpath(*MC.SIGN_IN_PROBE), None, errors=Exception, kind=dict) or {}
     proven = [a for a in probe if MC.sign_in_refusal(task_root, a, recipe) == ""]
     if proven:
-        lines.append("Sign-in: proven at gate A for " + ", ".join(_clip(a, 60, tokens=False) for a in proven[:8])
+        lines.append("Sign-in: proven at gate A for " + ", ".join(scrub(a, tokens=False) for a in proven)
                      + " (a `ui --session <account>` call signs in by code)")
     else:
         lines.append(NOT_PROVEN)
@@ -224,13 +217,13 @@ def _accounts(task_root, project, cfg, stand_accounts, cfg_why):
             if found is None:
                 lines.append("- Default account: config.json names no env file for it")
             else:
-                lines.append(f"- Default account: keys {_clip(found.user_key, 60, tokens=False)} / {_clip(found.password_key, 60, tokens=False)} "
-                             f"in {_clip(found.env_file, 120, tokens=False)} (`--as default`; names only)")
+                lines.append(f"- Default account: keys {scrub(found.user_key, tokens=False)} / {scrub(found.password_key, tokens=False)} "
+                             f"in {scrub(found.env_file, tokens=False)} (`--as default`; names only)")
         except ValueError as exc:
             lines.append(f"- Default account: not known ({_why(exc)})")
     created = RF.created_accounts_line(Path(task_root))
     if created:
-        lines.append(f"- {_clip(created, 400, tokens=False)} (`--as created:<username>`)")
+        lines.append(f"- {scrub(created, tokens=False)} (`--as created:<username>`)")
     return lines, ("" if lines else (cfg_why or "no account is recorded for this stand"))
 
 
@@ -257,7 +250,7 @@ def _test_data(project_text, profile_why, cfg, cfg_why):
     else:
         for key, value in list(data.items())[:PROFILE_LINES]:
             status = status_of.get(str(key))
-            key = _clip(key, 60, tokens=False)
+            key = scrub(key, tokens=False)      # whole: the secret-name test below must see the whole key
             if EP.SECRET_NAME.search(key):
                 lines.append(f"- config test_data.{key}: (value not printed)")
             elif status == "unknown":      # a recorded "I do not know" is not a value (AR-13): named, not printed
@@ -265,12 +258,13 @@ def _test_data(project_text, profile_why, cfg, cfg_why):
             elif status == "not_recorded":  # blank or null: no value to print (AR-13)
                 lines.append(f"- config test_data.{key}: not set")
             elif isinstance(value, dict):
-                names = ", ".join(_clip(k, 40, tokens=False) for k in list(value)[:TEST_DATA_NAMES])
-                lines.append(f"- config test_data.{key}: {len(value)} entries" + (f" (names: {names})" if names else ""))
+                names = ", ".join(scrub(k, tokens=False) for k in list(value)[:TEST_DATA_NAMES])
+                more = f"; +{len(value) - TEST_DATA_NAMES} more: {CONFIG_REL} `test_data.{key}`" if len(value) > TEST_DATA_NAMES else ""
+                lines.append(f"- config test_data.{key}: {len(value)} entries" + (f" (names: {names}{more})" if names else ""))
             elif isinstance(value, list):
                 lines.append(f"- config test_data.{key}: {len(value)} items")
             else:
-                lines.append(f"- config test_data.{key}: {_clip(value)}")
+                lines.append(f"- config test_data.{key}: {scrub(value)}")
         if len(data) > PROFILE_LINES:
             lines.append(f"- (+{len(data) - PROFILE_LINES} more keys: {CONFIG_REL})")
     return lines, whys
@@ -302,7 +296,7 @@ def _page_objects(map_file):
             lines.append(line)
     if not lines:
         return [], f"{BRIEFS_REL}/{map_file.name} names no page object or helper module"
-    shown = [f"- {_clip(x[2:], 200, tokens=False)}" for x in lines[:PAGE_OBJECT_LINES]]
+    shown = [f"- {scrub(x[2:], tokens=False)}" for x in lines[:PAGE_OBJECT_LINES]]
     if len(lines) > PAGE_OBJECT_LINES:
         shown.append(f"- (+{len(lines) - PAGE_OBJECT_LINES} more: {BRIEFS_REL}/{map_file.name})")
     return shown, ""
@@ -330,7 +324,7 @@ def _notes(task_root):
             body = row.get("note") if row.get("note") else row.get("text")
             if isinstance(body, str) and body.strip():
                 notes.append(body)
-    lines = [f"- {_clip(n, NOTE_CHARS)}" for n in notes[-NOTE_LINES:]]
+    lines = [f"- {scrub(n)}" for n in notes[-NOTE_LINES:]]
     if len(notes) > NOTE_LINES:
         lines.insert(0, f"- (+{len(notes) - NOTE_LINES} older notes: {NOTES_REL})")
     if bad:
@@ -344,11 +338,6 @@ def _notes(task_root):
 
 def _text(value) -> str:
     return value.strip() if isinstance(value, str) else ""
-
-
-def _cut(text: str, limit: int) -> str:
-    """`text` cut to `limit` characters with `...` - no scrub (the items it cuts were scrubbed once; a second pass garbles `[not printed]`)."""
-    return text if len(text) <= limit else text[:limit - 3] + "..."
 
 
 def first_look_path_items(row) -> list:
@@ -401,7 +390,7 @@ def first_look_head(row) -> str:
 
 def _first_look(task_root):
     """`(lines, [why])` of the First look section: per requirement of the record (at most FIRST_LOOK_REQ_MAX, in the record's order) its
-    status, `blocked_by` and its path items, at most FIRST_LOOK_REQ_LINES lines each and FIRST_LOOK_LINE_CHARS characters a line, the rest
+    status, `blocked_by` and its path items, at most FIRST_LOOK_REQ_LINES lines each (every line whole), the rest
     `+N: work/first-look.yaml`. Read through `first_look.read` (the one reader). No record, a `null` one, an unreadable one and a STALE
     one are each ONE reason line, never an empty section and never a guess that the stand was walked (AR-23); a stale record shows no row
     (it confirms nothing). An observation, never an oracle: the section holds no key of a row but its status, `blocked_by` and `path`."""
@@ -411,20 +400,19 @@ def _first_look(task_root):
     if kind == "error":
         raise RuntimeError(state["error"])      # `_safe` turns it into the section's one reason line
     if kind == "null":
-        return [], [f"there was no first look: the stand was not walked ({_clip(got['null'].replace('_', ' '), 80, tokens=False)})"]
+        return [], [f"there was no first look: the stand was not walked ({scrub(got['null'].replace('_', ' '), tokens=False)})"]
     if kind == "stale":
         return [], ["the first look is STALE: it was walked on other code or another register than the current ones; it confirms nothing, "
-                    f"read {FIRST_LOOK_REL} as history" + (f" ({_clip(got['problem'], 80, tokens=False)})" if got["problem"] else "")]
+                    f"read {FIRST_LOOK_REL} as history" + (f" ({scrub(got['problem'], tokens=False)})" if got["problem"] else "")]
     if kind == "absent":
         return [], ["there was no first look"]
     if kind == "unreadable":
-        return [], [f"the first look cannot be read ({_clip(got['problem'], 120, tokens=False)})"]
+        return [], [f"the first look cannot be read ({scrub(got['problem'], tokens=False)})"]
     rows = got["rows"]
     out = []
     for row in rows[:FIRST_LOOK_REQ_MAX]:
         lines = [first_look_head(row)] + [text for _kind, text in first_look_path_items(row)]
-        block = [("- " + _cut(x, FIRST_LOOK_LINE_CHARS - 2)) if i == 0 else ("  - " + _cut(x, FIRST_LOOK_LINE_CHARS - 4))
-                 for i, x in enumerate(lines[:FIRST_LOOK_REQ_LINES])]
+        block = [("- " + x) if i == 0 else ("  - " + x) for i, x in enumerate(lines[:FIRST_LOOK_REQ_LINES])]
         if len(lines) > FIRST_LOOK_REQ_LINES:
             block.append(f"  - +{len(lines) - FIRST_LOOK_REQ_LINES}: {FIRST_LOOK_REL}")
         out += block
