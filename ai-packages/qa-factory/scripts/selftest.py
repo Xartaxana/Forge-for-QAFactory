@@ -963,6 +963,7 @@ def _is_seconds(value) -> bool:
 
 def _slow_tests_problem(raw) -> str | None:
     """What is wrong with the parsed data file, as one phrase; None when its shape is right."""
+    import hooklib
     if not isinstance(raw, dict):
         return "the top level is not a JSON object"
     thresholds = raw.get("thresholds")
@@ -979,7 +980,7 @@ def _slow_tests_problem(raw) -> str | None:
     if not isinstance(files, dict):
         return '"files" must be an object: test file name -> measured seconds or null'
     for name, secs in files.items():
-        if not name or name != Path(name).name:
+        if not hooklib.is_one_component(name):
             return f'"files" key {name!r} is not a test file name'
         if secs is not None and not _is_seconds(secs):
             return f'"files" value for {name} must be seconds (a number) or null'

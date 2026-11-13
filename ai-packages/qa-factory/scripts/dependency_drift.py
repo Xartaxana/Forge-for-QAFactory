@@ -89,7 +89,7 @@ def load_table(path=None):
     clean = []
     for index, row in enumerate(locks):
         ok = isinstance(row, dict) and all(isinstance(row.get(k), str) and row[k] for k in ("file", "format", "manager"))
-        if not ok or os.path.basename(row["file"]) != row["file"]:
+        if not ok or not hooklib.is_one_component(row["file"]):
             return None, f"{target.name} locks[{index}] needs a plain file name, a `format` and a `manager`"
         clean.append({"file": row["file"], "format": row["format"], "manager": row["manager"]})
     if not isinstance(commands, dict):

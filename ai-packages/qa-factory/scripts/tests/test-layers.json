@@ -4355,7 +4355,10 @@
     "recover_codex_usage.py",
     "red_sandbox.py",
     "role_digest.py",
-    "stage_guard.py"
+    "stage_guard.py",
+    "event_store.py",
+    "selftest.py",
+    "dependency_drift.py"
    ]
   },
   "test_resume_doors.py": {

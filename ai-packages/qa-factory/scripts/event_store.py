@@ -490,8 +490,9 @@ class EventStore:
         `projection-stale.json` with the controller's, so `controller --operation recover` removed
         the manifest's only trace without rebuilding the manifest (TP2-2406 S5-4, 19.10.2026,
         journal seq 115: the live state had no marker and a manifest stuck at revision 5)."""
+        import hooklib      # the ONE "a name is one path component" test (OH8-1); a module attribute, so the spy sees it
         marker = stale_marker
-        if not isinstance(marker, str) or not marker or marker != Path(marker).name or marker in (".", ".."):
+        if not hooklib.is_one_component(marker):
             raise ValueError("stale_marker must be a plain file name under state/ (default %r), got %r"
                              % (STALE_MARKER, marker))
         self.stale_marker = marker
@@ -511,8 +512,9 @@ class EventStore:
         folder, a write to its journal never does. The guard sits in `commit` and `recover`, the two entries of a
         story's journal, and NOT in `lock`: five project-level mutexes (the dashboard, the journal, the stand identity,
         the cost capture, the native context) take `lock()` on a folder this very call brings into being. The refusal
-        is the one typed `StoryRootError` (the call's fault), imported here only on this path, so the store stays a
-        leaf of the standard library while nothing is refused."""
+        is the one typed `StoryRootError` (the call's fault), imported here only on this path. The store is no longer a
+        leaf of the standard library: `__init__` imports `hooklib` for the one-component test of `stale_marker`
+        (OH8-1), and `hooklib` itself imports only the standard library at module level, so there is no cycle."""
         try:
             if self.root.is_dir():
                 return
