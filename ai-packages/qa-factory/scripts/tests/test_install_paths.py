@@ -921,8 +921,43 @@ def section_corpus_evals() -> None:
             cleanup(pkg)
 
 
+SCAN_HOME_ROWS = [
+    # ident, tree entry (rel, is_dir), fold, listed as unrecognised inside the home
+    ("home-child", "qa-factory/own.txt", False, True), ("home-itself-as-file", "qa-factory", False, True),
+    ("sibling-common-prefix", "qa-factory-x/own.txt", False, False), ("outside-top-file", "own.txt", False, False),
+    ("other-case-fold", "QA-Factory/own.txt", True, True), ("other-case-nofold", "QA-Factory/own.txt", False, False),
+]
+
+
+def section_scan_home() -> None:
+    """OF4-4: scan_tree takes the home-folder judgment from in_home - the verdicts below are from the table of cases, and a
+    stub in_home that says yes to everything must change scan_tree's answer (one judgment, not two)."""
+    table = {"home": "qa-factory", "rules": []}
+    for ident, rel, fold, want in SCAN_HOME_ROWS:
+        root = temp_dir("qa-home-")
+        try:
+            put(root, rel)
+            scan = I.scan_tree(root, manifest=None, table=table, casefold=fold)
+            got = [i["rel_path"] for i in scan["not_ours_kept"]]
+            check_eq(f"OF4-4 scan_tree home {ident}: {rel!r}", (got == [rel], I.in_home(rel, table, fold=fold)), (want, want))
+        finally:
+            cleanup(root)
+    real = I.in_home
+    root = temp_dir("qa-home-")
+    try:
+        put(root, "own.txt")
+        I.in_home = lambda *a, **k: True
+        scan = I.scan_tree(root, manifest=None, table=table, casefold=False)
+        check_eq("OF4-4 scan_tree follows in_home: a stub that says yes lists a file outside the home",
+                 [i["rel_path"] for i in scan["not_ours_kept"]], ["own.txt"])
+    finally:
+        I.in_home = real
+        cleanup(root)
+
+
 def main() -> None:
     section_corpus_evals()
+    section_scan_home()
     section_regenerated_basis()
     section_in_home()
     section_stand_identity()
