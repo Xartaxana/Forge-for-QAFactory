@@ -430,9 +430,8 @@ def run_counters_time_rows() -> None:
     # no journal: every journal row unknown, no crash
     root2, base2, troot2 = project()
     d2 = counted(troot2)
-    check_eq("no journal: T1 T2 T3 T6 T7 T8 F1 G1 G2 are all unknown",
-             sorted(k for k in ("T1", "T2", "T3", "T6", "T7", "T8", "F1", "G1", "G2") if d2[k]["state"] == "unknown"),
-             sorted(("T1", "T2", "T3", "T6", "T7", "T8", "F1", "G1", "G2")))
+    check_eq("no journal: T1 T2 T3 T8 G2 are unknown",
+             sorted(k for k in ("T1", "T2", "T3", "T8", "G2") if d2[k]["state"] == "unknown"), sorted(("T1", "T2", "T3", "T8", "G2")))
     check_eq("no journal: no question and no answer record, no process row -> Q1 Q2 Q3 unknown (7.2: a missing file is never 0)",
              [d2[k]["state"] for k in ("Q1", "Q2", "Q3")], ["unknown"] * 3)
     # T4 / T5 only through driver_timing.report
@@ -579,13 +578,135 @@ def run_counters_resumes_and_checks() -> None:
     rows = [role_row(10, 10, resumed=True, resume_kind="handoff_findings", checks=ids)]
     write_state(troot, "driver-runs.jsonl", rows)
     real = DJ.run_record
-    DJ.run_record = lambda path=None: ({}, "note: the run record could not be read (stub)")
+    DJ.run_record = lambda path=None: ({}, "note: the run record could not be read (stub)")   # run_record_names calls it by name
     try:
         d = counted(troot)
     finally:
         DJ.run_record = real
     check_eq("7.11 an unreadable table: the token counts under `unclassified`, the note reaches U1",
              (list(d["F1"]["resumed"]["by_kind"]), d["U1"]["lines"][0].startswith("note: the run record")), (["unclassified"], True))
+    cleanup(root)
+
+
+ALL_KINDS = '["handoff_findings", "handoff_findings_mechanical", "person_answer", "refusal_resume", "stand_answers", "paid_round", "structured_refusal", "service_cut", "unclassified"]'
+FIVE_REWORK = '["handoff_findings", "handoff_findings_mechanical", "refusal_resume", "structured_refusal", "paid_round"]'
+KIND_ROWS = ("handoff_findings", "handoff_findings_mechanical", "refusal_resume", "structured_refusal", "paid_round",
+             "person_answer", "stand_answers", "service_cut", "made_up_token")
+
+
+def run_counters_rework_kinds() -> None:
+    """D1 (rework by `rework_kinds`), D4 (`service_cut` is a road of its own), D5 (a retried resume is ONE return)."""
+    root, base, troot = project()
+    rows = [role_row(10 + n, 1, dispatch=f"S1-x-{n}", session=f"s{n}", resumed=True, resume_kind=kind) for n, kind in enumerate(KIND_ROWS)]
+    rows.append(role_row(50, 1, dispatch="S1-x-old", session="old", resumed=True))      # a resumed row of an older record: no kind key
+    write_state(troot, "driver-runs.jsonl", rows)
+    real_path = DJ.RUN_RECORD_PATH
+    # (table text of run-record.json | None = the real file) -> (rework state, returns, non_rework, unclassified, notes in U1)
+    cases = {
+        "the real table": (None, ("measured", 5, 3, 1, 0)),
+        "a narrower valid list": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round"]}}', ("measured", 1, 7, 1, 0)),
+        "rework_kinds absent": (f'{{"resume_kinds": {ALL_KINDS}}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds not a list": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": "paid_round"}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds empty list: the one validator refuses it, as for every other key": (
+            f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": []}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds with an empty name": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round", ""]}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds with a name resume_kinds lacks": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round", "bogus"]}}',
+                                                       ("unknown", None, None, 1, 1)),
+        "rework_kinds names unclassified": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round", "unclassified"]}}',
+                                           ("unknown", None, None, 1, 1)),
+        "resume_kinds absent": (f'{{"rework_kinds": {FIVE_REWORK}}}', ("unknown", None, None, 9, 2)),
+        "the file is not JSON": ("{not json", ("unknown", None, None, 9, 1)),
+    }
+    try:
+        for label, (text, want) in cases.items():
+            if text is None:
+                DJ.RUN_RECORD_PATH = real_path
+            else:
+                table = troot / "table.json"
+                table.write_text(text, encoding="utf-8")
+                DJ.RUN_RECORD_PATH = table
+            d = counted(troot)
+            rw = d["F1"]["rework"]
+            notes = [line for line in d["U1"]["lines"] if line.startswith("note:")]
+            check_eq(f"D1 {label}: state, rework returns, non-rework, unclassified, notes",
+                     (rw["state"], rw.get("returns"), rw.get("non_rework"), rw["unclassified"], len(notes)), want)
+            check_eq(f"D1 {label}: the per-token counts still print", bool(d["F1"]["resumed"]["by_kind"]), True)
+            if want[0] == "unknown":
+                check_eq(f"D1 {label}: unknown names its reason, and is never the number 0", (bool(rw["why"]), "returns" in rw), (True, False))
+            check_eq(f"D1 {label}: a resumed row of an older record is counted aside, in neither class", rw["kind_not_recorded"], 1)
+            if label == "the real table":
+                check_eq("D4 service_cut is a road of its own: counted under `service_cut`, never `unclassified`",
+                         (d["F1"]["resumed"]["by_kind"]["service_cut"]["calls"], d["F1"]["resumed"]["by_kind"]["unclassified"]["calls"],
+                          d["U1"]["unclassified_resume_kinds"]), (1, 1, 1))
+                check_eq("D1 the rework roads are the table's, in order of the table", rw["rework_kinds"], sorted(json.loads(FIVE_REWORK)))
+    finally:
+        DJ.RUN_RECORD_PATH = real_path
+    # D5: a retried caller resume is ONE return (the retry row is not a second one), rework included
+    ids = ["s5_precheck:manifest"]
+    write_state(troot, "driver-runs.jsonl", [role_row(10, 10, resumed=True, resume_kind="handoff_findings", checks=ids, infra="transient"),
+                                             role_row(30, 10, resumed=True, resume_kind="handoff_findings", checks=ids, retry=1)])
+    d = counted(troot)
+    check_eq("D5 a retried caller resume: one resume, one retry, ONE rework return",
+             (d["F1"]["resumed"]["calls"], d["F1"]["retries"], d["F1"]["rework"]["returns"]), (1, 1, 1))
+    cleanup(root)
+
+
+def run_counters_outside_hops() -> None:
+    """D3: T5 outside the hops = window seconds minus the seconds of the role / conductor calls inside it (`ts` is a call's end, `wall_ms` its duration)."""
+    def late(row, **kw):
+        return dict(row, **kw)
+    cases = {
+        "calls inside a 100 s window": ([p_start(0), role_row(60, 40), conductor_row(90, 20), p_end(0, 100)], ("measured", 40.0, [("measured", 40.0)], 0)),
+        "a call ending AT the window end is inside, one 1 s after is not": (
+            [p_start(0), role_row(100, 10), role_row(101, 10, dispatch="S1-x-2", session="b"), p_end(0, 100)], ("measured", 90.0, [("measured", 90.0)], 0)),
+        "a 0 ms call is a measurement, not unknown": ([p_start(0), role_row(60, 0), p_end(0, 100)], ("measured", 100.0, [("measured", 100.0)], 0)),
+        "a window with no end row (killed) is unknown, named": ([p_start(0), role_row(60, 40)], ("unknown", None, [("unknown", None)], 0)),
+        "a call inside with no duration makes the window unknown, not 0 s": ([p_start(0), role_row(60, None), p_end(0, 100)],
+                                                                             ("unknown", None, [("unknown", None)], 0)),
+        "negative: overlapping calls, printed as measured, never clamped": (
+            [p_start(0), role_row(40, 40), role_row(45, 40, dispatch="S1-x-2", session="b"), p_end(0, 50)], ("measured", -30.0, [("measured", -30.0)], 0)),
+        "no process rows at all is n/a": ([role_row(60, 40)], ("n/a", None, [], 0)),
+        "two windows, the second killed: the row is unknown, the first window keeps its value": (
+            [p_start(0), p_end(0, 100), p_start(200), role_row(250, 10)], ("unknown", None, [("measured", 100.0), ("unknown", None)], 0)),
+        "a call with an unreadable time is placed in no window and counted": (
+            [p_start(0), role_row(60, 40), late(role_row(70, 10, dispatch="S1-x-2", session="b"), ts="garbage"), p_end(0, 100)],
+            ("measured", 60.0, [("measured", 60.0)], 1)),
+    }
+    for label, (rows, (state, total, windows, unplaced)) in cases.items():
+        root, base, troot = project()
+        write_state(troot, "driver-runs.jsonl", rows)
+        d = counted(troot)
+        out = d["T5"]["outside_hops"]
+        check_eq(f"D3 {label}: state, total, per-window (state, seconds), calls unplaced",
+                 (out["state"], out.get("outside_hops_s"), [(w["state"], w.get("outside_hops_s")) for w in out.get("windows", [])], out.get("calls_unplaced", 0)),
+                 (state, total, windows, unplaced))
+        if state == "unknown":
+            check_eq(f"D3 {label}: every unknown window names its reason", all(w.get("why") for w in out["windows"] if w["state"] == "unknown"), True)
+        notes = [line for line in d["U1"]["lines"] if line.startswith("note: T5")]
+        check_eq(f"D3 {label}: a note only for a negative window or an unplaced call", len(notes), 1 if (total is not None and total < 0) or unplaced else 0)
+        cleanup(root)
+
+
+def run_counters_no_journal() -> None:
+    """D6: no driver journal (the skill road) and an empty journal file: resume-kind, process-window and T5 lines are n/a, never 0."""
+    lines_of = {"no journal file": None, "an empty journal file": []}
+    for label, rows in lines_of.items():
+        root, base, troot = project()
+        if rows is not None:
+            write_state(troot, "driver-runs.jsonl", rows)
+        d = counted(troot)
+        check_eq(f"D6 {label}: F1 G1 T5 T6 T7 are n/a", [d[k]["state"] for k in ("F1", "G1", "T5", "T6", "T7")], ["n/a"] * 5)
+        check_eq(f"D6 {label}: the time rows and G2 stay unknown, not measured 0", [d[k]["state"] for k in ("T1", "T2", "T3", "T8", "G2")], ["unknown"] * 5)
+        text = RC.render(d)
+        check_in(f"D6 {label}: the printed rework line says n/a", "F1 rework returns: n/a; non-rework resumes: n/a; unclassified resumes: n/a", text)
+        cleanup(root)
+    # the control: a journal with a first-pass row and nothing resumed IS a zero
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [role_row(10, 10)])
+    d = counted(troot)
+    check_eq("D6 control: a journal with no resumed call measures 0 rework returns, not n/a",
+             (d["F1"]["rework"]["state"], d["F1"]["rework"]["returns"], d["T5"]["outside_hops"]["state"]), ("measured", 0, "n/a"))
+    check_in("D6 control: the printed rework line carries the numbers", "F1 rework returns: 0; non-rework resumes: 0; unclassified resumes: 0", RC.render(d))
     cleanup(root)
 
 
@@ -676,7 +797,7 @@ def run_counters_one_road_and_cli() -> None:
     for needle in ("json.loads(", "open(", ".read_text(", "splitlines("):
         check_not_in(f"AR-13 run_counters parses no carrier of its own: no `{needle}`", needle, text)
     check_in("AR-13 positive control: the same needle shape finds `json.loads(` in the one reader", "json.loads(", (SCRIPTS / "driver_journal.py").read_text(encoding="utf-8"))
-    for survivor in ("DJ.read_rows_counted(", "DJ.question_rows", "DJ.answer_rows", "DJ.parse_ts(", "DJ.run_record()", "driver_timing.report(",
+    for survivor in ("DJ.read_rows_counted(", "DJ.question_rows", "DJ.answer_rows", "DJ.parse_ts(", "DJ.run_record_names(", "driver_timing.report(",
                      "friction.story_friction(", "retro_numbers.dispatch_rounds(", "driver_timing.WALL_NOTE_OVER_MS"):
         check_in(f"AR-15 the survivor is called, not copied: {survivor}", survivor, text)
     # the counted readers
@@ -706,6 +827,9 @@ def main() -> None:
     run_counters_windows_and_gaps()
     run_counters_run_class()
     run_counters_resumes_and_checks()
+    run_counters_rework_kinds()
+    run_counters_outside_hops()
+    run_counters_no_journal()
     run_counters_questions_briefs_and_quality()
     run_counters_friction_and_money()
     run_counters_one_road_and_cli()

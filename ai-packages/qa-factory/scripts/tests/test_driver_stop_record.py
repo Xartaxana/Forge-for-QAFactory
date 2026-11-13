@@ -646,6 +646,12 @@ def kind_rows(tmp, name, **state):
 def resume_kind_row_cases(tmp):
     data, why = DJ.run_record()
     check_eq("(c) the real table names the nine tokens of the spec, loaded by the one loader", (data.get("resume_kinds"), why), (list(KINDS), ""))
+    check_eq("(c) D1 the real table names the five rework roads, each a road of resume_kinds, none of them person_answer / stand_answers / service_cut / unclassified",
+             (data.get("rework_kinds"), all(n in KINDS for n in data.get("rework_kinds", [])),
+              [n for n in ("person_answer", "stand_answers", "service_cut", "unclassified") if n in data.get("rework_kinds", [])]),
+             (["handoff_findings", "handoff_findings_mechanical", "refusal_resume", "structured_refusal", "paid_round"], True, []))
+    check_eq("(c) D1 `rework_kinds` is read through the one validator", DJ.run_record_names("rework_kinds"),
+             (tuple(data["rework_kinds"]), ""))
     d, row, notes = kind_rows(tmp, "kinds")
     for token in KINDS[:7]:
         got = row(resume="s1", resume_reason="why", resume_kind=token)
