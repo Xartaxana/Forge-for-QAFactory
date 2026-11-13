@@ -69,9 +69,11 @@ repair pass key built by `controller.repair_pass_key`, or a block named in `exit
 L6 the exit gate granted a round; L7 `driver-questions.jsonl` rows of the repair/exit-limit questions - the DURABLE carrier:
 the driver pops `window_rounds`, `exit_limit` and its passes when a window or dispatch is accepted and overwrites a
 `repair_limit` slot, so L2/L4/L6 see only what is open at collect time and L7 sees what was ever asked (of the repair/exit-limit
-questions only). Known gap: a window-round cap question (`no_move` kind `refusal`, why `threshold`) leaves no durable row, so a
-window that hit the cap and then closed is seen only through L1/L5; queued: a driver-journal row (`kind: window_round`,
-`outcome`) from story_run.py. Exceeded caps only
+questions only). L2 reads two carriers: the open `window_rounds` of driver-state.json and the driver journal's `window_round`
+rows (`driver_machine.window_round_gate` writes one per series record; the journal outlives the pop). Known gap: a story run
+by a driver older than that row has none, so a window of it that hit the cap and closed before the collect is seen only through
+L1/L5. The rule does not read the story's `plugin_version` to tell: the version that first writes the row is not known when
+the row is written. This paragraph and the release note are the carriers of that gap (CL4-1). Exceeded caps only
 (a cap exactly reached is not a loop). `looped` is True with any signal, None (unknown, packs) when any loop reason or stall
 reason stands, else False. `driver-state.json` absent while the driver journal has rows is an unknown; absent with no driver
 rows (the skill road keeps no such record) is "not recorded". A verdict without the key `looped` is read as NOT looped.
