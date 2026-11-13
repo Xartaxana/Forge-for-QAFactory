@@ -1074,7 +1074,7 @@ class _Run:
         for story in self.story_dirs:
             pipeline = hooklib.read_json(story / "pipeline.json", {}, errors=Exception, kind=dict)
             item = {"task": story.name, "plugin_version": story_version.plugin_version_of(pipeline) or None, "touched": self.touch[story.name],
-                    "closed_at": hooklib.story_closed(pipeline) or None, "stalled": None, "stall_signals": [], "looped": None, "loop_signals": [], "transcripts": [], "record": None}
+                    "closed_at": hooklib.story_closed(pipeline) or None, "stalled": None, "stall_signals": [], "ignored": [], "looped": None, "loop_signals": [], "loop_ignored": [], "transcripts": [], "record": None}
             if self.onboarded:          # B-H are skipped for a project that is not onboarded (set_status says so); H does not pack transcripts the sets deny
                 self._stall(story, item, mark, quiet)
             out.append(item)
@@ -1118,7 +1118,10 @@ class _Run:
         item["looped"] = verdict.get("looped")
         item["loop_signals"] = [{"id": s.get("id"), "where": s.get("where"), "at": _iso_epoch(s.get("at"))}
                                 for s in verdict.get("loop_signals") or [] if isinstance(s, dict)]
-        if item["looped"] is None and not verdict.get("stalled") and verdict.get("loop_unreadable_reasons"):
+        item["ignored"] = [{"where": e.get("where"), "why": e.get("why")} for e in verdict.get("ignored") or [] if isinstance(e, dict)]
+        item["loop_ignored"] = [{"where": e.get("where"), "why": e.get("why")} for e in verdict.get("loop_ignored") or [] if isinstance(e, dict)]
+        stall, loop = collect_stall.loop_state(verdict)
+        if loop == collect_stall.UNKNOWN and stall != collect_stall.YES and verdict.get("loop_unreadable_reasons"):
             self.gap("H", f"loops of {story.name} unknown", "; ".join(str(r) for r in verdict["loop_unreadable_reasons"]))
         if collect_stall.wants_transcripts(verdict):
             self._pack_transcripts(story, verdict, item)

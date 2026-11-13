@@ -555,8 +555,9 @@ def select_transcripts(verdict, sessions, subagent_paths):
     A carrier the sessions are read from that could not be read arrives as an entry `{sid: None, unreadable: True, why}`
     (`session_transcripts`): it is a gap with no sid, and when nothing else is known the answer says the sessions are
     UNREADABLE - never that none is recorded (t-1022 M-4: an unknown is not an absence)."""
-    verdict = verdict if isinstance(verdict, dict) else {}
-    if not wants_transcripts(verdict):
+    is_dict = isinstance(verdict, dict)
+    verdict = verdict if is_dict else {}
+    if not is_dict or not wants_transcripts(verdict):
         return {"main": [], "subagents": [], "gaps": [], "why": verdict.get("record") or "the story neither stalled nor looped"}
     sessions = _dicts(sessions)
     broken = [s for s in sessions if s.get("unreadable")]

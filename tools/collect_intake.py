@@ -56,6 +56,7 @@ REPO = _TOOLS.parent
 # the two folders share would then shadow a tools module (test_no_shadow pins that the sets are disjoint).
 sys.path.insert(0, str(REPO / "ai-packages" / "qa-factory" / "scripts"))
 import collect_pack  # noqa: E402
+import collect_stall  # noqa: E402
 import machine_facts  # noqa: E402
 import project_decisions  # noqa: E402
 
@@ -661,8 +662,8 @@ def retro_sections(arc: Archive) -> tuple:
 
 def stall_laid_out(story) -> bool:
     """A story is laid out when it stalled or its stall is unknown, or it looped or its looping is unknown (CL3-9). The ONE predicate of
-    `stall_elements` and `count_sources`. An archive of an older packer has no `looped` key: read as not looped."""
-    return isinstance(story, dict) and (story.get("stalled") in (True, None) or story.get("looped", False) in (True, None))
+    `stall_elements` and `count_sources`. An archive of an older packer has no `looped` key: read as not looped (collect_stall.loop_state)."""
+    return isinstance(story, dict) and collect_stall.loop_state(story) != (collect_stall.NO, collect_stall.NO)
 
 
 def stall_elements(arc: Archive) -> list:
@@ -670,11 +671,25 @@ def stall_elements(arc: Archive) -> list:
     for story in arc.manifest.get("stories") if isinstance(arc.manifest.get("stories"), list) else []:
         if not stall_laid_out(story):
             continue
+        stall, loop = collect_stall.loop_state(story)
+
+        def ignored_lines(label, key):
+            """The ignored list of the story under `key`: absent or empty prints nothing, a non-list is named, a list is counted and listed."""
+            got = story.get(key)
+            if got is None or got == []:
+                return []
+            if not isinstance(got, list):
+                return ["%s: unreadable (%s)" % (label, type(got).__name__)]
+            entries = [e for e in got if isinstance(e, dict)]
+            return ["%s: %d" % (label, len(entries))] + ["%s | %s" % (e.get("where"), e.get("why")) for e in entries]
+
         signals = story.get("stall_signals") if isinstance(story.get("stall_signals"), list) else []
-        lines = ["stalled: " + {True: "yes", None: "unknown"}.get(story.get("stalled"), "no")] + ["%s | %s | %s" % (s.get("id"), s.get("where"), s.get("at")) for s in signals if isinstance(s, dict)]
+        lines = ["stalled: " + stall] + ["%s | %s | %s" % (s.get("id"), s.get("where"), s.get("at")) for s in signals if isinstance(s, dict)]
+        lines += ignored_lines("ignored", "ignored")
         if "looped" in story:
             loops = story.get("loop_signals") if isinstance(story.get("loop_signals"), list) else []
-            lines += ["looped: " + {True: "yes", None: "unknown"}.get(story["looped"], "no")] + ["%s | %s | %s" % (s.get("id"), s.get("where"), s.get("at")) for s in loops if isinstance(s, dict)]
+            lines += ["looped: " + loop] + ["%s | %s | %s" % (s.get("id"), s.get("where"), s.get("at")) for s in loops if isinstance(s, dict)]
+            lines += ignored_lines("loop ignored", "loop_ignored")
         out.append(make_element(arc, "stall", story.get("task", ""), "\n".join(lines), "stall"))
     return out
 
