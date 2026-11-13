@@ -622,6 +622,171 @@ def machine_ids_cases():
              (out, runs[0]["checks"] if runs else None), ("retry", ("unknown",)))
 
 
+# --- P1-v N2 (spec §2 W2, §7, §8 row N2): `resume_kind` on every resumed row ---------------------------------------------------------
+KINDS = ("handoff_findings", "handoff_findings_mechanical", "person_answer", "refusal_resume", "stand_answers", "paid_round",
+         "structured_refusal", "service_cut", "unclassified")
+
+
+def kind_rows(tmp, name, **state):
+    rows: list = []
+    d = claude_rig(name, rows, tmp)
+    d.state.update(state)
+    notes: list = []
+
+    def row(**kw):
+        rows.clear()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            d.run_claude("role", "p", role="r", dispatch="D1", stage="S5", **kw)
+        notes.extend(line for line in out.getvalue().splitlines() if line.startswith("note:"))
+        return [r for r in rows if r.get("kind") == "role"][0]
+    return d, row, notes
+
+
+def resume_kind_row_cases(tmp):
+    data, why = DJ.run_record()
+    check_eq("(c) the real table names the nine tokens of the spec, loaded by the one loader", (data.get("resume_kinds"), why), (list(KINDS), ""))
+    d, row, notes = kind_rows(tmp, "kinds")
+    for token in KINDS[:7]:
+        got = row(resume="s1", resume_reason="why", resume_kind=token)
+        check_eq(f"(a) the row of a resume that names `{token}` carries it", got["resume_kind"], token)
+    check_eq("(a) a token of the table is no note", notes, [])
+    plain = row()
+    resumed = row(resume="s1", resume_reason="why", resume_kind="paid_round")
+    check_eq("(d) a row that is not a resume has no `resume_kind` KEY (absence, not null)", "resume_kind" in plain, False)
+    check_eq("(d) a non-resume call that names a kind still carries no key", "resume_kind" in row(resume_kind="paid_round"), False)
+    check_eq("POSITIONAL: a resumed row is the old key set plus exactly `resume_kind`",
+             set(resumed) - set(plain), {"resume_reason", "resume_kind"})
+    check_eq("POSITIONAL: every old key of a resumed row keeps its value (the same call without the new keyword)",
+             {k: v for k, v in resumed.items() if k not in ("resume_kind", "wall_ms", "duration_ms")},
+             {k: v for k, v in row(resume="s1", resume_reason="why").items() if k not in ("resume_kind", "wall_ms", "duration_ms")})
+    d2, row2, notes2 = kind_rows(tmp, "kinds-cut", interrupted={"D1": {"worked": True, "session_id": "s0"}})
+    cut = row2()
+    check_eq("(a) R-9: the driver's own resume of a cut call is `service_cut` whatever the call names", (cut["resume_kind"], notes2), ("service_cut", []))
+    check_eq("(a) R-9: a caller's own resume over a cut-call record keeps the CALLER's token",
+             row2(resume="s1", resume_reason="why", resume_kind="person_answer")["resume_kind"], "person_answer")
+    # (b) a token outside the table -> `unclassified` and ONE note; the run goes on
+    d3, row3, notes3 = kind_rows(tmp, "kinds-bad")
+    for n, token in enumerate(("bogus", "bogus", "Paid_Round", "x" * 5000)):
+        got = row3(resume="s1", resume_reason="why", resume_kind=token)
+        check_eq(f"(b) token {token[:12]!r} outside the table is `unclassified`", got["resume_kind"], "unclassified")
+    check_eq("(b) ONE note per distinct token (bogus twice, Paid_Round, 5000 x): 3 notes, the long one quoted short",
+             (len(notes3), max(len(x) for x in notes3) < 300), (3, True))
+    # a road that passes no token (an old caller): `unclassified` + the note
+    d4, row4, notes4 = kind_rows(tmp, "kinds-none")
+    check_eq("an old caller that passes no token: `unclassified` + the note",
+             (row4(resume="s1", resume_reason="why")["resume_kind"], len(notes4)), ("unclassified", 1))
+    check_eq("a token of a wrong type (None, 7) is `unclassified`, never an exception",
+             [row4(resume="s1", resume_reason="why", resume_kind=bad)["resume_kind"] for bad in (None, 7)], ["unclassified"] * 2)
+
+
+def resume_kind_table_cases(tmp):
+    bad = tmp / "kinds-table"
+    bad.mkdir()
+    cases = {"absent": None, "not JSON": "{not json", "not an object": "[1, 2]", "no key": '{"run_classes": ["dry"]}',
+             "key is not a list": '{"resume_kinds": "paid_round"}', "list of numbers": '{"resume_kinds": [1, 2]}',
+             "empty list": '{"resume_kinds": []}'}
+    real = DJ.RUN_RECORD_PATH
+    try:
+        for label, text in cases.items():
+            path = bad / (label.replace(" ", "-") + ".json")
+            if text is not None:
+                path.write_text(text, encoding="utf-8")
+            DJ.RUN_RECORD_PATH = path
+            d, row, notes = kind_rows(tmp, "kt-" + label.replace(" ", "-"))
+            got = [row(resume="s1", resume_reason="why", resume_kind="paid_round")["resume_kind"] for _ in range(3)]
+            check_eq(f"(c) run-record.json {label}: every resumed row is `unclassified`, ONE note per process, no exception",
+                     (got, len(notes)), (["unclassified"] * 3, 1))
+            check_eq(f"(c) run-record.json {label}: a non-resumed row still has no key", "resume_kind" in row(), False)
+    finally:
+        DJ.RUN_RECORD_PATH = real
+
+
+def resume_kind_road_cases(tmp):
+    """One row per road R-1..R-9 at the CALL SITE: the token the site passes (R-9 is in `resume_kind_row_cases`)."""
+    d = SR.Driver.__new__(SR.Driver)
+    calls = []
+    mech = DV.Record("a.py: [m x] bad (" + REPAIR_MARKER + ")", script="a.py", check="a:m")
+    d.task_root = Path("task-root")
+    d.refusal_sid, d.resume_record, d.note_resume = (lambda dispatch, sid: sid), (lambda dispatch, sid: {}), (lambda *a: None)
+    d.exit_ask, d.digest_of, d.keep_resumed_result = (lambda *a, **k: "ask"), (lambda text: "digest"), (lambda *a: None)
+    d.run_claude = lambda kind, prompt, **kw: calls.append(kw) or {"result": "x", "session_id": "s2"}
+    d.exit_errors, d.form_errors, d.shorten_form = (lambda role, digest, dispatch=None: [mech]), (lambda dispatch: []), (lambda *a, **k: 0)
+    d.role_has_bash, d.listed, d.s1_person = (lambda role: True), (lambda *a, **k: ("L", False, "")), (lambda *a, **k: None)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            d.handoff_ladder("r", "S5", "S5-x-1", {"session_id": "s1"}, "dig", [_rec("s5_precheck:manifest")], "")
+    except SR.Refusal:
+        pass
+    check_eq("(a) R-1: the first resume of the handoff ladder", calls[0].get("resume_kind"), "handoff_findings")
+    check_eq("(a) R-2: the mechanical third turn", calls[1].get("resume_kind"), "handoff_findings_mechanical")
+    # R-3: `resume_role`
+    calls.clear()
+
+    class Seam(Exception):
+        pass
+
+    def stop_here(*a, **k):
+        raise Seam()
+    d3 = SR.Driver.__new__(SR.Driver)
+    d3.state, d3.state_dir = {"pending_words": {}}, tmp / "r3" / "state"
+    d3.session_of, d3.record_running, d3.walk_reopen = (lambda stage, dispatch: "s1"), (lambda *a, **k: None), (lambda dispatch: (None, ""))
+    d3.s7_is_triage, d3.progress_line, d3.survey_after = (lambda *a: False), (lambda: None), (lambda *a: None)
+    d3.run_claude = lambda kind, prompt, **kw: calls.append(kw) or {"result": "x"}
+    d3.handoff, d3.save_state = stop_here, (lambda: None)
+    (tmp / "r3" / "state" / "driver-runs").mkdir(parents=True)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            d3.resume_role("S5", "r", "S5-x-1", "yes")
+    except Seam:
+        pass
+    check_eq("(a) R-3: the person's answer", calls[0].get("resume_kind") if calls else None, "person_answer")
+    # R-4: `resume_with` hands its `kind` on as it is (none given: the empty name, which the row reads as `unclassified`)
+    calls.clear()
+    d4 = SR.Driver.__new__(SR.Driver)
+    d4.progress_line, d4.dispatch_role, d4.save_state = (lambda: None), (lambda x: "r"), (lambda: None)
+    d4.state, d4.state_dir = {"pending_words": {}}, tmp / "r4" / "state"
+    d4.run_claude = lambda kind, prompt, **kw: calls.append(kw) or {"result": "ok", "is_error": False}
+    refusal = SR.Refusal("t", findings=[_rec("s5_precheck:manifest")], dispatch="D1")
+    d4.resume_with(refusal, "S5", "D1", "s1", "lead ", kind="stand_answers")
+    d4.resume_with(refusal, "S5", "D1", "s1", "lead ")
+    check_eq("(a) R-4: `resume_with` passes its `kind`, and the empty name when a caller gives none",
+             [c.get("resume_kind") for c in calls], ["stand_answers", ""])
+    # R-7: `exit_round` -> `resume_with(kind=paid_round)`
+    made = []
+    d7 = SR.Driver.__new__(SR.Driver)
+    d7.state, d7.save_state, d7.exit_ask, d7.task_root = {"pending_words": {}}, (lambda: None), (lambda *a, **k: "ask"), tmp / "r7"
+    d7.resume_with = lambda refusal, *a, **k: made.append(k)
+    rec = {"rounds": {"k": {"granted": 1, "spent": 0, "words_file": ""}}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        d7.exit_round("S5", "r", "D1", ["a line"], "s1", rec, "k")
+    check_eq("(a) R-7: the paid round", made[0].get("kind"), "paid_round")
+    # R-5 and R-6: `resume_on_refusal`
+    seen = []
+    d5 = SR.Driver.__new__(SR.Driver)
+    r5 = SR.Refusal("t", findings=[_rec("s5_precheck:manifest")], dispatch="S5-x-1")
+    d5.close_by_doors, d5.refusal_dispatch, d5.dispatch_role = (lambda *a: ""), (lambda r: "S5-x-1"), (lambda x: "r")
+    d5.refusal_sid, d5.note_resume = (lambda *a: "s1"), (lambda *a: None)
+    d5.resume_with = lambda refusal, *a, **k: seen.append(k.get("kind"))
+    d5.resume_record = lambda *a: {}
+    with contextlib.redirect_stdout(io.StringIO()):
+        d5.resume_on_refusal(r5, "S5", "S5-x-1")
+    d5.resume_record = lambda *a, _k=SR.finding_key(d5.refusal_lines(r5)): {_k: "refusal"}
+    d5.stand_probe = lambda dispatch: (["a"], "out")
+    with contextlib.redirect_stdout(io.StringIO()):
+        d5.resume_on_refusal(r5, "S5", "S5-x-1")
+    check_eq("(a) R-5 then R-6: the first resume of a refusal, the stand that answers now", seen, ["refusal_resume", "stand_answers"])
+    # R-8: `handle_refusal`
+    runs = []
+    d8 = SR.Driver.__new__(SR.Driver)
+    d8.boundary, d8.state = "S5:S5-x-1", {"sessions": {"S5-x-1": "s1"}}
+    d8.journal_conductor, d8.save_state, d8.controller_state = (lambda **k: None), (lambda: None), (lambda: {})
+    d8.run_claude = lambda kind, prompt, **kw: runs.append(kw) or {}
+    with contextlib.redirect_stdout(io.StringIO()):
+        d8.handle_refusal(SR.Refusal("story_step: refused - S5 structured artifact invalid: x", dispatch="S5-x-1"))
+    check_eq("(a) R-8: the structured-artifact resume", runs[0].get("resume_kind") if runs else None, "structured_refusal")
+
+
 # --- P1-v N1 (spec §2 W1, §7.10, §7.11): the `process` start and end rows, and the run class -------------------------------------------
 START_KEYS = {"ts", "kind", "event", "since", "package", "config_sha", "answer_file", "run_class"}
 END_KEYS = {"ts", "kind", "event", "since", "process_code", "question_kind", "package", "config_sha", "answer_file", "run_class",
@@ -931,6 +1096,9 @@ def main():
         resume_with_cases(tmp)
         exit_record_cases(tmp)
         machine_ids_cases()
+        resume_kind_row_cases(tmp)
+        resume_kind_table_cases(tmp)
+        resume_kind_road_cases(tmp)
         ctrl_c_serial_writes_one_stop_record(tmp)
         ctrl_c_parallel_road_writes_one_stop_record(tmp)
         ctrl_c_in_run_level_handler_writes_one_stop_record(tmp)

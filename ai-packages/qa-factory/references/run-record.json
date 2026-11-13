@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
-  "note": "Closed variety of the run record, read ONLY through driver_journal.run_record. run_classes: the values STORY_RUN_CLASS may carry besides the default (a run that sets nothing is live; a value not listed here is unknown, never live).",
-  "run_classes": ["dry", "smoke"]
+  "note": "Closed variety of the run record, read ONLY through driver_journal.run_record. run_classes: the values STORY_RUN_CLASS may carry besides the default (a run that sets nothing is live; a value not listed here is unknown, never live). resume_kinds: the ROAD of a resumed role row (`resume_kind` of driver-runs.jsonl), one token per road, never a class of the refusal text; a caller that names none, or a token not listed here, is unclassified.",
+  "run_classes": ["dry", "smoke"],
+  "resume_kinds": ["handoff_findings", "handoff_findings_mechanical", "person_answer", "refusal_resume", "stand_answers", "paid_round", "structured_refusal", "service_cut", "unclassified"]
 }

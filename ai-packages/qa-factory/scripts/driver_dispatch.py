@@ -552,7 +552,7 @@ class DriverDispatch:
                                     resume=result["session_id"],
                                     resume_reason=resume_reason(errors)
                                     + (f" (not assembled by code: {not_assembled})" if not_assembled else ""),
-                                    checks=Refusal.id_set(counts), checks_n=counts)
+                                    checks=Refusal.id_set(counts), checks_n=counts, resume_kind="handoff_findings")
             if again["result"].strip():
                 digest = self.digest_of(again["result"])
                 self.keep_resumed_result(dispatch, again, result)
@@ -582,7 +582,7 @@ class DriverDispatch:
                 third = self.run_claude("role", exact, role=role, dispatch=dispatch, stage=stage,
                                         resume=again.get("session_id") or result["session_id"],
                                         resume_reason="still not repaired after one resume: " + resume_reason(errors),
-                                        checks=Refusal.id_set(counts), checks_n=counts)
+                                        checks=Refusal.id_set(counts), checks_n=counts, resume_kind="handoff_findings_mechanical")
                 if third["result"].strip():
                     digest = self.digest_of(third["result"])
                     self.keep_resumed_result(dispatch, third, again if again["result"].strip() else result)
@@ -1071,7 +1071,8 @@ class DriverDispatch:
         try:
             result = self.run_claude("role", prompt, role=role, dispatch=dispatch, stage=stage, resume=sid,
                                      resume_reason=("the person answered the question the role was stopped on"
-                                                    if by_stop else "the person answered what the role stopped for"))
+                                                    if by_stop else "the person answered what the role stopped for"),
+                                     resume_kind="person_answer")
         finally:
             if opened:
                 self.s7_settle_close(dispatch)
@@ -2101,14 +2102,16 @@ class DriverDispatch:
                        "message is the handoff form only.")
 
     def resume_with(self, refusal: Refusal, stage: str, dispatch: str, sid: str, lead: str, reason: str = "",
-                    sentence: str | None = None) -> None:
+                    sentence: str | None = None, kind: str = "") -> None:
         """ONE resume of the role's own session: `lead`, the refusal whole, the sentence. The result is the
         dispatch's saved result from now on (the loop comes back through `where` -> `wait_existing_job` ->
         `handoff` -> `finish` on THIS result, not on the one the refusal was about). A resume that returns an
         error and no words is spent and is the person's: the session is gone, and the ONE seam `exit_limit` says so (t-764
         F-d6, E10: no round - an offered option is never silently unexecutable). `reason` (t-342, B-273) is the line
         the log prints; with none, the refusal's own findings are classified (`resume_reason`). `sentence`: what closes the
-        prompt in place of RESUME_SENTENCE (t-764: the paid round's text already says what to do; "" closes with nothing)."""
+        prompt in place of RESUME_SENTENCE (t-764: the paid round's text already says what to do; "" closes with nothing).
+        `kind` (P1-v W2): the road of this resume, a token of `resume_kinds` (`refusal_resume`, `stand_answers`, `paid_round`);
+        a caller that names none is `unclassified` on the row."""
         closing = self.RESUME_SENTENCE if sentence is None else sentence
         prompt = lead + refusal.text.strip() + (("\n\n" + closing) if closing else "")
         self.progress_line()            # t-323 B1: the role's own session is asked again: a launch like any other
@@ -2116,7 +2119,8 @@ class DriverDispatch:
                                  resume=sid,
                                  resume_reason=reason or "the factory refused to close the dispatch: "
                                  + resume_reason(refusal.findings or refusal.text),
-                                 checks=refusal.checks, checks_n=refusal.checks_n or {})        # P1-v W0 (R-4): the ids the refusal carries
+                                 checks=refusal.checks, checks_n=refusal.checks_n or {},        # P1-v W0 (R-4): the ids the refusal carries
+                                 resume_kind=kind)
         if result.get("is_error") and not str(result.get("result") or "").strip():
             self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="session_gone",
                             error=str(result.get("stderr") or "")[-600:], text=refusal.text, checks=refusal.checks)
@@ -3667,7 +3671,7 @@ class DriverDispatch:
         self.resume_with(refusal, stage, dispatch, sid,
                          "A person has answered what to do about the refusal below. Their words, whole, are your instruction for "
                          "this turn:\n\n" + (words or "(they gave no words beyond the choice)") + "\n\n",
-                         reason=f"paid round {taken['spent']} on the person's answer: " + resume_reason(lines), sentence="")
+                         reason=f"paid round {taken['spent']} on the person's answer: " + resume_reason(lines), sentence="", kind="paid_round")
 
     def s1_open_work(self) -> list:
         """The sources of the S1 inventory with open points of the factory's own work (`source:not_inspected` ...), from the

@@ -275,7 +275,7 @@ class DriverMachine:
             self.note_resume(dispatch, sid, key, "refusal")
             print(f"refusal: {dispatch} is resumed in its own session with the refusal, once")
             self.resume_with(refusal, stage, dispatch, sid, "The factory refused to close your dispatch "
-                             + dispatch + ":\n\n")
+                             + dispatch + ":\n\n", kind="refusal_resume")
             return "continue"
         if "stand" not in record.values():
             probe = self.stand_probe(dispatch)
@@ -293,7 +293,7 @@ class DriverMachine:
                                  "The stand answers now:\n" + out + "\n\nThe factory refused to close your dispatch "
                                  + dispatch + ":\n\n",
                                  reason="the role reported its work blocked by the stand and the stand answers now; "
-                                 + resume_reason(refusal.findings or refusal.text))
+                                 + resume_reason(refusal.findings or refusal.text), kind="stand_answers")
                 return "continue"
         print(f"refusal: {dispatch} was already resumed on these findings; the person is asked")
         # t-764 E8: the ONE seam (the finish refusals `story_step finish (exit 3)` reach only this site); a round the person
@@ -550,7 +550,8 @@ class DriverMachine:
                                 + "\n\nRepair the named fields in the artifact, change nothing else, then your final "
                                   "message is the handoff form only.", role=role, dispatch=dispatch, stage=stage, resume=sid,
                                 resume_reason=resume_reason(refusal.findings or refusal.text),
-                                checks=refusal.checks, checks_n=refusal.checks_n)     # P1-v W0 (R-8): `unknown` - the controller prints no id
+                                checks=refusal.checks, checks_n=refusal.checks_n,
+                                resume_kind="structured_refusal")     # P1-v W0 (R-8): `unknown` - the controller prints no id
                 return "retry"
             elif action in ("resume_handoff", "resume_repair"):
                 # t-217 / F-cmp2-23: a refusal of the role's handoff or of its `finish` (exit 3) is answered by the
