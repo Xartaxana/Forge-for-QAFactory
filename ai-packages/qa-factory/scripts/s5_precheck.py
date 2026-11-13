@@ -107,7 +107,7 @@ NEVER_JUDGED_TAGS = (CHANGED_AFTER_RED, OPEN_ORACLE_ASSERTED)
 # automator may not change an expected value to match the code and `impossible` means the
 # product offers no way to perform the step, which this is not — so until 0.7.7 the one
 # outcome a contradiction found at S5 had was to be filed as something it is not.
-CONTRADICTS = "contradicts_requirement"
+CONTRADICTS = C.CONTRADICTS_REQUIREMENT
 # The `unresolved[]` reason for "I cannot execute this profile in this session at all, and the
 # person said they will run these themselves" (TP2-2536: Maestro/iOS, no Xcode for the
 # agent). The code is written and reviewed; there is no run, so no reporter row is owed and a
@@ -1439,20 +1439,9 @@ def _check_blocked_then(case: str, row: dict, numbers: list, covered_rows: list,
     if (then, instance) in seen:
         return
     seen.add((then, instance))
-    if not numbers:
-        findings.append(_finding(
-            "bindings", case,
-            f"Then {then} of {case} is recorded behind a red check, but the case file was not found (or states no "
-            "Then), so the Then cannot be checked",
-            f"make the case file {case}.md readable under the story's test-cases folder, or correct `case` in the row, "
-            f"and {door_}", f"{THEN_REMAINDER_TAG}unknown-{tag}"))
-        return
-    if then not in numbers:
-        findings.append(_finding(
-            "bindings", case,
-            f"Then {then} is not a Then of {case} (its Thens are numbered {', '.join(map(str, numbers))})",
-            f"correct `then` in the row to the number of the clause the red stops, and {door_}",
-            f"{THEN_REMAINDER_TAG}unknown-{tag}"))
+    target = _blocked_then_target(case, then, tag, numbers, door_)
+    if target:
+        findings.append(target)
         return
     blocker = str(row.get("blocking_check") or "").strip()
     # A Then that RAN and failed (it is a red Then of the case's own `contradicts_requirement` row on this very
@@ -1478,19 +1467,46 @@ def _check_blocked_then(case: str, row: dict, numbers: list, covered_rows: list,
             f"a Then on one test either reached its check or did not: drop the covered row or the blocked row of Then "
             f"{then} on {instance}, and {door_}", f"{THEN_REMAINDER_TAG}conflict-{tag}"))
         return
-    state = blocker_state(blocker)
+    finding = _blocked_then_blocker(case, then, tag, blocker, blocker_state(blocker), door_)
+    if finding:
+        findings.append(finding)
+
+
+def _blocked_then_target(case: str, then, tag: str, numbers: list, door_: str) -> dict | None:
+    """The finding for a `blocked_by_check` row whose Then the case file cannot confirm (no case file or no Thens, or
+    the Then is not one of the case's), else None. Error direction: a row it cannot place is refused, never passed."""
+    if not numbers:
+        return _finding(
+            "bindings", case,
+            f"Then {then} of {case} is recorded behind a red check, but the case file was not found (or states no "
+            "Then), so the Then cannot be checked",
+            f"make the case file {case}.md readable under the story's test-cases folder, or correct `case` in the row, "
+            f"and {door_}", f"{THEN_REMAINDER_TAG}unknown-{tag}")
+    if then not in numbers:
+        return _finding(
+            "bindings", case,
+            f"Then {then} is not a Then of {case} (its Thens are numbered {', '.join(map(str, numbers))})",
+            f"correct `then` in the row to the number of the clause the red stops, and {door_}",
+            f"{THEN_REMAINDER_TAG}unknown-{tag}")
+    return None
+
+
+def _blocked_then_blocker(case: str, then, tag: str, blocker: str, state: str, door_: str) -> dict | None:
+    """The finding for the row's blocker (`state` is `_blocker_state`'s answer: "unknown", another non-empty word for
+    not red, "" for red), else None. Only a red blocker passes; an unknown or not-red one is a finding."""
     if state == "unknown":
-        findings.append(_finding(
+        return _finding(
             "bindings", case,
             f"Then {then} of {case} is recorded behind {blocker}, and no case or test of this manifest is called that",
             f"correct `blocking_check` to the case key or the instance id of the red check and {door_}",
-            f"blocked-check-unknown-{tag}"))
-    elif state:
-        findings.append(_finding(
+            f"blocked-check-unknown-{tag}")
+    if state:
+        return _finding(
             "bindings", case,
             f"Then {then} of {case} is recorded behind {blocker}, which is not red here",
             f"bind Then {then} to the test that now reaches it, or record it as `{BLOCKED_BY_ENV}` if a stand stopped it; "
-            f"{door_}", f"blocked-check-not-red-{tag}"))
+            f"{door_}", f"blocked-check-not-red-{tag}")
+    return None
 
 
 def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: dict, findings: list,
@@ -3790,7 +3806,7 @@ def check_row_fields(task_root: Path, manifest: dict, cases: list, findings: lis
     plan_obligations`): without them `profile_id` and `obligation_refs` are NOT demanded (the error direction is
     "not demanded": the gates behind this one stay as they are). A case handed to the person owes no obligation
     binding here, as in `check_obligations`. Rows speak only inside the dispatch's scope; an unscoped run
-    (`dispatch_scope` is None - no dispatch, an unknown id, or two running) refuses nothing and says so in a note,
+    (`dispatch_scope` is None - no dispatch, an unknown id, or a dispatch with no scope) refuses nothing and says so in a note,
     because it would speak about rows of windows that closed before this rule existed.
 
     Family `manifest`, outside PASSABLE: no recorded word, `*` included, and no judge pass lifts it - it is a repair the
