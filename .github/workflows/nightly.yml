@@ -4,6 +4,7 @@
 #   install-smoke        install_smoke.py, a job of its own next to the shards (not after them)
 #   package-full-report  joins the shard outputs and diffs scripts/slow_tests.json against them (--slow-tests --from)
 #   crap-measure         the CRAP report under coverage; nightly only, a measurement (never red for the release verdict)
+#   quarantine-check     tools/test_quarantine.py check, the history guard of the test quarantine; nightly only; red on a violation
 #   test-redundancy      every package test file under coverage with its own name as the context (tools/test_redundancy.py,
 #                        TD-12; 1-3 hours; a measurement): ONLY a dispatched run with the input TEST_REDUNDANCY=1, or one whose
 #                        ref starts with measure/ (also inside the canon, which calls this file); REDUNDANCY_SCOPE=keep -> --keep-only.
@@ -219,6 +220,24 @@ jobs:
           name: crap-report
           path: ci-out/crap/
           retention-days: 14
+
+  quarantine-check:
+    # the test quarantine history guard (td-15 K5; owner's word 13.11.2026: moved here from forge-check, it walks every commit since
+    # test-layers.json appeared and outlived that job). SCHEDULE ONLY: a dispatched run (the Run button) and a called run (canon.yml,
+    # which carries the caller's event) do not start it. A guard, not a measurement: no continue-on-error, a violation makes the nightly red.
+    needs: skip-if-unchanged
+    if: github.event_name == 'schedule' && needs.skip-if-unchanged.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python tools/test_quarantine.py check
 
   test-redundancy:
     # .gitlab-ci.yml test-redundancy: a measurement, never a gate (continue-on-error = allow_failure; the run and the report are
