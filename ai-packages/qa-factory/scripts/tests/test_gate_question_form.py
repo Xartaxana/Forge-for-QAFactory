@@ -582,7 +582,7 @@ def test_question_status_comes_from_the_register() -> None:
     ids = ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q10"]
     questions = [question(qid) for qid in ids] + [{"question": "a bare question with no id",
                                                    "severity": "minor", "owner_role": "po_ba"}]
-    words = "go on\nQ5 - let us see\nQ10: a\nq6: a"
+    words = "go on\nlet us see about Q5\nQ10: a\nq6: a"   # GW1-47: a line STARTING with an id is read as a stray line (`q6: a`); Q5 is only named mid-line
     task_root = gate_story("qa-a2-status-", questions,
                            pipeline={"gates": {"A": {"decision": "approved", "authorization_source": words}}})
     try:
