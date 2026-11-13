@@ -1,0 +1,1 @@
+- The dashboard names the obligations ledger where code writes it (`factory_dashboard.py`): the "Remaining checks" panel said `qa-factory/state/obligations.md`, the place used before 0.3.0, and now says `qa-factory/obligations.md`; reading a ledger an older install still keeps under `state/` is unchanged.
