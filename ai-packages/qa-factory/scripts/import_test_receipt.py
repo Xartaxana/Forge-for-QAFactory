@@ -16,6 +16,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 import shutil
+import sys
 
 from execution_request import validate_request
 from hooklib import project_root, story_cli
@@ -319,4 +320,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # A role runs this by hand (agents/qa-automator.md): a ValueError (every ImportError, broken JSON), a missing file or
+    # a defect ends as the guard's refusal, exit 2, never a traceback (t-420; the survivor is role_cli.run_guarded, AR-15).
+    from role_cli import command_from_argv, run_guarded
+    sys.exit(run_guarded(command_from_argv("import_test_receipt.py"), main))
