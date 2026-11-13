@@ -4,7 +4,7 @@
   {"id": "s1.review/go on", "start": "S0", "stub": {"qa-scout": {"result_text": "qa-scout S1 review"}},
    "expect": "s1_review", "answers": {"s1_review": "go on"}},
   {"id": "questions/answers", "start": "S0", "stub": {},
-   "expect": "any", "answers": {}},
+   "expect": "any", "answers": {"conductor": "stop"}},
   {"id": "halt/words", "start": "S0", "stub": {"qa-scout": {"verdict": "halt"}},
    "expect": "halt", "answers": {"halt": "go on without it"}}
  ]}

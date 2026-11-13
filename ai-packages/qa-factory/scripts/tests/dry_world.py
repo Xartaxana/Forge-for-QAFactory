@@ -336,7 +336,7 @@ def stage_outcomes(world: World) -> dict:
             out[stage] = "done" + note
         elif gaps.get(stage):
             out[stage] = f"{state[stage]} - live_only: " + "; ".join(gaps[stage][:4])
-        elif state[stage] == "pending" and any(state[s] != "done" for s in ("S0", "S1", "S2", "S3") if s < stage):
+        elif state[stage] in ("pending", "absent") and any(state[s] != "done" for s in ("S0", "S1", "S2", "S3") if s < stage):
             out[stage] = "not reached - after an earlier stage that did not close"
         else:
             out[stage] = f"{state[stage]} - UNLABELLED RED (no known_red / not_in_world / live_only row names it)"
@@ -357,7 +357,9 @@ def run_row(world: World, row: dict) -> dict:
         kinds = question_kinds(copy)
         kind = kinds[-1] if kinds else None
         outcome = f"no question: driver exit {first.rc}, stages {statuses(copy)}"
-        if kind:
+        if kind and row.get("expect") not in ("any", kind):
+            outcome = f"live_only: expected a {row.get('expect')} question, the road meets {kind} first (stub journal: {stub_rows(copy)[-1:]})"
+        elif kind:
             words = (row.get("answers") or {}).get(kind)
             if words is None:
                 outcome = f"red: no answer for {kind} in type {world.row['id']}"

@@ -30,7 +30,8 @@ sys.path.insert(0, str(HERE.parent))
 import harness  # noqa: E402
 import story_run_common as T  # noqa: E402
 
-COMMANDS = {"context_bundle.py": ["--manifest", "{task_root}/work/context-manifest.json", "--output", "{task_root}/work/context-bundle.json"]}
+COMMANDS = {"context_bundle.py": ["--manifest", "{task_root}/work/context-manifest.json", "--output", "{task_root}/work/context-bundle.json",
+                                      "--root", "{task_root}"]}
 MOVE_LINE = re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
 FORM_CONTRACT = re.compile(r"^contract:\s*(\S+)", re.M)
 FORM_STAGE = re.compile(r"^stage:\s*(\S+)", re.M)
@@ -146,7 +147,7 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
             done = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / kind[8:]), *argv], cwd=str(project), capture_output=True,
                                   text=True, encoding="utf-8", errors="replace")
             (row["wrote"] if done.returncode == 0 else row["live_only"]).append(
-                out if done.returncode == 0 else {"output": out, "why": f"{kind[8:]} exit {done.returncode}: {(done.stderr or done.stdout)[-200:]}"})
+                out if done.returncode == 0 else {"output": out, "why": f"{kind[8:]} exit {done.returncode}: {' '.join((done.stderr or done.stdout).split())[:400]}"})
         else:
             row["live_only"].append({"output": out, "why": kind[len("live_only:"):]})
     default = f"{role} {stage} {task} - the stub filled the handover form of {dispatch}; nothing else to say"
