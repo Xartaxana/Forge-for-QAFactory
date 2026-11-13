@@ -93,6 +93,8 @@
 |---|---|---|---|
 
 ## Остатки
+- RC1-10 (ed9de10, t-209), критик t-223 R3: карточки `manual_evidence.py validate` нет в `references/role-commands.json`, тест «нет карточки» закрепляет дыру | перенос: onboarding-forge/findings/20261113-net-karty-manual-evidence-validate-v-role-commands.md | обоснование: карточка и перенос строк теста — отдельный узел OF5-5 пачки 5 | подтвердил: —
+- RC1-10 (ed9de10, t-209), критик t-223 R4: скрипты с карточкой на голом `argparse.ArgumentParser` (`case_versions:661`, `execution_fingerprint:893`, `manifest_put:2796`, `red_sandbox:2236`, `grounding_section:145`) | перенос: onboarding-forge/findings/20261113-skripty-s-kartoj-na-golom-argparse.md | обоснование: узел OF5-6 пачки 5 | подтвердил: —
 
 | `findings/20261101-ostatki-starykh-pachek-forge-kb-pri-peresborke.md` | остатки старых пачек forge/6 и kb/1, перенесённые при пересборке бэклога 01.11.2026 (слово владельца) |
 
