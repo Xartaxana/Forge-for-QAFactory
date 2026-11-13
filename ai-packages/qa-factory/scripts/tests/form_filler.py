@@ -68,6 +68,12 @@ class FillContext:
     dispatch_id: str = ""        # what the token `<dispatch>` reads; empty keeps the token unfillable (the caller names it)
     case_id: str = ""            # what the artifact token `<case id>` reads: set by `fill_artifact` for each id of `cases` (forms never read it)
     bug_id: str = ""             # what the artifact token `<bug id>` reads: set by `fill_artifact` for each id of `bugs`
+    area: str = "general"        # what the token `<area>` reads: the area the artifact templates put their cases in
+
+    @property
+    def first_case(self) -> str:
+        """What the token `<case>` reads: the case `fill_artifact` is writing, else the first case of the world; empty when there is none."""
+        return self.case_id or next((c for c in self.cases if isinstance(c, str) and c.strip()), "")
 
 
 @dataclass(frozen=True)
@@ -121,6 +127,7 @@ class _Gen:
     at: object = None            # the value of exactly N characters, for a `<= N characters` limit (E13)
     beyond: object = None        # N + 1 characters
     empty: bool = False          # the hint says the empty list is a legal answer (E6)
+    world: str = ""              # the key of the context whose list holds the ids this field names (`cases`); the row's own number picks one
 
 
 def _leaf(path: str) -> str:
@@ -160,6 +167,18 @@ def _gen_free_text(rule, match, hint, fspec, path):
     return _Gen([f"filled {_leaf(path)}"], rule["id"], empty=bool(rule.get("empty")))
 
 
+PLAIN_ID = re.compile(r"([A-Z]{1,4})-(\d+)")
+
+
+def _issued(value, ctx):
+    """An id the hint gave (`TC-1`, row n of its prefix) becomes the n-th id the WORLD issued for that prefix (`ctx.minted`, e.g. the case
+    `TC-001`) when the context holds one; with none it stays as the hint gave it. The world's ids are the ones its readers know."""
+    found = PLAIN_ID.fullmatch(value) if isinstance(value, str) else None
+    ids = ctx.minted.get(found.group(1)) if found else None
+    at = int(found.group(2)) - 1 if found else -1
+    return ids[at] if isinstance(ids, list) and 0 <= at < len(ids) and isinstance(ids[at], str) and ids[at].strip() else value
+
+
 def _id_value(token: str, path: str) -> str:
     prefix = ID_TOKEN.match(token).group(1)
     return f"{prefix}-{_row_number(path)}"
@@ -181,7 +200,11 @@ def _gen_id_in_path(rule, match, hint, fspec, path):
     return _Gen([ID_NUMBER.sub(f"-{_row_number(path)}", hint)], rule["id"])
 
 
-GENERATORS = {"limit": _gen_limit, "first_option": _gen_first_option, "values": _gen_values, "literal": _gen_literal,
+def _gen_world_ids(rule, match, hint, fspec, path):
+    return _Gen([f"filled {_leaf(path)}"], rule["id"], world=rule["from"])
+
+
+GENERATORS = {"world_ids": _gen_world_ids, "limit": _gen_limit, "first_option": _gen_first_option, "values": _gen_values, "literal": _gen_literal,
               "hint_number": _gen_hint_number, "free_text": _gen_free_text, "id_prefix": _gen_id_prefix,
               "alternatives": _gen_alternatives, "id_in_path": _gen_id_in_path}
 _RULES: dict = {}
@@ -195,6 +218,8 @@ def rules() -> dict:
             if row["gen"] not in GENERATORS:
                 raise ValueError(f"{RULES_PATH.name}: rule {row['id']!r} names the generator {row['gen']!r}, which is not one of {sorted(GENERATORS)}")
             row["_re"] = re.compile(row["pattern"], re.S) if "pattern" in row else None
+        for row in data.get("literal_text", []):
+            row["_re"] = re.compile(row["pattern"], re.S)
         _RULES.update(data)
     return _RULES
 
@@ -202,6 +227,17 @@ def rules() -> dict:
 def _hint_of(raw: str) -> str:
     text = raw.strip()
     return text[1:-1].strip()           # `handoff.is_placeholder` has said it is `<...>` (or empty)
+
+
+def _hint_list(value) -> bool:
+    """Is `value` a non-empty list whose every element is a whole hint (`["<reason>"]`)? Such a list is filled element by element."""
+    return isinstance(value, list) and bool(value) and all(isinstance(e, str) and e.strip() and handoff.is_placeholder(e) for e in value)
+
+
+def _literal_text(raw: str):
+    """The id of the `literal_text` row of form-fill-rules.json that says `raw` is text, not a hint (a command template a role copies
+    as it stands), or None. A row is named data: the filler holds no list of such texts."""
+    return next((row["id"] for row in rules().get("literal_text", []) if row["_re"].search(raw)), None)
 
 
 def _generate(raw: str, fspec, path: str):
@@ -249,15 +285,30 @@ class _Survey:
         self.has_verdict = verdict is not None
         self.words = list(verdict.options) if verdict is not None and verdict.options else None
         self.items = []
+        tokens = rules()["context_tokens"]
         for path, node in sorted(self.tmpl.nodes.items(), key=lambda kv: kv[1].line):
-            if handoff.owned_by_contract(path):
-                continue
             generic = ROW_INDEX.sub("[]", path)
-            fspec = self.spec[generic]
             raw = "" if node.value is None else str(node.value)
-            if not handoff.is_placeholder(node.value):
-                if any(tok in raw for tok in rules()["context_tokens"]):
+            if handoff.owned_by_contract(path):
+                # the contract writes these itself; only a context token inside one (`inputs[0].path`) is the filler's to substitute
+                if isinstance(node.value, str) and any(tok in raw for tok in tokens):
+                    self.items.append(_Item(path, generic, raw, node, self.spec.get(generic), "token"))
+                continue
+            fspec = self.spec[generic]
+            if _hint_list(node.value):                      # `["<reason>"]`: every element is a hint of its own, filled by the same rules
+                firsts, why = [], ""
+                for at, element in enumerate(node.value):
+                    one, why = _generate(str(element), fspec, f"{path}[{at}]")
+                    if one is None:
+                        break
+                    firsts.append(one.values[0])
+                gen = _Gen([firsts], "hint-list") if len(firsts) == len(node.value) else None
+                self.items.append(_Item(path, generic, raw, node, fspec, "gen" if gen else "nogen", gen, why))
+            elif not handoff.is_placeholder(node.value):
+                if any(tok in raw for tok in tokens):
                     kind = "code" if handoff_check._code_fills(path) else "token"      # a value code fills is code's, token or not
+                elif HINT.search(raw) and _literal_text(raw) is None:
+                    kind = "code" if handoff_check._code_fills(path) else "embedded"   # a hint inside a value, named by no token and no literal-text row
                 else:
                     kind = "keep"
                 self.items.append(_Item(path, generic, raw, node, fspec, kind))
@@ -446,6 +497,10 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
         if item.kind == "nogen":
             unfillable.append(Unfillable(item.path, item.raw, item.why))
             continue
+        if item.kind == "embedded":
+            unfillable.append(Unfillable(item.path, item.raw, "a hint inside a value that no context token names and no `literal_text` row of "
+                                                              "form-fill-rules.json covers: the filler writes no value it cannot fill (E10)"))
+            continue
         gen = item.gen
         if variant == OMIT_OPTIONAL and item.fspec.optional:
             ops.append((item.node, "delete", None, item.path))
@@ -461,6 +516,12 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
             value = gen.at
         elif variant == BEYOND_LIMIT and gen.beyond is not None:
             value = gen.beyond
+        if gen.world:                                  # a field that names an id of the world (`case id`): the world's own, when it holds one
+            ids = getattr(ctx, gen.world, [])
+            at = _row_number(item.path) - 1
+            if isinstance(ids, list) and 0 <= at < len(ids) and isinstance(ids[at], str) and ids[at].strip():
+                value = ids[at]
+        value = _issued(value, ctx)
         ops.append((item.node, "set", value, item.path))
         fills.append(Fill(item.path, item.raw, value, gen.rule))
     doc = survey.tmpl
@@ -583,19 +644,22 @@ def _lang_of(output: str) -> str:
     return output[len(head):len(output) - len(tail)]
 
 
-def test_file_languages() -> list:
-    """The languages `test_file:<lang>` is walked for: every language of `references/detectors.json` (`assertion_probes`,
-    `assertion_probes_ast`: the table of languages the package already holds) and every runner key of `references/case-markers.json`
-    (an entry that is an object). A language with no marker form is walked too: it comes back `Unfillable` (E9), never skipped."""
+def test_file_languages(source: dict) -> list:
+    """THE ONE reader of the languages `test_file:<lang>` is walked for (F5, axis 34: the stage-output walk and the reverse walk of
+    test_field_producers.py both call it). `source` is the `languages_source` row of `fixtures/form-rounds.json`: `file` and `sections`
+    name the table of languages the package already holds (`references/detectors.json`: `assertion_probes`, `assertion_probes_ast`),
+    `runner_keys` names the file whose object entries are runner keys (`references/case-markers.json`). A language with no marker form
+    is walked too: it comes back `Unfillable` (E9), never skipped. An unreadable language file raises, never "no languages"."""
     names = []
-    detectors = _reference("detectors.json")
-    for section in ("assertion_probes", "assertion_probes_ast"):
-        names += list(detectors.get(section) or {})
-    try:
-        markers = json.loads((REFERENCES / "case-markers.json").read_text(encoding="utf-8"))
-        names += [k for k, v in markers.items() if isinstance(v, dict)]
-    except Exception:                                   # said by every row of the family: `marker_form` names the file
-        pass
+    table = _reference(Path(source["file"]).name)
+    for section in source["sections"]:
+        names += list(table.get(section) or {})
+    if source.get("runner_keys"):
+        try:
+            markers = json.loads((REFERENCES / Path(source["runner_keys"]).name).read_text(encoding="utf-8"))
+            names += [k for k, v in markers.items() if isinstance(v, dict)]
+        except Exception:                               # said by every row of the family: `marker_form` names the file
+            pass
     return sorted(dict.fromkeys(names))
 
 
@@ -620,6 +684,19 @@ def marker_form(lang: str, row: dict) -> tuple:
     if not isinstance(prefix, str) or not prefix.strip():
         return None, f"{name}: `decorator_prefix` is empty, so the language {lang} has no marker form"
     return prefix + case, ""
+
+
+def language_body(lang: str, row: dict) -> tuple:
+    """`({"file_name", "template"}, "")` for the language from the `languages` rows of the template row (a row `{"like": <language>}` is
+    that language's, one hop), or `(None, why)` naming the language: a language no row writes a body for is never given another
+    language's file (F1, axis 34: no hidden road for Python)."""
+    table = row.get("languages") if isinstance(row.get("languages"), dict) else {}
+    entry = table.get(lang)
+    if isinstance(entry, dict) and entry.get("like"):
+        entry = table.get(entry["like"])
+    if not isinstance(entry, dict) or not str(entry.get("file_name") or "").strip() or not str(entry.get("template") or "").strip():
+        return None, f"form-fill-rules.json has no body row for the language {lang} (`languages.{lang}`): the filler writes no test file it has no row for"
+    return {"file_name": entry["file_name"], "template": entry["template"]}, ""
 
 
 def row_fields(spec: dict) -> tuple:
@@ -890,7 +967,10 @@ def fill_artifact(output: str, ctx: FillContext, *, variant: str = VARIANT_BASE,
         marker, why = marker_form(_lang_of(output), row)
         if marker is None:
             return FilledArtifact(output, {}, fills, [Unfillable("marker", _lang_of(output), why)], [])
-        row = {**row, "template": row["template"].replace("{marker}", marker)}
+        body, why = language_body(_lang_of(output), row)
+        if body is None:
+            return FilledArtifact(output, {}, fills, [Unfillable("body", _lang_of(output), why)], [])
+        row = {**row, **body, "template": body["template"].replace("{marker}", marker)}
     if row.get("file_name"):                                  # a directory output (E24): one file per id of the context
         ids = list(getattr(ctx, row.get("ids", "cases")))[:1 if row.get("one") else None]
         if not ids:

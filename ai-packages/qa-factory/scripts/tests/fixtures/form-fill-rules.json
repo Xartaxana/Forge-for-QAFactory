@@ -10,6 +10,7 @@
     {"id": "id-alternatives", "pattern": "(?:[A-Z]{1,4}-(?:n|m|ID)|case id)(?:(?:,\\s+or\\s+|,\\s+|\\s+or\\s+)(?:[A-Z]{1,4}-(?:n|m|ID)|case id))+", "gen": "alternatives"},
     {"id": "id-or-word", "pattern": "[A-Z]{1,4}-(?:n|m|ID)\\b.*\\b(?:or (?:an )?area|or tracker key|or path|or the source)\\b.*", "gen": "id_prefix", "word_alternative": "area-1"},
     {"id": "id-prefix", "pattern": "[A-Z]{1,4}-(?:n|m|ID)\\b.*", "gen": "id_prefix"},
+    {"id": "case-id-of-the-world", "pattern": "(?:case id|instance or case id|case or instance id)", "gen": "world_ids", "from": "cases"},
     {"id": "count-n", "pattern": "n", "gen": "literal", "value": 1},
     {"id": "count-n-of-m", "pattern": "n of m(?:, or a dash)?", "gen": "literal", "value": "1 of 1"},
     {"id": "count-r-of-2", "pattern": "r of 2", "gen": "literal", "value": "1 of 2"},
@@ -20,8 +21,14 @@
   "context_tokens": {
     "<TICKET>": "task_key",
     "<dispatch>": "dispatch_id",
-    "<the author's dispatch>": "author_dispatch"
+    "<the author's dispatch>": "author_dispatch",
+    "<case>": "first_case",
+    "<area>": "area"
   },
+  "literal_text": [
+    {"id": "command-template", "pattern": "^[a-z][a-z0-9_]*\\.py\\s"},
+    {"id": "git-add-prose", "pattern": "^`git add -A` and `git add <dir>` are forbidden"}
+  ],
   "artifact_tokens": {
     "<case id>": "case_id",
     "<bug id>": "bug_id"
@@ -200,8 +207,13 @@
       "ids": "cases",
       "one": true,
       "dir": "project:",
-      "file_name": "tests/<case id>_test.py",
-      "template": "import pytest\n\n\n{marker}(case=\"<case id>\", then=[1])\ndef test_the_case():\n    assert 1 + 1 == 2\n",
+      "languages": {
+        "python": {
+          "file_name": "tests/<case id>_test.py",
+          "template": "import pytest\n\n\n{marker}(case=\"<case id>\", then=[1], obligations=[\"OB-1\"])\ndef test_the_case():\n    assert 1 + 1 == 2\n"
+        },
+        "pytest": {"like": "python"}
+      },
       "required": ["body:@pytest.mark.qa"]
     },
     "work/context-manifest.json": {
@@ -323,8 +335,8 @@
       "dir": "project:bugs/",
       "file_name": "<bug id>.md",
       "cites": {"cases": "TC"},
-      "template": "---\nsource_draft: work/bug-drafts/<bug id>.json\ncases: [<TC-n>]\nrequirements: [<R-n>]\n---\n",
-      "required": ["source_draft", "cases", "requirements"]
+      "template": "---\nid: <bug id>\ntitle: <one line: what is broken>\nseverity: major\nstatus: Open\narea: general\nfound_by: qa-factory\ncreated: 2026-11-13\nviolates: requirement:R-1\nimpact: degraded\nconfirmation: unconfirmed\nred_test_none: manual check only\nsource_draft: work/bug-drafts/<bug id>.json\ncases: [<TC-n>]\nrequirements: [<R-n>]\n---\n\n# <bug id>\n\n## User impact\n\n<what a person cannot do because of this defect>\n\n## Initial state\n\n<the state the product is in before the steps>\n",
+      "required": ["id", "title", "severity", "status", "area", "found_by", "created", "violates", "source_draft", "cases", "requirements"]
     },
     "retro.md": {
       "contract": "references/artifact-contract-results.md",

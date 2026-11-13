@@ -17,6 +17,7 @@ Writing this walk found two fields where the deriver existed and was wired to tw
 paths that ask for it (FR-17): `runtime.provenance` and `rounds[].verify.witness`.
 """
 import contextlib
+import dataclasses
 import importlib
 import json
 import os
@@ -53,12 +54,25 @@ def _ledger_ids() -> set:
     return _LEDGER_IDS[0]
 
 
+def _not_in_world() -> dict:
+    """`not_in_world` of the registry: row id -> the reason the round's world lacks the input. NOT defects of main, so not ledger rows."""
+    try:
+        rows = json.loads(ROUNDS.read_text(encoding="utf-8")).get("not_in_world", {})
+    except Exception:                              # the reconcile row says why the registry cannot be read
+        return {}
+    return rows if isinstance(rows, dict) else {}
+
+
 def check(name: str, ok: bool, detail: str = "") -> bool:
     """`harness.check`, plus the walk record the ledger is judged against. A red row the ledger names prints as KNOWN RED and is not
     failed twice: the reconcile row at the end is its judge (it fails a row the ledger does not name, and a ledger row that is green)."""
     WALK[name] = WALK.get(name, True) and bool(ok)
     if not ok and name in _ledger_ids():
         print(f"KNOWN RED {name}" + (f" — {detail}" if detail else ""))
+        harness.RESULTS.append((True, name))
+        return False
+    if not ok and name in _not_in_world():
+        print(f"NOT IN WORLD {name} — {_not_in_world()[name]}")
         harness.RESULTS.append((True, name))
         return False
     return harness.check(name, ok, detail)
@@ -429,10 +443,10 @@ def every_form_fills_from_its_own_hints() -> None:
     seen, rows, fields, left_total, short = {}, 0, 0, 0, []
     try:
         _form_world(root)
-        ctx = FF.FillContext(author_dispatch="S2-author-1")
+        ctx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id="negative-w1", cases=["TC-001"])
         for contract in forms:
             spec = handoff.spec(contract)
-            cx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id=f"{contract}-w1")     # the dispatch the world reads the form as
+            cx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id=f"{contract}-w1", cases=["TC-001"])   # the dispatch the world reads the form as
             listed = FF.variants(contract)
             if len(listed) < max(len(words) if "header.verdict" in spec else 1, 1):
                 short.append(contract)
@@ -530,8 +544,8 @@ def every_stage_output_fills_or_is_named() -> None:
         check(f"table row {name} names no output of stages.json", False, "stage_outputs() returns it")
     tables = FF.rules()
     subkinds = sorted(key for key, row in tables["artifact_templates"].items() if row.get("subkind_of"))
-    languages = FF.test_file_languages()
-    walked = [name for key in subkinds for name in ([key.replace(FF.LANG, lang) for lang in languages] if FF.LANG in key else [key])]
+    languages = _languages(_rounds())                  # F5: the one language reader (`FF.test_file_languages`, the registry's `languages_source`)
+    walked =[name for key in subkinds for name in ([key.replace(FF.LANG, lang) for lang in languages] if FF.LANG in key else [key])]
     check("the table walks every language of detectors.json and every runner key of case-markers.json", len(languages) > 1 and len(walked) >= len(subkinds),
           str(languages))
     for section in ("artifact_templates", "not_covered"):
@@ -565,18 +579,10 @@ def every_stage_output_fills_or_is_named() -> None:
             FF.write_outputs(task_root_of(world), world, FF.fill_artifact("test_file:pytest", ctx).require())   # the file a manifest row names
             if result.output == "manifest_row":        # a manifest row is read against the plan row it serves and the case it covers
                 FF.write_outputs(task_root_of(world), world, FF.fill_artifact("test-plan.md", ctx).require())
-                FF.write_outputs(task_root_of(world), world, FF.fill_artifact("case", ctx, variant="cite_hint:body:Plan row:").require())
-        old = os.environ.get("CLAUDE_PROJECT_DIR")
-        os.environ["CLAUDE_PROJECT_DIR"] = str(world)
-        hooklib._PROJECT_ROOT_CACHE = None
-        try:
+                # F3: the case the manifest row is read against is the BASE case (it cites the issued id), and the refusal shows
+                FF.write_outputs(task_root_of(world), world, FF.fill_artifact("case", ctx).require())
+        with _in_project(world):                       # F5: the one environment swap of this file
             return [e for path in FF.write_outputs(task_root_of(world), world, result) for e in VA.collect_errors(path, {})]
-        finally:
-            if old is None:
-                os.environ.pop("CLAUDE_PROJECT_DIR", None)
-            else:
-                os.environ["CLAUDE_PROJECT_DIR"] = old
-            hooklib._PROJECT_ROOT_CACHE = None
     try:
         for name in names + walked:
             row = f"output: {name}[base]"
@@ -733,7 +739,7 @@ def every_stage_output_fills_or_is_named() -> None:
                 sys.modules["window_record"] = kept_module
         check(f"output: {row_name}[the module is restored for the rows after this one]", list(WR.REQUIRED_ROW_FIELDS) == fields, str(list(WR.REQUIRED_ROW_FIELDS)))
         marker_text = FF.fill_artifact(test_name, ctx).files["project:tests/TC-001_test.py"]
-        check(f"output: {test_name}[the marker is the prefix and the name of case-markers.json]", '@pytest.mark.qa(case="TC-001", then=[1])\n' in marker_text, marker_text)
+        check(f"output: {test_name}[the marker is the prefix and the name of case-markers.json]", '@pytest.mark.qa(case="TC-001", then=[1], obligations=["OB-1"])\n' in marker_text, marker_text)
         old_references = FF.REFERENCES
         for name, content, language, wanted in (
                 ("the file is missing", None, "pytest", "cannot be read"), ("the file is not JSON", "{not json", "pytest", "cannot be read"),
@@ -986,10 +992,17 @@ def _round_world(FF, root):
                          minted={"P": [issued], "TC": ["TC-001"]})
     task = world / "qa-factory" / "artifacts" / ctx.task_key
     made = {}
-    for output in ("work/requirements-register.md", "test-plan.md", "work/test-plan.json", "work/test-cases/", "test_file:pytest", "manifest_row"):
+    for output in ("work/requirements-register.md", "test-plan.md", "work/test-plan.json", "work/test-cases/", "test_file:pytest", "manifest_row",
+                   "work/grounding.yaml", "work/context-manifest.json"):
         made[output] = FF.fill_artifact(output, ctx)
         FF.write_outputs(task, world, made[output].require())
     case_path = next(task / rel for rel in made["work/test-cases/"].files)
+    # What CODE makes, made by the product's own writer on this world (never by hand): the pinned case version (case_versions) and
+    # the size (sizing). The other code-made inputs stay out of the world: see the report (B1(b)); their rows stay in the ledger.
+    import case_versions as CV
+    import sizing
+    CV.pin(task, CV.create_version(CV.store_root(task), case_path))
+    sizing.run(task, world)
     return SimpleNamespace(root=root, world=world, task=task, ctx=ctx, s3=s3, issued=issued, made=made, case_path=case_path)
 
 
@@ -1076,7 +1089,7 @@ def _f_check_plan(obj, w, value, row):
 
 def _accept_form(FF, row):
     author = f"{row['stage']}-{row['author_role']}-1"
-    filled = FF.fill_form(row["contract"], FF.FillContext(author_dispatch=author, dispatch_id=f"{row['contract']}-w1"), verdict="concerns")
+    filled = FF.fill_form(row["contract"], FF.FillContext(author_dispatch=author, dispatch_id=f"{row['contract']}-w1", cases=["TC-001"]), verdict="concerns")
     if filled.unfillable:
         raise _Red(f"the form {row['contract']} cannot be filled: {[(u.path, u.why) for u in filled.unfillable][:2]}")
     return filled, author
@@ -1098,11 +1111,12 @@ def _f_accept_dispatch(obj, w, value, row):
     return obj(filled.data, {"dispatches": {author: {"stage": row["stage"], "role": row["author_role"]}}}, AC.stage_def_of(row["stage"]))
 
 
-def _marker_entry(w):
-    """The manifest row `manifest_from_tests` writes from the marker of the test file the filler wrote (the real writer, run on the world)."""
+def _marker_entry(w, written):
+    """The manifest row `manifest_from_tests` writes from the marker of the test file the filler wrote for THIS language (the real writer,
+    run on the world). `written` are the paths `write_outputs` put in the world: the row reads the file it filled (F1), never a fixed name."""
     import manifest_from_tests as MFT
     import contract as C
-    path = next(w.world / "qa-factory" / rel for rel in ("tests/TC-001_test.py",))
+    path = written[0]
     state = w.task / "state" / "controller.json"            # the conductor's record of the dispatch the writer is run under
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(json.dumps({"dispatches": {"S5-qa-automator-1": {"id": "S5-qa-automator-1", "stage": "S5", "role": "qa-automator",
@@ -1124,18 +1138,14 @@ def _f_row_fields(obj, w, value, row):
         got = FF.fill_artifact(f"test_file:{row['lang']}", w.ctx)
         if got.unfillable:
             raise _Red(f"no writer for the language {row['lang']}: {[(u.path, u.why) for u in got.unfillable][:1]}")
-        entry, plan = _marker_entry(w)
+        entry, plan = _marker_entry(w, FF.write_outputs(w.task, w.world, got))
     return [problem for field, problem in obj(entry, None, plan) if field == row["field"]]
-
-
-def _f_tool_fields(obj, w, value, row):
-    return bool(row["producer"])
 
 
 FEEDS = {"pattern_whole": _f_pattern_whole, "form_line": _f_form_line, "case_path": _f_case_path, "s5_case": _f_s5_case,
          "art_case": _f_art_case, "plan_levels": _f_plan_levels, "case_levels": _f_case_levels, "story_plan": _f_story_plan,
          "case_map": _f_case_map, "check_plan": _f_check_plan, "accept_record": _f_accept_record, "accept_dispatch": _f_accept_dispatch,
-         "row_fields": _f_row_fields, "tool_fields": _f_tool_fields}
+         "row_fields": _f_row_fields}
 
 
 def _verdict(predicate: str, obs, value) -> bool:
@@ -1189,27 +1199,21 @@ def _expand(row: dict, FF, languages: list) -> list:
                 writer = "manifest_from_tests" if marker else "manifest_row"
                 out.append({**row, "field": field, "lang": lang, "writer_name": writer, "FF": FF,
                             "rid": f"{field} <- {writer}@{lang} -> {row['id']}"})
-    elif kind == "tool_fields":
-        needs, _gaps = walk()
-        for contract, _role, path, producer in needs:
-            out.append({**row, "producer": producer, "rid": f"{contract}:{path} <- {producer or '<none>'}@all -> {row['id']}"})
     else:
-        raise _Red(f"expand {kind!r} is not one of acceptance_stages, row_fields, tool_fields")
+        raise _Red(f"expand {kind!r} is not one of acceptance_stages, row_fields")
     return out
 
 
 def _languages(data: dict) -> list:
     """The languages of the reverse walk, read out of the table the registry names (`languages_source`): never a list in this file."""
+    import form_filler as FF
     source = _section(data, "languages_source", dict)
     names: list = []
     if source:
         try:
-            table = json.loads((harness.PLUGIN_ROOT / source["file"]).read_text(encoding="utf-8"))
-            for part in source["sections"]:
-                names += list(table.get(part) or {})
+            names = FF.test_file_languages(source)         # the one reader (F5, axis 34)
         except Exception as exc:
             check("languages_source is readable", False, f"{source}: {type(exc).__name__}: {exc}")
-    names = sorted(dict.fromkeys(names))
     if source and not names:
         check("registry is empty: languages_source", False, f"{source} names no language")
     return names
@@ -1263,6 +1267,10 @@ def every_reader_takes_what_its_writer_writes() -> None:
     finally:
         harness.cleanup(root)
     check("the rounds walked pairs", walked > 0, str(walked))
+    pins = data.get("pins") if isinstance(data.get("pins"), dict) else {}           # F4: one count each; a change edits the pin (spec 6(c))
+    families = {str(r.get("family")) for r in readers}
+    check("the registry holds the pinned number of reader rows", len(readers) == pins.get("readers"), f"{len(readers)} rows, pin {pins.get('readers')}")
+    check("the registry holds the pinned number of reader families", len(families) == pins.get("families"), f"{len(families)} families, pin {pins.get('families')}")
     print(f"readers {len(readers)}, pairs {walked}, languages {len(languages)}")
 
 
@@ -1284,7 +1292,8 @@ def every_derived_field_meets_its_deriver() -> None:
             for contract in forms:
                 verdict, variant = FF.variants(contract)[0]
                 dispatch = f"{contract}-w1"
-                filled = FF.fill_form(contract, FF.FillContext(author_dispatch="S2-author-1", dispatch_id=dispatch), verdict=verdict, variant=variant)
+                # the world's own context (cases, minted ids, dispatch ids): the one the rounds already have, plus this form's dispatch
+                filled = FF.fill_form(contract, dataclasses.replace(w.ctx, author_dispatch="S2-author-1", dispatch_id=dispatch), verdict=verdict, variant=variant)
                 for item in filled.data.get("inputs_read") or []:
                     rel = item.get("path") if isinstance(item, dict) else None
                     if isinstance(rel, str) and rel.strip() and "<" not in rel and not (w.task / rel).exists():
@@ -1373,7 +1382,17 @@ def red_rows_equal_the_known_red_ledger() -> None:
     except KR.LedgerError as exc:
         check("known_red: the ledger loads", False, str(exc))
         return
-    verdict = KR.reconcile(dict(WALK), ledger, ledger_path=ROUNDS_REL)
+    world = _not_in_world()
+    for rid, why in world.items():
+        if not isinstance(why, str) or not why.strip():
+            harness.check(f"not_in_world: {rid}", False, "a not_in_world row names its reason")
+        elif rid in ledger:
+            harness.check(f"not_in_world: {rid}", False, "the row is in known_red too: a row is a defect or a world gap, not both")
+        elif rid not in WALK:
+            harness.check(f"not_in_world: {rid}", False, f"unknown row: {rid} is no row of the walk; remove it from not_in_world in this commit")
+        elif WALK[rid]:
+            harness.check(f"not_in_world: {rid}", False, f"stale: {rid} is green; remove its not_in_world row in this commit")
+    verdict = KR.reconcile({k: v for k, v in WALK.items() if k not in world}, ledger, ledger_path=ROUNDS_REL)
     for line in verdict.known:
         print(line)
     for problem in verdict.problems:
