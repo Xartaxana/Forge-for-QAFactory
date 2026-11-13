@@ -120,10 +120,9 @@ def test_first_look_yaml_is_input_of_s3_to_s7_and_critics():
         p = Project(tmp, walk=False)
         p.dispatches["S4-qa-case-critic-1"] = {"id": "S4-qa-case-critic-1", "stage": "S4", "role": "qa-case-critic", "status": "running", "scope": []}
         p.dispatches["S5-qa-code-critic-1"] = {"id": "S5-qa-code-critic-1", "stage": "S5", "role": "qa-code-critic", "status": "running", "scope": []}
-        p.dispatches["S3-qa-case-critic-1"] = {"id": "S3-qa-case-critic-1", "stage": "S3", "role": "qa-case-critic", "status": "running", "scope": []}
         p.save()
         path = f"qa-factory/artifacts/{TICKET}/work/first-look.yaml"
-        for stage, role in (("S3", "qa-test-strategist"), ("S3", "qa-case-critic"), ("S4", "qa-case-critic"), ("S5", "qa-code-critic")):
+        for stage, role in (("S3", "qa-test-strategist"), ("S4", "qa-case-critic"), ("S5", "qa-code-critic")):
             text = p.brief(stage, role, f"{stage}-{role}-1")
             check(f"first_look_yaml_is_input_of_s3_to_s7_and_critics: the {role} brief at {stage} names the record's path", path in text,
                   text[-500:])

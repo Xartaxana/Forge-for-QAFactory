@@ -233,7 +233,6 @@ BLOCKED_OUTCOME = "blocked_by_env"
 PROBE_GAP_WORD = "probe_gap"
 # The roles that run a repair/review loop and therefore carry a repair cap.
 REPAIR_LOOP_ROLES = {"qa-automator", "qa-code-critic", "qa-case-designer", "qa-case-critic",
-                     "qa-requirements-tester", "qa-test-strategist",      # X2-7: the authors of S2/S3 repair on the stage critic's word
                      "qa-runner", "qa-failure-analyst"}                   # X7-6c (B1): the authors of S6/S7 repair on their CONSUMER's word: `prepare` carries the round count
 
 
@@ -755,7 +754,7 @@ def repair_passes(dispatches, request):
     """The round pass of BOTH roles of the request's loop: {role: key}, each for the next round that
     role would spend past its cap. One answer, both roles: the packet's `repair_budget.passes`, the
     cap refusal and the conductor's door print these and never rebuild them."""
-    # X2-7: a repair-loop role outside every pair (the S2/S3 authors repair on the stage critic's word) is its own pair - the cap refusal
+    # X2-7: a repair-loop role outside every pair (the S6/S7 authors repair on their consumer's word) is its own pair - the cap refusal
     # below indexes `passes[role]`, so an empty answer was a KeyError instead of the refusal (AR-25)
     pair = next((roles for roles in REPAIR_PAIRS if request.get("role") in roles), (request.get("role"),))
     life = window_life(dispatches, request)

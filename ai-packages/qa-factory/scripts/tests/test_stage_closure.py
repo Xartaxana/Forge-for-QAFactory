@@ -179,7 +179,27 @@ def story_step_finish_names_the_work_a_stage_leaves_open():
         cleanup(project)
 
 
+def author_last_closes_by_repair():
+    """T1 (A.5, AR-25): a story paused under 0.11.0 whose S2 / S3 author finished not-complete and was accepted, with no stage critic after
+    it. The author is now the stage's LAST role, so `stage_repairs` offers `stage_completed` for it - unless it named work still open
+    (`unresolved`) or a dispatch of the stage is open."""
+    def story(stage, role, **record):
+        dispatch = {"id": f"{stage}-{role}-1", "stage": stage, "role": role, "status": "accepted", "stage_complete": False}
+        dispatch.update(record)
+        return {"stages": {stage: {"status": "running"}}, "dispatches": {dispatch["id"]: dispatch}}
+
+    for label, stage, role, record, want in (
+            ("S2 tester accepted without stage_complete, nothing open: closed by repair", "S2", "qa-requirements-tester", {}, 1),
+            ("S2 tester accepted with unresolved named: not closed", "S2", "qa-requirements-tester", {"unresolved": "R-1"}, 0),
+            ("S2 tester still running: nothing is repaired", "S2", "qa-requirements-tester", {"status": "running"}, 0),
+            ("S3 strategist exit window accepted without stage_complete, nothing open: closed by repair", "S3", "qa-test-strategist", {}, 1)):
+        # T1-b (S3 between the windows is not closed by `stage_repairs`) is NOT pinned here: its row was RED on this tree (returned to the Lead)
+        fixes = Controller.stage_repairs(story(stage, role, **record))
+        check_eq(f"T1 {label}", [(f["kind"], f["stage"]) for f in fixes], [("stage_completed", stage)] * want)
+
+
 def main():
+    author_last_closes_by_repair()
     story_step_finish_names_the_work_a_stage_leaves_open()
     the_last_role_closes_the_stage()
     saying_false_on_the_closing_role_is_refused()

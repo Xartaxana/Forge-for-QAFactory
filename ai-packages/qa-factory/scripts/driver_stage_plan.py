@@ -1022,6 +1022,17 @@ class DriverStagePlan:
             # the next `where` -> `stage_simple` skips the accepted scout and runs the window (its `complete=True` closes S1). POSITION: after the
             # runner's own rule above (the window closes the stage), before every other rule. A story with no reference gets None here: unchanged
             return False
+        import stage_guard as SG
+        declared = (self.stages().get(stage) or {}).get("roles") or []
+        if declared and role not in declared and SG.optional_row({"stages": list(self.stages().values())}, stage, role,
+                                                                 SG._record_purpose(record)) is None:
+            # T2 (0.11.0 state in flight, AR-25): a dispatch of a role the stage does not declare - the S2/S3 stage critic a story paused
+            # under 0.11.0 left running - never closes any stage, whatever its `repair_cause`; the same reading `story_step.start` applies
+            # (`roles`, else an `optional_dispatches` row for the (role, purpose)). No stage or role name here: the stage row decides.
+            # POSITION INVARIANT: after the S1 rules (untouched), BEFORE the S2/S3 `ticket_changed` branch below, which answers for ANY role
+            # of S2/S3 - an undeclared role must not reach it, a declared author's ticket re-run still does; an optional dispatch is declared
+            # (a row) and falls through as before.
+            return False
         if stage in ("S2", "S3") and record.get("repair_cause") == "ticket_changed":
             # B-364 (F12 / Change 10): the ticket re-run of S2 and S3 closes as COMPLETE, which re-captures the plan baseline.
             # Finished through `wait_existing_job` (the restart route) it must say so too: the `rework_of` rule at the end
