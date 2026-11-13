@@ -256,10 +256,12 @@ def test_test_data_goes_through_the_reader(tmp_path):
     case, TBD, ?) is named "not set", never printed as a value; an empty list is `0 items`; an absent key prints no line;
     `test_data` that is a list (malformed) or absent is the one "has no test_data" reason."""
     task = make(tmp_path / "unk", config={"test_data": {"seeds": "unknown", "accounts": "TBD", "imports": "?",
+                                                         "blank": "", "nil": None,
                                                          "fixtures": [], "note": "use the seed file"}})
     data = body(AC.build(task) and card_of(task), "Test data")
     assert "config test_data.seeds: not set" in data and "config test_data.accounts: not set" in data
     assert "config test_data.imports: not set" in data
+    assert "test_data.blank: not set" in data and "test_data.nil: not set" in data   # blank / null: not an empty "value"
     assert "test_data.seeds: unknown" not in data and "test_data.accounts: TBD" not in data
     assert "config test_data.fixtures: 0 items" in data and "config test_data.note: use the seed file" in data
     assert "test_data.cleanup" not in data                                  # a template key the project never wrote

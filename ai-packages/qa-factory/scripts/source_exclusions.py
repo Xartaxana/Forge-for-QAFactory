@@ -557,16 +557,16 @@ def _door(entry: dict, restored: list, task: str = "", root: Path | None = None)
     folder = task_dir_hint(task, root)
     inventory = f"{folder}/work/{INVENTORY_NAME}"
     adapter = _script("ticket_adapter")
-    late = f"`{adapter} review --output {inventory} --late`"
+    late = f"`{adapter} review --output \"{inventory}\" --late`"
     lead = "S1 of this story is already completed, so nothing runs by itself: the conductor brings it in."
     if kind == "ticket":
         key = _named_by(target)
         rows = [r for r in restored if r.get("key")]
         source = f" for source {rows[0]['source_id']}" if rows and rows[0].get("source_id") else ""
-        steps = [f"`{adapter} peek {key} --output {inventory} --summary`",
+        steps = [f"`{adapter} peek {key} --output \"{inventory}\" --summary`",
                  f"record it as relevant{source} with `assess` of the \"Source collection\" section of s1.md, the "
                  "person's own words as the reason and the assessment ref that `peek` printed",
-                 f"`{adapter} collect {key} --output {inventory} --relation referenced --summary`",
+                 f"`{adapter} collect {key} --output \"{inventory}\" --relation referenced --summary`",
                  f"the late review: {late}"]
         return lead + "\n" + "\n".join(f"{n}. {step}" for n, step in enumerate(steps, start=1))
     steps, names = [], []
@@ -578,8 +578,8 @@ def _door(entry: dict, restored: list, task: str = "", root: Path | None = None)
         found = re.search(r"/-/merge_requests/(\d+)", fetch)
         if found and row.get("source_id"):
             rel = f"sources/{row['source_id']}/mr-{found.group(1)}.json"
-            steps.append(f"`{_script('vcs_evidence')} --url \"{fetch}\" --output {folder}/work/{rel}`")
-            steps.append(f"`{adapter} inspect --output {inventory} --source-id {row['source_id']} --media-url \"{url}\" "
+            steps.append(f"`{_script('vcs_evidence')} --url \"{fetch}\" --output \"{folder}/work/{rel}\"`")
+            steps.append(f"`{adapter} inspect --output \"{inventory}\" --source-id {row['source_id']} --media-url \"{url}\" "
                          f"--inspection-status read --local-ref {rel}` (when the collection failed, record why "
                          "with `--inspection-status unavailable --reason` and the failure instead)")
         else:

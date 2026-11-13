@@ -1870,8 +1870,6 @@ def selftest() -> int:
                               encoding="utf-8")
         check("but a moved merge request still is one",
               "links" in diff_tickets(fixtures_dir / "QA-1.md", moved_link)["changed"])
-    check("snapshot_hint names the JSON snapshot",
-          snapshot_hint("QA-1") == "qa-factory/artifacts/QA-1/work/ticket-snapshot.json")
 
     # not-configured path never crashes: empty config -> SystemExit(3), not a traceback.
     try:

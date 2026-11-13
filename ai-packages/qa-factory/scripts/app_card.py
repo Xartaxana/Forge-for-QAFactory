@@ -260,6 +260,8 @@ def _test_data(project_text, profile_why, cfg, cfg_why):
                 lines.append(f"- config test_data.{key}: (value not printed)")
             elif status == "unknown":      # a recorded "I do not know" is not a value (AR-16): named, not printed
                 lines.append(f"- config test_data.{key}: not set (recorded as unknown)")
+            elif status == "not_recorded":  # blank or null: no value to print (AR-13)
+                lines.append(f"- config test_data.{key}: not set")
             elif isinstance(value, dict):
                 names = ", ".join(_clip(k, 40, tokens=False) for k in list(value)[:TEST_DATA_NAMES])
                 lines.append(f"- config test_data.{key}: {len(value)} entries" + (f" (names: {names})" if names else ""))

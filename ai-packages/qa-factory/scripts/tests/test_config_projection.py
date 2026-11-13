@@ -382,9 +382,23 @@ def artifact_path_rows(root: Path) -> None:
     import execution_scheduler as es
     import source_exclusions as SE
     import ticket_adapter as TA
+    import subprocess
+
+    def outcome(call) -> str:
+        try:
+            call()
+            return "no raise"
+        except ValueError:
+            return "ValueError"
+
+    def lease(registry) -> None:
+        registry.acquire({"job_id": "lease1", "workers": 1, "resources": {}, "pid": 0, "process_started_at": "",
+                          "task": "S-1", "idempotency_key": "key-1"}, 1, {})
+
     cases = (("default", None, "qa-factory/artifacts"), ("configured", b'{"artifact_root": "stories"}', "stories"),
              ("outside the project", b'{"artifact_root": "%s"}' % (root / "far away").as_posix().encode("utf-8"),
-              (root / "far away").resolve().as_posix()), ("broken", b"{broken", None))
+              (root / "far away").resolve().as_posix()), ("broken", b"{broken", None), ("list", b"[1]", None),
+             ("null", b"null", None), ("empty root", b'{"artifact_root": ""}', None))
     entry = {"target": {"kind": "ticket", "key": "QA-9"}}
     for name, raw, want in cases:
         proj = root / ("paths-" + name.replace(" ", "-"))
@@ -396,52 +410,52 @@ def artifact_path_rows(root: Path) -> None:
             for site, call in (("task_dir_hint", lambda: SE.task_dir_hint("S-1", proj)),
                                ("snapshot_hint", lambda: TA.snapshot_hint("S-1", proj)),
                                ("_door", lambda: SE._door(entry, [], "S-1", proj))):
-                try:
-                    call()
-                    got = "no raise"
-                except ValueError:
-                    got = "ValueError"
-                check_eq(label + site + " raises ValueError (the reader refuses, no silent default root)", got, "ValueError")
+                check_eq(label + site + " raises ValueError (the reader refuses, no silent default root)",
+                         outcome(call), "ValueError")
+            registry = es.LeaseRegistry(proj)
+            lease(registry)
+            check_eq(label + "recover raises ValueError (a lease is never freed on a guessed root)",
+                     outcome(registry.recover), "ValueError")
+            run = subprocess.run([sys.executable, "-B", str(SCRIPTS / "execution_scheduler.py"), "--project-root", str(proj),
+                                  "--recover-leases"], capture_output=True, text=True)
+            try:
+                said = json.loads(run.stderr)
+            except ValueError:
+                said = {}
+            check_eq(label + "--recover-leases exits 2 with config_unreadable naming the file and a door",
+                     (run.returncode, said.get("status"), str(said.get("error", "")).startswith("qa-factory/config.json: "),
+                      "move it aside" in said.get("door", "")), (2, "config_unreadable", True, True))
             continue
         folder = want + "/S-1"
         check_eq(label + "task_dir_hint", SE.task_dir_hint("S-1", proj), folder)
         check_eq(label + "snapshot_hint", TA.snapshot_hint("S-1", proj), folder + "/work/ticket-snapshot.json")
-        check_in(label + "_door names the inventory under the root", "--output %s/work/" % folder, SE._door(entry, [], "S-1", proj))
+        check_in(label + "_door quotes the inventory under the root", '--output "%s/work/' % folder,
+                 SE._door(entry, [], "S-1", proj))
         # the lease registry: a job running under the root is found there (adopted child), not under qa-factory/artifacts
         home = proj / "qa-factory" / "artifacts" if want == "qa-factory/artifacts" else Path(want) if os.path.isabs(want) else proj / want
         er.JobStore(home / "S-1" / "state" / "execution-jobs").write(
             {"idempotency_key": "key-1", "job_id": "job1", "status": "running", "runner_pid": os.getpid(),
              "runner_started_at": es._started(os.getpid())})
         registry = es.LeaseRegistry(proj)
-        registry.acquire({"job_id": "lease1", "workers": 1, "resources": {}, "pid": 0, "process_started_at": "",
-                          "task": "S-1", "idempotency_key": "key-1"}, 1, {})
+        lease(registry)
         check_eq(label + "recover finds the job store under the root",
                  [row["recovery_status"] for row in registry.recover()["leases"]], ["recovered_child"])
-    proj = root / "paths-broken"
-    registry = es.LeaseRegistry(proj)
-    registry.acquire({"job_id": "lease1", "workers": 1, "resources": {}, "pid": 0, "process_started_at": "",
-                      "task": "S-1", "idempotency_key": "key-1"}, 1, {})
-    try:
-        registry.recover()
-        got = "no raise"
-    except ValueError:
-        got = "ValueError"
-    check_eq("OH5-12 broken: recover raises ValueError (a lease is never freed on a guessed root)", got, "ValueError")
 
 
 def scheduler_config_rows(root: Path) -> None:
     """OF4-20 (AR-13, AR-28): the scheduler reads the project's parallel defaults through `read_config_file`."""
     import execution_scheduler as es
     default = {"mode": "auto", "min_selected_instances": 8, "max_workers": None}
-    own = {"mode": "off", "min_selected_instances": 3, "max_workers": 2}
+    own = {"mode": "serial", "min_selected_instances": 3, "max_workers": 2}
     body = json.dumps({"execution": {"parallel": own}}).encode("utf-8")
-    for name, raw, want in (("a BOM config is read (not silently the defaults)", codecs.BOM_UTF8 + body, own),
+    for index, (name, raw, want) in enumerate((("a BOM config is read (not silently the defaults)", codecs.BOM_UTF8 + body, own),
                             ("a plain config is read", body, own),
                             ("no config: the effective defaults", None, default),
                             ("a config holding a list: the declared default, no traceback", b"[1, 2]", default),
                             ("an unparseable config: the declared default", b"{broken", default),
-                            ("a config with no execution block: the effective defaults", b"{}", default)):
-        proj = root / ("parallel-" + str(abs(hash(name))))
+                            ("a config with no execution block: the effective defaults", b"{}", default),
+                            ("an execution block that is a list: the fixed defaults", b'{"execution": []}', default))):
+        proj = root / ("parallel-" + str(index))
         (proj / "qa-factory").mkdir(parents=True)
         if raw is not None:
             (proj / "qa-factory" / "config.json").write_bytes(raw)
