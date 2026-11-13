@@ -954,8 +954,33 @@ def test_roster_says_an_unreadable_config_is_unknown(proj, raw, problem_names_co
     assert set(got) == {"elements", "removed", "problem"} and got["elements"] == [] and got["removed"] == []
     assert bool(got["problem"]) is problem_names_config, got
     if problem_names_config:
-        assert "qa-factory/config.json" in got["problem"] and "JSON object" in got["problem"] and "repair" in got["problem"]
+        assert "qa-factory/config.json is there but cannot be read (" in got["problem"] and "repair" in got["problem"]
         assert "Traceback" not in got["problem"] and ".py" not in got["problem"]
+
+
+def _registry_with_answers(proj):
+    proj.facts([role_fact("PK-1", "auditor", "not_needed", "2026-11-01T10:00:00+00:00"),
+                role_fact("PK-2", "editor", "known", "2026-11-01T10:05:00+00:00")])
+    proj.config.write_bytes(b"{broken")
+
+
+def test_roster_unreadable_config_keeps_the_registry_roles_and_the_account_unknown(proj):
+    """PK2-14 fix round (critic t-448 B1): the registry rows do not depend on the config; only the config part and `account` are unknown."""
+    _registry_with_answers(proj)
+    got = PK.roster(proj.root, None, "dev")
+    assert [(e["role"], e["state"], e["account"]) for e in got["elements"]] == [("editor", "known", None)], got
+    assert [r["role"] for r in got["removed"]] == ["auditor"] and got["problem"], got
+    assert "cannot be read (" in got["problem"] and "not known" in got["problem"]
+
+
+def test_notice_from_handoff_on_an_unreadable_config_never_overwrites_the_person(proj):
+    _registry_with_answers(proj)
+    strategist_form(proj, "product_roles:\n  - role: auditor\n    sign_in: account\n    where: R-1\n"
+                          "  - role: editor\n    sign_in: account\n    where: R-2\nblocked: none\n")
+    assert PK.notice_from_handoff(proj.root, proj.task, "T-1") == []
+    assert len(proj.rows()) == 2
+    assert PK.state(proj.root, PK.ROLES_KEY, "", "auditor")["state"] == "not_needed"
+    assert PK.state(proj.root, PK.ROLES_KEY, "", "editor")["state"] == "known"
 
 
 def test_roster_unreadable_config_keeps_the_registry_problem_too(proj):
