@@ -2000,7 +2000,7 @@ def _stricter_thens(case: str, facts: dict) -> list:
     numbers: set = set()
     for row in C.manifest_unresolved(facts["manifest"]):
         thens = row.get(C.UNRESOLVED_THENS_KEY)
-        if str(row.get("reason") or "") == "contradicts_requirement" and C.names_case([row.get("case") or ""], case, facts.get("cfg")) \
+        if str(row.get("reason") or "") == C.CONTRADICTS_REQUIREMENT and C.names_case([row.get("case") or ""], case, facts.get("cfg")) \
                 and isinstance(thens, list):
             numbers |= {C.then_number(n) for n in thens}
     return sorted(n for n in numbers if n)

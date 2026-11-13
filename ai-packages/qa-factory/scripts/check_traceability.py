@@ -64,7 +64,7 @@ def _case_chain(case: str, row: dict, manifest: dict, report: dict, stricter=fro
             # t-305 N8 attempt 2 (F1, P21): an observed failure outranks a hand-off - the case RAN and went red, so the
             # hand-off promises nothing about it; the failed result is the outcome (the ledger's `failed:*` row decides)
             return ("executed_failed", f"{case}: failed", "")
-        if reason == "contradicts_requirement" and C.names_case(stricter, case, cfg) \
+        if reason == C.CONTRADICTS_REQUIREMENT and C.names_case(stricter, case, cfg) \
                 and C.case_lookup(results, case, cfg, exact_wins=False) in FAILED:
             # HF2-18: the case RAN and went red, and its triage row carries the assert-stricter word with a well-formed
             # control experiment (`stricter`: the caller's set, from `contract.triage_control_problems`): the assert asks more
