@@ -122,7 +122,7 @@ def parse_env_file(path: Path) -> dict:
 
 
 ENV_FILE_NAMES_PATH = Path(__file__).resolve().parents[1] / "references" / "env-file-names.json"
-_NAME_LIST_KEYS = ("exact", "prefixes", "suffixes", "sample_markers")
+_NAME_LIST_KEYS = ("exact", "prefixes", "suffixes", "sample_markers", "marker_separators")
 _names_cache: dict = {}
 
 
@@ -141,9 +141,12 @@ def _env_file_names() -> dict:
     table = read_json(ENV_FILE_NAMES_PATH, None, kind=dict)
     ok = isinstance(table, dict) and isinstance(table.get("bare_stem"), str) and all(
         isinstance(table.get(k), list) and all(isinstance(v, str) and v for v in table[k]) for k in _NAME_LIST_KEYS)
+    # an empty `sample_markers` would classify every sample "env", and a table with no env-name rule names nothing: both damaged
+    ok = ok and bool(table["sample_markers"]) and bool(table["marker_separators"]) and any(table[k] for k in ("exact", "prefixes", "suffixes"))
     if not ok:
         raise ValueError(f"references/env-file-names.json is absent or malformed ({ENV_FILE_NAMES_PATH}): expected an object with the "
-                         f"lists {', '.join(_NAME_LIST_KEYS)} of non-empty strings and a string bare_stem; the package copy is "
+                         f"lists {', '.join(_NAME_LIST_KEYS)} of non-empty strings (sample_markers and marker_separators not empty, "
+                         "exact/prefixes/suffixes not all empty) and a string bare_stem; the package copy is "
                          "damaged - reinstall the plugin")
     _names_cache[str(ENV_FILE_NAMES_PATH)] = (stamp, table)
     return table
@@ -152,7 +155,7 @@ def _env_file_names() -> dict:
 def env_file_kind(name) -> str:
     """"env", "sample" or "" for a file NAME, by `references/env-file-names.json` (the ONE judge of a name, AR-1).
     "env": the name matches the table's env-file rule (today's: `.env`, `.env.*`, `*.env`). "sample": an env file with a
-    dot-separated part (lower-cased, empty parts dropped) in `sample_markers`, or the bare `env.<marker>`. The marker errs
+    token (lower-cased, split on the table's `marker_separators`) in `sample_markers`, or the bare `env.<marker>`. The marker errs
     toward "sample": a sample is never "env". Anything else, an empty name included, is ""."""
     table = _env_file_names()
     text = str(name or "")
@@ -163,7 +166,8 @@ def env_file_kind(name) -> str:
     if not (text in table["exact"] or any(text.startswith(p) for p in table["prefixes"])
             or any(text.endswith(s) for s in table["suffixes"])):
         return ""
-    return "sample" if markers.intersection(parts) else "env"
+    tokens = [t for t in re.split("[" + re.escape("".join(table["marker_separators"])) + "]+", text.lower()) if t]
+    return "sample" if markers.intersection(tokens) else "env"
 
 
 def load_env(cfg: dict, root=None) -> tuple:

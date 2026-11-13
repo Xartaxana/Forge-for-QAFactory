@@ -1,8 +1,9 @@
 {
- "about": "Which file names are env files and which of those are samples (AR-1: closed variety is a data row). Read only through env_probe.env_file_kind (axis 37). A name is an env file when it equals one of `exact`, starts with one of `prefixes` or ends with one of `suffixes` (case as written). An env file is a SAMPLE when any dot-separated part of its name, lower-cased, is in `sample_markers`; so is the bare form `<bare_stem>.<marker>` (env.example). A sample is never classified as an env file.",
+ "about": "Which file names are env files and which of those are samples (AR-1: closed variety is a data row). Read only through env_probe.env_file_kind (axis 37). A name is an env file when it equals one of `exact`, starts with one of `prefixes` or ends with one of `suffixes` (case as written). An env file is a SAMPLE when any token of its name, lower-cased and split on `marker_separators`, is in `sample_markers`; so is the bare form `<bare_stem>.<marker>` (env.example). A sample is never classified as an env file.",
  "exact": [".env"],
  "prefixes": [".env."],
  "suffixes": [".env"],
  "sample_markers": ["example", "examples", "sample", "samples", "template", "templates", "dist"],
+ "marker_separators": [".", "-", "_"],
  "bare_stem": "env"
 }

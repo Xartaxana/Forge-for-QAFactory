@@ -449,6 +449,8 @@ def env_file_address_rows(root: Path, env_files: list) -> tuple:
             if not parts:
                 continue
             scheme, host, port = parts
+            if not re.fullmatch(r"[a-z0-9.-]+|[0-9a-f:.]+", host):
+                continue    # path material the parser left in the host (`\`, `%2F`, `;`): no row, no count
             default = 443 if scheme == "https" else 80
             address = f"{scheme}://{'[' + host + ']' if ':' in host else host}" + (f":{port}" if port != default else "")
             if len(address) > ENV_FILE_ADDRESS_CHARS:

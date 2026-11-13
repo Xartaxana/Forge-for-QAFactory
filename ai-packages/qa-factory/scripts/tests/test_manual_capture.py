@@ -3158,13 +3158,13 @@ def of1_1_env_file_names_samples_and_addresses():
     `env_probe.env_file_kind`; `access_discovery` scans `env.example` and marks it, says whether the chosen file is only a sample,
     and gives the ORIGIN of every http address an env file holds (nothing of a path, query or userinfo), through `render_access`
     too. Expected values are the item's rules (spec t-231 part A, edges A-1..A-8), not what the code printed."""
-    import hashlib
     import shutil
     import tempfile
     import env_probe
     import project_inventory as PI
 
     name_rows = [
+        (".env.dev-example", "sample"), (".env.qa_sample", "sample"), (".env.local-template", "sample"), (".env.docker-dist", "sample"),
         (".env.example", "sample"), (".env.EXAMPLE", "sample"), (".env.example.local", "sample"),
         (".env.local.example", "sample"), ("example.env", "sample"), ("env.example", "sample"), ("env.sample", "sample"),
         ("env.template", "sample"), ("env.dist", "sample"), (".env.dist", "sample"), (".env.template.bak", "sample"),
@@ -3276,30 +3276,39 @@ def of1_1_env_file_names_samples_and_addresses():
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
-    # A-2: the table absent -> ValueError naming it; the byte copy is restored and compared (hygiene pt. 7)
-    table = env_probe.ENV_FILE_NAMES_PATH
-    original = table.read_bytes()
-    before = hashlib.sha256(original).hexdigest()
-    backup = Path(tempfile.mkdtemp(prefix="qa-env-table-")) / "copy.json"
-    backup.write_bytes(original)
+    for label, line in (("a backslash", "SVC_URL=http://hooks.slack.com\\services\\t0\\b0\\secretback"),
+                        ("an encoded slash", "SVC_URL=http://host%2fservices%2fsecretpct"),
+                        ("a semicolon", "SVC_URL=http://host;secretsemi")):
+        found = discover({".env": line + "\n"})
+        check_eq(f"A-6: {label} in the host gives no row and no count", (found["env_file_addresses"], found["env_file_addresses_more"]), ([], 0))
+        token = line.rsplit("secret", 1)[1]
+        everything = json.dumps(found) + PI.render_access(found)
+        check(f"A-6: {label} in the host: the path material never leaves", "secret" + token not in everything.lower(), everything[:300])
+
+    # A-2 / F7: a damaged table is a ValueError. Proven on tmp copies via the module's path attribute; the live table is never touched
+    live = env_probe.ENV_FILE_NAMES_PATH
+    good = json.loads(live.read_text(encoding="utf-8"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="qa-env-table-"))
     try:
-        table.unlink()
-        try:
-            env_probe.env_file_kind(".env")
-            check("A-2: the table absent is a ValueError", False, "no exception")
-        except ValueError as exc:
-            check_in("A-2: the table absent: the error names the file", "references/env-file-names.json", str(exc))
-        table.write_bytes(b'{"exact": 1}')
-        try:
-            env_probe.env_file_kind(".env")
-            check("A-2: a malformed table is a ValueError", False, "no exception")
-        except ValueError as exc:
-            check_in("A-2: a malformed table: the error names the keys it expected", "sample_markers", str(exc))
+        damaged = [("absent", None), ("malformed", b'{"exact": 1}'),
+                   ("empty sample_markers", json.dumps({**good, "sample_markers": []}).encode()),
+                   ("no marker_separators", json.dumps({k: v for k, v in good.items() if k != "marker_separators"}).encode()),
+                   ("exact, prefixes, suffixes all empty", json.dumps({**good, "exact": [], "prefixes": [], "suffixes": []}).encode())]
+        for label, content in damaged:
+            path = tmpdir / (label.replace(" ", "_").replace(",", "") + ".json")
+            if content is not None:
+                path.write_bytes(content)
+            env_probe.ENV_FILE_NAMES_PATH = path
+            try:
+                env_probe.env_file_kind(".env")
+                check(f"A-2: a table {label} is a ValueError", False, "no exception")
+            except ValueError as exc:
+                check_in(f"A-2: a table {label}: the error names the file and the keys", "references/env-file-names.json", str(exc))
+                check_in(f"A-2: a table {label}: the error names the keys", "sample_markers", str(exc))
     finally:
-        table.write_bytes(backup.read_bytes())
-        shutil.rmtree(backup.parent, ignore_errors=True)
-    check_eq("A-2: the table is restored byte for byte", hashlib.sha256(table.read_bytes()).hexdigest(), before)
-    check_eq("A-2: and answers again", env_probe.env_file_kind(".env"), "env")
+        env_probe.ENV_FILE_NAMES_PATH = live
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    check_eq("A-2: the live table answers again", env_probe.env_file_kind(".env"), "env")
 
 
 def main():
