@@ -178,19 +178,21 @@ def req(n, method="GET", url=None):
 def b_brief() -> None:
     cap = BP.MAX_REQUEST_LINES
     for n, more in ((cap, False), (cap + 1, True)):
-        base = harness.temp_dir("qa-flow-b-")
+        base = harness.mark_project(harness.temp_dir("qa-flow-b-"))      # the story sits in a project: its printed path is read from there
         try:
             task = base / "qa-factory" / "artifacts" / "QA-9"
             found = {"requests": [req(i) for i in range(1, n + 1)], "unmeasured": [], "checked": ["App/src/a.ts"]}
             UPF.write_requests(task, found)
-            out = BP.request_lines(found, "QA-9")
+            out = BP.request_lines(found, task)
             check_eq(f"B1 {n} requests: {cap} request lines", sum(x.startswith("Flow requests: GET /api/r") for x in out), cap)
             more_lines = [x for x in out if " more, the list is in " in x]
             check_eq(f"B1 {n} requests: the 'more' line", more_lines, [f"Flow requests: 1 more, the list is in {LIST}"] if more else [])
             check_eq(f"B1 {n} requests: the file is whole", len(json.loads((task / "work" / "flow-requests.json").read_text(encoding="utf-8"))["requests"]), n)
         finally:
             harness.cleanup(base)
-    out = BP.request_lines({"requests": [dict(req(1), also_at=["a:1", "b:2"])], "unmeasured": ["no request pattern for .java"]}, "QA-9")
+    story_base = harness.mark_project(harness.temp_dir("qa-flow-b2-"))
+    story = story_base / "qa-factory" / "artifacts" / "QA-9"
+    out = BP.request_lines({"requests": [dict(req(1), also_at=["a:1", "b:2"])], "unmeasured": ["no request pattern for .java"]}, story)
     check_in("B2 one request: the line carries its place and the other files that make it (B5 below)", "Flow requests: GET /api/r1 - App/src/a.ts:1 (also in a, b)", out)
     check_in("B2 ... a reason is a `not measured` line", "Flow requests: not measured: no request pattern for .java", out)
     closing = out[-1]
@@ -198,20 +200,24 @@ def b_brief() -> None:
         LIST, "500 and timeout", UPF.failure_axis()[1], "`requirements`", "`requests`", "`request_homes`")), closing)
     clause = "A row closes the request only for the pages it names: another page that makes the same request needs its own row or a stated reason."
     check_in("B2 (t-1692 F2) the closing line says a row closes the request only for the pages it names", clause, closing)
-    check_eq("B2 no request: no closing line", [x for x in BP.request_lines({"requests": [], "unmeasured": ["no code"]}, "QA-9") if "each one gets" in x], [])
+    check_eq("B2 no request: no closing line", [x for x in BP.request_lines({"requests": [], "unmeasured": ["no code"]}, story) if "each one gets" in x], [])
     with patch.object(UPF, "flow_requests", side_effect=RuntimeError("boom")):
         check_eq("B4 a script that raises: exactly one line, the brief is built", BP.flow_request_lines(Path("nowhere"), "QA-9", write=False),
                  ["Flow requests: not measured: user_path_failures.py, a defect of the factory"])
     big = {"requests": [req(i, url="/api/a/very/long/path/of/a/request/" + "x" * 60 + str(i)) for i in range(1, cap + 6)], "unmeasured": ["no code"] * 3}
-    size = len("\n".join(BP.request_lines(big, "QA-9")).encode("utf-8"))
+    size = len("\n".join(BP.request_lines(big, story)).encode("utf-8"))
     check("B5 the lines added to the S3 head stay under half of the brief ceiling (the head is never shrunk)", size <= BP.BRIEF_MAX_BYTES // 2,
           f"{size} bytes")
+    harness.cleanup(story_base)
 
 
 def b5_site_names() -> None:
     """RN1-6 N2-2: a request's other callers are named by file, not counted."""
+    story_base = harness.mark_project(harness.temp_dir("qa-flow-b5-"))
+    story = story_base / "qa-factory" / "artifacts" / "QA-9"
+
     def line(also):
-        out = BP.request_lines({"requests": [dict(req(1), also_at=also)], "unmeasured": []}, "QA-9")
+        out = BP.request_lines({"requests": [dict(req(1), also_at=also)], "unmeasured": []}, story)
         return out[0].split(" - App/src/a.ts:1", 1)[1]
     other = [f"App/src/pages/p{i}.tsx:{i}" for i in range(1, 5)]
     check_eq("B5 one other file: its basename", line(other[:1]), " (also in p1.tsx)")
@@ -223,11 +229,12 @@ def b5_site_names() -> None:
     check_eq("B5 no other site: nothing added", line([]), "")
     many = {"requests": [dict(req(i, url="/api/a/very/long/path/of/a/request/" + "x" * 200 + str(i)), also_at=other) for i in range(1, BP.MAX_REQUEST_LINES + 1)],
             "unmeasured": ["no code"] * 3}
-    out = BP.request_lines(many, "QA-9")
+    out = BP.request_lines(many, story)
     check("B5 over the room (half of the brief ceiling) the names are cut first: the old `(+N more sites)` returns, every request line stays",
           sum("(+4 more sites)" in x for x in out) == BP.MAX_REQUEST_LINES and not any("also in" in x for x in out)
           and sum(x.startswith("Flow requests: GET /api/a/") for x in out) == BP.MAX_REQUEST_LINES, str(out[:2]))
-    check("B5 ... and under the room the names stay", all("also in" in x for x in BP.request_lines({"requests": [dict(req(1), also_at=other)], "unmeasured": []}, "QA-9")[:1]))
+    check("B5 ... and under the room the names stay", all("also in" in x for x in BP.request_lines({"requests": [dict(req(1), also_at=other)], "unmeasured": []}, story)[:1]))
+    harness.cleanup(story_base)
 
 
 def n1_neighbours() -> None:

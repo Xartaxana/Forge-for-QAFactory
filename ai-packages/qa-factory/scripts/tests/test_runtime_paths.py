@@ -565,6 +565,86 @@ def k5_script_command() -> None:
           RP.script_command("runtime_paths.py") == RP.script_command("runtime_paths.py", RP.package_root()))
 
 
+def _story_in(artifact_root_value, name: str = "QA-9") -> tuple:
+    """(project, story folder): a marked project whose config says `artifact_root` (None: the template's default), the story folder created
+    where `hooklib.artifact_root` says it lives (the expectation is read from the writer, never spelled here)."""
+    import json
+    project = mark(scratch() / "proj")
+    config = project / "qa-factory" / CONFIG
+    cfg = json.loads(config.read_text(encoding="utf-8"))
+    if artifact_root_value is not None:
+        cfg["artifact_root"] = artifact_root_value
+        config.write_text(json.dumps(cfg), encoding="utf-8")
+    story = hooklib.artifact_root(root=project) / name
+    story.mkdir(parents=True)
+    return project, story
+
+
+def k6_story_text() -> None:
+    """OF4-21: `story_text(task_root, rel)` is the story's folder relative to ITS project, then `rel` as text. One table, rows named by edge id;
+    each row checks the exact text. Allowed error: the absolute posix path of the folder; never a path relative to a project that does not hold it."""
+    default = "qa-factory/artifacts/QA-9"
+    project, story = _story_in(None)
+    check("K6 E1 default: the folder without rel", RP.story_text(story) == default, RP.story_text(story))
+    check("K6 E1 default: with rel", RP.story_text(story, "work/briefs/x.md") == f"{default}/work/briefs/x.md", RP.story_text(story, "work/briefs/x.md"))
+    check("K6 E1 default: a leading ./ and backslashes of rel are one spelling",
+          RP.story_text(story, ".\\work\\x.md") == f"{default}/work/x.md", RP.story_text(story, ".\\work\\x.md"))
+    check("K6 E7 a trailing slash of rel is kept", RP.story_text(story, "work/test-cases/") == f"{default}/work/test-cases/",
+          RP.story_text(story, "work/test-cases/"))
+    check("K6 E7 a glob in rel is text", RP.story_text(story, "work/impl-diff*.txt") == f"{default}/work/impl-diff*.txt", RP.story_text(story, "work/impl-diff*.txt"))
+    check("K6 E7 a placeholder in rel is text", RP.story_text(story, "work/<x>.md") == f"{default}/work/<x>.md", RP.story_text(story, "work/<x>.md"))
+    # E2 a configured relative root
+    project, story = _story_in("stories")
+    check("K6 E2 configured relative root", RP.story_text(story, "work/a.md") == "stories/QA-9/work/a.md", RP.story_text(story, "work/a.md"))
+    # E3 a root outside the project: the absolute posix path, never `../`
+    outside = scratch() / "elsewhere"
+    outside.mkdir()
+    project, story = _story_in(outside.as_posix())
+    got = RP.story_text(story, "work/a.md")
+    check("K6 E3 absolute root outside the project: the absolute posix path", got == f"{story.resolve().as_posix()}/work/a.md" and ".." not in got, got)
+    skipped("K6 E3 a root on another drive", "no second drive is written to by a test; the row above is the same branch (the folder is not under the project)")
+    # E4b no marker above the story, and a config that cannot be read: the absolute posix path of the folder
+    bare = scratch() / "bare" / "QA-9"
+    bare.mkdir(parents=True)
+    check("K6 E4b no marker above the story: the absolute posix path", RP.story_text(bare, "work/a.md") == f"{bare.resolve().as_posix()}/work/a.md",
+          RP.story_text(bare, "work/a.md"))
+    project, story = _story_in(None)
+    (project / "qa-factory" / CONFIG).write_text("{ not json", encoding="utf-8")
+    check("K6 E4b a config that cannot be read: the absolute posix path (never the default literal)",
+          RP.story_text(story) == story.resolve().as_posix(), RP.story_text(story))
+    # E5 a Windows spelling of the configured value
+    if os.name == "nt":
+        project, story = _story_in("stories\\qa")
+        check("K6 E5 backslash value", RP.story_text(story, "work/a.md") == "stories/qa/QA-9/work/a.md", RP.story_text(story, "work/a.md"))
+    else:
+        skipped("K6 E5 backslash value", "off Windows a backslash is a file-name character: the printed path is the name the writer made")
+    # E6 an unresolved spelling of the project (a link, or an 8.3 name): the same text as the resolved one
+    project, story = _story_in(None)
+    where = scratch() / "linked"
+    if link(project, where):
+        via = where / "qa-factory" / "artifacts" / "QA-9"
+        check("K6 E6 the story reached through a link prints the same text", RP.story_text(via, "work/a.md") == f"{default}/work/a.md", RP.story_text(via, "work/a.md"))
+    else:
+        skipped("K6 E6 a link", "the OS refused to make one")
+    short = short_name(story)
+    if short:
+        check("K6 E6 the 8.3 spelling prints the same text", RP.story_text(short, "work/a.md") == f"{default}/work/a.md", RP.story_text(short, "work/a.md"))
+    else:
+        skipped("K6 E6 an 8.3 name", "this platform or volume has none")
+    # non-ASCII root, kept verbatim (spelled by escapes: the package carries no Cyrillic character)
+    name = "stories/" + "".join(chr(code) for code in (0x410, 0x43d, 0x43d, 0x430))
+    project, story = _story_in(name)
+    check("K6 non-ASCII root is kept verbatim", RP.story_text(story, "work/a.md") == f"{name}/QA-9/work/a.md", RP.story_text(story, "work/a.md"))
+    # never raises: a value that is no path
+    for odd in (None, "", "\0"):
+        try:
+            RP.story_text(odd, "work/a.md")
+            ok = True
+        except Exception:
+            ok = False
+        check(f"K6 never raises on {odd!r}", ok)
+
+
 def main() -> None:
     if len(sys.argv) == 3 and sys.argv[1] == "--census":
         found = census(sys.argv[2])
@@ -585,6 +665,7 @@ def main() -> None:
         k3_census()
         k4_known_artifacts_grounding()
         k5_script_command()
+        k6_story_text()
     finally:
         os.chdir(CWD0)
         for base in CLEAN:
