@@ -961,6 +961,124 @@ def test_retro_numbers() -> None:
         cleanup(base.parent)
 
 
+def _sc62_block(task_root: Path, name: str, tests: list, started: str = "2026-11-13T10:00:00+00:00",
+                ended: object = "2026-11-13T10:01:00+00:00", fingerprint: object = "fp-1", dispatch: str = "S5-qa-x-1",
+                attempt: str = "", **extra) -> None:
+    folder = task_root / "work" / "run-blocks"
+    folder.mkdir(parents=True, exist_ok=True)
+    block = {"block_id": name, "attempt_id": attempt or name, "attempt_started_at": started,
+             "dispatch_id": dispatch, "purpose": "initial", "execution_status": "passed",
+             "results": [{"instance_id": one, "status": "passed"} for one in tests], **extra}
+    if ended is not None:
+        block["attempt_ended_at"] = ended
+    if fingerprint is not None:
+        block["input_fingerprint"] = fingerprint
+    (folder / f"{name}.json").write_text(json.dumps(block), encoding="utf-8")
+
+
+def test_sc6_2_test_runs_by_stage_and_repeats() -> None:
+    """SC6-2: test launches per stage, their minutes, and repeats over unchanged inputs (variant table, one row per case)."""
+    ab = ["a", "b"]
+    minute = [f"2026-11-13T10:0{n}:00+00:00" for n in range(8)]
+    controller = {"dispatches": {"D-7": {"id": "D-7", "stage": "S7", "role": "qa-x", "scope": []}}}
+
+    def three(fps=("fp-1", "fp-1", "fp-1")) -> list:
+        return [dict(name=f"b{i}", tests=ab, started=minute[2 * i], ended=minute[2 * i + 1], fingerprint=fps[i])
+                for i in range(3)]
+
+    # (id, blocks, controller, checks on the counts)
+    rows = [
+        ("V2", [], None, lambda c, r: (check_eq("V2 empty folder is known and has no stage", (c["known"], c["by_stage"]), (True, {})),
+                                       check_eq("V2 cell is 0", retro_numbers.test_run_cell(c, "S5"), "0"))),
+        ("V3", [dict(name="b0", tests=ab, ended=None)], None,
+         lambda c, r: (check_eq("V3 no end time", (r[0]["seconds"], r[0]["seconds_why"]), (None, "no end time recorded")),
+                       check_eq("V3 not timed", c["by_stage"]["S5"]["not_timed"], 1),
+                       check_in("V3 cell says time not measured", "time not measured", retro_numbers.test_run_cell(c, "S5")))),
+        ("V4", three(), None,
+         lambda c, r: (check_eq("V4 repeats", (c["by_stage"]["S5"]["repeats"], c["by_stage"]["S5"]["repeat_seconds"]), (2, 120.0)),
+                       check_eq("V4 chain", [x["repeat_of"] for x in r], [None, "b0", "b1"]),
+                       check_in("V4 cell", "repeats over unchanged inputs: 2 (2m 0s)", retro_numbers.test_run_cell(c, "S5")))),
+        ("V5", three(("fp-1", "fp-1", "fp-2")), None,
+         lambda c, r: check_eq("V5 repeats", c["by_stage"]["S5"]["repeats"], 1)),
+        ("V6", three() + [dict(name="b0-reparse-x", attempt="b0", tests=ab, started=minute[0], ended=minute[1],
+                               block_id="r0")], None,
+         lambda c, r: check_eq("V6 a reparse is no launch", (c["launches"], c["by_stage"]["S5"]["repeats"]), (3, 2))),
+        ("V7", [dict(name="b0", tests=ab, started=minute[3], ended=minute[1])], None,
+         lambda c, r: check_eq("V7 end before start", (r[0]["seconds"], r[0]["seconds_why"]), (None, "ends before it starts"))),
+        ("V8", [dict(name="b0", tests=ab, dispatch="weird")], None,
+         lambda c, r: (check_eq("V8 unattributed", list(c["by_stage"]), ["unattributed"]),
+                       check_eq("V8 sums to the total", sum(b["launches"] for b in c["by_stage"].values()), c["launches"]))),
+        ("V9", [dict(name="b0", tests=["a"], ended=minute[1]), dict(name="b1", tests=["a"], started=minute[2], ended=minute[3],
+                                                                    fingerprint=None)], None,
+         lambda c, r: check_eq("V9 not established", (r[1]["repeat"], c["by_stage"]["S5"]["repeats_not_established"],
+                                                      c["by_stage"]["S5"]["repeats"]), ("not established", 1, 0))),
+        ("V10a", [dict(name="b0", tests=["a"], fingerprint=""), dict(name="b1", tests=["a"], started=minute[2], fingerprint="")],
+         None, lambda c, r: check_eq("V10 both fingerprints empty", r[1]["repeat"], "not established")),
+        ("V10b", [dict(name="b0", tests=ab), dict(name="b1", tests=["a"], started=minute[2])], None,
+         lambda c, r: check_eq("V10 a subset is no repeat", r[1]["repeat"], "no")),
+        ("V10c", [dict(name="b0", tests=ab), dict(name="b1", tests=["b", "a"], started=minute[2])], None,
+         lambda c, r: check_eq("V10 another order is a repeat", r[1]["repeat"], "yes")),
+        ("V10d", [dict(name="b0", tests=ab, data_seed_contract={"seed": 1}),
+                  dict(name="b1", tests=ab, started=minute[2], data_seed_contract={"seed": 2})], None,
+         lambda c, r: check_eq("V10 another seed is no repeat", r[1]["repeat"], "no")),
+        ("V10e", [dict(name="b0", tests=ab, ended="2026-11-13T10:01:00"), dict(name="b1", tests=ab, started=minute[2])], None,
+         lambda c, r: check_eq("V10 aware/naive mix is not timed, not zero", (r[0]["seconds"], r[0]["seconds_why"]),
+                               (None, "the time cannot be read"))),
+        ("V13", [dict(name="b0", tests=ab), dict(name="b1", tests=ab, dispatch="D-7", started=minute[2], ended=minute[3],
+                                                 fingerprint="fp-2")], controller,
+         lambda c, r: (check_eq("V13 stages", list(c["by_stage"]), ["S5", "S7"]),
+                       check_eq("V13 the S7 row", r[1]["stage"], "S7"))),
+    ]
+    for variant, blocks, state, verify in rows:
+        base = story("qa-sc62-")
+        task_root = base / "artifacts" / "TP1-15045"
+        try:
+            if variant == "V2":
+                (task_root / "work" / "run-blocks").mkdir(parents=True)
+            for spec in blocks:
+                spec = dict(spec)
+                _sc62_block(task_root, spec.pop("name"), spec.pop("tests"), **spec)
+            if state is not None:
+                (task_root / "state" / "controller.json").write_text(json.dumps(state), encoding="utf-8")
+            counts = retro_numbers.test_run_counts(task_root)
+            verify(counts, counts["launch_rows"])
+            for word in ("usd", "cost", "price", "money"):
+                check_not_in(f"{variant} no '{word}' in the rows (F2 a)", word,
+                             json.dumps([counts["by_stage"], counts["launch_rows"]]).lower())
+            if variant == "V13":
+                facts = {"task": "TP1-15045", "test_run_counts": counts,
+                         "by_stage": {s: {"dispatches": 1, "requests": 1, "tokens": 1, "cost": 0.1} for s in ("S4", "S5", "S7")}}
+                text = retro_numbers.render(facts)
+                check_in("V13 header", "| Machine time | Test runs |", text)
+                cells = {line.split("|")[1].strip(): line.split("|")[-2].strip()
+                         for line in text.splitlines() if line.startswith("| S")}
+                check("V13 S7 cell is not 0", cells.get("S7") not in (None, "0"), cells)
+                check_eq("V13 S4 has money and no launch: 0", cells.get("S4"), "0")
+            if variant == "V8":
+                text = retro_numbers.render({"task": "TP1-15045", "test_run_counts": counts, "by_stage": {}})
+                check_in("V8 outside the table", "**Test runs outside the stage table:**", text)
+        finally:
+            cleanup(base.parent)
+
+    # V1: no carrier, and a facts file written before the stage split
+    base = story("qa-sc62-")
+    try:
+        none = retro_numbers.test_run_counts(base / "artifacts" / "TP1-15045")
+        check_eq("V1 no carrier", (none["known"], retro_numbers.test_run_cell(none, "S5")), (False, "n/a"))
+        check_eq("V1 an old facts file", retro_numbers.test_run_cell({"known": True, "runs": 3}, "S5"), "n/a")
+        # V11: one job launch with no block
+        job_dir = base / "artifacts" / "TP1-15045" / "state" / "execution-jobs"
+        job_dir.mkdir(parents=True)
+        (job_dir / "j1.json").write_text(json.dumps({
+            "job_id": "j1", "status": "completed", "created_at": "2026-11-13T10:00:00+00:00", "execution_status": "passed",
+            "request": {"purpose": "initial", "dispatch_id": "S6-qa-x-1", "selected_instance_ids": ["a"]}}), encoding="utf-8")
+        rows = retro_numbers.test_run_counts(base / "artifacts" / "TP1-15045")["launch_rows"]
+        check_eq("V11 a job has no end time", (rows[0]["stage"], rows[0]["seconds"], rows[0]["seconds_why"]),
+                 ("S6", None, "no end time recorded"))
+    finally:
+        cleanup(base.parent)
+
+
 def test_retro_numbers_refuses_a_false_hundred_percent() -> None:
     """The TP1-15045 capture defect: six roles, every one recorded at tokens 0. The
     honest answer is "we cannot say", never "the orchestrator spent all of it"."""
@@ -3526,6 +3644,7 @@ if __name__ == "__main__":
     test_an_experiment_packet_says_filing_is_closed()
     test_the_size_the_code_computed_reaches_the_person()
     test_retro_numbers()
+    test_sc6_2_test_runs_by_stage_and_repeats()
     test_retro_numbers_refuses_a_false_hundred_percent()
     test_story_spend_is_shared_with_the_ceiling()
     test_gate_a_left_out_lines()

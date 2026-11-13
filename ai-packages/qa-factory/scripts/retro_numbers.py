@@ -1434,37 +1434,62 @@ def _instance_name(value):
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _block_launches(block_dir: Path) -> tuple:
-    """The launches the run blocks on disk make: `(launches, block ids, unreadable)`. A block whose `purpose` or `results`
-    is not the shape the factory writes is counted in `unreadable` and read no further: one story's damaged block never
-    stops the retro or the dashboard (AR-2). A block with no purpose, an import and a purpose that is no run are skipped,
-    as `run_block_metrics` skips them."""
-    launches, block_ids, unreadable = [], set(), 0
-    if not block_dir.is_dir():
-        return launches, block_ids, unreadable
-    for bp in sorted_paths(block_dir.glob("*.json")):
-        block = read_json(bp, {})
-        if not isinstance(block, dict):
-            unreadable += 1
+def _block_verdict(block: dict) -> str:
+    """One run block: `ok` (a launch), `skip` (an import, or a purpose that is no run: as `run_block_metrics` skips them) or
+    `bad` (its `purpose` or `results` is not the shape the factory writes)."""
+    request = block.get("request") if isinstance(block.get("request"), dict) else {}
+    purpose = block.get("purpose") or request.get("purpose")
+    if block.get("import_provenance"):
+        return "skip"
+    if purpose is not None and not isinstance(purpose, str):
+        return "bad"
+    if purpose not in _BLOCK_RUN_PURPOSES:
+        return "skip"
+    results = block.get("results")
+    if results is not None and not isinstance(results, list):
+        return "bad"
+    return "ok"
+
+
+def _block_launches(task_root: Path) -> tuple:
+    """The launches the run blocks on disk make: `(launches, block ids, unreadable)`. ONE launch is ONE attempt: a
+    `--reparse-block` file keeps the attempt, the times, the dispatch and the fingerprint of the block it supersedes, so the
+    attempt's launch is its LAST readable block in `run_history.read_run_blocks` order (the deepest reparse), and a run is
+    never counted twice (SC6-2). A block whose `purpose` or `results` is not the shape the factory writes is counted in
+    `unreadable` and read no further (the attempt falls back to its previous block; an attempt with no readable block is one
+    unreadable): one story's damaged block never stops the retro or the dashboard (AR-2). A block with no purpose, an import
+    and a purpose that is no run are skipped, as `run_block_metrics` skips them. `block ids` holds every attempt id and
+    every block id."""
+    import run_history as RH           # lazy: the one reader that orders blocks and knows reparses (AR-13)
+    launches, block_ids = [], set()
+    items, bad = RH.read_run_blocks(task_root)
+    unreadable = len(bad)
+    attempts: dict = {}
+    for item in items:
+        attempts.setdefault(item["attempt"] or item["name"], []).append(item)
+    for attempt, chain in attempts.items():
+        for item in chain:
+            block_ids.add(str(item["data"].get("block_id") or Path(item["name"]).stem))
+        block_ids.add(str(attempt))
+        chosen, damaged = None, 0
+        for item in reversed(chain):
+            verdict = _block_verdict(item["data"])
+            if verdict == "bad":
+                damaged += 1
+                continue
+            chosen = item if verdict == "ok" else None
+            break
+        if chosen is None:
+            unreadable += 1 if damaged == len(chain) else 0
             continue
+        block = chosen["data"]
         request = block.get("request") if isinstance(block.get("request"), dict) else {}
-        purpose = block.get("purpose") or request.get("purpose")
-        if block.get("import_provenance"):
-            continue
-        if purpose is not None and not isinstance(purpose, str):
-            unreadable += 1
-            continue
-        if purpose not in _BLOCK_RUN_PURPOSES:
-            continue
-        results = block.get("results")
-        if results is not None and not isinstance(results, list):
-            unreadable += 1
-            continue
-        block_id = str(block.get("block_id") or block.get("attempt_id") or bp.stem)
-        block_ids.add(block_id)
-        launches.append({"id": block_id, "purpose": purpose, "dispatch_id": block.get("dispatch_id"),
-                         "status": block.get("execution_status"), "started": str(block.get("attempt_started_at") or ""),
-                         "entries": [(_instance_name(row.get("instance_id")), row) for row in results or []
+        launches.append({"id": str(attempt), "purpose": block.get("purpose") or request.get("purpose"),
+                         "dispatch_id": block.get("dispatch_id"), "status": block.get("execution_status"),
+                         "started": str(block.get("attempt_started_at") or ""), "start_raw": block.get("attempt_started_at"),
+                         "ended": block.get("attempt_ended_at"), "fingerprint": block.get("input_fingerprint"),
+                         "seed": block.get("data_seed_contract"),
+                         "entries": [(_instance_name(row.get("instance_id")), row) for row in block.get("results") or []
                                      if isinstance(row, dict)]})
     return launches, block_ids, unreadable
 
@@ -1503,6 +1528,10 @@ def _job_launches(jobs: list, block_ids: set, table: dict, never_ran) -> tuple:
         named = [str(one) for one in selected or [] if str(one).strip()]
         launches.append({"id": job_id, "purpose": purpose, "dispatch_id": request.get("dispatch_id"),
                          "status": state, "started": str(job.get("created_at") or ""),
+                         "start_raw": job.get("created_at"), "ended": None,
+                         "fingerprint": request.get("input_fingerprint"),
+                         "seed": (request.get("execution") if isinstance(request.get("execution"), dict) else {}
+                                  ).get("data_seed_contract"),
                          "entries": [(one, None) for one in named] or [(None, None)]})
     return launches, apart
 
@@ -1594,7 +1623,7 @@ def test_run_counts(task_root: Path) -> dict:
         never_ran = ER._NEVER_RAN_STATES
         unreadable = max(0, len(list(job_dir.glob("*.json"))) - len(jobs))
     jobs_by_id = {str(job.get("job_id")): job for job in jobs}
-    launches, block_ids, unreadable_blocks = _block_launches(block_dir)
+    launches, block_ids, unreadable_blocks = _block_launches(task_root)
     job_launches, apart = _job_launches(jobs, block_ids, table, never_ran)
     launches += job_launches
     unreadable += apart["unreadable"]
@@ -1624,12 +1653,121 @@ def test_run_counts(task_root: Path) -> dict:
         for instance, row in launch["entries"]:
             if instance:
                 seen[instance] = {"launch": launch, "row": row}
+    launch_rows, by_stage = _launch_rows(task_root, launches)
     return {"known": True, "tests": len(per_test), "runs": runs, "launches": len(launches), "probes": apart["probes"],
             "per_test": dict(sorted(per_test.items())), "by_purpose": dict(sorted(by_purpose.items())),
             "by_cause": {cause: by_cause[cause] for cause in causes if cause in by_cause},
             "unknown_jobs": unknown_ids, "not_executed": apart["not_executed"], "no_totals": apart["no_totals"],
             "baselines": apart["baselines"], "no_instances": no_instances, "unreadable": unreadable,
-            "unreadable_blocks": unreadable_blocks, "carrier": carrier}
+            "unreadable_blocks": unreadable_blocks, "carrier": carrier,
+            "by_stage": by_stage, "launch_rows": launch_rows}
+
+
+def _absent_time(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _launch_seconds(started, ended) -> tuple:
+    """`(seconds, why)` of one launch: a number of seconds, or None and exactly one reason. A negative span is NOT clamped
+    (`span_seconds` would print 0): a clock defect never shrinks to "0 s" (FR-41)."""
+    if _absent_time(ended):
+        return None, "no end time recorded"
+    if _absent_time(started):
+        return None, "no start time recorded"
+    if not isinstance(started, str) or not isinstance(ended, str):
+        return None, "the time cannot be read"
+    a, b = moment(started), moment(ended)
+    if a is None or b is None or (a.tzinfo is None) != (b.tzinfo is None):
+        return None, "the time cannot be read"
+    seconds = (b - a).total_seconds()
+    return (round(seconds, 1), "") if seconds >= 0 else (None, "ends before it starts")
+
+
+def _repeat_of(launch: dict, earlier: dict) -> tuple:
+    """`(repeat, repeat_of)` of one launch against the latest earlier launch of the same test set. The error direction is
+    fixed: a repeat is "yes" only when every input the record holds is equal and named; it errs toward "no" / "not
+    established", never toward "yes" when an input changed (SC6-2 3.3). Purpose and status are not consulted."""
+    names = [name for name, _row in launch["entries"]]
+    before = earlier.get(frozenset(name for name in names if name)) if names else None
+    if before is None:
+        return "no", None
+    one, two = launch.get("fingerprint"), before["launch"].get("fingerprint")
+    good = [isinstance(f, str) and bool(f.strip()) for f in (one, two)]
+    if all(good) and one != two:
+        return "no", None
+    if launch.get("seed") != before["launch"].get("seed"):
+        return "no", None
+    if not all(good) or None in names or before["unnamed"]:
+        return "not established", None
+    return "yes", before["launch"]["id"]
+
+
+def _launch_rows(task_root: Path, launches: list) -> tuple:
+    """`(launch_rows, by_stage)`: one row per launch in launch order, and the sums per stage (SC6-2). The stage is the one
+    of the controller's dispatch record of the launch, else the stage in the dispatch id, else `unattributed`. The rows hold
+    facts only: that a launch ran the same tests over the same recorded inputs as an earlier one is a fact; whether it
+    was needed is the retro role's judgment (AR-29)."""
+    stages = {row["id"]: row["stage"] for row in dispatch_rounds(task_root)}
+    earlier: dict = {}
+    rows, by_stage, distinct = [], {}, {}
+    for launch in launches:
+        did = launch.get("dispatch_id")
+        parsed = DISPATCH_ID.match(did) if isinstance(did, str) else None
+        stage = stages.get(str(did)) if did is not None else None
+        stage = stage or (parsed.group(1) if parsed else None) or "unattributed"
+        names = [name for name, _row in launch["entries"]]
+        named = frozenset(name for name in names if name)
+        seconds, why = _launch_seconds(launch.get("start_raw"), launch.get("ended"))
+        repeat, repeat_of = _repeat_of(launch, earlier)
+        rows.append({"id": launch["id"], "stage": stage, "purpose": launch["purpose"], "tests": len(named),
+                     "runs": len(names), "seconds": seconds, "seconds_why": why or None,
+                     "repeat": repeat, "repeat_of": repeat_of})
+        earlier[named] = {"launch": launch, "unnamed": None in names}
+        bucket = by_stage.setdefault(stage, {"launches": 0, "runs": 0, "tests": 0, "seconds": 0.0, "not_timed": 0,
+                                             "repeats": 0, "repeat_seconds": 0.0, "repeats_not_timed": 0,
+                                             "repeats_not_established": 0})
+        distinct.setdefault(stage, set()).update(named)
+        bucket["launches"] += 1
+        bucket["runs"] += len(names)
+        if seconds is None:
+            bucket["not_timed"] += 1
+        else:
+            bucket["seconds"] = round(bucket["seconds"] + seconds, 1)
+        if repeat == "yes":
+            bucket["repeats"] += 1
+            if seconds is None:
+                bucket["repeats_not_timed"] += 1
+            else:
+                bucket["repeat_seconds"] = round(bucket["repeat_seconds"] + seconds, 1)
+        elif repeat == "not established":
+            bucket["repeats_not_established"] += 1
+    for stage, bucket in by_stage.items():
+        bucket["tests"] = len(distinct[stage])
+    return rows, dict(sorted(by_stage.items()))
+
+
+def _time_words(seconds, launches: int, not_timed: int) -> str:
+    """The time of `launches` launches of which `not_timed` carry no duration: a partial sum is said so (FR-41)."""
+    if launches and not_timed >= launches:
+        return "time not measured"
+    return clock(seconds) + (f", {not_timed} not measured" if not_timed else "")
+
+
+def test_run_cell(counts, stage: str) -> str:
+    """The stage table's `Test runs` cell, the ONE place its words are made. `n/a`: no carrier, or facts written before the
+    stage split existed; `0`: a carrier and no launch of this stage (never "no data")."""
+    if not isinstance(counts, dict) or not counts.get("known") or not isinstance(counts.get("by_stage"), dict):
+        return "n/a"
+    bucket = counts["by_stage"].get(stage)
+    if not isinstance(bucket, dict):
+        return "0"
+    text = (f"{_plural(bucket['launches'], 'launch', 'launches')}, {_plural(bucket['runs'], 'run', 'runs')}, "
+            f"{_time_words(bucket['seconds'], bucket['launches'], bucket['not_timed'])}; "
+            f"repeats over unchanged inputs: {bucket['repeats']} "
+            f"({_time_words(bucket['repeat_seconds'], bucket['repeats'], bucket['repeats_not_timed'])})")
+    if bucket["repeats_not_established"]:
+        text += f", {bucket['repeats_not_established']} not established"
+    return text
 
 
 def test_run_sentence(counts) -> str:
@@ -1659,6 +1797,9 @@ def test_run_lines(counts) -> list:
     lines = [f"**Test runs:** {test_run_sentence(counts)}"]
     if not counts.get("known"):
         return lines
+    if counts.get("launches"):
+        lines.append("- money of a test run: not attributed — a run is executed by code, and the role's spend around "
+                     "it is not recorded per call.")
     odd = []
     if counts.get("not_executed"):
         odd.append(f"{_plural(counts['not_executed'], 'job', 'jobs')} executed nothing and "
@@ -2558,8 +2699,9 @@ def render(data: dict, left_out: bool = True) -> str:
                   f"Friction: unknown — {type(exc).__name__}: {exc}"]
     # "Wall time" is the stage's clock; "Machine time" is that minus the waits for a person inside it. A facts file
     # written before `stage_machine_s` has no such column to fill: it prints `unknown`, never the wall time again.
-    lines += ["", "| Stage | Dispatches | Requests | Tokens | Cost | Wall time | Machine time |",
-              "|---|---|---|---|---|---|---|"]
+    lines += ["", "| Stage | Dispatches | Requests | Tokens | Cost | Wall time | Machine time | Test runs |",
+              "|---|---|---|---|---|---|---|---|"]
+    run_counts = data.get("test_run_counts")
     times = data.get("stage_times") or {}
     machine_times = data.get("stage_machine_s") or {}
     for stage, bucket in sorted((data.get("by_stage") or {}).items()):
@@ -2571,11 +2713,16 @@ def render(data: dict, left_out: bool = True) -> str:
         lines.append(f"| {stage} | {bucket['dispatches']} | {bucket['requests']} | "
                      f"{bucket['tokens']:,} | {money(bucket['cost'])}"
                      + (" (incomplete)" if bucket.get("incomplete") else "")
-                     + f" | {spent} | {clock(machine_times.get(stage))} |")
+                     + f" | {spent} | {clock(machine_times.get(stage))} | {test_run_cell(run_counts, stage)} |")
     orch = data.get("orchestrator") or {}
     lines.append(f"| orchestrator | 1 | {orch.get('requests', 0)} | "
                  f"{orch.get('tokens', 0):,} | {money(orch.get('cost'))} | "
-                 f"- | {clock(orch.get('machine_s'))} |")
+                 f"- | {clock(orch.get('machine_s'))} | - |")
+    outside = sorted(stage for stage in ((run_counts or {}).get("by_stage") if isinstance(run_counts, dict) else None) or {}
+                     if stage not in (data.get("by_stage") or {}))
+    if outside and run_counts.get("known"):
+        lines += ["", "**Test runs outside the stage table:** "
+                  + "; ".join(f"{stage}: {test_run_cell(run_counts, stage)}" for stage in outside)]
     lines += ["", "| Role | Dispatches | Requests | Tokens | Cost |", "|---|---|---|---|---|"]
     for role, bucket in sorted((data.get("by_role") or {}).items()):
         lines.append(f"| {role} | {bucket['dispatches']} | {bucket['requests']} | "
