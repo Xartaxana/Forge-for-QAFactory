@@ -41,9 +41,9 @@ exist (e.g. a fixture file), before concluding the repository has none.
 | Requirement sources | `adapters.ticket` (the tracker row: `verified` only when `adapters.ticket.status` is `configured`, the probe of this session, otherwise `unknown`); wiki links in sample tickets and README; `docs/`, ADR and spec folders of `code_repos`. Section `requirements_sources`, one entry per source with source_id, kind (`tracker`, `wiki`, `repository`, `file`, `other`: `references/requirement-source-kinds.json`), locator, status (`verified`, `unavailable` with the reason in evidence_refs when the probe failed, `unknown` when it could not establish), evidence_refs and, when not the tracker's, optional auth_type, secret_ref, username_ref as NAMES only (never a value, never a secret in a locator). The tracker row also gives which system and `method` plus `invoke_or_command_ref` as a route the scout's own Bash, API or browser can follow (SS1-15). Nothing found is an empty section, not a gap to ask about here |
 | Application stack | Entry points, how the app runs locally, endpoints/screens, package manifests |
 | Mobile surface | A manifest or a test file, in any language, names Appium; a client such as WebdriverIO counts when the test file's capabilities name a mobile platform. Read the file and cite path:line. The names are examples, not a list. Record it in section `mobile_surface` |
-| Architecture and data | DB/ORM (migrations, schemas), docker-compose services, external integrations (SDK/API clients, env vars naming URLs), queues/events |
-| Test-data lifecycle | Seed scripts and migrations carrying seed data, data factories (`factory_boy`, `faker`, fixture builders), `conftest`/setup fixtures that CREATE records rather than read them, compose services that seed a database, CI steps that reset one, `.env.example` naming test accounts — the defaults topic 3 confirms instead of asking from a blank page |
-| Candidate environments | `docker-compose*.yml`, `.env.example`, CI environment matrices, README "how to run against QA/staging" sections |
+| Architecture and data | DB/ORM (migrations, schemas), docker-compose services, external integrations (SDK/API clients, env var NAMES that hold URLs; the inventory's `env_file_addresses` gives their origins with the file), queues/events |
+| Test-data lifecycle | Seed scripts and migrations carrying seed data, data factories (`factory_boy`, `faker`, fixture builders), `conftest`/setup fixtures that CREATE records rather than read them, compose services that seed a database, CI steps that reset one, the inventory's env-file rows marked `example` (a SAMPLE shows which key names the project expects, such as test accounts; its values are the sample's, never the stand's) — the defaults topic 3 confirms instead of asking from a blank page |
+| Candidate environments | `docker-compose*.yml`, the inventory's env-file rows marked `example` (samples: they show the key names a project expects for its environments, never the stand's values), CI environment matrices, README "how to run against QA/staging" sections |
 | How the stand is reached | `python "${CLAUDE_PLUGIN_ROOT}/scripts/project_inventory.py" --root . --access` — the login call sites (a harness CLI login command, an SDK client constructor, `POST .../login`, an OIDC token endpoint, `Authorization: Bearer`, a cookie jar), the key NAMES each reads, and every env file with the names it holds. See the section below |
 | Runtime provenance | Read-only version/build endpoints, deployment manifests, image/package/build IDs and metadata linking them to source revisions; absence remains unknown |
 | External dependencies | Existing executable and exact version/revision, official upstream source already declared by the project, location, integrity when available, capability/consumer and owner. Catalogue only; do not install, update, log in, or fetch in phase 1 |
@@ -142,8 +142,19 @@ the story stopped there. A constant assignment is not a read — only an actual
 Record, for phase 2: the proposed kind with the file and line that proposed it, the key names
 per slot, the env file chosen, and the code-only key list. When no login call site was found,
 or the only evidence is a scheme `access.kind` does not model (a cookie session, mTLS), that
-is a finding to **ask** outright — never a kind bent into the nearest neighbour. Values are
-never read out of an env file, here or anywhere: names only.
+is a finding to **ask** outright — never a kind bent into the nearest neighbour. You never read
+values out of an env file: the inventory gives the address origins it may (`env_file_addresses`,
+each with its file and a sample flag); every other value — names only.
+
+The env file is shown to the person with the file it came from. A row of `env_file_addresses` with
+`sample: true` is a sample's value, shown (if at all) only as "the sample file `<path>` shows ...",
+apart from the stand's facts, and never as the stand's. When `has_path` is true the file's value
+carries a path the inventory does not show: record that, and phase 2 asks the person for the full
+base; a path the inventory withheld is never invented. When `env_file_is_sample` is true, record
+"the repository holds only a sample env file (`<path>`): no file of this stand was found" (when the
+config names a sample file: "the config names a sample file (`<path>`)"). With no env file, or
+`env_file_addresses` empty, phase 2 asks for the address outright; the gap is never filled from a
+sample. `env_file_addresses_more` above zero means the list was cut.
 
 ### Judge-assisted narrowing (silent when off)
 

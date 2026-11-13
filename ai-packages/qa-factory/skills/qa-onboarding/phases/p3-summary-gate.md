@@ -69,7 +69,7 @@ Present exactly once per round, in this order:
    1's overrides: the config is written only at phase 4; "<N> files, <M> without a usual test name";
    "at least" when `truncated`), or "no test places named: name them if
    your tests live somewhere" (counts apply to candidates inside the application folders only). One more line: `found requirement sources: <source_id (kind, status)>, ... - correct?` from
-   phase 1's section `requirements_sources`; a question (in the form of `human-questions.md`) only when the probe found none.
+   phase 1's section `requirements_sources`; a question (in the form of `human-questions.md`) only when the probe found none. One more line rule: an env value in the summary names the file it came from, and a sample's value is never shown as the stand's (it may appear only labelled as the sample's).
 2. **What was answered** (phase 2) — the batch answers: the chosen external-writes
    channels, whether the factory may edit the strategy documents, the ticket/TMS adapter
    status, and the DoD sentence; and, when topic 4 was asked, the risk areas as they will be written
