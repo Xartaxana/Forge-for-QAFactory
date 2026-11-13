@@ -371,10 +371,13 @@ def test_check_d_card_slug_and_finding_header_red(tree, cli):
 def test_check_d_judges_only_staged_files(tree, cli):
     put(tree, "plans/piles/forge/batch-1-foundation.md", batch_text("forge", 1, nodes=[node("F0-1", "—")]))
     commit(tree, "a form defect that landed")
-    put(tree, "plans/piles/forge/findings/B-102-x.md", finding_text("B-102"))
-    stage(tree, "plans/piles/forge/findings/B-102-x.md")
-    assert cli(tree, "check")[0] == 0
+    put(tree, "plans/piles/report-delivery/findings/B-102-x.md", finding_text("B-102", "report-delivery"))
+    stage(tree, "plans/piles/report-delivery/findings/B-102-x.md")
+    assert cli(tree, "check")[0] == 0                                          # another pile: the defect is summarised, not blocking
     assert cli(tree, "check", "--all")[0] == 2
+    put(tree, "plans/piles/forge/findings/B-135-x.md", finding_text("B-135"))
+    stage(tree, "plans/piles/forge/findings/B-135-x.md")
+    assert cli(tree, "check")[0] == 2                                          # SL-2 B.4: a commit that edits pile X is judged on ALL of X
 
 
 @needs_git

@@ -136,12 +136,24 @@ def test_check_all_has_exactly_one_red_for_an_unreadable_finding_and_the_door_pa
 
 
 @needs_git
-def test_a_staged_card_alone_is_blocked_by_an_unreadable_finding_elsewhere(tree, cli):
-    bad_finding(tree)                                                      # NOT staged: the commit does not carry it
+@pytest.mark.parametrize("where,blocks", [
+    ("forge", True),                  # the unreadable finding is committed in the pile the commit touches: its own path carries it
+    ("report-delivery", False),       # ... in another pile: summarised in one line, never blocking (B.3)
+    ("report-delivery-untracked", False),     # ... or untracked in another pile: not even read (B.2)
+])
+def test_a_staged_card_is_blocked_by_an_unreadable_finding_only_in_its_own_pile(tree, cli, where, blocks):
+    pile = where.replace("-untracked", "")
+    bad_finding(tree, "plans/piles/%s/findings/20261009-bad.md" % pile)
+    if not where.endswith("-untracked"):
+        commit(tree, "a bad finding")
     edit(tree, CARD, "Текст.", "Текст!")
     stage(tree, CARD)
     code, out = cli(tree, "check")
-    assert code == 2 and "cannot read this finding" in out and "(д) form: RED" in out, out    # the carrier is every card and finding
+    if blocks:
+        assert code == 2 and "cannot read this finding" in out and "(д) form: RED" in out, out
+    else:
+        assert code == 0 and "cannot read this finding" not in out, out
+        assert ("(д) form: 1 red(s) in piles this commit does not touch (not blocking): %s" % pile in out) == (where == "report-delivery"), out
 
 
 @needs_git
@@ -465,7 +477,7 @@ def test_e_runs_in_a_commit_only_when_a_finding_or_a_batch_file_is_staged(tree, 
     second_pile_batch(tree)                                                    # a batch of another pile: the red is only carried
     stage(tree, "plans/piles/report-delivery/batch-1-x.md")
     code, out = cli(tree, "check")                                             # (д) is red here (the fixture has no card row): not (е)'s business
-    assert "(е) findings: carried from earlier commits (not blocking)" in out and "(е) findings: RED" not in out, out
+    assert "(е) findings: 1 red(s) in piles this commit does not touch (not blocking): forge" in out and "(е) findings: RED" not in out, out
     assert "red: (д)" in out and "(е)" not in out.splitlines()[-1], out
 
 

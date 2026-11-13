@@ -81,7 +81,7 @@ jobs:
       - name: piles frozen batches and backlog
         env:
           BASE: ${{ steps.base.outputs.base }}
-        run: python tools/piles.py check --all --base "$BASE"
+        run: python tools/piles.py check --base "$BASE"
       # install parity (.gitlab-ci.yml: the step before the whole-suite run). On a pull request the checkout is the merge
       # commit, so the door `parity-skip:` is read from the message of the PR head; otherwise the tool reads HEAD itself.
       - name: install parity (pull request)

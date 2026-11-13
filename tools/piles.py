@@ -812,15 +812,19 @@ def _is_pile_dir(p: Path) -> bool:
     return p.is_dir() and not p.name.startswith(("_", "."))
 
 
-def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
+def load_pile(root: Path, folder: Path, tolerant=False, skip=frozenset()):
     """One pile. `tolerant`: a finding file that cannot be read becomes an `unreadable` Finding and the others are still read
     (the readers: check, summary, forge_metrics, compact_snapshot, backlog_tree); strict (take, close, split): CannotRun,
-    because a writer must not act on a tree it could not read whole."""
+    because a writer must not act on a tree it could not read whole. `skip`: repo-relative paths that are not read (the
+    untracked files of another session, B.2); a pile all of whose files are skipped is no pile: None."""
     slug = folder.name
     rel = "%s/%s" % (PILES_REL, slug)
-    errors, card, batches, findings = [], None, [], []
+    errors, card, batches, findings, skipped, read = [], None, [], [], 0, 0
     readme = folder / "README.md"
-    if readme.is_file():
+    if rel + "/README.md" in skip:
+        skipped += 1
+    elif readme.is_file():
+        read += 1
         card = parse_card(read_text(readme), rel + "/README.md")
         errors += [(card.path, e) for e in card.errors]
         if card.title_slug is not None and card.title_slug != slug:
@@ -830,6 +834,10 @@ def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
         errors.append((rel + "/README.md", "the pile has no README.md card -- expected plans/piles/%s/README.md "
                        "written from plans/piles/_template/README.md" % slug))
     for f in sorted(folder.glob("batch-*.md")):
+        if "%s/%s" % (rel, f.name) in skip:
+            skipped += 1
+            continue
+        read += 1
         m = BATCH_NAME_RE.match(f.name)
         if not m:
             errors.append(("%s/%s" % (rel, f.name), "batch file name does not fit batch-<N>[-name].md (N 1-999, lower case)"))
@@ -840,6 +848,10 @@ def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
     fdir = folder / "findings"
     for f in sorted(fdir.glob("*.md")) if fdir.is_dir() else []:
         frel = "%s/findings/%s" % (rel, f.name)
+        if frel in skip:
+            skipped += 1
+            continue
+        read += 1
         try:
             fi = parse_finding(read_text(f), frel)
         except Unreadable as exc:
@@ -849,20 +861,25 @@ def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
         findings.append(fi)
         if not fi.unreadable:                  # an unreadable finding is judged by check (д) in one line of its own, not here
             errors += [(fi.path, e) for e in fi.errors]
+    if skipped and not read:
+        return None
     return Pile(slug, card, rel + "/README.md", batches, findings, errors)
 
 
-def load_tree(root, with_untracked=False, tolerant=False) -> Tree:
+def load_tree(root, with_untracked=False, tolerant=False, skip=frozenset()) -> Tree:
     """Everything the checks and `summary` read, from the working tree. CannotRun on an unreadable file or no boundary --
     except, with `tolerant`, a finding file (see load_pile). The untracked-file scan costs a git call, hence the flag (no
-    caller passes it since the board went; SL-2 reads the untracked piles itself)."""
+    caller passes it since the board went). `skip`: the repo-relative paths not read (check in a commit and `take` pass the
+    untracked files of other piles, B.2/B.9); the default reads everything, as every other caller does."""
     root = Path(root)
     backlog = parse_backlog_rows(read_text(root / BACKLOG_REL))
     base = root / PILES_REL
     piles = {}
     for folder in sorted(base.iterdir()) if base.is_dir() else []:
         if _is_pile_dir(folder):
-            piles[folder.name] = load_pile(root, folder, tolerant)
+            pile = load_pile(root, folder, tolerant, skip)
+            if pile is not None:
+                piles[folder.name] = pile
     return Tree(root, backlog, piles, untracked_piles(root) if with_untracked else [])
 
 
@@ -882,6 +899,25 @@ def staged_paths(root) -> list:
         raise CannotRun("cannot list the staged paths (%s) -- run inside the repository, or with --all to check "
                         "the whole tree" % (out.decode("utf-8", "replace").strip() or "git exited %d" % rc))
     return [p for p in out.decode("utf-8", "replace").split("\0") if p]
+
+
+def range_paths(root, rev) -> list:
+    """The paths a pushed range changed (`--base REV`: REV..HEAD as one diff; adds, changes, deletions; renames split). CannotRun
+    when git cannot list them: an unknown range is never "nothing touched"."""
+    rc, out = git(root, "diff", "--name-only", "--no-renames", "-z", rev, "HEAD")
+    if rc != 0:
+        raise CannotRun("cannot list the paths changed since %s (%s) -- run inside the repository, or with --all to check "
+                        "the whole tree" % (rev[:12], out.decode("utf-8", "replace").strip() or "git exited %d" % rc))
+    return [p for p in out.decode("utf-8", "replace").split("\0") if p]
+
+
+PILE_PATH_RE = re.compile(r"^%s/([^/_.][^/]*)/" % re.escape(PILES_REL))
+
+
+def pile_of(path):
+    """The slug of the pile a repo-relative path lies in (`plans/piles/<slug>/...`), else None; `_` and `.` folders are no pile."""
+    m = PILE_PATH_RE.match(path)
+    return m.group(1) if m else None
 
 
 def untracked_piles(root) -> list:
@@ -1004,12 +1040,6 @@ def door_lines(msg: str):
 # check: items
 # ============================================================================================
 
-CARDS_AND_FINDINGS = "*cards-and-findings*"       # a carrier: any staged card, finding, batch file or BACKLOG.md (a9, P6, V1)
-# V1 (t-593): a freeze commit staging only plans/BACKLOG.md, or a batch file hand-set to "закрыта", creates a9 reds
-# as surely as a deleted finding does -- they are carriers too, or the commit passes as "carried (not blocking)".
-CARD_OR_FINDING_RE = re.compile(r"^plans/piles/[^/_.][^/]*/(?:README\.md|findings/.+|batch-[^/]+\.md)$")
-
-
 @dataclasses.dataclass
 class Red:
     msg: str
@@ -1028,18 +1058,21 @@ class ItemResult:
 class Ctx:
     tree: Tree
     root: Path
-    staged: object            # set of staged paths, or None for --all
+    staged: object            # the set of touched paths (staged, or the range's with --base), or None for --all
     base: str                 # the rev (g) compares with
     frozen_ref: str = "origin/main"   # the rev (v) compares with: ORIGIN, or the --base sha when the flag is given
+    touched: object = dataclasses.field(init=False, default=None)   # {slug of a touched pile}; None under --all (everything blocks)
+
+    def __post_init__(self):
+        if self.staged is not None:
+            self.touched = {s for s in map(pile_of, self.staged) if s}
 
     def touches(self, carriers) -> bool:
-        """True when the red is carried by this commit: --all, or a staged path is one of its carriers."""
+        """B.3: a red blocks when --all, or a carrier is a touched path, or lies in a touched pile (BACKLOG.md and a `.py` are
+        carried by their own path)."""
         if self.staged is None:
             return True
-        if CARDS_AND_FINDINGS in carriers and (BACKLOG_REL in self.staged
-                                               or any(CARD_OR_FINDING_RE.match(p) for p in self.staged)):
-            return True
-        return any(c in self.staged for c in carriers)
+        return any(c in self.staged or pile_of(c) in self.touched for c in carriers)
 
 
 def _pile_paths(tree, slug, n=None):
@@ -1141,14 +1174,28 @@ def _placement_all_placed(tree, finds):
     return reds
 
 
+def _a9_homes(ctx: Ctx, ident) -> tuple:
+    """The paths of the piles that named `ident` at the base rev (`git grep -l`, run only for an a9 red; F-3 (a)): removing the
+    id's last placement from such a pile is what creates the red. Under --all every red blocks, so nothing is looked up. When git
+    cannot answer, every pile's card carries the red (the safe side: a commit touching any pile sees it)."""
+    if ctx.staged is None:
+        return ()
+    rc, out = git(ctx.root, "grep", "-l", "-z", "-w", "-F", "-e", ident, ctx.base, "--", PILES_REL)
+    if rc == 1:
+        return ()
+    if rc != 0:
+        return tuple(p.card_rel for p in ctx.tree.piles.values())
+    return tuple(sorted({s.split(":", 1)[1] for s in out.decode("utf-8", "replace").split("\0") if ":" in s}))
+
+
 def check_placement(ctx: Ctx) -> ItemResult:
     tree, res = ctx.tree, ItemResult()
     finds = tree.findings_by_id()
     res.reds += _placement_dupes(tree, finds) + _placement_known(tree, finds) + _placement_form(tree)
     if tree.backlog.locks:
         for r in _placement_all_placed(tree, finds):
-            # a9 is carried by a card, a finding, a batch file or BACKLOG.md, changed or deleted (P6, V1)
-            res.reds.append(Red(r.msg, (CARDS_AND_FINDINGS,)))
+            # a9 is carried by BACKLOG.md and by the piles that named the id at the base rev (F-3 (a))
+            res.reds.append(Red(r.msg, (BACKLOG_REL,) + _a9_homes(ctx, ID_RE.match(r.msg).group(0))))
     else:
         res.notes.append('BACKLOG.md is not frozen yet (no piles-freeze line) -- duplicates and unknown ids checked; '
                          '"every open id placed" starts with the freeze (node F0-3)')
@@ -1374,10 +1421,10 @@ def _queue_door(k1, k2):
 
 def _list_verdicts(k1, k2, l1, l2, pairs, root):
     """For the overlapping pairs that are ONE literal Python file with a function list on BOTH sides: -> (handled pairs, red
-    messages). Every named name must be defined in the file (FR-59: a misspelt name is red, not a quiet 'disjoint'); the two
-    sets must not meet. A pair whose file cannot be read is red too -- the lists cannot be judged. Any other pair is not handled
-    here (the file lock stays)."""
-    handled, msgs = set(), []
+    [(message, file x)]). Every named name must be defined in the file (FR-59: a misspelt name is red, not a quiet 'disjoint'); the
+    two sets must not meet. A pair whose file cannot be read is red too -- the lists cannot be judged. Any other pair is not handled
+    here (the file lock stays). `x` is the red's third carrier: a commit that changes the `.py` creates these reds."""
+    handled, msgs = set(), []        # msgs: [(red message, the file x it is about)]: x is the red's third carrier (B.3)
     both = "%s/%d and %s/%d both write" % (k1[0], k1[1], k2[0], k2[1])
     door = "%s, or piles-skip: б" % _queue_door(k1, k2)
     for x, y in pairs:
@@ -1386,18 +1433,18 @@ def _list_verdicts(k1, k2, l1, l2, pairs, root):
         handled.add((x, y))
         names, why = defined_names(root, x)
         if names is None:
-            msgs.append("%s %s with function lists, but %s -- the lists cannot be checked; write the path from the repo root "
-                        "(e.g. scripts/story_run.py), or %s" % (both, x, why, door))
+            msgs.append(("%s %s with function lists, but %s -- the lists cannot be checked; write the path from the repo root "
+                         "(e.g. scripts/story_run.py), or %s" % (both, x, why, door), x))
             continue
         for k, lst in ((k1, l1[x]), (k2, l2[x])):
-            msgs += _item_reds(k, x, lst, names, door)
+            msgs += [(m, x) for m in _item_reds(k, x, lst, names, door)]
         b1, b2 = {fn_bare(i) for i in l1[x]}, {fn_bare(i) for i in l2[x]}
         common = sorted(b1 & b2)
         if common:
             new_in_both = sorted({fn_bare(i) for i in l1[x] if i[0] == "+"} & {fn_bare(i) for i in l2[x] if i[0] == "+"})
-            msgs.append("%s %s and both name %s%s -- the function lists must be disjoint: leave each name to ONE batch, or %s" % (
+            msgs.append(("%s %s and both name %s%s -- the function lists must be disjoint: leave each name to ONE batch, or %s" % (
                 both, x, ", ".join(common),
-                " (%s: both claim to ADD it)" % ", ".join(new_in_both) if new_in_both else "", door))
+                " (%s: both claim to ADD it)" % ", ".join(new_in_both) if new_in_both else "", door), x))
     return handled, msgs
 
 
@@ -1454,6 +1501,12 @@ def same_developer(b1, b2, vocab) -> bool:
 def _pair_overlap(b1, b2, k1, k2, root, tops=None):
     """-> the red messages of one pair of active batches ([] = green): the file lock of (б) with its two doors, the `очередь:` line
     in both preambles or (D-0048) a disjoint function list of each batch for the shared file."""
+    return [msg for msg, _x in _pair_reds(b1, b2, k1, k2, root, tops)]
+
+
+def _pair_reds(b1, b2, k1, k2, root, tops=None):
+    """-> [(red message, the `.py` it is about or None)] of one pair: `_pair_overlap` with the carrier a function-list verdict adds
+    (B.3: the commit that removes a listed name stages that file and no batch)."""
     w1, w2 = writers_of(b1), writers_of(b2)
     pairs = sorted({(x, y) for x in w1 for y in w2 if tokens_overlap(x, y, tops=tops)})
     if not pairs:
@@ -1469,9 +1522,9 @@ def _pair_overlap(b1, b2, k1, k2, root, tops=None):
     hits = sorted({shown_token(x) if x == y else "%s ~ %s" % (shown_token(x), shown_token(y)) for x, y in left})
     names = "%s/%d and %s/%d both write: %s" % (k1[0], k1[1], k2[0], k2[1], ", ".join(hits[:3]) + (" ..." if len(hits) > 3 else ""))
     if d1 and d2:
-        msgs.append("%s -- the two batches disagree on the order (%s vs %s); make both preambles say the same direction" % (
+        msgs.append(("%s -- the two batches disagree on the order (%s vs %s); make both preambles say the same direction" % (
             names, "; ".join(sorted("%s/%d -> %s/%d" % (a[0], a[1], b[0], b[1]) for a, b in d1)),
-            "; ".join(sorted("%s/%d -> %s/%d" % (a[0], a[1], b[0], b[1]) for a, b in d2))))
+            "; ".join(sorted("%s/%d -> %s/%d" % (a[0], a[1], b[0], b[1]) for a, b in d2))), None))
         return msgs
     lacking = [(x, [k for k, lst in ((k1, l1), (k2, l2)) if x not in lst]) for x, y in left
                if x == y and x.endswith(".py") and not _is_glob(x)]
@@ -1479,7 +1532,7 @@ def _pair_overlap(b1, b2, k1, k2, root, tops=None):
              "`%s (f1, f2)` in its «Пишет в» cell (a batch not yet taken); both batches need a list on the file, disjoint "
              "(`+name` for a function the batch adds)" % ("; and ".join("%s a function list for %s" % (
                  " and ".join("%s/%d" % k for k in ks), x) for x, ks in lacking), lacking[0][0], lacking[0][0])) if lacking else ""
-    msgs.append("%s -- %s%s, or piles-skip: б" % (names, _queue_door(k1, k2), other))
+    msgs.append(("%s -- %s%s, or piles-skip: б" % (names, _queue_door(k1, k2), other), None))
     return msgs
 
 
@@ -1499,8 +1552,10 @@ def check_overlap(ctx: Ctx) -> ItemResult:
             if same_developer(b1, b2, vocab):             # D.2: inside one developer (б) does not compare
                 skipped.append("%s: %s/%d + %s/%d" % (dev_of(b1.who, vocab), k1[0], k1[1], k2[0], k2[1]))
                 continue
-            for msg in _pair_overlap(b1, b2, k1, k2, ctx.root, tops):
-                res.reds.append(Red(msg, (b1.path, b2.path)))
+            for msg, x in _pair_reds(b1, b2, k1, k2, ctx.root, tops):
+                # a function-list verdict names its `.py` as the third carrier (the file written without or with the package prefix)
+                extra = () if x is None else (x,) if x.startswith(PACKAGE_ROOT) else (x, PACKAGE_ROOT + x)
+                res.reds.append(Red(msg, (b1.path, b2.path) + extra))
     res.ok = "%d active batches" % len(active)
     if skipped:
         res.ok += ("; %d pair(s) of one developer not compared (%s; inside one developer the only guard is `owns_gate`'s WARN over "
@@ -1683,6 +1738,8 @@ def check_frozen(ctx: Ctx) -> ItemResult:
         return res
     frozen = 0
     for (slug, n), paths in sorted(pairs.items()):
+        if ctx.touched is not None and slug not in ctx.touched:
+            continue                                     # B.4: only the taken batches of the piles this commit touches are compared
         reds, is_frozen = _judge_pair(ctx, sha, slug, n, paths)
         res.reds += reds
         frozen += is_frozen
@@ -1943,10 +2000,10 @@ def check_form(ctx: Ctx) -> ItemResult:
         res.reds += _contents_reds(tree, pile)
         for b in pile.batches:
             res.reds += _heading_reds(tree, b)
-        # a finding the tolerant load could not read: ONE red. Its id is unknown, so it has no home in (а); the commit that
-        # carries any card, finding, batch or BACKLOG is the one that must see it (the same carrier (а)5 uses)
+        # a finding the tolerant load could not read: ONE red. Its id is unknown, so it has no home in (а); its own path is its
+        # carrier, so a commit touching its pile sees it (B.3)
         res.reds += [Red("%s: cannot read this finding (%s) -- its id is unknown, so (а) placement did not see it; expected a "
-                         "UTF-8 text file; save it as UTF-8 or delete it" % (f.path, f.unreadable), (f.path, CARDS_AND_FINDINGS))
+                         "UTF-8 text file; save it as UTF-8 or delete it" % (f.path, f.unreadable), (f.path,))
                      for f in pile.findings if f.unreadable]
         for v in pile.views():
             res.reds += _view_reds(tree, v)
@@ -2122,9 +2179,9 @@ def check_findings(ctx: Ctx) -> ItemResult:
                 continue
             if _rows_only(f):
                 n_red += 1
-                homes = {slug} | {m for m in _finding_moves(f) if m in tree.piles}
+                homes = {slug} | set(_finding_moves(f))          # no `in tree.piles` filter: a `git rm` of a named pile carries the red it causes
                 res.reds.append(Red("%s: pile %s, finding dated %s: %s" % (f.path, slug, f.date.isoformat(), why),
-                                    (f.path,) + tuple(b.path for h in sorted(homes) for b in tree.piles[h].batches)
+                                    (f.path,) + tuple(b.path for h in sorted(homes) if h in tree.piles for b in tree.piles[h].batches)
                                     + _staged_batches(ctx, homes)))
             else:
                 baseline.append("%s/%s" % (slug, f.name))
@@ -2139,23 +2196,34 @@ def check_findings(ctx: Ctx) -> ItemResult:
     return res
 
 
-# (letter, key, function, scope): scope "tree" -- red blocks only a commit that carries it (P6); "files" -- judged
-# only for the staged files; "backlog" -- runs when plans/BACKLOG.md is staged; "findings" -- runs when a finding or a batch
-# file is staged, and a red blocks like a "tree" one (a commit that carries none of its files only sees it as "carried").
+# (letter, key, function, scope): every red blocks only a commit that carries it (B.3: a carrier is a touched path or lies in a
+# touched pile; the rest is summarised, B.5). Scope "backlog" -- runs when plans/BACKLOG.md is touched; "findings" -- runs when a
+# finding or a batch file is touched; "tree"/"files" -- always run (the difference is in what the check itself reads).
 CHECKS = (("а", "placement", check_placement, "tree"), ("б", "overlap", check_overlap, "tree"),
           ("в", "frozen", check_frozen, "files"), ("г", "backlog", check_backlog, "backlog"),
           ("д", "form", check_form, "files"), ("е", "findings", check_findings, "findings"))
 
 
-def _relevant(staged) -> bool:
-    return any(p.startswith(PILES_REL + "/") or p == BACKLOG_REL for p in staged)
+def _relevant(staged, tree=None) -> bool:
+    """True when the touched paths hold a pile or BACKLOG path -- or, with the tree (loaded by the caller), a `.py` that an active
+    batch names in a function list (B.3: a code commit can create an (б) function-list red with no pile path)."""
+    if any(p.startswith(PILES_REL + "/") or p == BACKLOG_REL for p in staged):
+        return True
+    if tree is None:
+        return False
+    listed = {tok for v in tree.all_views() if v.file is not None and v.status in ACTIVE for tok in fn_lists_of(v.file)}
+    return any(p.endswith(".py") and _norm_token(p) in listed for p in staged)
 
 
 def _split_reds(ctx: Ctx, res: ItemResult, scope: str):
-    if scope in ("tree", "findings"):
-        mine =[r for r in res.reds if ctx.touches(r.carriers)]
-        return mine, [r for r in res.reds if r not in mine]
-    return [r for r in res.reds if ctx.touches(r.carriers)], []
+    """-> (reds this commit carries, reds it does not): the first block, the second is summarised (B.5). One rule for every scope."""
+    mine = [r for r in res.reds if ctx.touches(r.carriers)]
+    return mine, [r for r in res.reds if not any(r is m for m in mine)]
+
+
+def _red_home(r: Red) -> str:
+    """Where a red lives, for the one-line summary: the slug of the pile of its first pile carrier, else its first carrier."""
+    return next((s for s in map(pile_of, r.carriers) if s), r.carriers[0] if r.carriers else "(tree)")
 
 
 def _item_lines(letter, key, res: ItemResult, mine, carried, door):
@@ -2165,7 +2233,10 @@ def _item_lines(letter, key, res: ItemResult, mine, carried, door):
         lines.append("%s RED -- %s" % (tag, r.msg))
     if mine and door:
         lines.append("%s RED, passed by the commit message: %s" % (tag, door[2]))
-    lines += ["%s carried from earlier commits (not blocking): %s" % (tag, r.msg) for r in carried]
+    if carried:
+        homes = sorted({_red_home(r) for r in carried})
+        lines.append("%s %d red(s) in piles this commit does not touch (not blocking): %s" % (
+            tag, len(carried), ", ".join(homes[:5]) + (", +%d more" % (len(homes) - 5) if len(homes) > 5 else "")))
     if res.not_checked:
         lines.append("(%s) NOT CHECKED %s -- %s" % (letter, key, res.not_checked))
     elif not mine and not carried:
@@ -2174,14 +2245,28 @@ def _item_lines(letter, key, res: ItemResult, mine, carried, door):
     return lines
 
 
-def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None):
+def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None, range_rev=None):
     """-> (exit code, output lines). All the judgement lives here; cmd_check only reads the arguments.
     `base` is the rev (г) compares plans/BACKLOG.md with; `frozen_ref` the rev (в) compares the taken batches with
-    (None -> origin/main). `--base <rev>` sets both: CI has no origin/main behind the pushed commit, it has the pushed range."""
-    staged = None if all_ else set(staged_paths(root))
+    (None -> origin/main). `--base <rev>` sets both: CI has no origin/main behind the pushed commit, it has the pushed range.
+    `range_rev` (`--base` without `--all`): the touched paths are the range's (B.1), not the staged ones, and the tree is read as
+    is; in a commit the untracked files of other piles are not read (B.2). `all_`: every red blocks and every file is read."""
+    nothing = ["piles check: no plans/piles or BACKLOG path staged -- nothing to check"]
+    staged = None if all_ else set(range_paths(root, range_rev) if range_rev else staged_paths(root))
+    commit = staged is not None and not range_rev
+    tree = None
     if staged is not None and not _relevant(staged):
-        return 0, ["piles check: no plans/piles or BACKLOG path staged -- nothing to check"]
-    tree = load_tree(root, tolerant=True)
+        if not any(p.endswith(".py") for p in staged):
+            return 0, nothing
+        try:                                           # a code commit: relevant only when an active batch lists that file's functions
+            tree = load_tree(root, tolerant=True, skip=frozenset(untracked_piles(root)) if commit else frozenset())
+        except CannotRun:
+            tree = None                                # safe side: the check runs, and its own load names the failure
+        else:
+            if not _relevant(staged, tree):
+                return 0, nothing
+    skip = frozenset(untracked_piles(root)) if commit else frozenset()
+    tree = tree or load_tree(root, tolerant=True, skip=skip)
     ctx = Ctx(tree, Path(root), staged, base, frozen_ref or ORIGIN)
     doors, notes = [], []
     for msg in ([msg_text] if isinstance(msg_text, str) else msg_text):     # one scan per message: a broken fence in one never closes another's door
@@ -2204,6 +2289,11 @@ def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None):
         if mine and not door:
             red_items.append(letter)
     lines += notes
+    if all_ and not range_rev:
+        hidden = sorted({s for s in map(pile_of, untracked_piles(root)) if s})
+        if hidden:
+            lines.append("piles check: note: the untracked pile(s) %s are judged here, a commit does not judge them (B.2)"
+                         % ", ".join(hidden))
     if red_items:
         lines.append("piles check: refused -- red: %s. Fix what is named above, or -- when the commit is deliberate -- %s"
                      % (", ".join("(%s)" % i for i in red_items), DOOR_HELP))
@@ -2245,7 +2335,7 @@ def cmd_check(args, root) -> int:
         found, line = range_messages(root, base)
         msgs += found
         print(line)
-    code, lines = run_check(root, args.all, msgs, base, frozen_ref)
+    code, lines = run_check(root, args.all, msgs, base, frozen_ref, base if args.base else None)
     for line in lines:
         print(line)
     return code
@@ -2391,9 +2481,12 @@ def cmd_take(args, root) -> int:
     if not _text_arg_ok(who, WHO_MAX):
         raise Refused('--who: expected 1-%d characters without "|", a backtick (`) or a line break, got %r' % (WHO_MAX, args.who))
     n = _parse_n(args.n)
-    tree = load_tree(root)
-    refuse_unreadable_prose(tree)                 # before any write: a fence nothing closes halts the writer
     slug = args.slug
+    own = "%s/%s/" % (PILES_REL, slug)
+    # B.9: read like `check` in a commit -- the untracked files of OTHER piles are another session's and not read; everything
+    # read stays strict, and the pile being taken is read whole, untracked files included
+    tree = load_tree(root, skip=frozenset(p for p in untracked_piles(root) if not p.startswith(own)))
+    refuse_unreadable_prose(tree)                 # before any write: a fence nothing closes halts the writer
     pile, view = _find_view(tree, slug, n)
     where, branch = "%s/%d" % (slug, n), "pile/%s/batch-%d" % (slug, n)
     f = _batch_file(view, where, "write it (the integrator fixes the batch's content at take), then run take again")
@@ -2733,6 +2826,8 @@ def _leftover_write_reds(ctx: Ctx, notes=None) -> list:
     never judged here (its `close` already did)."""
     tree, reds, base_ok = ctx.tree, [], None
     for pile in sorted(tree.piles.values(), key=lambda p: p.slug):
+        if ctx.touched is not None and pile.slug not in ctx.touched:
+            continue                      # B.4: only the batches of the piles this commit touches are compared with the base
         for b in pile.batches:
             if b.status == "закрыта":
                 continue

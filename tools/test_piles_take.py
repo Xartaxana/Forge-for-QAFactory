@@ -190,6 +190,35 @@ def test_take_by_developer(tree, cli, holder, config, code, needles, absent):
     assert got == code and all(n in out for n in needles) and not any(a in out for a in absent), out
 
 
+@needs_git
+@pytest.mark.parametrize("kind,tracked,code,needle", [
+    ("foreign-broken", False, 0, "piles take: forge/2 taken by dev1"),
+    ("foreign-active-overlap", False, 0, "piles take: forge/2 taken by dev1"),
+    ("own-pile-broken", False, 1, "20261009-bad.md"),
+    ("foreign-broken", True, 1, "report-delivery/batch-1-x.md"),                 # control: the same file COMMITTED is read, strictly
+    ("foreign-active-overlap", True, 2, "report-delivery/1 and forge/2 both write"),   # control: a tracked active batch still holds its zone
+], ids=["foreign-untracked-broken-batch", "foreign-untracked-active-overlap", "own-pile-untracked-broken",
+        "foreign-tracked-broken-batch", "foreign-tracked-active-overlap"])
+def test_take_reads_untracked_like_check(tree, cli, kind, tracked, code, needle):
+    """B.9 (t-367 N4): the untracked files of OTHER piles are another session's -- `take` does not read them; the pile it writes is
+    read whole; what is committed is read strictly, as before."""
+    take_tree(tree)
+    rel = "plans/piles/report-delivery/batch-1-x.md"
+    if kind == "foreign-broken":
+        put(tree, rel, batch_text("report-delivery", 1, "ожидает", [["R1-1", "П1", "что", "builder", "`tools/z.py`", "—", "ожидает"]],
+                                  who="—", branch="—") + "\n```\nnever closed\n")
+    elif kind == "foreign-active-overlap":
+        put(tree, rel, batch_text("report-delivery", 1, "в работе", [["R1-1", "П1", "что", "builder", "`tools/b.py`", "—", "в работе"]]))
+    else:
+        (tree / "plans/piles/forge/findings").mkdir(parents=True, exist_ok=True)
+        (tree / "plans/piles/forge/findings/20261009-bad.md").write_bytes(b"# t\n\n\xff\xfe not utf-8\n")
+    if tracked:
+        git(tree, "add", "-A", "--", "plans/piles/report-delivery")
+        git(tree, "commit", "-q", "-m", "a foreign batch")
+    got, out = cli(tree, "take", "forge", "2", "--who", "dev1", "--today", "2026-11-13")
+    assert got == code and needle in out, out
+
+
 # ---------------------------------------------------------------- GM1-1: take touches files only, no board
 
 @needs_git

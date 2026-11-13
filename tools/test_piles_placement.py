@@ -147,15 +147,14 @@ def test_check_a9_journal_only_commit_still_runs_nothing(tree, cli):
 def test_check_carried_red_does_not_block_unrelated_commit(tree, cli):
     dup_finding(tree)
     commit(tree, "a violation that landed through a door")
-    put(tree, "plans/piles/forge/findings/B-102-x.md", finding_text("B-102"))
-    stage(tree, "plans/piles/forge/findings/B-102-x.md")
+    put(tree, "plans/piles/third-pile/README.md", card_text("third-pile", "T"))
+    stage(tree, "plans/piles/third-pile/README.md")
     code, out = cli(tree, "check")
-    assert code == 0 and "(а) placement: carried from earlier commits (not blocking)" in out and "B-135" in out
+    assert code == 0 and "(а) placement: 1 red(s) in piles this commit does not touch (not blocking): forge" in out
     code, out = cli(tree, "check", "--all")
-    assert code == 2 and "(а) placement: RED" in out                          # --all blocks everything
-    stage(tree, "plans/piles/forge/findings/B-135-a.md")                      # touching a carrier makes it ours again
+    assert code == 2 and "(а) placement: RED" in out and "B-135" in out       # --all blocks everything
     (tree / "plans/piles/forge/findings/B-135-a.md").write_bytes(finding_text("B-135", title="Изменено").encode("utf-8"))
-    stage(tree, "plans/piles/forge/findings/B-135-a.md")
+    stage(tree, "plans/piles/forge/findings/B-135-a.md")                      # touching a pile that carries it makes it ours again
     assert cli(tree, "check")[0] == 2
 
 

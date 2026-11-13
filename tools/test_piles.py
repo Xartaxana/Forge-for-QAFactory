@@ -15,7 +15,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 TOOLS = pathlib.Path(__file__).resolve().parent
 REAL = TOOLS.parent
 import piles  # noqa: E402
-from piles_testkit import GIT_VARS, clean_env, put, BACKLOG, card_text, batch_text, node, finding_text, ROW1, ROW2, needs_git, stage, edit  # noqa: E402
+from piles_testkit import (GIT_VARS, clean_env, put, BACKLOG, card_text, batch_text, node, finding_text, ROW1, ROW2,  # noqa: E402
+                           needs_git, stage, edit, CARD, B1, commit, freeze, git, msg, head_hash)
 
 
 @pytest.fixture(autouse=True)
@@ -239,6 +240,219 @@ def test_check_mini_tree_is_green(tree, cli):
     assert "(а) placement: ok" in out and "(в) NOT CHECKED" in out and "(г) NOT CHECKED" in out
     assert "not frozen yet" in out
 
+
+# ------------------------------------------------------------------ SL-2 (t-406): a check judges only the piles the commit touches
+
+SCOPE_ROWS = {}
+NOT_BLOCKING = "red(s) in piles this commit does not touch (not blocking)"
+
+
+def scope_row(name):
+    def register(fn):
+        SCOPE_ROWS[name] = fn
+        return fn
+    return register
+
+
+def _bad_finding(tree, pile, name="20261009-bad.md"):
+    (tree / "plans/piles" / pile / "findings").mkdir(parents=True, exist_ok=True)
+    (tree / "plans/piles" / pile / "findings" / name).write_bytes(b"# t\n\n\xff\xfe not utf-8\n")
+
+
+def _touch_forge_card(tree):
+    edit(tree, CARD, "Текст.", "Текст!")
+    stage(tree, CARD)
+
+
+def _two_developers(tree, w2="`tools/a.py`", w1=None):
+    """Batch forge/1 (Ира) and a second pile's batch 1 (Катя), both «в работе», committed."""
+    if w1:
+        put(tree, B1, batch_text("forge", 1, "в работе", [node("F0-1", w1)]))
+    put(tree, "plans/piles/report-delivery/README.md", card_text("report-delivery", "Report", [
+        ["1", "x", "B-219", "M", "в работе", "Катя", "`main` (x)", "—"]], "F08"))
+    put(tree, "plans/piles/report-delivery/batch-1-x.md",
+        batch_text("report-delivery", 1, "в работе", [node("R1-1", w2)], who="Катя"))
+    commit(tree, "two developers")
+
+
+def _fn_world(tree):
+    put(tree, "tools/x.py", "def a1():\n    pass\n\n\ndef b1():\n    pass\n")
+    _two_developers(tree, "`tools/x.py (b1)`", "`tools/x.py (a1)`")
+    assert piles.run_check(tree, True)[0] == 0                 # the control: the world is green before the code commit
+    return head_hash(tree)
+
+
+@scope_row("foreign-untracked-pile")
+def _foreign_untracked(tree):
+    put(tree, "plans/piles/stranger-pile/README.md", card_text("stranger-pile", "S"))
+    put(tree, "plans/piles/stranger-pile/findings/20261014-orphan.md", finding_text("—", "stranger-pile"))
+    _bad_finding(tree, "stranger-pile")
+    _touch_forge_card(tree)
+    return [(("check",), 0, ["piles check: ok"], ["stranger-pile", "cannot read this finding", "RED"])]
+
+
+@scope_row("foreign-tracked-red")
+def _foreign_tracked(tree):
+    _bad_finding(tree, "report-delivery")
+    commit(tree, "a red in Y")
+    _touch_forge_card(tree)
+    return [(("check",), 0, ["(д) form: 1 %s: report-delivery" % NOT_BLOCKING, "piles check: ok"], ["RED"])]
+
+
+@scope_row("own-pile-red-elsewhere-in-pile")
+def _own_pile_red(tree):
+    _bad_finding(tree, "forge")
+    commit(tree, "a red in X")
+    edit(tree, B1, "Правило готовности.", "Правило готовности!")
+    stage(tree, B1)
+    return [(("check",), 2, ["(д) form: RED", "cannot read this finding"], [])]
+
+
+@scope_row("a9-removal")
+def _a9_removal(tree):
+    freeze(tree)
+    git(tree, "rm", "-q", "plans/piles/forge/findings/B-102-x.md")
+    return [(("check",), 2, ["(а) placement: RED", "B-102 is open but placed nowhere"], [])]
+
+
+@scope_row("a9-backlog-only")
+def _a9_backlog_only(tree):
+    freeze(tree)
+    edit(tree, "plans/BACKLOG.md", "| B-308 |", "| B-777 | **Новое.** | почему | источник | P1 |\n| B-308 |")
+    stage(tree, "plans/BACKLOG.md")
+    door = msg(tree, "s\n\npiles-skip: г -- the new row is the point of this test\n")        # (г) passed: (а) alone must block
+    return [(("check", "--msg-file", door), 2, ["(а) placement: RED", "B-777 is open but placed nowhere"], [])]
+
+
+@scope_row("cross-pile-dupe")
+def _cross_pile_dupe(tree):
+    freeze(tree)
+    put(tree, "plans/piles/report-delivery/findings/B-102-y.md", finding_text("B-102", "report-delivery"))
+    commit(tree, "the id has two homes")
+    _touch_forge_card(tree)                        # the commit touches the OTHER home
+    return [(("check",), 2, ["(а) placement: RED", "B-102 is in 2 finding files"], [])]
+
+
+@scope_row("overlap-pair-one-side")
+def _pair_one_side(tree):
+    _two_developers(tree)
+    edit(tree, "plans/piles/report-delivery/batch-1-x.md", "Правило готовности.", "Правило готовности!")
+    stage(tree, "plans/piles/report-delivery/batch-1-x.md")
+    return [(("check",), 2, ["(б) overlap: RED", "forge/1 and report-delivery/1 both write: tools/a.py"], [])]
+
+
+@scope_row("overlap-pair-neither-side")
+def _pair_neither_side(tree):
+    put(tree, "plans/piles/third-pile/README.md", card_text("third-pile", "T"))
+    _two_developers(tree)
+    edit(tree, "plans/piles/third-pile/README.md", "Текст.", "Текст!")
+    stage(tree, "plans/piles/third-pile/README.md")
+    return [(("check",), 0, ["(б) overlap: 1 %s: forge" % NOT_BLOCKING, "piles check: ok"], ["RED"])]
+
+
+@scope_row("fn-list-code-commit")
+def _fn_code_commit(tree):
+    _fn_world(tree)
+    put(tree, "tools/x.py", "def a1():\n    pass\n")              # b1 is removed: the red names tools/x.py, no pile path is staged
+    stage(tree, "tools/x.py")
+    return [(("check",), 2, ["(б) overlap: RED", "report-delivery/1 lists b1 for tools/x.py"], [])]
+
+
+@scope_row("fn-list-py-not-listed")
+def _fn_not_listed(tree):
+    _fn_world(tree)
+    put(tree, "tools/y.py", "def other():\n    pass\n")
+    stage(tree, "tools/y.py")
+    return [(("check",), 0, ["piles check: no plans/piles or BACKLOG path staged -- nothing to check"], [])]
+
+
+@scope_row("fn-list-py-waiting-batch")
+def _fn_waiting(tree):
+    _fn_world(tree)
+    put(tree, "tools/w.py", "def only_waiting():\n    pass\n")
+    put(tree, "plans/piles/report-delivery/batch-2-w.md",
+        batch_text("report-delivery", 2, "ожидает", [node("R2-1", "`tools/w.py (only_waiting)`", "ожидает")], who="—", branch="—"))
+    commit(tree, "a waiting batch lists tools/w.py")
+    put(tree, "tools/w.py", "def renamed():\n    pass\n")                  # only an active batch's list makes a `.py` relevant
+    stage(tree, "tools/w.py")
+    return [(("check",), 0, ["nothing to check"], [])]
+
+
+@scope_row("partly-untracked-pile")
+def _partly_untracked(tree):
+    _bad_finding(tree, "forge")                               # a new finding not yet added: the commit does not contain it
+    edit(tree, B1, "Правило готовности.", "Правило готовности!")
+    stage(tree, B1)
+    return [(("check",), 0, ["piles check: ok"], ["cannot read this finding", "RED"])]
+
+
+@scope_row("fn-list-range")
+def _fn_range(tree):
+    base = _fn_world(tree)
+    put(tree, "tools/x.py", "def a1():\n    pass\n")
+    commit(tree, "remove b1")
+    return [(("check", "--base", base), 2, ["(б) overlap: RED", "report-delivery/1 lists b1 for tools/x.py"], []),
+            (("check", "--base", head_hash(tree)), 0, ["nothing to check"], [])]
+
+
+@scope_row("renamed-batch")
+def _renamed(tree):
+    _bad_finding(tree, "forge")
+    commit(tree, "a red in X")
+    git(tree, "mv", B1, "plans/piles/forge/batch-1-renamed.md")
+    assert {B1, "plans/piles/forge/batch-1-renamed.md"} <= set(piles.staged_paths(tree))       # both paths are touched
+    return [(("check",), 2, ["(д) form: RED"], [])]
+
+
+@scope_row("deleted-pile-move-line")
+def _deleted_pile(tree):
+    put(tree, "plans/piles/zed/README.md", card_text("zed", "Z"))
+    put(tree, "plans/piles/zed/batch-1-x.md", batch_text("zed", 1, "ожидает", [
+        ["Z1-1", "П1", "`20261014-moved.md` -- узел", "builder", "`tools/z.py`", "—", "ожидает"]], who="—", branch="—"))
+    put(tree, "plans/piles/forge/findings/20261014-moved.md",
+        finding_text("—", "forge") + "\nперенос: zed/findings/20261014-moved.md\n")
+    commit(tree, "a finding moved to zed")
+    git(tree, "rm", "-r", "-q", "plans/piles/zed")
+    return [(("check",), 2, ["(е) findings: RED", "20261014-moved.md"], [])]
+
+
+@scope_row("range-mode")
+def _range_mode(tree):
+    first = head_hash(tree)
+    _bad_finding(tree, "report-delivery")
+    commit(tree, "A: a red in Y")
+    second = head_hash(tree)
+    _touch_forge_card(tree)
+    commit(tree, "B: the card of X")
+    return [(("check", "--base", second), 0, ["(д) form: 1 %s: report-delivery" % NOT_BLOCKING], ["RED"]),
+            (("check", "--base", first), 2, ["(д) form: RED", "cannot read this finding"], [])]
+
+
+@scope_row("range-empty")
+def _range_empty(tree):
+    return [(("check", "--base", "HEAD"), 0, ["nothing to check"], [])]
+
+
+@scope_row("range-bad-rev")
+def _range_bad_rev(tree):
+    return [(("check", "--base", "no-such-rev"), 1, ["does not resolve to a commit"], [])]
+
+
+@scope_row("all-mode-untracked-note")
+def _all_mode(tree):
+    put(tree, "plans/piles/stranger-pile/README.md", card_text("stranger-pile", "S"))
+    _bad_finding(tree, "stranger-pile")
+    return [(("check", "--all"), 2, ["(д) form: RED", "cannot read this finding", "untracked pile(s) stranger-pile"], [])]
+
+
+@needs_git
+@pytest.mark.parametrize("row", sorted(SCOPE_ROWS))
+def test_check_scope_touched_piles(tree, cli, row):
+    """B.1-B.6: a red blocks a commit only when a carrier is a touched path or lies in a touched pile (`--all` blocks on every one);
+    a red elsewhere is one summary line per item; the untracked files of other piles are not read in a commit."""
+    for args, code, needles, absent in SCOPE_ROWS[row](tree):
+        got, out = cli(tree, *args)
+        assert got == code and all(n in out for n in needles) and not any(a in out for a in absent), (args, out)
 
 
 def test_cli_end_to_end_subprocess(tree):
