@@ -178,7 +178,11 @@ def _temp_token():
 
 
 def _publish(path, write, binary=False, **open_options):
-    """The one temp-file-then-replace publisher behind `atomic_json` and `atomic_text`."""
+    """The one temp-file-then-replace publisher behind `atomic_json`, `atomic_text` and `atomic_bytes`.
+
+    `open_options` are for the text stream only; with `binary=True` they would be ignored, so they are refused."""
+    if binary and open_options:
+        raise ValueError("event_store._publish: binary=True ignores open options, got " + ", ".join(sorted(open_options)))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(1, TEMP_NAME_ATTEMPTS + 1):
