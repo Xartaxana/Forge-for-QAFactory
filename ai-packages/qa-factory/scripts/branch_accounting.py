@@ -1904,20 +1904,21 @@ def _manifest(task_root):
     return C.load_json(C.artifact(Path(task_root), "automation-manifest.json")), C.case_config(Path(task_root))
 
 
-def _word_passed_ids(task_root, scope) -> list:
-    """The ids of the S5 findings a person's recorded word passed (`s5_precheck.word_passes`, the ONE reader of a word over the
-    S5 findings, FV1-30a), `[]` when it cannot be read (an import or a read failure): nothing is passed on a guess, the refusing
-    direction. `scope` is the window's cases; `UNKNOWN_SCOPE`, a string, is every case."""
+def _word_pass_rows(task_root, scope) -> list:
+    """The S5 findings a person's recorded word passed, as the rows `s5_precheck.word_passes` returns (the ONE reader of a word
+    over the S5 findings, FV1-30a; a row carries `check`, `case`, `tag`), `[]` when it cannot be read (an import or a read
+    failure): nothing is passed on a guess, the refusing direction. `scope` is the window's cases; `UNKNOWN_SCOPE`, a string, is
+    every case."""
     try:
         import s5_precheck as S5
         cases = sorted(str(c) for c in scope) if isinstance(scope, (list, tuple, set)) else None
         root = Path(task_root)
-        return [str(row.get("finding_id") or "") for row in S5.word_passes(root, cases, S5.window_dispatch(root))]
+        return list(S5.word_passes(root, cases, S5.window_dispatch(root)))
     except Exception:
         return []
 
 
-def _no_row_passed(manifest, cfg, case, then, passed_ids) -> bool:
+def _no_row_passed(manifest, cfg, case, then, pass_rows) -> bool:
     """Did a person's word pass THIS fact - the Then has no `then_bindings` row - at the S5 exit: the word named `bindings:<case>:
     no-bindings` or `bindings:<case>:unbound-<then>` (`s5_precheck.check_bindings`, the same fact under the other detector's
     name), and the manifest holds no row for the Then. INVARIANT: a Then with a row (bound to something that does not hold, held
@@ -1925,9 +1926,9 @@ def _no_row_passed(manifest, cfg, case, then, passed_ids) -> bool:
     if any(_same_case(b.get("case"), case, cfg) and C.then_number(b.get("then")) == then
            for b in manifest.get("then_bindings") or [] if isinstance(b, dict)):
         return False
-    for finding_id in passed_ids:
-        check, found_case, tag = (finding_id.split(":", 2) + ["", ""])[:3]
-        if check == "bindings" and _same_case(found_case, case, cfg) and tag in ("no-bindings", f"unbound-{then}"):
+    for row in pass_rows:
+        if (row.get("check") == "bindings" and _same_case(row.get("case"), case, cfg)
+                and row.get("tag") in ("no-bindings", f"unbound-{then}")):
             return True
     return False
 
@@ -1946,7 +1947,7 @@ def s5_problems(task_root, text, branches, scope):
     manifest, cfg = _manifest(task_root)
     in_scope = _scoped(scope)
     rows = {rid: row for rid, row, _names in plan["rows"]}
-    word_passed = []        # read once, only when a problem is about to be raised: the ids `s5_precheck.word_passes` returned
+    word_passed = []        # read once, only when a problem is about to be raised: the rows `s5_precheck.word_passes` returned
     for case in _case_records(task_root):
         if str((rows.get(case["plan_row"]) or {}).get("disposition") or "") in MANUAL_DISPOSITIONS + PLAN_EXCLUDING:
             continue
@@ -1957,7 +1958,7 @@ def s5_problems(task_root, text, branches, scope):
             where = f"Then {then}" + (f", partition {partition}" if partition not in (None, "") else "")
             if in_scope(case):
                 if not word_passed:
-                    word_passed.append(_word_passed_ids(task_root, scope))
+                    word_passed.append(_word_pass_rows(task_root, scope))
                 if _no_row_passed(manifest, cfg, case["id"], then, word_passed[0]):
                     notes.append(f"{case['id']}: {_label(name, plan['owed'][name])} - {where} has no `then_bindings` row, passed by the "
                                  "person's word at the S5 exit (the fact stays: it is not bound)")

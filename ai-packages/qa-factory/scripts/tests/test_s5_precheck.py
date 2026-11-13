@@ -3039,18 +3039,23 @@ def the_verdict_is_one_line_per_finding() -> None:
              verdict["refused"], ["", "family", "family"])
     check("the refusal lines stand ABOVE the header", all(i < heads[0] for i, line in enumerate(lines)
           if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)) and out.count(DETV.WORDS_REFUSED_AT_SOURCE) == 2, out[:300])
-    # the footer joins every tag of WORD_PASSABLE_TAGS (sides-undeclared and provisional-open-on-real joined changed-after-red later)
-    check_in("the footer names the door for the passable families and the tags", "an [environment] or [obligations] "
-             "finding or a " + " or ".join(P.WORD_PASSABLE_TAGS) + " one", out)
-    check_in("...the first tag is still changed-after-red", "finding or a changed-after-red or ", out)
-    check_in("...and says no word passes the rest, `*` included", "no recorded word, `*` included, passes any other "
-             "finding", out)
+    # FV1-30a (F1): the door is the finding's tag or its whole id; `*` is named only with its two exceptions
+    check_in("the footer names the door by the finding's tag or whole id", "--block \"<the finding's tag, or its whole id>\"", out)
+    check_in("...says it passes that finding", "`, which passes that finding; `*` passes every finding here except "
+             "`open-oracle-asserted-*` (answer the expectation question) and a Then left with its owner.", out)
+    check_not_in("...and no longer promises a part of the line, whole words, or that no word passes the rest",
+                 "part of the line", out)
+    check_not_in("...no `WHOLE_PART` clause", "whole words", out)
+    check_not_in("...no `no recorded word` sentence", "no recorded word", out)
     check_not_in("...and never names `--block \"*\"` as a door", '--block "*"', out)
     # no passable family at all: passed_by_word returns before it imports the waiver; the label and the tags stay
     only = [mani, oracle]
     out = printed({"ok": False, "findings": P.passed_by_word(Path(tempfile.gettempdir()), only, []), "hints": [],
                    "notes": [], "cases": []})
     check_in("zero passable families: the label is in the header", DETV.WORDS_AT_SOURCE, out)
+    check_not_in("...and the door sentence is not printed (no finding is passable)", "--block", out)
+    out_zero = printed({"ok": False, "findings": [], "hints": [], "notes": [], "cases": []})
+    check_not_in("zero findings: no door either", "--block", out_zero)
     check_eq("...and every finding has its family line", [line for line in out.splitlines()
              if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)],
              [f"{DETV.WORDS_REFUSED_AT_SOURCE} {f['id']} family" for f in only])
@@ -4601,6 +4606,33 @@ def one_road_selects_the_word_for_the_finding() -> None:
     check_eq("the id of another finding of the same case does not pass this one", ids((bound["id"],), findings=(run_row,)),
              ([run_row["id"]], 0))
     check_eq("a part of a tag does not name it", ids(("bindings",), ("row",), ("no",)), (both, 0))
+    # FV1-30a fix round (critic B1): a word names a finding by EQUALITY with its tag or whole id, never by containment, so a
+    # sub-identifier of a tag that sits after `[`, `.`, `:` (a parameter label, a field leaf, a line number) names nothing
+    inst = P._finding("run_mapping", case, "no run block carries a result row", "run it", "no-row-test_x[missing-assistant]")
+    leaf = P._finding("bindings", case, "a literal contradicts the body", "fix it", "contradicted-literal-1-body.id")
+    changed = P._finding("oracle", case, "a test changed after its red run", "restore it", "changed-after-red-a.py:12")
+    sub = (inst, leaf, changed)
+    for part in ("missing-assistant", "neg", "12", "id", "a.py", "body", "test_x"):
+        check_eq(f"B1: the part {part!r} of an instance id / field leaf / line number passes nothing",
+                 ids((part,), findings=sub), (sorted(f["id"] for f in sub), 0))
+    for finding in sub:
+        others = sorted(f["id"] for f in sub if f is not finding)
+        check_eq(f"B1: the whole tag {P._finding_tag(finding)!r} passes exactly its finding",
+                 ids((P._finding_tag(finding),), findings=sub), (others, 1))
+        check_eq(f"B1: the whole id of {P._finding_tag(finding)!r} passes exactly its finding",
+                 ids((finding["id"],), findings=sub), (others, 1))
+    check_eq("B1: the tag, in another case, passes exactly the findings carrying exactly that tag (a sibling's whole id passes nothing here)",
+             ids(("no-bindings",), (other["id"],), findings=(bound, other)), ([], 2))
+    check_eq("B1: a word equal to the whole id of the SIBLING (another case) never passes this finding",
+             ids((other["id"],), findings=(bound,)), ([bound["id"]], 0))
+    # Q5: `obligation-id` is a stage-wide stem: it passes `obligation-id-<oid>` and no tag that merely contains it
+    ob = P._finding("obligations", case, "an obligation is unbound", "bind it", "obligation-id-OB-1")
+    ob_in = P._finding("obligations", case, "an obligation is unbound", "bind it", "not-an-obligation-id-OB-1")
+    check_eq("Q5: the word `obligation-id` passes `obligation-id-OB-1` and not a tag that merely contains it",
+             ids(("obligation-id",), findings=(ob, ob_in)), ([ob_in["id"]], 1))
+    check_eq("Q5: the stem is a stem: `obligation` (a part) passes nothing", ids(("obligation",), findings=(ob,)), ([ob["id"]], 0))
+    check_eq("Q5: the constant is `STAGE_WIDE_STEMS`, with `obligation-id` in it", ("obligation-id" in P.STAGE_WIDE_STEMS,
+             hasattr(P, "WORD_PASSABLE_TAGS")), (True, False))
     for label, word in (("an empty word", ""), ("a whitespace-only word", "   "), ("a placeholder", "<the finding's tag>"),
                         ("a revoked word", {"stage": "S5", "match": "*", "decision": "go on", "at": early, "revoked_at": "2026-10-02T10:00:00+00:00"}),
                         ("a word of another stage", {"stage": "S3", "match": "*", "decision": "go on", "at": early}),
@@ -4622,15 +4654,23 @@ def one_road_selects_the_word_for_the_finding() -> None:
     try:
         left, passes = P._judge_words(root, [bound], [])
         check_eq("...and the pass carries the word's own `at` and decision", (left, passes),
-                 ([], [{"finding_id": bound["id"], "decision": "go on", "at": "2020-01-01T00:00:00+00:00"}]))
+                 ([], [{"finding_id": bound["id"], "check": "bindings", "case": case, "tag": "no-bindings",
+                        "decision": "go on", "at": "2020-01-01T00:00:00+00:00"}]))
     finally:
         cleanup(root)
-    # a 24 KB word naming the tag: passes, the pass holds the decision whole (the cut is the writer's, `_record_person_pass`)
+    # a 24 KB word that equals nothing passes nothing (a long `match` is never a tag); a 24 KB DECISION on a word that equals the
+    # tag passes and is kept whole (the cut is the writer's, `_record_person_pass`)
     big = "x" * 24 * 1024
+    root = _with_words((big, "go on"))
+    try:
+        left, passes = P._judge_words(root, [bound], [])
+        check_eq("a 24 KB word equal to no tag and no id passes nothing", (left, passes), ([bound], []))
+    finally:
+        cleanup(root)
     root = _with_words(("no-bindings", big))
     try:
         left, passes = P._judge_words(root, [bound], [])
-        check_eq("a 24 KB word naming the tag passes, the pass keeps it whole", (left, len(passes[0]["decision"])), ([], 24 * 1024))
+        check_eq("a 24 KB decision on the word = the tag passes, the pass keeps it whole", (left, len(passes[0]["decision"])), ([], 24 * 1024))
     finally:
         cleanup(root)
     check_eq("no pipeline, no words: nothing passes and nothing raises", P.passed_by_word(Path(temp_dir("qa-s5-none-")), [bound], []), [bound])
@@ -4655,7 +4695,8 @@ def the_result_carries_the_word_passes_and_the_helper_reads_them() -> None:
         (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
         before = sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file())
         result = P.run(task)
-        expected = [{"finding_id": finding["id"], "decision": "the person lets the test stand", "at": "2026-10-01T10:00:00+00:00"}]
+        expected = [{"finding_id": finding["id"], "check": finding["check"], "case": finding["case"], "tag": P._finding_tag(finding),
+                     "decision": "the person lets the test stand", "at": "2026-10-01T10:00:00+00:00"}]
         check_eq("a word: the field holds the pass, and the finding left", (result["word_passes"], len(car(result))), (expected, 0))
         check_eq("the field and the notes are the same passes", len(result["word_passes"]),
                  "\n".join(result["notes"]).count("passed by the person's word"))
@@ -4665,6 +4706,35 @@ def the_result_carries_the_word_passes_and_the_helper_reads_them() -> None:
         check_eq("...and nothing for a scope the finding is not in", P.word_passes(task, ["TC-NOT-HERE"]), [])
         check_eq("the helper is pure: no file written, none changed",
                  sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file()), before)
+        # F2: the passes are taken BEFORE the judges - with the judge on and a stub that would record a call, `word_passes` makes
+        # none (neither `passed_by_judge` nor `judged_refusal`) and writes no file; `run` (the exit gate's road) still does
+        import judge
+        saved = (judge.settings, judge.active, judge.judged_refusal, P.passed_by_judge)
+        calls: list = []
+        try:
+            judge.settings = lambda *_a, **_k: {"provider": "typesafe", "mode": "on"}
+            judge.active = lambda *_a, **_k: True
+            judge.judged_refusal = lambda *a, **_k: calls.append(("judged_refusal", a[0])) or {"passed": False}
+
+            def recording(task_root, findings, *_a, **_k):
+                calls.append(("passed_by_judge", len(findings)))
+                return findings
+            P.passed_by_judge = recording
+            rows = P.word_passes(task, scope)
+            check_eq("F2: judge mode on: `word_passes` makes no judge call and returns the same rows", (calls, rows), ([], expected))
+            check_eq("F2: ...and writes no file", sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file()), before)
+            gate_result = P.run(task)
+            check_eq("F2 control: `run` (the exit gate) still goes through the judges, and its `word_passes` field is the helper's rows",
+                     ([c[0] for c in calls], gate_result["word_passes"]), (["passed_by_judge"], expected))
+            calls.clear()
+            no_word = temp_dir("qa-s5-noword-")
+            check_eq("F2: no live S5 word: `[]` without building the findings (no judge call either)",
+                     (P.word_passes(no_word, ["TC-1"]), calls), ([], []))
+            (no_word / "pipeline.json").write_text("{not json", encoding="utf-8")
+            check_eq("F2: `pipeline.json` unreadable: `[]`", P.word_passes(no_word), [])
+            cleanup(no_word)
+        finally:
+            judge.settings, judge.active, judge.judged_refusal, P.passed_by_judge = saved
     finally:
         cleanup(root)
 

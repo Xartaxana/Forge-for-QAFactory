@@ -6499,10 +6499,8 @@ class Controller:
         """`[(StateConflict, text)]` for one refusal of the plan order, `[]` when a person's recorded `word` for S5 passes it
         (FR-4: a check stops a silent pass, never an informed one). The line the word is matched against is `S5 <word>: <what>`
         and nothing else; `then` (the door, and the other words a conductor may put to the person) follows the match."""
-        blocking, passed = self._passed_by_person("S5", [f"S5 {word}: {what}"])
+        blocking, _ = self._passed_by_person("S5", [f"S5 {word}: {what}"])
         if not blocking:
-            # an informed pass is recorded (FR-4, FV1-30a), by the ONE writer; a request-level refusal has no dispatch yet
-            self._record_person_pass("S5", None, passed)
             return []
         return [(StateConflict, blocking[0] + ". " + then + " If a person decides, the conductor records their words: `"
                  + person_words.door(f"waiver.py --task {self._ticket()} --stage S5 --block \"{word}\"") + "`.")]
@@ -7362,8 +7360,8 @@ class Controller:
             return set()
         found = set()
         for row in rows:
-            check, _case, tag = (str(row.get("finding_id") or "").split(":", 2) + ["", ""])[:3]
-            if check == "run_mapping" and tag.startswith("no-row-"):
+            tag = str(row.get("tag") or "")
+            if row.get("check") == "run_mapping" and tag.startswith("no-row-"):
                 found.add(tag[len("no-row-"):])
         return found
 

@@ -456,7 +456,8 @@ def part_doors_hold_the_whole_words_clause() -> None:
     (the check refuses a cut inside a word, so the text must not invite one); one row per door."""
     clause = person_words.WHOLE_PART
     check_in("the clause says whole words and no cut inside a word", "never a cut inside a word", clause)
-    for name in ("branch_accounting.py", "controller.py", "critic_rollcall.py", "planning_contract.py", "s5_precheck.py"):
+    # `s5_precheck.py` left the list (FV1-30a): its door names the finding's tag or whole id, not a part of the line
+    for name in ("branch_accounting.py", "controller.py", "critic_rollcall.py", "planning_contract.py"):
         text = (SCRIPTS / name).read_text(encoding="utf-8")
         at = [m.start() for m in re.finditer(r'<part of the line>', text) if "--block" in text[max(0, m.start() - 60):m.start()]]
         check(f"G-3 {name}: a printed `<part of the line>` door exists", bool(at))
@@ -493,7 +494,8 @@ def open_door(root: Path, text: str, ticket: str, stage: str, head: str = ""):
     argv = []
     for token in shlex.split(span[:span.index(FLAG)]):
         for placeholder, value in (("<TICKET>", ticket), ("<T>", ticket), ("<id>", ticket),
-                                   ("<S>", stage), ("<part of the line>", head)):
+                                   ("<S>", stage), ("<part of the line>", head),
+                                   ("<the finding's tag, or its whole id>", head)):
             token = token.replace(placeholder, value)
         argv.append(token)
     left = [t for t in argv if "<" in t and ">" in t]
@@ -1989,10 +1991,9 @@ def row_fv130a_the_controller_records_what_the_word_passed() -> None:
         P.word_passes = real
 
 
-def row_fv130a_no_second_question_and_the_plan_pass_is_recorded() -> None:
+def row_fv130a_no_second_question() -> None:
     """FV1-30a: an instance whose no-run-row finding a person's word passed at the S5 exit is not refused a second time by the window
-    gap check (`_s5_gap_problems`, FR-7) and an instance not passed still is; `_plan_refusal` records the pass it lets through, through
-    the one writer, and records nothing when it refuses."""
+    gap check (`_s5_gap_problems`, FR-7) and an instance not passed still is; `_plan_refusal` records nothing (F4)."""
     import acceptance
     import s5_precheck as P
     import test_s5_process as S5
@@ -2005,11 +2006,13 @@ def row_fv130a_no_second_question_and_the_plan_pass_is_recorded() -> None:
         P.word_passes = lambda *_a, **_k: []
         text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
         check("no word: both instances are refused", "product:test_x" in text and "product:test_y" in text, text)
-        P.word_passes = lambda *_a, **_k: [{"finding_id": "run_mapping:TC-1:no-row-test_x", "decision": "go on", "at": "t"}]
+        P.word_passes = lambda *_a, **_k: [{"finding_id": "run_mapping:TC-1:no-row-test_x", "check": "run_mapping", "case": "TC-1",
+                                            "tag": "no-row-test_x", "decision": "go on", "at": "t"}]
         text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
         check("the passed instance is not refused a second time; the other still is; another gap of the passed one still is",
               "product:test_x" not in text and "product:test_y" in text and "stale_run:test_x" in text, text)
-        P.word_passes = lambda *_a, **_k: [{"finding_id": "bindings:TC-1:no-bindings", "decision": "go on", "at": "t"}]
+        P.word_passes = lambda *_a, **_k: [{"finding_id": "bindings:TC-1:no-bindings", "check": "bindings", "case": "TC-1",
+                                            "tag": "no-bindings", "decision": "go on", "at": "t"}]
         text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
         check("a pass of ANOTHER finding (`no-bindings`) lets no instance go", "product:test_x" in text and "product:test_y" in text, text)
 
@@ -2018,20 +2021,14 @@ def row_fv130a_no_second_question_and_the_plan_pass_is_recorded() -> None:
         P.word_passes = boom
         text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
         check("a reader that cannot answer lets nothing go (the refusing direction)", "product:test_x" in text and "product:test_y" in text, text)
-        # `_plan_refusal`: the pass is recorded by the one writer; a refusal records nothing
+        # critic F4: `_plan_refusal` (it runs inside `validate`, on probes and refused requests) records nothing: the recording of
+        # its pass is queued by the Lead
         journal = task / "state" / "passed-by-person.jsonl"
-        before = journal.read_text(encoding="utf-8") if journal.is_file() else ""
-        problems = c._plan_refusal("plan before windows", "no plan yet", "Door: x.")
-        check_eq("no word: the refusal stands and records nothing", (len(problems), journal.is_file() and journal.read_text(encoding="utf-8")),
-                 (1, before if journal.is_file() else False))
         (task / "pipeline.json").write_text(json.dumps({"ticket": TICKET, "stage_overrides": [
             {"stage": "S5", "match": "plan before windows", "decision": "the person lets it", "at": "2026-10-01T10:00:00+00:00"}]}),
             encoding="utf-8")
-        check_eq("a word passes the refusal", c._plan_refusal("plan before windows", "no plan yet", "Door: x."), [])
-        got = [json.loads(x) for x in journal.read_text(encoding="utf-8").splitlines()]
-        check_eq("...and the pass is recorded: the block, the person's words, the word's own time",
-                 [(x["stage"], x["block"], x["decision"], x["word_at"]) for x in got],
-                 [("S5", "S5 plan before windows: no plan yet", "the person lets it", "2026-10-01T10:00:00+00:00")])
+        check_eq("a word passes the plan refusal (as before)", c._plan_refusal("plan before windows", "no plan yet", "Door: x."), [])
+        check_eq("...and `_plan_refusal` writes no record (F4: queued)", journal.is_file(), False)
     finally:
         acceptance.validate_window, P.word_passes = real_validate, real_passes
         cleanup(root)
@@ -2039,7 +2036,7 @@ def row_fv130a_no_second_question_and_the_plan_pass_is_recorded() -> None:
 
 def main() -> None:
     row_fv130a_the_controller_records_what_the_word_passed()
-    row_fv130a_no_second_question_and_the_plan_pass_is_recorded()
+    row_fv130a_no_second_question()
     row_repo_words_cli()
     row_words_carry()
     row_settle_order()
