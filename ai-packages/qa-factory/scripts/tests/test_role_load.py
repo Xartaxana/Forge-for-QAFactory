@@ -293,6 +293,25 @@ def test_slack_key() -> None:
         check_in(f"K-B1: ratchet_slack_tokens {bad!r} is refused naming the key", "ratchet_slack_tokens", raised)
     write(root / "references" / "role-load.json", json.dumps(dict(settings_doc(), ratchet_slack_tokens=0)))
     check_eq("K-B1: a slack of 0 is legal (a tight ratchet)", RL.settings(root)["ratchet_slack_tokens"], 0)
+    # FV1-4 L4 (Q7): the two allowance keys are validated when present, absent they keep their defaults
+    for key in ("brief", "brief_charter_head"):
+        for bad in (-1, "6144", None, True, 6144.0, []):
+            doc = settings_doc()
+            doc["allowances"][key] = bad
+            write(root / "references" / "role-load.json", json.dumps(doc))
+            try:
+                RL.settings(root)
+                raised = ""
+            except RL.RoleLoadError as exc:
+                raised = str(exc)
+            check_in(f"K-L4: allowances.{key} {bad!r} is refused naming the key", f"allowances.{key}", raised)
+        doc = settings_doc()
+        doc["allowances"][key] = 0
+        write(root / "references" / "role-load.json", json.dumps(doc))
+        check_eq(f"K-L4: allowances.{key} 0 is legal", RL.settings(root)["allowances"][key], 0)
+    write(root / "references" / "role-load.json", json.dumps(settings_doc()))
+    got = RL.settings(root)["allowances"]
+    check_eq("K-L4: both keys absent keep the defaults", (got["brief"], got["brief_charter_head"]), (6144, 1024))
 
 
 def test_cli_adversarial() -> None:
