@@ -99,6 +99,7 @@ def _many_paths():
 
 # (id, kind, prompt, code, text that the message must hold, text that the note must hold)
 _NO_LINE = "no handoff: line"
+_FOLDS = os.path.normcase("A") == "a"  # the file system folds case (and, with it, takes the backslash as a separator)
 _FOLDER_ROWS = [
     ("e1", "critic", "handoff: Z:\\r\\docs\\tasks\\handoffs\\t-1.md", 2, ["docs/tasks/specs/reviews", "none of them"], ""),
     ("e2", "critic", "handoff: Z:\\r\\docs\\tasks\\specs\\reviews\\t-1.md", 0, [], ""),
@@ -109,7 +110,10 @@ _FOLDER_ROWS = [
     ("e7", "critic", "handoff: %s/<t>.md" % _REV, 2, ["no absolute path"], ""),
     ("e8", "critic", "handoff: %s/t-1.txt" % _REV, 2, ["none of them"], ""),
     ("e9", "critic", "handoff: %s/t-1.md %s/t-2.md" % (_REV, _REV), 2, ["2 distinct", "t-1.md", "t-2.md"], ""),
-    ("e10", "critic", "handoff: %s/t-1.md %s/T-1.md" % (_REV, _REV.replace("/", "\\")), 0, [], ""),
+    # the same file in another slash and another letter case is ONE file only where the file system folds case and
+    # takes the backslash as a separator; on POSIX t-1.md and T-1.md are two files and the gate must refuse two
+    ("e10", "critic", "handoff: %s/t-1.md %s/T-1.md" % (_REV, _REV.replace("/", "\\")),
+     0 if _FOLDS else 2, [] if _FOLDS else ["2 distinct"], ""),
     ("e11", "critic", "Review.\n```\nhandoff: %s/t-1.md\n```" % _REV, 2, [_NO_LINE], ""),
     ("e12", "critic", "Review.\n> handoff: %s/t-1.md" % _REV, 2, [_NO_LINE], ""),
     ("e13", "critic", "Review.\nmanifest-skip: handoff -- text report", 0, [], "sent without a report path on purpose"),
