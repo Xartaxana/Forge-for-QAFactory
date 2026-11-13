@@ -48,6 +48,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 try:
     import dev_config
@@ -92,6 +93,18 @@ NODE_RE = re.compile(r"^[a-z][a-z0-9-]*/[1-9][0-9]*/[A-Za-z](?:[A-Za-z0-9-]*[A-Z
 # as failed/3070/passed), measured on the live journal -- NODE_RE itself, for a written field, does not ask for one.
 NODE_TOKEN_RE = re.compile(r"(?<![\w/.-])([a-z][a-z0-9-]*)/([1-9][0-9]*)[ /]((?=[A-Za-z0-9-]*\d)[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?)(?![\w/-])")
 MAX_PROBLEMS_SHOWN = 3
+# ID BANDS (rule 9e of journal_validator, F6-58): the optional `id_band` field of ANY journal line, ONE door for a
+# parallel branch and for a second writer of the same file. Closed `t-A..t-B` reserves the ids A..B for the writer
+# who declares it; open `t-A..` raises the file's own sequence so that its next brand-new id is t-A. Both ends are
+# ASCII digits, 3 to 9 of them (`[0-9]`, never `\d`: a fullwidth digit is not the same number; bounded, so int() is
+# never reached on a long run). `\Z`, not `$`: `t-500..\n` is not a band. The id regex of the next-id readers
+# (ID_NUM_RE) is the same ASCII class, kept here because journal_validator imports this module, not the reverse.
+BAND_RE = re.compile(r"^t-([0-9]{3,9})\.\.(?:t-([0-9]{3,9}))?\Z")
+ID_NUM_RE = re.compile(r"^t-([0-9]{3,9})$")
+BAND_MAX_SIZE = 1000      # ids in a closed band
+BAND_JUMP_MAX = 10000     # a band may start at most this far above `top`
+BAND_GAP_MIN = 50         # a closed band starts at least this far above `top` (it protects by DISTANCE)
+BAND_SHOW_MAX = 3         # band lines printed by `where` / the snapshot / the NOVELTY text
 
 
 class Segments:
@@ -184,6 +197,186 @@ def node_of(obj):
     if len(tokens) == 1:
         return next(iter(tokens)), None
     return None, "two_tokens" if tokens else "no_node"
+
+
+class Band(NamedTuple):
+    """A parsed `id_band`: `lo`, `hi` (None for the open form `t-A..`) and the `raw` text as written."""
+    lo: int
+    hi: int | None
+    raw: str
+
+    @property
+    def label(self) -> str:
+        """The band in the journal's own width: `t-450..t-499` / `t-450..`."""
+        return f"t-{self.lo:03d}.." + (f"t-{self.hi:03d}" if self.hi is not None else "")
+
+
+def id_band_of(obj):
+    """(Band | None, reason | None) of a journal line: the optional `id_band` FIELD (rule 9e).
+
+    Absent or JSON null -> (None, None) (as `node`); a non-dict is (None, None) too. Present and not a str ->
+    (None, "band_not_string"); a str outside BAND_RE (fullwidth digits, 10+ digits, spaces, a dash other than
+    `..`) -> (None, "band_not_form"); a closed band whose end is below its start -> (None, "band_reversed"); one
+    that holds more than BAND_MAX_SIZE ids -> (None, "band_too_big"). Pure, never raises, never reaches int() on
+    more than 9 digits."""
+    if not isinstance(obj, dict):
+        return None, None
+    value = obj.get("id_band")
+    if value is None:
+        return None, None
+    if not isinstance(value, str):
+        return None, "band_not_string"
+    m = BAND_RE.match(value)
+    if m is None:
+        return None, "band_not_form"
+    lo = int(m.group(1))
+    hi = int(m.group(2)) if m.group(2) is not None else None
+    if hi is not None:
+        if hi < lo:
+            return None, "band_reversed"
+        if hi - lo + 1 > BAND_MAX_SIZE:
+            return None, "band_too_big"
+    return Band(lo, hi, value), None
+
+
+def suggested_band(top: int) -> int:
+    """The start of the band a second writer is told to open: a round number (a multiple of 50) at least
+    BAND_GAP_MIN above `top`. The one function behind `where`, the refusals and the PARALLEL SESSION note."""
+    return -(-(top + BAND_GAP_MIN) // 50) * 50
+
+
+class NextIds(NamedTuple):
+    """`main`: the next id of the file's own sequence; `bands`: {Band: next id | None (used up)} of the closed
+    bands in declaration order; `top`: the highest id or band end seen (see BandState.top)."""
+    main: int
+    bands: dict
+    top: int
+
+
+class BandState:
+    """The one incremental state of the next-id rule, fed line by line (rule 9a and 9e): every task id seen, the
+    closed bands and the open bands. The gate feeds it OLD lines with `add(obj)` (their bands are never judged:
+    append-only) and a NEW line through check_band / add."""
+
+    def __init__(self):
+        self.ids: set = set()        # ints: the task ids that match ID_NUM_RE
+        self.closed: list = []       # closed Bands, declaration order
+        self.opens: list = []        # lo of every open band
+
+    def _inside(self, n: int) -> bool:
+        return any(b.lo <= n <= b.hi for b in self.closed)
+
+    @property
+    def top(self) -> int:
+        """The maximum of every id seen, every closed band's end and every open band's `lo - 1` (0 when none)."""
+        return max([*self.ids, *(b.hi for b in self.closed), *(lo - 1 for lo in self.opens), 0])
+
+    def check_band(self, band):
+        """None when `band` may be declared now, else why not: "below" (`lo <= top`: it reaches back and could
+        hand out an id twice), "near" (a closed band under BAND_GAP_MIN above `top`: the other writer's next
+        id lands on its first), "jump" (more than BAND_JUMP_MAX above `top`)."""
+        top = self.top
+        if band.lo <= top:
+            return "below"
+        if band.hi is not None and band.lo < top + BAND_GAP_MIN:
+            return "near"
+        if band.lo - top > BAND_JUMP_MAX:
+            return "jump"
+        return None
+
+    def add_band(self, band) -> None:
+        """Take a form-valid band into the state (the same band twice is one)."""
+        if band.hi is None:
+            if band.lo not in self.opens:
+                self.opens.append(band.lo)
+        elif all((b.lo, b.hi) != (band.lo, band.hi) for b in self.closed):
+            self.closed.append(band)
+
+    def add(self, obj, band_ok: bool = True) -> None:
+        """One line: its band first (when `band_ok` and the band is form-valid), then its task id (when it
+        matches ID_NUM_RE) -- the band applies before that line's own id is judged."""
+        if band_ok:
+            band = id_band_of(obj)[0]
+            if band is not None:
+                self.add_band(band)
+        tid = obj.get("task_id") if isinstance(obj, dict) else None
+        m = ID_NUM_RE.match(tid) if isinstance(tid, str) else None
+        if m:
+            self.ids.add(int(m.group(1)))
+
+    def issuable(self):
+        """(main, {Band: next id | None}). `main`: one above the max over the ids NOT inside a closed band and
+        over every open band's `lo - 1`; while it lies inside a closed band it jumps to that band's end + 1.
+        A closed band's next id is the max of the ids inside it + 1, or its `lo` when it has none; None once
+        that passes its end (used up)."""
+        floor = max([n for n in self.ids if not self._inside(n)] + [lo - 1 for lo in self.opens] + [0])
+        main = floor + 1
+        moved = True
+        while moved:
+            moved = False
+            for b in self.closed:
+                if b.lo <= main <= b.hi:
+                    main = b.hi + 1
+                    moved = True
+        bands = {}
+        for b in self.closed:
+            inside = [n for n in self.ids if b.lo <= n <= b.hi]
+            nxt = max(inside) + 1 if inside else b.lo
+            bands[b] = nxt if nxt <= b.hi else None
+        return main, bands
+
+    def suggested(self):
+        """(s, s + 49): the band a second writer is told to open, from suggested_band(top)."""
+        s = suggested_band(self.top)
+        return s, s + 49
+
+
+def next_ids(objs) -> NextIds:
+    """A BandState fed over `objs` (journal line objects, bands taken as written), read once."""
+    state = BandState()
+    for obj in objs:
+        state.add(obj)
+    main, bands = state.issuable()
+    return NextIds(main, bands, state.top)
+
+
+def free_bands(state) -> list:
+    """[(Band, next id)] of the closed bands that still have a free id, declaration order. `state`: a BandState
+    or a NextIds."""
+    bands = state.issuable()[1] if isinstance(state, BandState) else state.bands
+    return [(b, n) for b, n in bands.items() if n is not None]
+
+
+def used_up_bands(state) -> list:
+    """The closed bands with no free id left, declaration order. `state`: a BandState or a NextIds."""
+    bands = state.issuable()[1] if isinstance(state, BandState) else state.bands
+    return [b for b, n in bands.items() if n is None]
+
+
+def band_lines(state) -> list:
+    """At most BAND_SHOW_MAX lines `band t-A..t-B: next t-N`: the LATEST-declared closed bands that still have a
+    free id, in declaration order. A used-up band is never printed, so the output stays bounded however many
+    bands were declared. `state`: a BandState or a NextIds."""
+    return [f"band {b.label}: next t-{n:03d}" for b, n in free_bands(state)[-BAND_SHOW_MAX:]]
+
+
+def peer_note(peers, state) -> str:
+    """The PARALLEL SESSION note (a note, never a refusal): "" with no `peers` ([(stem, age_s)], youngest first,
+    transcripts.peer_main_sessions), else one line that tells the session another main session of this project
+    is live and how to open a band. At most 3 stems are shown. `state`: a BandState or a NextIds (its `top`)."""
+    if not peers:
+        return ""
+    s = suggested_band(state.top)
+    shown = ", ".join(str(stem)[:8] for stem, _age in peers[:3])
+    if len(peers) > 3:
+        shown += f", +{len(peers) - 3} more"
+    return (
+        "PARALLEL SESSION (a note, nothing is blocked): another main session of this project wrote its "
+        f"transcript {int(peers[0][1]) // 60} min ago ({shown}). Two sessions issuing task ids into one journal "
+        "file collide on max+1 (13.11, t-347..t-356); one of you opens a band before its next id: "
+        f'id_band: "t-{s:03d}..t-{s + 49:03d}" on that journal line (python tools/journal_keys.py where prints '
+        "the next ids; CLAUDE.md, Routing log)."
+    )
 
 
 def _objs(lines: list[str]) -> list:
@@ -625,13 +818,19 @@ class Journal:
         return [r.obj for r in (self.rows if rows is None else rows) if r.obj is not None]
 
     def next_free_id(self, label) -> str:
-        """t-NNN = max(t-NNN of the logical journal `label`) + 1, in the journal's own width."""
-        top = 0
+        """t-NNN = the next id of the file's own sequence of the logical journal `label`, in the journal's own
+        width: max(t-NNN) + 1, where an open band raises the max and a closed band is skipped (rule 9e;
+        `next_ids`). With no band in the journal it is max + 1, as before."""
+        return f"t-{next_ids(r.obj for r in self.logical(label) if r.obj is not None).main:03d}"
+
+    def band_state(self, label) -> BandState:
+        """The BandState of the logical journal `label` (what next_free_id reads), for the readers that also
+        print the bands (compact_snapshot)."""
+        state = BandState()
         for r in self.logical(label):
-            m = re.match(r"^t-(\d+)$", str(r.obj.get("task_id") or "")) if r.obj is not None else None
-            if m:
-                top = max(top, int(m.group(1)))
-        return f"t-{top + 1:03d}"
+            if r.obj is not None:
+                state.add(r.obj)
+        return state
 
     def last_ts(self, label):
         """The ts of the last row of the logical journal `label` that has a string ts, else None."""
@@ -912,8 +1111,10 @@ def cmd_check(journal_path: Path, segments_path: Path) -> int:
 
 def cmd_where(root: Path) -> int:
     """Prints the file this clone writes its journal lines to, the next free task id and the last
-    ts of that writer's logical journal -- from current_path(), the function the hooks use. Exit 1
-    with the door when there is no path to write."""
+    ts of that writer's logical journal -- from current_path(), the function the hooks use -- then
+    (rule 9e) a line `band t-A..t-B: next t-N` for each of the latest 3 closed bands that still have a
+    free id, and LAST, always, the band a second writer would open. Exit 1 with the door when there is
+    no path to write."""
     rel, why = current_path(root)
     if rel is None:
         print(f"journal_keys where: there is no file to write to -- {why}", file=sys.stderr)
@@ -925,9 +1126,16 @@ def cmd_where(root: Path) -> int:
         print(f"next free id: t-001 (the file does not exist yet; with `continues` on line 1 it continues the history: "
               f"{j.next_free_id('')})")
         print("last ts: -")
+        s, e = j.band_state("").suggested()      # the file continues the history: its top is the history's
+        print(f"suggested band (for a second writer): t-{s:03d}..t-{e:03d}")
         return 0
-    print(f"next free id: {j.next_free_id(label)}")
+    state = j.band_state(label)
+    print(f"next free id: t-{state.issuable()[0]:03d}")
     print(f"last ts: {j.last_ts(label) or '-'}")
+    for line in band_lines(state):
+        print(line)
+    s, e = state.suggested()
+    print(f"suggested band (for a second writer): t-{s:03d}..t-{e:03d}")
     return 0
 
 

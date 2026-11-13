@@ -32,7 +32,9 @@ log" section):
     acceptance, and a legal retry after rejected). For a NEW
     delegated:
     a) task_id == max(all t-NNN in the file so far)+1 -- always legal
-       (a brand-new task);
+       (a brand-new task); with ID BANDS (rule 9e) the legal new ids are the
+       file's own next id (max+1, past every closed band) and the next id
+       of each closed band that is not used up;
     b) task_id already exists in the file AND the task is still OPEN
        (no accepted for this task_id earlier in the file) AND the new
        line's agent differs from every earlier delegated agent for
@@ -81,6 +83,33 @@ log" section):
        agent, no attempt, no rejected, no valid replaces_worker; and
        delegated on a CLOSED task -- reopening is forbidden, a
        collision counts as two tasks).
+    e) ID BANDS (F6-58) -- the door of (a) for a second writer of one file
+       (a second session of the same developer) and for a branch whose ids
+       will meet another's at a merge. The optional `id_band` field of ANY
+       line: closed "t-A..t-B" reserves the ids A..B (at most
+       BAND_MAX_SIZE = 1000) for the writer who declares it, issued in
+       order A, A+1, ...; open "t-A.." raises the file's own sequence, so
+       its next brand-new id is t-A. Both ends are ASCII digits, 3 to 9 of
+       them (journal_keys.id_band_of is the one reader). A malformed band
+       on a NEW line is a FORM / REVERSED / TOO_BIG violation (field
+       `id_band`, clearable in a merge with `merge-accepts:<n>:id_band`); a
+       null band is absent; an old line is never judged. `top` = the max of
+       every id seen, every closed band's end and every open band's A-1; a
+       band needs A > top (BELOW), at most BAND_JUMP_MAX = 10000 above it
+       (JUMP), and a CLOSED band at least BAND_GAP_MIN = 50 above it (NEAR:
+       a band protects by DISTANCE -- adjacent to `top` its first id is
+       where the other writer's next max+1 falls). The band on a line
+       applies BEFORE that line's own id is judged (the opening delegated
+       of a band is legal); a band refused on a line never makes the same
+       line's id legal. A used-up band is a NOVELTY violation that says so;
+       a filler line that only raises the max is not needed. A band only
+       raises or reserves ids above everything issued or reserved: it never
+       lowers the counter and never makes an issued id issuable twice. In a
+       merge each parent's form-valid bands are in the state of the tail;
+       the collision WARN names a band that overlaps ids the other clone
+       had issued. The state is journal_keys.BandState: the gate,
+       `journal_keys.py where` and compact_snapshot read the next id from
+       it.
     For a new accepted/rejected/escalated/defect_found -- it must
     reference a task_id already seen earlier in the file (in HEAD or
     earlier in this same commit); unchanged otherwise.
@@ -355,11 +384,6 @@ def extract_task_ids(lines: list[str]) -> set[str]:
         if isinstance(tid, str) and TASK_ID_RE.match(tid):
             ids.add(tid)
     return ids
-
-
-def max_task_num(ids: set[str]) -> int:
-    nums = [int(TASK_ID_RE.match(i).group(1)) for i in ids]
-    return max(nums) if nums else 0
 
 
 def extract_replaces_worker(notes) -> str | None:
@@ -679,7 +703,7 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict) -> str | None
 # read, plus "line" for a line that does not parse into one object. `merge-accepts:<n>:<field>`
 # (merge mode) names fields from this set; nothing else is accepted as a field.
 FORM_FIELDS = ("line", "ts", "event", "agent", "category", "notes", "model", "task_id", "attempt",
-               "failure_class", "witness", "worker_ref", "ref", "by", "node")
+               "failure_class", "witness", "worker_ref", "ref", "by", "node", "id_band")
 # the reasons journal_keys.node_of gives to a PRESENT `node` that is not a node (a field that is absent or null is not here)
 NODE_BAD_REASONS = ("node_not_string", "node_not_form")
 
@@ -856,7 +880,33 @@ def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
             "dict is not a string, so hop_metrics and the chain of a node cannot read the line -- fix the value, or leave "
             "the field out (it is optional) (rule 18)"
         ))
+    # rule 9e: the optional `id_band` of any event. Absent or null is never a violation; a PRESENT value is judged by
+    # journal_keys.id_band_of -- the one reader. Its place against the state (below / near / jump) is judged in
+    # validate_new_lines, which has the state; a foreign line in a merge gets the form checks only.
+    if "id_band" in obj:
+        reason = _jk.id_band_of(obj)[1]
+        if reason is not None:
+            out.append(("id_band", _band_form_text(tag, obj["id_band"], reason)))
     return out
+
+
+def _band_form_text(tag: str, value, reason: str) -> str:
+    """The refusal text of a malformed `id_band` (rule 9e): FORM (not a string / not the form), REVERSED, TOO_BIG."""
+    if reason == "band_reversed":
+        return (f"{tag}: id_band = {value!r} ends below its start -- write the lower id first, e.g. "
+                '"t-450..t-499" (rule 9e)')
+    if reason == "band_too_big":
+        m = _jk.BAND_RE.match(value)
+        n = int(m.group(2)) - int(m.group(1)) + 1
+        return (f"{tag}: id_band = {value!r} holds {n} ids; a band holds at most {_jk.BAND_MAX_SIZE} -- declare a "
+                "smaller band, and a new one when it is used up (rule 9e)")
+    shown = repr(value)
+    if len(shown) > 80:                      # a 5000-digit value must not fill the screen
+        shown = shown[:80] + "..."
+    return (f'{tag}: id_band = {shown} is not "t-A..t-B" (a closed band: '
+            f"at most {_jk.BAND_MAX_SIZE} ids reserved for this writer) or \"t-A..\" (an open band: this journal's ids go "
+            "on from t-A), each end 3 to 9 plain digits; write e.g. \"t-450..t-499\" -- fix the value, or leave the field "
+            "out (it is optional) (rule 9e)")
 
 
 def _ts_shape_violation(ts, tag: str):
@@ -893,7 +943,12 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
     violations: list[str] = []
     state_lines = list(seed_lines) + list(head_lines)
     seen_task_ids = extract_task_ids(state_lines)
-    max_num = max_task_num(seen_task_ids)
+    # the next-id state (rule 9a/9e): HEAD and seed lines contribute their ids and their form-valid bands, never judged
+    band_state = _jk.BandState()
+    for state_line in state_lines:
+        state_obj = _try_parse_obj(state_line)
+        if state_obj is not None:
+            band_state.add(state_obj)
     if ts_anchor is _ANCHOR_FROM_HEAD:
         last_ts = _last_head_ts(head_lines) if head_lines else _last_head_ts(list(seed_lines))
     else:
@@ -936,23 +991,24 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
         # the merge mode; the texts come back in exactly the order they were appended here before
         violations.extend(text for _field, text in _line_form_violations(obj, tag))
 
+        # rule 9e (i): the PLACE of a form-valid band on this line, against everything issued or reserved before it.
+        # A refused band does not enter the state, so it can never make this line's own id legal (position invariant).
+        band, _band_reason = _jk.id_band_of(obj)
+        band_kind = None
+        if band is not None:
+            band_kind = band_state.check_band(band)
+            if band_kind is None:
+                band_state.add_band(band)
+            else:
+                violations.append(_band_place_text(tag, band, band_kind, band_state.top))
+
         valid_tid = isinstance(task_id, str) and TASK_ID_RE.match(task_id)
         if event == "delegated" and valid_tid:
             if task_id not in seen_task_ids:
-                # (a) a brand-new task -- must be exactly max+1.
-                expected = max_num + 1
-                actual = int(TASK_ID_RE.match(task_id).group(1))
-                if actual != expected:
-                    violations.append(
-                        f"{tag}: task_id novelty violated -- expected "
-                        f"t-{expected:03d} (max+1), got {task_id} -- a "
-                        "brand-new task with a non-sequential id means the "
-                        "log's tail wasn't re-read right before writing "
-                        "delegated, opening the door to an id collision "
-                        "with a parallel session -- re-read the journal "
-                        f"tail and use t-{expected:03d} for a new task "
-                        "(rule 9a)"
-                    )
+                # (a) a brand-new task -- (ii) the file's own next id, or the next id of a closed band that is not
+                # used up (rule 9e). The band of THIS line, when accepted above, is already in the state.
+                if not _is_issuable(task_id, band_state):
+                    violations.append(_novelty_text(tag, task_id, band_state))
             elif task_id in closed_tasks:
                 # (d) reopen forbidden -- a collision counts as two tasks.
                 violations.append(
@@ -1085,13 +1141,57 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                 )
             last_ts = parsed_ts
 
+        # (iii) the line enters the state: its band only when it was not refused, then its id
+        band_state.add(obj, band_ok=(band_kind is None))
         if valid_tid:
             seen_task_ids.add(task_id)
-            num = int(TASK_ID_RE.match(task_id).group(1))
-            if num > max_num:
-                max_num = num
 
     return violations
+
+
+def _is_issuable(task_id: str, state) -> bool:
+    """Rule 9a/9e: is `task_id` (a valid t-NNN, not yet seen) the file's own next id or the next id of a closed
+    band that is not used up? An id the next-id readers cannot parse (more than 9 digits) is never issuable."""
+    m = _jk.ID_NUM_RE.match(task_id)
+    if m is None:
+        return False
+    actual = int(m.group(1))
+    main, bands = state.issuable()
+    return actual == main or actual in {n for n in bands.values() if n is not None}
+
+
+def _band_place_text(tag: str, band, kind: str, top: int) -> str:
+    """The refusal of a band that is well formed but placed wrong: BELOW, NEAR or JUMP (rule 9e)."""
+    s = _jk.suggested_band(top)
+    gap = band.lo - top
+    if kind == "below":
+        return (f"{tag}: id_band {band.raw} starts at or below t-{top:03d}, the highest id or band already in this "
+                "journal -- a band may only start above everything issued or reserved, or it could hand out an id "
+                f"twice; start it at t-{s:03d} (rule 9e)")
+    if kind == "near":
+        return (f"{tag}: id_band {band.raw} starts {gap} ids above t-{top:03d}; a closed band starts at least "
+                f"{_jk.BAND_GAP_MIN} ids above, or the other writer's next id can land on its first id before this "
+                f"line is written -- start it at t-{s:03d} (rule 9e)")
+    return (f"{tag}: id_band {band.raw} starts {gap} ids above t-{top:03d}; at most {_jk.BAND_JUMP_MAX} -- start it "
+            f"nearer, at t-{s:03d} (rule 9e)")
+
+
+def _novelty_text(tag: str, task_id, state) -> str:
+    """The refusal of a brand-new delegated whose id is neither the file's next id nor a band's next (rules 9a, 9e):
+    names every next id the writer may use, and a used-up band with the door."""
+    main, _bands = state.issuable()
+    s = _jk.suggested_band(state.top)
+    text = f"{tag}: task_id novelty violated -- got {task_id}; the next new id is t-{main:03d} (this journal's sequence)"
+    for band, nxt in _jk.free_bands(state)[-_jk.BAND_SHOW_MAX:]:
+        text += f" or t-{nxt:03d} (band {band.label})"
+    used = _jk.used_up_bands(state)[-_jk.BAND_SHOW_MAX:]
+    for band in used:
+        text += f"; band {band.label} is used up"
+    if used:
+        text += f" -- open a new band at t-{s:03d}"
+    return (text + " -- re-read the tail right before writing (python tools/journal_keys.py where prints every next "
+            "id); a second writer of this file opens its own band: "
+            f'id_band: "t-{s:03d}..t-{s + 49:03d}" on its first line (rules 9a, 9e)')
 
 
 def decide(staged_text: str | None, head_text: str | None,
@@ -1473,6 +1573,21 @@ def _collision_warning(staged_lines: list[str], consumed_h: set, consumed_o: set
         f"declare --label <name> --lines {a}-{b} --why \"<where the collision comes from>\" ({where}) "
         "(a warning only, the code never changes)"
     )
+    # rule 9e: an uncovered id inside a closed band declared on THIS side's own lines -- the band overlapped ids the
+    # other clone had already issued (a clause on the one WARN, never a violation)
+    head_bands = []
+    for i in sorted(only_h):
+        obj = _try_parse_obj(staged_lines[i])
+        band = _jk.id_band_of(obj)[0] if obj is not None else None
+        if band is not None and band.hi is not None:
+            head_bands.append((band, i + 1))
+    for tid in uncovered[:MAX_COLLISION_IDS]:
+        num = int(tid[2:]) if _jk.ID_NUM_RE.match(tid) else None
+        for band, n in head_bands:
+            if num is not None and band.lo <= num <= band.hi:
+                text += (f" -- {tid} lies inside band {band.label} declared on this clone (line {n}): the band "
+                         "overlapped ids the other clone had already issued")
+                break
     opened: set = set()
     closed: set = set()
     for line in staged_lines:

@@ -663,17 +663,17 @@ def _where(root, capsys):
 def test_k17_before_the_switch_it_is_the_history(tmp_path, capsys):
     rc, out, err = _where(make_root(tmp_path), capsys)
     assert rc == 0 and err == ""
-    assert out.splitlines() == ["write to: logs/routing-log.jsonl", "next free id: t-003", "last ts: 2026-10-01T10:00:00"]
+    assert out.splitlines() == ["write to: logs/routing-log.jsonl", "next free id: t-003", "last ts: 2026-10-01T10:00:00", "suggested band (for a second writer): t-100..t-149"]
 
 
 def test_k17_after_the_switch_with_a_slug(tmp_path, capsys):
     rc, out, err = _where(_two_files(tmp_path), capsys)
     assert rc == 0 and err == ""
-    assert out.splitlines() == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:30:00"]
+    assert out.splitlines() == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:30:00", "suggested band (for a second writer): t-100..t-149"]
     other = _two_files(tmp_path / "n")
     write(other, jk.DEV_CONFIG_REL, "developer: dev2\n")
     rc, out, err = _where(other, capsys)
-    assert rc == 0 and out.splitlines() == ["write to: logs/journal/dev2.jsonl", "next free id: t-003", "last ts: 2026-10-02T09:10:00"]
+    assert rc == 0 and out.splitlines() == ["write to: logs/journal/dev2.jsonl", "next free id: t-003", "last ts: 2026-10-02T09:10:00", "suggested band (for a second writer): t-100..t-149"]
 
 
 def test_k17_after_the_switch_with_a_slug_whose_file_does_not_exist_yet(tmp_path, capsys):
@@ -795,4 +795,77 @@ def test_node_of_a_non_object_is_a_reason(obj):
 def test_node_of_a_non_string_notes_is_no_token():
     assert jk.node_of({"notes": ["forge/5 F5-2"]}) == (None, "no_node")
     assert jk.node_of({"node": "forge/5/F5-2", "notes": 5}) == ("forge/5/F5-2", None)
+
+
+# ================================ id bands (F6-58, rule 9e): `where` and the readers ================================
+
+def _band_where(tmp_path, capsys, dev1_lines):
+    root = make_root(tmp_path, files={DEV1: jtext(M_CREATED, *dev1_lines)}, slug="dev1")
+    rc, out, err = _where(root, capsys)
+    assert rc == 0 and err == ""
+    return out.splitlines()
+
+
+def _bd(tid, ts, band=None, **kw):
+    """A delegated line of the dev1 file, optionally carrying `id_band`."""
+    return delegated(tid, ts, **({"id_band": band} if band else {}), **kw)
+
+
+def test_k1_where_prints_the_band_with_free_ids_and_the_suggested_band_last(tmp_path, capsys):
+    out = _band_where(tmp_path, capsys, [_bd("t-003", "2026-10-02T08:30:00"),
+                                         _bd("t-450", "2026-10-02T08:40:00", "t-450..t-499")])
+    assert out[:3] == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:40:00"]
+    assert out[3:] == ["band t-450..t-499: next t-451", "suggested band (for a second writer): t-550..t-599"]
+
+
+def test_k2_where_shows_the_latest_three_bands_with_a_free_id_and_never_a_used_up_one(tmp_path, capsys):
+    lines = [_bd("t-003", "2026-10-02T08:30:00")]
+    top = 3
+    for i in range(7):                       # 5 bands with a free id, 2 used up (a band of 3 ids, all issued)
+        lo = jk.suggested_band(top)
+        used = i in (1, 4)
+        hi = lo + (2 if used else 9)
+        lines.append(_bd(f"t-{lo}", f"2026-10-02T09:{i:02d}:00", f"t-{lo}..t-{hi}"))
+        if used:
+            lines += [_bd(f"t-{lo + k}", f"2026-10-02T09:{i:02d}:{k:02d}") for k in (1, 2)]
+        top = hi
+    out = _band_where(tmp_path, capsys, lines)
+    band_lines = [l for l in out if l.startswith("band ")]
+    assert len(band_lines) == 3 and len([l for l in out if l.startswith("suggested band")]) == 1
+    expect = [(b, n) for b, n in jk.free_bands(jk.next_ids(json.loads(l) for l in jtext(*lines).splitlines()))]
+    assert len(expect) == 5 and band_lines == [f"band {b.label}: next t-{n:03d}" for b, n in expect[-3:]]
+
+
+def test_k3_where_with_every_band_used_up_prints_no_band_line_but_the_suggestion(tmp_path, capsys):
+    lines = [_bd("t-003", "2026-10-02T08:30:00"), _bd("t-100", "2026-10-02T08:40:00", "t-100..t-101"),
+             _bd("t-101", "2026-10-02T08:41:00")]
+    out = _band_where(tmp_path, capsys, lines)
+    assert out == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:41:00",
+                   "suggested band (for a second writer): t-200..t-249"]
+
+
+@pytest.mark.parametrize("value,reason", [
+    (None, None), ("t-450..t-499", None), ("t-450..", None), ("t-5..t-9", "band_not_form"), ("", "band_not_form"),
+    ("t-500..t-499", "band_reversed"), ("t-500..t-1499", None), ("t-500..t-1500", "band_too_big"),
+    (["t-1"], "band_not_string"), (500, "band_not_string"), ("t-４００..t-４４９", "band_not_form"),
+    ("t-1234567890..", "band_not_form"), ("t-" + "9" * 5000 + "..", "band_not_form"),
+    ("t-999999999..", None), ("t-500..\n", "band_not_form"),
+])
+def test_id_band_of_forms(value, reason):
+    band, why = jk.id_band_of({"id_band": value})
+    assert why == reason and (band is not None) == (reason is None and value is not None)
+    assert jk.id_band_of({}) == (None, None) and jk.id_band_of("x") == (None, None)
+
+
+def test_the_band_state_is_the_one_next_id_rule():
+    objs = [{"task_id": "t-356"}, {"task_id": "t-450", "id_band": "t-450..t-499"}, {"task_id": "t-357"}]
+    n = jk.next_ids(objs)
+    assert (n.main, n.top) == (358, 499) and [v for v in n.bands.values()] == [451]
+    assert jk.next_ids([{"task_id": "t-399"}, {"id_band": "t-400..t-449"}]).main == 450       # main reaches a band: B+1
+    assert jk.next_ids([{"task_id": "t-399"}, {"id_band": "t-400..t-449"}, {"id_band": "t-450..t-499"}]).main == 500
+    assert jk.next_ids([{"task_id": "t-433"}, {"id_band": "t-500.."}]).main == 500
+    assert jk.next_ids([]).main == 1 and jk.next_ids([{"task_id": "t-1234567890"}]).main == 1
+    assert jk.peer_note([], jk.BandState()) == ""
+    note = jk.peer_note([(f"abcdefghij{i}", 125) for i in range(5)], jk.BandState())
+    assert "2 min ago (abcdefgh, abcdefgh, abcdefgh, +2 more)" in note and 'id_band: "t-050..t-099"' in note
 
