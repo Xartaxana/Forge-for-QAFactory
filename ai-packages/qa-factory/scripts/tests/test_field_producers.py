@@ -17,6 +17,7 @@ Writing this walk found two fields where the deriver existed and was wired to tw
 paths that ask for it (FR-17): `runtime.provenance` and `rounds[].verify.witness`.
 """
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ from harness import check, check_eq, check_in, finish  # noqa: E402
 sys.path.insert(0, str(harness.SCRIPTS))
 import handoff  # noqa: E402
 import handoff_check as HC  # noqa: E402
+import hooklib  # noqa: E402
 import null_outcomes as NO  # noqa: E402
 
 PRODUCERS = harness.PLUGIN_ROOT / "references" / "field-producers.json"
@@ -483,7 +485,7 @@ def every_stage_output_fills_or_is_named() -> None:
     required field gone is NAMED in the summary (`outputs no reader refuses`), a `NotCovered` one too; neither is red (E7, E21)."""
     import form_filler as FF
     import validate_artifacts as VA
-    ctx = FF.FillContext(task_key="TP1-1", dispatch_id="S1-dispatch-1")
+    ctx = FF.FillContext(task_key="TP1-1", dispatch_id="S1-dispatch-1", cases=["TC-001", "TC-002"], minted={"P": ["P-1"]})
     try:
         pairs = FF.stage_outputs()
     except Exception as exc:                       # an unreadable table is red, never "no outputs"
@@ -497,8 +499,14 @@ def every_stage_output_fills_or_is_named() -> None:
     for name in sorted(set(names) - listed):
         check(f"table row {name} names no output of stages.json", False, "stage_outputs() returns it")
     tables = FF.rules()
+    subkinds = sorted(key for key, row in tables["artifact_templates"].items() if row.get("subkind_of"))
     for section in ("artifact_templates", "not_covered"):
         for key in tables[section]:
+            if key in subkinds:
+                parent = tables[section][key]["subkind_of"]
+                if parent not in names:
+                    check(f"stale fill row {key}", False, f"the sub-kind names {parent}, which is no output of stages.json")
+                continue
             if key not in names:
                 check(f"stale fill row {key}", False, f"{section} names an output no stage of stages.json lists")
                 continue
@@ -515,9 +523,24 @@ def every_stage_output_fills_or_is_named() -> None:
         return world / "qa-factory" / "artifacts" / ctx.task_key
 
     def refusals(world, result) -> list:
-        return [e for path in FF.write_outputs(task_root_of(world), world, result) for e in VA.collect_errors(path, {})]
+        """What the reader says of every file of `result` written into `world`. The world is a project (marker + the register the
+        cases cover), and the hook layer is pointed at it for the call: a case is read against the register of ITS project."""
+        if not (world / "qa-factory" / "config.json").is_file():
+            harness.mark_project(world)
+            FF.write_outputs(task_root_of(world), world, FF.fill_artifact("work/requirements-register.md", ctx).require())
+        old = os.environ.get("CLAUDE_PROJECT_DIR")
+        os.environ["CLAUDE_PROJECT_DIR"] = str(world)
+        hooklib._PROJECT_ROOT_CACHE = None
+        try:
+            return [e for path in FF.write_outputs(task_root_of(world), world, result) for e in VA.collect_errors(path, {})]
+        finally:
+            if old is None:
+                os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            else:
+                os.environ["CLAUDE_PROJECT_DIR"] = old
+            hooklib._PROJECT_ROOT_CACHE = None
     try:
-        for name in names:
+        for name in names + subkinds:
             row = f"output: {name}[base]"
             try:
                 kind = FF.classify(name)
@@ -543,11 +566,18 @@ def every_stage_output_fills_or_is_named() -> None:
                     check(f"unfillable output {name}:{u.path} «{u.hint}»", False, u.why)
                 if result.unfillable:
                     continue
-                template = tables["artifact_templates"][name]
+                template = FF._row_of(name)
                 contract_lines = [ln.rstrip() for ln in (harness.PLUGIN_ROOT / template["contract"]).read_text(encoding="utf-8").splitlines()]
                 check(f"output: {name}[anchor]", template["anchor"] in contract_lines, f"{template['contract']} has no line {template['anchor']!r}")
                 errors = refusals(root / "base", result)
                 check(row, errors == [], "; ".join(e[:160] for e in errors[:3]))
+                for variant in FF.artifact_variants(name, ctx)[1:]:          # the citation read by its own hint (3.5)
+                    cited = FF.fill_artifact(name, ctx, variant=variant)
+                    for u in cited.unfillable:
+                        check(f"unfillable output {name}[{variant}]:{u.path} «{u.hint}»", False, u.why)
+                    errors = [] if cited.unfillable else refusals(root / "base", cited)
+                    check(f"output: {name}[{variant}]", not cited.unfillable and errors == [] and cited.files != result.files,
+                          "; ".join(e[:160] for e in errors[:3]) or "the variant wrote the same bytes as the base")
                 required = template.get("required") or []
                 if not required:
                     unread.append(name)            # nothing to remove: no broken variant can be built
@@ -557,6 +587,63 @@ def every_stage_output_fills_or_is_named() -> None:
                 check(f"output: {name}[{variant}]: the override lands", not broken.unfillable, str([(u.path, u.why) for u in broken.unfillable]))
                 if not broken.unfillable and not refusals(root / f"broken-{rows}", broken):
                     unread.append(name)
+        # the rows of the S3-S4 group (E24 directory outputs, the citation of an issued id, the sections code writes)
+        cases_dir, case_name, plan_json = "work/test-cases/", "case", "work/test-plan.json"
+        two = FF.fill_artifact(cases_dir, ctx)
+        check(f"output: {cases_dir}[two cases, two files]", sorted(two.files) == [f"{cases_dir}general/TC-001.md", f"{cases_dir}general/TC-002.md"]
+              and all(f"id: {Path(p).stem}\n" in t for p, t in two.files.items()), str(sorted(two.files)))
+        one = FF.fill_artifact(case_name, ctx)
+        check(f"output: {case_name}[one document of the first id]", sorted(one.files) == [f"{cases_dir}general/TC-001.md"], str(sorted(one.files)))
+        empty_ctx = FF.FillContext(task_key="TP1-1", minted={"P": ["P-1"]})
+        empty = FF.fill_artifact(cases_dir, empty_ctx)
+        shown = [(u.path, u.why) for u in empty.unfillable]
+        check(f"output: {cases_dir}: no case in the context", not empty.files and len(empty.unfillable) == 1 and empty.unfillable[0].path == cases_dir
+              and empty.unfillable[0].why.startswith("no ids in ctx for a directory output"), str(shown))
+        try:
+            FF.write_outputs(task_root_of(root / "e24"), root / "e24", empty)
+            check(f"output: {cases_dir}: no case in the context[nothing is written]", False, "no error")
+        except FF.NotFillable:
+            check(f"output: {cases_dir}: no case in the context[nothing is written]", not (root / "e24").exists(), "something was written")
+        (task_root_of(root / "e24b") / "work" / "test-cases").mkdir(parents=True)
+        said = VA.collect_errors(task_root_of(root / "e24b") / "work" / "test-cases", {})
+        check(f"output: {cases_dir}: the reader on an empty folder", said == [], f"collect_errors says {said!r}")
+        print(f"collect_errors on an empty {cases_dir} folder says: {said!r}")
+        for name, ids in (("an id that escapes the folder", ["../x"]), ("an id that is empty", [""]), ("an id twice", ["TC-001", "TC-001"])):
+            got = FF.fill_artifact(cases_dir, FF.FillContext(task_key="TP1-1", minted={"P": ["P-1"]}, cases=ids))
+            if ids == ["../x"]:
+                try:
+                    FF.write_outputs(task_root_of(root / "e22b"), root / "e22b", got)
+                    check(f"output: {cases_dir}[{name}]", False, "write_outputs wrote it")
+                except ValueError:
+                    check(f"output: {cases_dir}[{name}]", not (root / "e22b").exists() or not list((root / "e22b").rglob("x.md")), "a file was written")
+            else:
+                check(f"output: {cases_dir}[{name}]", len(got.unfillable) >= 1 and (name != "an id twice" or len(got.files) == 1), str(shown))
+        for name, minted in (("no issued id", {}), ("an empty list of issued ids", {"P": []})):
+            got = FF.fill_artifact(case_name, FF.FillContext(task_key="TP1-1", cases=["TC-001"], minted=minted))
+            check(f"output: {case_name}[{name}: unfillable naming the hint]", [(u.path, u.hint) for u in got.unfillable] == [("body:Plan row: <TS-n>", "<TS-n>")],
+                  str([(u.path, u.hint, u.why) for u in got.unfillable]))
+        same = FF.FillContext(task_key="TP1-1", cases=["TC-001"], minted={"P": ["TS-1"]})
+        check(f"output: {case_name}[the issued id has the hint's own prefix: no cite_hint variant]", FF.artifact_variants(case_name, same) == ["base"]
+              and "Plan row: TS-1\n" in FF.fill_artifact(case_name, same).files[f"{cases_dir}general/TC-001.md"], str(FF.artifact_variants(case_name, same)))
+        base_text, cite = one.files[f"{cases_dir}general/TC-001.md"], FF.artifact_variants(case_name, ctx)
+        cited_text = FF.fill_artifact(case_name, ctx, variant=cite[1]).files[f"{cases_dir}general/TC-001.md"] if len(cite) > 1 else ""
+        check(f"output: {case_name}[base cites the issued id, the variant the hint's own]", cite == ["base", "cite_hint:body:Plan row:"]
+              and "Plan row: P-1\n" in base_text and "Plan row: TS-1\n" in cited_text, str(cite))
+        over = FF.fill_artifact(case_name, ctx, variant="cite_hint:body:Plan row:", overrides={"body:Plan row:": "Plan row: X-9"})
+        check(f"output: {case_name}[an override beats the cite_hint of its path]", "Plan row: X-9\n" in over.files[f"{cases_dir}general/TC-001.md"]
+              and not over.unfillable, str(over.unfillable))
+        try:
+            FF.fill_artifact(plan_json, ctx, variant="cite_hint:rows")
+            check(f"output: {plan_json}[a cite_hint the output does not have raises]", False, "no error")
+        except ValueError:
+            check(f"output: {plan_json}[a cite_hint the output does not have raises]", True)
+        grounding = FF.fill_artifact("work/grounding.yaml", ctx)
+        keys = {line.split(":")[0] for line in grounding.files["work/grounding.yaml"].splitlines() if line and not line.startswith(" ")}
+        check("output: work/grounding.yaml[the sections code writes are left_for_code, not filled]", bool(grounding.left_for_code)
+              and not keys & set(grounding.left_for_code) and keys == {"rows", "claims"}, f"keys {sorted(keys)}, left {grounding.left_for_code}")
+        for name in ("plan_md_row", "plan_json_row"):
+            check(f"output: {name}[lands at the path of its parent]", list(FF.fill_artifact(name, ctx).files) ==
+                  [FF._row_of(name)["path"]] and FF._row_of(name)["path"] == tables["artifact_templates"][name]["subkind_of"], str(list(FF.fill_artifact(name, ctx).files)))
         # the rows of the interface itself (E20, E22, the escape of a cell, determinism)
         manifest, register, understanding = "work/context-manifest.json", "work/requirements-register.md", "understanding.md"
         for name, overrides, wanted in (
@@ -601,8 +688,8 @@ def every_stage_output_fills_or_is_named() -> None:
             check(f"output: {manifest}[a variant the output does not have raises]", True)
     finally:
         harness.cleanup(root)
-    check("the table classified every output of the stages", rows == len(names), f"{rows} of {len(names)}")
-    print(f"outputs {len(names)}, filled {filled_count}, by code: {by_code}, not covered {len(not_covered)}")
+    check("the table classified every output of the stages and every sub-kind", rows == len(names) + len(subkinds), f"{rows} of {len(names)} + {len(subkinds)}")
+    print(f"outputs {len(names)}, sub-kinds {len(subkinds)}, filled {filled_count}, by code: {by_code}, not covered {len(not_covered)}")
     for name, why in not_covered:
         print(f"not covered: {name} — {why}")
     print(f"outputs no reader refuses: {', '.join(unread) if unread else 'none'}")

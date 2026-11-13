@@ -64,6 +64,7 @@ class FillContext:
     bugs: list = field(default_factory=list)
     requirements: list = field(default_factory=list)
     dispatch_id: str = ""        # what the token `<dispatch>` reads; empty keeps the token unfillable (the caller names it)
+    case_id: str = ""            # what the artifact token `<case id>` reads: set by `fill_artifact` for each id of `cases` (forms never read it)
 
 
 @dataclass(frozen=True)
@@ -556,7 +557,14 @@ def writer_of(output: str) -> str:
 
 def classify(output: str) -> str:
     """`"code"` (the writer is code), `"role"` (a role writes it and a row of `artifact_templates` shapes it) or `"not_covered"` (a role
-    writes it and a row of `not_covered` says why the filler cannot); anything else raises `Unclassified`."""
+    writes it and a row of `not_covered` says why the filler cannot); anything else raises `Unclassified`.
+
+    A sub-kind (a template row with `subkind_of`: the plan row, the case, the rows a walker sends) is a thing a role writes by
+    definition, whoever writes the file it lands in: it needs no writer row of its own, and its parent must be an output of the stages."""
+    if output in rules()["artifact_templates"] and rules()["artifact_templates"][output].get("subkind_of"):
+        if output in rules()["not_covered"]:
+            raise Unclassified(output, "a sub-kind, and a not_covered row names it too")
+        return "role"
     writer = writer_of(output)
     if not writer.endswith(ROLE_WRITER):
         return "code"
@@ -574,7 +582,7 @@ def classify(output: str) -> str:
 def _text_of(raw: str, path: str, generic: str, ctx: FillContext, fills: list, unfillable: list):
     """The value of one text of a template: a token from the context, a hint filled by the rules (the SAME rules as forms), or the text
     itself. `raw` is the whole hint (angle brackets included) or a text; an unfillable hint is listed and the text stays as written."""
-    tokens = rules()["context_tokens"]
+    tokens = {**rules()["context_tokens"], **rules().get("artifact_tokens", {})}
     if raw.strip() in tokens or (not handoff.is_placeholder(raw) and any(t in raw for t in tokens)):
         text, missing = raw, []
         for token, key in tokens.items():
@@ -643,7 +651,23 @@ def _fill_json(output: str, row: dict, ctx: FillContext, overrides: dict, fills:
     return json.dumps(tree, indent=2, ensure_ascii=False) + "\n"
 
 
-def _fill_md(output: str, row: dict, ctx: FillContext, overrides: dict, fills: list, unfillable: list) -> str:
+def _cite_variants(output: str, ctx: FillContext) -> list:
+    """`cite_hint:<path>` for every field the template says CITES an id another form issued (`cites`: path -> the key of `ctx.minted`),
+    where the id the context holds has another prefix than the template's own hint (`P-1` against `TS-n`): the base takes the issued id,
+    the variant the hint's own prefix (3.5, the priority of issue and citation). No issued id, or the same prefix: no variant."""
+    out = []
+    row = _row_of(output)
+    lines = row["template"].split("\n") if isinstance(row.get("template"), str) else []
+    for path, key in (row.get("cites") or {}).items():
+        issued = (ctx.minted.get(key) or [""])[0]
+        hints = [_hint_of(m.group(0)) for text in lines if (BODY + text.strip()).startswith(path) for m in HINT.finditer(text)]
+        mine = next((ID_TOKEN.match(h).group(1) for h in hints if ID_TOKEN.match(h)), "")
+        if issued and mine and issued.split("-")[0] != mine:
+            out.append(f"cite_hint:{path}")
+    return out
+
+
+def _fill_md(output: str, row: dict, ctx: FillContext, overrides: dict, fills: list, unfillable: list, variant: str = VARIANT_BASE) -> str:
     """A markdown template: front matter keys (`key: <hint>`) and body lines. A hint in a table row goes through `grammar.escape_cell`.
     Override keys: a front matter key, or `body:<label>` — the FIRST template line (outside the front matter) whose text starts with the
     label; ABSENT removes the line, any other value replaces the whole line."""
@@ -685,6 +709,15 @@ def _fill_md(output: str, row: dict, ctx: FillContext, overrides: dict, fills: l
 
         def swap(match, label=label, gen_path=gen_path, table=table):
             logged, problems = [], []
+            key = next((k for p, k in (row.get("cites") or {}).items() if label.startswith(p)), None)
+            as_hint = any(variant == f"cite_hint:{p}" and label.startswith(p) for p in (row.get("cites") or {}))
+            if key and not as_hint and ID_TOKEN.match(_hint_of(match.group(0))):
+                issued = (ctx.minted.get(key) or [""])[0]
+                if not issued:
+                    unfillable.append(Unfillable(label, match.group(0), f"the field cites an id another form issued, and ctx.minted holds no `{key}` id"))
+                    return match.group(0)
+                fills.append(Fill(label, match.group(0), issued, "minted"))
+                return grammar.escape_cell(issued) if table else issued
             value = _text_of(match.group(0), gen_path, gen_path, ctx, logged, problems)
             fills.extend(Fill(label, f.hint, f.value, f.rule) for f in logged)
             unfillable.extend(Unfillable(label, u.hint, u.why) for u in problems)
@@ -698,25 +731,61 @@ def fill_artifact(output: str, ctx: FillContext, *, variant: str = VARIANT_BASE,
     does not do (the row says why); `Unclassified` for an output the tables cannot place. Only `base` is a variant of an output in this
     group; any other name raises ValueError. `overrides`: `{path: value | ABSENT}`, the grammar of 3.5 (a JSON path `a.b[0].c` /
     `a.b[].c`; a front matter key or `body:<label>` for markdown); an override that names no field is an `Unfillable` (E20)."""
-    if variant != VARIANT_BASE:
-        raise ValueError(f"{output}: {variant!r} is not a variant of this output; its variants are {[VARIANT_BASE]}")
     kind = classify(output)
     if kind == "code":
+        _check_variant(output, variant, [VARIANT_BASE])
         return ByCode(output, writer_of(output))
     if kind == "not_covered":
+        _check_variant(output, variant, [VARIANT_BASE])
         return NotCovered(output, rules()["not_covered"][output])
-    row = rules()["artifact_templates"][output]
-    if output.endswith("/"):
-        why = "a directory output is filled one file per id of the context; no group has landed that yet"
-        return FilledArtifact(output, {}, [], [Unfillable(output, "", why)], [])
+    _check_variant(output, variant, artifact_variants(output, ctx))
+    row = _row_of(output)
+    overrides = dict(overrides or {})
     fills, unfillable = [], []
+    if row.get("file_name"):                                  # a directory output (E24): one file per id of the context
+        ids = list(getattr(ctx, row.get("ids", "cases")))[:1 if row.get("one") else None]
+        if not ids:
+            unfillable.append(Unfillable(output, "", f"no ids in ctx for a directory output (ctx.{row.get('ids', 'cases')} is empty)"))
+            return FilledArtifact(output, {}, fills, unfillable, [])
+        files, seen = {}, set()
+        for one in ids:
+            if not isinstance(one, str) or not one.strip() or one in seen:
+                unfillable.append(Unfillable(output, str(one), "an id of the context that is empty or repeated: one file per id"))
+                continue
+            seen.add(one)
+            at = replace(ctx, case_id=one)
+            text = _fill_text(output, row, at, overrides, fills, unfillable, variant)
+            files[(row.get("dir") or output) + row["file_name"].replace("<case id>", one)] = text
+        return FilledArtifact(output, files, fills, unfillable, [])
+    text = _fill_text(output, row, ctx, overrides, fills, unfillable, variant)
+    return FilledArtifact(output, {row.get("path") or output: text}, fills, unfillable, list(row.get("left_for_code") or []))
+
+
+def _row_of(output: str) -> dict:
+    """The template row of the output; a row with `row_of` takes every key it does not write from the row it names."""
+    row = rules()["artifact_templates"][output]
+    return {**rules()["artifact_templates"][row["row_of"]], **row} if row.get("row_of") else row
+
+
+def _check_variant(output: str, variant: str, names: list) -> None:
+    if variant not in names:
+        raise ValueError(f"{output}: {variant!r} is not a variant of this output; its variants are {names}")
+
+
+def artifact_variants(output: str, ctx: FillContext) -> list:
+    """`[base]` and, for a template that CITES an id another form issued, `cite_hint:<path>` where the issued id's prefix is not the
+    hint's (3.5). The other kinds of output have the base variant only."""
+    if classify(output) != "role":
+        return [VARIANT_BASE]
+    return [VARIANT_BASE] + _cite_variants(output, ctx)
+
+
+def _fill_text(output: str, row: dict, ctx: FillContext, overrides: dict, fills: list, unfillable: list, variant: str) -> str:
     if row["format"] == "json":
-        text = _fill_json(output, row, ctx, dict(overrides or {}), fills, unfillable)
-    elif row["format"] == "md":
-        text = _fill_md(output, row, ctx, dict(overrides or {}), fills, unfillable)
-    else:
-        raise ValueError(f"{output}: the template format {row['format']!r} is not one the filler writes yet (`json`, `md`)")
-    return FilledArtifact(output, {output: text}, fills, unfillable, [])
+        return _fill_json(output, row, ctx, overrides, fills, unfillable)
+    if row["format"] in ("md", "yaml"):                       # a yaml template is read as lines of text, with no front matter
+        return _fill_md(output, row, ctx, overrides, fills, unfillable, variant)
+    raise ValueError(f"{output}: the template format {row['format']!r} is not one the filler writes (`json`, `md`, `yaml`)")
 
 
 def write_outputs(task_root, project_root, result: FilledArtifact) -> list:

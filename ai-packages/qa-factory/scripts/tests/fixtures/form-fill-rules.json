@@ -22,7 +22,142 @@
     "<dispatch>": "dispatch_id",
     "<the author's dispatch>": "author_dispatch"
   },
+  "artifact_tokens": {
+    "<case id>": "case_id"
+  },
   "artifact_templates": {
+    "test-plan.md": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "## `test-plan.md`",
+      "format": "md",
+      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nrows_total: 1\ncandidates: 0\nplanned: 1\n---\n\n# Test plan\n\nPyramid: api 1\n\n## Plan\n\n| TS | what we verify | R | defect hypothesis | impact class | priority | observable | oracle | disposition + reason | fit | level | technique |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n| <TS-n> | <what is verified, one plain line> | <R-n> | error-path @ <the place the defect would live> | blocked-flow | P1 | expected-contract:spec | requirement:<R-n> | `automate` — <why this row is worth automating> | new | api | <the technique applied> |\n\n## Recommended regression\n\nNo regression: <why no existing test defends the blast radius>\n",
+      "required": ["body:## Plan", "task", "created", "rows_total", "candidates", "planned"]
+    },
+    "plan_md_row": {
+      "subkind_of": "test-plan.md",
+      "row_of": "test-plan.md",
+      "path": "test-plan.md"
+    },
+    "work/test-plan.json": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "`work/test-plan.json` is `{\"rows\": [ ... ]}` — the rows for the scripts, a",
+      "format": "json",
+      "template": {
+        "rows": [
+          {
+            "id": "<TS-n>",
+            "schema_version": 2,
+            "risk_policy_revision": "factory-starter-v1",
+            "r": ["<R-n>"],
+            "what_we_verify": "<what is verified, one plain line>",
+            "defect_hypothesis": "error-path @ the place the defect would live",
+            "impact_class": "blocked-flow",
+            "priority": "P1",
+            "observable": "expected-contract:spec",
+            "oracle": "requirement:R-1",
+            "disposition": "automate",
+            "reason": "<why this row is worth automating>",
+            "fit": "new",
+            "level": "api",
+            "technique": "<the technique applied>",
+            "impact": "moderate",
+            "likelihood": "medium",
+            "confidence": "medium",
+            "risk_rationale": "<what goes wrong for a person when this fails>",
+            "risk_source_refs": ["register:R-1"],
+            "coverage_refs": [],
+            "unknowns": [],
+            "verification_depth": "normal",
+            "required_scenarios": ["<one scenario the row must cover>"],
+            "test_level_rationale": "<why this level of the pyramid>",
+            "design_review_required": false,
+            "source_conflict": false,
+            "oracle_unknown": false,
+            "question_refs": [],
+            "if_answered": {},
+            "coverage_contract_revision": "coverage-observation-v1",
+            "coverage_obligations": [
+              {
+                "obligation_id": "OB-1",
+                "requirement_refs": [{"ref": "<R-n>", "revision": "r1"}],
+                "behavior": "<what the obligation says, one sentence>",
+                "oracle_source_ref": "R-1",
+                "oracle_status": "resolved",
+                "applicable_scenarios": [{"id": "sc1", "variant": "positive", "rationale": "<why this scenario applies>"}],
+                "observation_boundary": "<where the behaviour is observed>",
+                "completion_condition": "<when the check may read its result>",
+                "coverage_links": [],
+                "decision": "new",
+                "remaining_gap": "none",
+                "planned_check_refs": ["c1", "c2"],
+                "execution_scope": "current_task",
+                "sufficiency_review": {
+                  "author_dispatch": "S3-qa-test-strategist-1",
+                  "input_hash": "<the hash of the inputs read>",
+                  "rationale": "<why the planned checks are enough>",
+                  "author_dispatch_id": "S3-qa-test-strategist-1"
+                },
+                "observation_contract": {
+                  "claim_kind": ["ordinary"],
+                  "oracle_ref": {"ref": "R-1", "revision": "r1"},
+                  "controls": [],
+                  "completion_ref": "c2",
+                  "surfaces": [{"id": "S-1", "boundary": "API", "status": "planned", "assertion_ref": "c1"}],
+                  "independent_expectations": [],
+                  "source_conflicts": []
+                }
+              }
+            ],
+            "coverage_delta": {
+              "baseline_kind": "initial",
+              "initial_scope_rationale": "<why this first plan has this scope>",
+              "entries": [{"obligation_id": "OB-1", "disposition": "gap", "rationale": "<why the delta is a gap>", "gap_reason": "<what no existing test covers>"}],
+              "planned_instance_ids": ["i1"],
+              "counts": {"logical_cases_before": 0, "logical_cases_after": 1, "executable_instances_before": 0, "executable_instances_after": 1}
+            }
+          }
+        ]
+      },
+      "required": ["rows"]
+    },
+    "plan_json_row": {
+      "subkind_of": "work/test-plan.json",
+      "row_of": "work/test-plan.json",
+      "path": "work/test-plan.json"
+    },
+    "work/grounding.yaml": {
+      "contract": "references/artifact-contract-plan.md",
+      "anchor": "`work/grounding.yaml` has ONE reader, `planning_contract.read_grounding` (a missing or empty file,",
+      "format": "yaml",
+      "template": "rows:\n  - id: <G-n>\n    label: behaviour_change\n    reason: <why the hunk carries this label>\nclaims:\n  - r: <R-n>\n    row: <G-n>\n    requirement: <the requirement line as the register words it>\n    impact: degraded\n    before: <what the code did before>\n    before_ref: absent\n    now: <what the code does now>\n    now_ref: diff:src/app.py:1\n    differs: \"yes\"\n    question: raise\n    ask:\n      question: <the question asked of the person>\n      source_says: [{quote: a quote of the source, where: register R-1}]\n      severity: major\n      owner_role: po_ba\n",
+      "required": ["body:rows:", "body:claims:"],
+      "left_for_code": ["schema_version", "implementation_source", "null_outcome", "diff", "hunks", "refactoring_share", "requirement_coverage", "base_slice", "orphans", "register_sha256", "blast_radius"]
+    },
+    "first_look_rows": {
+      "subkind_of": "work/first-look.yaml",
+      "contract": "references/artifact-contract-first-look.md",
+      "anchor": "## The rows you send",
+      "format": "yaml",
+      "path": "work/first-look-rows.yaml",
+      "template": "rows:\n  - req: <R-n>\n    status: confirms\n    why: <what the walker saw, one sentence>\n    evidence:\n      - work/evidence/manual/survey-<R-n>/a1/http-1.json\n    quote: <words copied from the capture>\n    path:\n      url: /cart\n      steps:\n        - <the step the walker took>\ngaps:\n  - <R-n>: <what could not be established>\n",
+      "required": ["body:rows:"]
+    },
+    "work/test-cases/": {
+      "contract": "references/artifact-contract.md",
+      "anchor": "## `test-cases/<area>/<case id>.md`",
+      "format": "md",
+      "ids": "cases",
+      "file_name": "general/<case id>.md",
+      "cites": {"body:Plan row:": "P"},
+      "template": "---\nid: <case id>\ntitle: <one line saying what the case checks>\narea: general\npriority: P1\nstatus: Draft\nchannel: auto\nreuse_decision: new\nupdated: 2026-11-13\ntask: <TICKET>\ncovers: [<R-n>]\ndefect_class: error-path\nbasis: requirement:<R-n>\nthen_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"<R-n>\"}]\n---\n\n# <case id>\n\nRequirements: <R-n>\nPlan row: <TS-n>\n\n## Steps\n\n1. <the first step the case takes>\n\n## Then\n\n1. <what must hold after the steps>\n\n## Obligation coverage\n\n| part | oracle | boundary | Then and evidence | residual gap |\n|---|---|---|---|---|\n| <the part of the obligation> | requirement:<R-n> | <the boundary observed> | Then 1 | none |\n",
+      "required": ["id", "title", "area", "priority", "status", "channel", "reuse_decision", "updated"]
+    },
+    "case": {
+      "subkind_of": "work/test-cases/",
+      "row_of": "work/test-cases/",
+      "dir": "work/test-cases/",
+      "one": true
+    },
     "work/context-manifest.json": {
       "contract": "references/artifact-contract-grounding.md",
       "anchor": "## `context-manifest.json`",
@@ -90,10 +225,6 @@
   },
   "not_covered": {
     "work/impl-diff.txt": "no contract shape: a diff text; the story kit supplies it",
-    "test-plan.md": "group N2b not landed",
-    "work/test-plan.json": "group N2b not landed",
-    "work/grounding.yaml": "group N2b not landed",
-    "work/test-cases/": "group N2b not landed",
     "work/s5-plan.json": "group N2c not landed",
     "work/s5-notes/": "group N2c not landed",
     "work/evidence/manual/<case>/tried.md": "group N2c not landed",
