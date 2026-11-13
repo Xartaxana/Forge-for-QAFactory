@@ -1,0 +1,7 @@
+qa-scout S1 S1-qa-scout-1 · ok
+SRC-5b289e26d85e2794df0a · found · task text LOCAL-1, no comments or attachments
+SRC-eb279bc2d4fd95ef873b · found · XPANBFLFA-44 export read; links unread, gap accepted
+SRC-980ad6bf70a5c85f7c93 · found · MyBooks README read: guest cart, stock check at add
+SRC-e96adb660aba1ae0e39d · found · task/LOCAL-1.md, same text as the task
+XPANBFLFA-141..167 · not_found · tracker unreachable per the person; gap accepted
+work/context-manifest.json

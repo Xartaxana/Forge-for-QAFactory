@@ -1,0 +1,4 @@
+qa-code-critic S5 S5-qa-code-critic-1 · concerns
+TC-006 · unverified · static ok; no live probe; 2 wishlist changes legitimate_correction
+TC-007 · unverified · static ok; weak badge assert (line 132); probe owed
+work/automation-manifest.json

@@ -1,0 +1,4 @@
+qa-automator S5 S5-qa-automator-5 · concerns
+TC-006 · green · 6 instances pass; unused fixture dropped; title-selected rerun 7 passed
+TC-007 · green · numeric changed-badge assert passes; badge lines-or-units value open (Q19)
+work/automation-manifest.json

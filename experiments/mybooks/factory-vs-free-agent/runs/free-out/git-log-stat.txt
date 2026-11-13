@@ -1,0 +1,23 @@
+commit 4687c5184699ab4f6ba3c3fa8257029cc2ffd945
+Author: QA Engineer <qa@local.invalid>
+Date:   Thu Nov 12 17:51:31 2026 +0100
+
+    Add e2e test for multi-digit quantity typing in cart (fails: BUG-2)
+    
+    Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+ tests/e2e/cart/add_to_cart.spec.ts | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+commit db7a6fda470dfefe12b8cc4a41fcc7f826b77a27
+Author: QA Engineer <qa@local.invalid>
+Date:   Thu Nov 12 17:47:45 2026 +0100
+
+    Add cart API and e2e tests (add to cart, stock limits, guest cart merge, guest checkout redirect)
+    
+    Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+ core/utils/cartApi.ts              |  50 ++++++++++++++
+ tests/api/cart/cart.spec.ts        | 135 +++++++++++++++++++++++++++++++++++++
+ tests/e2e/cart/add_to_cart.spec.ts |  76 +++++++++++++++++++++
+ 3 files changed, 261 insertions(+)

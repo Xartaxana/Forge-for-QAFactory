@@ -1,0 +1,4 @@
+qa-code-critic S5 S5-qa-code-critic-8 · concerns
+TC-006 · unverified · static read clean; probe not_executed (FB-9); obligation-hash gap carried
+TC-007 · unverified · static read clean; probe not_executed (FB-9); obligation-hash gap carried
+work/automation-manifest.json

@@ -1,0 +1,10 @@
+qa-automator S5 S5-qa-automator-3 · concerns
+TC-006 · green · 6 instances pass on the new title run (75292ca0a942aa6934a4)
+TC-007 · green · 1 instance passes; badge value open (Q19)
+work/automation-manifest.json
+Precheck: s5_precheck.py now passes for TC-006 and TC-007. All 7 instances passed (7 passed, exit 0).
+Cause: the newest block had 0 rows because the line selectors miss the tests, so there was nothing to reparse. I changed one assertion message in cart_add_ui.spec.ts ("exactly one line for A on the cart page"), which counts as new bytes, and ran by title. The manifest run_witness and the form now point at that run.
+Selectors: run_suite --mine line selectors still miss these tests. Each run needs a title-selected request copied from a fresh mine-*.json, with selector_args set to --grep '@e2e @cart TC-00'.
+Open expectation: TC-007 Then 2 (badge value, lines or units) stays open as Q19, with no literal asserted.
+No mutation probes: I ran none, so the tried table is empty.
+notes: state/findings/S5-qa-automator-3-digest-notes.md

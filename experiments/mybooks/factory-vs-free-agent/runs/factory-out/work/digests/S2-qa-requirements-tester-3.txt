@@ -1,0 +1,15 @@
+qa-requirements-tester S2 S2-qa-requirements-tester-3 · concerns
+R-6 · found · split: three entry paths give the same add result
+R-13 · found · new: header count and cart page show the cart; BN-8 added
+R-3 · found · rounding not stated, asked as Q6
+R-1 · found · unchanged
+R-2 · found · unchanged
+R-4 · found · unchanged
+R-5 · found · unchanged
+R-7 · found · unchanged
+R-8 · found · unchanged
+R-9 · found · unchanged
+R-10 · found · unchanged
+R-11 · found · unchanged
+R-12 · found · unchanged
+qa-factory/artifacts/LOCAL-1/work/requirements-readiness.json

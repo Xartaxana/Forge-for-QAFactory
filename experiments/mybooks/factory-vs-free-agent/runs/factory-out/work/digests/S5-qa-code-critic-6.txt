@@ -1,0 +1,4 @@
+qa-code-critic S5 S5-qa-code-critic-6 · concerns
+TC-006 · unverified · static review clean; probe gap accepted by the person
+TC-007 · unverified · static review clean; probe gap accepted by the person
+work/automation-manifest.json

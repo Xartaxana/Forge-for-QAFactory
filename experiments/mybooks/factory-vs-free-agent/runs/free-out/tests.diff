@@ -1,0 +1,300 @@
+diff --git a/core/utils/cartApi.ts b/core/utils/cartApi.ts
+new file mode 100644
+index 0000000..e3e4454
+--- /dev/null
++++ b/core/utils/cartApi.ts
+@@ -0,0 +1,50 @@
++import { request as pwRequest, APIRequestContext } from '@playwright/test';
++import { cfg } from '../config';
++
++// Each context has its own cookie jar, so a "guest" never shares a cart with anybody else.
++export async function newContext(): Promise<APIRequestContext> {
++  return pwRequest.newContext({
++    baseURL: cfg.BASE_URL,
++    storageState: { cookies: [], origins: [] },
++    extraHTTPHeaders: { 'Content-Type': 'application/json' },
++  });
++}
++
++export async function signIn(ctx: APIRequestContext, email: string, password: string): Promise<void> {
++  const { csrfToken } = await (await ctx.get('/api/auth/csrf')).json();
++  const res = await ctx.post('/api/auth/callback/credentials', {
++    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
++    data: `csrfToken=${csrfToken}&email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}&json=true`,
++  });
++  if (!res.ok()) throw new Error(`sign in failed for ${email}: ${res.status()}`);
++}
++
++export async function adminContext(): Promise<APIRequestContext> {
++  const ctx = await newContext();
++  await signIn(ctx, cfg.EMAIL_USER, cfg.EMAIL_PASS);
++  return ctx;
++}
++
++export async function userContext(): Promise<APIRequestContext> {
++  const ctx = await newContext();
++  await signIn(ctx, process.env.USER_EMAIL ?? '', process.env.USER_PASSWORD ?? '');
++  return ctx;
++}
++
++// Creates a book owned by the test so it does not depend on seed data.
++export async function createBook(admin: APIRequestContext, stockQuantity: number, price = 10) {
++  const res = await admin.post('/api/books', {
++    data: {
++      title: `Cart test ${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
++      author: 'QA',
++      price,
++      stockQuantity,
++    },
++  });
++  if (res.status() !== 201) throw new Error(`createBook failed: ${res.status()}`);
++  return (await res.json()) as { id: number; title: string };
++}
++
++export async function deleteBook(admin: APIRequestContext, id: number) {
++  await admin.delete(`/api/books/${id}`);
++}
+diff --git a/tests/api/cart/cart.spec.ts b/tests/api/cart/cart.spec.ts
+new file mode 100644
+index 0000000..5461b93
+--- /dev/null
++++ b/tests/api/cart/cart.spec.ts
+@@ -0,0 +1,135 @@
++import { test, expect, APIRequestContext } from '@playwright/test';
++import { newContext, adminContext, userContext, signIn, createBook, deleteBook } from '../../../core/utils/cartApi';
++
++const add = (ctx: APIRequestContext, bookId: number, quantity: unknown) =>
++  ctx.post('/api/cart', { data: { bookId, quantity } });
++const items = async (ctx: APIRequestContext) =>
++  (await (await ctx.get('/api/cart')).json()) as Array<{ id: number; bookId: number; quantity: number }>;
++
++test.describe('API: add to cart', () => {
++  let admin: APIRequestContext;
++  let guest: APIRequestContext;
++  const created: number[] = [];
++  const book = async (stock: number, price = 10) => {
++    const b = await createBook(admin, stock, price);
++    created.push(b.id);
++    return b;
++  };
++
++  test.beforeAll(async () => {
++    admin = await adminContext();
++  });
++  test.beforeEach(async () => {
++    guest = await newContext();
++  });
++  test.afterEach(async () => {
++    await guest.dispose();
++  });
++  test.afterAll(async () => {
++    for (const id of created) await deleteBook(admin, id);
++    await admin.dispose();
++  });
++
++  test('@api @cart adds an in-stock book with quantity 1 and the cart total uses the backend price', async () => {
++    const b = await book(5, 12.34);
++    const res = await add(guest, b.id, 1);
++    expect(res.status()).toBe(201);
++    expect(await items(guest)).toEqual([expect.objectContaining({ bookId: b.id, quantity: 1 })]);
++    expect(await (await guest.get('/api/cart/total')).json()).toBe(12.34);
++  });
++
++  test('@api @cart adding the same book again increases the quantity instead of creating a second line', async () => {
++    const b = await book(10);
++    await add(guest, b.id, 3);
++    await add(guest, b.id, 2);
++    expect(await items(guest)).toEqual([expect.objectContaining({ bookId: b.id, quantity: 5 })]);
++    expect(await (await guest.get('/api/cart/total')).json()).toBe(50);
++  });
++
++  test('@api @cart an out-of-stock book is refused and nothing is added', async () => {
++    const b = await book(0);
++    const res = await add(guest, b.id, 1);
++    expect(res.status()).toBe(400);
++    expect((await res.json()).code).toBe('OUT_OF_STOCK');
++    expect(await items(guest)).toEqual([]);
++  });
++
++  test('@api @cart quantity above stock is refused, also when combined with what is already in the cart', async () => {
++    const b = await book(3);
++    const tooMany = await add(guest, b.id, 4);
++    expect(tooMany.status()).toBe(400);
++    expect((await tooMany.json()).code).toBe('INSUFFICIENT_STOCK');
++    expect((await add(guest, b.id, 2)).status()).toBe(201);
++    expect((await add(guest, b.id, 2)).status()).toBe(400);
++    expect((await items(guest))[0].quantity).toBe(2);
++    expect((await add(guest, b.id, 1)).status()).toBe(201); // exactly fills the stock
++    expect((await items(guest))[0].quantity).toBe(3);
++  });
++
++  for (const [name, quantity] of [
++    ['zero', 0],
++    ['negative', -1],
++    ['fractional', 1.5],
++    ['string', '2'],
++    ['too large', 1000],
++    ['missing', undefined],
++  ] as const) {
++    test(`@api @cart rejects ${name} quantity`, async () => {
++      const b = await book(5);
++      const res = await add(guest, b.id, quantity);
++      expect(res.status()).toBe(400);
++      expect((await res.json()).code).toBe('VALIDATION_ERROR');
++      expect(await items(guest)).toEqual([]);
++    });
++  }
++
++  test('@api @cart unknown book gives 404', async () => {
++    expect((await add(guest, 99999999, 1)).status()).toBe(404);
++  });
++
++  test('@api @cart guest cart is private to its session', async () => {
++    const b = await book(5);
++    await add(guest, b.id, 1);
++    const other = await newContext();
++    expect(await items(other)).toEqual([]);
++    const lineId = (await items(guest))[0].id;
++    expect((await other.delete(`/api/cart/${lineId}`)).status()).toBe(404);
++    expect((await other.put(`/api/cart/${lineId}`, { data: { quantity: 2 } })).status()).toBe(404);
++    expect(await items(guest)).toHaveLength(1);
++    await other.dispose();
++  });
++
++  test('@api @cart quantity change is capped by stock', async () => {
++    const b = await book(4);
++    await add(guest, b.id, 1);
++    const lineId = (await items(guest))[0].id;
++    expect((await guest.put(`/api/cart/${lineId}`, { data: { quantity: 4 } })).status()).toBe(200);
++    expect((await guest.put(`/api/cart/${lineId}`, { data: { quantity: 5 } })).status()).toBe(400);
++    expect((await items(guest))[0].quantity).toBe(4);
++  });
++
++  test('@api @cart price change by admin is reflected in the cart total', async () => {
++    const b = await book(5, 10);
++    await add(guest, b.id, 2);
++    await admin.put(`/api/books/${b.id}`, { data: { price: 15.5 } });
++    expect(await (await guest.get('/api/cart/total')).json()).toBe(31);
++  });
++
++  test('@api @cart guest cart is merged into the account cart at sign-in (higher quantity wins)', async () => {
++    const a = await book(10);
++    const c = await book(10);
++    const user = await userContext();
++    for (const line of await items(user)) await user.delete(`/api/cart/${line.id}`);
++    await add(user, a.id, 5);
++    await add(guest, a.id, 2);
++    await add(guest, c.id, 4);
++    // sign the guest cookie jar in as the user, then merge, like the login page does
++    await signIn(guest, process.env.USER_EMAIL ?? '', process.env.USER_PASSWORD ?? '');
++    expect((await guest.post('/api/cart/merge')).status()).toBe(200);
++    const merged = await items(guest);
++    expect(merged.find((i) => i.bookId === a.id)?.quantity).toBe(5);
++    expect(merged.find((i) => i.bookId === c.id)?.quantity).toBe(4);
++    for (const line of merged) await user.delete(`/api/cart/${line.id}`);
++    await user.dispose();
++  });
++});
+diff --git a/tests/e2e/cart/add_to_cart.spec.ts b/tests/e2e/cart/add_to_cart.spec.ts
+new file mode 100644
+index 0000000..faf73ac
+--- /dev/null
++++ b/tests/e2e/cart/add_to_cart.spec.ts
+@@ -0,0 +1,97 @@
++import { test, expect, APIRequestContext } from '@playwright/test';
++import { adminContext, createBook, deleteBook } from '../../../core/utils/cartApi';
++
++// Guests: no stored login
++test.use({ storageState: { cookies: [], origins: [] } });
++
++test.describe('E2E: add to cart', () => {
++  let admin: APIRequestContext;
++  let bookId: number;
++  let title: string;
++
++  test.beforeAll(async () => {
++    admin = await adminContext();
++    const b = await createBook(admin, 5, 12.5);
++    bookId = b.id;
++    title = b.title;
++  });
++  test.afterAll(async () => {
++    await deleteBook(admin, bookId);
++    await admin.dispose();
++  });
++
++  test('@e2e @cart guest adds 3 copies on the book page; cart shows quantity, subtotal and badge', async ({ page }) => {
++    await page.goto(`/books/${bookId}`);
++    await page.getByTestId('book-detail-quantity-input').fill('3');
++    await page.getByTestId('book-detail-add-to-cart-button').click();
++    await expect(page.getByTestId('cart-count-badge')).toHaveText('3');
++    await page.getByTestId('nav-cart-button').click();
++    await expect(page.getByTestId('cart-page')).toBeVisible();
++    await expect(page.getByTestId('cart-items-list')).toContainText(title);
++    await expect(page.locator('[data-testid^=cart-item-quantity-]')).toHaveValue('3');
++    await expect(page.locator('[data-testid^=cart-item-subtotal-]')).toContainText('$37.50');
++    await expect(page.getByTestId('cart-total')).toHaveText('$37.50');
++    await page.reload(); // guest cart survives a reload (cookie)
++    await expect(page.getByTestId('cart-total')).toHaveText('$37.50');
++  });
++
++  test('@e2e @cart book page refuses more than the stock and keeps the cart unchanged', async ({ page }) => {
++    await page.goto(`/books/${bookId}`);
++    await page.getByTestId('book-detail-quantity-input').fill('6');
++    await page.getByTestId('book-detail-add-to-cart-button').click();
++    await expect(page.locator('[data-sonner-toast]')).toContainText('Only 5 in stock');
++    await expect(page.getByTestId('cart-count-badge')).toHaveCount(0);
++  });
++
++  test('@e2e @cart out-of-stock book has a disabled Add to Cart button on the book page', async ({ page }) => {
++    const oos = await createBook(admin, 0);
++    try {
++      await page.goto(`/books/${oos.id}`);
++      await expect(page.getByTestId('book-detail-stock')).toContainText('Out of Stock');
++      await expect(page.getByTestId('book-detail-add-to-cart-button')).toBeDisabled();
++    } finally {
++      await deleteBook(admin, oos.id);
++    }
++  });
++
++  // Known defect (out/bugs/BUG-2-cart-quantity-multidigit-typing.md): fails until the product is fixed.
++  test('@e2e @cart typing a multi-digit quantity in the cart gives that number', async ({ page }) => {
++    const big = await createBook(admin, 50, 10);
++    try {
++      await page.goto(`/books/${big.id}`);
++      await page.getByTestId('book-detail-quantity-input').fill('5');
++      await page.getByTestId('book-detail-add-to-cart-button').click();
++      await expect(page.getByTestId('cart-count-badge')).toHaveText('5');
++      await page.getByTestId('nav-cart-button').click();
++      const qty = page.locator('[data-testid^=cart-item-quantity-]');
++      await expect(qty).toHaveValue('5');
++      await qty.click();
++      await page.keyboard.press('ControlOrMeta+A');
++      await page.keyboard.type('12', { delay: 100 });
++      await expect(page.getByTestId('cart-total')).toHaveText('$120.00');
++      await expect(page.getByTestId('cart-count-badge')).toHaveText('12');
++    } finally {
++      await deleteBook(admin, big.id);
++    }
++  });
++
++  // Known defect (out/bugs/BUG-1-guest-checkout-login-no-redirect.md): fails until the product is fixed.
++  test('@e2e @cart guest who proceeds to checkout from the cart lands on checkout after signing in', async ({ page }) => {
++    await page.goto(`/books/${bookId}`);
++    await page.getByTestId('book-detail-add-to-cart-button').click();
++    await expect(page.getByTestId('cart-count-badge')).toHaveText('1');
++    await page.getByTestId('nav-cart-button').click();
++    await page.getByTestId('proceed-to-checkout-button').click();
++    await expect(page).toHaveURL(/\/login\?callbackUrl=/);
++    await page.getByTestId('login-email-input').fill(process.env.USER_EMAIL ?? '');
++    await page.getByTestId('login-password-input').fill(process.env.USER_PASSWORD ?? '');
++    await page.getByTestId('login-submit-button').click();
++    try {
++      await expect(page).toHaveURL(/\/checkout$/, { timeout: 10_000 });
++      await expect(page.getByTestId('checkout-page')).toBeVisible();
++    } finally {
++      // clean up the merged cart of the shared user
++      await page.evaluate(() => fetch('/api/cart', { method: 'DELETE' }));
++    }
++  });
++});

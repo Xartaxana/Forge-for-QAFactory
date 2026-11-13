@@ -1,0 +1,6 @@
+qa-code-critic S5 S5-qa-code-critic-4 · concerns
+TC-001 · unverified · static read clean; probes owed (debt file)
+TC-002 · unverified · static read clean; probes owed
+TC-004 · rejected · Then 2 passes even if merge is a no-op
+TC-005 · unverified · red contradicts_requirement; probes owed
+work/automation-manifest.json

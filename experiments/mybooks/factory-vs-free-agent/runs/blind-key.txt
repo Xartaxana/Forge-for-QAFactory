@@ -1,0 +1,3 @@
+Жребий 13.11.2026 01:3x (od /dev/urandom, чётность байта), оператор прогона. Оценщику не даётся.
+outcome-X.md = outcome-free.md      (sha256 879eb8128bdd9bed…)
+outcome-Y.md = outcome-factory.md   (sha256 ec57ea4791ebe94b…)

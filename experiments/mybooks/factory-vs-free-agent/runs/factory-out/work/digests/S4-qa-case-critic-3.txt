@@ -1,0 +1,6 @@
+qa-case-critic S4 S4-qa-case-critic-3 · concerns
+TC-002 · approve_with_concerns · stock-0 data via case_seeds, 7e unverified
+TC-004 · reject · P-above-stock has no setup, so Then 4 can't fail (dim 8)
+TC-005 · approve_with_concerns · R-12 oracle is a norm, goes to Gate A
+TC-010 · approve_with_concerns · Then 3 rests on Q18; manual walk kept (P19)
+qa-factory/artifacts/LOCAL-1/work/test-cases/critic-findings.md

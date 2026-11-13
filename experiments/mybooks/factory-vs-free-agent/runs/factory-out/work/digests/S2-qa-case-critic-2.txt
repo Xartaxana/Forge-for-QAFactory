@@ -1,0 +1,17 @@
+qa-case-critic S2 LOCAL-1 · concerns
+R-6 · reject · compound: entry paths plus "every place cart is used" hides a behaviour
+R-3 · approve_with_concerns · quantity and subtotal are two behaviours; rounding unstated
+understanding.md · approve_with_concerns · Q5 missing from questions list; severity differs from readiness
+R-1 · approved · ok
+R-2 · approved · contradiction raised as Q1
+R-4 · approved · ok
+R-5 · approved · contradiction raised as Q2
+R-7 · approved · ok
+R-8 · approved · boundaries listed in BN-4
+R-9 · approved · Q3 raised
+R-10 · approved · ok
+R-11 · approved · ok
+R-12 · approved · ok, Q4 asks
+understanding.md
+assembled_by: code
+notes: state/findings/S2-qa-case-critic-2-digest-notes.md
