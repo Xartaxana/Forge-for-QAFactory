@@ -1760,12 +1760,302 @@ def oh6_1_sentinel() -> None:
           oh6_1_hits(r'''            and not any(sep in name for sep in ("/", "\\")))''', (OH61_TUPLE,)) != [])
 
 
+# --- OH8-2a: no other spelling of story key T reaches T's folder through a site that turns a key into a story folder ---
+# kinds: good (an exact story) / twin (another spelling of `target`, named in the refusal) / alias8 (the 8.3 name: refused,
+# no twin to name) / shape (refused by `clean_key`, one component) / bad (not one component) / own (its own key, no folder).
+# Spies: a site must have ASKED the leaf about the exact name, so the table is red on the old code on a case-sensitive disk too.
+
+_OH82_SKIPPED: set = set()
+
+
+def _oh82_skip(why: str) -> None:
+    if why not in _OH82_SKIPPED:
+        _OH82_SKIPPED.add(why)
+        print(f"SKIP OH8-2 cell: {why}")
+
+
+def _oh82_world(where: Path) -> tuple:
+    """`(project, art, cells)`: story T (pipeline.json, a controller with a running qa-failure-analyst dispatch D), the long
+    story `LongStoryName-1` (for its 8.3 name), a link `TJ` to T, a 255-character story; cells are built only where the OS can."""
+    project, art = _oh61_project(where, ("T",))
+    (art / "T" / "state").mkdir()
+    (art / "T" / "state" / "controller.json").write_text(
+        json.dumps({"dispatches": {"D": {"id": "D", "role": "qa-failure-analyst", "status": "running"}}}), encoding="utf-8")
+    cells = [("good", "T", "T", "T"), ("twin", "dot", "T.", "T"), ("twin", "blank-end", "T ", "T"),
+             ("shape", "blank-start", " T", ""), ("twin", "dots", "T..", "T"), ("twin", "dot-blank-dot", "T. .", "T"),
+             ("twin", "case", "t", "T"), ("shape", "three-dots", "...", ""), ("bad", "empty", "", ""),
+             ("bad", "nul", "T\0", ""), ("own", "full-width", chr(0xFF34), ""), ("own", "beyond-256", "k" * 256, "")]
+    (art / "LongStoryName-1").mkdir()
+    (art / "LongStoryName-1" / "pipeline.json").write_text("{}", encoding="utf-8")
+    short = short_name(art / "LongStoryName-1")
+    if short:
+        cells.append(("alias8", "8.3", Path(short).name, "LongStoryName-1"))
+    else:
+        _oh82_skip("no 8.3 name on this platform or volume")
+    try:
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(art / "T"), str(art / "TJ"))
+        else:
+            os.symlink(art / "T", art / "TJ", target_is_directory=True)
+        cells += [("good", "link", "TJ", "TJ"), ("twin", "link-case", "tj", "TJ"), ("twin", "link-dot", "TJ.", "TJ")]
+    except (OSError, ImportError, AttributeError) as exc:
+        _oh82_skip(f"no junction or symlink here ({type(exc).__name__})")
+    try:
+        (art / ("k" * 255)).mkdir()
+        (art / ("k" * 255) / "pipeline.json").write_text("{}", encoding="utf-8")
+        cells.append(("good", "at-255", "k" * 255, "k" * 255))
+    except OSError as exc:
+        _oh82_skip(f"a 255-character folder cannot be made here ({type(exc).__name__})")
+    return project, art, cells
+
+
+def _oh82_gate(run):
+    return run, lambda kind, name, target, got: got == ("value", kind == "good")
+
+
+def _oh82_texts(name):
+    return {"keys_in": lambda *a, **k: [name], "labelled_keys": lambda *a, **k: [name]}
+
+
+def _oh82_run_is_story(project, art, name, i):
+    return hooklib.is_story_with_pipeline(art, name)
+
+
+def _oh82_run_by_text(project, art, name, i):
+    import stage_guard
+    with _oh61_patched(stage_guard.AF, **_oh82_texts(name)):
+        return bool(stage_guard.story_named_by_text("t", {}, art, {}))
+
+
+def _oh82_run_names_story(project, art, name, i):
+    import stage_guard
+    with _oh61_patched(stage_guard.AF, **_oh82_texts(name)):
+        return stage_guard._names_story({}, "", ["Ticket: x"], "explore:")
+
+
+def _oh82_run_explicit(project, art, name, i):
+    import stage_guard
+    return bool(stage_guard.resolve_ticket({"task_id": name})[0])
+
+
+def _oh82_run_env(project, art, name, i):
+    import stage_guard
+    with _oh61_patched(os, environ=dict(os.environ, QA_FACTORY_TASK=name)):
+        return bool(stage_guard.resolve_ticket({"tool_name": "Agent", "tool_input": {"description": "do it"}})[0])
+
+
+def _oh82_run_receipts(project, art, name, i):
+    import stage_guard
+    folder = project / "qa-factory" / "state" / "host-dispatches"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"r{i}.json").write_text(json.dumps({"task_name": f"X{i}", "task_id": name, "dispatch_id": "D"}), encoding="utf-8")
+    return bool(stage_guard._recipient_receipts({}, art, f"X{i}"))
+
+
+def _oh82_run_named_ticket(project, art, name, i):
+    import exit_gate
+    import stage_guard
+    with _oh61_patched(stage_guard, resolve_ticket=lambda event: (name, {"named": [name]})):
+        return bool(exit_gate._named_ticket({})[0])
+
+
+def _oh82_run_bug_exists(project, art, name, i):
+    import bug_records
+    return bug_records._story_exists(art, name)
+
+
+def _oh82_run_controller_record(project, art, name, i):
+    import host_dispatch
+    return host_dispatch.controller_record(project, name, "D")
+
+
+def _oh82_run_spawn(project, art, name, i):
+    import host_dispatch
+    import stage_guard
+    event = {"tool_name": "Agent", "tool_input": {"subagent_type": "qa-failure-analyst"}, "session_id": "parent",
+             "tool_use_id": f"u{i}", "cwd": str(project), "tool_response": {"task_path": f"/root/spawn-{i}"}}
+    with _oh61_patched(stage_guard, resolve_ticket=lambda ev: (name, {})):
+        host_dispatch.record(event)
+    receipt = json.loads(host_dispatch.binding_path(project, f"/root/spawn-{i}").read_text(encoding="utf-8"))
+    return receipt["task_id"], receipt["dispatch_id"]
+
+
+def _oh82_run_identity(project, art, name, i):
+    import exit_gate
+    scope = exit_gate._identity({"task_id": name}, "qa-scout")[1]
+    return scope["task"], scope.get("identity_facts", "")
+
+
+def _oh82_path(art: Path, name: str) -> str:
+    """A path under `/artifacts/` whose story part is `name` verbatim (a `Path` join would drop a trailing dot or blank)."""
+    return art.as_posix() + "/" + name + "/test-plan.md"
+
+
+def _oh82_run_guard(project, art, name, i):
+    import guard_pre_tool
+    with quiet():
+        guard_pre_tool.owner_check({"tool_name": "Write", "cwd": str(project), "tool_input": {"file_path": _oh82_path(art, name)}}, {})
+
+
+def _oh82_raises(exc):
+    def fail(*args, **kwargs):
+        raise exc
+    return fail
+
+
+def _oh82_run_artifacts_dir(project, art, name, i):
+    return hooklib.artifacts_dir(name)
+
+
+def _oh82_run_story_root(project, art, name, i):
+    return hooklib.story_root(name, "prog")
+
+
+def _oh82_judge_dir(kind, name, target, got):
+    if kind in ("good", "own"):
+        return got == ("value", hooklib.artifact_root() / name)
+    return got[:2] == ("raised", "ValueError" if kind == "bad" else "StoryRootError")
+
+
+def _oh82_judge_root(kind, name, target, got):
+    if kind == "good":
+        return got == ("value", hooklib.artifact_root() / name)
+    if kind == "bad":
+        return got[:2] == ("raised", "StoryRootError") and "requires a story's ticket key" in got[2]
+    near = f"A folder {target!r} exists: the key is matched exactly" if kind == "twin" else "names no story"
+    return got[:2] == ("raised", "StoryRootError") and near in got[2] and "names no story" in got[2]
+
+
+def _oh82_judge_identity(kind, name, target, got):
+    if kind in ("twin", "alias8"):
+        return got[0] == "unknown-task" and f"explicit id {name!r} is another spelling of folder" in got[1]
+    return got[0] == name
+
+
+# (id, run, judge(kind, name, target, outcome), spy: the hooklib leaf the site must ask about the exact name, asked-for(kind, name))
+OH82_ROWS = (
+    ("artifacts_dir_read", _oh82_run_artifacts_dir, _oh82_judge_dir, None, None),
+    ("story_root_text", _oh82_run_story_root, _oh82_judge_root, None, None),
+    ("is_story_with_pipeline", *_oh82_gate(_oh82_run_is_story), "is_story_folder", lambda k, n: True),
+    ("story_named_by_text", *_oh82_gate(_oh82_run_by_text), "is_story_folder", lambda k, n: bool(n)),
+    ("names_story", *_oh82_gate(_oh82_run_names_story), "is_story_folder", lambda k, n: bool(n)),
+    ("resolve_ticket_explicit", *_oh82_gate(_oh82_run_explicit), "is_story_folder", lambda k, n: bool(n)),
+    # `$QA_FACTORY_TASK` is stripped by `resolve_ticket` itself (a padded variable is still the person's word): `T ` is `T` here
+    ("resolve_ticket_env", _oh82_run_env,
+     lambda k, n, t, got: got == ("value", k == "good" or (k in ("twin", "shape") and n != n.strip() and n.strip() == "T")),
+     "is_story_folder", lambda k, n: bool(n) and n == n.strip()),
+    ("recipient_receipts", *_oh82_gate(_oh82_run_receipts), "is_story_folder", lambda k, n: True),
+    ("named_ticket", *_oh82_gate(_oh82_run_named_ticket), "is_story_folder", lambda k, n: bool(n)),
+    ("bug_records_story_exists", *_oh82_gate(_oh82_run_bug_exists), "is_story_folder", lambda k, n: True),
+    ("controller_record", _oh82_run_controller_record,
+     lambda k, n, t, got: got == ("value", {"id": "D", "role": "qa-failure-analyst", "status": "running"} if n in ("T", "TJ") else None),
+     "is_story_folder", lambda k, n: True),
+    ("record_spawn", _oh82_run_spawn,
+     lambda k, n, t, got: got == ("value", (n, "D" if n in ("T", "TJ") else None)), "is_story_folder", lambda k, n: bool(n)),
+    ("identity_explicit", _oh82_run_identity, lambda k, n, t, got: _oh82_judge_identity(k, n, t, got[1]),
+     "other_spelling", lambda k, n: k in ("twin", "alias8", "shape", "own")),
+    ("guard_owner_check", _oh82_run_guard,
+     # a write lands in T for an alias only where the file system reads the alias as T (nt); elsewhere it is a new folder
+     lambda k, n, t, got: got == (("exit", 2) if k == "good" or (os.name == "nt" and k in ("twin", "alias8")) else ("value", None)),
+     "landing_name", lambda k, n: bool(n)),
+)
+
+
+def oh8_2_alias_table() -> None:
+    """OH8-2a: 14 sites x the name cells, one check per cell and one spy check per spied cell (rule: the site asked the leaf
+    about the exact name). `T` and `TJ` are stories; every other spelling reaches no story's data and no story's guard
+    verdict is lost to it."""
+    base = scratch()
+    for row_id, run, judge, spy, asked in OH82_ROWS:
+        seen, real = [], getattr(hooklib, spy) if spy else None
+
+        def recorder(parent, name, *rest, seen=seen, real=real, **kw):
+            seen.append(name)
+            return real(parent, name, *rest, **kw)
+
+        try:
+            with _oh61_patched(hooklib, **({spy: recorder} if spy else {})):
+                project, art, cells = _oh82_world(base / row_id)
+                for i, (kind, label, name, target) in enumerate(cells):
+                    if row_id == "identity_explicit" and not name:
+                        continue
+                    del seen[:]
+                    got = _oh61_outcome(lambda: run(project, art, name, i))
+                    check(f"OH8-2 {row_id}-{kind}-{label}", judge(kind, name, target, got), repr(got)[:300])
+                    if spy and asked(kind, name):
+                        check(f"OH8-2 {row_id}-{kind}-{label} asked {spy}", name in seen, repr(seen)[:200])
+        finally:
+            restore_process()
+
+
+def oh8_2_create_and_guard_edges() -> None:
+    """OH8-2a: the create world of `artifacts_dir`, the near-miss text, the old-gate control, and `_path_story` never raising."""
+    import guard_pre_tool
+    base = scratch()
+    try:
+        project, art = _oh61_project(base / "create", ("T",))
+        check("OH8-2 artifacts_dir_create: a new clean key gives its path", hooklib.artifacts_dir("NEW") == art / "NEW")
+        for key, folder in (("NEW.", ""), ("new", "NEW"), ("T", "")):
+            if folder:
+                (art / folder).mkdir()
+            got = _oh61_outcome(lambda: hooklib.artifacts_dir(key))
+            if key == "T":
+                check("OH8-2 artifacts_dir_create: an exact existing key passes", got == ("value", art / "T"), repr(got))
+            else:
+                check(f"OH8-2 artifacts_dir_create: {key!r} is refused", got[:2] == ("raised", "StoryRootError"), repr(got))
+                if folder:
+                    check("OH8-2 artifacts_dir_create: the refusal names the folder", f"folder {folder!r} exists" in got[2] and f"Pass {folder!r}" in got[2], got[2])
+        check("OH8-2 artifacts_dir_create: the shape refusal says what to do",
+              "pass the key without them" in _oh61_outcome(lambda: hooklib.artifacts_dir("NEW."))[2])
+        if os.name == "nt":
+            old = lambda parent, name: hooklib.is_one_component(name) and (Path(parent) / name).exists()   # the gate before OH8-2
+            aliases = ("T.", "t")
+            with _oh61_patched(hooklib, is_story_folder=old):
+                said_yes = [n for n in aliases if hooklib.is_story_with_pipeline(art, n)]
+            check("OH8-2 negative control (nt): the old gate says yes to an alias, the leaf says no",
+                  said_yes == list(aliases) and not any(hooklib.is_story_with_pipeline(art, n) for n in aliases), str(said_yes))
+        raw = _oh82_path(art, "t")
+        check("OH8-2 _path_story: an alias path names the folder it lands in",
+              guard_pre_tool._path_story(raw, {"cwd": str(project)}) == ("T" if os.name == "nt" else "t"))
+        for label, patch in (("a broken config", {"artifact_root": _oh82_raises(ValueError("broken"))}),
+                             ("a failing landing_name", {"landing_name": _oh82_raises(OSError("x"))})):
+            with _oh61_patched(hooklib, **patch):
+                check(f"OH8-2 _path_story: {label} leaves the raw key, never raises", guard_pre_tool._path_story(raw, None) == "t")
+        check("OH8-2 _path_story: no story in the path is an empty key", guard_pre_tool._path_story("a/b.md", None) == "")
+    finally:
+        restore_process()
+
+
+# shrink-only (AR-15, AR-20): lines calling `hooklib.is_one_component` per script, in the world after OH8-1 and OH8-2a. OH8-2b
+# lowers role_load.py 2 -> 1; `selftest.py` keeps a named mirror pinned by `oh6_1_mirror_agreement`, not counted here.
+OH82_CALLS = re.compile(r"(?<![\w])(?:hooklib\.)?is_one_component\(")
+OH82_ALLOWED = {"activity_capture.py": 1, "cost_capture.py": 2, "controller.py": 1, "dependency_drift.py": 1, "event_store.py": 1,
+                "estimate_record.py": 1, "exploration.py": 3, "exit_gate.py": 1, "hooklib.py": 3, "recover_codex_usage.py": 1,
+                "red_sandbox.py": 2, "role_digest.py": 1, "role_load.py": 2, "subagent_journal.py": 1, "waiver.py": 2}
+
+
+def oh8_2_sentinel() -> None:
+    counts = {}
+    for path in sorted(harness.SCRIPTS.glob("*.py")):
+        hits = [line for line in path.read_text(encoding="utf-8").splitlines()
+                if OH82_CALLS.search(line) and not line.lstrip().startswith(("def ", "#"))]
+        if hits:
+            counts[path.name] = len(hits)
+    check("OH8-2 sentinel (positive control): controller.py is counted", "controller.py" in counts)
+    check("OH8-2 sentinel: no script grew a call of is_one_component", {n: c for n, c in counts.items() if c > OH82_ALLOWED.get(n, 0)} == {}, str(counts))
+    check("OH8-2 sentinel: the allowance is not stale (shrink it)", {n: c for n, c in OH82_ALLOWED.items() if counts.get(n, 0) < c} == {}, str(counts))
+
+
 def main() -> None:
     os.environ[SKIP] = "1"
     try:
         oh6_1_one_component_table()
         oh6_1_mirror_agreement()
         oh6_1_sentinel()
+        oh8_2_alias_table()
+        oh8_2_create_and_guard_edges()
+        oh8_2_sentinel()
         b1_artifacts_dir_root()
         b2_binding_is_active()
         b3_blocking_text()
