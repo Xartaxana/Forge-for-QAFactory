@@ -339,7 +339,7 @@ check_eq("K-BRIEF-CAP-8 eight rows: eight lines, no more-line, no side file", (l
 task = plan_rows(*[row(f"TS-{n}", fit="extend tests/x.py", disposition="automate") for n in range(1, 10)])
 lines, side = brief_pack.fit_target_lines("T", task, "S4", "qa-case-designer", {}, [], "S4-1")
 check("K-BRIEF-CAP-9 nine rows: eight lines and ONE more-line naming the rest and the side file; the side holds all nine",
-      len(lines) == 10 and lines[-1] == "- and 1 more: TS-9 - qa-factory/artifacts/T/work/briefs/S4-1-targets.md"
+      len(lines) == 10 and lines[-1] == "- and 1 more: TS-9 - " + runtime_paths.story_text(task, "work/briefs/S4-1-targets.md")
       and side.count("(in the working tree)") == 9 and side.startswith(HEADER), f"{lines[-1]!r} {side.count('(in the working tree)')}")
 for stage, role in (("S2", "qa-requirements-tester"), ("S4", "qa-scout"), ("S3", "qa-test-strategist"), ("S5", "qa-code-critic"), ("S6", "qa-automator")):
     check_eq(f"K-BRIEF-OTHER-ROLE {stage}/{role}: nothing", brief_pack.fit_target_lines("T", task, stage, role, {}, ["TS-1"], "D-1"), ([], ""))
