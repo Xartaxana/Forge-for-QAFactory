@@ -1,0 +1,12 @@
+qa-test-strategist S3 S3-qa-test-strategist-3 · concerns
+P-1 · automate · regression: yes - money and validation partitions, API
+P-2 · automate · Q1=b: any out-of-stock refusal accepted; regression: yes
+P-3 · unverifiable · Q2 open until the report; local storage undecided
+P-4 · automate · Q3=a: higher quantity wins at merge; regression: yes
+P-5 · automate · regression: yes - access isolation, P0
+P-6 · automate · regression: yes - three UI paths
+P-7 · automate · regression: yes - badge is UI-only state
+P-8 · manual-agent · regression: no - one-off walk of the whole function
+P-9 · manual-agent · regression: no - one-off walk of the display
+P-10 · manual-agent · regression: no - one-off walk; UI login form only
+test-plan.md

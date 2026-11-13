@@ -1,0 +1,4 @@
+qa-code-critic S5 S5-qa-code-critic-7 · concerns
+TC-006 · unverified · read clean; live probe not executable, left as probe debt
+TC-007 · unverified · read clean; live probe not executable, left as probe debt
+work/automation-manifest.json

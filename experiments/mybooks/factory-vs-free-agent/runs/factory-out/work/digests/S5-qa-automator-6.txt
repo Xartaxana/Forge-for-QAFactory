@@ -1,0 +1,8 @@
+qa-automator S5 S5-qa-automator-6 · concerns
+TC-001 · green · All six Thens pass; Then 4 fresh-session check is its own test
+TC-002 · green · Unchanged; Then 3 stays open (Q1)
+TC-004 · red · Then 1 red vs R-9 (merge returns empty cart); Thens 2, 4 green
+TC-005 · red · Then 1 red vs R-12 (guests share a cart); Thens 2-3 blocked_by_check
+work/automation-manifest.json
+I ran no mutation or sensitivity probe this round, so the tried table is empty. The newest run is 7fe775eda0e9 (9 tests, 8 passed, 1 failed). The handoff form still names the earlier witness bc3149a9a5fd as run_witness.
+notes: state/findings/S5-qa-automator-6-digest-notes.md

@@ -1,0 +1,4 @@
+qa-case-critic S2 S2-qa-case-critic-3 · concerns
+R-12 · reject · no tried attempt on access/data-loss rows R-12, R-9, R-5
+register · approve_with_concerns · R-1, R-2, R-11 compound; form readings/matrix need repair
+work/handoffs/S2-qa-case-critic-3.yaml

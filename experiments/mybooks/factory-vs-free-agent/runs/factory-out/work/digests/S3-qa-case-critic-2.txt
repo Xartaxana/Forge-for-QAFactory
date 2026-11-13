@@ -1,0 +1,12 @@
+qa-case-critic S3 S3-qa-case-critic-2 · ok
+P-1 · approve · money and validation partitions at API level
+P-2 · approve · unverifiable on wording question
+P-3 · approve · unverifiable on storage question
+P-4 · approve · unverifiable, login route not shown reachable
+P-5 · approve · R-12 isolation, three owner pairs
+P-6 · approve · three UI paths need e2e
+P-7 · approve · badge is UI-only state
+P-8 · approve · walk row for add function
+P-9 · approve · walk row for price and subtotal
+P-10 · approve · walk row for persistence, sign-in, second guest
+work/handoffs/S3-qa-case-critic-2.yaml

@@ -1,0 +1,12 @@
+ M .gitignore
+?? .claude/
+?? core/clients/cartApi.ts
+?? core/clients/cartClient.ts
+?? core/pages/BookDetailPage.ts
+?? core/pages/CartPage.ts
+?? core/pages/CatalogPage.ts
+?? core/pages/WishlistPage.ts
+?? qa-factory/
+?? task/
+?? tests/api/cart/
+?? tests/e2e/cart/

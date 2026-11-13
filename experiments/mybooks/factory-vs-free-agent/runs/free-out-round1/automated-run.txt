@@ -1,0 +1,71 @@
+(node:10436) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+Running 19 tests using 2 workers
+
+(node:21824) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:14908) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21824) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:14908) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:21824) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:14908) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 [chromium] › tests\api\cart\cart.spec.ts:32:3 › API: add to cart › @api @cart adds an in-stock book with quantity 1 and the cart total uses the backend price (61ms)
+  ok  3 [chromium] › tests\api\cart\cart.spec.ts:42:3 › API: add to cart › @api @cart adding the same book again increases the quantity instead of creating a second line (30ms)
+  ok  4 [chromium] › tests\api\cart\cart.spec.ts:52:3 › API: add to cart › @api @cart an out-of-stock book is refused and nothing is added (20ms)
+  ok  5 [chromium] › tests\api\cart\cart.spec.ts:59:3 › API: add to cart › @api @cart quantity above stock is refused, also when combined with what is already in the cart (42ms)
+  ok  6 [chromium] › tests\api\cart\cart.spec.ts:71:5 › API: add to cart › @api @cart rejects zero quantity (16ms)
+  ok  7 [chromium] › tests\api\cart\cart.spec.ts:71:5 › API: add to cart › @api @cart rejects negative quantity (24ms)
+  ok  8 [chromium] › tests\api\cart\cart.spec.ts:71:5 › API: add to cart › @api @cart rejects fractional quantity (16ms)
+  ok  9 [chromium] › tests\api\cart\cart.spec.ts:71:5 › API: add to cart › @api @cart rejects string quantity (26ms)
+  ok 10 [chromium] › tests\api\cart\cart.spec.ts:71:5 › API: add to cart › @api @cart rejects too large quantity (14ms)
+  ok 11 [chromium] › tests\api\cart\cart.spec.ts:71:5 › API: add to cart › @api @cart rejects missing quantity (18ms)
+  ok 12 [chromium] › tests\api\cart\cart.spec.ts:79:3 › API: add to cart › @api @cart unknown book gives 404 (6ms)
+  ok 13 [chromium] › tests\api\cart\cart.spec.ts:82:3 › API: add to cart › @api @cart guest cart is private to its session (39ms)
+  ok 14 [chromium] › tests\api\cart\cart.spec.ts:97:3 › API: add to cart › @api @cart quantity change is capped by stock (36ms)
+  ok 15 [chromium] › tests\api\cart\cart.spec.ts:113:3 › API: add to cart › @api @cart price change by admin is reflected in the cart total (31ms)
+  ok 16 [chromium] › tests\api\cart\cart.spec.ts:123:3 › API: add to cart › @api @cart guest cart is merged into the account cart at sign-in (higher quantity wins) (198ms)
+  ok  2 [chromium] › tests\e2e\cart\add_to_cart.spec.ts:25:3 › E2E: add to cart › @e2e @cart guest adds 3 copies on the book page; cart shows quantity, subtotal and badge (678ms)
+  ok 17 [chromium] › tests\e2e\cart\add_to_cart.spec.ts:41:3 › E2E: add to cart › @e2e @cart book page refuses more than the stock and keeps the cart unchanged (341ms)
+  ok 18 [chromium] › tests\e2e\cart\add_to_cart.spec.ts:50:3 › E2E: add to cart › @e2e @cart out-of-stock book has a disabled Add to Cart button on the book page (472ms)
+  x  19 [chromium] › tests\e2e\cart\add_to_cart.spec.ts:64:3 › E2E: add to cart › @e2e @cart guest who proceeds to checkout from the cart lands on checkout after signing in (11.5s)
+
+
+  1) [chromium] › tests\e2e\cart\add_to_cart.spec.ts:64:3 › E2E: add to cart › @e2e @cart guest who proceeds to checkout from the cart lands on checkout after signing in 
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveURL[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Expected pattern: [32m/\/checkout$/[39m
+    Received string:  [31m"http://localhost:3001/login?callbackUrl=%2Fcheckout"[39m
+    Timeout: 10000ms
+
+    Call log:
+    [2m  - Expect "toHaveURL" with timeout 10000ms[22m
+    [2m    14 × unexpected value "http://localhost:3001/login?callbackUrl=%2Fcheckout"[22m
+
+
+      67 |     await page.getByTestId('login-submit-button').click();
+      68 |     try {
+    > 69 |       await expect(page).toHaveURL(/\/checkout$/, { timeout: 10_000 });
+         |                          ^
+      70 |       await expect(page.getByTestId('checkout-page')).toBeVisible();
+      71 |     } finally {
+      72 |       // clean up the merged cart of the shared user
+        at C:\QAFactory\mybooks-stand\arm-free\test-automation-framework\tests\e2e\cart\add_to_cart.spec.ts:69:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\e2e-cart-add_to_cart-E2E-a-6e0ca-n-checkout-after-signing-in-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\e2e-cart-add_to_cart-E2E-a-6e0ca-n-checkout-after-signing-in-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\e2e-cart-add_to_cart-E2E-a-6e0ca-n-checkout-after-signing-in-chromium\error-context.md
+
+  1 failed
+    [chromium] › tests\e2e\cart\add_to_cart.spec.ts:64:3 › E2E: add to cart › @e2e @cart guest who proceeds to checkout from the cart lands on checkout after signing in 
+  18 passed (14.6s)

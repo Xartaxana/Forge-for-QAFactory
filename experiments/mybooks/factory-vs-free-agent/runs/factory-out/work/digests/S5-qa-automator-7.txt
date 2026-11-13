@@ -1,0 +1,6 @@
+qa-automator S5 S5-qa-automator-7 · concerns
+TC-001 · green · unchanged since critic roll-call; no finding
+TC-002 · green · unchanged since critic roll-call; no finding
+TC-004 · green · Then 1, 2, 4 pass; Then 2 strengthened with guest-only C
+TC-005 · red · Then 1 red against requirement; Thens 2-3 blocked_by_check
+work/automation-manifest.json

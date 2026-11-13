@@ -1,0 +1,4 @@
+qa-case-critic S2 S2-qa-case-critic-1 · concerns
+register · reviewed · 12 requirements, units homed; R-6 and R-3 are compound
+tried-table · reject · no refutation attempt for R-12 (access) or R-3/R-4 (money)
+qa-factory/artifacts/LOCAL-1/work/handoffs/S2-qa-case-critic-1.yaml

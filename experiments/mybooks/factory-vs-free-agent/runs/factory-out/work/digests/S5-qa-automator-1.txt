@@ -1,0 +1,16 @@
+qa-automator S5 S5-qa-automator-1 · concerns
+TC-001 · blocked · 5 tests written, never ran: run_suite refuses (profile selectors empty)
+TC-002 · blocked · 1 test written, never ran: run_suite refuses (profile selectors empty)
+TC-004 · blocked · 3 tests written, never ran; Then 3 impossible (zero stock unreachable)
+TC-005 · blocked · 1 test written, never ran: run_suite refuses (profile selectors empty)
+work/automation-manifest.json
+Of the 11 findings, 5 are repaired and 6 stay open.
+Repaired:
+Obligation bindings: the four findings are cleared, with OB-1, OB-2, OB-4 and OB-5 bound through manifest_put.py.
+Selector rows: I added selector_args and report_test_id to every test row.
+Still open:
+run_witness: missing. No test has run, so there is no run summary to point to.
+blocked_by_env evidence (four findings): no run exists to show a stand fault. run_suite.py --mine answers invalid_request: behavioral command requires a verified adapter selector contract. profiles[playwright-tests].selectors in qa-factory/config.json is {}, and that config is not my file. The stand itself looks fine: /api/health is ok and the sign-in works. The conductor can lift these four with waiver.py --stage S5 --block "no environment evidence", or fill the selector contract.
+obligation_refs: still missing on all 10 rows. The marker that writes it is pytest-only, and these are TypeScript tests, so there is no marker route for them.
+The tests are tests/api/cart/cart_add.spec.ts and tests/api/cart/cart_owner.spec.ts, plus a new helper, core/clients/cartClient.ts. No red probe or mutation was tried, because nothing could run.
+notes: state/findings/S5-qa-automator-1-digest-notes.md

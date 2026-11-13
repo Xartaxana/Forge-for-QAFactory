@@ -1,0 +1,14 @@
+qa-requirements-tester S2 S2-qa-requirements-tester-1 · concerns
+R-1 · found · register row, observable named
+R-2 · found · register row, observable named
+R-3 · found · register row, observable named
+R-4 · found · register row, observable named
+R-5 · found · register row, observable named
+R-6 · found · register row, observable named
+R-7 · found · register row, observable named
+R-8 · found · register row, observable named
+R-9 · found · register row, observable named
+R-10 · found · register row, observable named
+R-11 · found · register row, observable named
+R-12 · found · register row, observable named
+work/requirements-readiness.json

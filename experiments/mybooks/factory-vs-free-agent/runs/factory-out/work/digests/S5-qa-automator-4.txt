@@ -1,0 +1,10 @@
+qa-automator S5 S5-qa-automator-4 · concerns
+TC-001 · red · Then 4 red; Thens 1-3, 5-6 green
+TC-002 · green · Thens 1-2 green; Then 3 open (Q1)
+TC-004 · red · Then 1 red: merge leaves user cart empty; Thens 2, 4 green
+TC-005 · red · Then 1 red; Thens 2-3 blocked_by_check
+work/automation-manifest.json
+s5_precheck.py now passes for the four cases, and the handoff form passes handoff_check.py. I sent obligation_refs for all 10 test rows through manifest_put.py (OB-1, OB-2, OB-4, OB-5), taking the ids from the plan.
+The precheck did not check the Then assertions of the two spec files; the code critic reads those in full.
+All three reds are the tests as written, with the observed values recorded in unresolved[]. TC-001 Then 4 and TC-005 Then 1 both show a second cookie jar seeing another guest's cart. I could not tell a product defect from the harness or the stand, so that doubt goes to S7 with the red tests.
+notes: state/findings/S5-qa-automator-4-digest-notes.md

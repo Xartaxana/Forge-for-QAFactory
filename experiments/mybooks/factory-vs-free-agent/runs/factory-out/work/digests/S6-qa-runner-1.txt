@@ -1,0 +1,8 @@
+qa-runner S6 S6-qa-runner-1 · concerns
+TC-001 · passed · all 6 instances passed on rerun
+TC-002 · passed · stock-0 add refused instance passed
+TC-004 · passed · reused receipts, not rerun (same bytes)
+TC-005 · passed · reused receipt; manifest flags contradicts_requirement
+TC-006 · passed · all 6 entry-path instances passed
+TC-007 · passed · badge vs cart page instance passed
+work/run-report.json

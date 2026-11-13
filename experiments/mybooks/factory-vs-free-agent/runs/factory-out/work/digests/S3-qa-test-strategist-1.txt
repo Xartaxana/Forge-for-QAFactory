@@ -1,0 +1,12 @@
+qa-test-strategist S3 S3-qa-test-strategist-1 · concerns
+P-1 · automate · regression: yes - money and validation partitions at API
+P-2 · unverifiable · waits for Q1 wording; planned on a until answered
+P-3 · unverifiable · waits for Q2 cookie vs local storage
+P-4 · unverifiable · waits for Q3 merge rule
+P-5 · automate · regression: yes - owner isolation, P0
+P-6 · automate · regression: yes - three UI paths only e2e reaches
+P-7 · automate · regression: yes - badge is UI-only state
+P-8 · manual-agent · regression: no - one-off walk of the add function
+P-9 · manual-agent · regression: no - one-off walk of price display
+P-10 · manual-agent · regression: no - one-off walk of visit and sign-in
+test-plan.md

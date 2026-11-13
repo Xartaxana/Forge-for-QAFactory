@@ -1,0 +1,12 @@
+qa-failure-analyst S7 S7-qa-failure-analyst-1 · concerns
+TC-001 · green · passed in the current run, nothing to triage
+TC-002 · green · passed in the current run, nothing to triage
+TC-003 · unverified · no result in the current run (not listed), nothing to triage
+TC-004 · green · passed in the current run, nothing to triage
+TC-005 · red · TEST_BUG: both guests load storageState and share one guest cookie
+TC-006 · green · passed in the current run, nothing to triage
+TC-007 · green · passed in the current run, nothing to triage
+TC-008 · found · APP_BUG: product-page quantity field rewrites typed value, 0 becomes 1
+TC-009 · found · APP_BUG: cart quantity field turns typed 3 into 13; the other lines are noise
+TC-010 · passed · R-5, R-9 and R-12 hold on the walk; runner never ran it
+work/triage.json

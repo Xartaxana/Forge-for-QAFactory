@@ -1,0 +1,4 @@
+qa-automator S5 S5-qa-automator-9 · ok
+TC-006 · green · OB-6 obligation_refs rewritten with current plan hash; no test code changed
+TC-007 · green · OB-7 obligation_refs rewritten with current plan hash; no test code changed
+work/automation-manifest.json

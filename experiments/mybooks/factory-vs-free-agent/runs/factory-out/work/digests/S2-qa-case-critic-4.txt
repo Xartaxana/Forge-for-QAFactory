@@ -1,0 +1,11 @@
+qa-case-critic S2 S2-qa-case-critic-4 · ok
+R-1 · approve_with_concerns · accepted by the person; compound row, open item
+R-2 · approve_with_concerns · accepted by the person; compound, no tried row, open item
+R-11 · approve_with_concerns · accepted by the person; compound row, open item
+R-12 · approve_with_concerns · accepted by the person; no tried attempt, open item
+R-9 · approve_with_concerns · accepted by the person; no tried attempt, open item
+R-5 · approve_with_concerns · accepted by the person; no tried attempt, open item
+R-3 · approve_with_concerns · tried present; rounding left to Q6
+R-6 · approve · tried row present, BN-5 split
+R-13 · approve · tried row present, BN-8 partitions
+work/handoffs/S2-qa-case-critic-4.yaml
