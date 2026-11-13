@@ -1926,6 +1926,58 @@ def s5_1_to_3() -> None:
         cleanup(root)
 
 
+def s5_a_person_word_passes_the_same_fact_in_both_detectors() -> None:
+    """FV1-30a: a Then with no `then_bindings` row is refused by TWO detectors of the S5 exit under two names. ONE word for
+    `bindings:<case>:no-bindings` passes it in both (no second question, FR-7); a finding the word did not name still refuses."""
+    root = temp_project("qa-ba-s5-word-")
+    try:
+        rows = [plan_row("TS-1", ["BN-1"])]
+        cases = [("TC-009", "TS-1", 'branches: [{"id": "BN-1", "then": 1}]', THEN)]
+
+        def story_with(words, bindings=(), tests=()):
+            task = s5_story(root, cases, rows, bindings=list(bindings), tests=list(tests))
+            state = task / "state" / "controller.json"
+            state.parent.mkdir(parents=True, exist_ok=True)
+            state.write_text(json.dumps({"dispatches": {"S5-qa-automator-1": {
+                "id": "S5-qa-automator-1", "stage": "S5", "role": "qa-automator", "scope": ["TC-009"], "status": "running"}}}), encoding="utf-8")
+            pipeline = json.loads((task / "pipeline.json").read_text(encoding="utf-8"))
+            pipeline["stage_overrides"] = [{"stage": "S5", "match": w, "decision": "go on, the person knows", "at": f"{day(0)}T10:00:00", "by": "human"}
+                                           for w in words]
+            (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+            return task
+
+        import s5_precheck as P
+        task = story_with([])
+        check_eq("no word: the second detector refuses the Then with no row", len(s5_run(task, ["TC-009"])[0]), 1)
+        check_eq("no word: ... and the first detector names the same fact `no-bindings`",
+                 [f["id"] for f in P.run(task, "S5-qa-automator-1")["findings"] if f["check"] == "bindings"], ["bindings:TC-009:no-bindings"])
+        task = story_with(["no-bindings"])
+        problems, notes = s5_run(task, ["TC-009"])
+        check_eq("a word for no-bindings passes the first detector",
+                 [f["id"] for f in P.run(task, "S5-qa-automator-1")["findings"] if f["check"] == "bindings"], [])
+        check("a word for no-bindings passes the second too: no refusal, a note that says the person's word passed it and the fact stays",
+              problems == [] and any("passed by the person's word" in n and "TC-009" in n for n in notes), str((problems, notes)))
+        check_eq("...and the exit gate itself is green on it", detector(root)[0].returncode, 0)
+        for label, words in (("a word for another tag", ["ghost-i1"]), ("a word naming only the case", ["TC-009"]),
+                             ("a phrase of the refusal", ["bound to no instance"])):
+            task = story_with(words)
+            check_eq(f"{label}: the second detector still refuses", len(s5_run(task, ["TC-009"])[0]), 1)
+        # a finding of the second detector the word did NOT name: the Then HAS a row (bound to an instance the manifest does not
+        # hold), so `no-bindings` was never the fact and `*` does not make it so - it refuses
+        held = [{**v_bind("TC-009", 1), "instance_id": "ghost_instance", "assertion_ref": "tests/t.py:3"}]
+        tests = [{"case": "TC-009", "instance_id": "real_instance", "file": "tests/t.py", "status": "green"}]
+        for word in ("no-bindings", "*"):
+            task = story_with([word], bindings=held, tests=tests)
+            check_eq(f"an unnamed finding still refuses: a Then WITH a row for a missing instance, the word {word!r}",
+                     len(s5_run(task, ["TC-009"])[0]), 1)
+        # the same word in another case's scope does not pass this case
+        task = story_with(["no-bindings"])
+        check_eq("the pass is read for the window's cases only: a scope that excludes the case is a note, as before",
+                 s5_run(task, ["TC-001"])[0], [])
+    finally:
+        cleanup(root)
+
+
 def f_1_pair_binding_scope() -> None:
     """F-1 (t-402): the pair (Then, partition) is `covered` through the test its binding NAMES. The critic's table, run on `_pair`: each
     row is shown beside the pair that stays `covered`; a binding with no instance (`instance_id` None) keeps the any-test rule."""
@@ -3189,6 +3241,7 @@ if __name__ == "__main__":
     doc_keys()
     doc_keys_step2()
     s5_1_to_3()                                   # step 3 (TQ1-20): the block above
+    s5_a_person_word_passes_the_same_fact_in_both_detectors()   # FV1-30a
     f_1_pair_binding_scope()
     v_7_source_unreconciled()
     v_9_legacy_and_11_material()

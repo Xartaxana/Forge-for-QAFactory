@@ -761,7 +761,7 @@ def first_look_placeholder_on_real_side_is_accounted() -> None:
 
 
 def s10_words() -> None:
-    """S10: the family `sides` is NOT passable; `sides-undeclared` and `provisional-open-on-real` are, by tag; a C3 finding is not."""
+    """S10 (re-pinned in FV1-30a): every finding of the family `sides` is passable by its tag or whole id, or by `*`; a part of a tag is not a word."""
     project = temp_project("qa-sides-s10-")
     use_project(project)
     try:
@@ -777,10 +777,19 @@ def s10_words() -> None:
         kept = [P._finding_tag(f) for f in left]
         check("S10: a word for `sides-undeclared-test_a` passes that finding", "sides-undeclared-test_a" not in kept, str(kept))
         check("S10: and `*` passes the other undeclared one by its tag", "sides-undeclared-test_b" not in kept, str(kept))
-        check_eq("S10: a C3 finding (kind) is not passed by any word, `*` included", [t for t in kept if t.startswith("provisional-kind-")],
-                 ["provisional-kind-P-1"])
-        check("S10: the family is not passable, only the tags are", "sides" not in P.PASSABLE
-              and P.SIDES_UNDECLARED in P.WORD_PASSABLE_TAGS and P.PROVISIONAL_OPEN_ON_REAL in P.WORD_PASSABLE_TAGS)
+        # FV1-30a (critic B2): every finding of the family is word-passable by ONE road - with `*` the C3 `provisional-kind-P-1` goes
+        # too, and its own tag word passes it alone
+        check_eq("S10: with `*` the C3 finding (kind) is passed too: nothing of it is kept", [t for t in kept if t.startswith("provisional-kind-")], [])
+        pipeline["stage_overrides"] = [{**word, "match": "provisional-kind-P-1"}]
+        (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        left = P.passed_by_word(task, findings, [])
+        kept = [P._finding_tag(f) for f in left]
+        check_eq("S10: the tag word `provisional-kind-P-1` passes that finding and no other", ([t for t in kept if t.startswith("provisional-kind-")],
+                 "sides-undeclared-test_a" in kept, "sides-undeclared-test_b" in kept), ([], True, True))
+        pipeline["stage_overrides"] = [{**word, "match": "kind"}]
+        (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        kept = [P._finding_tag(f) for f in P.passed_by_word(task, findings, [])]
+        check_eq("S10: a PART of the tag (`kind`) passes nothing", [t for t in kept if t.startswith("provisional-kind-")], ["provisional-kind-P-1"])
     finally:
         cleanup(project)
 
