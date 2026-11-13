@@ -1115,6 +1115,38 @@ def one_bug_many_manifestations_n2() -> None:
         cleanup(root)
 
 
+def traceability_reads_one_bugs_root() -> None:
+    """N-r5 (B-348): `traceability.resolve` gives `--task` and `--task-root` the same bugs root, `<project>/qa-factory`, whatever the
+    project's `artifact_root`; a story under no project keeps the two-levels-up root (stated, not guessed)."""
+    for label, artifact_root_value in (("artifact_root: qa-artifacts", "qa-artifacts"),
+                                       ("default config, no artifact_root", None)):
+        root = temp_project("qa-factory-n-r5-")
+        try:
+            config = root / "qa-factory" / "config.json"
+            cfg = json.loads(config.read_text(encoding="utf-8-sig"))
+            cfg.pop("artifact_root", None)
+            if artifact_root_value is not None:
+                cfg["artifact_root"] = artifact_root_value
+            write(config, json.dumps(cfg))
+            home = Path(root).resolve() / "qa-factory"
+            task = (Path(root).resolve() / artifact_root_value if artifact_root_value else home / "artifacts") / "STORY-R5"
+            task.mkdir(parents=True)
+            by_key, by_root = T.resolve("STORY-R5", str(root), None), T.resolve(None, None, str(task))
+            check_eq(f"N-r5 ({label}): --task and --task-root give the same (bugs_root, artifacts)", by_root, by_key)
+            check_eq(f"N-r5 ({label}): the bugs root is <project>/qa-factory", by_root[0], home)
+            check_eq(f"N-r5 ({label}): the story is the folder named", by_root[1], task)
+        finally:
+            cleanup(root)
+    bare = temp_dir("qa-factory-n-r5-bare-")      # NOT a project on purpose: no config to read
+    try:
+        lone = bare / "a" / "STORY-R5"
+        lone.mkdir(parents=True)
+        check_eq("N-r5 (outside any project): --task-root keeps the old arithmetic, two levels up",
+                 T.resolve(None, None, str(lone)), (bare.resolve(), lone.resolve()))
+    finally:
+        cleanup(bare)
+
+
 def main() -> None:
     root = temp_project("qa-factory-bugs-")
     extra = []
@@ -1493,6 +1525,7 @@ def main() -> None:
     the_open_source_bugs()
     the_draft_place_and_mark()
     one_bug_many_manifestations_n2()
+    traceability_reads_one_bugs_root()
     finish("bug_records")
 
 
