@@ -185,8 +185,20 @@ def stage(root, event, role, context, ticket):
     # inside the lock and ahead of the write, so two concurrent stagings cannot both pass it.
     path = _slot(root, session, raw.get('task_name'))
     with EventStore(path.parent).lock():
-        if path.is_file() and json.loads(path.read_text(encoding='utf-8')).get('status') == 'pending':
-            raise StateConflict('A factory launch is awaiting SubagentStart; retry after it starts, do not replace it')
+        held = None
+        if path.is_file():
+            try:
+                held = json.loads(path.read_text(encoding='utf-8'))
+            except ValueError:  # empty or broken JSON (JSONDecodeError and a bad encoding are both ValueError)
+                held = None
+            if not isinstance(held, dict):
+                # An unreadable packet (empty, broken, or JSON that is not an object): one named refusal with its door.
+                # A plain ValueError, which `refuse_native_stage` already takes and the A24 scanner sees.
+                raise ValueError('launch packet ' + path.name + ' cannot be read or is not a JSON object; '
+                                 'relaunch the role under a unique task name')
+        if held and held.get('status') == 'pending':
+            raise StateConflict('A factory launch is awaiting SubagentStart; retry after it starts, do not replace it; '
+                                'if the launch never starts, relaunch the role under a unique task name')
         atomic_json(path, {'status':'pending', 'role':role, 'context':context,
                           'session_id':session, 'tool_use_id':event['tool_use_id'],
                           'transcript_path':event.get('transcript_path'), 'task_id':ticket,

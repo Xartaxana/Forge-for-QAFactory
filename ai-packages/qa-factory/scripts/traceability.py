@@ -928,7 +928,7 @@ class Story:
                                               or reason.partition(":")[2] or reason))
         if reason == "impossible":
             return dict(base, result="unreachable", basis=_first_sentence(detail))
-        if reason == "contradicts_requirement":
+        if reason == C.CONTRADICTS_REQUIREMENT:
             bug = self.bug_for(case_key, requirement) or self.bug_by_requirement(requirement)
             if bug:
                 return dict(base, result="bug", bug=bug["id"], basis=_one_line(bug["title"]))
@@ -1609,7 +1609,7 @@ def decided_at_gate_b(pipeline: dict) -> str:
     overrides = C.live_stage_overrides(pipeline, ("S8", "S9"))
     if not words and not overrides:
         return ""
-    lines = ["## Decided at gate B", ""]
+    lines = [G.REPORT_BLOCK_HEADINGS["gate-b"], ""]
     if words:
         lines.append(f"- Delivery: \"{words}\"")
     for entry in overrides:
@@ -1621,10 +1621,7 @@ def decided_at_gate_b(pipeline: dict) -> str:
     return "\n".join(lines)
 
 
-GATE_B_HEADING = "## Decided at gate B"
-LEFT_HEADING = "## Left with you"
 # The section the gate-B block stands in front of: everything below it is about ourselves.
-GATE_B_BEFORE = "## Factory defects"
 _ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+\S")
 
 
@@ -1685,9 +1682,9 @@ def close_gate_b(artifacts: Path) -> dict:
     decided = decided_cases(pipeline)
     moved, kept_sections = [], []
     for heading, body in _sections(C.read_text(path)):
-        if heading.startswith(GATE_B_HEADING):
+        if heading.startswith(G.GATE_B_HEADING):
             continue  # replaced below; the section is never appended twice
-        if heading.startswith(LEFT_HEADING):
+        if heading.startswith(G.LEFT_WITH_YOU_HEADING):
             body, moved = _drop_decided_items(body, decided)
         kept_sections.append((heading, body))
     lines = []
@@ -1695,7 +1692,7 @@ def close_gate_b(artifacts: Path) -> dict:
     block = section.rstrip("\n").splitlines() + extra + [""]
     inserted = False
     for heading, body in kept_sections:
-        if heading.startswith(GATE_B_BEFORE) and not inserted:
+        if heading.startswith(G.FACTORY_DEFECTS_HEADING) and not inserted:
             lines.extend(block)
             inserted = True
         if heading:

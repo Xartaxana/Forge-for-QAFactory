@@ -9,7 +9,6 @@ import json
 import os
 import shutil
 import tempfile
-import uuid
 import re
 import sys
 from collections import Counter, defaultdict
@@ -20,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import artifact_root, project_root, parse_frontmatter, require_project_at
 from activity_capture import is_factory_activity
+import event_store  # noqa: E402  — the ONE temp-then-replace publisher (OH7-1)
 import adapter_forms as AF  # noqa: E402  — the project's ticket key form (B-405): which task name is a story
 import contract as C  # noqa: E402  — C.artifact resolves work/ or flat artifact paths
 import runtime_paths as RP  # noqa: E402  — where the carried records and the readiness report live (t-232)
@@ -4167,10 +4167,7 @@ def main(argv=None) -> None:
             "Render: factory_dashboard.py — deterministic, no LLM; refresh follows accepted artifacts, registry changes and usage capture; doctor can refresh on demand.</footer>"
             "</body></html>")
     page = re.sub(r"<svg width='([\d.]+)' height='([\d.]+)'", lambda m: f"<svg viewBox='0 0 {m[1]} {m[2]}' width='{m[1]}' height='{m[2]}' role='img'", page)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    temporary = out.with_name(out.name + "." + uuid.uuid4().hex + ".tmp")
-    temporary.write_text(page, encoding="utf-8")
-    os.replace(temporary, out)
+    event_store.atomic_text(out, page)
     print(f"factory_dashboard: {out} (stories {len(taskruns)}, bugs {len(bugs)}, cost sessions {len(sessions)})")
 
 
