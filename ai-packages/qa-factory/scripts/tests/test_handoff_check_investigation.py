@@ -127,9 +127,34 @@ def cli_untouched() -> None:
         cleanup(task)
 
 
+def plan_row_reader() -> None:
+    """FV2-1: `_plan_row_of` answers through `contract.case_plan_row` (the body line `Plan row: TS-n`), one reader for the fact (AR-13)."""
+    from types import SimpleNamespace
+    from harness import temp_dir
+    cases = (
+        ("CONTRACT-CARRIER", "---\nid: TC-001\n---\nPlan row: TS-4\n", "TS-4"),
+        ("NO-CARRIER", "---\nid: TC-001\n---\nRequirements: R-1\n", None),
+        ("HEADER-ONLY", "---\nid: TC-001\nplan_row: TS-9\n---\nRequirements: R-1\n", None),
+        ("BOTH-DIFFER", "---\nid: TC-001\nplan_row: TS-9\n---\nPlan row: TS-2\n", "TS-2"),
+        ("FILE-ABSENT", None, None),
+    )
+    for name, text, expected in cases:
+        task = temp_dir()
+        try:
+            if text is not None:
+                case = task / "work" / "test-cases" / "a" / "TC-001.md"
+                case.parent.mkdir(parents=True)
+                case.write_text(text, encoding="utf-8")
+            got = HC._plan_row_of(SimpleNamespace(root=task), None, {"case": "TC-001"})
+            check_eq(f"FV2-1 plan_row reader: {name}", got[0] if got else None, expected)
+        finally:
+            cleanup(task)
+
+
 def main() -> None:
     keys()
     cli_untouched()
+    plan_row_reader()
     finish("test_handoff_check_investigation")
 
 
