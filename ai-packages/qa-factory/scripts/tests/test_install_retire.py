@@ -427,42 +427,230 @@ def apply_path() -> None:
         snap = snapshot(root)
         nothing = OA.apply(root, third, "", date=DATE)
         check_eq("K8: apply with nothing to do needs no approval and writes nothing", (nothing["applied"], nothing["nothing_to_do"], snapshot(root)), (False, True, snap))
+        check_eq("OH3-9 nothing-to-do-has-key: the nothing_to_do return carries `after_summary`, empty (one output shape on every return)",
+                 nothing.get("after_summary"), [])
     finally:
         cleanup(root)
 
 
 # --- C2: the project changed since the summary ------------------------------------------------------
 
+OLD_MD = "docs/old.md"           # a file of the person's project OUTSIDE the factory's home (named with --also-retire)
+REHEARSALS = "qa-factory/state/reporter-rehearsals.json"
+PASSPORT = DISCARDED[2]          # tracked, delete-mode, NOT machine-local: may carry a person's or the fold step's edits (M1)
+
+
+class AfterSummaryWorld:
+    """A project sealed and approved, then moved by `move` BETWEEN the summary and the apply; `entry` is how the apply is called:
+    `apply()` (a library call, the sealed listing re-judged inside) or `cli` (`main`, which also sees the candidates the summary
+    did not list). -> .run(phase, extra) = (exit code, result dict, error text)."""
+
+    def __init__(self, entry: str, also=(), prep=None):
+        self.entry, self.also = entry, list(also)
+        self.after = None            # rows a library caller hands `apply` as `after_summary` (the untrusted-input rows set it)
+        self.side = temp_dir("qa-after-side-")
+        if entry == "cli":
+            self.root, self.sealed, _ = hook_project(self.side, also, prep)
+            self.proposal = json.loads(self.sealed.read_text(encoding="utf-8"))
+            self.ref = "r"
+        else:
+            self.root = old_project()
+            if prep:
+                prep(self.root)
+            OA._run_script = Runner(DISCARDED)
+            self.made = OA.plan(self.root, migration(self.root), named=self.also, context=CTX, date=DATE)
+            self.proposal, self.ref = self.made["proposal"], "onboarding:t1"
+        self.record()
+
+    def record(self) -> None:
+        C.record_approval(self.root, self.proposal, self.ref, "test:evidence")
+        C.record_fold(self.root, self.proposal, self.ref)
+
+    def reseal(self, mutate) -> None:
+        """An older package sealed a listing this one would not: mutate the proposal, seal it again, approve it again."""
+        mutate(self.proposal)
+        self.proposal["proposal_hash"] = C.proposal_hash(self.proposal)
+        self.ref += "-resealed"          # an approval is for exactly one sealed proposal: this one needs its own
+        if self.entry == "cli":
+            self.sealed.write_text(json.dumps(self.proposal), encoding="utf-8")
+        else:
+            self.made["proposal"] = self.proposal
+        self.record()
+
+    def run(self, phase: str = "all", extra=()) -> tuple:
+        if self.entry == "cli":
+            code, out, err = cli("--root", self.root, "--proposal", self.sealed, "--apply", "--approval-ref", self.ref, "--phase", phase, *extra)
+            return code, (json.loads(out) if out.strip().startswith("{") else {}), err
+        try:
+            return 0, OA.apply(self.root, self.made, self.ref, phase=phase, date=DATE, after_summary=self.after), ""
+        except OA.ApplyRefused as exc:
+            return 1, {}, str(exc)
+
+    def close(self) -> None:
+        cleanup(self.root)
+        cleanup(self.side)
+
+
+@contextlib.contextmanager
+def unreadable(rel: str):
+    """`install_paths.sha256_file` raises PermissionError for ONE file (restored at the end): a file the apply cannot read."""
+    real = I.sha256_file
+
+    def fake(path):
+        if Path(path).as_posix().endswith(rel):
+            raise PermissionError("denied")
+        return real(path)
+    I.sha256_file = fake
+    try:
+        yield
+    finally:
+        I.sha256_file = real
+
+
+def _rows(res: dict) -> dict:
+    return {r["rel_path"]: r for r in res.get("after_summary", [])}
+
+
+def _retired(res: dict, rel: str):
+    return next((r["result"] for r in res.get("retired", []) if r["rel_path"] == rel), None)
+
+
+def _removal_row(world, res: dict, rel: str) -> dict:
+    body = json.loads((world.root / res["record"]).read_text(encoding="utf-8")) if res.get("record") else {"retired": []}
+    return next((r for r in body["retired"] if r["rel_path"] == rel), {})
+
+
+# (id, entry, also (named at the summary), prep (before the summary), move (after it), phase, extra args at the apply,
+#  expect(world, code, res, err, snapshot-before) -> the tuple the row asserts, and what it must equal)
+def _probe_x_move(root):
+    put(root, "qa-factory/state/jira-probe-x.json", '{"probe": "left after the summary"}\n')
+
+
+def _old_listing_names_evidence(world):
+    put(world.root, REHEARSALS, "the proof the report check wrote\n")
+    world.reseal(lambda prop: prop["listing"]["retire"].append(
+        {"rel_path": REHEARSALS, "class": "regenerated", "retire_mode": "delete", "sha256": sha(world.root, REHEARSALS),
+         "source": "table", "generation": None, "requires": []}))
+
+
+def _caller_rows(*rows):
+    """A library caller's `after_summary` rows: (rel, kind, retire_mode, sha256 or None for a file that does not exist)."""
+    def hand(w):
+        w.after = [{"rel_path": rel, "kind": kind, "action": "delete",
+                    "item": {"rel_path": rel, "retire_mode": mode, "sha256": digest or sha(w.root, rel)}} for rel, kind, mode, digest in rows]
+    return hand
+
+
+AFTER_SUMMARY = [
+    # a library caller's rows are candidates, judged again: an outside-home `new` row refuses the apply (nothing written); a listed
+    # move-mode file offered as `changed/delete` is still moved with its bytes (never deleted), and no row is reported for it
+    ("apply-untrusted-after-summary-outside", "apply", (), None, _caller_rows((OLD_MD, "new", "delete", "0" * 64)), "all", (),
+     lambda w, code, res, err, snap: ((code, "the project changed since the summary: " + OLD_MD in err, snapshot(w.root) == snap), (1, True, True))),
+    ("apply-untrusted-after-summary-listed", "apply", (), None, _caller_rows((NOTES, "changed", "delete", None)), "all", (),
+     lambda w, code, res, err, snap: ((code, _retired(res, NOTES), NOTES in _rows(res), os.path.exists(w.root / NOTES),
+                                       sha(w.root, f"qa-factory/state/retired/{DATE}/{NOTES}")),
+                                      (0, "moved", False, False, hashlib.sha256(b"my own notes\n").hexdigest()))),
+    ("new-evidence-file", "cli", (), None, lambda w: put(w.root, REHEARSALS, "the proof the report check wrote\n"), "final", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), sha(w.root, REHEARSALS), REHEARSALS in _rows(res)),
+                                      (0, True, hashlib.sha256(b"the proof the report check wrote\n").hexdigest(), False))),
+    ("older-listing-names-evidence-apply", "apply", (), None, _old_listing_names_evidence, "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), os.path.exists(w.root / REHEARSALS), _retired(res, REHEARSALS)),
+                                      (0, True, True, "kept: the factory keeps it"))),
+    ("older-listing-names-evidence-cli", "cli", (), None, _old_listing_names_evidence, "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), os.path.exists(w.root / REHEARSALS), _retired(res, REHEARSALS)),
+                                      (0, True, True, "kept: the factory keeps it"))),
+    ("new-discarded-file", "cli", (), None, lambda w: _probe_x_move(w.root), "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), os.path.exists(w.root / "qa-factory/state/jira-probe-x.json"),
+                                       [(r["kind"], r["result"], bool(r["line"])) for r in res.get("after_summary", []) if "jira-probe-x" in r["rel_path"]],
+                                       _removal_row(w, res, "qa-factory/state/jira-probe-x.json").get("after_summary")),
+                                      (0, True, False, [("new", "deleted", True)], True))),
+    *[(f"listed-discarded-changed-{entry}", entry, (), None, lambda w: put(w.root, DISCARDED[0], '{"probe": "edited after the summary"}\n'), "all", (),
+       lambda w, code, res, err, snap: ((code, res.get("applied"), os.path.exists(w.root / DISCARDED[0]), _rows(res).get(DISCARDED[0], {}).get("kind"),
+                                         _rows(res).get(DISCARDED[0], {}).get("result")), (0, True, False, "changed", "deleted")))
+      for entry in ("apply", "cli")],
+    ("listed-tracked-discarded-changed", "apply", (), None, lambda w: put(w.root, PASSPORT, "NEW bytes of the passport after the summary\n"), "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), sha(w.root, PASSPORT), _rows(res).get(PASSPORT, {}).get("kind"),
+                                       _rows(res).get(PASSPORT, {}).get("result"),
+                                       "next summary lists it" in _rows(res).get(PASSPORT, {}).get("line", "")),
+                                      (0, True, hashlib.sha256(b"NEW bytes of the passport after the summary\n").hexdigest(), "changed",
+                                       "kept: changed since the summary", True))),
+    ("new-tracked-discarded", "cli", (), lambda root: os.unlink(root / PASSPORT), lambda w: put(w.root, PASSPORT, "a passport written after the summary\n"), "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), sha(w.root, PASSPORT), _rows(res).get(PASSPORT, {}).get("kind"),
+                                       _rows(res).get(PASSPORT, {}).get("result")),
+                                      (0, True, hashlib.sha256(b"a passport written after the summary\n").hexdigest(), "new", "kept: the next summary lists it"))),
+    ("listed-became-folder", "apply", (), None, lambda w: (os.unlink(w.root / DISCARDED[1]), os.mkdir(w.root / DISCARDED[1])), "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), (w.root / DISCARDED[1]).is_dir(), _rows(res).get(DISCARDED[1], {}).get("kind")),
+                                      (0, True, True, "not_a_file"))),
+    ("new-unrecognised-file", "cli", (), None, lambda w: put(w.root, "qa-factory/my-notes-2.md", "more notes\n"), "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), os.path.exists(w.root / "qa-factory/my-notes-2.md"),
+                                       _rows(res).get("qa-factory/my-notes-2.md", {}).get("kind"), _rows(res).get("qa-factory/my-notes-2.md", {}).get("result")),
+                                      (0, True, True, "new", "kept: the next summary lists it"))),
+    ("listed-unrecognised-changed", "apply", (), None, lambda w: put(w.root, NOTES, "my notes, edited after the summary\n"), "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), sha(w.root, NOTES), _rows(res).get(NOTES, {}).get("kind"), _rows(res).get(NOTES, {}).get("result")),
+                                      (0, True, hashlib.sha256(b"my notes, edited after the summary\n").hexdigest(), "changed", "kept: changed since the summary"))),
+    ("many-new-files-no-cap", "cli", (), None, lambda w: [put(w.root, f"qa-factory/state/jira-probe-n{n}.json", "{}\n") for n in range(12)], "all", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), sorted(r["result"] for r in res.get("after_summary", [])),
+                                       len([r for r in res.get("after_summary", []) if r["rel_path"].startswith("qa-factory/state/jira-probe-n")])),
+                                      (0, True, ["deleted"] * 12, 12))),
+    # the invariant controls: a path outside the home still refuses the WHOLE apply, nothing written
+    *[(f"outside-listed-changed-{entry}", entry, (OLD_MD,), lambda root: put(root, OLD_MD, "old\n"), lambda w: put(w.root, OLD_MD, "old, edited\n"), "all", (),
+       lambda w, code, res, err, snap: ((code, "the project changed since the summary: " + OLD_MD in err and "make the summary again" in err, snapshot(w.root) == snap),
+                                        (1, True, True)))
+      for entry in ("apply", "cli")],
+    ("outside-new-candidate", "cli", (), lambda root: put(root, OLD_MD, "old\n"), lambda w: None, "all", ("--also-retire", OLD_MD),
+     lambda w, code, res, err, snap: ((code, "the project changed since the summary: " + OLD_MD in err, snapshot(w.root) == snap), (1, True, True))),
+    ("phase-early-inside-drift", "apply", (), None, lambda w: put(w.root, DISCARDED[0], '{"probe": "edited after the summary"}\n'), "early", (),
+     lambda w, code, res, err, snap: ((code, res.get("applied"), os.path.exists(w.root / DISCARDED[0]), res.get("retired"), res.get("after_summary")),
+                                      (0, True, True, [], []))),
+]
+
+# unreadable files: the sha cannot be read (the patch wraps `install_paths.sha256_file`; the plan is made before it)
+UNREADABLE = [
+    ("listed-unreadable", DISCARDED[0], (), None, 0,
+     lambda w, code, res, err, snap: ((code, res.get("applied"), os.path.exists(w.root / DISCARDED[0]), _rows(res).get(DISCARDED[0], {}).get("kind"),
+                                       _rows(res).get(DISCARDED[0], {}).get("result"), "Traceback" in err),
+                                      (0, True, True, "unreadable", "kept: cannot be read", False))),
+    ("outside-unreadable", OLD_MD, (OLD_MD,), lambda root: put(root, OLD_MD, "old\n"), 1,
+     lambda w, code, res, err, snap: ((code, "the project changed since the summary: " + OLD_MD in err, snapshot(w.root) == snap), (1, True, True))),
+]
+
+
+def after_summary_table() -> None:
+    """OH3-9 (and C2): what the apply does with a file that differs from the summary, per class. A path under the factory's home is
+    settled by its class and reported in `after_summary`: machine-local technical data deleted, everything else kept, a carried file
+    never touched. A path outside the home still refuses the whole apply, nothing written."""
+    saved = OA._run_script
+    try:
+        for ident, entry, also, prep, move, phase, extra, expect in AFTER_SUMMARY:
+            world = AfterSummaryWorld(entry, also, prep)
+            try:
+                move(world)
+                snap = snapshot(world.root)
+                code, res, err = world.run(phase, extra)
+                got, want = expect(world, code, res, err, snap)
+                check_eq(f"OH3-9 {ident} ({entry})", got, want)
+                check(f"OH3-9 {ident}: no `.py`, no `scripts/` in a refusal or a line",
+                      all(".py" not in t and "scripts/" not in t for t in [err] + [r["line"] for r in res.get("after_summary", [])]), err)
+                if not err:
+                    check(f"OH3-9 {ident}: the apply returns `after_summary` (a list) whatever happened", isinstance(res.get("after_summary"), list))
+            finally:
+                world.close()
+        for ident, rel, also, prep, want_code, expect in UNREADABLE:
+            world = AfterSummaryWorld("apply", also, prep)
+            try:
+                snap = snapshot(world.root)
+                with unreadable(rel):
+                    code, res, err = world.run("all")
+                got, want = expect(world, code, res, err, snap)
+                check_eq(f"OH3-9 {ident} (apply)", got, want)
+            finally:
+                world.close()
+    finally:
+        OA._run_script = saved
+
+
 def stale_summary() -> None:
-    root = old_project()
-    try:
-        OA._run_script = Runner(DISCARDED)
-        made = OA.plan(root, migration(root), context=CTX, date=DATE)
-        ref = approve(root, made)
-        put(root, DISCARDED[0], '{"probe": "somebody edited it after the summary"}\n')
-        before = snapshot(root)
-        problem = refusal(lambda: OA.apply(root, made, ref, date=DATE))
-        check("C2: a listed file that changed since the summary refuses the apply",
-              problem.startswith("ApplyRefused: the project changed since the summary: " + DISCARDED[0]) and "make the summary again" in problem, problem)
-        check_eq("C2: ...and nothing was written (config, gitignore, files, manifest)", snapshot(root), before)
-        check("C2: the refusal names no script and no plugin path", ".py" not in problem and "scripts/" not in problem)
-        # a path that is gone is not a change; a path that became a folder is
-        os.unlink(root / DISCARDED[0])
-        gone = OA.apply(root, made, ref, date=DATE)
-        check_eq("a listed file that is gone already is not a change: the apply goes on", gone["applied"], True)
-    finally:
-        cleanup(root)
-    root = old_project()
-    try:
-        OA._run_script = Runner(DISCARDED)
-        made = OA.plan(root, migration(root), context=CTX, date=DATE)
-        ref = approve(root, made)
-        os.unlink(root / DISCARDED[1])
-        os.mkdir(root / DISCARDED[1])
-        check_in("C2: a listed file that became a folder is refused too", "the project changed since the summary: " + DISCARDED[1],
-                 refusal(lambda: OA.apply(root, made, ref, date=DATE)))
-    finally:
-        cleanup(root)
+    after_summary_table()
     # an approval of another proposal, a sealed proposal that was edited, an unrecorded word
     root = old_project()
     try:
@@ -1265,10 +1453,12 @@ def cli(*args) -> tuple:
     return code, out.getvalue(), err.getvalue()
 
 
-def hook_project(side: Path) -> tuple:
+def hook_project(side: Path, also=(), prep=None) -> tuple:
     """An old project with both hook files, the dashboard writer's stale lock, and the sealed proposal made through the command line
     (the `--out sealed --listing` of the summary). -> (root, sealed path, the listing text)."""
     root = old_project()
+    if prep:
+        prep(root)
     OA._run_script = Runner(DISCARDED + NEW_RECORDS + OLD_RECORDS)
     for rel in HOOK_FILES:
         put(root, rel, "first bytes of " + rel)
@@ -1276,7 +1466,8 @@ def hook_project(side: Path) -> tuple:
     answers = side / "answers.json"
     answers.write_text(json.dumps({ACCESS_PTR: ACCESS}), encoding="utf-8")
     sealed = side / "sealed.json"
-    code, text, err = cli("--root", root, "--price-table-answer", "builtin", "--answers", answers, "--out", sealed, "--listing")
+    code, text, err = cli("--root", root, "--price-table-answer", "builtin", "--answers", answers, "--out", sealed, "--listing",
+                    *[a for p in also for a in ("--also-retire", p)])
     check_eq("hook project: the summary (--out --listing) exits 0 and writes the sealed proposal", (code, err, sealed.is_file()), (0, "", True))
     return root, sealed, text
 
@@ -1315,23 +1506,6 @@ def hook_written_files() -> None:
                      [(DASH_LOCK_REL, "none")])
         finally:
             cleanup(root)
-        # K-A5 (negative control, C2 kept): any OTHER listed file that changes between the summary and the apply still refuses, nothing written
-        side2 = temp_dir("qa-hook-side2-")
-        root, sealed, text = hook_project(side2)
-        try:
-            check_in("K-A5 setup: the discarded probe is in the summary (so the control is a real one)", DISCARDED[0], text)
-            put(root, DISCARDED[0], '{"probe": "changed after the summary"}\n')
-            proposal = json.loads(sealed.read_text(encoding="utf-8"))
-            C.record_approval(root, proposal, "r", "t:r")
-            C.record_fold(root, proposal, "r")
-            snap = snapshot(root)
-            code, out, err = cli("--root", root, "--proposal", sealed, "--apply", "--approval-ref", "r")
-            check("K-A5: exit 1 and the refusal names the file that changed", code == 1 and
-                  ("the project changed since the summary: " + DISCARDED[0]) in err, f"{code} {err[-300:]}")
-            check_eq("K-A5: ...and nothing was written (every file byte for byte as it was)", snapshot(root), snap)
-        finally:
-            cleanup(root)
-            cleanup(side2)
         # K-A6 (temporal): a proposal sealed by an OLDER package that lists a hook file with its sha, applied after the file changed
         for how in ("the apply() call", "the command line"):
             root = old_project()

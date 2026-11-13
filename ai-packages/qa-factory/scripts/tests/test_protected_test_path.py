@@ -127,10 +127,10 @@ def part_admitted(root: Path) -> None:
     check_eq("and a wildcard folder in front of a test folder", errors("src/*/tests/**", root), [])
     check_eq("a dot segment and a doubled slash are dropped, not refused", errors("src/./tests//", root), [])
     # each marker list is hit once (the lists are in references/test-path-markers.json, D-0030: advice)
-    for name in ("test", "tests", "__tests__", "spec", "specs", "e2e"):
+    for name in ("test", "tests", "__tests__", "spec", "specs", "e2e", "__test__", "testing", "integration", "fixtures"):
         check_eq(f"dir_names `{name}`: a folder of that name is a test folder",
                  (errors(f"src/{name}/", root), notes(f"src/{name}/", root)), ([], []))
-    for suffix in (".tests", ".test"):
+    for suffix in (".tests", ".test", "_tests"):
         check_eq(f"dir_suffixes `{suffix}`: `myapp{suffix}/` is a test project folder",
                  (errors(f"src/myapp{suffix}/", root), notes(f"src/myapp{suffix}/", root)), ([], []))
     check_eq("stem_prefixes `test_`: `test_*.py`",
@@ -308,8 +308,9 @@ def part_data_file(root: Path) -> None:
              "historical exclusion, B-407 A3)",
              {k: json.loads((SCRIPTS.parent / "references" / FILE).read_text(encoding="utf-8")).get(k)
               for k in ("dir_names", "dir_suffixes", "stem_prefixes", "stem_suffixes")},
-             {"dir_names": ["test", "tests", "__tests__", "spec", "specs", "e2e", "test-harness"],
-              "dir_suffixes": [".tests", ".test"], "stem_prefixes": ["test_"],
+             {"dir_names": ["test", "tests", "__tests__", "spec", "specs", "e2e", "__test__", "testing", "integration",
+                            "fixtures", "test-harness"],
+              "dir_suffixes": [".tests", ".test", "_tests"], "stem_prefixes": ["test_"],
               "stem_suffixes": [".spec", ".test", "_test", "_spec"]})
     check_eq("and the two B-407 A lists beside them, exactly (the camel list keeps its case)",
              {k: json.loads((SCRIPTS.parent / "references" / FILE).read_text(encoding="utf-8")).get(k)

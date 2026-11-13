@@ -86,6 +86,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import project_root, load_config  # noqa: E402
 import stand_access  # noqa: E402
+import config_contract  # noqa: E402  the one reader of the `test_data` block (AR-13)
 
 # A guard against a configuration mistake: a key with such a name is masked even if it was
 # put into extra_keys. Being over-careful is cheaper than printing a password once.
@@ -592,7 +593,6 @@ def health(url: str, expect: list) -> tuple:
 
 
 CLEANUP_NONE = ("none", "nobody", "no one", "no-one", "n/a", "na", "-")
-CLEANUP_UNKNOWN = ("", "unknown", "tbd", "?")
 
 
 def data_cleanup(full_cfg: dict, env_name: str) -> tuple:
@@ -608,19 +608,23 @@ def data_cleanup(full_cfg: dict, env_name: str) -> tuple:
 
     This never changes the exit code: a stand without cleanup is usable, it just has to be
     tested differently (own data under a run-unique tag, no assertion on a global count)."""
-    td = (full_cfg or {}).get("test_data") or {}
-    owner = str(td.get("cleanup_owner") or "").strip()
-    stands = [e for e in (full_cfg or {}).get("environments") or [] if isinstance(e, dict)]
+    # `test_data` is read by `config_contract.test_data_states` (AR-13): what it does not call `recorded` (absent, malformed,
+    # not recorded, unknown, an empty list) is `unknown` here, so this and the brief's block and the audit agree on "recorded".
+    got = config_contract.test_data_states(full_cfg)
+    value = got["values"].get("cleanup_owner")
+    owner = str(value).strip() if value else ""      # a falsy non-list (False, 0, {}) is not an owner: unknown
+    full_cfg = full_cfg if isinstance(full_cfg, dict) else {}
+    stands = [e for e in full_cfg.get("environments") or [] if isinstance(e, dict)]
     stand = next((e for e in stands if str(e.get("name") or "") == env_name), None) if env_name else None
     safe = str((stand or {}).get("safe_to_break") or "").strip()
 
-    if owner.lower() in CLEANUP_NONE:
-        state = "absent"
-        note = f"nobody resets this data (cleanup_owner: {owner or 'none'})"
-    elif owner.lower() in CLEANUP_UNKNOWN:
+    if not owner:
         state = "unknown"
         note = ("cleanup_owner is not recorded — onboarding asks it (topic 3); until it is, "
                 "assume the data you create stays")
+    elif owner.lower() in CLEANUP_NONE:
+        state = "absent"
+        note = f"nobody resets this data (cleanup_owner: {owner})"
     else:
         state = "available"
         note = f"cleanup_owner: {owner}"
@@ -683,7 +687,13 @@ def _case_needs(task: str, root=None) -> dict:
         from contract import case_files, case_glob
     except Exception:
         return out
-    task_root = Path(root or project_root()) / "qa-factory" / "artifacts" / task
+    import hooklib
+    project = Path(root or project_root())
+    try:
+        artifacts = hooklib.artifact_root(root=project)     # the configured story folders (OH1-6, AR-4)
+    except (OSError, ValueError, AttributeError):           # a broken config: today's folder, a reader never invents (AR-28)
+        artifacts = project / "qa-factory" / "artifacts"
+    task_root = artifacts / task
     if not task_root.exists():
         return out
     try:

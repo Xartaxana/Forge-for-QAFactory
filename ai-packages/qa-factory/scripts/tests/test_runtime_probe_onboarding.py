@@ -304,6 +304,7 @@ def main() -> int:
     k23_a_stand_the_config_does_not_name_is_never_written_for()
     k24_no_container_named()
     k25_rehearsal_argv()
+    b355_c_the_stale_stand_comparison_reads_the_project_word_per_diff_checkout()
     f7_rehearsal_argv_recognises_our_script_in_the_python_dash_b_form()
     f2_the_docker_outcomes_are_classified_by_exit_and_stderr()
     f8_a_value_that_is_no_commit_at_a_default_rung_does_not_end_the_ladder()
@@ -2606,6 +2607,48 @@ def ep1_41c_the_stand_of_a_profile() -> None:
         check_eq("41c suggest: the web profile of the mixed project asks docker as before (two containers ask)", (asked, refusal.startswith("more than one container")), ([1], True))
     finally:
         R.containers = held
+
+
+def b355_c_the_stale_stand_comparison_reads_the_project_word_per_diff_checkout() -> None:
+    """B-355 node C item 8: `diff_files` / `diff_new_files` bind each diff to its checkout (`handoff_check.diff_checkout`) and read
+    the project's word through it. World R: a file in a recorded test place leaves the comparison. World N (nothing recorded in the
+    file's area): today's list. Unbound (no manifest) under a recorded word: every file stays (counted, never lost)."""
+    root = temp_project().resolve()
+    saved = os.environ.get("CLAUDE_PROJECT_DIR")
+    try:
+        (root / "code" / "app").mkdir(parents=True)
+        task = root / "qa-factory" / "artifacts" / "T-1"
+        (task / "work").mkdir(parents=True)
+        lines = []
+        for name in ("unit/a.py", "src/b.py"):
+            lines += [f"diff --git a/{name} b/{name}", "new file mode 100644", "--- /dev/null", f"+++ b/{name}", "@@ -0,0 +1 @@", "+x"]
+        (task / "work" / "impl-diff.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        manifest = task / "work" / "context-manifest.json"
+        base = {"app_root": "code", "implementation_repos": [{"repo_id": "app", "local_path": "code/app"}]}
+        recorded = dict(base, test_locations=["app/unit/"])
+        nothing = dict(base, test_locations=[])
+        use_project(root)
+        manifest.write_text(json.dumps({"implementation": {"repo_id": "app"}}), encoding="utf-8")
+        for label, cfg, want in (("R: the recorded place leaves the list", recorded, ["src/b.py"]),
+                                 ("N: nothing recorded -> today's list", nothing, ["unit/a.py", "src/b.py"]),
+                                 ("N: no word at all -> today's list", {}, ["unit/a.py", "src/b.py"])):
+            check_eq(f"B-355 C item 8 diff_files {label}", R.diff_files(task, cfg), want)
+            check_eq(f"B-355 C item 8 diff_new_files {label}", R.diff_new_files(task, cfg), want)
+        (root / "qa-factory" / "config.json").write_text(json.dumps(recorded), encoding="utf-8")
+        check_eq("B-355 C item 8 diff_files with no cfg argument reads the project's config (no caller edit)", R.diff_files(task), ["src/b.py"])
+        manifest.unlink()
+        check_eq("B-355 C item 8 R-unbound: no manifest under a recorded word -> every file stays (counted, never lost)",
+                 (R.diff_files(task, recorded), R.diff_new_files(task, recorded)), (["unit/a.py", "src/b.py"],) * 2)
+        check_eq("B-355 C item 8 N-unbound: no manifest, nothing recorded -> today's list",
+                 R.diff_files(task, nothing), ["unit/a.py", "src/b.py"])
+    finally:
+        if saved is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved
+        import hooklib
+        hooklib._PROJECT_ROOT_CACHE = None
+        cleanup(root)
 
 
 if __name__ == "__main__":

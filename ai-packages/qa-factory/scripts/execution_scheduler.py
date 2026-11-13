@@ -347,11 +347,13 @@ def _apply_budget(pending: list, project_root: Path) -> tuple:
     policy, _note = load_run_budget()
     if policy is None:
         return pending, []
+    import hooklib
+    artifacts = hooklib.artifact_root(root=project_root)   # a writer: resolved once, a broken config raises (F12, AR-28)
     reset_at, block_of = stand_reset_at(project_root), run_block_reader(project_root)
     kept, rows = [], []
     for item in pending:
         req = item["request"]
-        task_root = project_root / "qa-factory" / "artifacts" / req["task"]
+        task_root = artifacts / req["task"]
         store = JobStore(task_root / "state" / "execution-jobs")
         if store.read(req["idempotency_key"]):
             kept.append(item)
@@ -563,6 +565,8 @@ def execute_schedule(document: dict, project_root: Path, run_suite_path: Path,
     plan = prepare_schedule(document, project_root)
     registry = LeaseRegistry(project_root)
     state_dir = project_root / "qa-factory" / "state" / "scheduler-requests"
+    import hooklib
+    artifacts = hooklib.artifact_root(root=project_root)   # a writer: resolved once before anything is created or launched (F12)
     state_dir.mkdir(parents=True, exist_ok=True)
     groups, answered_rows = _apply_budget(list(plan["requests"]), project_root)
     pending, active, results = groups, [], answered_rows
@@ -571,7 +575,7 @@ def execute_schedule(document: dict, project_root: Path, run_suite_path: Path,
         completed = False
         for item in list(pending):
             req = item["request"]
-            task_store = JobStore(project_root / "qa-factory" / "artifacts" / req["task"] / "state" / "execution-jobs")
+            task_store = JobStore(artifacts / req["task"] / "state" / "execution-jobs")
             existing = task_store.read(req["idempotency_key"])
             if existing:
                 # `reused` means a green result stands; a completed job that ended any other
