@@ -1,0 +1,12 @@
+{
+  "no_call_kinds": ["delivery", "launched", "gate_repair", "trace_failed", "rows_given_up", "stopped_by_person", "note"],
+  "why": {
+    "delivery": "A delivery outcome row: the driver records what was delivered; no model call is launched, so there is no session and no money.",
+    "launched": "The START of a model call whose end row follows it; it has no session and no money of its own, the end row carries both.",
+    "gate_repair": "Round bookkeeping in front of a gate: the row carries no session and no money of its own. A round can dispatch a role (qa-case-critic or qa-case-designer), but that call is journalled by its own run_claude end row, which counts if it has no session.",
+    "trace_failed": "Records that a deterministic factory script failed; no model is started by the writers, and the row has no session or cost.",
+    "rows_given_up": "Bookkeeping: owed journal rows given up on the person's word; no call, no session, no money.",
+    "stopped_by_person": "A Ctrl-C record listing the calls the person cut off; the row itself has no session, cost or exit code.",
+    "note": "A host fact written during a call; the call's money is on its own run_claude end row, which counts if it has no session."
+  }
+}
