@@ -3887,8 +3887,8 @@ class DriverMachine:
         # the words file is made first, so the row names the file that holds the whole answer (the row is written once)
         self.answer_file()
         self.record_answer_row(token)
-        # remains: the journal row of the person's words (FR-8); the answer is carried out whatever the row does
         note = _answer_note(f"closed story, work that never started ({token}): ", words.strip())
+        # remains: the journal row of the person's words (FR-8); the answer is carried out whatever the row does
         self.py("log_append.py", "--event", "human_answer", "--task", self.task,
                 *person_words.notes_args(self.state_dir.parent, "", "journalnote", note))
         if token == "stop":

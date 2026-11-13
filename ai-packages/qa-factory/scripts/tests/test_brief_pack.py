@@ -1894,7 +1894,7 @@ def p4_long_words(base: Path) -> None:
     entry, body, shown, full = block_of("a\n" + ticks)
     fence = "  " + "`" * 1501
     check_eq("Q1-BACKTICK-RUN: the fence (computed on the whole text) is longer than the run; the wrapped text never closes it",
-             (entry[1], entry[-1], fence in entry[2:-1], "".join(body[1:])), (fence, fence, False, ticks))
+             (entry[1], entry[-1], fence in entry[2:-1], "".join(body[1:]), len(body) > 2), (fence, fence, False, ticks, True))
     head_out = brief_pack._head_words("- X: ", "a\n" + "x" * (width + 1))
     head_lines = head_out.split("\n")
     check_eq("Q1-HEAD: the head wraps a long line with no note and no `<decisions>`",

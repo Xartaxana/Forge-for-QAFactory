@@ -1696,9 +1696,10 @@ def _words_block(head: str, words) -> str:
     """One renderer of a person's words in the brief (and of a gate, warning, override or halt text): `head` then the words, WHOLE.
     - no line break and at most WORDS_LINE_WIDTH characters (folded): ONE line, `head + words` with its whitespace folded - the
       fitting form of every brief so far;
-    - a line break: the head line, then the words as given (CRLF -> LF only) in a fenced block indented by two spaces, so a line
+    - a line break: the head line, then the words as given (CRLF -> LF) in a fenced block indented by two spaces, so a line
       of the words that begins with `#`, `|`, `>`, `-` or a fence is literal text and never a heading or a table of the brief;
-      the fence is backticks, one more than the longest backtick run in the words (at least three);
+      the fence is backticks, one more than the longest backtick run in the words (at least three); a line of either form
+      longer than the width is wrapped (`_wrapped`), and the head then ends WORDS_WRAPPED_NOTE;
     - no line break and longer than the width: the same block with the text wrapped at the width (`_wrapped`), and the head line
       ends WORDS_WRAPPED_NOTE - a `_Pointer`, so the side file with the bytes as given is written."""
     text = person_words.lf(words).strip("\n")

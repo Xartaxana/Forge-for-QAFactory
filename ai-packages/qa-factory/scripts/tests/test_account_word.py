@@ -305,11 +305,30 @@ def test_unconfirmed_line_at_5_and_6_names():
                     for i in range(count)]
             (t.task / "state" / "created-accounts.json").write_text(json.dumps({"accounts": rows}), encoding="utf-8")
             line = RF.unconfirmed_accounts_line(t.task)
-            assert line.count("qa-factory-u") == 5 and ("+1 more" in line) == (count == 6), line
+            assert line.count("qa-factory-u") == 5 and ("+1 more: state/created-accounts.json (1)." in line) == (count == 6), line
+            assert ("+" in line.split("qa-factory-u4")[-1]) == (count == 6), line
         (t.task / "state" / "created-accounts.json").unlink()
         MC.AccountDoubts(t.task).add("env:A/B", "the page said wrong password", "C")
         line = RF.unconfirmed_accounts_line(t.task)
         assert "the stand's account env:A/B (given: the page said wrong password)" in line and line.startswith("Accounts the checks could not")
+    finally:
+        S.cleanup(t)
+
+
+def test_unconfirmed_line_tail_names_only_the_files_cut():
+    t = make()
+    try:
+        rows = [{"name": f"qa-factory-u{i}", "case": "C", "at": "t", "endpoint": "/x", "status": "unconfirmed", "reason": "r"} for i in range(3)]
+        (t.task / "state" / "created-accounts.json").write_text(json.dumps({"accounts": rows}), encoding="utf-8")
+        doubts = MC.AccountDoubts(t.task)
+        for i in range(10):
+            doubts.add(f"env:H{i}", "why", "C")
+        line = RF.unconfirmed_accounts_line(t.task)
+        assert "+8 more: state/account-doubts.json (8)." in line and "created-accounts.json" not in line, line
+        rows += [{"name": f"qa-factory-v{i}", "case": "C", "at": "t", "endpoint": "/x", "status": "unconfirmed", "reason": "r"} for i in range(4)]
+        (t.task / "state" / "created-accounts.json").write_text(json.dumps({"accounts": rows}), encoding="utf-8")
+        line = RF.unconfirmed_accounts_line(t.task)
+        assert "+12 more: state/created-accounts.json (2), state/account-doubts.json (10)." in line, line
     finally:
         S.cleanup(t)
 
