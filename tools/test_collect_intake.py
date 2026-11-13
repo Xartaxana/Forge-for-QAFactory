@@ -665,6 +665,9 @@ def test_the_layout_text_of_a_looped_only_story_says_stalled_no(monkeypatch):
          "stalled: no\nlooped: yes\nloop ignored: 2\nNone | 3\n{'a': [1]} | y"),
         ("T10", {"stalled": False, "looped": True, "loop_ignored": lo(("w\ud800", "ü"))}, "stalled: no\nlooped: yes\nloop ignored: 1\nw\ud800 | ü"),
         ("T12", {"stalled": 1, "looped": True}, "stalled: unknown\nlooped: yes"),
+        # F1 (topic critic): an explicit null is not a list and not an absent key; both keys go through the one branch
+        ("T13", {"stalled": False, "looped": True, "ignored": None, "loop_ignored": None},
+         "stalled: no\nignored: unreadable (NoneType)\nlooped: yes\nloop ignored: unreadable (NoneType)"),
     ]
     texts.clear()
     ci.stall_elements(types.SimpleNamespace(manifest={"stories": [dict(story, task=task) for task, story, _ in cases]}))

@@ -676,7 +676,7 @@ def stall_elements(arc: Archive) -> list:
         def ignored_lines(label, key):
             """The ignored list of the story under `key`: absent or empty prints nothing, a non-list is named, a list is counted and listed."""
             got = story.get(key)
-            if got is None or got == []:
+            if key not in story or got == []:
                 return []
             if not isinstance(got, list):
                 return ["%s: unreadable (%s)" % (label, type(got).__name__)]
