@@ -2773,7 +2773,8 @@ def run_shape_checks(cfg: dict, manifest: dict, case: str, entry_row: dict, spec
         if lacks and _code_built(cfg, row["entry"], argv, root) is None:
             offenders += [f"{row['instance_id']} (no `{name}`)" for name in lacks]
     offenders += [f"{file} (names no test)" for file in bare]
-    verified = PC.selectors_verified(profile, root)
+    contract = PC.selector_contract(profile, root)      # computed once: the answer never raises
+    verified = contract["verified"]
     if offenders or not verified:
         no_form = str(launch_check.runner_identity(argv)["no_direct_form"] or "") if offenders else ""
         if no_form:
@@ -2785,8 +2786,12 @@ def run_shape_checks(cfg: dict, manifest: dict, case: str, entry_row: dict, spec
             problems.append(f"{len(offenders)} instance(s) of {case} that the run would select have no selector of "
                             f"their own: {_capped(offenders)}")
         if not verified:
-            problems.append(f"profile {profile.get('profile_id') or '(none found)'} does not say its selector contract "
-                            "is verified (selectors.verified in qa-factory/config.json: the onboarding's gap)")
+            pid = profile.get("profile_id") or "(none found)"
+            import run_suite   # the ONE state-to-words table (`selector_words`), shared with the run's SELECTORS note
+            meaning, remedy = run_suite.selector_words(
+                contract, f"onboarding_probe.py --root <project> --probe-profiles --profile {pid} "
+                          "--proposals-dir <a temporary folder outside the project>")
+            problems.append(f"profile {pid} does not say its selector contract is verified ({meaning}; {remedy})")
         raise ToolRefusal("probe_by_code: " + "; ".join(problems) + ". A non-pytest runner runs the whole case, and the "
                           "factory binds one report row by the report id the manifest records; the automator records "
                           "them once through `manifest_put.py --task <TICKET> --fragment <file>` "

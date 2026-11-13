@@ -1047,8 +1047,100 @@ def k19_every_mutant_is_killed() -> None:
           not survivors, "; ".join(survivors))
 
 
+def fv1_18_node_id_selection() -> None:
+    """FV1-18 N4 (R-N4-1, R-N4-3): "a node id selects one test" is the `selection_by_node_id` key of a run form row, read
+    through `launch_check.runner_identity`; both readers (hooklib's path and launch_check's) are pointed at one temp file."""
+    shipped = json.loads(LC.CAUSES_PATH.read_text(encoding="utf-8-sig"))
+
+    def world(mutate, fn) -> None:
+        data = json.loads(json.dumps(shipped))
+        mutate([f for f in data["run_forms"]["forms"] if f["id"] == "pytest"][0])
+
+        def run():
+            saved = LC.CAUSES_PATH
+            LC.CAUSES_PATH = H.RUN_FORMS_PATH
+            try:
+                fn()
+            finally:
+                LC.CAUSES_PATH = saved
+        with_data(data, run)
+
+    def got(argv) -> dict:
+        return LC.runner_identity(argv)
+
+    def put(value):
+        return lambda row: row.__setitem__("selection_by_node_id", value)
+
+    world(put(True), lambda: check_eq("R-N4-1 key true on pytest: node_id_selection", got(["pytest"])["node_id_selection"], True))
+    world(lambda row: row.pop("selection_by_node_id", None), lambda: check_eq(
+        "R-N4-1 key absent (an older installed data file): False, no problem",
+        (got(["pytest"])["node_id_selection"], got(["pytest"])["problem"]), (False, "")))
+    for label, value in (("the string yes", "yes"), ("false", False), ("1", 1), ("null", None)):
+        def bad(label=label):
+            one = got(["pytest"])
+            check_eq(f"R-N4-1 key {label}: False", one["node_id_selection"], False)
+            check_in(f"R-N4-1 key {label}: the problem names the form and the rule", "`selection_by_node_id` must be true when present",
+                     one["problem"])
+            check_in(f"R-N4-1 key {label}: ...naming the form id", "`pytest`", one["problem"])
+        world(put(value), bad)
+    for label, fn in (("data unreadable", None), ("not JSON", "{ not json")):
+        def unread():
+            one = got(["pytest"])
+            check_eq("R-N4-1 data " + label + ": False with a problem, never an exception",
+                     (one["node_id_selection"], bool(one["problem"])), (False, True))
+        saved = LC.CAUSES_PATH
+        def both(unread=unread):
+            LC.CAUSES_PATH = H.RUN_FORMS_PATH
+            try:
+                unread()
+            finally:
+                LC.CAUSES_PATH = saved
+        with_data(fn, both)
+
+    for argv in (["pytest"], ["python", "-m", "pytest"], ["poetry", "run", "pytest"], ["uv", "run", "pytest"]):
+        check_eq(f"R-N4-1 shipped data: {argv} selects by node id", got(argv)["node_id_selection"], True)
+    check_eq("R-N4-1 shipped data: npx playwright test does not", got(["npx", "playwright", "test"])["node_id_selection"], False)
+    check_eq("R-N4-1 empty argv and a command no form matches: False",
+             (got([])["node_id_selection"], got(["./run-e2e.sh"])["node_id_selection"]), (False, False))
+    for argv in (["py.test"], ["tox", "-e", "py"]):      # R-N4-3: printed, judged against F6 (they read `no_selection_form`)
+        print(f"R-N4-3 {argv}: form_id={got(argv)['form_id']!r} node_id_selection={got(argv)['node_id_selection']}")
+
+
+def fv1_18_selector_words() -> None:
+    """FV1-18 FIX-3: `run_suite.selector_words` is the ONE state-to-words table of the SELECTORS note and the probe's R6(a)
+    sentence. The onboarding probe is offered for the record states ONLY (none, command_changed, unreadable), the states its
+    proof can change; no word a person reads is an internal state token; an unknown state gets the generic text, never a crash."""
+    import run_suite
+    probe = "PROBE-CMD"
+    record_states = {"none", "command_changed", "unreadable"}
+    states = ["none", "command_changed", "unreadable", "no_selection_form", "command_not_profile", "hand_false",
+              "hand_unreadable", "no_command", "error", "a_state_nobody_wrote", ""]
+    for state in states:
+        meaning, remedy = run_suite.selector_words({"state": state, "why": "WHY-OF-CONTRACT"}, probe)
+        label = state or "(empty state)"
+        check_eq(f"FIX-3 {label}: the probe command appears in the words only for the record states (and the generic text)",
+                 "PROBE-CMD" in remedy, state in record_states or state not in run_suite._SELECTOR_STATE_WORDS)
+        check_eq(f"FIX-3 {label}: the onboarding probe is named only where it can help",
+                 "onboarding probe" in (meaning + remedy), state in record_states or state not in run_suite._SELECTOR_STATE_WORDS)
+        check(f"FIX-3 {label}: no internal state token is shown to a person",
+              state == "" or state not in (meaning + " " + remedy), meaning + " | " + remedy)
+        check(f"FIX-3 {label}: one non-empty line each", meaning.strip() != "" and remedy.strip() != ""
+              and "\n" not in meaning + remedy, meaning + " | " + remedy)
+    check_in("FIX-3 hand_false: the words say it is the person's value and no probe record overrides it",
+             "no probe record overrides it", run_suite.selector_words({"state": "hand_false"}, probe)[1])
+    check_in("FIX-3 no_selection_form: the words say a probe record would not change it", "would not change that",
+             run_suite.selector_words({"state": "no_selection_form"}, probe)[0])
+    check_eq("FIX-3 a state with its own sentence in the contract keeps it (none -> the contract's why)",
+             run_suite.selector_words({"state": "none", "why": "W"}, probe)[0], "W")
+    for odd in (None, {}, "x", {"state": None}):
+        check("FIX-3 an odd answer %r never raises and gets the generic text" % (odd,),
+              run_suite.selector_words(odd, probe)[1].count("PROBE-CMD") == 1)
+
+
 def main() -> None:
     k1_shipped_data()
+    fv1_18_node_id_selection()
+    fv1_18_selector_words()
     k2_every_form_is_blocked_and_admitted()
     k3_near_misses_are_not_blocked()
     k4_diagnostics()
