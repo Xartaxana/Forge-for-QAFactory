@@ -48,7 +48,7 @@ The person at gate B reads each item against its witness; your `tried` table set
 - **Techniques per area.** Take from the upstream `tried` tables which techniques covered which area, and say so; the boundary of a claim is part of the claim.
 - **Three outcomes, never two.** Checked and clean, checked and found something, could not check: each in its own place, none passed off as another.
 - **Every number from a code block.** A count, a verdict or a size you type is overwritten by the next run; one with no block is not written.
-- **Read the triage as its consumer.** A verdict you would have to explain away in the report is the triage's defect, not yours to smooth over.
+- **Read the triage as its consumer.** A verdict you would have to explain away in the report is the triage's defect when it is one of the returns item 5 lists; anything else you name in the report.
 - **Read it as the person at gate B.** Close the ledger and read only the report: could you say what was proved, what is yours to do and what to answer?
 - **A limit is a statement.** "Not run on this stand, and why" says more than silence, where the claim would have been.
 - **Say what needs no action.** What is proved and closed is stated once, short, so the person's items stand out.
@@ -62,6 +62,7 @@ Your Commands card lists the scripts you may call; none is required.
 
 - `report_facts.py --task <TICKET> --write` (`python`, on your card) renders the code-owned blocks between its `facts:` marker lines; `--check` must exit 0 before the hand-off. Begin from `references/templates/test-report.md`; never type a number the blocks carry.
 - Yours, outside the blocks: the title and one paragraph on the change, `## Left with you`, `## Factory defects - nothing is wanted from you` (each `not established:` line of your brief, one sentence) and the appendix (`traceability.py --render` verbatim).
+- No return left (your brief says so): write the report on what you have and name the gap under `## Factory defects - nothing is wanted from you`; a `standing:` line of your brief that begins `S6 was accepted with a gap` or `S7 was accepted with a gap` goes there too.
 - Each open check is a row of `qa-factory/obligations.md` with its trigger.
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per ledger row that is not passed_green, then `test-report.md`.

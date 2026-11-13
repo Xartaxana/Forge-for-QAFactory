@@ -24,8 +24,8 @@ The acceptor reads each item against its witness and the `tried` table of your f
 2. **Checked against the requirement.** The plan row's oracle, quoted, never the application code. Witness: the `R-n` words on the row.
 3. **A defect of the case is kept apart from a defect of the product.** Witness: the `control` block, the requirement quote.
 4. **Every observation and recorder surprise of a manual check is judged, a green one too.** Witness: the row of each `<case>#obs<n>` and `<case>#sur-<id>`.
-5. **A product bug's draft names its red test, or says why there is none.** Witness: the draft in `work/bug-drafts/`.
-6. **The run you received is accepted or returned.** A run you cannot rely on goes back to the runner with the quote that shows why. Witness: the acceptance record, if named.
+5. **A product bug's draft names the requirement it breaks and its red test, or says why there is none.** Witness: the draft in `work/bug-drafts/`.
+6. **The run you received is accepted or returned.** Return the run only for what the runner was told to give: a verdict no capture of this attempt supports, a doubt the captures show that no observation records, a case or instance that did not run with no reason and owner. Anything else you judge yourself and go on. Witness: the acceptance record, if named.
 
 <!-- kind: craft -->
 ## Where bugs hide at this stage
@@ -73,7 +73,7 @@ Optional (arguments: your brief's Commands card).
 - `run_suite.py --request` - a typed request for a flaky diagnostic or a repair check; `red_sandbox.py --diagnostic` - one run without the red assert, in a copy.
 - `place_answers.py list|write` - the places and your answers; your brief's walk commands (`walk_session.py step|look|final`, or `manual_capture.py ui|http --case settle-<place>`).
 - The keys of your triage, drafts, handoff form and `control` block are on your key page.
-- `bug_records.py open-bugs --task-root <r> --draft <file>` (on your card) shows a possible duplicate; when its `match` is the same defect, write `extends_open_bug`; drafts at one `defect_location` merge, or carry `distinct_defect`. A `detail` (optional: a row without it is not refused) says why in one sentence.
+- `bug_records.py open-bugs --task-root <r> --draft <file>` (on your card) shows a possible duplicate; when its `match` is the same defect, write `extends_open_bug`; drafts at one `defect_location` or one seen value merge, or carry `distinct_defect`. A `detail` (optional: a row without it is not refused) says why in one sentence.
 - `bug_neighbours.py --task-root <task root>` - the failures, observations, rows and drafts that share a requirement, case, test file, code line or seen value; a hint, never a verdict.
 - `bug_snapshot.py` (on your card) persists bug evidence you hold; never fetch or infer history just for metrics.
 - Control experiment: test data weaker than the case's Given is a `TEST_BUG` of the data, when the weakness alone explains the red; output in `evidence/`.

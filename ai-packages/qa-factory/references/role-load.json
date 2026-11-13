@@ -16,9 +16,9 @@
     "qa-automator": 20313,
     "qa-code-critic": 19568,
     "qa-runner": 16124,
-    "qa-failure-analyst": 18426,
+    "qa-failure-analyst": 18485,
     "qa-bug-reporter": 14799,
-    "qa-doc-scribe": 17944,
+    "qa-doc-scribe": 18014,
     "qa-retro-analyst": 14213
   },
   "process_ratchet_tokens": {
@@ -30,9 +30,9 @@
     "qa-automator": 18746,
     "qa-code-critic": 17745,
     "qa-runner": 14417,
-    "qa-failure-analyst": 16401,
+    "qa-failure-analyst": 16460,
     "qa-bug-reporter": 13914,
-    "qa-doc-scribe": 16943,
+    "qa-doc-scribe": 17010,
     "qa-retro-analyst": 13198
   },
   "target_tokens": 6000,
