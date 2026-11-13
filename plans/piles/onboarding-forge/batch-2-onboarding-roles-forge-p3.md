@@ -13,6 +13,7 @@
 очередь: onboarding-forge/1 → onboarding-forge/2
 очередь: onboarding-forge/2 → onboarding-hooks/5
 очередь: onboarding-forge/2 → onboarding-forge/4
+очередь: onboarding-forge/2 → onboarding-hooks/6
 
 ## Бриф
 
