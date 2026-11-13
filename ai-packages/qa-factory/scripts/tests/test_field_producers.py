@@ -26,6 +26,7 @@ import harness  # noqa: E402
 from harness import check, check_eq, check_in, finish  # noqa: E402
 
 sys.path.insert(0, str(harness.SCRIPTS))
+import handoff  # noqa: E402
 import handoff_check as HC  # noqa: E402
 import null_outcomes as NO  # noqa: E402
 
@@ -200,11 +201,276 @@ def known_red_ledger_cases() -> None:
         harness.cleanup(root)
 
 
+SYNTHETIC_FORM = """schema_version: 1
+contract: synthetic
+stage: S3
+from_role: qa-test-strategist
+to_role: qa-case-designer
+
+header:
+  role: qa-test-strategist
+  stage: S3
+  window: <TICKET>
+  verdict: <one of vocabulary.header_verdicts>
+
+probe:
+  p_id: <P-n, the row's stable id>
+  pr_or_empty: <PR-n, or the empty list>
+  file_fn: <file::function or T-n of the planned test>
+  debt: <bugs/DEBT-n.md>
+  r_of_2: <r of 2>
+  limit: <= 80 characters>
+  tf_or_omit: <true|false, or omit when the table holds no share>
+  level: <one of vocabulary.test_levels - unit|integration|api|e2e-ui|other>
+  colon_first: <TEST_BUG:collection|FLAKY|reorder>
+  author: "work/handoffs/<the author's dispatch>.yaml"
+  alt2: <P-n or R-n>
+  alt3: <R-n, K-n or B-n>
+  id_text: <R-n, a source id or an area>
+  case_or_p: <case id or P-n>
+  count_n: <n>
+  number: <2>
+  free: <what is being checked, one sentence>
+  no_list: <one of vocabulary.no_such_list>
+  dispatch: "work/handoffs/<dispatch>.yaml"
+
+rows:
+  - key: <one sentence>
+    other: <one sentence>
+  - key: <one sentence>
+    other: <one sentence>
+
+artifacts:
+  run_witness: <path of the run_suite summary with the exit code and the totals line>
+"""
+
+
+def _at(data, path: str):
+    """The value at `a.b[1].c` of a parsed form; the string "<missing>" when the path leads nowhere."""
+    cur = data
+    for part in re.findall(r"[A-Za-z_][\w\-]*|\[\d+\]", path):
+        try:
+            cur = cur[int(part[1:-1])] if part.startswith("[") else cur[part]
+        except (KeyError, IndexError, TypeError):
+            return "<missing>"
+    return cur
+
+
+def form_filler_hint_cases() -> None:
+    """The filler's table "hint -> value" (P1-a spec 4.1 awkward inputs, E1-E3, E6, E10, E12, E13, E20): one row per case, the
+    row name is the case. A synthetic form carries each awkward hint; the real contracts are walked by the next function."""
+    import form_filler as FF
+    ABS = FF.ABSENT
+    ctx = FF.FillContext(author_dispatch="S2-author-1")
+    levels = handoff_allowed("test_levels")
+    rows = [
+        # (name, ctx, variant, overrides, path, expected value | ABS | "<missing>")
+        ("<P-n, the row's stable id> -> P-1, not TS-1", ctx, "base", None, "probe.p_id", "P-1"),
+        ("<PR-n, or the empty list> base -> PR-1", ctx, "base", None, "probe.pr_or_empty", "PR-1"),
+        ("<PR-n, or the empty list> empty_lists -> []", ctx, "empty_lists", None, "probe.pr_or_empty", []),
+        ("<file::function or T-n ...> base", ctx, "base", None, "probe.file_fn", "file::function"),
+        ("<file::function or T-n ...> alt:1", ctx, "alt:1", None, "probe.file_fn", "T-1"),
+        ("<bugs/DEBT-n.md> -> a path with its id", ctx, "base", None, "probe.debt", "bugs/DEBT-1.md"),
+        ("<r of 2> -> 1 of 2", ctx, "base", None, "probe.r_of_2", "1 of 2"),
+        ("<= 80 characters> base is within the limit", ctx, "base", None, "probe.limit", "filled limit"),
+        ("<= 80 characters> AT is exactly 80", ctx, "at_limit", None, "probe.limit", ("len", 80)),
+        ("<= 80 characters> BEYOND is 81", ctx, "beyond_limit", None, "probe.limit", ("len", 81)),
+        ("<true|false, or omit ...> base -> true", ctx, "base", None, "probe.tf_or_omit", True),
+        ("<true|false, or omit ...> omit_optional -> left out", ctx, "omit_optional", None, "probe.tf_or_omit", "<missing>"),
+        ("<one of vocabulary.test_levels - ...> -> a word of the vocabulary", ctx, "base", None, "probe.level", levels[0]),
+        ("<TEST_BUG:collection|FLAKY|reorder> -> the colon does not cut the word", ctx, "base", None, "probe.colon_first", "TEST_BUG:collection"),
+        ("<the author's dispatch> -> work/handoffs/<ctx.author_dispatch>.yaml", ctx, "base", None, "probe.author", "work/handoffs/S2-author-1.yaml"),
+        ("<P-n or R-n> base -> P-1", ctx, "base", None, "probe.alt2", "P-1"),
+        ("<P-n or R-n> alt:1 -> R-1", ctx, "alt:1", None, "probe.alt2", "R-1"),
+        ("<R-n, K-n or B-n> alt:2 -> B-1", ctx, "alt:2", None, "probe.alt3", "B-1"),
+        ("<R-n, a source id or an area> base -> an id", ctx, "base", None, "probe.id_text", "R-1"),
+        ("<R-n, a source id or an area> alt:1 -> a word", ctx, "alt:1", None, "probe.id_text", "area-1"),
+        ("<case id or P-n> alt:1 -> P-1", ctx, "alt:1", None, "probe.case_or_p", "P-1"),
+        ("<n> -> 1", ctx, "base", None, "probe.count_n", 1),
+        ("<2> -> 2", ctx, "base", None, "probe.number", 2),
+        ("free text -> filled <leaf>", ctx, "base", None, "probe.free", "filled free"),
+        ("override missing path", ctx, "base", {"probe.nowhere": "x"}, "<unfillable>", "probe.nowhere"),
+        ("override on a section but not ABSENT/[]", ctx, "base", {"probe": "x"}, "<unfillable>", "probe"),
+        ("ABSENT on required", ctx, "base", {"probe.p_id": ABS}, "probe.p_id", "<missing>"),
+        ("override on code field", ctx, "base", {"artifacts.run_witness": "work/evidence/x.json"}, "artifacts.run_witness", "work/evidence/x.json"),
+        ("code field without override stays for code", ctx, "base", None, "<left_for_code>", "artifacts.run_witness"),
+        ("section[] vs section[0]: every row", ctx, "base", {"rows[].key": "all"}, "rows[1].key", "all"),
+        ("section[] vs section[0]: one row, the row", ctx, "base", {"rows[0].key": "one"}, "rows[0].key", "one"),
+        ("section[] vs section[0]: one row, the other row untouched", ctx, "base", {"rows[0].key": "one"}, "rows[1].key", "filled key"),
+        ("section[0] beats section[]", ctx, "base", {"rows[].key": "all", "rows[0].key": "one"}, "rows[1].key", "all"),
+        ("override beyond the template's rows names no field", ctx, "base", {"rows[5].key": "x"}, "<unfillable>", "rows[5].key"),
+        ("section ABSENT leaves the section out", ctx, "base", {"rows": ABS}, "rows", "<missing>"),
+        ("empty_lists empties every list but keeps the contract's required ones", ctx, "empty_lists", None, "rows", []),
+        ("<one of vocabulary.no_such_list> is unfillable (E10)", ctx, "base", None, "<unfillable>", "probe.no_list"),
+        ("token <dispatch> has no key in the context (E12)", ctx, "base", None, "<unfillable>", "probe.dispatch"),
+        ("token <the author's dispatch> with no author_dispatch (E12)", FF.FillContext(), "base", None, "<unfillable>", "probe.author"),
+        ("<TICKET> -> ctx.task_key", FF.FillContext(task_key="ZZ-9", author_dispatch="a"), "base", None, "header.window", "ZZ-9"),
+        ("same input, same bytes", ctx, "base", None, "<same bytes>", True),
+    ]
+    root = harness.temp_dir()
+    saved = handoff.CONTRACTS
+    try:
+        for name in ("index.yaml", "vocabulary.yaml"):
+            (root / name).write_bytes((saved / name).read_bytes())
+        (root / "synthetic.yaml").write_text(SYNTHETIC_FORM, encoding="utf-8")
+        handoff.CONTRACTS = root
+        for name, cx, variant, overrides, path, expected in rows:
+            filled = FF.fill_form("synthetic", cx, verdict="ok", variant=variant, overrides=overrides)
+            if path == "<unfillable>":
+                got = [u.path for u in filled.unfillable]
+                if "override" in name:
+                    ok = expected in got and all(u.why.startswith("override names no field of synthetic") for u in filled.unfillable if u.path == expected)
+                else:
+                    ok = expected in got
+            elif path == "<left_for_code>":
+                got, ok = filled.left_for_code, expected in filled.left_for_code
+            elif path == "<same bytes>":
+                got, ok = filled.text, FF.fill_form("synthetic", cx, verdict="ok", variant=variant).text == filled.text
+            else:
+                got = _at(filled.data, path)
+                if isinstance(expected, tuple):
+                    ok = isinstance(got, str) and len(got) == expected[1]
+                elif expected == "<missing>" or expected == []:
+                    ok = got == expected or (expected == [] and got in ({}, []))
+                else:
+                    ok = got == expected
+            check(f"filler: {name}", ok, f"got {got!r}, wanted {expected!r}; unfillable {[(u.path, u.why) for u in filled.unfillable]}")
+        # the two refusals of the interface
+        try:
+            FF.fill_form("synthetic", ctx, variant="cite_hint:probe.p_id")
+            check("filler: a variant the form does not have raises", False, "no error")
+        except ValueError:
+            check("filler: a variant the form does not have raises", True)
+        try:
+            FF.fill_form("synthetic", ctx, verdict="ok").require()
+            check("filler: require() raises NotFillable naming the field", False, "no error")
+        except FF.NotFillable as exc:
+            check("filler: require() raises NotFillable naming the field", exc.path in ("probe.no_list", "probe.dispatch"), str(exc))
+        try:
+            FF.write_dispatch_form(root, "../x", "synthetic", ctx, "ok")
+            check("filler: write_dispatch_form refuses a dispatch id that is a path", False, "no error")
+        except ValueError:
+            check("filler: write_dispatch_form refuses a dispatch id that is a path", True)
+    finally:
+        handoff.CONTRACTS = saved
+        harness.cleanup(root)
+
+
+def handoff_allowed(name: str) -> list:
+    import handoff as H
+    return H.allowed(name)
+
+
+def _form_world(root) -> None:
+    """The world every form is read in: a triage that shows nothing to repair and a run that shows nothing failed (the world in
+    which the null outcome of S7 is true); built ONCE for the walk."""
+    (root / "work").mkdir(parents=True, exist_ok=True)
+    (root / "work" / "triage.json").write_text(json.dumps({"triage": []}), encoding="utf-8")
+    (root / "work" / "run-report.json").write_text(
+        json.dumps({"totals": {"passed": 1, "failed": 0, "error": 0}, "results": []}), encoding="utf-8")
+
+
+def every_form_fills_from_its_own_hints() -> None:
+    """P1-a N1: every handoff form, filled from its own hints in every variant, passes its own check (`handoff_check.check`).
+
+    Row id `<contract>[<verdict>/<variant>]`. A hint the filler cannot fill is a red row `unfillable <contract>:<path> «<hint>»`
+    (a finding about the form); the one form of kind `help` that the check cannot read is `form-kind-unread: <contract>`.
+    Fields code fills (`_code_fills`) are not judged here (E11, N3 judges them with `fix=True`)."""
+    import form_filler as FF
+    index = handoff.index()
+    forms = list(dict.fromkeys([r["contract"] for r in index["handoffs"]] + [index["escalation"]["contract"]]))
+    help_forms = {index["escalation"]["contract"]}
+    # pins of the size of the walk, both ways, no literal (spec verdict 1)
+    files = {p.stem for p in (harness.PLUGIN_ROOT / "handoffs").glob("*.yaml")} - {"index", "vocabulary"}
+    for name in sorted(files - set(forms)):
+        check(f"form file not in index: {name}", False, "handoffs/ holds a form no row of index.yaml names")
+    for name in sorted(set(forms) - files):
+        check(f"index names no file: {name}", False, "a row of index.yaml names a contract with no file in handoffs/")
+    words = handoff_allowed("header_verdicts")
+    root = harness.temp_dir()
+    real_vocabulary, cache = handoff.vocabulary, []
+
+    def vocabulary_once():                        # the file does not change during the walk; reading it per choice field is the cost
+        if not cache:
+            cache.append(real_vocabulary())
+        return cache[0]
+    handoff.vocabulary = vocabulary_once
+    seen, rows, fields, left_total, short = {}, 0, 0, 0, []
+    try:
+        _form_world(root)
+        ctx = FF.FillContext(author_dispatch="S2-author-1")
+        for contract in forms:
+            spec = handoff.spec(contract)
+            listed = FF.variants(contract)
+            if len(listed) < max(len(words) if "header.verdict" in spec else 1, 1):
+                short.append(contract)
+            for index_of, (verdict, variant) in enumerate(listed):
+                rows += 1
+                row = f"{contract}[{verdict}/{variant}]"
+                filled = FF.fill_form(contract, ctx, verdict=verdict, variant=variant)
+                if index_of == 0:
+                    fields += len(filled.fills) + len(filled.left_for_code) + len(filled.unfillable)
+                    left_total += len(filled.left_for_code)
+                for u in filled.unfillable:
+                    seen.setdefault((contract, u.path, u.hint), u.why)
+                skip = {u.path for u in filled.unfillable}
+                try:
+                    _doc, _fixed, problems, _judged, _derived = HC.check(
+                        handoff.parse(filled.text), contract, HC.Artifacts(root, dispatch=f"{contract}-w1"), fix=False, use_judge=False)
+                except Exception as exc:          # E14: an exception is never a pass
+                    if contract in help_forms:
+                        check(f"form-kind-unread: {contract}", False, f"{row}: {type(exc).__name__}: {exc}")
+                    else:
+                        check(f"{row}: crashed: {type(exc).__name__}", False, str(exc))
+                    continue
+                problems = [p for p in problems if p.path not in skip and not (p.kind == "blank" and HC._code_fills(p.path))]
+                if contract in help_forms:
+                    stray = [p for p in problems if re.sub(r"\[\d+\]", "[]", p.path) not in spec]
+                    if stray:
+                        check(f"form-kind-unread: {contract}", False, f"{row}: refused on {[p.path for p in stray]}")
+                        continue
+                if variant == FF.BEYOND_LIMIT:
+                    beyond = {f.path for f in filled.fills if isinstance(f.value, str)
+                              and spec[re.sub(r"\[\d+\]", "[]", f.path)].max_len
+                              and len(f.value) > spec[re.sub(r"\[\d+\]", "[]", f.path)].max_len}
+                    refused = {p.path for p in problems if p.limit}
+                    other = [p.path for p in problems if not p.limit]
+                    check(row, refused == beyond and not other,
+                          f"BEYOND not refused by the reader: {sorted(beyond - refused)}; other problems {other[:3]}")
+                else:
+                    check(row, not problems, "; ".join(p.line()[:140] for p in problems[:3]))
+        # the negative rows: what the reader MUST refuse (E5, E6)
+        negatives = [
+            ("owed rows absent are refused", "s2-stage-critic-to-tester", "concerns", {"findings": FF.ABSENT}, "findings"),
+            ("scope [] without a null outcome is refused", "s3-strategist-to-designer", "ok", {"scope": []}, "scope"),
+        ]
+        base = FF.fill_form("s2-stage-critic-to-tester", ctx, verdict="concerns")
+        unfilled = {f.path: f.hint for f in base.fills if f.path.startswith("stage_acceptance.")}
+        negatives.append(("an owed section left as the template is refused", "s2-stage-critic-to-tester", "concerns", unfilled,
+                          "stage_acceptance"))
+        for name, contract, verdict, overrides, path in negatives:
+            filled = FF.fill_form(contract, ctx, verdict=verdict, overrides=overrides)
+            _doc, _fixed, problems, _judged, _derived = HC.check(
+                handoff.parse(filled.text), contract, HC.Artifacts(root, dispatch=f"{contract}-w1"), fix=False, use_judge=False)
+            hit = [p for p in problems if p.path == path or p.path.startswith(path + ".")]
+            check(f"reader: {name}", bool(hit) and not filled.unfillable, f"problems {[p.path for p in problems][:4]}")
+    finally:
+        handoff.vocabulary = real_vocabulary
+        harness.cleanup(root)
+    for (contract, path, hint), why in sorted(seen.items()):
+        check(f"unfillable {contract}:{path} «{hint}»", False, why)
+    check("the walk walked forms, variants and fields", bool(forms) and rows > 0 and fields > 0, f"{len(forms)}, {rows}, {fields}")
+    check("every form has at least as many variants as header_verdicts words", not short, str(short))
+    print(f"forms {len(forms)}, variants {rows}, fields {fields}, unfillable {len(seen)}, left_for_code {left_total}")
+
+
 def main() -> None:
     every_required_field_has_a_producer_or_a_declared_gap()
     the_two_paths_this_walk_wired()
     the_sensitivity_gap_is_reported_not_hidden()
     known_red_ledger_cases()
+    form_filler_hint_cases()
+    every_form_fills_from_its_own_hints()
     finish("test_field_producers")
 
 

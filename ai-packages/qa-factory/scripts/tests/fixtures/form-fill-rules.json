@@ -1,0 +1,27 @@
+{
+  "_about": "Rules of tests/form_filler.py (P1-a spec 3.2, 3.5): which generator fills which kind of hint of a handoff form. First matching rule wins. `when`: max_len (the reader's spec holds a length limit), kind:choice / kind:boolean (the reader's spec reads the hint as a closed list); `pattern`: a full match against the text inside the angle brackets. A hint no rule fits is never guessed: the filler reports it as unfillable. The generators are named in form_filler.GENERATORS.",
+  "rules": [
+    {"id": "limit", "when": "max_len", "gen": "limit"},
+    {"id": "closed-boolean", "when": "kind:boolean", "gen": "first_option"},
+    {"id": "closed-list", "when": "kind:choice", "gen": "first_option"},
+    {"id": "file-function-or-test-id", "pattern": "file::function or T-n of the planned test", "gen": "values", "values": ["file::function", "T-1"]},
+    {"id": "id-path", "pattern": "(?=[^ ]*[./])[\\w./]*[A-Z]{2,}-n[\\w./]*", "gen": "id_in_path"},
+    {"id": "id-or-empty-list", "pattern": "[A-Z]{1,4}-(?:n|m|ID),\\s+or (?:the|an) empty list", "gen": "id_prefix", "empty": true},
+    {"id": "id-alternatives", "pattern": "(?:[A-Z]{1,4}-(?:n|m|ID)|case id)(?:(?:,\\s+or\\s+|,\\s+|\\s+or\\s+)(?:[A-Z]{1,4}-(?:n|m|ID)|case id))+", "gen": "alternatives"},
+    {"id": "id-or-word", "pattern": "[A-Z]{1,4}-(?:n|m|ID)\\b.*\\b(?:or (?:an )?area|or tracker key|or path|or the source)\\b.*", "gen": "id_prefix", "word_alternative": "area-1"},
+    {"id": "id-prefix", "pattern": "[A-Z]{1,4}-(?:n|m|ID)\\b.*", "gen": "id_prefix"},
+    {"id": "count-n", "pattern": "n", "gen": "literal", "value": 1},
+    {"id": "count-n-of-m", "pattern": "n of m(?:, or a dash)?", "gen": "literal", "value": "1 of 1"},
+    {"id": "count-r-of-2", "pattern": "r of 2", "gen": "literal", "value": "1 of 2"},
+    {"id": "number-literal", "pattern": "\\d+", "gen": "hint_number"},
+    {"id": "free-text-or-empty-list", "pattern": ".*(?:,|\\s)or (?:the|an) empty list", "gen": "free_text", "empty": true},
+    {"id": "free-text", "pattern": ".+", "gen": "free_text"}
+  ],
+  "context_tokens": {
+    "<TICKET>": "task_key",
+    "<dispatch>": "dispatch_id",
+    "<the author's dispatch>": "author_dispatch"
+  },
+  "artifact_templates": {},
+  "not_covered": {}
+}
