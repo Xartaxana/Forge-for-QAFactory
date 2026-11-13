@@ -271,6 +271,64 @@ class EventStoreTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertEqual(list(target.parent.glob("*.tmp")), [])
 
+    def test_one_publisher_for_dashboard_migrate_backup_and_bytes(self):
+        """OH7-1: the dashboard page, the migration backup and `atomic_bytes` publish through `event_store._publish`:
+        the file holds exactly the expected bytes and no `.tmp` is left beside it."""
+        import factory_dashboard
+        import migrate_coverage
+        bytes_value = b"\xef\xbb\xbf{\"a\": 1}\r\n\xff\xfe\x00"        # a BOM, CRLF, and bytes that are not UTF-8
+
+        def dashboard(folder):
+            bare = folder / "bare-root"
+            bare.mkdir()
+            out = folder / "page.html"
+            factory_dashboard.main(["--root", str(bare), "--read-only", "--out", str(out)])
+            self.assertIn(b"<h1>Test Factory Metrics</h1>", out.read_bytes())
+            self.assertNotIn(b"\r\n", out.read_bytes(), "the page is published without newline translation")
+            return out.parent
+
+        def migrate_backup(folder):
+            root = folder / "active"
+            root.mkdir()
+            Controller(root).apply("initialize", {"scope": ["TC-1"], "source_revision": "src",
+                "known_paths": {"root": str(root)}, "coverage_contract_version": 1, "idempotency_key": "init"})
+            row = {"id": "TS-1", "impact": "low", "likelihood": "low", "confidence": "high",
+                   "risk_rationale": "legacy", "risk_source_refs": ["R-1"],
+                   "risk_policy_revision": "factory-starter-v1", "coverage_refs": ["R-1"],
+                   "unknowns": [], "verification_depth": "low", "required_scenarios": ["TC-1"],
+                   "test_level_rationale": "unit", "design_review_required": False, "bounded_reversible": True}
+            plan = root / "work" / "test-plan.json"
+            plan.parent.mkdir(parents=True)
+            original = b"\xef\xbb\xbf" + json.dumps([row], indent=1).replace("\n", "\r\n").encode("utf-8")
+            plan.write_bytes(original)
+            done = migrate_coverage.migrate(root)
+            backup = root / done["backup_ref"]
+            self.assertEqual(backup.read_bytes(), original, "the backup is the plan's exact bytes")
+            return backup.parent
+
+        def direct(folder):
+            target = folder / "deep" / "t.bin"
+            event_store.atomic_bytes(target, bytes_value)
+            self.assertEqual(target.read_bytes(), bytes_value)
+            return target.parent
+
+        for name, run, target_name in (("dashboard", dashboard, "page.html"),
+                                       ("migrate-backup", migrate_backup, "test-plan.v1.json"),
+                                       ("atomic_bytes", direct, "t.bin")):
+            with self.subTest(writer=name):
+                folder = self.root / ("oh7-1-" + name)
+                folder.mkdir()
+                published = []
+                real = event_store._publish
+
+                def spy(path, write, *args, **options):
+                    published.append(Path(path).name)
+                    return real(path, write, *args, **options)
+                with patch("event_store._publish", side_effect=spy):
+                    run(folder)
+                self.assertIn(target_name, published, name + " did not publish through the one publisher")
+                self.assertEqual(list(folder.rglob("*.tmp")), [], name + " left a temp file")
+
     def test_publish_temp_name_table(self):
         """OH6-3: the temp name is `.<8 hex>.tmp`, opened with "x"; a taken name is never written or unlinked."""
         import re
