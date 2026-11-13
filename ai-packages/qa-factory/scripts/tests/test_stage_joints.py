@@ -224,6 +224,21 @@ def k9_unreadable_shapes() -> None:
                                       "def main():\n    errors = [e for e in errors if e]\n    errors, passed = all_errors()\n")
     check_eq("K9: a name, a comprehension, `list`, the aggregator and a tuple target are no family, no error; a nested statement is walked",
              (sorted(members), errors), (["exit:b", "exit:d"], []))
+    def wrapped(expr: str) -> tuple:
+        members, errors = SJ.exit_members(f"def all_errors():\n    errors = {expr}\ndef main():\n    pass\n")
+        return sorted(members), len(errors)
+    check_eq("K9/wrap-own: own(f(x), 'a') is the family f", wrapped("own(f(x), 'a')"), (["exit:f"], 0))
+    check_eq("K9/wrap-mixed: a wrapped and a bare family", wrapped("own(f(), 'a') + g()"), (["exit:f", "exit:g"], 0))
+    check_eq("K9/wrap-nested: wrappers unwrap repeatedly", wrapped("own(own(f(), 'a'), 'b')"), (["exit:f"], 0))
+    check_eq("K9/wrap-not-call: own(x, 'a') is neither member nor error", wrapped("own(x, 'a')"), ([], 0))
+    check_eq("K9/wrap-attr: own(m.f(), 'a') is a walk error", wrapped("own(m.f(), 'a')"), ([], 1))
+    members, errors = SJ.exit_members("def all_errors():\n    errors = own()\ndef main():\n    pass\n")
+    check_eq("K9/wrap-noargs: own() is a walk error with the text", (sorted(members), len(errors)), ([], 1))
+    check_in("K9/wrap-noargs: the text", "a call of `own` with no argument in `errors`; extend the walk or simplify the call", errors[0])
+    check_not_in("K9/own-is-not-a-family: the wrapper is never a member", "exit:own",
+                 sorted(SJ.exit_members("def all_errors():\n    errors = own(f(), 'a') + own(own(g(), 'a'), 'b')\n"
+                                        "    refused = own(h(), 'x')\n    late = own(k(), 'y')\ndef main():\n    pass\n")[0]))
+    check_eq("K9/wrap-list-skipped: own(list(x), 'a') gives the skipped list", wrapped("own(list(x), 'a')"), ([], 0))
     check_eq("K9: a file with neither function is a walk error", len(SJ.exit_members("x = 1")[1]), 2)
     check_eq("K9: a source that is not Python is a walk error", len(SJ.exit_members("def (")[1]), 1)
     src = ("def validate_window():\n    gaps.append(f(i))\n    gaps.append('a:' + x)\n    gaps.append(K if c else 'b:' + y)\n"

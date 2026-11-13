@@ -57,7 +57,8 @@ NOTE_MIN = 40
 FIELD_MIN = 3
 RATCHET_NODE = r"^F6-51$"
 EXIT_SKIP = ("list", "all_errors")                  # the aggregator and a copy of the list are not families
-EXIT_FUNCTIONS = ("all_errors", "main")
+EXIT_WRAPPERS = ("own",)                            # `own(family(...), "check")` wraps a family; the walk reads through it
+EXIT_FUNCTIONS =("all_errors", "main")
 USAGE_EXIT = 2                                      # `--data` with no file; the unreadable file is the contract's exit 3
 ROLE_LEG_KEY = "role_leg"                           # a code row whose role leg the walk does not judge says so in data
 ROLE_LEG_NOT_WALKED = "not walked"
@@ -75,7 +76,9 @@ def exit_members(src: str, filename: str = "exit_gate.py") -> tuple:
     """`({key: where}, [walk errors])`: the families collected into `errors` by `all_errors` and `main`.
 
     Every `errors = ...` / `errors += ...` in those two bodies (nested statements included: `ast.walk`) has its value
-    split at `+`; a leaf that is a call of a bare name is a family (the aggregator and `list` are not). A call of
+    split at `+`; a leaf that is a call of a bare name in `EXIT_WRAPPERS` (`own(family(...), "check")`) is replaced by its
+    first positional argument, repeatedly, BEFORE the next rule runs (a wrapper with no argument is a walk error; the wrapper
+    name is never a member). A leaf that is a call of a bare name is a family (the aggregator and `list` are not). A call of
     anything else (an attribute, a subscript) is a shape the walk cannot name: a walk error, never skipped (E6). A leaf
     that is no call (a name, a comprehension) is neither a member nor an error."""
     try:
@@ -98,7 +101,16 @@ def exit_members(src: str, filename: str = "exit_gate.py") -> tuple:
             if not any(isinstance(t, ast.Name) and t.id == "errors" for t in targets):
                 continue
             for leaf in _leaves(value):
-                if not isinstance(leaf, ast.Call):
+                bad = False
+                while (isinstance(leaf, ast.Call) and isinstance(leaf.func, ast.Name)
+                       and leaf.func.id in EXIT_WRAPPERS):
+                    if not leaf.args:
+                        errors.append(f"cannot read the check at {filename}:{leaf.lineno} - a call of "
+                                      f"`{leaf.func.id}` with no argument in `errors`; extend the walk or simplify the call")
+                        bad = True
+                        break
+                    leaf = leaf.args[0]
+                if bad or not isinstance(leaf, ast.Call):
                     continue
                 if isinstance(leaf.func, ast.Name):
                     if leaf.func.id not in EXIT_SKIP:
