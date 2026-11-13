@@ -623,11 +623,11 @@ def revoke_cli_edges():
         check_in("edge 14: and the door is printed, and says why it is needed", "already completed", door.stdout)
         check_in("edge 14: the door names what the exclusion's own target names (nothing was in the inventory)",
                  "testproject1-ui!1924", door.stdout)
-        check_in("edge 14: the door names the late review, as a whole command", "review --output qa-factory/artifacts/TASK-1/work/"
-                 "source-inventory.json --late", door.stdout)
+        check_in("edge 14: the door names the late review, as a whole command", 'review --output "qa-factory/artifacts/TASK-1/work/'
+                 'source-inventory.json" --late', door.stdout)
         ticket = sx_cli(root, "--task", "TASK-1", "--revoke", "X2", "--words", "read it too")
         check_in("edge 14: for a ticket the door is a whole collect command",
-                 'ticket_adapter.py" collect PROJ-7 --output qa-factory/artifacts/TASK-1/work/source-inventory.json '
+                 'ticket_adapter.py" collect PROJ-7 --output "qa-factory/artifacts/TASK-1/work/source-inventory.json" '
                  "--relation referenced --summary", ticket.stdout)
         check_eq("edge 14: both revokes are on the record", [bool(e["revoked_at"]) for e in SX.read_record(work)["exclusions"]],
                  [True, True])
@@ -1273,16 +1273,16 @@ def revoke_after_s1_door():
     section of s1.md in words; never a `<placeholder>`. The item's own target names it when nothing was in the
     inventory."""
     inventory = "qa-factory/artifacts/TASK-1/work/source-inventory.json"
-    late = f'review --output {inventory} --late'
+    late = f'review --output "{inventory}" --late'
     raw = "https://git.example/tp1-group/testproject1-ui/-/merge\\_requests/1924"
     cases = [
         ("ticket", {"kind": "ticket", "key": "PROJ-7", "host": None}, [{"source_id": "SRC-1", "key": "PROJ-7"}],
-         ['ticket_adapter.py" peek PROJ-7 --output ' + inventory + " --summary`",
-          'ticket_adapter.py" collect PROJ-7 --output ' + inventory + " --relation referenced --summary", late]),
+         ['ticket_adapter.py" peek PROJ-7 --output "' + inventory + '" --summary`',
+          'ticket_adapter.py" collect PROJ-7 --output "' + inventory + '" --relation referenced --summary', late]),
         ("mr in the inventory", {"kind": "mr", "host": None, "project": "testproject1-ui", "iid": "1924", "style": "merge_requests"},
          [{"source_id": "SRC-1", "url": raw}],
-         ['vcs_evidence.py" --url "' + MR_1924 + '" --output qa-factory/artifacts/TASK-1/work/sources/SRC-1/mr-1924.json',
-          "inspect --output " + inventory + ' --source-id SRC-1 --media-url "' + raw + '" --inspection-status read '
+         ['vcs_evidence.py" --url "' + MR_1924 + '" --output "qa-factory/artifacts/TASK-1/work/sources/SRC-1/mr-1924.json"',
+          'inspect --output "' + inventory + '" --source-id SRC-1 --media-url "' + raw + '" --inspection-status read '
           "--local-ref sources/SRC-1/mr-1924.json", late]),
         ("mr never in the inventory, a link word", {"kind": "mr", "host": "git.example", "project": "tp1-group/testproject1-ui",
                                                      "iid": "1924", "style": "merge_requests"}, [], [MR_1924, "s1.md", late]),
