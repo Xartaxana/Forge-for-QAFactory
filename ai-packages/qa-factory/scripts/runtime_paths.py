@@ -231,6 +231,41 @@ def package_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def script_path(name, root=None):
+    """`<root>/scripts/<name>` when that file exists in the copy this process runs, else None.
+
+    `root` defaults to `package_root()`; never read from an environment variable (t-024 R6b)."""
+    path = Path(root if root is not None else package_root()) / "scripts" / name
+    try:
+        return path if path.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+_SHELL_ACTIVE = ("$", "`", '"')
+
+
+def script_command(name, root=None, *, must_exist: bool = True) -> str:
+    """The one spelling of "run this package script": `python "<root posix>/scripts/<name>"`.
+
+    A path holding a shell-active character is single-quoted; one holding both kinds of quote has no command
+    form (plain text, never a command that resolves elsewhere). A script missing from the copy gives the gap
+    text, never a path that does not exist (FR-59); `must_exist=False` skips that check (a card head's
+    `<script>` placeholder). A site appending arguments keeps its tail after the returned text."""
+    base = Path(root if root is not None else package_root())
+    folder = (base / "scripts").as_posix()
+    if must_exist and script_path(name, base) is None:
+        return (f"`{name}` (missing from the plugin copy at {base.as_posix()}; "
+                f"the conductor runs qa-doctor to repair the installation)")
+    full = f"{folder}/{name}"
+    if any(ch in full for ch in _SHELL_ACTIVE):
+        if "'" in full:
+            return (f"{name} in {folder}/ (quote this path for your shell: "
+                    f"it holds characters a shell expands)")
+        return f"python '{full}'"
+    return f'python "{full}"'
+
+
 def _repository_roots(project, cfg) -> dict:
     """{id: absolute path} of the config's `code_repos`, resolved against `project`."""
     repos = {}

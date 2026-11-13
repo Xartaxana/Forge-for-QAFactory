@@ -65,6 +65,86 @@ def part_scanner() -> None:
     finally:
         cleanup(root)
 
+    # OH5-2 A (F2): a refusal source naming the host root variable is a finding, in any spelling (E13, E15); the
+    # concatenation split is the named, accepted miss (E14). One variant row per spelling.
+    for row, literal, flagged in (
+            ("braced", "${CLAUDE_PLUGIN_ROOT}/scripts/x.py", True),
+            ("bare", "$CLAUDE_PLUGIN_ROOT/scripts/x.py", True),
+            ("cmd", "%CLAUDE_PLUGIN_ROOT%/scripts/x.py", True),
+            ("powershell", "$env:CLAUDE_PLUGIN_ROOT/scripts/x.py", True),
+            ("lowercase", "${claude_plugin_root}/scripts/x.py", True),
+            ("split by concatenation (accepted miss)", "CLAUDE_PLUGIN_\" + \"ROOT/x.py", False),
+            ("no variable", "scripts/x.py", False)):
+        root = _fake_package(f'''
+            def deny(message):
+                return 2
+
+            def check_dispatch(event):
+                return deny("{literal}")
+        ''')
+        try:
+            hit = [e for e in RR.findings(root) if "unexpanded host root variable" in e]
+            check(f"a refusal source with `{row}` literal: flagged={flagged}", bool(hit) == flagged, str(hit))
+            if flagged:
+                check_in(f"{row}: the finding names file and line", "stage_guard.py:", hit[0])
+        finally:
+            cleanup(root)
+
+
+def part_door_texts() -> None:
+    """OH5-2 A (AR-8, FR-15): the doors the guard builds name existing scripts of the copy that runs it (E4, E10); the card head
+    and the brief's SCRIPTS are spelled by the same survivor."""
+    import ast as _ast
+    import json
+    import re
+    import guard_pre_tool as G
+    import runtime_paths as RP
+
+    class WF:
+        @staticmethod
+        def cases_of(owner):
+            return "the window"
+
+    root_posix = RP.package_root().as_posix()
+    texts = {"_window_refusal": G._window_refusal(WF, "C:/tmp/story/task", "tests/a.py", "S5|x", 1)}
+    project = temp_dir("qa-factory-doors-")
+    try:
+        plan = project / "qa-factory" / "artifacts" / "T-1" / "work" / "test-plan.json"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(json.dumps([{"id": "TS-1"}]), encoding="utf-8")
+        event = {"tool_name": "Write", "tool_input": {"file_path": plan.as_posix()}}
+        texts["plan_write_check"] = G._blocked(G.plan_write_check, event, {}) or ""
+        for name, text in texts.items():
+            check(f"the {name} refusal was built", "PRE-TOOL GUARD" in text, text[:200])
+            found = [a or b for a, b in re.findall(r"python (?:\"([^\"]+)\"|'([^']+)')", text)]
+            check(f"{name} names at least one script door", bool(found), text[:300])
+            for path in found:
+                check(f"{name}: {Path(path).name} exists", Path(path).is_file(), path)
+                check(f"{name}: {Path(path).name} is under this copy's scripts", path.startswith(root_posix + "/scripts/"), path)
+        # E4 pinned: the script is missing from the copy -> the gap text, then the site's own argument tail
+        bare = project / "bare-copy"
+        (bare / "scripts").mkdir(parents=True)
+        saved = RP.package_root
+        RP.package_root = lambda: bare
+        try:
+            gap = G._blocked(G.plan_write_check, event, {}) or ""
+        finally:
+            RP.package_root = saved
+        check_in("E4: the missing script is named with the gap and qa-doctor",
+                 f"`plan_row.py` (missing from the plugin copy at {bare.as_posix()}; the conductor runs qa-doctor to repair "
+                 "the installation) --task <TICKET> --row <TS-n> --set <field>=<value>", gap)
+        check("E4: no path of the missing script is printed", "python \"" not in gap.split("plan_row.py")[0].split("\n")[-1], gap)
+    finally:
+        cleanup(project)
+    # F8 / N4: the brief's SCRIPTS is the survivor's folder, and both card heads are built through the survivor
+    import brief_pack
+    check_eq("brief_pack.SCRIPTS is the package scripts folder", brief_pack.SCRIPTS, (RP.package_root() / "scripts").as_posix())
+    tree = _ast.parse((SCRIPTS / "brief_pack.py").read_text(encoding="utf-8"))
+    heads = [n for n in _ast.walk(tree) if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
+             and n.func.attr == "script_command" and n.args and isinstance(n.args[0], _ast.Constant)
+             and n.args[0].value == "<script>" and any(k.arg == "must_exist" for k in n.keywords)]
+    check_eq("both card heads call script_command('<script>', must_exist=False)", len(heads), 2)
+
 
 def part_live_package() -> None:
     check_eq("the shipped package has no unregistered refusal", RR.findings(PLUGIN_ROOT), [])
@@ -195,6 +275,7 @@ def part_fail_closed() -> None:
 
 def main() -> None:
     part_scanner()
+    part_door_texts()
     part_live_package()
     part_fail_closed()
     finish("test_refusal_registry")

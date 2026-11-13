@@ -495,6 +495,75 @@ def k4_known_artifacts_grounding() -> None:
           Path(items.get("grounding", "")) == base / "work" / "grounding.yaml", str(items.get("grounding")))
 
 
+def _package_copy(folder_name: str, with_script: bool = True) -> Path:
+    """A throwaway package root `<temp>/<folder_name>` that holds scripts/x.py (or an empty scripts/)."""
+    root = scratch() / folder_name
+    (root / "scripts").mkdir(parents=True)
+    if with_script:
+        (root / "scripts" / "x.py").write_text("print(1)\n", encoding="utf-8")
+    return root
+
+
+def k5_script_command() -> None:
+    """OH5-2 A: the one spelling of "run this package script" (E1-E4, E7, E8): the root is passed explicitly, the exact text is checked.
+    One table, rows named by edge id; the root is never read from the environment (E5)."""
+    posix = {
+        "E1 spaces": ("C:/Program Files/qa factory", 'python "C:/Program Files/qa factory/scripts/x.py"'),
+        "E3a dollar root": ("C:/pk$g", "python 'C:/pk$g/scripts/x.py'"),
+        "E3a backtick root": ("C:/pk`g", "python 'C:/pk`g/scripts/x.py'"),
+        "E3a double-quote root": ('C:/pk"g', "python 'C:/pk\"g/scripts/x.py'"),
+        "E3b quote and dollar root": ("C:/it's$", "x.py in C:/it's$/scripts/ (quote this path for your shell: "
+                                                  "it holds characters a shell expands)"),
+        "E3b quote and backtick root": ("C:/it's`", "x.py in C:/it's`/scripts/ (quote this path for your shell: "
+                                                    "it holds characters a shell expands)"),
+        # the non-ASCII name is spelled by escapes: the package carries no Cyrillic character (FR-30)
+        "E7 non-ASCII root": ("C:/Users/\u0410\u043d\u043d\u0430/qa-factory",
+                              'python "C:/Users/\u0410\u043d\u043d\u0430/qa-factory/scripts/x.py"'),
+        "plain quote root stays double-quoted": ("C:/it's", 'python "C:/it\'s/scripts/x.py"'),
+    }
+    for row, (root, want) in posix.items():
+        got = RP.script_command("x.py", root, must_exist=False)
+        check(f"K5 {row}", got == want, got)
+    if os.name == "nt":
+        for row, root, want in (("E2 backslash root", "C:\\Program Files\\qa factory", 'python "C:/Program Files/qa factory/scripts/x.py"'),
+                                ("E8 UNC root", "\\\\srv\\share\\qa-factory", 'python "//srv/share/qa-factory/scripts/x.py"')):
+            got = RP.script_command("x.py", root, must_exist=False)
+            check(f"K5 {row}", got == want, got)
+    else:
+        skipped("K5 E2/E8 backslash and UNC roots", "a backslash is a file-name character off Windows")
+    # existing root with spaces: the real file is named
+    real = _package_copy("qa factory")
+    check("K5 E1 a real root with spaces names the existing script",
+          RP.script_command("x.py", real) == f'python "{real.as_posix()}/scripts/x.py"', RP.script_command("x.py", real))
+    check("K5 script_path finds the file and returns None for a missing one",
+          RP.script_path("x.py", real) == real / "scripts" / "x.py" and RP.script_path("nope.py", real) is None)
+    # E4: the script is missing -> the gap text, never a path that does not exist
+    bare = _package_copy("qa-bare", with_script=False)
+    want = (f"`x.py` (missing from the plugin copy at {bare.as_posix()}; the conductor runs qa-doctor to repair the installation)")
+    check("K5 E4 a missing script gives the gap text", RP.script_command("x.py", bare) == want, RP.script_command("x.py", bare))
+    check("K5 E4 must_exist=False skips the gap",
+          RP.script_command("x.py", bare, must_exist=False) == f'python "{bare.as_posix()}/scripts/x.py"')
+    # E3c: the card head (`<script>` placeholder, must_exist=False) and a door (existing script) quote a `$` root alike
+    dollar = _package_copy("qa$root")
+    door = RP.script_command("x.py", dollar)
+    head = RP.script_command("<script>", dollar, must_exist=False)
+    check("K5 E3c the door on a `$` root is single-quoted", door == f"python '{dollar.as_posix()}/scripts/x.py'", door)
+    check("K5 E3c the card head quotes the same way as the door", head == f"python '{dollar.as_posix()}/scripts/<script>'", head)
+    # E5: the env never decides
+    saved = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    os.environ["CLAUDE_PLUGIN_ROOT"] = "C:/elsewhere"
+    try:
+        got = RP.script_command("x.py", real)
+    finally:
+        if saved is None:
+            os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+        else:
+            os.environ["CLAUDE_PLUGIN_ROOT"] = saved
+    check("K5 E5 a host root variable never decides the path", "elsewhere" not in got, got)
+    check("K5 the default root is package_root()",
+          RP.script_command("runtime_paths.py") == RP.script_command("runtime_paths.py", RP.package_root()))
+
+
 def main() -> None:
     if len(sys.argv) == 3 and sys.argv[1] == "--census":
         found = census(sys.argv[2])
@@ -514,6 +583,7 @@ def main() -> None:
         k3_controls()
         k3_census()
         k4_known_artifacts_grounding()
+        k5_script_command()
     finally:
         os.chdir(CWD0)
         for base in CLEAN:

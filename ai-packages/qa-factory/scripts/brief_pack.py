@@ -69,7 +69,7 @@ STAGE_ORDER = [f"S{i}" for i in range(10)]
 # path is what the role's Bash must use. `${CLAUDE_PLUGIN_ROOT}` in a brief was text nobody expanded
 # (B-014, step 0: agent and brief text are not expanded, and a Bash tool's env carries whatever the
 # host session had), so a role could run the scripts of another copy than the driver's.
-SCRIPTS = HERE.as_posix()
+SCRIPTS = (RP.package_root() / "scripts").as_posix()
 # SC1-14 C2 / SC1-15: the S5 plan (`s5_plan.PLAN_REL`, spelled here because ROLE_FILES is data read at import). It is named to the
 # two dispatches of the plan only; a window reads its slice of it, and an S5 history of the earlier form (`legacy`) reads neither.
 PLAN_FILE = "work/s5-plan.json"
@@ -3672,7 +3672,7 @@ def command_card_lines(task: str, walk: str, commands, tail: str) -> list:
     """The one command card of a walk (F7): `Every command is ...` with `<task root>` and `<WALK>` named, then one bullet per command with
     both placeholders substituted. The walk brief's card and the first look's head are both this."""
     base = f"qa-factory/artifacts/{task}"
-    return [f"Every command is `python \"{SCRIPTS}/<script>\"`, run from the project root; `<task root>` = {base}; `<WALK>` = {walk}{tail}"] + [
+    return [f"Every command is `{RP.script_command('<script>', must_exist=False)}`, run from the project root; `<task root>` = {base}; `<WALK>` = {walk}{tail}"] + [
         "- " + line.replace("<task root>", base).replace("<WALK>", walk) for line in commands]
 
 
@@ -4257,7 +4257,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
 
     # 3. the card
     if shell:
-        card = [f"Every command is `python \"{SCRIPTS}/<script>\"`, run from the project root; `<task root>` = "
+        card = [f"Every command is `{RP.script_command('<script>', must_exist=False)}`, run from the project root; `<task root>` = "
                 f"qa-factory/artifacts/{task}. `--help` of a script is allowed and answers what this card does not; "
                 f"the plugin's scripts are not read."]
         lines = TOOLING.get(role, [])
