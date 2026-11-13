@@ -98,7 +98,7 @@ MEANING_CEILING = 24
 # OH8-7 (c1): the functions that refuse only through a package subclass and are no unit by another route. A test constant like
 # MEANING_CEILING, NOT a `ratchet` key (the gate's item 7 is untouched). Dense: red above it (a new such refuser) and below it
 # (lower this line). Each follow-up node OH8-7b... gives a file group rows and lowers it; 0 is the end state.
-SUBCLASS_PENDING_CEILING = 106
+SUBCLASS_PENDING_CEILING = 74
 # OH8-7b..h (F1 (a)): files (names relative to scripts/) in which a widened raise site (a package subclass of
 # ValueError/StateConflict resolved per file, or the attribute form) CREATES a unit exactly like a literal raise. An entry is
 # `file.py` (the whole file) or `file.py::function` (that function only; used for the split of probe_by_code.py).
@@ -112,6 +112,12 @@ SUBCLASS_UNIT_FILES = (
     "managed_dependency.py",
     "run_suite.py",
     "red_sandbox.py",
+    "exploration.py",
+    "explore_step.py",
+    "manual_evidence.py",
+    "manual_capture.py",
+    "import_test_receipt.py",
+    "s7_reorder.py",
 )
 
 
