@@ -39,6 +39,18 @@ _MARKERS_CACHE: dict = {}
 SCRIPT = re.compile(r"([a-z_]+\.py)")
 
 
+def _bookkeeping_rows(raw):
+    """{script name: why} from the `bookkeeping_scripts` rows, or None when the key is absent, is not a
+    list, or holds no usable row. Optional on purpose (TEMPORAL): a markers file older than the writer of
+    this key has none, and every reader of the older keys keeps working; the reader of THIS key says
+    `unknown: no bookkeeping list`, never zero bookkeeping."""
+    if not isinstance(raw, list):
+        return None
+    rows = {str(r["script"]).strip().lower(): str(r.get("why") or "")
+            for r in raw if isinstance(r, dict) and isinstance(r.get("script"), str) and r["script"].strip()}
+    return rows or None
+
+
 def load_markers(path=None) -> dict:
     """The marker table, read once per path. A file that is absent or unreadable raises with what is
     expected (FR-1): the retro's wrapper turns that into `unknown` with this text as the reason."""
@@ -56,6 +68,7 @@ def load_markers(path=None) -> dict:
                 "listing_prefix": str(raw["listing_prefix"]),
                 "adhoc_path_regexes": [re.compile(x) for x in raw["adhoc_path_regexes"]],
                 "project_test_regex": re.compile(raw["project_test_regex"]),
+                "bookkeeping_scripts": _bookkeeping_rows(raw.get("bookkeeping_scripts")),
             }
         except (OSError, ValueError, KeyError, TypeError, re.error) as exc:
             raise ValueError(
@@ -112,6 +125,8 @@ def turns_of(path, price, markers=None):
     leaves count once. Lines that do not parse are skipped, not fatal."""
     msgs, order = {}, []
     results = collections.defaultdict(list)
+    by_id = collections.defaultdict(list)     # tool_use id -> its call dicts (a repeated line repeats the call)
+    last_ts = None                            # the `timestamp` of the previous user/assistant line
     with Path(path).open(encoding="utf-8", errors="replace") as handle:
         for line in handle:
             try:
@@ -120,6 +135,9 @@ def turns_of(path, price, markers=None):
                 continue
             if not isinstance(r, dict):
                 continue
+            before = last_ts
+            if r.get("type") in ("assistant", "user"):
+                last_ts = r.get("timestamp")
             m = r.get("message") or {}
             if not isinstance(m, dict):
                 continue
@@ -128,14 +146,18 @@ def turns_of(path, price, markers=None):
                 if not u or not mid:
                     continue
                 if mid not in msgs:
-                    msgs[mid] = dict(cost=price(m.get("model"), u), calls=[])
+                    # `prev_ts`: the line before this message's first line (the start of its turn window).
+                    msgs[mid] = dict(cost=price(m.get("model"), u), calls=[], prev_ts=before)
                     order.append(mid)
                 for c in m.get("content") or []:
                     if isinstance(c, dict) and c.get("type") == "tool_use":
                         i = c.get("input") or {}
-                        msgs[mid]["calls"].append(dict(
+                        call = dict(
                             id=c.get("id"), name=c.get("name"),
-                            arg=str(i.get("command") or i.get("file_path") or i.get("pattern") or "")))
+                            arg=str(i.get("command") or i.get("file_path") or i.get("pattern") or ""),
+                            ts=r.get("timestamp"), result_ts=None, has_result=False, is_error=False)
+                        msgs[mid]["calls"].append(call)
+                        by_id[c.get("id")].append(call)
             elif r.get("type") == "user":
                 content = m.get("content")
                 for c in content if isinstance(content, list) else []:
@@ -144,6 +166,11 @@ def turns_of(path, price, markers=None):
                         if isinstance(txt, list):
                             txt = " ".join(str(x.get("text", "")) for x in txt if isinstance(x, dict))
                         results[c.get("tool_use_id")].append(str(txt or ""))
+                        for call in by_id.get(c.get("tool_use_id"), ()):
+                            if not call["has_result"]:
+                                call["has_result"], call["result_ts"] = True, r.get("timestamp")
+                            # the host's structured flag only: absent is not an error
+                            call["is_error"] = call["is_error"] or c.get("is_error") is True
     return [dict(msgs[mid], mid=mid) for mid in order], results
 
 
@@ -209,6 +236,116 @@ def friction(path, price, markers=None):
     return dict(turns=len(rows), cost=sum(r["cost"] or 0.0 for r in rows), fric_turns=fric_turns,
                 fric_cost=fric_money, tally=tally, money=money, unpriced=unpriced,
                 helpers=[dict(path=p, call=c) for p, c in helpers.items()])
+
+
+REFUSED_UNNAMED = "failed, cause not recorded"
+
+CALL_TIME_METHOD = (
+    "Per tool call, from the host transcript's own fields (no reading of result text to decide an error). "
+    "Execution seconds: the `tool_use` line's timestamp to its `tool_result` line's timestamp. "
+    "Turn-attributed seconds: from the previous user/assistant line to the `tool_result` - what the role "
+    "spent on the call, its own model time included; an assistant message that made several calls has its "
+    "window (to its last measured result) split evenly among those calls, an even split being a convention. "
+    "A call is bookkeeping when a Bash command names, by the shape of a script name, a script of "
+    "`bookkeeping_scripts` in references/friction-markers.json. A call is refused/failed when its "
+    "`tool_result` carries `is_error: true`, split by `classify` where it names a kind. A refused "
+    "bookkeeping call is in both rows. A call with no result, or a line with no readable timestamp, is "
+    "counted and its seconds are unknown, never 0.")
+
+
+def _when(value):
+    """A transcript `timestamp` as an aware datetime, or None when it is absent or unreadable."""
+    import datetime
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        got = datetime.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return got if got.tzinfo else got.replace(tzinfo=datetime.timezone.utc)
+
+
+def _seconds(start, end):
+    """Seconds from `start` to `end` (raw timestamps), or None when either is unreadable or the order is
+    backwards: an unmeasured span is never 0."""
+    a, b = _when(start), _when(end)
+    if a is None or b is None or b < a:
+        return None
+    return (b - a).total_seconds()
+
+
+def seconds_text(total, unmeasured, calls=None) -> str:
+    """A seconds figure as the reports print it: exact, `at least N s (K calls unmeasured)`, or `unknown`."""
+    if unmeasured and (calls is None or unmeasured >= calls):
+        return f"unknown ({unmeasured} calls unmeasured)"
+    if unmeasured:
+        return f"at least {total:.1f} s ({unmeasured} calls unmeasured)"
+    return f"{total:.1f} s"
+
+
+def _tally():
+    return dict(calls=0, exec_s=0.0, exec_unmeasured=0, turn_s=0.0, turn_unmeasured=0)
+
+
+def _add(tally, call):
+    tally["calls"] += 1
+    for key, field in (("exec", "exec_s"), ("turn", "turn_s")):
+        if call[field] is None:
+            tally[key + "_unmeasured"] += 1
+        else:
+            tally[key + "_s"] += call[field]
+
+
+def call_spans(path, markers=None):
+    """One transcript's tool calls with their time, and the two rows built on them (T9, T10).
+
+    {calls: [{id, name, script, bookkeeping, is_error, kind, exec_s, turn_s}], bookkeeping: {state, reason,
+     + tally}, refused: {calls, by_kind: {kind: tally}, + tally}, method}. A tally is {calls, exec_s,
+    exec_unmeasured, turn_s, turn_unmeasured}: the seconds are the MEASURED ones, the unmeasured count says
+    how many calls they leave out (print with `seconds_text`). With no bookkeeping list (key absent, not a
+    list, or the markers file unreadable) the bookkeeping row is `state: unknown`, never 0 calls."""
+    try:
+        m = markers or load_markers()
+    except ValueError:
+        m = None
+    book = m["bookkeeping_scripts"] if m else None
+    rows, results = turns_of(path, lambda model, usage: None, m)
+    calls, seen = [], set()
+    for r in rows:
+        mine = []
+        for c in r["calls"]:
+            if c["id"] in seen:                   # the same streamed line read twice
+                continue
+            seen.add(c["id"])
+            mine.append(c)
+        ends = [c["result_ts"] for c in mine if c["has_result"] and _when(c["result_ts"]) is not None]
+        window = _seconds(r.get("prev_ts"), max(ends, key=_when)) if ends else None
+        share = window / len(ends) if window is not None else None
+        for c in mine:
+            script = next((n for n in SCRIPT.findall(c["arg"].lower()) if book and n in book), None) \
+                if c["name"] == "Bash" else None
+            kind = None
+            if c["is_error"]:
+                if m:
+                    for txt in results.get(c["id"], []):
+                        kind = classify(txt, m) or kind
+                kind = kind or REFUSED_UNNAMED
+            measured = c["has_result"] and _when(c["result_ts"]) is not None
+            calls.append(dict(
+                id=c["id"], name=c["name"], script=script, bookkeeping=script is not None,
+                is_error=c["is_error"], kind=kind,
+                exec_s=_seconds(c["ts"], c["result_ts"]) if c["has_result"] else None,
+                turn_s=share if measured else None))
+    bookkeeping = dict(_tally(), state="measured" if book else "unknown",
+                       reason="" if book else "unknown: no bookkeeping list")
+    refused = dict(_tally(), by_kind={})
+    for c in calls:
+        if book and c["bookkeeping"]:
+            _add(bookkeeping, c)
+        if c["is_error"]:
+            _add(refused, c)
+            _add(refused["by_kind"].setdefault(c["kind"], _tally()), c)
+    return dict(calls=calls, bookkeeping=bookkeeping, refused=refused, method=CALL_TIME_METHOD)
 
 
 def package_price(cfg=None):
@@ -342,52 +479,21 @@ def story_friction(task_root, state_dir, project_root, cfg=None, price=None, hom
      transcript reachable) carries the reason and no figure: an unmeasured story is never 0 %.
      Shares are over the reachable sessions only. A session id read twice (a resume, a repeated row)
      is read once. An unexpected failure raises: the caller turns it into `unknown` with its text."""
-    journal = Path(task_root) / "state" / "driver-runs.jsonl"
-    if not journal.is_file():
-        return {"status": "unknown", "reason": "this story has no driver journal", "method": METHOD}
-    role_of, dispatches = {}, collections.defaultdict(set)
-    try:
-        lines = journal.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError as exc:
-        return {"status": "unknown", "reason": f"the driver journal cannot be read ({exc})",
-                "method": METHOD}
-    for line in lines:
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(row, dict) or row.get("kind") != "role" or not row.get("role") \
-                or not row.get("session_id"):
-            continue
-        sid, role = str(row["session_id"]), str(row["role"])
-        role_of.setdefault(sid, role)
-        dispatches[role_of[sid]].add(str(row.get("dispatch") or sid))
-    if not role_of:
-        return {"status": "unknown", "reason": "the driver journal names no role session",
-                "method": METHOD}
+    role_of, dispatches, refusal = _role_sessions(task_root, METHOD)
+    if refusal:
+        return refusal
     markers = load_markers()
     price = price or package_price(cfg)
     roles, sources = {}, collections.Counter()
-    for sid, role in role_of.items():
+    for sid, role, measured, source in _walk_sessions(
+            role_of, state_dir, project_root, home, lambda p: friction(p, price, markers)):
         row = roles.setdefault(role, dict(
             dispatches=len(dispatches[role]), sessions=0, sessions_unreachable=0, turns=0,
             fric_turns=0, priced_turns=0, priced_cost=0.0, fric_cost=0.0, unpriced=0,
             kinds=collections.Counter(), helpers={}))
         row["sessions"] += 1
-        path, source = locate(sid, state_dir, project_root, home=home)
-        measured = None
-        if path is not None:
-            try:
-                measured = friction(path, price, markers)
-            except OSError as exc:
-                source = f"unreadable: {type(exc).__name__}: {exc}"
         if measured is None:
-            row["sessions_unreachable"] += 1
-            sources["unreachable"] += 1
-            # The first real reason per role is kept and printed: "the cost file names X and X is
-            # absent" and "unreadable: OSError" tell a person what to look for; a fixed sentence
-            # was sometimes false (FR-1, FR-41).
-            row.setdefault("unreachable_because", f"session {sid}: {source}")
+            _unreachable(row, sources, sid, source)
             continue
         sources[source] += 1
         row["turns"] += measured["turns"]
@@ -411,10 +517,69 @@ def story_friction(task_root, state_dir, project_root, cfg=None, price=None, hom
         row["money_share"] = _pct(row["fric_cost"], row["priced_cost"]) if row["priced_turns"] else None
         row["priced_cost"] = round(row["priced_cost"], 6) if row["priced_turns"] else None
         row["fric_cost"] = round(row["fric_cost"], 6) if row["priced_turns"] else None
-    sessions = len(role_of)
+    out = {"sessions": len(role_of), "unpriced": total["unpriced"], "roles": roles, "total": total,
+           "sources": dict(sources), "method": METHOD}
+    return _status(out, roles, len(role_of), "shares")
+
+
+def _role_sessions(task_root, method):
+    """(session -> role, role -> dispatch ids, None) from the story's driver journal, or (None, None, the
+    `unknown` answer) when the journal is absent, unreadable or names no role session. The journal is read
+    here once for every measurer of a role's transcripts; a session id read twice is read once."""
+    journal = Path(task_root) / "state" / "driver-runs.jsonl"
+    if not journal.is_file():
+        return None, None, {"status": "unknown", "reason": "this story has no driver journal",
+                            "method": method}
+    role_of, dispatches = {}, collections.defaultdict(set)
+    try:
+        lines = journal.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        return None, None, {"status": "unknown", "reason": f"the driver journal cannot be read ({exc})",
+                            "method": method}
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("kind") != "role" or not row.get("role") \
+                or not row.get("session_id"):
+            continue
+        sid, role = str(row["session_id"]), str(row["role"])
+        role_of.setdefault(sid, role)
+        dispatches[role_of[sid]].add(str(row.get("dispatch") or sid))
+    if not role_of:
+        return None, None, {"status": "unknown", "reason": "the driver journal names no role session",
+                            "method": method}
+    return role_of, dispatches, None
+
+
+def _walk_sessions(role_of, state_dir, project_root, home, measure):
+    """(session id, role, `measure(transcript path)` or None, source) for each role session: the one loop
+    both measurers share. A transcript that cannot be found or opened is None with its reason as source."""
+    for sid, role in role_of.items():
+        path, source = locate(sid, state_dir, project_root, home=home)
+        measured = None
+        if path is not None:
+            try:
+                measured = measure(path)
+            except OSError as exc:
+                source = f"unreadable: {type(exc).__name__}: {exc}"
+        yield sid, role, measured, source
+
+
+def _unreachable(row, sources, sid, source):
+    row["sessions_unreachable"] += 1
+    sources["unreachable"] += 1
+    # The first real reason per role is kept and printed: "the cost file names X and X is
+    # absent" and "unreadable: OSError" tell a person what to look for; a fixed sentence
+    # was sometimes false (FR-1, FR-41).
+    row.setdefault("unreachable_because", f"session {sid}: {source}")
+
+
+def _status(out, roles, sessions, covers):
+    """`out` with its status: ok, partial (some sessions unreachable) or unknown (none readable)."""
     unreachable = sum(r["sessions_unreachable"] for r in roles.values())
-    out = {"sessions": sessions, "sessions_unreachable": unreachable, "unpriced": total["unpriced"],
-           "roles": roles, "total": total, "sources": dict(sources), "method": METHOD}
+    out = dict(out, sessions_unreachable=unreachable)
     why = "; ".join(f"{role}: {row['unreachable_because']}" for role, row in sorted(roles.items())
                     if row.get("unreachable_because"))
     if unreachable == sessions:
@@ -422,6 +587,67 @@ def story_friction(task_root, state_dir, project_root, cfg=None, price=None, hom
                     reason=f"none of the {sessions} role session transcripts could be read ({why})")
     if unreachable:
         return dict(out, status="partial",
-                    reason=f"{unreachable} of {sessions} sessions unreachable ({why}); shares cover "
+                    reason=f"{unreachable} of {sessions} sessions unreachable ({why}); {covers} cover "
                            f"the {sessions - unreachable} reachable session(s) only")
     return dict(out, status="ok", reason="")
+
+
+def story_calls(task_root, state_dir, project_root, cfg=None, home=None):
+    """Bookkeeping calls and refused/failed calls per role, count and seconds (T9, T10), for the sessions
+    the story's own driver journal names (FR-24), read from the roles' transcripts through `call_spans`.
+
+    {status: ok | partial | unknown | n/a, reason, roles: {role: {sessions, sessions_unreachable, reachable,
+     calls, bookkeeping, refused}}, total: {calls, bookkeeping, refused}, sessions, sessions_unreachable,
+     sources, method}. `bookkeeping` and `refused` are `call_spans` rows summed over the role's reachable
+     sessions (seconds: the measured ones, with their unmeasured count). Every session unreachable and
+     every one of them a `stub-` session (the dry-story stub writes no transcript) is `n/a: stub roles`;
+     any other unreachable set is `unknown`, as in `story_friction`: never 0 calls, never 0 seconds.
+     `cfg` is accepted for the signature of `story_friction`; no price is needed here."""
+    role_of, dispatches, refusal = _role_sessions(task_root, CALL_TIME_METHOD)
+    if refusal:
+        return refusal
+    try:
+        markers = load_markers()
+    except ValueError:
+        markers = None                      # call_spans then says `unknown: no bookkeeping list`
+    roles, sources = {}, collections.Counter()
+    for sid, role, measured, source in _walk_sessions(
+            role_of, state_dir, project_root, home, lambda p: call_spans(p, markers)):
+        row = roles.setdefault(role, dict(
+            dispatches=len(dispatches[role]), sessions=0, sessions_unreachable=0, calls=0,
+            bookkeeping=dict(_tally(), state="unknown", reason="unknown: no bookkeeping list"),
+            refused=dict(_tally(), by_kind={})))
+        row["sessions"] += 1
+        if measured is None:
+            _unreachable(row, sources, sid, source)
+            continue
+        sources[source] += 1
+        row["calls"] += len(measured["calls"])
+        _fold(row, measured)
+    total = dict(calls=0, bookkeeping=dict(_tally(), state="unknown", reason="unknown: no bookkeeping list"),
+                 refused=dict(_tally(), by_kind={}))
+    for row in roles.values():
+        row["reachable"] = row["sessions"] - row["sessions_unreachable"]
+        total["calls"] += row["calls"]
+        _fold(total, row)
+    out = {"sessions": len(role_of), "roles": roles, "total": total, "sources": dict(sources),
+           "method": CALL_TIME_METHOD}
+    if sources.get("unreachable") == len(role_of) and all(s.startswith("stub-") for s in role_of):
+        return dict(out, status="n/a", roles={}, total={}, sessions_unreachable=len(role_of),
+                    reason="n/a: stub roles (the dry-story stub writes no transcript)")
+    return _status(out, roles, len(role_of), "counts")
+
+
+def _fold(into, part):
+    """Add `part`'s bookkeeping and refused rows (a `call_spans` result or a role row) into `into`. The
+    bookkeeping state stays `unknown` until a row with a list is folded in."""
+    if part["bookkeeping"]["state"] == "measured":
+        into["bookkeeping"].update(state="measured", reason="")
+        for k in _tally():
+            into["bookkeeping"][k] += part["bookkeeping"][k]
+    for k in _tally():
+        into["refused"][k] += part["refused"][k]
+    for kind, tally in part["refused"]["by_kind"].items():
+        got = into["refused"]["by_kind"].setdefault(kind, _tally())
+        for k in _tally():
+            got[k] += tally[k]

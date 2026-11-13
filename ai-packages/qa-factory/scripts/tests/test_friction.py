@@ -9,6 +9,7 @@ wherever the evidence is missing (FR-41) and never a share of 0.0 %.
 
 Every name below that starts with `edge_` answers one line of the B-011 EDGES list.
 """
+import datetime
 import json
 import re
 import sys
@@ -32,19 +33,23 @@ TRACEBACK = ('Traceback (most recent call last):\n  File "scripts/probe.py", lin
              "KeyError: 'source_sha'")
 
 
-def assistant(mid, model=PRICED, calls=(), usage=USAGE, text="working"):
+def assistant(mid, model=PRICED, calls=(), usage=USAGE, text="working", ts=None):
     content = [{"type": "text", "text": text}]
     for call_id, name, arg in calls:
         key = "command" if name == "Bash" else "file_path"
         content.append({"type": "tool_use", "id": call_id, "name": name, "input": {key: arg}})
-    return {"type": "assistant",
-            "message": {"id": mid, "model": model, "usage": usage, "content": content}}
+    rec = {"type": "assistant",
+           "message": {"id": mid, "model": model, "usage": usage, "content": content}}
+    return rec if ts is None else dict(rec, timestamp=ts)
 
 
-def result(call_id, text, as_list=False):
+def result(call_id, text, as_list=False, ts=None, error=None):
     body = [{"type": "text", "text": text}] if as_list else text
-    return {"type": "user", "message": {"content": [
-        {"type": "tool_result", "tool_use_id": call_id, "content": body}]}}
+    block = {"type": "tool_result", "tool_use_id": call_id, "content": body}
+    if error is not None:
+        block["is_error"] = error
+    rec = {"type": "user", "message": {"content": [block]}}
+    return rec if ts is None else dict(rec, timestamp=ts)
 
 
 def write_jsonl(path, rows):
@@ -461,7 +466,231 @@ def edge_the_rendered_retro_of_a_story_with_no_reachable_transcript_says_unknown
         cleanup(root)
 
 
+def stamp(sec):
+    """An ISO timestamp the way the host writes it, `sec` seconds after a fixed start (a str, or the raw
+    value a test hands over to make it unreadable)."""
+    if isinstance(sec, str):
+        return sec
+    base = datetime.datetime(2026, 11, 12, 10, 0, 0, tzinfo=datetime.timezone.utc)
+    return (base + datetime.timedelta(seconds=sec)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def timed_transcript():
+    """A role's session with times: bookkeeping calls (manifest_put, a two-call message with
+    handoff_check, calls cut off or with an unreadable stamp), refused calls of three kinds (a guard
+    refusal, a crash, a failure no spelling names), and calls that are neither (a refusal-shaped result
+    with no `is_error`, a Read and a cat of a bookkeeping script, an unlisted script)."""
+    prompt = {"type": "user", "timestamp": stamp(0), "message": {"content": "start"}}
+
+    def line(mid, sec, call_id, arg, name="Bash"):
+        return assistant(mid, calls=[(call_id, name, arg)], ts=stamp(sec))
+
+    return [
+        prompt,
+        line("t1", 4, "k1", "python scripts/manifest_put.py --fragment x"),
+        result("k1", '{"ok": true}', ts=stamp(7)),
+        line("t2", 9, "k2", "python scripts/run_suite.py"),
+        result("k2", "PRE-TOOL GUARD refused the call", ts=stamp(12), error=True),
+        line("t3", 14, "k3", "python scripts/handoff_check.py --task T"),      # one message, two calls
+        line("t3", 15, "k4", "python scripts/probe.py"),
+        result("k3", "ok", ts=stamp(16)),
+        result("k4", TRACEBACK, ts=stamp(20), error=True),
+        line("t4", 22, "k5", "python scripts/ticket.py"),
+        result("k5", "ticket call failed: network down", ts=stamp(25), error=True),
+        line("t5", 27, "k6", "python scripts/check_x.py"),
+        result("k6", "Story artifact is not ready: plan missing required key", ts=stamp(29)),
+        line("t6", 30, "k7", "scripts/manifest_put.py", name="Read"),
+        result("k7", "1\tdef main(): ...", ts=stamp(31)),
+        line("t7", 33, "k8", "cat scripts/other_tool.py"),
+        result("k8", "text", ts=stamp(34)),
+        line("t8", 40, "k9", "python scripts/manifest_from_tests.py"),         # the session was cut: no result
+        line("t9", 45, "k10", "python scripts/manifest_put.py"),
+        result("k10", "merged", ts=None),                                       # a result line with no stamp
+        line("t10", 50, "k11", "python scripts/manifest_put.py"),
+        result("k11", "merged", ts="not-a-time"),                               # an unreadable stamp
+    ]
+
+
+def row_of(tally, *keys):
+    return {k: (round(tally[k], 3) if isinstance(tally[k], float) else tally[k]) for k in keys}
+
+
+T_KEYS = ("calls", "exec_s", "exec_unmeasured", "turn_s", "turn_unmeasured")
+
+
+def call_time_rows():
+    """One table: every row is (what, got, want); a red line names the row."""
+    root = temp_dir("qa-friction-calls-")
+    try:
+        path = root / "role.jsonl"
+        write_jsonl(path, timed_transcript())
+        spans = F.call_spans(path)
+        book, refused = spans["bookkeeping"], spans["refused"]
+        by_id = {c["id"]: c for c in spans["calls"]}
+        shipped_doc = json.loads((SCRIPTS.parent / "references" / "friction-markers.json").read_text(
+            encoding="utf-8"))
+        no_list = {}
+        for why, value in (("absent", None), ("a string", "manifest_put.py"), ("empty", []),
+                           ("rows without a script", [{"why": "x"}, "manifest_put.py", 3])):
+            doc = dict(shipped_doc)
+            doc.pop("bookkeeping_scripts")
+            if why != "absent":
+                doc["bookkeeping_scripts"] = value
+            marker_file = root / (why.replace(" ", "-") + ".json")
+            marker_file.write_text(json.dumps(doc), encoding="utf-8")
+            no_list[why] = F.load_markers(marker_file)
+        back = root / "back.jsonl"          # a result stamped BEFORE its call
+        write_jsonl(back, [{"type": "user", "timestamp": stamp(0), "message": {"content": "go"}},
+                           assistant("b1", calls=[("b", "Bash", "python scripts/manifest_put.py")], ts=stamp(10)),
+                           result("b", "ok", ts=stamp(5))])
+        backwards = F.call_spans(back)["calls"][0]
+        rows = [
+            # (a) bookkeeping count and both seconds rows
+            ("bookkeeping: 5 calls, the cut-off, unstamped and unreadable ones counted and unmeasured",
+             row_of(book, *T_KEYS, "state"),
+             dict(calls=5, exec_s=5.0, exec_unmeasured=3, turn_s=11.0, turn_unmeasured=3, state="measured")),
+            ("execution seconds: tool_use line to tool_result line (manifest_put 3 s, handoff_check 2 s)",
+             (by_id["k1"]["exec_s"], by_id["k3"]["exec_s"]), (3.0, 2.0)),
+            ("turn-attributed seconds: previous line to the result (manifest_put 0 -> 7 s)",
+             by_id["k1"]["turn_s"], 7.0),
+            ("a two-call message: its window 12 -> 20 s split evenly, 4 s to each; execution from own lines",
+             (by_id["k3"]["turn_s"], by_id["k4"]["turn_s"], by_id["k4"]["exec_s"]), (4.0, 4.0, 5.0)),
+            ("the cut-off call is counted, its seconds unknown, not 0",
+             (by_id["k9"]["bookkeeping"], by_id["k9"]["exec_s"], by_id["k9"]["turn_s"]), (True, None, None)),
+            ("a result line with no stamp: unknown, not 0",
+             (by_id["k10"]["exec_s"], by_id["k10"]["turn_s"]), (None, None)),
+            ("an unreadable stamp: unknown, not 0", (by_id["k11"]["exec_s"], by_id["k11"]["turn_s"]), (None, None)),
+            ("a result stamped before its call: execution unknown (not negative, not 0); the turn window "
+             "runs from the previous line, so it still reads",
+             (backwards["exec_s"], backwards["turn_s"]), (None, 5.0)),
+            ("a Read of a bookkeeping script, a cat of an unlisted one, an unlisted script: not bookkeeping",
+             [by_id[k]["bookkeeping"] for k in ("k7", "k8", "k2", "k5", "k6")], [False] * 5),
+            # (b) refused / failed by is_error, split by classify
+            ("refused: the 3 calls with is_error, seconds from their own lines",
+             row_of(refused, *T_KEYS), dict(calls=3, exec_s=11.0, exec_unmeasured=0, turn_s=14.0,
+                                            turn_unmeasured=0)),
+            ("refused split by kind: guard, crash, and `failed, cause not recorded` for what no spelling names",
+             {k: row_of(v, "calls", "exec_s", "turn_s") for k, v in sorted(refused["by_kind"].items())},
+             {"guard": dict(calls=1, exec_s=3.0, turn_s=5.0), "crash": dict(calls=1, exec_s=5.0, turn_s=4.0),
+              "failed, cause not recorded": dict(calls=1, exec_s=3.0, turn_s=5.0)}),
+            ("is_error absent is not an error, whatever the result text says",
+             (by_id["k6"]["is_error"], by_id["k6"]["kind"]), (False, None)),
+            # (c) edges: no list, in every shape it can be missing
+            *[(f"bookkeeping list {why}: `unknown: no bookkeeping list`, no zero calls; refused unchanged",
+               (lambda s: (s["bookkeeping"]["state"], s["bookkeeping"]["reason"], s["refused"]["calls"]))(
+                   F.call_spans(path, markers)),
+               ("unknown", "unknown: no bookkeeping list", 3)) for why, markers in no_list.items()],
+            ("seconds are printed exact, as `at least`, or as unknown",
+             (F.seconds_text(5.0, 0), F.seconds_text(11.0, 3, 8), F.seconds_text(0.0, 2, 2)),
+             ("5.0 s", "at least 11.0 s (3 calls unmeasured)", "unknown (2 calls unmeasured)")),
+        ]
+        for what, got, want in rows:
+            check_eq(what, got, want)
+        shipped = F.load_markers()
+        check_eq("the shipped list is the Lead's four scripts",
+                 sorted(shipped["bookkeeping_scripts"]),
+                 ["handoff_check.py", "manifest_from_tests.py", "manifest_put.py", "s5_precheck.py"])
+        real_path = F.MARKERS_PATH
+        F.MARKERS_PATH = root / "no-such-markers.json"
+        try:
+            lost = F.call_spans(path)
+        finally:
+            F.MARKERS_PATH = real_path
+        check_eq("an unreadable markers file: bookkeeping unknown, refused counted, kind not named",
+                 (lost["bookkeeping"]["state"], lost["refused"]["calls"], sorted(lost["refused"]["by_kind"])),
+                 ("unknown", 3, ["failed, cause not recorded"]))
+    finally:
+        cleanup(root)
+
+
+def story_call_time_rows():
+    """The story-level reader: per role, partial and unreachable sessions, and stub roles."""
+    root = temp_project()
+    try:
+        base, troot, home, rows = build(root, [
+            ("qa-automator", "sess-a", timed_transcript(), "cost"),
+            ("qa-scout", "sess-gone", None, "cost")])
+        write_journal(troot, rows)
+        data = F.story_calls(troot, base, root, {}, home=home)
+        auto = data["roles"]["qa-automator"]
+        stub_root = temp_project()
+        try:
+            sbase, stroot, shome, srows = build(stub_root, [("qa-automator", "stub-1", None, "cost"),
+                                                           ("qa-scout", "stub-2", None, "cost")])
+            write_journal(stroot, srows)
+            stub = F.story_calls(stroot, sbase, stub_root, {}, home=shome)
+            write_journal(stroot, srows[:1] + [journal_row("qa-critic", "sess-lost", "S1-qa-critic-1")])
+            mixed = F.story_calls(stroot, sbase, stub_root, {}, home=shome)
+        finally:
+            cleanup(stub_root)
+        empty = temp_project()
+        try:
+            ebase = empty / "qa-factory"
+            (ebase / "artifacts" / TASK / "state").mkdir(parents=True)
+            nothing = F.story_calls(ebase / "artifacts" / TASK, ebase, empty, {})
+        finally:
+            cleanup(empty)
+        for what, got, want in (
+                ("one session of two unreachable: partial", (data["status"], data["sessions_unreachable"]),
+                 ("partial", 1)),
+                ("the role's calls and bookkeeping rows are its reachable session's",
+                 (auto["calls"], auto["bookkeeping"]["calls"], auto["bookkeeping"]["state"]), (11, 5, "measured")),
+                ("the role's seconds carry their unmeasured count",
+                 row_of(auto["bookkeeping"], "exec_s", "exec_unmeasured", "turn_s", "turn_unmeasured"),
+                 dict(exec_s=5.0, exec_unmeasured=3, turn_s=11.0, turn_unmeasured=3)),
+                ("refused rows are summed with their kinds", (auto["refused"]["calls"],
+                                                              sorted(auto["refused"]["by_kind"])),
+                 (3, ["crash", "failed, cause not recorded", "guard"])),
+                ("the role whose transcript is missing has no reachable session, no figure",
+                 (data["roles"]["qa-scout"]["reachable"], data["roles"]["qa-scout"]["calls"],
+                  data["roles"]["qa-scout"]["bookkeeping"]["state"]), (0, 0, "unknown")),
+                ("the total is over the reachable session", (data["total"]["calls"],
+                                                             data["total"]["bookkeeping"]["calls"]), (11, 5)),
+                ("stub roles with no transcript: n/a, never 0", (stub["status"], stub["reason"][:15]),
+                 ("n/a", "n/a: stub roles")),
+                ("a lost real session next to a stub one is unknown, not n/a", mixed["status"], "unknown"),
+                ("a story with no driver journal is unknown", nothing["status"], "unknown")):
+            check_eq(what, got, want)
+        json.dumps(data)
+    finally:
+        cleanup(root)
+
+
+def old_keys_of_turns_of_are_unchanged():
+    """experiments/measurers/code_friction.py imports SCRIPT, classify, is_project_test, turns_of and
+    friction from here and reads the rows' `cost`, `calls`, `mid` and each call's `id`, `name`, `arg`
+    and the results by id as lists of text: all of that still returns what it returned."""
+    root = temp_dir("qa-friction-compat-")
+    try:
+        path = root / "scout.jsonl"
+        write_jsonl(path, scout_transcript())
+        rows, results = F.turns_of(path, lambda model, usage: 0.5)
+        first = rows[0]
+        for what, got, want in (
+                ("the names code_friction imports exist", [callable(getattr(F, n)) for n in (
+                    "classify", "is_project_test", "turns_of", "friction")] + [hasattr(F.SCRIPT, "findall")],
+                 [True] * 5),
+                ("the old keys of a row are all still there", {"cost", "calls", "mid"} <= set(first), True),
+                ("the old keys of a call are all still there", {"id", "name", "arg"} <= set(first["calls"][0]),
+                 True),
+                ("a row's old values", (first["mid"], first["cost"], first["calls"][0]["id"],
+                                        first["calls"][0]["name"], first["calls"][0]["arg"]),
+                 ("m1", 0.5, "c1", "Bash", "python scripts/probe.py")),
+                ("results by id are still a list of text", results["c1"], [TRACEBACK]),
+                ("twelve unique turns as before", len(rows), 12),
+                ("a transcript with no timestamps reads as before and its calls have no seconds",
+                 (first["calls"][0]["ts"], first["calls"][0]["has_result"]), (None, True))):
+            check_eq(what, got, want)
+        check_eq("friction() keeps its old keys", sorted(F.friction(path, priced())), sorted([
+            "turns", "cost", "fric_turns", "fric_cost", "tally", "money", "unpriced", "helpers"]))
+    finally:
+        cleanup(root)
+
+
 def main():
+    call_time_rows()
+    story_call_time_rows()
+    old_keys_of_turns_of_are_unchanged()
     classification_of_every_kind_and_its_boundaries()
     the_synthetic_transcript_is_measured()
     pricing_never_turns_an_unknown_into_zero()
