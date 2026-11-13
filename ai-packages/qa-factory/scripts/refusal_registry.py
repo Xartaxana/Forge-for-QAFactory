@@ -18,6 +18,10 @@ at a refusal that is gone, and so does an entry with no test.
   refusal_registry.py --check    # audit A24 (exit 1 on a finding)
   refusal_registry.py --sites    # what the scanner sees — start here for a new entry
   refusal_registry.py --json     # machine form of either
+  refusal_registry.py --sites --wide [--census <judgment-census.json>] [--json]
+                                 # the WIDE scan: every transport (WIDE_TRANSPORTS), a state per site (sourced / tagged /
+                                 # bare), walk errors, named blind spots; --census joins each unit to its roles
+                                 # (exit 2 when the file cannot be used)
 
 `override: ""` is not an omission. It is the honest record of a refusal a person's word
 cannot pass, with the reason in `unpassable_because`, and `--check` prints those separately
@@ -45,9 +49,11 @@ that shape is why `stage_done.py` is an operation entry.
 """
 import argparse
 import ast
+import builtins
 import json
 import re
 import sys
+import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -59,6 +65,19 @@ SCANNED = ("stage_guard.py", "inject_context.py", "guard_pre_tool.py", "native_c
 REFUSAL_CALLS = ("deny", "block")
 REFUSAL_RAISES = ("StateConflict", "ValueError")
 KEY_CHARS = 90
+# The WIDE scan (told-before-work T0): the transports a refusal text can leave a unit through. A CODE constant: the scan
+# is narrowed only by a diff (precedent: SCAN_ROOT of the judgment census). Names, one per `transport` a site carries:
+# `deny`/`block`/`refuse` calls, `raises` (the exception family), `run_guarded` (a family raise in a file that calls
+# `run_guarded`: the wrapper turns it into a refusal), `sys.exit(str)`, `SystemExit(str)`, a `print(..., file=sys.stderr)` or
+# `sys.stderr.write(...)` in a function that also has a failing `return`/`sys.exit`, and a list `.append`/`.extend`/`+= [..]`
+# in a unit the census marks blocking (no list-name filter: over-counting is the declared safe side).
+WIDE_TRANSPORTS = ("deny", "block", "refuse", "run_guarded", "raises", "sys.exit(str)", "SystemExit(str)",
+                   "stderr-print+return", "stderr-write+return", "list")
+# The transports that carry a `refusal(...)` Record whole to the role (a site there is `sourced`). Content fixed here, the
+# constructor `detector_verdict.refusal` arrives with T2: until then no site of the package is `sourced`.
+RECORD_SINKS = ("block", "deny", "refuse", "run_guarded")
+RECORD_CALLS = {"refusal": 0, "with_check": 1}      # the call -> the position of its check argument
+STATES = ("sourced", "tagged", "bare")
 QUOTE_HEAD_RE = re.compile(r"^[a-zA-Z]{0,2}(\"\"\"|'''|\"|')")
 
 import person_words  # noqa: E402
@@ -1124,7 +1143,7 @@ def _file_bindings(tree: ast.AST) -> dict:
     return {"classes": classes, "imports": imports, "mods": mods}
 
 
-def raise_family(plugin_root: Path | None = None, files=None) -> dict:
+def raise_family(plugin_root: Path | None = None, files=None, *, wide: bool = False) -> dict:
     """{file: {"names": frozenset, "mods": {alias: frozenset}}}: the exception names that are refusals IN THAT FILE.
 
     Resolved per file (critic t-326 B3). A name is in file F's family when it is a literal of REFUSAL_RAISES, or F's OWN
@@ -1133,7 +1152,11 @@ def raise_family(plugin_root: Path | None = None, files=None) -> dict:
     that is not a family class shadows a family class of the same name defined elsewhere; a name F does not bind
     resolves only to the literals. `mods` maps an `import M [as X]` alias of a scanned module to that module's family, for
     the attribute form `X.Name(...)`. The family only grows over a finite set, so the loop ends on a cycle.
-    A file that does not parse is left out (the scan that reads it reports it)."""
+    A file that does not parse is left out (the scan that reads it reports it).
+
+    `wide` (the one switch of the wide scan, told-before-work T0) adds `"transports": WIDE_TRANSPORTS` to every spec,
+    and a literals-only spec for a file that exists but does not parse, so `sites` names it as a walk error instead of
+    raising. Without it the answer is today's, byte for byte."""
     root = Path(plugin_root or PLUGIN_ROOT) / "scripts"
     known = list(SCANNED if files is None else files)
     literals = frozenset(REFUSAL_RAISES)
@@ -1145,6 +1168,10 @@ def raise_family(plugin_root: Path | None = None, files=None) -> dict:
         try:
             facts[name] = _file_bindings(ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path)))
         except SyntaxError:
+            continue
+        except (ValueError, RecursionError, MemoryError):       # a source the parser cannot take: the wide scan names it
+            if not wide:
+                raise
             continue
     fam = {f: set(literals) for f in facts}
     grew = True
@@ -1181,10 +1208,16 @@ def raise_family(plugin_root: Path | None = None, files=None) -> dict:
             if target in fam:
                 mods[local] = frozenset(fam[target])
         out[f] = {"names": frozenset(fam[f]), "mods": mods}
+    if wide:
+        for f in known:
+            if f not in out and (root / f).is_file():
+                out[f] = {"names": literals, "mods": {}}
+        for spec in out.values():
+            spec["transports"] = WIDE_TRANSPORTS
     return out
 
 
-def sites(plugin_root: Path | None = None, files=None, raises=None) -> list:
+def sites(plugin_root: Path | None = None, files=None, raises=None, blocking=None) -> list:
     """Every refusal the scanner sees in SCANNED, as {file, function, call, line}.
 
     `files` (names relative to scripts/) widens or narrows the scan for a caller that needs
@@ -1193,11 +1226,22 @@ def sites(plugin_root: Path | None = None, files=None, raises=None) -> list:
 
     `raises` (the answer of `raise_family` over the same files) widens only the RAISE sites: a package subclass
     of a refusal exception, resolved per file, and the attribute form. Without it the scan is today's, byte for
-    byte; audit A24 (`findings`, `--check`, `--sites`) never passes it."""
+    byte; audit A24 (`findings`, `--check`, `--sites`) never passes it.
+
+    A spec that carries `"transports"` (`raise_family(..., wide=True)`) turns the WIDE scan on for its file: more
+    transports (`WIDE_TRANSPORTS`), each site with `transport` and `state` (sourced / tagged / bare), and a file that
+    cannot be read or parsed becomes a record of state `walk_error` instead of an exception. `blocking` (a set of
+    (file, function), or None for every function) bounds only the list-append transport."""
     root = Path(plugin_root or PLUGIN_ROOT) / "scripts"
     found = []
+    wide = bool(raises) and any("transports" in spec for spec in raises.values())
     for name in (SCANNED if files is None else files):
         path = root / name
+        if wide:
+            spec = raises.get(name, {"names": frozenset(REFUSAL_RAISES), "mods": {}})
+            if path.is_file():
+                found.extend(_scan_wide(name, path, spec, blocking)[0])
+            continue
         if not path.is_file():
             continue
         tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
@@ -1214,6 +1258,371 @@ def sites(plugin_root: Path | None = None, files=None, raises=None) -> list:
             found.append({"file": name, "function": owner.get(id(call), "<module>"),
                           "call": key, "line": getattr(call, "lineno", 0)})
     return sorted(found, key=lambda s: (s["file"], s["line"]))
+
+
+# --- the wide scan --------------------------------------------------------------------------------------------------
+# Error direction (read before changing): the scan may COUNT a non-refusal as a site (a safe over-count: a raised baseline,
+# never a missed requirement) and must never MISS a role-reachable refusal of a shape it claims to scan. A shape it does not
+# scan is counted under a named blind spot (`blind_spots` of the report), never silently absent.
+_BUILTIN_EXCEPTIONS = frozenset(n for n, v in vars(builtins).items()
+                                if isinstance(v, type) and issubclass(v, BaseException)) - {"ValueError"}
+_EXIT_NAME_RE = re.compile(r"^EXIT_")
+
+
+def _callee(node: ast.Call):
+    """The name a call is made through: `f(...)` -> f, `x.f(...)` -> f, else None."""
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    return func.attr if isinstance(func, ast.Attribute) else None
+
+
+def _is_attr_of(node, owner: str, attr: str) -> bool:
+    return isinstance(node, ast.Attribute) and node.attr == attr and isinstance(node.value, ast.Name) \
+        and node.value.id == owner
+
+
+def _str_like(expr) -> bool:
+    """Is this expression a text: a str constant, an f-string, `"..." % x`, `"..." + x`, `"...".format()/.join()`."""
+    if isinstance(expr, ast.JoinedStr):
+        return True
+    if isinstance(expr, ast.Constant):
+        return isinstance(expr.value, str)
+    if isinstance(expr, ast.BinOp) and isinstance(expr.op, (ast.Add, ast.Mod)):
+        return _str_like(expr.left) or _str_like(expr.right)
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute) and expr.func.attr in ("format", "join"):
+        return _str_like(expr.func.value)
+    return False
+
+
+def _failing(expr) -> bool:
+    """A value that means FAILURE as an exit: a non-zero int (a negative one too) or an `EXIT_*` name."""
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.USub):
+        expr = expr.operand
+    if isinstance(expr, ast.Constant):
+        return type(expr.value) is int and expr.value != 0
+    return isinstance(expr, ast.Name) and bool(_EXIT_NAME_RE.match(expr.id))
+
+
+def _expr_key(expr) -> str | None:
+    """`_key_text` of an arbitrary expression (the message may sit at any position of a transport call)."""
+    try:
+        text = ast.unparse(expr)
+    except Exception:
+        return None
+    return QUOTE_HEAD_RE.sub("", " ".join(text.split()))[:KEY_CHARS]
+
+
+def _record_kind(expr, bind: tuple):
+    """`refusal` / `with_check` when `expr` is a call of THAT function of `detector_verdict`, else None. The name `refusal`
+    is not unique in the package (session_identity, role_digest, ... each define one): a call counts only when the file
+    binds it to detector_verdict (`bind` = (module aliases, {local name: original}, inside detector_verdict itself))."""
+    if not isinstance(expr, ast.Call):
+        return None
+    mods, names, local = bind
+    func = expr.func
+    if isinstance(func, ast.Name):
+        return names.get(func.id) or (func.id if local and func.id in RECORD_CALLS else None)
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id in mods \
+            and func.attr in RECORD_CALLS:
+        return func.attr
+    return None
+
+
+def _record_id(call: ast.Call, consts: dict, kind: str | None) -> tuple:
+    """(check id, problem) of a `refusal(...)`/`with_check(...)` call of kind `kind`: the id when its check argument is a str
+    literal or a module-level str constant; else (None, why). (None, None) for a call that is neither."""
+    pos = RECORD_CALLS.get(kind)
+    if pos is None:
+        return None, None
+    arg = call.args[pos] if len(call.args) > pos else next((k.value for k in call.keywords if k.arg == "check"), None)
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value, None
+    if isinstance(arg, ast.Name) and arg.id in consts:
+        return consts[arg.id], None
+    return None, f"the check argument of {kind}(...) is not a literal or a module constant: name the check with a literal"
+
+
+def _state(expr, transport: str, joined_away: bool, bind: tuple) -> str:
+    """sourced: a `refusal(...)` Record at a sink (or in a list that is not stringified in its function); tagged: a Record
+    that reaches any other transport, or a `with_check(...)` one; bare: anything else (a plain text, a name, a call)."""
+    kind = _record_kind(expr, bind)
+    if kind is None:
+        return "bare"
+    if kind == "refusal" and not joined_away and (transport in RECORD_SINKS or transport == "list"):
+        return "sourced"
+    return "tagged"
+
+
+def _walk_error(name: str, function: str, call: str, line: int, transport: str) -> dict:
+    return {"file": name, "function": function, "call": call[:KEY_CHARS], "line": line, "transport": transport,
+            "state": "walk_error"}
+
+
+def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
+    """(records, blind) for one file: the wide scan. A file that cannot be read or parsed gives ONE walk_error record."""
+    try:
+        with warnings.catch_warnings():                 # a source's own invalid escape is not this scan's news
+            warnings.simplefilter("ignore")
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+    except (OSError, SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+        return [_walk_error(name, "<file>", f"does not parse: {exc}", getattr(exc, "lineno", 0) or 0, "parse")], {}
+    nodes, todo = [], [(tree, ())]
+    while todo:                                         # iterative: a deep expression never hits the recursion limit
+        node, stack = todo.pop()
+        nodes.append((node, stack))
+        inner = stack + (node.name,) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else stack
+        todo.extend((child, inner) for child in ast.iter_child_nodes(node))
+    fails, returns_expr, joined, consts = set(), set(), {}, {}
+    run_guarded_file, raise_exc = False, set()
+    for node, stack in nodes:
+        fn = stack[0] if stack else "<module>"
+        if isinstance(node, ast.Return) and node.value is not None:
+            if _failing(node.value):
+                fails.add(fn)
+            if not isinstance(node.value, ast.Constant):
+                returns_expr.add(fn)
+        elif isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+            raise_exc.add(id(node.exc))
+        elif isinstance(node, ast.Assign) and not stack and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            consts[node.targets[0].id] = node.value.value
+        elif isinstance(node, ast.Call):
+            callee = _callee(node)
+            if callee == "run_guarded":
+                run_guarded_file = True
+            elif callee == "exit" and _is_attr_of(node.func, "sys", "exit") and node.args and _failing(node.args[0]):
+                fails.add(fn)
+            elif (callee == "join" or callee == "str") and node.args:
+                joined.setdefault(fn, set()).add(_expr_key(node.args[0]) or "")
+    mods, names = set(), {}
+    for node, _stack in nodes:
+        if isinstance(node, ast.Import):
+            mods.update(a.asname or a.name for a in node.names if a.name == "detector_verdict")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.rsplit(".", 1)[-1] == "detector_verdict":
+                names.update({a.asname or a.name: a.name for a in node.names if a.name in RECORD_CALLS})
+            else:
+                mods.update(a.asname or a.name for a in node.names if a.name == "detector_verdict")
+    bind = (mods, names, Path(name).stem == "detector_verdict")
+    records, blind = [], {}
+
+    def count(label: str) -> None:
+        blind[label] = blind.get(label, 0) + 1
+
+    def emit(node, stack, transport, message, listname=None) -> None:
+        fn = stack[0] if stack else "<module>"
+        key = _expr_key(message) if message is not None else None
+        if key is None:
+            count("transport call with no message argument")
+            return
+        away = listname is not None and listname in joined.get(fn, ())
+        rec = {"file": name, "function": fn, "call": key, "line": getattr(node, "lineno", 0),
+               "transport": transport, "state": _state(message, transport, away, bind)}
+        if listname is not None:
+            rec["list"] = listname[:KEY_CHARS]
+        if _record_kind(message, bind):
+            rec["check"] = _record_id(message, consts, _record_kind(message, bind))[0]
+        records.append((rec, getattr(node, "col_offset", 0)))
+
+    def counted_list(stack) -> bool:
+        return blocking is None or any((name, f) in blocking for f in (stack or ("<module>",)))
+
+    family = spec["names"]
+    for node, stack in nodes:
+        fn = stack[0] if stack else "<module>"
+        if isinstance(node, ast.Call):
+            callee = _callee(node)
+            if _record_kind(node, bind):
+                _, why = _record_id(node, consts, _record_kind(node, bind))
+                if why:
+                    records.append((_walk_error(name, fn, _expr_key(node) or "", node.lineno, "check_arg") | {"why": why},
+                                    node.col_offset))
+            func = node.func
+            args = node.args
+            if isinstance(func, ast.Name) and func.id in REFUSAL_CALLS:
+                emit(node, stack, func.id, args[0] if args else None)
+            elif callee == "refuse":
+                emit(node, stack, "refuse", args[1] if len(args) > 1 else next(
+                    (k.value for k in node.keywords if k.arg == "problem"), None))
+            elif id(node) in raise_exc and _raised_here(func, spec):
+                emit(node, stack, "run_guarded" if run_guarded_file else "raises", args[0] if args else None)
+            elif _is_attr_of(func, "sys", "exit") or (isinstance(func, ast.Name) and func.id == "SystemExit"):
+                if args and _str_like(args[0]):
+                    emit(node, stack, "sys.exit(str)" if isinstance(func, ast.Attribute) else "SystemExit(str)", args[0])
+                elif args and not isinstance(args[0], ast.Constant):
+                    count("sys.exit / SystemExit of a non-text expression (a name, a call)")
+            elif isinstance(func, ast.Name) and func.id == "print" and any(
+                    k.arg == "file" and (_is_attr_of(k.value, "sys", "stderr")
+                                         or (isinstance(k.value, ast.Name) and k.value.id == "stderr"))
+                    for k in node.keywords):
+                _stderr(node, stack, fn, "stderr-print+return", args[0] if args else None, fails, returns_expr, emit, count)
+            elif isinstance(func, ast.Attribute) and func.attr == "write" and isinstance(func.value, ast.Attribute) \
+                    and _is_attr_of(func.value, "sys", "stderr"):
+                _stderr(node, stack, fn, "stderr-write+return", args[0] if args else None, fails, returns_expr, emit, count)
+            elif isinstance(func, ast.Attribute) and func.attr in ("append", "extend") and args and counted_list(stack):
+                emit(node, stack, "list", args[0], listname=_expr_key(func.value) or "")
+        elif isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add) and isinstance(node.value, ast.List) \
+                and counted_list(stack):
+            emit(node, stack, "list", node.value.elts[0] if node.value.elts else None,
+                 listname=_expr_key(node.target) or "")
+        elif isinstance(node, ast.Yield) and node.value is not None and _str_like(node.value):
+            count("yield of an error text")
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Name) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name) \
+                and (node.value.id in REFUSAL_CALLS or node.value.id == "refuse" or node.value.id in family):
+            count("alias of a transport (`b = block; b(msg)`, `E = MyErr; raise E(...)`)")
+        elif isinstance(node, ast.Raise) and node.exc is not None:
+            exc = node.exc
+            if isinstance(exc, ast.Name):
+                count("raise of a name with no call (`raise A`, `raise exc`; upper bound: re-raises included)")
+            elif isinstance(exc, ast.Call):
+                head = exc.func.id if isinstance(exc.func, ast.Name) else (
+                    exc.func.attr if isinstance(exc.func, ast.Attribute) else "")
+                if head.lstrip("_")[:1].islower():
+                    count("raise of a call to a factory function or method (`raise _held_by(...)`; upper bound)")
+        elif isinstance(node, ast.ClassDef):
+            for base in node.bases:
+                if isinstance(base, ast.Name) and base.id in _BUILTIN_EXCEPTIONS:
+                    count("class with a stdlib exception base (upper bound: not every one is raised as a refusal)")
+                elif isinstance(base, (ast.Call, ast.Subscript)) or (
+                        isinstance(base, ast.Attribute) and not isinstance(base.value, ast.Name)):
+                    count("class base that is neither a plain name nor `alias.Name`")
+    return [rec for rec, _ in sorted(records, key=lambda r: (r[0]["line"], r[1]))], blind
+
+
+def _stderr(node, stack, fn, transport, message, fails, returns_expr, emit, count) -> None:
+    """A stderr print/write is a refusal site only in a function that also fails (a non-zero return or exit)."""
+    if fn in fails:
+        emit(node, stack, transport, message)
+    elif fn in returns_expr:
+        count("stderr text in a function that returns an expression (not a literal non-zero)")
+    else:
+        count("stderr text in a function with no failing return or exit (a warning, a note)")
+
+
+class CensusError(Exception):
+    """The census file named by `--census` cannot be used; the message is the reason."""
+
+
+def load_census(path) -> dict:
+    """{(file, function): [roles]} of the rows of a judgment census file. Raises CensusError with the reason when the file is
+    absent, unreadable, not JSON, or has no `rows` list."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise CensusError(f"cannot read it: {exc.strerror or exc}") from None
+    except ValueError as exc:
+        raise CensusError(f"not JSON: {exc}") from None
+    rows = data.get("rows") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        raise CensusError("no `rows` list: this is not a judgment census")
+    out: dict = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("file") and row.get("function"):
+            roles = out.setdefault((str(row["file"]), str(row["function"])), [])
+            roles.extend(r for r in (row.get("roles") or []) if r not in roles)
+    return out
+
+
+def package_files(plugin_root: Path | None = None) -> list:
+    """Every scripts/**/*.py of the package outside scripts/tests (the census's own scan set), posix, relative to scripts/."""
+    base = Path(plugin_root or PLUGIN_ROOT) / "scripts"
+    return [p.relative_to(base).as_posix() for p in sorted(base.rglob("*.py"))
+            if "tests" not in p.relative_to(base).parts[:-1]]
+
+
+def join_census(found: list, census) -> list:
+    """Per (file, function) of the sites: {file, function, sites, transports: {t: n}, states: {s: n}, roles}; `roles` is the
+    census row's list, or None when the unit has no row (counted, never dropped). `census` None: every `roles` is None."""
+    units: dict = {}
+    for site in found:
+        if site.get("state") == "walk_error":
+            continue
+        u = units.setdefault((site["file"], site["function"]),
+                             {"file": site["file"], "function": site["function"], "sites": 0, "transports": {}, "states": {}})
+        u["sites"] += 1
+        t = site.get("transport", "scanned")
+        u["transports"][t] = u["transports"].get(t, 0) + 1
+        if site.get("state"):
+            u["states"][site["state"]] = u["states"].get(site["state"], 0) + 1
+    for key, u in units.items():
+        u["roles"] = None if census is None else census.get(key)
+    return sorted(units.values(), key=lambda u: (u["file"], u["function"]))
+
+
+def _tests_only_classes(root: Path) -> int:
+    """Classes under scripts/tests with a refusal-exception base: a blind spot of the family resolution (a count)."""
+    n = 0
+    base = Path(root) / "scripts" / "tests"
+    for path in sorted(base.rglob("*.py")) if base.is_dir() else []:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, SyntaxError, ValueError, RecursionError, MemoryError):
+            continue
+        n += sum(1 for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+                 and any(isinstance(b, ast.Name) and b.id in REFUSAL_RAISES for b in node.bases))
+    return n
+
+
+def wide_report(plugin_root: Path | None = None, files=None, census=None, blocking=None) -> dict:
+    """The wide scan with its numbers: {files, sites, walk_errors, check_arg_errors, units, totals, blind_spots}.
+
+    `census` is the dict of `load_census` (None: no join). An empty scan gives zero counts, not an error."""
+    root = Path(plugin_root or PLUGIN_ROOT)
+    names = package_files(root) if files is None else list(files)
+    spec = raise_family(root, names, wide=True)
+    found, blind, scanned = [], {}, 0
+    for name in names:
+        path = root / "scripts" / name
+        if not path.is_file():
+            continue
+        scanned += 1
+        recs, b = _scan_wide(name, path, spec.get(name, {"names": frozenset(REFUSAL_RAISES), "mods": {}}), blocking)
+        found.extend(recs)
+        for label, n in b.items():
+            blind[label] = blind.get(label, 0) + n
+    blind["class defined only under scripts/tests with a refusal-exception base"] = _tests_only_classes(root)
+    parse_errors = [s for s in found if s["transport"] == "parse"]
+    arg_errors = [s for s in found if s["transport"] == "check_arg"]
+    real = [s for s in found if s["state"] != "walk_error"]
+    units = join_census(real, census)
+    per_transport = {t: sum(1 for s in real if s["transport"] == t) for t in WIDE_TRANSPORTS}
+    per_state = {st: sum(1 for s in real if s["state"] == st) for st in STATES}
+    with_row = [u for u in units if u["roles"] is not None]
+    reachable = [u for u in with_row if set(u["roles"]) - {"conductor"}]
+    totals = {"files_scanned": scanned, "sites": len(real), "units": len(units),
+              "walk_errors": len(parse_errors), "check_arg_errors": len(arg_errors),
+              "walk_error_share": (len(parse_errors) + len(arg_errors)) / scanned if scanned else 0.0,
+              "per_transport": per_transport, "per_state": per_state}
+    if census is not None:
+        totals.update({"units_with_row": len(with_row), "units_no_row": len(units) - len(with_row),
+                       "join_share": len(with_row) / len(units) if units else 1.0,
+                       "role_reachable_units": len(reachable),
+                       "conductor_only_units": len(with_row) - len(reachable),
+                       "role_reachable_sites": sum(u["sites"] for u in reachable),
+                       "role_reachable_share": sum(u["sites"] for u in reachable) / len(real) if real else 0.0})
+    return {"files": names, "sites": real, "walk_errors": parse_errors, "check_arg_errors": arg_errors,
+            "units": units, "totals": totals, "blind_spots": blind}
+
+
+def _census_blocking(root: Path, names: list):
+    """The set of (file, function) the judgment census test computes as BLOCKING for these files, or None when the test
+    cannot be loaded (then every function counts for the list transport: the declared safe side). Dev-time only."""
+    tests = Path(root) / "scripts" / "tests"
+    try:
+        sys.path.insert(0, str(tests))
+        import test_judgment_census as census_test
+        units = census_test.units_of(Path(root), names)["units"]
+        return {key for key, unit in units.items() if unit["blocks"]}
+    except Exception as exc:                              # a measurer never crashes on its input
+        print(f"refusal_registry: blocking units unavailable ({exc.__class__.__name__}: {exc}); "
+              "every function counts for the list transport", file=sys.stderr)
+        return None
+    finally:
+        if sys.path and sys.path[0] == str(tests):
+            sys.path.pop(0)
 
 
 def _covers(entry: dict, site: dict) -> bool:
@@ -1325,10 +1734,42 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="audit A24 (exit 1 on a finding)")
     ap.add_argument("--sites", action="store_true", help="what the scanner sees — for a new entry")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--wide", action="store_true",
+                    help="with --sites: the wide scan (every transport, a state per site, walk errors, blind spots)")
+    ap.add_argument("--census", metavar="PATH",
+                    help="with --sites: join each site's unit to a judgment census file by (file, function)")
     ns = ap.parse_args()
     from contract import force_utf8
     force_utf8()
 
+    if ns.wide or ns.census:
+        census = None
+        if ns.census:
+            try:
+                census = load_census(ns.census)
+            except CensusError as exc:
+                print(f"refusal_registry: --census {ns.census}: {exc}", file=sys.stderr)
+                sys.exit(2)
+        if ns.wide:
+            names = package_files(PLUGIN_ROOT)
+            rep = wide_report(PLUGIN_ROOT, names, census, _census_blocking(PLUGIN_ROOT, names))
+        else:
+            found = sites()
+            rep = {"files": list(SCANNED), "sites": found, "walk_errors": [], "check_arg_errors": [],
+                   "units": join_census(found, census), "blind_spots": {},
+                   "totals": {"files_scanned": len(SCANNED), "sites": len(found)}}
+        if ns.json:
+            print(json.dumps(rep, indent=2, ensure_ascii=False))
+        else:
+            for u in rep["units"]:
+                roles = "roles=null" if census is not None and u["roles"] is None else f"roles={u['roles']}"
+                print(f"{u['file']}:{u['function']}  sites={u['sites']}  {u['transports']}  {u['states']}  {roles}")
+            for w in rep["walk_errors"] + rep["check_arg_errors"]:
+                print(f"WALK ERROR {w['file']}:{w['line']}  {w['call']}")
+            for label, n in rep["blind_spots"].items():
+                print(f"BLIND SPOT {n}  {label}")
+            print("TOTALS " + json.dumps(rep["totals"], ensure_ascii=False))
+        sys.exit(0)
     if ns.sites:
         found = sites()
         print(json.dumps(found, indent=2, ensure_ascii=False) if ns.json else
