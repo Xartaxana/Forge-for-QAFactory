@@ -274,28 +274,55 @@ def _own_nodes(node):
             stack.extend(ast.iter_child_nodes(current))
 
 
+MAX_HOPS = 8     # a guard against pathological input: a chain of more than this many bindings is keyless
+
+
 def _bindings(function) -> dict:
-    """`{name: {True|False}}` for the names a function binds by a plain assignment: True when the bound expression calls
-    `closed_question` / `priced_section`. A name bound twice, once keyed and once not, holds both (the kind is then MIXED)."""
+    """`{name: [expression, ...]}` for the names a function binds by a plain assignment, in that function's OWN scope (every binding of a
+    name is kept: a name bound twice holds both expressions)."""
     bound: dict = {}
     for node in _own_nodes(function):
         pairs = ([(t, node.value) for t in node.targets] if isinstance(node, ast.Assign)
                  else [(node.target, node.value)] if isinstance(node, ast.AnnAssign) and node.value is not None else [])
         for target, value in pairs:
             if isinstance(target, ast.Name):
-                bound.setdefault(target.id, set()).add(_calls_keyed(value))
+                bound.setdefault(target.id, []).append(value)
     return bound
+
+
+def _bound_names(expr, bound: dict) -> list:
+    return [inner.id for inner in ast.walk(expr) if isinstance(inner, ast.Name) and inner.id in bound]
+
+
+def _name_keyed(name: str, bound: dict, hops: int, seen: frozenset) -> set:
+    """The values (`True` keyed / `False` not) a name can hold, following its bindings through names of the same function. A binding
+    cycle yields nothing (it terminates keyless); more than MAX_HOPS bindings in a chain is `{False}`."""
+    if name in seen:
+        return set()
+    if hops > MAX_HOPS:
+        return {False}
+    found: set = set()
+    for value in bound[name]:
+        if _calls_keyed(value):
+            found.add(True)
+            continue
+        names = _bound_names(value, bound)
+        found |= set().union(*(_name_keyed(n, bound, hops + 1, seen | {name}) for n in names)) if names else {False}
+    return found
 
 
 def _text_keyed(text, bound: dict) -> set:
     """`{True}`, `{False}` or both for the text argument of a Person site: keyed when the expression calls a keyed function itself, or
-    is built from names bound in the SAME function to such a call (spec 3.2 as amended: the key often arrives one statement earlier)."""
+    is built from names whose binding chain IN THIS FUNCTION reaches such a call (spec 3.2 as amended, followed transitively: `text =
+    Priced(body, section.priced)` with `section = self.priced_section(...)` is keyed). Never across functions, attributes of `self` or
+    parameters. A name bound twice, once reaching a call and once not, holds both (MIXED); a binding cycle ends keyless; a chain of more
+    than 8 bindings (MAX_HOPS) is keyless."""
     if text is None:
         return {False}
     if _calls_keyed(text):
         return {True}
-    names = [inner.id for inner in ast.walk(text) if isinstance(inner, ast.Name) and inner.id in bound]
-    found = set().union(*(bound[name] for name in names)) if names else set()
+    names = _bound_names(text, bound)
+    found = set().union(*(_name_keyed(n, bound, 1, frozenset()) for n in names)) if names else set()
     return found or {False}
 
 
@@ -962,6 +989,43 @@ def _selftest_cases() -> list:
                 "def f(self):\n    raise Person('alpha', text, 'S1')\n"
                 "def outer(self):\n    text = self.closed_question('b.key', l, o)\n    def inner():\n        raise Person('beta', text, 'S1')\n"
                 "def h(self):\n    raise Person('gamma', text=self.closed_question('c.key', l, o), stage='S1')\n")
+        got = scan_kinds_without_key(src(text))
+        return None if sorted(got) == ["alpha", "beta"] else f"got {sorted(got)}"
+
+    def chain(length, end="self.priced_section('a.key', o)"):
+        """A function whose site text is bound through `length` bindings: n1 = Priced(n2) ... n<length> = <end>."""
+        lines = [f"    n{i} = Priced(n{i + 1})" for i in range(1, length)] + [f"    n{length} = {end}"]
+        return "def f(self):\n" + "\n".join(lines) + "\n    raise Person('alpha', n1, 'S1')\n"
+
+    @case("scan: a two-hop chain (text = Priced(body, section.priced), section = priced_section(..)) keys the site")
+    def _():
+        text = "def f(self):\n    section = self.priced_section('a.key', o)\n    text = Priced(body, section.priced)\n    raise Person('alpha', text, 'S1')\n"
+        got = scan_kinds_without_key(src(text))
+        return None if got == {} else f"got {got}"
+
+    @case("scan: a chain through a name bound twice (once reaching a call, once not) is MIXED")
+    def _():
+        text = ("def f(self, c):\n    section = self.priced_section('a.key', o)\n    if c:\n        section = 'plain'\n"
+                "    text = Priced(body, section)\n    raise Person('alpha', text, 'S1')\n")
+        got = scan_kinds_without_key(src(text))
+        return None if got == {"alpha": {"raised_at": ["m:f"], "keyed_at": ["m:f"]}} else f"got {got}"
+
+    @case("scan: a binding cycle (a = b; b = a) terminates and stays keyless")
+    def _():
+        got = scan_kinds_without_key(src("def f(self):\n    a = b\n    b = a\n    raise Person('alpha', a, 'S1')\n"))
+        return None if got == {"alpha": {"raised_at": ["m:f"], "keyed_at": []}} else f"got {got}"
+
+    @case("scan: a chain of 8 bindings keys the site, a chain of 9 is keyless (the hop limit)")
+    def _():
+        at8, at9 = scan_kinds_without_key(src(chain(8))), scan_kinds_without_key(src(chain(9)))
+        if at8 != {}:
+            return f"8 hops: got {at8}"
+        return None if at9 == {"alpha": {"raised_at": ["m:f"], "keyed_at": []}} else f"9 hops: got {at9}"
+
+    @case("scan: a chain does not follow a parameter or an attribute of self set elsewhere")
+    def _():
+        text = ("def f(self, section):\n    text = Priced(body, section)\n    raise Person('alpha', text, 'S1')\n"
+                "def g(self):\n    text = Priced(body, self.section)\n    raise Person('beta', text, 'S1')\n")
         got = scan_kinds_without_key(src(text))
         return None if sorted(got) == ["alpha", "beta"] else f"got {sorted(got)}"
 

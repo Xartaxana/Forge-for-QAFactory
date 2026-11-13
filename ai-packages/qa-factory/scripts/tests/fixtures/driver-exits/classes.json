@@ -1,13 +1,16 @@
 {
  "schema": 1,
- "_about": "The class of a refusal row by the SOURCE of its text (P1-b spec 3.6): data, not a list in code. `by_source` maps a source id to a class word: `stage-joints` (a joint check of references/stage-joints.json), `refusal_registry:operation` (a REGISTRY record of kind operation), `refusal_registry:scanned` (a REGISTRY record of a SCANNED hook file), `question:<key>` (a closed question of a gate). A route whose move is ask_person names its source in `class_source` (a joint check, a REGISTRY id, `question:<key>`, or any other key of by_source named directly, as `route:marked_person`). A source with no entry here and `default: null` is `class unknown`, which dry_exits.py --check reports RED (E19) - never a guessed class, never a pass (FR-59).",
+ "_about": "The class of a refusal row by the SOURCE of its text (P1-b spec 3.6): data, not a list in code. `by_source` maps a source id to a class word: `stage-joints` (a joint check of references/stage-joints.json), `refusal_registry:operation` (a REGISTRY record of kind operation), `refusal_registry:scanned` (a REGISTRY record of a SCANNED hook file), `question:<key>` (a closed question of a gate). A route whose move is ask_person names its source in `class_source` (a joint check, a REGISTRY id, `question:<key>`, or any other key of by_source named directly, as `route:marked_person`). A `route:<name>` source is a Lead-named class for a route whose text has no registry record, joint check or question key; the evidence for each is `references/person-owned.json` `code_routes`. A source with no entry here and `default: null` is `class unknown`, which dry_exits.py --check reports RED (E19) - never a guessed class, never a pass (FR-59).",
  "by_source": {
   "stage-joints": "gate",
   "refusal_registry:operation": "gate",
   "refusal_registry:scanned": "ban",
   "question:gate_A": "gate",
   "question:gate_B": "gate",
-  "route:marked_person": "gate"
+  "route:marked_person": "gate",
+  "route:executor": "gate",
+  "route:story_budget": "gate",
+  "question:s0.readiness": "gate"
  },
  "default": null
 }

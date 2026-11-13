@@ -4,7 +4,8 @@
  "routes": {
   "executor": {
    "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "class_source": "route:executor"
   },
   "no_project": {
    "reach": "unwalked",
@@ -12,7 +13,8 @@
   },
   "readiness": {
    "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "class_source": "question:s0.readiness"
   },
   "s0_receipt": {
    "reach": "unwalked",
@@ -20,7 +22,8 @@
   },
   "story_budget": {
    "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "class_source": "route:story_budget"
   },
   "uninitialized": {
    "reach": "unwalked",
