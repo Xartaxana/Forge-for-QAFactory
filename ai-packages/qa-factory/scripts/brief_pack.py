@@ -2679,6 +2679,21 @@ def _repo_helper_lines(repo: dict) -> list:
         return []
 
 
+def stand_lesson_lines(project, stand) -> list:
+    """What a person taught about the stand `stand` (`project_knowledge.py lesson`), one `- Stand lessons: ` line each: the ONE
+    formatter for the manual runner's `## The stand` and the S5 automator / code-critic head (axis 5). The cap and the display cut
+    live in `PK.lessons` (the one reader). An unreadable registry is one line that says so (FR-59); no lesson, or no stand
+    chosen, is []. Never raises, never blocks the brief; the words are data, never interpreted (P27)."""
+    try:
+        import project_knowledge as PK
+        got = PK.lessons(project, str(stand or ""))
+        if got["problem"]:
+            return [f"- Stand lessons: could not be read ({got['problem']})"]
+        return ["- Stand lessons: " + line for line in got["lines"]]
+    except Exception as exc:
+        return [f"- Stand lessons: could not be read ({type(exc).__name__})"]
+
+
 def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, env_name: str = "", repo: dict | None = None) -> list:
     """The lines of `## The stand` in the brief of a MANUAL runner block: where the stand is, which accounts the role may sign in
     as (roles, and the NAMES of the env file's secret-looking keys: a role gives the pair to `--as env:USER/SECRET`), which cases
@@ -2703,6 +2718,7 @@ def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, e
         shown = [f'--as "{r}"' for r in roles]
         out.append("- Accounts: --as default; " + (_stand_names(shown) + " (names only)" if shown else "the stand lists no other"))
         keys = [k for note in roles.values() for k in GP.account_keys(note)]
+        out += stand_lesson_lines(project, name)
     cases, case_keys = _case_actor_lines(task_root, scope, None if (said or why) else entry)
     if not (said or why):
         file_keys, rel = _env_file_key_names(block, project)
@@ -4180,6 +4196,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         # t-2181 PC-8: the sides of the story (the code critic gets the SAME lines from the same call), then the automator's fields and, on
         # a bind round, its open rows. [] on an all-real story: that brief is as it was. The head is never shrunk; every part is capped.
         head += side_lines(pipeline)
+        head += stand_lesson_lines(project, str(pipeline.get("environment") or ""))
         head += provisional_lines(task_root, pipeline, dispatch, role, dispatch_id)
     if not first_look:
         # t-2277 FL-4 (after PC-8: the build order of §4.4 row h): the case critic's roles, then what the first look saw for the role that

@@ -340,6 +340,7 @@
   {"file": "gate_preflight.py", "function": "check_s5_toolchain", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "gate_preflight.py", "function": "check_stage_guard", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "gate_preflight.py", "function": "check_stand", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "gate_preflight.py", "function": "check_stand_lessons", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "gate_preflight.py", "function": "check_tracker_write", "class": "safety", "roles": ["conductor"], "owner": "intent"},
   {"file": "gate_preflight.py", "function": "check_unraised_questions", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "gate_preflight.py", "function": "check_vcs", "class": "safety", "roles": ["conductor"], "owner": "intent"},

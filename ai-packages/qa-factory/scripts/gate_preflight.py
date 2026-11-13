@@ -3207,6 +3207,28 @@ class Rehearsal:
             elif state == "over":
                 self._stand_limit_card(check, profile_id, limit)
 
+    def check_stand_lessons(self) -> None:
+        """ONE note with what a person taught about the chosen stand (`project_knowledge.py lesson`), so the approval sees it.
+
+        Data only (P27, AR-29): the person's words are carried as they are stored, cut for display by `PK.lessons` (the one reader,
+        AR-13); code never decides that a lesson applies to a test or a timeout, and never adds a finding - a note never blocks.
+        No project, no stand chosen (a fact other checks own) or no lesson: nothing. A registry that cannot be read is a note
+        that says so, never "no lessons" (FR-59)."""
+        if self.project_root is None:
+            return
+        stand = str(self._selected_environment().get("name") or "")
+        if not stand:
+            return
+        import project_knowledge as PK
+        got = PK.lessons(self.project_root, stand)
+        if got["no_stand"]:
+            return
+        if got["problem"]:
+            self.note("stand_lessons", f"what the person taught about {stand} could not be read ({got['problem']})")
+        elif got["lines"]:
+            self.note("stand_lessons", "What you taught about " + stand + " (the roles read it): " + "; ".join(got["lines"])
+                      + ". To change it, say so.")
+
     def _stand_limit_card(self, check: str, profile_id: str, limit: dict) -> None:
         cases = limit["cases"]
         stand, wait = limit["stand"], limit["wait"]
@@ -6045,6 +6067,7 @@ def run(task_root, gate: str = "A") -> dict:
                  r.check_role_permissions, r.check_cases, r.check_planning_contract,
                  r.check_vcs, r.check_stand, r.check_case_environment_gaps, r.check_role_accounts, r.check_actor_sign_in,
                  r.check_s5_executor, r.check_s5_dependencies, r.check_s5_toolchain, r.check_s5_stand_limits,
+                 r.check_stand_lessons,
                  r.check_s5_reporter, r.check_s5_runtime_probe,
                  r.check_s5_credentials,
                  r.check_case_preconditions, r.check_open_questions, r.check_unraised_questions,
