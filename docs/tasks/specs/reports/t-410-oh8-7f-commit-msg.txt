@@ -1,0 +1,67 @@
+OH8-7f (t-410): the judgment census classifies the 24 subclass-only refusers of ticket_light.py, ticket_adapter.py, source_inventory.py, source_exclusions.py, vcs_evidence.py, local_keys.py and onboard_apply.py (the seven files join SUBCLASS_UNIT_FILES as whole-file entries)
+
+Seven whole-file entries are added to SUBCLASS_UNIT_FILES; no mechanism code changes.
+SUBCLASS_PENDING_CEILING 74 -> 50 (C7 is dense at the pending count, 50, whatever the number of rows written).
+
+24 rows: 17 shape, 3 xref, 4 safety. Safety by Lead rule 1: source_exclusions.py::write_record a different list is never written over an existing record of a person's exclusions; local_keys.py::mint the O_EXCL claim of a key number: two sessions never get one number, and the loop ends in a refusal when every attempted number is taken. Safety by the Lead's answer: onboard_apply.py::apply and ::main (a live writer, drift of paths outside the factory home, a person's recorded approval of this proposal, the scope of one approval), both owner intent. E3 rows (refuse nothing, the AccessError is caught inside vcs_evidence.py): vcs_evidence.py::api, ::collect, ::pages, ::readiness, each written without blocks_override and with the E3 note.
+Lead rule 1 (7f, from the dispatch): a copy/lock/claim guard that protects a file or a clone from a second writer or from being overwritten is safety, owner data.
+by Lead rule: source_exclusions.py::write_record -> safety, [conductor], data (rule 1; the second raise of the function, "inventory exists, a list is too late", is an ordering precondition and is read under the same row); local_keys.py::mint -> safety, [conductor], data (rule 1; the other raises are shape: no text; xref: the tracker has a project of this prefix); onboard_apply.py::apply -> its live-writer raise (rule 1, onboard_apply.py:1498) is one of the readings behind the Lead's answer 3; the drift guard is rule 2 (written paths outside the factory home).
+answered by the Lead (7f questions 1-4): 1) source_exclusions.py::read_record -> shape, [conductor], data; 2) vcs_evidence.py::readiness -> shape, [conductor], data, E3 note; 3) onboard_apply.py::apply -> safety, [conductor], intent; 4) onboard_apply.py::main -> safety, [conductor], intent.
+open for the pair critic: (1) read_record is shape: it tests readability, schema_version, the list, the target kind in a closed set and an id's presence, a parse/schema check; what its refusal protects (a person's exclusion word is never quietly not applied) does not change what it tests; contrast with source_exclusions.py::manifest_problems, which is safety / intent. (2) readiness is shape: the condition is the FORM of a host name (present, no leading "-", no "/"); a form check on a value that goes into a command is still a form check; critic to read the option-injection reading of the leading "-" test. (3) apply is safety, owner intent: the live-writer guard is Lead rule 1, the drift guard protects written paths outside the factory home (rule 2), and the function stands on a person's recorded approval of THIS proposal (precedent managed_dependency.install and the same file family's manifest_problems). (4) main is safety, owner intent: the drift refusal (rule 2) and the scope of one approval (a one-test-command proposal is not applied under it).
+open for the pair critic: (a) onboard_apply.py::plan is xref: the only raises are the presence of proposed_config (shape) and the sealed input_hash against the hash of the configuration on disk (xref); plan writes nothing (FR-45), so the hash join is the freshness of a proposal, not an overwrite guard (rule 1 does not apply: no write happens in plan; the write guard is apply's). (b) vcs_evidence.py::api is shape: the presence of the glab CLI, the return code and an HTTP status read from the tool's own stderr, a JSON parse; the text read is a program's output, never a person's or a role's words, so not word-list. (c) vcs_evidence.py::collect and ::pages are xref: sha / updated_at equal before and after the read, a page signature seen twice. (d) roles of every row follow the file precedent [conductor] (ticket_light.py, ticket_adapter.py, source_inventory.py, source_exclusions.py::manifest_problems, vcs_evidence.py::parse_mr, local_keys.py::ticket_path, onboard_apply.py::_profile_problems are all [conductor]). (e) the ticket_light.py functions are all shape: table readability, key types, an empty list that would drop everything silently, the shape of a raw issue.
+noticed, not fixed: vcs_evidence.py::readiness raises AccessError("host_unresolved") and catches it two lines below in the same function, so the raise only routes to the except branch (a goto by exception)
+noticed, not fixed: onboard_apply.py::main turns ApplyRefused into exit 1 but C.ConfigUnreadable into exit 2, while the module's own docstring names one refusal form
+noticed, not fixed: source_exclusions.py::read_record and manifest_problems stand on the same record; the first is a plain parse and schema check while the second is classed safety / intent in the census
+
+Raise list (AR-20), reconciled by script (delta per key == new rows naming it; no ratchet key counts owner intent rows, so none rises for them):
+blocking_per_role.conductor: 606 -> 630 -- census classifies subclass refusers of ticket_light.py, ticket_adapter.py, source_inventory.py, source_exclusions.py, vcs_evidence.py, local_keys.py, onboard_apply.py (OH8-7f)
+safety: 72 -> 76 -- census classifies subclass refusers of source_exclusions.py, local_keys.py, onboard_apply.py (OH8-7f): write_record, mint, apply, main
+no other ratchet key and no existing row changed.
+
+architecture: AR-29 -- every row is a judged class per unit (24 rows: 17 shape, 3 xref, 4 safety; the 4 non-plain readings were answered by the Lead); AR-20 -- the raised keys are named above with their reconciliation; AR-13 -- no second AST walk over refusals: units_of reads the sites refusal_registry.sites(raises=raise_family(...)) already returned, refusal_registry.py untouched; AR-22 -- SUBCLASS_UNIT_FILES (producer) and units_of (its one reader) change together, both die in OH8-7h; AR-28 -- the pending set (an unknown) shrinks by an exact count (24), C7 stays dense
+judgment: adds data check test_judgment_census.SUBCLASS_UNIT_FILES -- census rows for refusals through package subclasses in ticket_light.py, ticket_adapter.py, source_inventory.py, source_exclusions.py, vcs_evidence.py, local_keys.py, onboard_apply.py, each a data check or a guard classified per unit
+tier: <model of the committing Lead>
+
+Four questions (rule 10) for the SUBCLASS_UNIT_FILES entries:
+(a) Cost and who pays: one tuple edit (seven entries) and 24 rows; the census run gets no new walk. The builder pays the classification; the critic pays one reading of every new row (pair 3: OH8-7f + OH8-7g); the Lead pays the commit and the answers to the questions.
+(b) Axes (36 on docs/SIBLING_MAP.md):
+axis 1 (policy <-> role): n/a the critic brief lists were edited by OH8-7b; CLAUDE.md rule 10 and designer rule 1 name no constant.
+axis 2 (per-tier exam instruments): n/a no exam.
+axis 3 (factory package <->): n/a test files ship as usual; no release-side step changes.
+axis 4 (factory rules <->): n/a no FR change; the temporary second road stays bounded by SUBCLASS_PENDING_CEILING and these nodes.
+axis 5 (stage twins inside): n/a the census is not a stage.
+axis 6 (measurement tools <->): n/a no measurer reads the census.
+axis 7 (per-test identity <->): n/a no per-test identity changed
+axis 8 (where the story): n/a no story path resolver touched
+axis 9 (is this a): n/a SCAN_EXCLUDE unchanged.
+axis 10 (git-top readers): n/a no git-top reader touched
+axis 11 (shell-command recognizers): n/a no shell-command recognizer touched
+axis 12 (carriers of the): covered the node is a row of batch onboarding-hooks/9 (the coordinator's move, D-0044).
+axis 13 (the dispatch text): n/a no dispatch text touched
+axis 14 (readers of agent): n/a no transcript reader touched
+axis 15 (console stream setup): n/a the test prints as before.
+axis 16 (one json reader): n/a the test reads its fixture as before.
+axis 17 (detector verdict shape): n/a the census is a test, not a detector producer.
+axis 18 (in-tree shrink-only ratchets): covered SUBCLASS_UNIT_FILES stays grow-only (seven whole-file entries added); every raise named row by row; OH8-7h rewrites the clause.
+axis 19 (one reader of): n/a no role tools line reader touched
+axis 20 (host receipt names): n/a no host receipt name touched
+axis 21 (readers of the): n/a no markdown table reader touched
+axis 22 (a host's return): n/a no host report form touched
+axis 23 (fields of a): n/a no tests[] row field touched
+axis 24 (the record of): n/a no execution record join touched
+axis 25 (freshness of a): n/a no freshness predicate touched
+axis 26 (the word stand): n/a no stand-not-confirmed word touched
+axis 27 (the profile of): n/a no profile of a test row touched
+axis 28 (the render site): n/a no row form render site touched
+axis 29 (append-only jsonl writers): n/a no jsonl appender touched
+axis 30 (the commands of): n/a no profile commands reader touched
+axis 31 (role carriers): n/a no role carrier touched
+axis 32 (where judgment lives): covered census rows in the same commit as the units (C1); one scanner (sites()); rows read by critic question 11.
+axis 33 (which dispatch am): n/a no dispatch identity reader touched
+axis 34 (one road for): covered the temporary second road shrinks by 24 functions of seven files; OH8-7h removes the line.
+axis 35 (sides of a): n/a no story sides reader touched
+axis 36 (the row written): n/a no placeholder row predicate touched
+(c) Detector: test_judgment_census.py -- C1 (a created unit with no row, a row whose unit vanished), C7 (pending count dense; the list-form checks on SUBCLASS_UNIT_FILES), C3 (raises); calibration checks 41 (judgment census) and 35 (b) (every raise named) in PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md.
+(d) What stops a skip: code on the path. The census test is a `keep` row (layer register) printed by scenario_walk.py --witness-for for the fixture and runs in the CI canon. A node that lists without rows gets C1 "... is a check unit (u3) with no row"; one that does not lower the ceiling gets C7 "below SUBCLASS_PENDING_CEILING"; one that lowers it too far gets C7 "above". The MEANING of each class is judged by a tier above (critic question 11), not by code.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
