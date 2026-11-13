@@ -1971,6 +1971,52 @@ def a_stop_counts_only_for_its_own_dispatch():
     check_eq("F-1: the sentinel is the gate's one name", UNKNOWN_DISPATCH, "unknown-dispatch")
 
 
+# --- OF4-22: the driver's two files live under the CONFIGURED artifact root (AR-13, AR-28) --------------------------
+
+ROOT_ROWS = [
+    # (case, config.json text, folder holding the files relative to the project, driver-runs found, state answer)
+    ("default layout: today's folder", "{}", "qa-factory/artifacts", True, "returned"),
+    ("a configured root: both files are found there", '{"artifact_root": "out/arts"}', "out/arts", True, "returned"),
+    ("a configured root: files left in the default folder are not read", '{"artifact_root": "out/arts"}',
+     "qa-factory/artifacts", False, "unknown"),
+    ("a config that is not JSON: unknown, not the default folder", "{not json", "qa-factory/artifacts", None, "unknown"),
+    ("an artifact_root that is no path: unknown", '{"artifact_root": 5}', "qa-factory/artifacts", None, "unknown"),
+    ("a good root with no file in it: today's answer", "{}", "elsewhere", True, "unknown"),
+]
+
+
+def the_driver_files_are_read_under_the_configured_root():
+    iso = lambda when: time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(when))  # noqa: E731
+    for case, config, folder, found, answer in ROOT_ROWS:
+        root = scene("qa-live-root-")
+        try:
+            (root / "qa-factory" / "config.json").write_text(config, encoding="utf-8")
+            state_dir = root / folder / TICKET / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            has_files = folder != "elsewhere"
+            if has_files:
+                (state_dir / "driver-runs.jsonl").write_text(json.dumps(
+                    {"dispatch": DISPATCH["id"], "exit_code": 0, "ts": iso(NOW - 100)}) + "\n", encoding="utf-8")
+                (state_dir / "driver-state.json").write_text(json.dumps(
+                    {"in_flight": {DISPATCH["id"]: {"dispatch_id": DISPATCH["id"], "pid": 1}}}), encoding="utf-8")
+            entry = LIVE.in_flight_entry(root, TICKET, DISPATCH["id"])
+            check_eq(f"{case}: driver-state.json", entry is not None, bool(found) and has_files)
+            if found is None:
+                try:
+                    LIVE.driver_session_end(root, TICKET, DISPATCH["id"])
+                    raised = False
+                except (OSError, ValueError, AttributeError):
+                    raised = True
+                check_eq(f"{case}: driver-runs.jsonl is not read from the default folder", raised, True)
+            else:
+                ended = LIVE.driver_session_end(root, TICKET, DISPATCH["id"])
+                check_eq(f"{case}: driver-runs.jsonl", ended is not None, bool(found) and has_files)
+            verdict = LIVE.state(root, TICKET, dict(DISPATCH, started_at=NOW - 900), now=NOW)
+            check_eq(f"{case}: the liveness answer", verdict["state"], answer)
+        finally:
+            cleanup(root)
+
+
 def main():
     a_stop_counts_only_for_its_own_dispatch()
     a_host_that_proves_nothing_closes_nothing()
@@ -2016,6 +2062,7 @@ def main():
     the_incident_is_a_return()
     the_hooks_window()
     the_battery()
+    the_driver_files_are_read_under_the_configured_root()
     an_ack_line_without_a_line_break_is_still_being_written()
     a_mixed_verdict_set_is_none_by_the_rule_not_by_a_swallowed_error()
     an_empty_report_is_still_a_return()
