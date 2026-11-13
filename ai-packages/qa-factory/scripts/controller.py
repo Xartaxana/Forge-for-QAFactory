@@ -7288,17 +7288,19 @@ class Controller:
                     + "`."))
         approved_plan = self._tier3_call(self._plan_document)
         approved_rows = approved_plan.get("rows") if isinstance(approved_plan, dict) else approved_plan
-        approved_obligations = {str(ob.get("obligation_id")): content_hash(ob)
-                                for row in approved_rows for ob in row.get("coverage_obligations") or []
-                                if ob.get("obligation_id")}
+        import contract as C  # the ONE reader of a valid reference (FV1-19c, AR-13)
+        approved_obligations = C.obligation_map(approved_rows)
         for item in window.get("instances") or []:
             refs = item.get("obligation_refs")
+            # `strict`: an empty map makes every reference `unknown`, never a pass (AR-28). A broken list
+            # comes back as `shape` alone, so it never reaches the hash comparison below.
+            ref_problems = (C.obligation_ref_problems(refs, approved_obligations, strict=True)
+                            if isinstance(refs, list) and refs else [])
+            ref_kinds = {kind for kind, _ in ref_problems}
             # Within ONE instance the first failure stops: broken refs make every hash below
             # them meaningless. Between instances the failures are collected (and merged).
             if (item.get("schema_version", 2) != 2 or not isinstance(refs, list) or not refs
-                    or any(not isinstance(ref, dict) or not ref.get("obligation_id")
-                           or not ref.get("obligation_hash") for ref in refs)
-                    or len({ref["obligation_id"] for ref in refs}) != len(refs)):
+                    or "shape" in ref_kinds):
                 problems.append((ValueError, "coverage v2 instance requires unique obligation_refs with exact hashes"))
                 continue
             # An instance the person took over never ran here, so it has no
@@ -7312,8 +7314,7 @@ class Controller:
                     and item.get("outcome") not in (HANDED_OUTCOME, BLOCKED_OUTCOME)):
                 problems.append((ValueError, "coverage v2 instance requires execution_fingerprint"))
                 continue
-            if any(approved_obligations.get(str(ref["obligation_id"])) != ref["obligation_hash"]
-                   for ref in refs):
+            if ref_kinds:  # `unknown` / `stale`
                 problems.append((StateConflict, "instance obligation_refs do not match the current approved plan"))
                 continue
             if set(item.get("obligation_ids") or []) != {ref["obligation_id"] for ref in refs}:
