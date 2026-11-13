@@ -895,7 +895,7 @@ def _case_10_critic_snapshot():
             "prompt": (
                 "Review the probe diff.\n"
                 "given: the probe diff\n"
-                f"handoff: {_fwd(os.path.join(tmp, 'review.md'))}\n"
+                f"handoff: {_fwd(os.path.join(tmp, 'docs', 'tasks', 'specs', 'reviews', 'review.md'))}\n"
                 "DoD: the verdict names every finding; `python -m pytest tools/test_dispatch_gate.py -q` attached.\n"
             ),
         },

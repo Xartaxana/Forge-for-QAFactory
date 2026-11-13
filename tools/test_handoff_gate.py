@@ -449,6 +449,18 @@ def test_script_refusal_with_a_non_ascii_path_still_exits_2(env):
     assert bad.returncode == 2 and "HANDOFF GATE" in bad.stderr
 
 
+def test_handoff_candidates_one_path_in_two_spellings_is_one_pair_with_its_first_folder(env):
+    """h1 (F6-37): the one candidate loop of the write gate, dod_gate and the launch check."""
+    a = env.at(REVIEWS)
+    b = a.replace("\\", "/").replace("/docs/tasks/", "/docs/tasks/../tasks/")  # the same file, another spelling
+    other = env.at(HANDOFFS, "t-2.md")
+    cut = dm.section_cut("handoff: %s %s %s\n" % (a, b, other))
+    base = str(env.tmp)
+    assert hg.handoff_candidates(cut, [REVIEWS, HANDOFFS], base) == [(a, REVIEWS), (other, HANDOFFS)]
+    assert hg.handoff_candidates(cut, [SPECS], base) == []  # a direct child only
+    assert hg.handoff_candidates(cut, [], base) == []
+
+
 def test_script_garbage_stdin_exits_0():
     r = subprocess.run([sys.executable, str(SCRIPT)], input="{{{", capture_output=True, text=True)
     assert r.returncode == 0 and r.stderr == ""

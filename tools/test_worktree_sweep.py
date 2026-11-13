@@ -497,17 +497,120 @@ def test_b1_detached_patch_equal_removed_by_apply_is_archived(repo):
     assert repo.sweep(apply=True).exit_code == 0 and len(_archived(repo, head)) == 1         # a second run: the ref exists, no error
 
 
-def test_b1_archive_failure_skips_the_prune_and_the_sweep_goes_on(repo):
-    wt = repo.add_wt("df", detach=True)
-    head = repo.commit(wt, "df.txt", "unmerged detached work")
-    shutil.rmtree(wt)
-    other = repo.merged_wt("ok1")
+@pytest.mark.parametrize("how", ["archive-fails", "prune-rc1"])
+def test_b1_archive_failure_skips_the_prune_and_the_sweep_goes_on(repo, how):
+    # F-A2: a skipped prune is a FAILED line and exit 3; the prunable copy is "kept", not "removed"; no branch of a prunable is deleted
     calls = []
-    rep = repo.sweep(apply=True, runner=_failing_update_ref(calls))
-    assert len([l for l in rep.lines if l.startswith("KEEP prune")]) == 1 and "archive ref failed (fatal: cannot lock ref)" in line(rep, "KEEP prune")
-    assert not any(a[:2] == ("worktree", "prune") for a in calls)                           # prune did not run
-    assert (repo.main / ".git" / "worktrees").exists() and "dp" not in repo.branches() and _archived(repo, head) == []
-    assert rep.lines[-1].startswith("worktree_sweep: ") and has(rep, "KEEP branch ok1: archive ref failed") and not other.exists()
+    if how == "archive-fails":
+        wt = repo.add_wt("df", detach=True)
+        head = repo.commit(wt, "df.txt", "unmerged detached work")
+        shutil.rmtree(wt)
+        other = repo.merged_wt("ok1")
+        rep = repo.sweep(apply=True, runner=_failing_update_ref(calls))
+        assert len([l for l in rep.lines if l.startswith("FAILED prune")]) == 1 and not has(rep, "KEEP prune")
+        assert "archive ref failed (fatal: cannot lock ref)" in line(rep, "FAILED prune")
+        assert not any(a[:2] == ("worktree", "prune") for a in calls)                       # prune did not run
+        assert (repo.main / ".git" / "worktrees").exists() and "dp" not in repo.branches() and _archived(repo, head) == []
+        assert has(rep, "KEEP branch ok1: archive ref failed") and not other.exists()
+    else:
+        gone = repo.merged_wt("pb")
+        shutil.rmtree(gone)
+        other = repo.merged_wt("ok2")
+
+        def runner(root, *args, timeout=120, stderr=False):
+            if args[:2] == ("worktree", "prune"):
+                return 1, b"", b"fatal: cannot prune\n"
+            return gitcmd.git(root, *args, timeout=timeout, stderr=stderr)
+
+        rep = repo.sweep(apply=True, runner=runner)
+        assert line(rep, "FAILED worktree prune").endswith("fatal: cannot prune")
+        assert "pb" in repo.branches() and not has(rep, "REMOVED branch pb") and not has(rep, "KEEP branch pb") and not other.exists()
+    assert rep.exit_code == 3
+    assert rep.lines[-1] == "worktree_sweep: 2 registered, 1 removed, 1 kept, 1 failed"      # the prunable is not in "removed"
+
+
+@pytest.mark.parametrize("case", ["old-merged-apply", "young", "unmerged", "no-origin-main", "dry-run", "exactly-N"])
+def test_r1_archive_refs_expire_only_when_old_and_in_origin_main(repo, case):
+    # F-A1: old = committer date more than N days back (strict), AND reachable from origin/main; a dry run only counts
+    N = ws.ARCHIVE_KEEP_DAYS
+    sha = git(repo.main, "rev-parse", "origin/main")
+    if case == "unmerged":
+        sha = repo.commit(repo.add_wt("um"), "um.txt", "unmerged work")
+    cdate = int(git(repo.main, "log", "-1", "--format=%ct", sha))
+    ref = "refs/worktree-sweep/t/" + sha[:12]
+    git(repo.main, "update-ref", ref, sha)
+    now = {"young": cdate + 86400, "exactly-N": cdate + N * 86400}.get(case, time.time() + (N + 1) * 86400)
+    if case == "no-origin-main":
+        git(repo.main, "update-ref", "-d", "refs/remotes/origin/main")
+    calls = []
+
+    def runner(root, *args, timeout=120, stderr=False):
+        calls.append(args)
+        return gitcmd.git(root, *args, timeout=timeout, stderr=stderr)
+
+    rep = repo.sweep(apply=case != "dry-run", now=now, runner=runner, ref="main" if case == "no-origin-main" else ws.DEFAULT_REF)
+    tail = "(in origin/main, committed more than %d days ago), " % N
+    expect = {"old-merged-apply": "archive refs: 1 expired " + tail + "0 kept", "dry-run": "archive refs: 1 can expire " + tail + "0 kept"}
+    if case == "no-origin-main":
+        assert line(rep, "KEEP archive refs").endswith("origin/main does not resolve -- none expired") and not has(rep, "archive refs:")
+    else:
+        assert line(rep, "archive refs:") == expect.get(case, "archive refs: 0 expired " + tail + "1 kept")
+    assert (git(repo.main, "for-each-ref", "--format=%(refname)", ref) == "") == (case == "old-merged-apply")
+    assert not any(a[:2] == ("update-ref", "-d") for a in calls) or case == "old-merged-apply"
+    assert rep.exit_code == 0
+
+
+def test_r1_a_local_branch_named_origin_main_does_not_shadow_the_remote_ref(repo):
+    # F1: `git branch origin/main <unpushed commit>` makes the short name resolve to the local branch; the expiry names the full remote ref
+    sha = repo.commit(repo.add_wt("um"), "um.txt", "unpushed work")
+    git(repo.main, "branch", "origin/main", sha)
+    ref = "refs/worktree-sweep/t/" + sha[:12]
+    git(repo.main, "update-ref", ref, sha)
+    rep = repo.sweep(apply=True, now=time.time() + (ws.ARCHIVE_KEEP_DAYS + 1) * 86400)
+    assert line(rep, "archive refs:").startswith("archive refs: 0 expired (") and git(repo.main, "for-each-ref", "--format=%(refname)", ref) == ref
+
+
+def test_r1_a_symref_under_the_archive_prefix_never_deletes_its_target(repo):
+    # F2: `update-ref -d` follows a symbolic ref; --no-deref deletes only the listed ref
+    sha = git(repo.main, "rev-parse", "origin/main")
+    git(repo.main, "branch", "keepme", sha)
+    git(repo.main, "symbolic-ref", "refs/worktree-sweep/x/sym", "refs/heads/keepme")
+    repo.sweep(apply=True, now=time.time() + (ws.ARCHIVE_KEEP_DAYS + 1) * 86400)
+    assert "keepme" in repo.branches()
+
+
+def test_r1_no_archive_ref_and_a_ref_that_is_not_a_commit_are_counted_quietly(repo):
+    rep = repo.sweep(apply=True, now=time.time() + 40 * 86400)
+    assert line(rep, "archive refs:").startswith("archive refs: 0 expired (") and line(rep, "archive refs:").endswith(", 0 kept")
+    tree = git(repo.main, "rev-parse", "HEAD^{tree}")
+    git(repo.main, "update-ref", "refs/worktree-sweep/tree/x", tree)                         # E20: no committer date -> kept
+    rep = repo.sweep(apply=True, now=time.time() + 40 * 86400)
+    assert line(rep, "archive refs:").endswith(", 1 kept") and git(repo.main, "for-each-ref", "refs/worktree-sweep/tree/")
+
+
+@pytest.mark.parametrize("how", ["moved", "rc128"])
+def test_q5_detached_head_is_read_again_before_remove(repo, how):
+    wt = repo.add_wt("dr", detach=True)
+    old = git(wt, "rev-parse", "HEAD")
+    seen = []
+
+    def runner(root, *args, timeout=120, stderr=False):
+        if args == ("rev-parse", "--verify", "HEAD"):
+            seen.append(root)
+            if how == "rc128":
+                return 128, b"", b"fatal: bad HEAD\n"
+            repo.commit(wt, "late.txt", "a commit made after the read")
+        return gitcmd.git(root, *args, timeout=timeout, stderr=stderr)
+
+    rep = repo.sweep(apply=True, runner=runner)
+    assert len(seen) == 1 and wt.exists() and not has(rep, "REMOVED")
+    if how == "rc128":
+        assert "unknown (HEAD re-read: fatal: bad HEAD)" in line(rep, "KEEP")
+    else:
+        new = git(wt, "rev-parse", "HEAD")
+        assert new != old and 'HEAD moved since the read (%s -> %s)' % (old[:12], new[:12]) in line(rep, "KEEP")
+        git(wt, "cat-file", "-e", new + "^{commit}")                                         # the new commit is reachable from the copy
+    assert rep.lines[-1] == "worktree_sweep: 1 registered, 0 removed, 1 kept, 0 failed"
 
 
 def test_b1_archive_failure_keeps_a_detached_copy_that_exists(repo):

@@ -11,7 +11,8 @@ not just this one, and deliberately carries no dependency on
 tools/session_context.py so the two can evolve independently. The
 converse dependency direction IS used: tools/session_context.py imports
 this module for its single summary WIRING line (see that file's
-`wiring_summary_line`).
+`wiring_summary_line`). It imports tools/gitcmd.py for the one main-checkout resolver (F6-39); a failed import, or a gitcmd
+without main_checkout, narrows check (1) to `<root>/.githooks`.
 
 Division of labor with tools/session_context.py (avoids double-reporting
 the same fact two different ways): this module is READ-ONLY -- it never
@@ -215,6 +216,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import gitcmd
+except Exception:  # absent, or broken at import: the observer of enforcement_probe must not die here (F6-39)
+    gitcmd = None
+
 _GITHOOKS_DIRNAME = ".githooks"
 _REQUIRED_GITHOOKS = ("pre-commit", "commit-msg", "pre-merge-commit")
 _SETTINGS_RELPATH = Path(".claude") / "settings.json"
@@ -344,22 +350,13 @@ def _main_checkout_githooks(root: Path):
     established: git failing, a common dir not named `.git` (a bare or separate git dir has no checkout
     beside it), or no such `.githooks` directory -- the caller then accepts only `<root>/.githooks`, as before
     this form existed."""
-    result = _run_git(["rev-parse", "--git-common-dir"], root)
-    if result is None:
-        return None, "git rev-parse --git-common-dir failed to run (git unavailable?)"
-    raw = (result.stdout or "").strip()
-    if result.returncode != 0 or not raw:
-        return None, f"git rev-parse --git-common-dir exited {result.returncode}"
-    common = Path(raw)
-    if not common.is_absolute():
-        common = root / common
-    try:
-        common = common.resolve()
-    except OSError:
-        return None, "git common dir does not resolve"
-    if common.name != ".git":
-        return None, f"git common dir {_ascii_safe(common)} is not a .git directory of a checkout"
-    main_hooks = common.parent / _GITHOOKS_DIRNAME
+    resolve = getattr(gitcmd, "main_checkout", None)
+    if resolve is None:
+        return None, "tools/gitcmd.py is not importable or has no main_checkout"
+    checkout, _code, why = resolve(root, timeout=5)
+    if checkout is None:
+        return None, _ascii_safe(why)
+    main_hooks = checkout.path / _GITHOOKS_DIRNAME
     if not main_hooks.is_dir():
         return None, f"no .githooks directory at {_ascii_safe(main_hooks)}"
     return main_hooks, ""

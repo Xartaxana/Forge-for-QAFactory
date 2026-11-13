@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import dispatch_gate  # noqa: E402
+import md_regions as _md_regions  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parent / "dispatch_gate.py"
 # FLIPPED (B-204/B-245): a relative path is a candidate by the ONE predicate (first segment = a
@@ -76,6 +77,121 @@ def _manifest(given="the whole repo", owns=_OWNED_PATH, non_goals="none", handof
         lines.append(f"designer: {designer}")
     text = "\n".join(lines)
     return (prefix + "\n" if prefix else "") + text + ("\n" + suffix if suffix else "")
+
+
+# F6-37: a critic/designer dispatch names one .md path directly inside its role folder (or carries a skip line).
+_CRITIC_HANDOFF = "handoff: Z:/factory-x/docs/tasks/specs/reviews/t-1.md"
+_DESIGNER_HANDOFF = "handoff: Z:/factory-x/docs/tasks/specs/t-1.md"
+_HANDOFF_BY_KIND = {"critic": _CRITIC_HANDOFF, "designer": _DESIGNER_HANDOFF}
+
+_R = "Z:/r"  # an absolute repo root outside any real drive
+_REV = _R + "/docs/tasks/specs/reviews"
+_SPEC = _R + "/docs/tasks/specs"
+
+
+def _kind_payload(kind, prompt):
+    return {"tool_name": "Task", "tool_input": {"subagent_type": kind, "prompt": prompt, "description": "opus: x"}}
+
+
+def _many_paths():
+    return "handoff: " + " ".join("%s/t-%d.md" % (_REV, i) for i in range(1000))
+
+
+# (id, kind, prompt, code, text that the message must hold, text that the note must hold)
+_NO_LINE = "no handoff: line"
+_FOLDS = os.path.normcase("A") == "a"  # the file system folds case (and, with it, takes the backslash as a separator)
+_FOLDER_ROWS = [
+    ("e1", "critic", "handoff: Z:\\r\\docs\\tasks\\handoffs\\t-1.md", 2, ["docs/tasks/specs/reviews", "none of them"], ""),
+    ("e2", "critic", "handoff: Z:\\r\\docs\\tasks\\specs\\reviews\\t-1.md", 0, [], ""),
+    ("e3", "designer", "handoff: %s/t-1.md" % _REV, 2, ["docs/tasks/specs, the designer's"], ""),
+    ("e4", "designer", "handoff: %s/t-1.md" % _SPEC, 0, [], ""),
+    ("e5", "critic", "Review the diff.", 2, [_NO_LINE], ""),
+    ("e6", "critic", "handoff: docs/tasks/specs/reviews/t-1.md", 2, ["no absolute path", "write it as an absolute path"], ""),
+    ("e7", "critic", "handoff: %s/<t>.md" % _REV, 2, ["no absolute path"], ""),
+    ("e8", "critic", "handoff: %s/t-1.txt" % _REV, 2, ["none of them"], ""),
+    ("e9", "critic", "handoff: %s/t-1.md %s/t-2.md" % (_REV, _REV), 2, ["2 distinct", "t-1.md", "t-2.md"], ""),
+    # the same file in another slash and another letter case is ONE file only where the file system folds case and
+    # takes the backslash as a separator; on POSIX t-1.md and T-1.md are two files and the gate must refuse two
+    ("e10", "critic", "handoff: %s/t-1.md %s/T-1.md" % (_REV, _REV.replace("/", "\\")),
+     0 if _FOLDS else 2, [] if _FOLDS else ["2 distinct"], ""),
+    ("e11", "critic", "Review.\n```\nhandoff: %s/t-1.md\n```" % _REV, 2, [_NO_LINE], ""),
+    ("e12", "critic", "Review.\n> handoff: %s/t-1.md" % _REV, 2, [_NO_LINE], ""),
+    ("e13", "critic", "Review.\nmanifest-skip: handoff -- text report", 0, [], "sent without a report path on purpose"),
+    ("e14", "critic", "Review.\nmanifest-skip: handoff", 2, [_NO_LINE], ""),
+    ("e15", " Critic ", "handoff: Z:\\r\\docs\\tasks\\handoffs\\t-1.md", 2, ["none of them"], ""),
+    ("e16-builder", "builder", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e16-scout", "scout", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e16-gp", "general-purpose", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e16-namespaced", "foo:critic", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e17", "critic", "handoff: %s/t-1.md\n%s" % (_REV, "x" * (_md_regions.MAX_TEXT_CHARS + 1)), 0, [], "not checked"),
+    ("e18-empty", "critic", "", 2, [_NO_LINE], ""),
+    ("e18-none", "critic", None, 2, [_NO_LINE], ""),
+    ("e19", "critic", _many_paths(), 2, ["1000 distinct", "and 995 more"], ""),
+    ("e20", "critic", "handoff: %s/\u043e\u0442\u0447\u0451\u0442.md" % _REV, 0, [], ""),
+    ("e21", "critic", "```\nan unterminated fence\nhandoff: %s/t-1.md" % _REV, 0, [], ""),
+]
+
+
+@pytest.mark.parametrize("name,kind,prompt,code,message_has,note_has", _FOLDER_ROWS, ids=[r[0] for r in _FOLDER_ROWS])
+def test_handoff_folder_check(name, kind, prompt, code, message_has, note_has):
+    payload = _kind_payload(kind, prompt)
+    dm = dispatch_gate._load_manifest_module()
+    _is_builder, cut = dm.cut_payload(payload)
+    got_code, message, note = dispatch_gate.handoff_folder_check(payload, cut, dm)
+    assert got_code == code, (message, note)
+    for part in message_has:
+        assert part in message, (part, message)
+    assert (note_has in note) if note_has else (note == ""), note
+    if code == 2:
+        assert message.startswith("HANDOFF PATH (CLAUDE.md rule 11, R11-h)")
+        assert "Door:" in message or "add a line:" in message  # every refusal names a door
+
+
+def test_handoff_folder_check_e19_shows_five_paths_only():
+    payload = _kind_payload("critic", _many_paths())
+    message = dispatch_gate.decide(payload)[1]
+    assert message.count("/t-") == 5 and "t-4.md" in message and "t-5.md" not in message
+
+
+def test_handoff_folder_check_e22_the_completeness_refusal_comes_first():
+    prompt = "owns: Z:/r/x.py\nhandoff: Z:/r/docs/tasks/handoffs/t-1.md"
+    code, message = dispatch_gate.decide(_kind_payload("critic", prompt))
+    assert code == 2 and message.startswith("DISPATCH INCOMPLETE") and "HANDOFF PATH" not in message
+
+
+def test_handoff_folder_check_e23_an_import_failure_is_a_note_and_a_pass(monkeypatch):
+    monkeypatch.setitem(sys.modules, "handoff_gate", None)  # `import handoff_gate` now raises ImportError
+    payload = _kind_payload("critic", "Review the diff.")
+    decision = dispatch_gate.decide_full(payload)
+    assert decision.code == 0
+    assert any("HANDOFF CHECK: not checked (tools/handoff_gate.py did not import)" in n for n in decision.notes)
+
+
+def test_handoff_folder_check_e25_a_failed_cut_is_a_note_and_a_pass(monkeypatch):
+    # section_cut raising leaves cut None: an UNKNOWN, not "no handoff: line" (spec A.4: an unknown is never a refusal)
+    dm = dispatch_gate._load_manifest_module()
+
+    def boom(prompt):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dm, "section_cut", boom)
+    payload = _kind_payload("critic", "Review.\n" + _CRITIC_HANDOFF)
+    decision = dispatch_gate.decide_full(payload)
+    assert decision.code == 0, decision.message
+    assert any("HANDOFF CHECK: not checked" in n for n in decision.notes), decision.notes
+    # direct call with no cut: the word is there -> note and pass; the word is absent -> still the refusal
+    code, message, note = dispatch_gate.handoff_folder_check(payload, None, dm)
+    assert code == 0 and message == "" and "HANDOFF CHECK: not checked" in note
+    code, message, note = dispatch_gate.handoff_folder_check(_kind_payload("critic", "Review."), None, dm)
+    assert code == 2 and _NO_LINE in message and "add a line:" in message
+
+
+def test_decide_full_handoff_refusal_keeps_the_label_check_behind_it():
+    payload = _kind_payload("critic", "Review.")
+    payload["tool_input"]["description"] = "nolabel"
+    assert "HANDOFF PATH" in dispatch_gate.decide(payload)[1]  # the handoff refusal is first
+    payload["tool_input"]["prompt"] = "Review.\n" + _CRITIC_HANDOFF
+    assert "worker's tier" in dispatch_gate.decide(payload)[1]  # a valid handoff reaches the label check as before
 
 
 # ---------------------------------------------------------------------
@@ -356,7 +472,8 @@ def test_description_with_leading_token_and_separator_passes():
 def test_description_check_applies_to_critic():
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "critic", "prompt": "Review the diff.", "description": "reviewthediff"},
+        "tool_input": {"subagent_type": "critic", "prompt": "Review the diff.\n" + _CRITIC_HANDOFF,
+                       "description": "reviewthediff"},
     }
     exit_code, message = dispatch_gate.decide(payload)
     assert exit_code == 2
@@ -378,7 +495,7 @@ def test_description_check_passes_for_critic_with_leading_token():
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review the diff.",
+            "prompt": "Review the diff.\n" + _CRITIC_HANDOFF,
             "description": "opus: review diff",
         },
     }
@@ -396,7 +513,7 @@ def test_critic_without_dod_markers_not_blocked_by_check1():
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review the diff, not a single DoD word here.",
+            "prompt": "Review the diff, not a single DoD word here.\n" + _CRITIC_HANDOFF,
             "description": "opus: review",
         },
     }
@@ -912,7 +1029,7 @@ def test_echo_json_passing_dispatch_emits_given_path_warn_additional_context(tmp
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review Given: tools/does_not_exist_anywhere_xyz.py for reference.",
+            "prompt": "Review Given: tools/does_not_exist_anywhere_xyz.py for reference.\n\n" + _CRITIC_HANDOFF,
             "description": "opus: review",
         },
         "cwd": str(tmp_path),  # FLIPPED: the root is the payload cwd now (t-796: a tmp root, the gate writes traces under it)
@@ -939,7 +1056,7 @@ def test_echo_json_no_missing_given_paths_emits_no_stdout():
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review tools/dispatch_gate.py for reference.",
+            "prompt": "Review tools/dispatch_gate.py for reference.\n\n" + _CRITIC_HANDOFF,
             "description": "opus: review",
         },
     }
@@ -999,7 +1116,7 @@ def test_owns_bare_word_no_longer_a_write_indicator():
     # old: a BUILDER prompt discussing "owns" with a DoD word -> 0 (no write signal);
     # new: a builder is always checked, so the premise ("the bare word does not make
     # a dispatch a writing one") is pinned on a non-builder type: not checked -> 0
-    prompt = "DoD: witness present. This dispatch discusses how owns works, read-only."
+    prompt = "DoD: witness present. This dispatch discusses how owns works, read-only.\n\n" + _CRITIC_HANDOFF
     payload = {
         "tool_name": "Task",
         "tool_input": {"subagent_type": "critic", "prompt": prompt, "description": "opus: x"},
@@ -1839,7 +1956,7 @@ def test_decide_can_still_raise_on_a_non_string_description():
     # a never-raises function; its callers guard it (main(), owns_gate, critic_snapshot)
     payload = {
         "tool_name": "Agent",
-        "tool_input": {"subagent_type": "critic", "prompt": "x", "description": 5},
+        "tool_input": {"subagent_type": "critic", "prompt": "x\n" + _CRITIC_HANDOFF, "description": 5},
     }
     import pytest
 
@@ -1851,7 +1968,7 @@ def test_main_exception_out_of_decide_exit_0_unchecked_note_on_both_channels():
     # the repro of the review: exit 1 with a traceback before this guard
     payload = {
         "tool_name": "Agent",
-        "tool_input": {"subagent_type": "critic", "prompt": "x", "description": 5},
+        "tool_input": {"subagent_type": "critic", "prompt": "x\n" + _CRITIC_HANDOFF, "description": 5},
     }
     result = _run_hook(payload)
     code, out, err = _hook_out(result)
@@ -2074,6 +2191,9 @@ def _writers(n):
 def _reading_dispatch(**tool_input):
     ti = {"subagent_type": "critic", "prompt": _READER_PROMPT}
     ti.update(tool_input)
+    if (ti["subagent_type"] in _HANDOFF_BY_KIND and isinstance(ti["prompt"], str)
+            and "handoff" not in ti["prompt"].lower()):
+        ti["prompt"] += "\n" + _HANDOFF_BY_KIND[ti["subagent_type"]]  # F6-37: a gated kind names its report path
     return {"tool_name": "Task", "session_id": "sess-1", "tool_input": ti}
 
 
@@ -2423,7 +2543,9 @@ def _fake_git(answers, calls=None):
     return run
 
 
-AHEAD = ("rev-list", "--count", "origin/main..main")
+AHEAD = ("rev-list", "--count", "refs/remotes/origin/main..refs/heads/main")
+LOCAL_MAIN = ("rev-parse", "refs/heads/main")
+ORIGIN_MAIN = ("rev-parse", "refs/remotes/origin/main")
 
 
 def _worktree_dispatch():
@@ -2432,7 +2554,7 @@ def _worktree_dispatch():
 
 def test_push_before_launch_warns_when_main_is_ahead_of_origin(monkeypatch, capsys):
     calls = []
-    git = {AHEAD: "3", ("rev-parse", "main"): "aaa1111", ("rev-parse", "origin/main"): "bbb2222"}
+    git = {AHEAD: "3", LOCAL_MAIN: "aaa1111", ORIGIN_MAIN: "bbb2222"}
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git(git, calls))
     payload = _dispatch(cwd="Z:/repo")
     payload["tool_input"]["isolation"] = "worktree"
@@ -2440,13 +2562,14 @@ def test_push_before_launch_warns_when_main_is_ahead_of_origin(monkeypatch, caps
     ctx = _context(json.loads(out))
     assert code == 0
     assert "aaa1111" in ctx and "bbb2222" in ctx and "3 commit(s) ahead" in ctx and "push main first" in ctx
-    assert "merge aaa1111 first" in ctx
+    assert "create the worktree yourself from main" in ctx and "merge aaa1111 first" not in ctx
+    assert "git -C <repo> worktree add <path> -b <branch> main" in ctx  # the one door text of both WARNs (NB3)
     assert all(cwd == "Z:/repo" for _a, cwd in calls)
 
 
 def test_push_before_launch_silent_when_origin_is_ahead_or_equal(monkeypatch):
     """t-576 F7: only LOCAL commits missing on origin matter; origin ahead of main must not warn."""
-    shas = {("rev-parse", "main"): "aaa", ("rev-parse", "origin/main"): "bbb"}
+    shas = {LOCAL_MAIN: "aaa", ORIGIN_MAIN: "bbb"}
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({AHEAD: "0", **shas}))
     assert dispatch_gate.push_before_launch_warn(_worktree_dispatch()) == ""  # origin ahead: shas differ, count 0
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({AHEAD: "1", **shas}))
@@ -2455,11 +2578,11 @@ def test_push_before_launch_silent_when_origin_is_ahead_or_equal(monkeypatch):
 
 def test_push_before_launch_silent_on_other_isolation_and_git_errors(monkeypatch):
     base = _worktree_dispatch()
-    git = {AHEAD: "2", ("rev-parse", "main"): "aaa", ("rev-parse", "origin/main"): "bbb"}
+    git = {AHEAD: "2", LOCAL_MAIN: "aaa", ORIGIN_MAIN: "bbb"}
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git(git))
     assert dispatch_gate.push_before_launch_warn({**base, "tool_input": {}}) == ""
     assert dispatch_gate.push_before_launch_warn({**base, "tool_input": {"isolation": "none"}}) == ""
-    monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({("rev-parse", "main"): "aaa"}))  # no origin/main
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({LOCAL_MAIN: "aaa"}))  # no origin/main
     assert dispatch_gate.push_before_launch_warn(base) == ""
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({AHEAD: "not a number"}))
     assert dispatch_gate.push_before_launch_warn(base) == ""
@@ -2469,6 +2592,122 @@ def test_push_before_launch_silent_on_other_isolation_and_git_errors(monkeypatch
 
     monkeypatch.setattr(dispatch_gate.subprocess, "run", boom)
     assert dispatch_gate.push_before_launch_warn(base) == ""
+
+
+def _base_git(refs, ahead=(), rc_other=1, calls=None):
+    """Fake git for worktree_base_warn: refs = for-each-ref output lines (local ones carry no `origin/`);
+    `ahead` = ref names whose is-ancestor exit is 1; every other is-ancestor exit is `rc_other` (None = OSError)."""
+    def run(args, **kwargs):
+        if calls is not None:
+            calls.append(args)
+        rest = tuple(args[1:])
+        if rest[:1] == ("for-each-ref",):
+            if refs is None:
+                return subprocess.CompletedProcess(args, 128, stdout="", stderr="")
+            assert rest == ("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"), rest
+            full = [("refs/remotes/" if r.startswith("origin/") else "refs/heads/") + r for r in refs]
+            return subprocess.CompletedProcess(args, 0, stdout="\n".join(full) + "\n", stderr="")
+        if rest[:2] == ("merge-base", "--is-ancestor"):
+            if rc_other is None:
+                raise OSError("no git")
+            name = rest[2].split("/", 2)[2] if rest[2].startswith("refs/heads/") else rest[2][len("refs/remotes/"):]
+            return subprocess.CompletedProcess(args, 1 if name in ahead else rc_other, stdout="", stderr="")
+        if rest == ORIGIN_MAIN:
+            return subprocess.CompletedProcess(args, 0, stdout="bbb2222\n", stderr="")
+        return subprocess.CompletedProcess(args, 128, stdout="", stderr="")
+    return run
+
+
+def _base_payload(prompt, **tool_input):
+    return {"tool_name": "Agent", "cwd": "Z:/r", "tool_input": {"isolation": "worktree", "prompt": prompt, **tool_input}}
+
+
+_MANY = ["wip/b%d" % i for i in range(7)]
+_BASE_ROWS = [
+    ("b1", "Base: pile/x/batch-1 please", ["pile/x/batch-1"], ["pile/x/batch-1"], 1,
+     ["WORKTREE BASE", "pile/x/batch-1", "bbb2222", "git -C <repo> worktree add <path> -b <branch> pile/x/batch-1"]),
+    ("b2", "Base: pile/x/batch-1 please", ["pile/x/batch-1"], [], 0, None),
+    ("b4", "from main, origin/main, HEAD", ["main", "origin/main"], ["main", "origin/main"], 1, None),
+    ("b5", " ".join(_MANY), _MANY, _MANY, 1, ["(2 more names not checked)", "wip/b4"]),
+    ("b6", " ".join(_MANY[:5]), _MANY, _MANY, 1, ["wip/b4"]),
+    ("b7a", "base `wip/oh8-6`", ["wip/oh8-6"], ["wip/oh8-6"], 1, ["wip/oh8-6"]),
+    ("b7b", "base wip/oh8-6, then more", ["wip/oh8-6"], ["wip/oh8-6"], 1, ["wip/oh8-6"]),
+    ("b8", "base wip/x", ["wip/x"], ["wip/x"], 128, None),
+    ("b8a", "base wip/x", ["wip/x"], ["wip/x"], 1, ["wip/x"]),
+    ("b8b", "base wip/x", ["wip/x"], [], 0, None),
+    ("b8c", "base wip/x", ["wip/x"], [], None, None),
+    ("b9a", None, ["wip/x"], ["wip/x"], 1, None),
+    ("b9b", "", ["wip/x"], ["wip/x"], 1, None),
+    ("b9c", "prose " * 50000, ["wip/x"], ["wip/x"], 1, None),
+    ("b10", "base wip/\u0432\u0435\u0442\u043a\u0430 now", ["wip/\u0432\u0435\u0442\u043a\u0430"], ["wip/\u0432\u0435\u0442\u043a\u0430"], 1,
+     ["wip/\u0432\u0435\u0442\u043a\u0430"]),
+    ("b11", "base wip/x", ["wip/x", "origin/wip/x"], ["wip/x"], 1, ["wip/x"]),
+    ("b14", "base pile/x", ["origin/pile/x"], ["pile/x", "origin/pile/x"], 1, None),
+]
+
+
+@pytest.mark.parametrize("row,prompt,refs,ahead,rc_other,expect", _BASE_ROWS, ids=[r[0] for r in _BASE_ROWS])
+def test_worktree_base_warn(monkeypatch, row, prompt, refs, ahead, rc_other, expect):
+    """B.4 rows: a WARN only for an isolation dispatch naming a branch origin/main lacks; every error is silence."""
+    calls = []
+    # rc_other 128 / None model a failing merge-base; for the other rows `ahead` decides exit 1 vs 0
+    other = 0 if rc_other == 1 else rc_other
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(refs, ahead=ahead if rc_other == 1 else (), rc_other=other,
+                                                                   calls=calls))
+    if row == "b8":
+        monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(refs, rc_other=128))
+    out = dispatch_gate.worktree_base_warn(_base_payload(prompt), None)
+    if row != "b8":  # one for-each-ref call serves both the known names and the local/remote split (NB1)
+        assert sum(1 for a in calls if a[1:2] == ["for-each-ref"]) == 1, (row, calls)
+    if expect is None:
+        assert out == "", row
+    else:
+        assert all(part in out for part in expect), (row, out)
+        assert out.startswith("WORKTREE BASE")
+    if row == "b6":
+        assert "more names" not in out
+    if row == "b11":
+        assert sum(1 for a in calls if a[1:3] == ["merge-base", "--is-ancestor"]) == 1
+        assert [a for a in calls if a[1:3] == ["merge-base", "--is-ancestor"]][0][3] == "refs/heads/wip/x"
+
+
+def test_worktree_base_warn_b3_only_host_worktrees(monkeypatch):
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(["wip/x"], ahead=["wip/x"]))
+    prompt = "base wip/x"
+    assert "WORKTREE BASE" in dispatch_gate.worktree_base_warn(_base_payload(prompt), None)
+    for payload in ({"tool_name": "Agent", "cwd": "Z:/r", "tool_input": {"prompt": prompt}},
+                    _base_payload(prompt, isolation="none"),
+                    {**_base_payload(prompt), "tool_name": "Bash"},
+                    {"tool_name": "Agent", "cwd": "Z:/r", "tool_input": None}):
+        assert dispatch_gate.worktree_base_warn(payload, None) == ""
+
+
+def test_worktree_base_warn_b8_for_each_ref_fails(monkeypatch):
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(None))
+    assert dispatch_gate.worktree_base_warn(_base_payload("base wip/x"), None) == ""
+
+    def boom(*a, **k):
+        raise OSError("git is not installed")
+
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", boom)
+    assert dispatch_gate.worktree_base_warn(_base_payload("base wip/x"), None) == ""
+
+
+def test_worktree_base_warn_b12_push_warn_pins_the_qualified_argv(monkeypatch):
+    git = {AHEAD: "2", LOCAL_MAIN: "aaa", ORIGIN_MAIN: "bbb"}  # the fake answers ONLY the qualified argv
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git(git))
+    assert "PUSH BEFORE LAUNCH" in dispatch_gate.push_before_launch_warn(_worktree_dispatch())
+
+
+def test_worktree_base_warn_b13_quoted_names_do_not_count(monkeypatch):
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(["wip/x"], ahead=["wip/x"]))
+    fenced = "Review.\n```\nbase wip/x\n```\nend"
+    cut = dispatch_manifest.section_cut(fenced)
+    assert not cut.degraded
+    assert dispatch_gate.worktree_base_warn(_base_payload(fenced), cut) == ""
+    # control: the same name in prose is found through the same cut
+    prose = "Review.\nbase wip/x\nend"
+    assert "wip/x" in dispatch_gate.worktree_base_warn(_base_payload(prose), dispatch_manifest.section_cut(prose))
 
 
 def _finish(folder, name):
@@ -2754,6 +2993,10 @@ def _with_cwd(root, payload=None, tool_use_id=None):
 
 
 def _critic_payload(root, tool_use_id=None, prompt="Review the diff."):
+    # F6-37: a critic dispatch names its report path (the manifest's placeholder handoff line is replaced)
+    prompt = prompt.replace("handoff: a short report", _CRITIC_HANDOFF)
+    if "handoff" not in prompt.lower():
+        prompt += "\n" + _CRITIC_HANDOFF
     payload = _agent_payload("critic", "opus: review the diff", prompt, cwd=str(root))
     if tool_use_id is not None:
         payload["tool_use_id"] = tool_use_id
@@ -2982,8 +3225,9 @@ def _race_sandbox(tmp_path, n_workers):
 
 
 def _race_payload(root, kind, tool_use_id):
-    prompt = "given: none\nowns: %s (new)\nnon-goals: none\nhandoff: report\nedges: none\nDoD: `python -m pytest x -q`\nsiblings: none -- a test fixture\nWrite." % (
-        root / "x.py")
+    handoff = "report" if kind != "critic" else str(root / "docs" / "tasks" / "specs" / "reviews" / "t-1.md")  # F6-37
+    prompt = "given: none\nowns: %s (new)\nnon-goals: none\nhandoff: %s\nedges: none\nDoD: `python -m pytest x -q`\nsiblings: none -- a test fixture\nWrite." % (
+        root / "x.py", handoff)
     payload = {"tool_name": "Agent", "cwd": str(root), "session_id": "sid1",
                "transcript_path": str(root / "home" / "x.jsonl"),
                "tool_input": {"subagent_type": kind, "description": "sonnet: probe", "prompt": prompt}}
