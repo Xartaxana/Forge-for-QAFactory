@@ -98,21 +98,14 @@ MEANING_CEILING = 24
 # OH8-7 (c1): the functions that refuse only through a package subclass and are no unit by another route. A test constant like
 # MEANING_CEILING, NOT a `ratchet` key (the gate's item 7 is untouched). Dense: red above it (a new such refuser) and below it
 # (lower this line). Each follow-up node OH8-7b... gives a file group rows and lowers it; 0 is the end state.
-SUBCLASS_PENDING_CEILING = 167
+SUBCLASS_PENDING_CEILING = 144
 # OH8-7b..h (F1 (a)): files (names relative to scripts/) in which a widened raise site (a package subclass of
 # ValueError/StateConflict resolved per file, or the attribute form) CREATES a unit exactly like a literal raise. An entry is
 # `file.py` (the whole file) or `file.py::function` (that function only; used for the split of probe_by_code.py).
 # Grow-only: each node of the chain adds its files with their rows and lowers SUBCLASS_PENDING_CEILING by its count;
 # OH8-7h removes this tuple and the pending machinery (every scanned file then creates units from widened sites).
 SUBCLASS_UNIT_FILES = (
-    "probe_by_code.py::__init__", "probe_by_code.py::parse_node", "probe_by_code.py::locate",
-    "probe_by_code.py::_python_entry", "probe_by_code.py::find_oracle", "probe_by_code.py::plan_mutation",
-    "probe_by_code.py::parse_detector_node", "probe_by_code.py::body_span", "probe_by_code.py::locate_target",
-    "probe_by_code.py::_statement_span", "probe_by_code.py::_matcher_position", "probe_by_code.py::_inverted",
-    "probe_by_code.py::plan_detector_mutation", "probe_by_code.py::checks_of", "probe_by_code.py::_parse_at",
-    "probe_by_code.py::_parse_at_row", "probe_by_code.py::_target_file", "probe_by_code.py::_profile_of",
-    "probe_by_code.py::_longer_title", "probe_by_code.py::run_shape_checks", "probe_by_code.py::manifest_entry",
-    "probe_by_code.py::_profile_cwd", "probe_by_code.py::build_request",
+    "probe_by_code.py",
 )
 
 
@@ -823,6 +816,7 @@ def test_neg_stage_row_counts_once() -> None:
 
 _A = "class A(ValueError):\n    pass\n\n\n"
 _RAISE = "def check_f(x):\n    raise {}('no')\n"
+_NEUTRAL = "def f():\n    raise A('no')\n"          # a neutral name: only a listed file (or function) makes `f` a unit
 # OH8-7 (c1): (id, files, units that block, pending functions). Every positive row asserts that `blocks` FLIPS on a unit found by
 # another route (`check_f`, a u1 name); a miss asserts that it does not. `check_f` has a row, so the count is `blocking_units`.
 SUBCLASS_ROWS = (
@@ -844,18 +838,20 @@ SUBCLASS_ROWS = (
     ("no_binding", {"mod_a.py": "class ImportError(ValueError):\n    pass\n", "helpers_x.py": _RAISE.format("ImportError")}, 0, 0),
     ("no_arg", {"helpers_x.py": _A + "def check_f(x):\n    raise A()\n"}, 0, 0),
     ("cycle", {"helpers_x.py": "class A(B):\n    pass\n\n\nclass B(A):\n    pass\n\n\n" + _RAISE.format("A")}, 0, 0),
-    ("neutral_only", {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}, 0, 1),
-    # OH8-7b: the sixth column lists files/functions in SUBCLASS_UNIT_FILES. A listed file (or function) CREATES the unit `f` from
-    # its widened site (pending 0); the E11 safe-side misses stay misses even when listed; another function listed leaves `f` pending.
-    ("listed_neutral", {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}, 0, 0, ("helpers_x.py",)),
-    ("listed_function", {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}, 0, 0, ("helpers_x.py::f",)),
-    ("listed_unrelated", {"helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _RAISE.format("A")}, 0, 0, ("helpers_x.py",)),
-    ("listed_shadowed_local", {"mod_a.py": _A, "helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _RAISE.format("A")},
-     0, 0, ("helpers_x.py",)),
-    ("listed_tests_only", {"tests/t_mod.py": _A, "helpers_x.py": "from tests.t_mod import A\n\n\n" + _RAISE.format("A")},
-     0, 0, ("helpers_x.py",)),
-    ("listed_no_arg", {"helpers_x.py": _A + "def check_f(x):\n    raise A()\n"}, 0, 0, ("helpers_x.py",)),
-    ("listed_other_function", {"helpers_x.py": _A + "def f():\n    raise A('no')\n\n\ndef g():\n    raise A('no')\n"},
+    ("neutral_only", {"helpers_x.py": _A + _NEUTRAL}, 0, 1),
+    # OH8-7b: the fifth column lists files/functions in SUBCLASS_UNIT_FILES; the sixth, when present, says whether `f` is a unit.
+    # A listed file (or function) CREATES the unit `f` from its widened site (pending 0); the E11 safe-side misses (neutral `f`
+    # beside a raise that is no widened site) stay misses even when listed: no `f` unit, pending 0; another function listed leaves
+    # `f` pending.
+    ("listed_neutral", {"helpers_x.py": _A + _NEUTRAL}, 0, 0, ("helpers_x.py",)),
+    ("listed_function", {"helpers_x.py": _A + _NEUTRAL}, 0, 0, ("helpers_x.py::f",)),
+    ("listed_unrelated", {"helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _NEUTRAL}, 0, 0, ("helpers_x.py",), False),
+    ("listed_shadowed_local", {"mod_a.py": _A, "helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _NEUTRAL},
+     0, 0, ("helpers_x.py",), False),
+    ("listed_tests_only", {"tests/t_mod.py": _A, "helpers_x.py": "from tests.t_mod import A\n\n\n" + _NEUTRAL},
+     0, 0, ("helpers_x.py",), False),
+    ("listed_no_arg", {"helpers_x.py": _A + _NEUTRAL.replace("A('no')", "A()")}, 0, 0, ("helpers_x.py",), False),
+    ("listed_other_function", {"helpers_x.py": _A + _NEUTRAL + "\n\ndef g():\n    raise A('no')\n"},
      0, 1, ("helpers_x.py::g",)),
 )
 
@@ -869,7 +865,8 @@ def test_neg_subclass_raises_flip_blocks_or_are_pending() -> None:
         assert t["blocking_units"] == blocking, (case, "blocks flip", t["blocking_units"], "want", blocking)
         assert t["pending"] == pending, (case, "pending", t["pending_names"], "want", pending)
         created = "helpers_x.py" in unit_files or "helpers_x.py::f" in unit_files
-        assert _has(r["problems"]["C1"], "helpers_x.py::f is a check unit (u3)") == (created and "def f()" in files["helpers_x.py"]), \
+        want_unit = rest[1] if len(rest) > 1 else created and "def f()" in files["helpers_x.py"]
+        assert _has(r["problems"]["C1"], "helpers_x.py::f is a check unit (u3)") == want_unit, \
             (case, "a unit is created from a subclass raise iff its file/function is listed", r["problems"]["C1"])
         if case == "neutral_only":
             assert t["pending_names"] == ["helpers_x.py::f"], t["pending_names"]
@@ -880,7 +877,7 @@ def test_neg_subclass_raises_flip_blocks_or_are_pending() -> None:
             assert _has(r["problems"]["C1"], "helpers_x.py::g is a check unit (u3)"), r["problems"]["C1"]
 
 
-C7_NEUTRAL = {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}
+C7_NEUTRAL = {"helpers_x.py": _A + _NEUTRAL}
 # OH8-7b (E4, E5): (id, unit_files, text the C7 problems must hold or None for none); the pending ceiling is 0 and `f` is rowed
 C7_LISTS = (
     ("ok", ("helpers_x.py",), None),
