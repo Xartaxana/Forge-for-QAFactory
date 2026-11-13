@@ -58,6 +58,7 @@ FIELD_MIN = 3
 RATCHET_NODE = r"^F6-51$"
 EXIT_SKIP = ("list", "all_errors")                  # the aggregator and a copy of the list are not families
 EXIT_FUNCTIONS = ("all_errors", "main")
+EXIT_WRAPPERS = ("own",)                            # all_errors' local `own(<family call>, family)` only names the check (P1-v N0)
 USAGE_EXIT = 2                                      # `--data` with no file; the unreadable file is the contract's exit 3
 ROLE_LEG_KEY = "role_leg"                           # a code row whose role leg the walk does not judge says so in data
 ROLE_LEG_NOT_WALKED = "not walked"
@@ -100,6 +101,9 @@ def exit_members(src: str, filename: str = "exit_gate.py") -> tuple:
             for leaf in _leaves(value):
                 if not isinstance(leaf, ast.Call):
                     continue
+                if (isinstance(leaf.func, ast.Name) and leaf.func.id in EXIT_WRAPPERS and leaf.args
+                        and isinstance(leaf.args[0], ast.Call)):
+                    leaf = leaf.args[0]             # `own(<family call>, "name")` names the check; the family is the inner call
                 if isinstance(leaf.func, ast.Name):
                     if leaf.func.id not in EXIT_SKIP:
                         members.setdefault(f"exit:{leaf.func.id}", f"{filename}::{fn.name}:{leaf.lineno}")

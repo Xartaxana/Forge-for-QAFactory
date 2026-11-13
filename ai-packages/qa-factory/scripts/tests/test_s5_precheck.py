@@ -4574,7 +4574,6 @@ def fv1_19_obligation_refs_at_the_precheck() -> None:
     """FV1-19b N2: the precheck judges PRESENT `obligation_refs` on every row by `contract.obligation_ref_problems` and demands
     them only of a row whose case owes an automated obligation; its texts name the fragment door for every language."""
     from event_store import content_hash
-    import window_record as WR
     root = temp_project("qa-fv119-n2-")
     try:
         h_auto, h_manual = content_hash(OB_AUTO), content_hash(OB_MANUAL)

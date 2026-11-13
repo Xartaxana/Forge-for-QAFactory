@@ -17,7 +17,6 @@ Every key names the mutation it kills (spec section 5, C2: M38 the 28 000 cap wi
 M40 a global remark missing from window 2, M41 a plan over the cap with no slices).
 """
 import json
-import re
 import sys
 from pathlib import Path
 

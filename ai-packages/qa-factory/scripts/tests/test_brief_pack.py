@@ -2899,7 +2899,6 @@ def n2_summaries_name_their_whole() -> None:
             check_eq("case_form_lines: no problem, no problem lines", len(brief_pack.case_form_lines("QA-9", task, "qa-automator")), 1)
 
         # one row per remaining function id of the class: the text is whole at the old bound, beyond it and at 10x
-        import archive_task
         import handoff_check
         import manual_evidence as ME
         import walk_session as WS

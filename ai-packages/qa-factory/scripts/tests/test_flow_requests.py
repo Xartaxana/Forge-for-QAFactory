@@ -204,7 +204,6 @@ def b_brief() -> None:
     with patch.object(UPF, "flow_requests", side_effect=RuntimeError("boom")):
         check_eq("B4 a script that raises: exactly one line, the brief is built", BP.flow_request_lines(Path("nowhere"), "QA-9", write=False),
                  ["Flow requests: not measured: user_path_failures.py, a defect of the factory"])
-    big = {"requests": [req(i, url="/api/a/very/long/path/of/a/request/" + "x" * 60 + str(i)) for i in range(1, cap + 6)], "unmeasured": ["no code"] * 3}
     harness.cleanup(story_base)
 
 

@@ -1822,9 +1822,9 @@ def fv1_19_the_carrier_the_origin_notes_and_the_charter():
     for field in ("obligation_refs", "obligation_ids", "obligation_hash"):
         text = " ".join(WR.ORIGIN[field])
         check_in(f"N2 (k): ORIGIN[{field}] names the fragment door", "manifest_put.py --task <T> --fragment <file>", text)
-        check_in(f"N2 (k): ...and that the code writes the hashes", "the code writes the hash", text)
-        check_not_in(f"N2 (k): ...and none says the automator writes them", "automator writes", text)
-        check_not_in(f"N2 (k): ...nor names the marker", "marker", text)
+        check_in("N2 (k): ...and that the code writes the hashes", "the code writes the hash", text)
+        check_not_in("N2 (k): ...and none says the automator writes them", "automator writes", text)
+        check_not_in("N2 (k): ...nor names the marker", "marker", text)
     charter = (SCRIPTS.parent / "agents" / "qa-automator.md").read_text(encoding="utf-8")
     named = [line for line in charter.splitlines() if "`obligation_refs`" in line]
     check_eq("N2 (l): ONE charter line names `obligation_refs`", len(named), 1)
