@@ -1889,6 +1889,8 @@ def ep1_36_shape() -> None:
     kind, said = shape(pw, rehearsed=False)
     check_eq("EP1-36 item 8: ...never rehearsed: the profile is not verified (the old refusal and door)", kind, "ToolRefusal")
     check_in("EP1-36 item 8: ...naming selectors.verified", "selector contract", said)
+    check_in("R-N3-1: ...and the door is the command that writes the proof, for this profile", "--probe-profiles --profile pw", said)
+    check_in("R-N3-1: ...and the reason is the `none` state's why of the one answer", "no proven rehearsal of this command is on record", said)
     kind, said = shape(pw, verified=False)
     check_eq("EP1-36 item 8: the literal False wins over a rehearsal on record", kind, "ToolRefusal")
     check_eq("EP1-36 item 8: ...and the literal True over none", shape(pw, rehearsed=False, verified=True)[0], "passed")
