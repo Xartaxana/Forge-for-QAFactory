@@ -18,9 +18,15 @@ def controller_record(root, ticket, dispatch):
     uses (`worker_lifecycle.binding_is_active`) answers True on every doubt - the wrong direction for a hook that moves."""
     import hooklib
     ticket, dispatch = str(ticket or ""), str(dispatch or "")
-    if not dispatch or not hooklib.is_one_component(ticket):
+    if not dispatch:
         return None
-    state = read_json(hooklib.artifact_root(root=root) / ticket / "state" / "controller.json", {}, kind=dict, errors=Exception)
+    try:
+        folders = hooklib.artifact_root(root=root)
+    except (ValueError, OSError):
+        return None                # a broken project config is a doubt: no record
+    if not hooklib.is_story_folder(folders, ticket):
+        return None                # an alias spelling or an absent folder is no story's record
+    state = read_json(folders / ticket / "state" / "controller.json", {}, kind=dict, errors=Exception)
     records = state.get("dispatches")
     record = records.get(dispatch) if isinstance(records, dict) else None
     return record if isinstance(record, dict) else None
@@ -229,7 +235,7 @@ def enrich(event):
 
 
 def record(event):
-    from hooklib import project_root, artifacts_dir, role_name, is_one_component
+    from hooklib import project_root, artifact_root, role_name, is_story_folder
     from stage_guard import resolve_ticket
     if event.get("hook_event_name") == "SubagentStop":
         from host_probe import check_child, check_role_context
@@ -307,8 +313,8 @@ def record(event):
         active = next((a for a in doc.get('activities',[]) if doc.get('active_stack') and a['activity_id']==doc['active_stack'][-1]), {})
         receipt['activity'] = active
         receipt['activity_id'] = active.get('activity_id')
-    if task and is_one_component(task):     # an `explore:<slug>` id is no story folder: the receipt is still written below
-        path = artifacts_dir(task, event) / "state/controller.json"
+    if task and is_story_folder(artifact_root(event), task):     # an `explore:<slug>` id, or an alias spelling, is no story folder: the receipt is still written below
+        path = artifact_root(event) / task / "state/controller.json"
         if path.is_file():
             state = json.loads(path.read_text(encoding="utf-8"))
             matches = [d for d in state.get("dispatches", {}).values()
