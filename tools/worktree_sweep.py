@@ -19,8 +19,21 @@ prints no `+`), has own commits in ITS OWN HEAD reflog OR has been idle longer t
 uncommitted change (an untracked file listed in tools/worktree-junk.json is a service trace, anything else is work).
 Whatever cannot be established is read as "alive / keep" (FR-59): a failure of the data file or of git makes FEWER copies removable.
 
+Archive refs expire (F6-39): an archive ref is deleted when its commit was committed more than ARCHIVE_KEEP_DAYS ago AND is
+reachable from ARCHIVE_SAFE_REF (origin/main, always -- never the local main, which may hold unpushed commits). N counts from the
+archived commit's committer date, not from the merge, so a commit made long ago and merged today expires on the first run after
+the merge; reachability from origin/main is the only guard; a later rewrite (force-push) of main that drops an expired commit is
+the accepted residual (the commit then lives only in the reflog of `refs/remotes/origin/main` until gc). An archive ref of a commit
+not in origin/main is never expired (a patch-equal or unmerged archive stays: cost is space, never a commit). A stale local
+origin/main only makes FEWER refs expire.
+
+A detached copy's HEAD is read again right before `git worktree remove` (a commit made in the copy since the read keeps the copy);
+the accepted residual is one process start between that re-read and the remove, the same class as the moved-branch window of the
+branch deletion. A prunable copy counts as removed only after `git worktree prune` succeeded; a skipped or failed prune is a FAILED
+line and the copies stay in "kept".
+
 Exit codes: 0 done (also: nothing to remove); 1 cannot work (no ref, not a git repo, --apply from a linked worktree, main
-worktree not identifiable, another sweep running); 3 --apply and at least one FAILED. The hook ignores the code.
+worktree not identifiable, another sweep running); 3 --apply and at least one FAILED (a skipped prune counts). The hook ignores the code.
 
 This module is a link of the enforcement chain (MECHANISM_PREFIXES): it keeps its own stream setup and never imports `streams`.
 """
@@ -64,6 +77,8 @@ STATUS_RETRY_S = 0.2                 # a status write that meets a reader on Win
 DOOR = "python tools/worktree_sweep.py --apply"
 STATES = ("running", "finished", "refused", "crashed", "not-started")
 ARCHIVE_PREFIX = "refs/worktree-sweep/"
+ARCHIVE_KEEP_DAYS = 30               # an archive ref is old when its commit's committer date is MORE than this many days back (F-A1)
+ARCHIVE_SAFE_REF = DEFAULT_REF       # ... and it expires only when its commit is reachable from this pushed reference
 JUNK_FILE = _TOOLS / "worktree-junk.json"
 REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 GLOB_CHARS = set("*?[]{}")
@@ -567,7 +582,19 @@ def apply_one(ctx, wt, ev, rep):
             return
         archive = ", archive: " + info
     remove_traces(wt.path, ev.traces)
-    rc, out, err = git(root, "worktree", "remove", wt.path)               # never --force: git refuses a file that appeared since the read
+    if not wt.short:                                                      # a commit made in a detached copy since the read is never lost (Q5)
+        rc, out, err = git(wt.path, "rev-parse", "--verify", "HEAD")
+        if rc != 0:
+            rep.kept += 1
+            rep.add("KEEP %s: unknown (HEAD re-read: %s)" % (_q(wt.path), first_line(err or gitcmd.as_text(out))))
+            return
+        now_head = gitcmd.as_text(out).strip()
+        if now_head != wt.head:
+            rep.kept += 1
+            rep.add("KEEP %s: HEAD moved since the read (%s -> %s); judged again at the next run" % (
+                _q(wt.path), (wt.head or "")[:12], now_head[:12]))
+            return
+    rc, out, err = git(root, "worktree", "remove", wt.path)              # never --force: git refuses a file that appeared since the read
     if rc != 0:
         msg = first_line(err or gitcmd.as_text(out))
         if is_timeout(rc, err):
@@ -635,7 +662,7 @@ def _orphan_scratch(wts, registered):
 def prune_registrations(ctx, wts, rep):
     """`git worktree prune` drops EVERY unlocked prunable registration with its admin dir -- and a detached HEAD has no other
     reference (B1). So each such registration whose HEAD is not reachable from ref gets an archive ref first; if one cannot be
-    made, nothing is pruned (one line) and the sweep goes on. True when the prune ran and succeeded."""
+    made, nothing is pruned (one FAILED line) and the sweep goes on. True ONLY when `git worktree prune` ran with rc 0."""
     git, root = ctx.git, ctx.repo.root
     bad = []
     for w in wts[1:]:
@@ -647,13 +674,55 @@ def prune_registrations(ctx, wts, rep):
         if not ok:
             bad.append("%s: %s" % (_q(w.path), info))
     if bad:
-        rep.add("KEEP prune: not run, %d registration(s) could not be archived (%s)" % (len(bad), bad[0]))
+        rep.failed += 1
+        rep.add("FAILED prune: not run, %d registration(s) could not be archived (%s)" % (len(bad), bad[0]))
         return False
     rc, out, err = git(root, "worktree", "prune")
     if rc != 0:
         rep.failed += 1
         rep.add("FAILED worktree prune: %s" % first_line(err or gitcmd.as_text(out)))
+        return False
     return True
+
+
+def expire_archive_refs(git, root, now, rep, *, apply):
+    """Delete the archive refs that are old (committer date more than ARCHIVE_KEEP_DAYS back) and reachable from ARCHIVE_SAFE_REF.
+    Invariant: a ref whose commit is not reachable from the pushed reference is never deleted; only the listed sha is deleted
+    (`update-ref -d <ref> <sha>`). Without `apply` it only counts. One summary line, not one per ref."""
+    rc, out, err = git(root, "for-each-ref", "--format=%(refname)%09%(objectname)%09%(committerdate:unix)", ARCHIVE_PREFIX)
+    if rc != 0:
+        rep.add("KEEP archive refs: cannot list (%s)" % first_line(err or gitcmd.as_text(out)))
+        return
+    rc, _, err = git(root, "rev-parse", "--verify", "--quiet", ARCHIVE_SAFE_REF + "^{commit}")
+    if rc != 0:
+        rep.add("KEEP archive refs: %s does not resolve -- none expired" % ARCHIVE_SAFE_REF)
+        return
+    rows = [l.split("\t") for l in gitcmd.as_text(out).splitlines() if l.strip()]
+    candidates, unknown = [], 0
+    for row in rows:
+        if len(row) < 3 or not re.fullmatch(r"-?\d+", row[2].strip()):     # a tag or a tree: no committer date -> kept
+            continue
+        ref, sha, date = row[0].strip(), row[1].strip(), int(row[2].strip())
+        if now - date <= ARCHIVE_KEEP_DAYS * 86400:                        # strict: exactly N days is kept; a future date is kept
+            continue
+        rc, _, _ = git(root, "merge-base", "--is-ancestor", sha, ARCHIVE_SAFE_REF)
+        if rc == 0:
+            candidates.append((ref, sha))
+        elif rc != 1:
+            unknown += 1
+    expired = 0
+    for ref, sha in candidates:
+        if not apply:
+            expired += 1
+            continue
+        rc, out2, err2 = git(root, "update-ref", "-d", ref, sha)
+        if rc != 0:
+            rep.add("KEEP archive ref %s: delete refused (%s)" % (ref, first_line(err2 or gitcmd.as_text(out2))))
+        else:
+            expired += 1
+    rep.add("archive refs: %d %s (in %s, committed more than %d days ago), %d kept%s" % (
+        expired, "expired" if apply else "can expire", ARCHIVE_SAFE_REF, ARCHIVE_KEEP_DAYS,
+        len(rows) - expired - unknown, ", %d unknown" % unknown if unknown else ""))
 
 
 def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=None, junk=None, ref_note="", out=None,
@@ -716,7 +785,8 @@ def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=N
         if ev.kind == "prunable":
             prunable.append(wt)
             rep.add("PRUNABLE %s" % _q(wt.path))
-            rep.done += 1
+            if not apply:
+                rep.done += 1                                            # "can go" is a forecast; under apply it counts after the prune
         elif ev.kind == "keep":
             rep.kept += 1
             rep.add("KEEP %s: %s" % (_q(wt.path), ev.text))
@@ -737,14 +807,21 @@ def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=N
                 rep.add("ERROR %s: %s: %s" % (_q(wt.path), type(exc).__name__, first_line(str(exc))))
         if progress is not None:
             progress(seen, rep.registered)
+    if apply and prunable and stopped:
+        rep.kept += len(prunable)                                        # a lost lock is the new holder's business: kept, not failed
     if apply and prunable and not stopped:
         try:
             current = list_worktrees(git, repo)                          # a registration that went prunable during the run is archived too (E23)
         except Exception as exc:
             current = None
-            rep.add("KEEP prune: not run (worktree list: %s)" % first_line(str(exc)))
+            rep.failed += 1
+            rep.add("FAILED prune: not run (worktree list: %s)" % first_line(str(exc)))
         pruned = current is not None and prune_registrations(ctx, current, rep)
-        for wt in prunable if pruned else ():                                            # the folder is gone: only the branch is left to judge
+        if pruned:
+            rep.done += len(prunable)                                    # "removed" counts only copies that are gone
+        else:
+            rep.kept += len(prunable)                                    # a registered worktree still holds its branch: no branch loop
+        for wt in prunable if pruned else ():                                          # the folder is gone: only the branch is left to judge
             if not wt.short or wt.short in protected or not wt.head:
                 continue
             merged, detail = merged_verdict(git, repo.root, wt.head, ref)
@@ -756,6 +833,7 @@ def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=N
             rep.add("REMOVED branch %s (prunable worktree, merged: %s, archive: %s)" % (wt.short, merged, info) if ok
                     else "KEEP branch %s: %s" % (wt.short, info))
     if not stopped:
+        expire_archive_refs(git, repo.root, now, rep, apply=apply)
         for p in _orphan_scratch(wts, registered):
             rep.add("ORPHAN SCRATCH %s" % _q(p))
     rep.add("worktree_sweep: %d registered, %d %s, %d kept, %d failed" % (
