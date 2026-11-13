@@ -92,6 +92,23 @@ def pending_path(root, session, task_name=None):
     return found[0] if len(found) == 1 else plain
 
 
+def launch_pending(root, session, task_name=None) -> bool:
+    """True when the packet of EXACTLY this launch key (`_slot`) is pending, or exists but cannot be read, parsed or is
+    not an object. False for an empty session, an absent file, or another status. Reads only: no lock, no write, never
+    raises (any exception is True). Error direction: toward "pending" - the answer decides whether a refused dispatch's
+    denial may close it, and a launch that may still be live must never be closed on a guess."""
+    try:
+        if not session:
+            return False
+        path = _slot(root, session, task_name)
+        if not path.is_file():
+            return False
+        data = json.loads(path.read_text(encoding='utf-8'))
+        return not isinstance(data, dict) or data.get('status') == 'pending'
+    except Exception:
+        return True
+
+
 def is_probe_task(name):
     """True for PROBE_TASK itself or PROBE_TASK + '__' + a non-empty suffix.
 
