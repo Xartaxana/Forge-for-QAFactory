@@ -115,9 +115,9 @@ def parse_rollcall(text: str, artifacts=None) -> list:
     reviewed_at = next((i for i, name in enumerate(header) if "reviewed" in name), None)
     bare = [name.strip("`") for name in header]
     case_at = next((i for i, name in enumerate(bare) if name.startswith("case")), None)
-    verdict_at = next((i for i, name in enumerate(bare) if name == "verdict"), None)
+    verdict_at = C.md_column(raw[0], "verdict")
     note_at = C.md_column(raw[0], "note")
-    fix_at = next((i for i, name in enumerate(bare) if name == "fix"), None)
+    fix_at = C.md_column(raw[0], "fix")
     rows = []
     for cells in raw[1:]:
         if not cells or not any(cells):

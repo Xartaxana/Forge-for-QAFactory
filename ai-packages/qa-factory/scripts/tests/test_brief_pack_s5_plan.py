@@ -655,8 +655,12 @@ def k14_case_concerns_reach_the_s5_brief():
     """TQ2-1 K2 B1-B8: the case critic's concerns reach the plan author and the plan critic (under and over the guard's read cap), and
     every window of the earlier form its own (the concerns of ITS cases). Each row names the input; its empty outcome is one of three
     distinct lines (none carried / none raised / could not be read against the receipt: AR-23, AR-28)."""
-    merge = [("TC-1", f"{TOKEN} TC-1, TC-2"), ("TC-2", "F-2 other concern"), ("TC-3", "F-3 another concern")]
+    # a real round: S4 exit demands the token on EVERY case of a merged pair (`_merge_concern_errors`)
+    merge = [("TC-1", f"{TOKEN} TC-1, TC-2"), ("TC-2", f"{TOKEN} TC-1, TC-2"), ("TC-3", "F-3 another concern")]
     pair = merge[:2]
+    two_pairs = [("TC-1", f"{TOKEN} TC-1, TC-2"), ("TC-2", f"{TOKEN} TC-1, TC-2"), ("TC-3", f"{TOKEN} TC-2, TC-3")]
+    three_group = [(f"TC-{n}", f"{TOKEN} TC-1, TC-2, TC-3") for n in (1, 2, 3)]
+    untagged = [("TC-1", "F-1 plain concern"), ("TC-2", "F-2 plain concern")]
     plan_split = dict(same_file=True)       # one test per case, all in one file and level: the grouping line fires too
     rows = [  # label, args, kwargs, must be in the brief, must not be, must be in the side file (None: no side file)
         ("B1 author-under-cap", (AUTHOR, "S5-plan-author-1", pair), {}, ["S5-plan-author-1-case-concerns.md", "2 concern(s)",
@@ -671,7 +675,13 @@ def k14_case_concerns_reach_the_s5_brief():
          ["case-concerns.md"], None),
         ("B6 findings edited after the receipt", (AUTHOR, "S5-plan-author-1", pair), dict(tamper=True),
          ["could not be read against the critic's receipt", "work/test-cases/critic-findings.md - case critic's findings that gave no"],
-         ["none carried", "case-concerns.md - the case critic"], None),
+         ["none carried", "none raised", "case-concerns.md - the case critic"], None),
+        ("B1b two pairs sharing TC-2 are two groups", (AUTHOR, "S5-plan-author-1", two_pairs), {},
+         ["3 concern(s)", "(2 ask to parametrise"], ["(1 ask", "(3 ask"], ["CC-1", "CC-3"]),
+        ("B1c a group of three cases is one ask", (AUTHOR, "S5-plan-author-1", three_group), {},
+         ["3 concern(s)", "(1 ask to parametrise"], ["(2 ask", "(3 ask"], ["CC-3"]),
+        ("B1d concerns with no token ask nothing, none dropped", (AUTHOR, "S5-plan-author-1", untagged), {},
+         ["2 concern(s)", "(0 ask to parametrise"], ["none carried", "none raised"], ["CC-1", "CC-2"]),
         ("B7a legacy author, window [TC-1]", (AUTHOR, "S5-qa-automator-1", merge), dict(legacy=["TC-1"], other=1),
          ["1 concern(s) for the cases of this window", "1 ask to parametrise", "1 name a case of another window"], ["3 concern(s)"], ["CC-1"]),
         ("B7b legacy author, window [TC-1, TC-2]", (AUTHOR, "S5-qa-automator-1", merge), dict(legacy=["TC-1", "TC-2"]),

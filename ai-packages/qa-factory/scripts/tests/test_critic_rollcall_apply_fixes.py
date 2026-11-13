@@ -246,6 +246,22 @@ def test_note_column_is_found_by_one_helper() -> None:
         cleanup(root)
 
 
+# (id, header, row, the verdict word, the fix text) - `verdict` and `fix` are read by the same exact-name rule as `note`
+VERDICT_FIX_COLUMN_CASES = (
+    ("verdict-fix-plain", "| plan row | case | reviewed | verdict | fix |", "| TS-1 | TC-1 | yes | approve | do it |", "approve", "do it"),
+    ("verdict-fix-backticks-spaces", "| plan row | case | reviewed |  ` Verdict `  |  ` Fix `  |",
+     "| TS-1 | TC-1 | yes | `Approve` | do it |", "approve", "do it"),
+    ("verdict-fix-absent", "| plan row | case | reviewed |", "| TS-1 | TC-1 | yes |", None, ""),
+    ("verdict-fix-prefix-not-matched", "| plan row | case | reviewed | verdicts | fixes |", "| TS-1 | TC-1 | yes | approve | do it |", None, ""),
+)
+
+
+def test_verdict_and_fix_columns_are_found_by_one_helper() -> None:
+    for label, header, row, want_verdict, want_fix in VERDICT_FIX_COLUMN_CASES:
+        got = R.parse_rollcall(_roll(header, row))
+        check_eq(f"{label}: parse_rollcall verdict and fix", [(r["verdict"], r["fix"]) for r in got], [(want_verdict, want_fix)])
+
+
 def test_md_column_empty_header() -> None:
     for label, header, name in (("md-column-empty-header", [], "note"), ("md-column-empty-header-none-name", ["note"], None),
                                 ("md-column-empty-header-none", None, "note"), ("md-column-empty-name", ["note"], "")):
@@ -254,6 +270,7 @@ def test_md_column_empty_header() -> None:
 
 if __name__ == "__main__":
     test_note_column_is_found_by_one_helper()
+    test_verdict_and_fix_columns_are_found_by_one_helper()
     test_md_column_empty_header()
     test_synthetic_fix_lands_and_reports_json()
     test_ambiguous_find_stays_a_reported_debt()

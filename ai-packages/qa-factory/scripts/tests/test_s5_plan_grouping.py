@@ -453,6 +453,7 @@ def k_merge_hints_table():
         ("G6 TC-2 is a remainder (no test)", mplan(["TC-1", "TC-2"], row("T-1", ["TC-1"])), [concern()], None),
         ("G7 area keys, bare ids in the concern", mplan(["speakers/TC-1", "speakers/TC-2"], row("T-1", ["speakers/TC-1"]), row("T-2", ["speakers/TC-2"])),
          [concern()], ["speakers/TC-1", "speakers/TC-2"]),
+        ("G7b TC-10 is not TC-1 (the one matcher)", mplan(["TC-1", "TC-10"], row("T-1", ["TC-1"]), row("T-10", ["TC-10"])), [concern()], None),
         ("G8a no token", mplan(["TC-1", "TC-2"], *two), [concern(problem="F-2 flag precondition TC-1, TC-2")], None),
         ("G8b a global concern", mplan(["TC-1", "TC-2"], *two), [concern(case=None, problem="the case critic's findings file cannot be read")], None),
         ("G8c malformed concerns and plan rows", mplan(["TC-1", "TC-2"], *two, "x", {"cases": 5}), [None, {"problem": 5}, {"id": "CC-1"}], None),
@@ -469,6 +470,12 @@ def k_merge_hints_table():
     check("G2: the tag is stable over two calls and has the merge form", again["tag"] == SP.merge_hints(mplan(["TC-1", "TC-2"], *two), [concern()])[0]["tag"]
           and again["tag"].startswith("merge-") and len(again["tag"]) == len("merge-") + 8, again["tag"])
     check_eq("G2: two concerns naming one group give ONE hint", len(SP.merge_hints(mplan(["TC-1", "TC-2"], *two), [concern(), concern("TC-2")])), 1)
+    # a dispatch that names no scope (the controller refuses to send one, but a legacy record may hold none): over-carry, said aloud
+    for label, scope in (("G10a empty scope list", []), ("G10b scope None", None)):
+        got, why = SP.concerns_for_scope(None, None, [concern(), concern("TC-2")], scope)
+        check_eq(f"{label}: every concern comes back unplaced", [c["placement"] for c in got], ["unplaced", "unplaced"])
+        check_eq(f"{label}: the reason says no scope was named", why, "the dispatch names no scope")
+        check_eq(f"{label}: no concerns for no concerns", SP.concerns_for_scope(None, None, [], scope), ([], "the dispatch names no scope"))
 
 
 def k_merge_hint_both_paths():

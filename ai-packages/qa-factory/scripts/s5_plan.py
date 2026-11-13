@@ -1151,7 +1151,8 @@ def _file_concerns(key, rounds, root, number) -> tuple:
 
 def concern_report(task_root, state) -> dict:
     """`{"concerns": [...], "rounds": n, "silent": [paths]}`: `concerns` are exactly what `case_concerns` returns; `rounds` is the
-    number of accepted S4 case-critic rounds; `silent` the story-relative paths of the findings files that were read and gave
+    number of accepted S4 case-critic rounds of the files that could be read (a round of a `silent` file is not counted: "none raised
+    in N rounds" is a fact only about rounds that were read, FR-41); `silent` the story-relative paths of the findings files that were read and gave
     nothing because no round of them could be read against its receipt (AR-28: that is not "no concern"). THE one reader of the
     concern list (AR-13): `case_concerns` is its `concerns`."""
     root, out, silent = Path(task_root).resolve(), [], []
@@ -1161,7 +1162,8 @@ def concern_report(task_root, state) -> dict:
         out.extend(remarks)
         if quiet:
             silent.append("/".join(key))
-    return {"concerns": out, "rounds": sum(len(rounds) for rounds in files.values()), "silent": silent}
+    read = sum(len(rounds) for key, rounds in files.items() if "/".join(key) not in silent)
+    return {"concerns": out, "rounds": read, "silent": silent}
 
 
 def case_concerns(task_root, state) -> list:
@@ -1227,8 +1229,10 @@ def placed_remarks(remarks, window_of, tests, reach) -> list:
 
 def concerns_for_scope(task_root, state, concerns, scope) -> tuple:
     """`(concerns of ONE legacy window, why)`: the same placement rule as the planned windows, the window being `scope`. When the
-    stage's scope cannot be derived, or anything fails, every concern comes back `unplaced` with `why` (over-carry, said aloud:
+    stage's scope cannot be derived, the dispatch names no scope, or anything fails, every concern comes back `unplaced` with `why` (over-carry, said aloud:
     AR-28); `why` is "" otherwise. Never raises."""
+    if not scope:       # a window that names no case is the story scope: no window to cut, so nothing is dropped for want of one
+        return [dict(c, placement="unplaced") for c in concerns], "the dispatch names no scope"
     try:
         import controller as CT
         stage = CT.Controller(task_root).stage_scope("S5", state)
@@ -1522,7 +1526,7 @@ def merge_hints(plan, concerns, cfg=None) -> list:
     held = {str(c) for t in tests for c in t["cases"]}
 
     def matches(key, ident) -> bool:
-        return key == ident or ident in C.case_ids(key, cfg=cfg)
+        return C.names_case([key], ident, cfg)
 
     rows, seen = [], set()
     for concern in concerns or []:

@@ -2012,12 +2012,10 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
             shown, why = sp.concerns_for_scope(task_root, state, report["concerns"], scope)
         cfg = C.case_config(task_root)
         groups = [CR.parametrise_group(c.get("problem"), cfg) for c in shown]
-        asked = [g for g in groups if len(g) >= 2]
+        asked = {frozenset(g) for g in groups if len(g) >= 2}      # one ask per GROUP: the token sits on every case of it
         n, k = len(shown), len(asked)
-        if not plan:
-            def held(ident):
-                return any(key == str(ident) or ident in C.case_ids(str(key), cfg=cfg) for key in scope)
-            elsewhere = sum(1 for g in asked if not all(held(i) for i in g))
+        if not plan and author:
+            elsewhere = sum(1 for g in asked if not all(C.names_case(scope, i, cfg) for i in g))
         if n:
             name = f"{dispatch_id}-case-concerns.md"
             rel = _rel(task_root, "work/briefs/" + name)
@@ -2046,11 +2044,11 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
                 if why:
                     text += f"; not filtered to this window ({_text_whole(why)})"
             head.append(text)
-        elif not report["rounds"]:
+        elif not report["rounds"] and not report["silent"]:
             files.append("- case critic's concerns: none carried")
         elif not plan and report["concerns"]:
             files.append(f"- case critic's concerns: none for the cases of this window ({len(report['concerns'])} for other windows)")
-        else:
+        elif report["rounds"]:
             files.append(f"- case critic's concerns: none raised in {report['rounds']} accepted round(s)")
         if report["silent"]:
             head.append(f"Case critic's concerns: {len(report['silent'])} findings file(s) gave none because a round could not be read "
