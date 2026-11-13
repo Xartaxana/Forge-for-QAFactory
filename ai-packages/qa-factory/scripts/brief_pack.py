@@ -424,8 +424,6 @@ def ahead_card(role: str) -> str:
 # the roles read said TC-NNN, and the automator spent about 35 calls reading factory code before it halted).
 CASE_FORM_ROLES = ("qa-case-designer", "qa-automator")
 CASE_FORM_NONE = "Case id form: TC-001 (the project records no form)"
-CASE_FORM_PROBLEMS_SHOWN = 3
-CASE_FORM_LINE_CHARS = 300
 
 
 def _clip(text: str, limit: int) -> str:
@@ -435,6 +433,17 @@ def _clip(text: str, limit: int) -> str:
         return one
     half = (limit - 3) // 2
     return one[:half] + "..." + one[-half:]
+
+
+def _clipped(text, limit: int) -> bool:
+    """True when `_clip(text, limit)` drops characters: the caller then names where the whole is."""
+    return len(" ".join(str(text).split())) > limit
+
+
+def _text_whole(text) -> str:
+    """A text on ONE line, whole: whitespace folded (`" ".join(text.split())` - the fold `_short` and `_clip` apply),
+    no character dropped, an absent value ''. The one road for a summary whose text has no other carrier."""
+    return " ".join(str(text if text is not None else "").split())
 
 
 def case_form_lines(task: str, task_root: Path, role: str) -> list:
@@ -457,16 +466,13 @@ def case_form_lines(task: str, task_root: Path, role: str) -> list:
         found = case_forms.problems(cfg)
     except Exception:
         return [CASE_FORM_NONE]
-    # Each line is capped: the head is never shrunk, and a key is the project's free text (a 100 KB
-    # value made a 102 KB brief when its problem was printed whole). The MIDDLE is cut, because a
-    # problem sentence names the entry first and says what is wrong with it last.
-    out = [_clip(line, CASE_FORM_LINE_CHARS)]
-    for problem in found[:CASE_FORM_PROBLEMS_SHOWN]:
-        out.append(_clip(f"- {problem}", CASE_FORM_LINE_CHARS))
+    # Every problem is named whole, each on one line: the text is derived (the config's own words) and
+    # no other carrier holds it, so a cut here would be a cut the role cannot undo (FV1-4, AR-21).
+    out = [_text_whole(line)]
+    for problem in found:
+        out.append(_text_whole(f"- {problem}"))
     if found:
-        more = len(found) - CASE_FORM_PROBLEMS_SHOWN
-        out.append("- that entry is ignored, so the form above is the one in force"
-                   + (f"; {more} more problem(s) are not shown" if more > 0 else ""))
+        out.append("- that entry is ignored, so the form above is the one in force")
     return out
 
 
@@ -605,8 +611,10 @@ def branch_check_line(task_root) -> str:
             elif git_state == "ok":
                 why = "git: ok, but the record names no HEAD"
             else:
+                said = _one_line(record.get("why"))
                 why = (f"git: {git_state or 'unknown'} - "
-                       f"{_clip(_one_line(record.get('why')), BRANCH_WHY_CHARS) or 'no reason recorded'}")
+                       f"{_clip(said, BRANCH_WHY_CHARS) or 'no reason recorded'}"
+                       + (f" (whole: {base_rel})" if _clipped(said, BRANCH_WHY_CHARS) else ""))
             where = f"no branch was recorded at S0 ({why})"
         # The manifest's branch is the merge request's source branch (!57), a different name for the same commit:
         # said once, so the role never reads it as the branch to be on.
@@ -631,7 +639,6 @@ def branch_check_line(task_root) -> str:
 EXPECTATION_ROLE = "qa-code-critic"
 EXPECTATION_NAMES_SHOWN = 8
 EXPECTATION_NAME_CHARS = 160   # a test name is the project's free text; the head must stay bounded
-EXPECTATION_WHY_CHARS = 300
 EXPECTATION_POINTER = "`s5_precheck.py --json` -> `expectation_changes`"
 EXPECTATION_GONE = " (gone after its red run)"
 EXPECTATION_COULD_NOT_JUDGE = "could_not_judge"  # a verdict word of handoffs/vocabulary.yaml
@@ -699,6 +706,16 @@ def expectation_change_lines(task_root: Path, role: str, dispatch_id: str) -> li
         more = len(pairs) - EXPECTATION_NAMES_SHOWN
         return ", ".join(names) + (f", and {more} more - the full list: {EXPECTATION_POINTER}" if more > 0 else "")
 
+    def clipped_name(pairs: list) -> bool:
+        return any(_clipped(str(p.get("function") or "?"), EXPECTATION_NAME_CHARS)
+                   for p in pairs[:EXPECTATION_NAMES_SHOWN])
+
+    def full_list_tail(pairs: list) -> str:
+        """A clipped name makes the line end with the pointer to the whole list (a line past the shown count already names it)."""
+        if clipped_name(pairs) and len(pairs) <= EXPECTATION_NAMES_SHOWN:
+            return f" The full list, with its fields: {EXPECTATION_POINTER}."
+        return ""
+
     if todo:
         names = named(todo)
         line = f"Tests changed after a red run - {len(todo)} to judge: " + names
@@ -713,13 +730,14 @@ def expectation_change_lines(task_root: Path, role: str, dispatch_id: str) -> li
         lines.append(line)
     if by_word:
         lines.append(f"Tests changed after a red run - {len(by_word)} passed by a person's word - nothing to "
-                     f"record: {named(by_word)}. Write a `test_defect` finding if the test was fitted to the code.")
+                     f"record: {named(by_word)}. Write a `test_defect` finding if the test was fitted to the code."
+                     + full_list_tail(by_word))
     if unjudged:
         lines.append(f"Tests changed after a red run - {len(unjudged)} could not be judged - "
-                     f"{EXPECTATION_COULD_NOT_JUDGE_ROAD}: {named(unjudged)}.")
+                     f"{EXPECTATION_COULD_NOT_JUDGE_ROAD}: {named(unjudged)}." + full_list_tail(unjudged))
     if unmeasured:
         lines.append("whether tests were changed after a red run could not be measured: "
-                     + _clip("; ".join(unmeasured), EXPECTATION_WHY_CHARS))
+                     + _text_whole("; ".join(unmeasured)))
     return lines
 
 
@@ -731,18 +749,22 @@ def expectation_change_lines(task_root: Path, role: str, dispatch_id: str) -> li
 PROOF_ROLE = "qa-code-critic"
 PROOF_NAMES_SHOWN = 8
 PROOF_NAME_CHARS = 160   # a test name is the project's free text; the head must stay bounded
-PROOF_WHY_CHARS = 300
 PROOF_LIST = "work/automation-manifest.json"
 
 
-def _proof_name(row: dict) -> str:
-    """`<file>::<instance id>` of a manifest row - the two things `probe_by_code.py --test/--instance`
+def _proof_name_whole(row: dict) -> str:
+    """`<file>::<instance id>` of a manifest row, whole - the two things `probe_by_code.py --test/--instance`
     are given; the id alone when the row names no file, `?` when it carries no identity."""
     import contract
     import proof_level
     iid = contract.test_instance_id(row) or "?"
     file = proof_level.test_file_of(row)
-    return _clip(f"{file}::{iid}" if file else iid, PROOF_NAME_CHARS)
+    return f"{file}::{iid}" if file else iid
+
+
+def _proof_name(row: dict) -> str:
+    """`_proof_name_whole` on one line, a name over PROOF_NAME_CHARS clipped in the middle (the line then names the full list)."""
+    return _clip(_proof_name_whole(row), PROOF_NAME_CHARS)
 
 
 def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
@@ -778,15 +800,17 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
             return [cannot + f"{PROOF_LIST} is not a JSON object."]
         scope = {str(c).rsplit("/", 1)[-1] for c in s5_precheck.scope_cases(task_root, manifest, dispatch_id)}
         cfg = contract.case_config()
-        owed, receipted = [], 0
+        owed, receipted, clipped_names = [], 0, []
         for row in contract.manifest_tests(manifest):
             if not set(contract.manifest_test_links(row, cfg)) & scope:
                 continue
+            whole_name = _proof_name_whole(row)
             name = _proof_name(row)
             try:
                 required = proof_level.proof_required(row, manifest)
             except Exception as exc:   # one row the predicate cannot judge never hides the others
-                owed.append(f"{name} - could not be judged ({_clip(f'{type(exc).__name__}: {exc}', 120)})")
+                owed.append(f"{name} - could not be judged ({_text_whole(f'{type(exc).__name__}: {exc}')})")
+                clipped_names.append(_clipped(whole_name, PROOF_NAME_CHARS))
                 continue
             if not required:
                 continue
@@ -801,8 +825,9 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
             except Exception:
                 word = None
             owed.append(name + (f" ({word})" if word else ""))
+            clipped_names.append(_clipped(whole_name, PROOF_NAME_CHARS))
     except Exception as exc:
-        return [cannot + _clip(f"the measurement itself failed ({type(exc).__name__}: {exc})", PROOF_WHY_CHARS)]
+        return [cannot + _text_whole(f"the measurement itself failed ({type(exc).__name__}: {exc})")]
     if not owed:
         return []
     count = len(owed)
@@ -811,6 +836,8 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
             + ", ".join(owed[:PROOF_NAMES_SHOWN]))
     if count > PROOF_NAMES_SHOWN:
         line += f", and {count - PROOF_NAMES_SHOWN} more - the full list: {PROOF_LIST} (`novelty` per row)"
+    elif any(clipped_names[:PROOF_NAMES_SHOWN]):   # a name clipped in the middle: where the whole is
+        line += f" - the full list: {PROOF_LIST} (`novelty` per row)"
     try:
         import probe_debt
         debt = probe_debt.debt_rel(dispatch_id)       # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
@@ -828,10 +855,12 @@ SIDES_ROLES = ("qa-automator", "qa-code-critic")    # who is handed the side lin
 SIDES_AUTHOR = "qa-automator"                       # who is also handed the fields to fill and the bind round
 SIDES_SHOWN = 6                                     # side lines one brief lists; the rest is `+N more`
 SIDE_LINE_CHARS = 160
+SIDES_WHOLE = "whole: pipeline.json `sides`"        # the last line of the side lines when any line above was clipped
 SIDE_KNOWLEDGE_MARK = "[knowledge:{}]"              # a DATA token on a side line that came from the registry, for counting later
 PROVISIONAL_SHOWN = 6                               # rows of one kind a bind brief lists (open or back to open)
 PENDING_SHOWN = 6                                   # pending rows a bind brief lists
 PROVISIONAL_LINE_CHARS = 200
+BIND_WHOLE = "whole: work/automation-manifest.json `provisional` / `unresolved`"   # the last bind line when any line above was clipped
 BIND_PURPOSE = "bind"                               # a word of `controller.PURPOSES` (its home, AR-1); a test pins the membership
 # The bind procedure is paid by a bind round only, so it lives here and not in the charter (J-15, Q11).
 BIND_HEAD = ("Bind round - the code arrived: only what is listed here is yours to settle; what is not listed is not yours. Run each open "
@@ -872,18 +901,24 @@ def side_lines(pipeline, cfg=None, env_name=None) -> list:
     if not stamp:
         return []
     out = []
+    clipped = False     # any line below clipped: the last line then names the record that holds the whole
+
+    def done() -> list:
+        return out + ([SIDES_WHOLE] if clipped else [])
+
     if stamp.get("sides_unknown"):
-        out.append(_clip(f"The project's record of the sides could not be read ({stamp['sides_unknown']}): no side counts as real.",
-                         SIDE_LINE_CHARS * 2))
+        said = f"The project's record of the sides could not be read ({stamp['sides_unknown']}): no side counts as real."
+        clipped = _clipped(said, SIDE_LINE_CHARS * 2)
+        out.append(_clip(said, SIDE_LINE_CHARS * 2))
     if "sides_met" not in stamp:
-        return out      # the reader's default side beside an unknown is a guess: it is not listed
+        return done()      # the reader's default side beside an unknown is a guess: it is not listed
     try:
         import contract
         sides = contract.story_sides(pipeline, cfg, env_name)
     except Exception:
-        return out
+        return done()
     if not isinstance(sides, dict) or not sides:
-        return out
+        return done()
     out.append("Sides of this story (its record, read by code): an absent side cannot be run against; a substituted side runs only "
                "against its substitute, which proves nothing about the side.")
     for name, row in list(sides.items())[:SIDES_SHOWN]:
@@ -895,6 +930,7 @@ def side_lines(pipeline, cfg=None, env_name=None) -> list:
             text += f", settles by {row['settles_by']}"
         if row.get("reference"):
             text += f", the older version is {row['reference']}"
+        clipped = clipped or _clipped(text, SIDE_LINE_CHARS)
         text = _clip(text, SIDE_LINE_CHARS)
         key = str(row.get("registry_key") or "").strip()
         if row.get("source") == "registry" and key:
@@ -902,7 +938,7 @@ def side_lines(pipeline, cfg=None, env_name=None) -> list:
         out.append(text)
     if len(sides) > SIDES_SHOWN:
         out.append(f"+{len(sides) - SIDES_SHOWN} more sides: pipeline.json `sides`")
-    return out
+    return done()
 
 
 def provisional_lines(task_root: Path, pipeline, dispatch, role: str, dispatch_id: str = "") -> list:
@@ -962,14 +998,14 @@ def _assumption_lines(pipeline) -> list:
     """The two lines of the third route and of the declaration (the kinds and the reality words from their data files)."""
     import contract
     kinds = contract.provisional_kinds()
-    return [_clip("Assumptions: where a side is not real, a selector or a contract you cannot ground is a third route - a `provisional[]` row "
-                  f"(kind: {' | '.join(kinds) if kinds else 'the kinds file could not be read'}) with the marker `qa-provisional: P-n` at the "
-                  "project's single home for it, never in a test body; name the row in `tests[].provisional`. A provisional value is never "
-                  "a Then's expected value.", HEAD_LINE_CHARS * 2),
-            _clip("Declare how each test meets each side it touches in `tests[].sides` ("
-                  + (" | ".join(contract.side_realities().get("realities") or []) or "the words file could not be read")
-                  + "; an absent side is written and collected, not run, and listed `pending_implementation` with its instance ids) and "
-                  "which sides each Then speaks about in `then_bindings[].about`.", HEAD_LINE_CHARS)]
+    return [_text_whole("Assumptions: where a side is not real, a selector or a contract you cannot ground is a third route - a `provisional[]` row "
+                        f"(kind: {' | '.join(kinds) if kinds else 'the kinds file could not be read'}) with the marker `qa-provisional: P-n` at the "
+                        "project's single home for it, never in a test body; name the row in `tests[].provisional`. A provisional value is never "
+                        "a Then's expected value."),
+            _text_whole("Declare how each test meets each side it touches in `tests[].sides` ("
+                        + (" | ".join(contract.side_realities().get("realities") or []) or "the words file could not be read")
+                        + "; an absent side is written and collected, not run, and listed `pending_implementation` with its instance ids) and "
+                        "which sides each Then speaks about in `then_bindings[].about`.")]
 
 
 def _bind_lines(pipeline, manifest, why: str, rows: list, scope) -> list:
@@ -997,10 +1033,13 @@ def _bind_lines(pipeline, manifest, why: str, rows: list, scope) -> list:
     mine = [r for r in here if status(r) == "open" and real(r)]      # a kept_by_decision row stays kept (owner word W3), it is not reopened
     waiting = sorted({str(r.get("settles_on") or "?") for r in here if status(r) == "open" and not real(r)})
     waiting_n = sum(1 for r in here if status(r) == "open" and not real(r))
+    clipped = False     # any line below clipped: the last line then names the manifest keys that hold the whole
     for row in mine[:PROVISIONAL_SHOWN]:
         home = row.get("home") if isinstance(row.get("home"), dict) else {}
-        out.append(_clip(f"- open {row.get('id')} ({row.get('kind') or '?'}) on {row.get('settles_on') or '?'}: {row.get('what') or ''}"
-                         + (f" - home {home['file']}" if home.get("file") else ""), PROVISIONAL_LINE_CHARS))
+        said = (f"- open {row.get('id')} ({row.get('kind') or '?'}) on {row.get('settles_on') or '?'}: {row.get('what') or ''}"
+                + (f" - home {home['file']}" if home.get("file") else ""))
+        clipped = clipped or _clipped(said, PROVISIONAL_LINE_CHARS)
+        out.append(_clip(said, PROVISIONAL_LINE_CHARS))
     if len(mine) > PROVISIONAL_SHOWN:
         out.append(f"+{len(mine) - PROVISIONAL_SHOWN} more rows to settle: work/automation-manifest.json `provisional`")
     if not mine:
@@ -1017,12 +1056,13 @@ def _bind_lines(pipeline, manifest, why: str, rows: list, scope) -> list:
                 f"`retracted_unresolved: [\"{key}\"]`" if run else "leave it"))
         if excused:
             text += f"; still waiting for an absent side: {', '.join(n for n in names if n in excused)}"
+        clipped = clipped or _clipped(text, PROVISIONAL_LINE_CHARS * 2)
         out.append(_clip(text, PROVISIONAL_LINE_CHARS * 2))
     if len(pending) > PENDING_SHOWN:
         out.append(f"+{len(pending) - PENDING_SHOWN} more pending rows: work/automation-manifest.json `unresolved`")
     if not pending:
         out.append("- no pending instance")
-    return out
+    return out + ([BIND_WHOLE] if clipped else [])
 
 
 def _log_of_attempt(task_root: Path, project, attempt: str) -> str:
@@ -1845,7 +1885,7 @@ BLAST_FAILED = "Blast radius index: could not be built ({}) - the driver's S3 pr
 def blast_radius_line(task: str, task_root: Path, write: bool) -> str:
     """The one line of an S3 brief about `work/blast-radius.json` (G1-2): the index `blast_radius.py` builds from the implementation
     diff, with its counts and the first thing it could not measure. `write` False (`--dry-run`, `--output`) builds nothing: the line
-    says what is on disk. At most 300 characters, one line, never raises - unlike `repo_map_for` a failure is NAMED in the line (the
+    says what is on disk. One line (the built form at most 300 characters; a failure names its exception text whole), never raises - unlike `repo_map_for` a failure is NAMED in the line (the
     role must not read "no line" as "no radius"); the driver's S3 preparation builds the file when this call could not."""
     try:
         import blast_radius as BR
@@ -1866,7 +1906,7 @@ def blast_radius_line(task: str, task_root: Path, write: bool) -> str:
         return head + reason + "." + tail
     except Exception as exc:
         what = getattr(exc, "text", "") or str(exc)
-        return BLAST_FAILED.format(f"{type(exc).__name__}: {' '.join(str(what).split())[:120]}")[:BLAST_LINE_MAX]
+        return BLAST_FAILED.format(f"{type(exc).__name__}: {_text_whole(what)}")   # the exception text whole, on one line
 
 
 def s3_labelling_vocabulary_lines(dispatch) -> list:
@@ -1911,7 +1951,7 @@ def _s5_kind(task_root: Path, state: dict, dispatch: dict) -> tuple:
             return "plan", "", state
         form, why = _sp().mode(task_root, state)
     except Exception as exc:  # noqa: BLE001
-        return "unknown", f"{type(exc).__name__}: {_short(exc, 100)}", state
+        return "unknown", f"{type(exc).__name__}: {_text_whole(exc)}", state
     return ("window" if form == "planned" else "legacy"), why, state
 
 
@@ -1922,7 +1962,7 @@ def _plan_cap() -> tuple:
         import guard_pre_tool
         return int(guard_pre_tool.big_read_cap(hooklib.load_config() or {})), ""
     except Exception as exc:  # noqa: BLE001
-        return None, f"{type(exc).__name__}: {_short(exc, 80)}"
+        return None, f"{type(exc).__name__}: {_text_whole(exc)}"
 
 
 def _rel(task_root, name: str) -> str:
@@ -1949,7 +1989,7 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
                     "(verdict, remarks PR-n)")
         rows, why = _sp().hint_rows(task_root)
         if why:
-            head.append(f"grouping hints not computed ({_short(why, 80)})")
+            head.append(f"grouping hints not computed ({_text_whole(why)})")
         elif rows:
             head.append(f"`s5_plan.py --check` prints {len(rows)} grouping hint(s): tests at one level in one file that each prove "
                         "one case. Judge whether they share setup and action and whether each `apart_reason` holds (rubric «On the "
@@ -1971,7 +2011,7 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
                 raise ValueError("the plan has no window")
         except Exception as exc:  # noqa: BLE001 - slices that cannot be cut are named; the plan is then named whole
             files.append(f"- {_rel(task_root,PLAN_FILE)} ({size} B) - {what}; it is over the guard's whole-read cap of {cap} B and its "
-                         f"slices by window could not be cut ({_short(exc, 100)}): read it by ranges, `Grep -n` first, then Read "
+                         f"slices by window could not be cut ({_text_whole(exc)}): read it by ranges, `Grep -n` first, then Read "
                          "with offset/limit")
         else:
             files.append(f"- {PLAN_FILE} is {size} B, over the guard's whole-read cap of {cap} B, so its path is not named; read the "
@@ -2026,7 +2066,7 @@ def plan_lines(task_root: Path, task: str, dispatch_id: str, scope: list, state,
         piece = sp.window_slice(task_root, cases=list(scope), state=state)
         text = sp.render_slice(piece)
     except Exception as exc:  # noqa: BLE001
-        return {"head": [f"Plan slice: could not be cut ({_short(exc, 160)}); the plan is {PLAN_FILE} - read the rows of your cases "
+        return {"head": [f"Plan slice: could not be cut ({_text_whole(exc)}); the plan is {PLAN_FILE} - read the rows of your cases "
                          "by ranges"],
                 "files": [f"- {_rel(task_root,PLAN_FILE)} ({_size(task_root / PLAN_FILE)}) - the plan; slice it: `Grep -n` your case ids, then "
                           "Read with offset/limit"], "sides": {}, "piece": None, "plan": None}
@@ -2087,7 +2127,9 @@ def window_code_file(project: Path, plan, tests: list, label: str = "", task_roo
     ONE neighbouring test per test file (the nearest test function of the file; when the file lacks the test, its first; no file or
     no function, the first test function of the directory). An excerpt is at most `EXCERPT_LINES` code lines and names what it left
     out; the file is at most `CODE_FILE_BYTES`: 28 000 passes whole, 28 001 drops excerpts from the END and lists them as
-    `file:lines` in `omitted` and under a heading. What is not found or not checked is a line, never silence (E16). The fields of
+    `file:lines` in `omitted` and under a heading; when even the bare header is over the cap, EVERY left-out excerpt is still named and
+    the file passes `CODE_FILE_BYTES` (the cap keeps the file under the guard's read limit by dropping excerpts, never by dropping names;
+    past it the role reads the file by range). What is not found or not checked is a line, never silence (E16). The fields of
     a manifest row are rendered from their carrier (axis 28). With `task_root` the header also names, per fixture the window uses,
     the instances of earlier windows that hold a receipt and reach it (`_CodeCollector.invalidates`, HF8-18): a heads-up, no ban;
     what could not be read is a line under "Not found, not checked", and a window with no such fixture has no section."""
@@ -2160,7 +2202,7 @@ class _CodeCollector:
                     text = path.read_text(encoding="utf-8-sig")
                     out = (path, text.splitlines(), ast.parse(text), "")
                 except (OSError, ValueError, SyntaxError) as exc:
-                    out = (path, None, None, f"cannot be parsed ({_short(exc, 60)})")
+                    out = (path, None, None, f"cannot be parsed ({_text_whole(exc)})")
             self.cache[rel] = out
         return self.cache[rel]
 
@@ -2194,8 +2236,7 @@ class _CodeCollector:
                     names = [d for d in dict.fromkeys(defs) if not d.startswith("_")]
                     if names:
                         modules.append((rel, names))
-            tail = ([f"- not read (not written yet, or not parsed): {', '.join(f'`{f}`' for f in unread[:4])}"
-                     + (f" (+{len(unread) - 4} more)" if len(unread) > 4 else "")
+            tail = ([f"- not read (not written yet, or not parsed): {', '.join(f'`{f}`' for f in unread)}"
                      + "; their imports are not listed - `repo_map.py` lists the project's utilities"] if unread else [])
             if not modules:
                 return tail or ["- no helper module found in the imports of this window"]
@@ -2242,7 +2283,7 @@ class _CodeCollector:
             else:
                 self.add(f"{tid}: {extends} (the test you extend)", spec["file"], lines, PB.locate(tree, spec["chain"], spec["function"]))
         except PB.Refusal as exc:
-            self.notes.append(f"{tid} extends {extends}: not found ({_short(exc, 100)})")
+            self.notes.append(f"{tid} extends {extends}: not found ({_text_whole(exc)})")
 
     def fixture_excerpts(self, test: dict, tid: str, tfile: str, here) -> None:
         """The definitions of the fixtures the test `uses`: the plan's own file, the test's file, then the conftest chain upward."""
@@ -2357,8 +2398,8 @@ class _CodeCollector:
                     reached.setdefault((s5_precheck._fixture_alias(fixture), where), []).append(contract.test_instance_id(entry))
         closure_notes = list(dict.fromkeys(closure_notes))
         if broken or closure_notes:
-            what = ([f"the fixtures {broken[0]}{f' and {len(broken) - 1} more' if len(broken) > 1 else ''} reach could not be read"]
-                    if broken else []) + ([_short(closure_notes[0], 160) + (f" (+{len(closure_notes) - 1} more)" if len(closure_notes) > 1 else "")]
+            what = ([f"the fixtures {', '.join(str(b) for b in broken)} reach could not be read"]
+                    if broken else []) + ([_text_whole("; ".join(_text_whole(n) for n in closure_notes))]
                                           if closure_notes else [])
             self.notes.append("; ".join(what) + ": the instances an edit of a shared fixture would make stale may be incomplete")
         return reached
@@ -2393,46 +2434,25 @@ class _CodeCollector:
         return False
 
 
-SHARED_FIXTURE_INSTANCES = 20    # instances named per shared fixture; one more is `(+N more)`
-SHARED_SECTION_BYTES = 6000      # the whole section `## If you change a shared fixture`, in bytes (HF8-18 B3)
-SHARED_TAIL_RESERVE = 80         # kept free inside it for the line `(+K more fixtures not listed)`
-
-
 def _shared_fixture_lines(shared: dict) -> list:
     """The header section `## If you change a shared fixture` (HF8-18): per fixture, the instances of earlier windows whose live
-    check an edit of it makes stale. At most `SHARED_FIXTURE_INSTANCES` names, then `(+N more)`. No fixture, no section. Said as a
-    consequence, not a ban: the factory proves them again at S6.
-
-    The section has a BYTE budget, `SHARED_SECTION_BYTES`, because the header is never cut by the cap fitter (the long names of a
-    real story - 48 to 70 characters, times 20 fixtures - would take the whole file): each fixture gets an even share of what is left,
-    names are cut from the END of its list and the cut is `(+N more)`; a fixture that cannot show even one name inside its share, and
-    every one after it, is the last line `(+K more fixtures not listed)`. The section never exceeds the budget."""
+    check an edit of it makes stale. EVERY fixture and EVERY instance is named - the text is derived from the manifest and no other
+    carrier holds the rest, so no count-only tail stands in for names (FV1-4, AR-21). No fixture, no section. Said as a
+    consequence, not a ban: the factory proves them again at S6. The section is part of the header, which the cap fitter never cuts."""
     if not shared:
         return []
     out = ["", "## If you change a shared fixture", "",
            "Changing a fixture below makes these live checks stale; the factory proves them again at S6 (no ban, only what to expect).", ""]
-    used, keys = sum(len(line.encode("utf-8")) + 1 for line in out), list(shared)
-    budget = SHARED_SECTION_BYTES - SHARED_TAIL_RESERVE
-    for pos, key in enumerate(keys):
-        share, ids = (budget - used) // (len(keys) - pos), shared[key]
-        for count in range(min(len(ids), SHARED_FIXTURE_INSTANCES), 0, -1):
-            more = len(ids) - count
-            line = f"- `{key}` -> " + ", ".join(f"`{i}`" for i in ids[:count]) + (f" (+{more} more)" if more > 0 else "")
-            if len(line.encode("utf-8")) + 1 <= share:
-                out.append(line)
-                used += len(line.encode("utf-8")) + 1
-                break
-        else:
-            out.append(f"- (+{len(keys) - pos} more fixtures not listed)")
-            break
+    for key, ids in shared.items():
+        out.append(f"- `{key}` -> " + ", ".join(f"`{i}`" for i in ids))
     return out
 
 
 def _fit_code_file(excerpts: list, notes: list, label: str, shared: dict | None = None, helpers: list | None = None) -> tuple:
     """The cap fitter of `window_code_file`: the file whole when it fits `CODE_FILE_BYTES`, else excerpts dropped from the END and
-    listed in `omitted`; even the bare file over the cap names fewer and says how many more. The header (the marker form, the fields,
-    the shared-fixture section) is rendered whole and never cut; the section is held to `SHARED_SECTION_BYTES` by
-    `_shared_fixture_lines`, so the excerpts that stay are what the cap leaves of the rest, and `omitted` counts the others. `helpers` (lines) is a header section too, after the fields, never cut by the cap; none given, no section."""
+    listed in `omitted`; even the bare file over the cap names EVERY left-out excerpt (`file:lines`) and may pass the cap. The header
+    (the marker form, the fields, the shared-fixture section) is rendered whole and never cut, so the excerpts that stay are what the cap
+    leaves of the rest, and `omitted` names the others. `helpers` (lines) is a header section too, after the fields, never cut by the cap; none given, no section."""
     fields = _row_field_lines()
     form = _marker_form_lines()      # in the header, before the fields: the cap drops excerpts from the end and never this
     heads_up = _shared_fixture_lines(shared or {})
@@ -2460,10 +2480,8 @@ def _fit_code_file(excerpts: list, notes: list, label: str, shared: dict | None 
     while len(text.encode("utf-8")) > CODE_FILE_BYTES and shown:
         omitted.insert(0, shown.pop()["where"])
         text = render(shown, omitted)
-    keep = len(omitted)
-    while len(text.encode("utf-8")) > CODE_FILE_BYTES and keep > 0:      # even the bare file is over: name fewer, say how many more
-        keep -= 1
-        text = render([], omitted[:keep] + [f"... and {len(omitted) - keep} more"])
+    # Even the bare file may be over the cap (hundreds of excerpts left out): every left-out excerpt stays NAMED by `file:lines`,
+    # so the file may pass `CODE_FILE_BYTES`; the role reads the by-range list, never an unnamed "... and N more" (E-29).
     return text, omitted
 
 
@@ -2497,7 +2515,7 @@ def delta_lines(task_root: Path, task: str, dispatch_id: str, dispatch: dict, st
     out = [f"# Delta - {dispatch_id} (a rework of {parent})", "",
            f"You are resumed: read this, not the whole brief. If you do not hold the work of {parent}, read the full brief first: {brief_rel}", "",
            "## The findings of this round", "",
-           f"- cause {dispatch.get('repair_cause') or 'unnamed'}: {_short(dispatch.get('reason'), 400) or 'no reason recorded'}"]
+           f"- cause {dispatch.get('repair_cause') or 'unnamed'}: {_text_whole(dispatch.get('reason')) or 'no reason recorded'}"]
     dispatches = (state or {}).get("dispatches") or {}
     other = "qa-code-critic" if role == "qa-automator" else "qa-automator"
     mine = set(scope)
@@ -2526,12 +2544,12 @@ def _delta_tail(task_root: Path, parent: str, sp, kind: str, role: str, piece, s
         try:
             blockers = [r for r in sp.remarks_of(task_root, state) if r.get("kind") == "blocker"]
         except Exception as exc:  # noqa: BLE001
-            blockers, note = [], f"not checked: the review chain cannot be read ({_short(exc, 100)})"
+            blockers, note = [], f"not checked: the review chain cannot be read ({_text_whole(exc)})"
             out += ["", "## Blockers of the plan review", "", f"- {note}"]
         else:
             out += ["", "## Blockers of the plan review", ""]
             out += [f"- {r['id']} [{r['kind']}] {', '.join(f'{k} {r[k]}' for k in ('case', 'test', 'then') if r.get(k)) or 'the whole plan'}: "
-                    f"{_short(r['problem'], 200)} Expected: {_short(r['expected'], 160)} Fix: {_short(r['fix'], 160)}"
+                    f"{_text_whole(r['problem'])} Expected: {_text_whole(r['expected'])} Fix: {_text_whole(r['fix'])}"
                     for r in blockers] or ["- none"]
     elif role == "qa-automator" and piece is not None:
         out += ["", "## Remarks of this window with no `plan_remarks` row", ""]
@@ -2540,10 +2558,10 @@ def _delta_tail(task_root: Path, parent: str, sp, kind: str, role: str, piece, s
             rows = handoff_check.form_view(task_root / "work" / "handoffs" / f"{parent}.yaml").data.get("plan_remarks")
             absent = sp.remark_rows_missing(piece["remarks"], rows)
         except (OSError, ValueError) as exc:
-            out.append(f"- not checked: the form of {parent} cannot be read ({_short(exc, 100)})")
+            out.append(f"- not checked: the form of {parent} cannot be read ({_text_whole(exc)})")
         else:
             by_id = {r["id"]: r for r in piece["remarks"]}
-            out += [f"- {i} [{by_id[i]['kind']}]: {_short(by_id[i]['problem'], 200)} Expected: {_short(by_id[i]['expected'], 160)}"
+            out += [f"- {i} [{by_id[i]['kind']}]: {_text_whole(by_id[i]['problem'])} Expected: {_text_whole(by_id[i]['expected'])}"
                     for i in absent if i in by_id] or ["- none"]
     return out
 
@@ -2551,19 +2569,18 @@ def _delta_tail(task_root: Path, parent: str, sp, kind: str, role: str, piece, s
 # --- the stand of a manual block (HF5-5, t-1540) ---------------------------------------------
 
 STAND_HEAD = "The stand"
-STAND_WHY_CHARS = 80        # how much of a reason a line of the section keeps
-STAND_ROLES_MAX = 8         # account names (roles, then env keys) shown in a line; the rest is counted
 STAND_PATHS_MAX = 5         # page-object paths of the repo map named in the section
 STAND_HELPER_NAMES = 8      # helper names (functions and public methods of the map's utilities) named in the section; the rest is counted
-STAND_CASE_LINES_MAX = 10   # `Case actors:` lines; the rest is counted
 
 
-def _stand_short(text, limit: int = STAND_WHY_CHARS) -> str:
-    return " ".join(str(text or "").split())[:limit]
+def _stand_text(text) -> str:
+    """A reason of the stand section on ONE line, whole (whitespace folded, nothing dropped)."""
+    return _text_whole(text or "")
 
 
-def _stand_names(names: list, limit: int = STAND_ROLES_MAX) -> str:
-    return ", ".join(names[:limit]) + (f" (+{len(names) - limit} more)" if len(names) > limit else "")
+def _stand_names(names: list, limit=None) -> str:
+    """Every name, comma-joined. `limit` is accepted and unused: the count bound is gone (its callers still pass a constant of the first-look lines)."""
+    return ", ".join(names)
 
 
 def _case_actor_text(case: str, actor: dict) -> str:
@@ -2650,7 +2667,7 @@ def _stand_address_lines(cfg: dict, project: Path, name: str, entry, block: dict
         out.append(f"- Frontend: {http_client.safe_url(url)}")
     else:
         note = ("the address carries credentials" if url else (found.get("notes") or [EP.frontend_door(cfg)["none"]])[0])
-        out.append(f"- Frontend: not configured ({_stand_short(note, 120)})")
+        out.append(f"- Frontend: not configured ({_stand_text(note)})")
     return out
 
 
@@ -2693,7 +2710,7 @@ def _case_actor_lines(task_root: Path, scope: list, entry=None) -> tuple:
         except Exception as exc:        # a courtesy line: the brief is still built
             actors, said = [], f"{exc.__class__.__name__}"
         if said:
-            cases.append(f"{case}: actors could not be read ({_stand_short(said)})")
+            cases.append(f"{case}: actors could not be read ({_stand_text(said)})")
             continue
         for actor in actors:
             text = _case_actor_text(case, actor)
@@ -2709,7 +2726,7 @@ def _repo_stand_lines(repo) -> list:
     if not repo:
         return ["- Page objects (repo map): no map was built for this block"]
     if repo.get("error"):
-        return [f"- Page objects (repo map): the map could not be built ({_stand_short(repo['error'])})"]
+        return [f"- Page objects (repo map): the map could not be built ({_stand_text(repo['error'])})"]
     paths = [str(u.get("path")) for u in (repo.get("doc") or {}).get("utils") or [] if isinstance(u, dict) and u.get("path")]
     left = len(paths) - STAND_PATHS_MAX
     return ["- Page objects (repo map): " + (", ".join(paths[:STAND_PATHS_MAX]) + (f" (+{left} more: {repo.get('path')})" if left > 0 else "")
@@ -2769,7 +2786,7 @@ def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, e
     why = why or ""
     out, keys = [], []
     if said or why:
-        out.append(said or f"- Stand: not selected ({_stand_short(why, 160)})")
+        out.append(said or f"- Stand: not selected ({_stand_text(why)})")
     else:
         out += _stand_address_lines(cfg, project, name, entry, block, base)
         roles = entry.get("credentials_by_role") if isinstance(entry, dict) else None
@@ -2784,9 +2801,7 @@ def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, e
         keys = list(dict.fromkeys(keys + case_keys + (file_keys or [])))
         out.append("- Env keys: " + (_stand_names(keys) if keys else "none named by the stand's roles, the cases or the env file")
                    + ("" if file_keys is not None else f" (the env file {rel} could not be read)"))
-    out += [f"- Case actors: {line}" for line in cases[:STAND_CASE_LINES_MAX]]
-    if len(cases) > STAND_CASE_LINES_MAX:
-        out.append(f"- Case actors: (+{len(cases) - STAND_CASE_LINES_MAX} more)")
+    out += [f"- Case actors: {line}" for line in cases]
     if not cases:
         out.append("- Case actors: none named by the cases' requests")
     return out + _repo_stand_lines(repo)
@@ -2830,7 +2845,9 @@ def s4_stand_lines(cfg: dict | None, role: str, env_name: str = "") -> list:
         if listed:
             out.append('Stand integrations (declare one a case needs as a precondition with check {"integration": "<name>"}):')
             for name, words in list(listed.items())[:S4_INTEGRATIONS_MAX]:
-                out.append(f"- {name}: {_clip(words, S4_REQUIRED_BY_CHARS)}" if words else f"- {name}")
+                out.append(f"- {name}: {_clip(words, S4_REQUIRED_BY_CHARS)}"
+                           + (f" (whole: {RP.HOME}/config.json, environment.integrations)" if _clipped(words, S4_REQUIRED_BY_CHARS) else "")
+                           if words else f"- {name}")
             if len(listed) > S4_INTEGRATIONS_MAX:
                 out.append(f"- and {len(listed) - S4_INTEGRATIONS_MAX} more in {RP.HOME}/config.json, environment.integrations")
         roles = entry.get("credentials_by_role") if isinstance(entry, dict) else None
@@ -2842,7 +2859,6 @@ def s4_stand_lines(cfg: dict | None, role: str, env_name: str = "") -> list:
 
 
 S3_ROSTER_MAX = 15            # roster lines of the S3 brief; the rest is counted and the registry named
-S3_ROSTER_WHY_CHARS = 120     # how much of an unreadable registry's reason the first line keeps
 S3_ROSTER_MARK = "[knowledge:product.roles]"      # a DATA token on every roster line, for counting later; not prose for the role
 S3_ROSTER_NAME_OF_FILE = "project-knowledge.json"      # the registry's file name; where it is comes from `RP.rel_text` (both worlds, FR-37)
 S3_ROSTER_NAME = ("Name every role this story's plan checks in the optional handoff section product_roles (role, sign_in, where in the "
@@ -2898,7 +2914,7 @@ def s3_roster_lines(task_root, cfg, env_name, audience: str = "strategist") -> l
         elements, removed, problem = got["elements"], got["removed"], str(got.get("problem") or "")
         out = []
         if problem:
-            out.append(f"Product roles: the record of earlier answers cannot be read ({_clip(problem, S3_ROSTER_WHY_CHARS)}); "
+            out.append(f"Product roles: the record of earlier answers cannot be read ({_text_whole(problem)}); "
                        "listed from the stand's accounts only.")
         elif elements:
             out.append(f"Product roles ({roster_file} and the stand's accounts)"
@@ -2915,7 +2931,9 @@ def s3_roster_lines(task_root, cfg, env_name, audience: str = "strategist") -> l
             more = f"; +{len(removed) - S3_ROSTER_MAX} more: {roster_file}" if len(removed) > S3_ROSTER_MAX else ""
             out.append("Removed by the person: " + ", ".join(
                 _clip(r.get("role") or "?", 60) + (f" ({_clip(r['story'], 40)})" if r.get("story") else "")
-                for r in removed[:S3_ROSTER_MAX]) + (more or "."))
+                for r in removed[:S3_ROSTER_MAX]) + (more or ".")
+                + (f" (whole: {roster_file})" if any(_clipped(r.get("role") or "?", 60) or _clipped(r.get("story") or "", 40)
+                                                      for r in removed[:S3_ROSTER_MAX]) else ""))
         if (elements or problem) and not critic:
             out.append(S3_ROSTER_NAME)
         return out
@@ -3104,7 +3122,8 @@ def candidate_defect_line(task_root: Path) -> str:
 
 
 FIT_LINES_MAX = 8          # plan rows given with their test path in the head; the rest go to a side file (TQ1-21)
-FIT_ABSENT_CHARS = 160     # how much of a row's `fit_absent` a brief line keeps
+FIT_ABSENT_CHARS = 160     # how much of a row's `fit_absent` a brief line keeps; a clipped line names the row that holds the whole
+FIT_PLAN_FILE = "work/test-plan.json"
 FIT_BRIEF_ROLES = {"S4": ("qa-case-designer", "qa-case-critic"), "S5": ("qa-automator",)}
 FIT_HEAD = "Existing tests the plan builds on (resolved on the working tree by code - read them at these paths, never search):"
 
@@ -3115,19 +3134,22 @@ def _fit_row_line(PC, task_root: Path, ctx, row: dict, word: str, noun: str):
     rid = str(row.get("id") or "?")
     found = PC.fit_target(task_root, row, ctx=ctx) if word and word != "new" else None
     new = f"write the {noun} as new; the page objects and helpers it needs are part of it"
+    whole = f" (whole: {FIT_PLAN_FILE} {rid})"     # the row holds the text a clipped target or `fit_absent` shows only a part of
     if found:
         state, target = found["state"], _short(found["target"], FIT_ABSENT_CHARS)
         shown, file = f"{found['word']} {target}", _short(found["file"] or found["target"], FIT_ABSENT_CHARS)
         if state == "exists":
             return f"- {rid}: {found['word']} {found['path']}" + (f"::{found['selector']}" if found["selector"] else "") + " (in the working tree)"
+        clipped = _clipped(found["target"], FIT_ABSENT_CHARS) or _clipped(found["file"] or found["target"], FIT_ABSENT_CHARS)
         if state == "unknown":
-            return f"- {rid}: {shown} - not verified ({_one_line(found['why'])}): {new}"
+            return f"- {rid}: {shown} - not verified ({_one_line(found['why'])}): {new}" + (whole if clipped else "")
         what = {"absent": f"no file at {file}", "folder": f"{file} is a folder", "outside": f"{file} is outside the working tree",
                 "unnamed": "it names no test file"}.get(state, state)
-        return f"- {rid}: {shown} - NOT in the working tree ({what}): {new}"
+        return f"- {rid}: {shown} - NOT in the working tree ({what}): {new}" + (whole if clipped else "")
     if word == "new" and row.get("disposition") == "automate" and isinstance(row.get("fit_absent"), str) and row["fit_absent"].strip():
         return (f"- {rid}: new - S3: the test it was to build on is not in the working tree "
-                f"(\"{_short(row['fit_absent'], FIT_ABSENT_CHARS)}\"): the page objects and helpers it needs are part of this {noun}")
+                f"(\"{_short(row['fit_absent'], FIT_ABSENT_CHARS)}\"): the page objects and helpers it needs are part of this {noun}"
+                + (whole if _clipped(row["fit_absent"], FIT_ABSENT_CHARS) else ""))
     return None
 
 
@@ -3214,8 +3236,6 @@ def user_path_failure_lines(task_root: Path, write: bool = True) -> list:
 
 
 TIMEOUT_ROLE = "qa-automator"
-TIMEOUT_PROFILES_SHOWN = 3
-TIMEOUT_WHY_CHARS = 120
 
 
 def _timeout_entry(project, profile: dict) -> str:
@@ -3239,14 +3259,13 @@ def _timeout_entry(project, profile: dict) -> str:
     if got["state"] == "disabled":
         return f"{name}: none configured ({got['why']})"
     if got["state"] == "unreadable":
-        why = got["why"] if len(got["why"]) <= TIMEOUT_WHY_CHARS else got["why"][:TIMEOUT_WHY_CHARS] + "..."
-        return f"{name}: could not be read ({why})"
+        return f"{name}: could not be read ({_text_whole(got['why'])})"
     return f"{name}: none configured"
 
 
 def test_timeout_line(project, role: str, cfg: dict | None = None) -> str:
-    """The ONE brief line naming the project's per-test timeout for the automator (RH2-9, FR-38): per selected profile (at most
-    TIMEOUT_PROFILES_SHOWN, then `(+K more profiles)`) what its pytest `one_test` command will apply, or `none configured`, or why it
+    """The ONE brief line naming the project's per-test timeout for the automator (RH2-9, FR-38): per selected profile (every one, none
+    left out) what its pytest `one_test` command will apply, or `none configured`, or why it
     could not be read, or that the runner is not read. "" for another role and for a project with no profile command. Never
     raises: a failure is ONE line saying so (the brief is a courtesy, P1)."""
     if role != TIMEOUT_ROLE:
@@ -3255,9 +3274,7 @@ def test_timeout_line(project, role: str, cfg: dict | None = None) -> str:
         import profile_contract as PC
         cfg = hooklib.load_config() if cfg is None else cfg
         profiles = PC.selected_profiles(cfg or {})
-        entries = [e for e in (_timeout_entry(project, p) for p in profiles[:TIMEOUT_PROFILES_SHOWN]) if e]
-        if len(profiles) > TIMEOUT_PROFILES_SHOWN:
-            entries.append(f"(+{len(profiles) - TIMEOUT_PROFILES_SHOWN} more profiles)")
+        entries = [e for e in (_timeout_entry(project, p) for p in profiles) if e]
         if not entries:
             return ""
         return ("Per-test timeout: " + "; ".join(entries) + " - a test the limit kills is reported as `timeout`: it is your "
@@ -3316,7 +3333,7 @@ def request_lines(found: dict, task_root) -> list:
 
 def walk_lines(task_root: Path) -> list:
     """The S3 brief line naming the functions of the register's function table (`sizing.functions_of`, THE reader of that table, called as
-    `sizing.compute` calls it): `Functions to walk: <name> (R-1, R-2); ...` up to FUNCTIONS_SHOWN, `(+K more: the register's function table)`
+    `sizing.compute` calls it): `Functions to walk: <name> (R-1, R-2); ...` (every name whole, on one line) up to FUNCTIONS_SHOWN, `(+K more: the register's function table)`
     beyond them, then what a walk is. No table (`read` False) or no counted function: no line. Never raises: a failure is ONE line saying
     it was not measured (P1, the brief is a courtesy). The line reports; no code check judges it (the role walks, or says why not)."""
     try:
@@ -3330,7 +3347,7 @@ def walk_lines(task_root: Path) -> list:
         functions = fx["functions"] if fx["read"] else []
         if not functions:
             return []
-        named = "; ".join(f"{sizing.clip_name(f['name'])} ({', '.join(f['requirements'])})" for f in functions[:FUNCTIONS_SHOWN])
+        named = "; ".join(f"{_text_whole(f['name'])} ({', '.join(f['requirements'])})" for f in functions[:FUNCTIONS_SHOWN])
         more = f"; (+{len(functions) - FUNCTIONS_SHOWN} more: the register's {sizing.FUNCTIONS_HEADING})" if len(functions) > FUNCTIONS_SHOWN else ""
         return [f"{PREFIX_WALK}{named}{more} - each gets a row that walks it as a person does (start, see the result, change, undo; real "
                 f"input) and records every oddity, named in the row's `walks`, or a `walk_homes` entry with a reason."]
@@ -3426,7 +3443,7 @@ def exploration_lines(task_root: Path, task: str, dispatch_id: str = "", briefs_
                 (Path(briefs_dir) / name).write_text("# Exploration cells - " + (dispatch_id or task) + "\n\n" + "\n".join(body) + "\n",
                                                      encoding="utf-8")
             except OSError as exc:
-                return out + [f"{PREFIX_EXPLORE}: — not written ({type(exc).__name__}: {str(exc)[:60]}); rebuild the brief"]
+                return out + [f"{PREFIX_EXPLORE}: — not written ({type(exc).__name__}: {_text_whole(exc)}); rebuild the brief"]
             return out + [f"{PREFIX_EXPLORE}: {rel} - {what}; read it before your first capture"]
         return out + [f"{PREFIX_EXPLORE}: {rel} (not written in this run) - {what}"]
     except Exception as exc:  # noqa: BLE001
@@ -3640,14 +3657,14 @@ def prior_retro_lines(task_root: Path, project: Path) -> list:
         except (OSError, ValueError) as exc:
             data, why = {}, str(exc)
         if why:
-            return [f"{head} cannot be read ({_short(why, 100)}); where it looked is not known"]
+            return [f"{head} cannot be read ({_text_whole(why)}); where it looked is not known"]
         rows = data["tried"]
         if rows:
             return [f"{head} ({_size(other / form)}) - its `tried` table has {len(rows)} row(s): where that retro looked for the causes "
                     "of its story's misses"]
-        return [f"{head} - its `tried` table is empty ({_short(data.get('tried_note'), 100) or 'no tried_note'})"]
+        return [f"{head} - its `tried` table is empty ({_text_whole(data.get('tried_note')) or 'no tried_note'})"]
     except Exception as exc:  # noqa: BLE001 - a brief line never stops a brief
-        return [f"Last retro of this project: could not be looked up ({_short(exc, 100)}); where it looked is not known"]
+        return [f"Last retro of this project: could not be looked up ({_text_whole(exc)}); where it looked is not known"]
 
 
 def _form_line(key: str, value: str, whole: str, form: dict, keep: str = "") -> str:
@@ -3858,7 +3875,7 @@ def first_look_input_line(task_root: Path, display: str, size: str = "") -> str:
         import first_look as FL
         got = FL.read(task_root)
         if got["problem"] and not got["rows"] and not got["null"] and not got["stale"]:
-            return f"- {display}: no first look - {_clip(got['problem'], 160)}"
+            return f"- {display}: no first look - {_text_whole(got['problem'])}"
         if got["null"]:
             return f"- {display}: no first look - the stand was not walked ({got['null'].replace('_', ' ')})"
         if got["stale"]:
@@ -3888,7 +3905,7 @@ def _first_look_accounts(task_root: Path, stand: str, opened: list) -> str:
             text += (f" Known but NOT opened in this walk: {_stand_names(left, FIRST_LOOK_ROLES_MAX)} - a requirement that needs one of them is "
                      "`unreachable` with `blocked_by: access`, and its `why` names that account.")
         if problem:     # AR-23: an unreadable registry narrows the roles to the stand's accounts - say so
-            text += f" The record of earlier answers cannot be read ({_clip(problem, 80)}): listed from the stand's accounts only."
+            text += f" The record of earlier answers cannot be read ({_text_whole(problem)}): listed from the stand's accounts only."
         if none:
             text += (" Roles with no account found: " + _stand_names(none, FIRST_LOOK_ROLES_MAX)
                      + " - `access` with the role's name is also for these.")
@@ -3936,7 +3953,7 @@ def first_look_runner_lines(task_root) -> list:
                 out.append(f"- +{len(ids) - FIRST_LOOK_REQ_MAX} more: the register above")
         else:
             out.append("Requirements: the register holds none or cannot be read"
-                       + (f" ({_clip(why, 120)})" if why else "") + "; record that as a gap and halt")
+                       + (f" ({_text_whole(why)})" if why else "") + "; record that as a gap and halt")
         out += command_card_lines(task_root, walk, FIRST_LOOK_COMMANDS, ". `--help` of a script is allowed:")
         words = FL.data()
         out.append(f"Form and words: {(HERE.parent / 'references' / FIRST_LOOK_CONTRACT).as_posix()}. status: "
@@ -3997,6 +4014,12 @@ def _fl_line(row: dict, body: str) -> str:
     return (text if len(text) <= room else text[:room - 3] + "...") + " " + mark
 
 
+def _fl_line_clipped(line: str) -> bool:
+    """Did `_fl_line` clip this line? A clipped line is exactly FIRST_LOOK_LINE_CHARS long and ends `... [first-look:<id>]` (the marker
+    is never clipped away); the same shape unclipped is a coincidence whose only cost is one more pointer line."""
+    return len(line) == FIRST_LOOK_LINE_CHARS and re.search(r"\.\.\. \[first-look:[^\]]*\]$", line) is not None
+
+
 def _fl_state(task_root) -> tuple:
     """`("rows", record)` or `("line", [the one line saying why there is no usable record])`: no record, a `null` one (its reason), an
     unreadable one (its reason) and a STALE one (it confirms nothing) are each ONE line, never silence (AR-23, AR-28)."""
@@ -4012,11 +4035,11 @@ def _fl_state(task_root) -> tuple:
         return "line", [f"First look: there was no first look - the stand was not walked ({got['null'].replace('_', ' ')})."]
     if kind == "stale":
         return "line", [f"First look: STALE - walked on other code or another register than the current ones; it confirms nothing, read "
-                        f"{FIRST_LOOK_FILE} as history" + (f" ({_clip(got['problem'], 80)})." if got["problem"] else ".")]
+                        f"{FIRST_LOOK_FILE} as history" + (f" ({_text_whole(got['problem'])})." if got["problem"] else ".")]
     if kind == "absent":
         return "line", [FIRST_LOOK_NONE]
     if kind == "unreadable":
-        return "line", [f"First look: the record cannot be read ({_clip(got['problem'], 120)}); treat the stand as not walked."]
+        return "line", [f"First look: the record cannot be read ({_text_whole(got['problem'])}); treat the stand as not walked."]
     return "rows", got
 
 
@@ -4093,9 +4116,10 @@ def first_look_lines(task_root, stage: str, role: str) -> list:
         if state == "line":
             return list(got)
         lines = _fl_body(kind, task_root, got)
+        clipped = any(_fl_line_clipped(line) for line in lines[:FIRST_LOOK_LINES_MAX])
         if len(lines) > FIRST_LOOK_LINES_MAX:
             lines = lines[:FIRST_LOOK_LINES_MAX] + [f"+{len(lines) - FIRST_LOOK_LINES_MAX} more: {FIRST_LOOK_FILE}"]
-        return lines
+        return lines + ([f"whole: {FIRST_LOOK_FILE}"] if clipped else [])      # a line `_fl_line` clipped: the block ends naming the record
     except Exception as exc:  # noqa: BLE001 - a courtesy block: the brief is always built
         print(f"brief_pack: first_look_lines failed ({type(exc).__name__}: {exc})", file=sys.stderr)
         return [f"First look: the lines could not be built ({type(exc).__name__}); read {FIRST_LOOK_FILE} if it exists."]

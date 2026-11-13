@@ -761,14 +761,20 @@ def expectation_lines() -> None:
         check_in("a detector that raises: the line says the measurement failed and why",
                  UNMEASURED_START + " the measurement itself failed (RuntimeError: boom)", raised)
         check_in("and the brief is still built to its end", "## Rule", raised)
-        s5_precheck.expectation_changes = lambda *a, **kw: {"pairs": [], "unmeasured": ["why " + "x" * 5000]}
+        for size in (300, 301, 5000):      # FV1-4 N2: the reason is derived text with no other carrier - whole at, beyond and far beyond the old cap
+            reason = "why " + "x" * (size - 4)
+            s5_precheck.expectation_changes = lambda *a, _r=reason, **kw: {"pairs": [], "unmeasured": [_r]}
+            try:
+                long_why = line_of(critic_brief()["markdown"], UNMEASURED_START)
+            finally:
+                s5_precheck.expectation_changes = real
+            check_eq(f"a {size}-character unmeasured reason is whole on one line (no clip)", long_why, UNMEASURED_START + " " + reason)
+        s5_precheck.expectation_changes = lambda *a, **kw: {"pairs": [], "unmeasured": ["two\nlines", "  and\tmore "]}
         try:
-            long_why = line_of(critic_brief()["markdown"], UNMEASURED_START)
+            folded = line_of(critic_brief()["markdown"], UNMEASURED_START)
         finally:
             s5_precheck.expectation_changes = real
-        check("a 5 KB reason is clipped in the middle, the head stays bounded",
-              len(long_why) <= len(UNMEASURED_START) + 1 + brief_pack.EXPECTATION_WHY_CHARS and "..." in long_why,
-              str(len(long_why)))
+        check_eq("reasons with line breaks are folded onto one line, joined by '; '", folded, UNMEASURED_START + " two lines; and more")
         shutil.rmtree(task / "work/run-blocks")
 
         # a very long test name is clipped; the count and the pointer survive
@@ -779,6 +785,25 @@ def expectation_lines() -> None:
         check("and shown clipped to the cap, not whole",
               "y" * 400 not in line and "..." in line and len(line) < 1800, str(len(line)))
         shutil.rmtree(task / "work/run-blocks")
+
+        # FV1-4 N2: a clipped name makes a line without the pointer end with it (passed-by-word line), at / beyond / 10x the name cap
+        at_name = "test_a" + "y" * (brief_pack.EXPECTATION_NAME_CHARS - len(fn_key("test_a")))
+        for label, name, clipped in (("at the cap", at_name, False), ("one beyond", at_name + "y", True),
+                                     ("10x", "test_a" + "y" * (10 * brief_pack.EXPECTATION_NAME_CHARS), True)):
+            seed_changes(task, [name])
+            set_words("changed-after-red")
+            line = line_of(critic_brief()["markdown"], LINE_START)
+            check_eq(f"passed-by-word line, name {label}: the full-list pointer ends the line only when the name was clipped",
+                     line.endswith(f" The full list, with its fields: {pointer}."), clipped)
+            check_eq(f"passed-by-word line, name {label}: the whole name is there exactly when it was not clipped",
+                     fn_key(name) in line, not clipped)
+            seed_changes(task, [name], judged={name: "could_not_judge"})
+            set_words()
+            line = line_of(critic_brief()["markdown"], LINE_START)
+            check_eq(f"could-not-judge line, name {label}: the full-list pointer ends the line only when the name was clipped",
+                     line.endswith(f" The full list, with its fields: {pointer}."), clipped)
+            shutil.rmtree(task / "work/run-blocks")
+        set_words()
 
         # at the cap of the brief: 10 KB of the person's words force every shrink; the head keeps the line (edge 5)
         seed_story_for_s5(task, root, "Gate A: approved. " + "Keep every UI case in scope. " * 400)
@@ -896,6 +921,17 @@ def proof_lines() -> None:
         line = mine()[0]
         check("a 400-character name is clipped to the cap, not whole, and the tail is there",
               "y" * 400 not in line and "..." in line and line.endswith(PROOF_TAIL) and " - 3 instances " in line, line[:200])
+        # FV1-4 N2: a clipped name makes the line name the full list even with no 'more' clause; at / beyond / 10x the name cap
+        full_list = " - the full list: work/automation-manifest.json (`novelty` per row)"
+        for label, size, clipped in (("at the cap", brief_pack.PROOF_NAME_CHARS, False), ("one beyond", brief_pack.PROOF_NAME_CHARS + 1, True),
+                                     ("10x", 10 * brief_pack.PROOF_NAME_CHARS, True)):
+            name = "test_a" + "y" * (size - len(TEST_FILE + "::test_a"))
+            seed_proof_rows(task, root, 0, extra=[{"case": "TC-001", "covers": ["TC-001"], "file": TEST_FILE,
+                                                   "instance_id": name, "novelty": {"value": "new", "basis": "x"}}])
+            line = mine()[0]
+            check_eq(f"a name {label} ({size} characters): the full-list clause is present exactly when the name was clipped",
+                     full_list + PROOF_TAIL[:2] in line, clipped)
+            check_eq(f"a name {label}: the whole name is in the line exactly when it was not clipped", (TEST_FILE + "::" + name) in line, not clipped)
 
         # the receipted split: required AND already receipted are counted apart, never as work
         seed_proof_rows(task, root, 4, receipted=(2, 4))
@@ -943,6 +979,20 @@ def proof_lines() -> None:
                  built(3) + proof_name(1, "new") + ", " + f"{TEST_FILE}::{fn_name(2)} - could not be judged (RuntimeError: boom), "
                  + proof_name(3, "new") + PROOF_TAIL)
         check_in("and the brief is built to its end", "## Rule", text)
+        # FV1-4 N2: the exception text of the row the predicate raised on is whole on one line, at / beyond / 10x the old 120-character clip
+        for size in (120, 121, 1200):
+            said_text = "boom " + "z" * (size - len("RuntimeError: boom "))
+
+            def picky_long(entry, manifest, _t=said_text):
+                if isinstance(entry, dict) and entry.get("instance_id") == fn_name(2):
+                    raise RuntimeError(_t.replace(" ", "\n", 1))      # the line break is folded to a space, nothing else changes
+                return real(entry, manifest)
+            proof_level.proof_required = picky_long
+            try:
+                line = next(ln for ln in critic_brief()["markdown"].splitlines() if ln.startswith(PROOF_START))
+            finally:
+                proof_level.proof_required = real
+            check_in(f"a {size}-character exception of a row: whole in its entry, no clip", f"could not be judged (RuntimeError: {said_text})", line)
 
         # a receipt that cannot be read leaves the row owed (the error goes toward 'still to check')
         real_reached = proof_level.reached
@@ -992,6 +1042,21 @@ def proof_lines() -> None:
                  CANNOT_START + "the measurement itself failed (ValueError: conflicting canonical and legacy artifact",
                  line_of(text, CANNOT_START))
         check_in("...and the brief is built to its end", "## Rule", text)
+        # FV1-4 N2: the failure text is whole on one line at / beyond / 10x the old 300-character clip
+        for size in (300, 301, 3000):
+            detail = "q" * (size - len("ValueError: "))
+
+            def failing(art_dir, name, _d=detail):
+                if name == "automation-manifest.json":
+                    raise ValueError(_d)
+                return real_artifact(art_dir, name)
+            contract.artifact = failing
+            try:
+                text = critic_brief()["markdown"]
+            finally:
+                contract.artifact = real_artifact
+            check_eq(f"a {size}-character failure text of the measurement: whole, ONE line", line_of(text, CANNOT_START),
+                     CANNOT_START + f"the measurement itself failed (ValueError: {detail})")
 
         # another role: nothing, and not a single call of the predicate
         seed_proof_rows(task, root, 9)
@@ -1297,11 +1362,17 @@ def branch_check_lines() -> None:
         reason_at = "r" * 200
         seed_branch(task, record=dict(BASE_RECORD, git="error", why=reason_at))
         check_in("(h') a reason of exactly 200 characters is kept whole (AT the limit)", f"(git: error - {reason_at});", branch_line(task))
-        seed_branch(task, record=dict(BASE_RECORD, git="error", why="r" * 201))
-        line = branch_line(task)
-        shown = line.split("(git: error - ", 1)[1].split(");", 1)[0]
-        check("(h') a reason of 201 characters is cut (BEYOND the limit) to at most 200, marked with '...'",
-              len(shown) <= 200 and "..." in shown and shown.startswith("r") and shown.endswith("r"), f"{len(shown)}: {shown!r}")
+        whole_clause = " (whole: state/test-repo-base.json)"      # FV1-4 N2: the cut names the file that holds the whole
+        check_not_in("(h') AT the limit: no 'whole:' clause", "(whole:", branch_line(task))
+        for size in (201, 2000):      # BEYOND and 10x
+            seed_branch(task, record=dict(BASE_RECORD, git="error", why="r" * size))
+            line = branch_line(task)
+            shown = line.split("(git: error - ", 1)[1].split(whole_clause + ");", 1)[0]
+            check(f"(h') a reason of {size} characters is cut to at most 200, marked with '...', and names the file holding the whole",
+                  len(shown) <= 200 and "..." in shown and shown.startswith("r") and shown.endswith("r") and whole_clause + ");" in line,
+                  f"{len(shown)}: {shown!r}")
+        seed_branch(task, record=dict(BASE_RECORD, git="error", why=""))
+        check_in("(h') an empty reason keeps its text byte for byte, with no 'whole:' clause", "(git: error - no reason recorded);", branch_line(task))
         seed_branch(task, record=dict(BASE_RECORD, late=True, late_why=reason_at))
         check_in("(h') a late reason of exactly 200 characters is kept whole (AT the limit)", f"(recorded late: {reason_at});", branch_line(task))
         seed_branch(task, record=dict(BASE_RECORD, late=True, late_why="r" * 201))
@@ -1549,6 +1620,19 @@ def blast_radius_lines() -> None:
         check_eq("(M13) a failing build: named in the line (one line, the exception and its message), the brief is still written",
                  (the_line(failed["markdown"]), bool(failed["written"])),
                  ("Blast radius index: could not be built (RuntimeError: boom second line) - the driver's S3 preparation builds it.", True))
+        # FV1-4 N2: the exception text is whole on one line, at / beyond / 10x the old 120-character clip (and past the old 300-character line cap)
+        for size in (120, 121, 1200):
+            said = "m" * size
+
+            def boom_long(*args, _s=said, **kwargs):
+                raise RuntimeError(_s)
+            BR.ensure = boom_long
+            try:
+                got = the_line(brief()["markdown"])
+            finally:
+                BR.ensure = real_ensure
+            check_eq(f"(FV1-4 N2) a failing build with a {size}-character message: named whole on one line", got,
+                     f"Blast radius index: could not be built (RuntimeError: {said}) - the driver's S3 preparation builds it.")
 
         # the story has no implementation diff: the line says so
         index.unlink()
@@ -2660,10 +2744,206 @@ def s5_brief_names_side_fields_only_for_non_real_side() -> None:
         check_eq("(PC-8) exactly SIDES_SHOWN sides: no `+N more` line", len(at), brief_pack.SIDES_SHOWN + 1)
         check_in("(PC-8) a side of unknown reality reads as not real", "unknown (not read as real)",
                  "\n".join(brief_pack.side_lines({"sides": {"x": {"source": "launch"}}})))
+        # FV1-4 N2: a side line clipped at SIDE_LINE_CHARS makes the LAST line name the record holding the whole
+        side_head = "- s: absent, the older version is "
+        sides_whole = "whole: pipeline.json `sides`"
+        for label, size, clipped in (("AT the clip", brief_pack.SIDE_LINE_CHARS, False), ("one BEYOND", brief_pack.SIDE_LINE_CHARS + 1, True),
+                                     ("10x", 10 * brief_pack.SIDE_LINE_CHARS, True)):
+            older = "o" * (size - len(side_head))
+            got = brief_pack.side_lines({"sides": {"s": {"reality": "absent", "source": "launch", "reference": older}}})
+            check_eq(f"(FV1-4 N2) a side line {label}: the last line is `whole:` exactly when it was clipped", got[-1] == sides_whole, clipped)
+            check_eq(f"(FV1-4 N2) a side line {label}: the whole reference is shown exactly when it was not clipped", older in got[-2 if clipped else -1], not clipped)
+        got = brief_pack.side_lines(dict({"sides": many}, sides_unknown="u" * (10 * brief_pack.SIDE_LINE_CHARS)))
+        check_eq("(FV1-4 N2) an unreadable-record line over its clip, then more sides than shown: the `whole:` line is still the last",
+                 (got[-1], got[-2].startswith("+2 more sides")), (sides_whole, True))
         check_in("(PC-8) bind is a word of the controller's own closed set", brief_pack.BIND_PURPOSE,
                  __import__("controller").PURPOSES)
     finally:
         harness.cleanup(root)
+
+
+def n2_summaries_name_their_whole() -> None:
+    """FV1-4 N2 (class C): a summary line that clips or drops content either names where the whole is (one step away) or renders
+    whole. One row per site whose brief line has no test function of its own in this file: AT the old bound (unchanged output), ONE
+    BEYOND (the carrier named, or the text whole) and 10x; an empty value keeps its text."""
+    import contextlib
+    import types
+
+    @contextlib.contextmanager
+    def patched(obj, **attrs):
+        saved = {k: getattr(obj, k) for k in attrs}
+        for k, v in attrs.items():
+            setattr(obj, k, v)
+        try:
+            yield
+        finally:
+            for k, v in saved.items():
+                setattr(obj, k, v)
+
+    # the one fold: whitespace folded, no character dropped, an absent value is ''
+    check_eq("_text_whole: folds line breaks and runs of blanks, drops nothing, None is ''",
+             (brief_pack._text_whole("a\n b\t\tc "), brief_pack._text_whole(None), brief_pack._text_whole("x" * 5000)), ("a b c", "", "x" * 5000))
+    check_eq("_stand_text: a 5 000-character reason is whole on one line", brief_pack._stand_text("w\n" * 2500), " ".join(["w"] * 2500))
+    names = [f'--as "role{i}"' for i in range(30)]
+    check_eq("_stand_names: 30 names, the old limit accepted and unused: all 30, no `(+N more)`",
+             (brief_pack._stand_names(names, 8), brief_pack._stand_names(names)), (", ".join(names), ", ".join(names)))
+    check_eq("_stand_names: an empty list is the empty string", brief_pack._stand_names([], 8), "")
+
+    # the Stand integrations line of S4 (2c): a clipped `required_by` names where the whole is
+    import env_probe as EP
+    import gate_preflight as GP
+    whole = f" (whole: {brief_pack.RP.HOME}/config.json, environment.integrations)"
+    for label, size, clipped in (("AT the clip", brief_pack.S4_REQUIRED_BY_CHARS, False), ("one BEYOND", brief_pack.S4_REQUIRED_BY_CHARS + 1, True),
+                                 ("10x", 10 * brief_pack.S4_REQUIRED_BY_CHARS, True)):
+        said = "q" * size
+        with patched(GP, integration_row_keys=lambda spec: ["K"], required_by_entries=lambda spec, _s=said: [_s]), \
+                patched(EP, integration_readiness=lambda *a, **k: {"status": "required"}):
+            got = brief_pack.s4_stand_lines({"environment": {"integrations": [{"name": "pay"}]}}, "qa-case-designer", "")
+        line = next((l for l in got if l.startswith("- pay")), "")
+        check_eq(f"S4 integrations, required_by {label}: the `(whole: config)` clause exactly when clipped, the text whole exactly when not",
+                 (line.endswith(whole), said in line), (clipped, not clipped))
+
+    # the roster (2d): an unreadable registry's reason whole; the removed line names the registry when a name or story is clipped
+    import project_knowledge as PK
+    root = harness.temp_project("qa-brief-n2-")
+    try:
+        harness.use_project(root)
+        task = seed(root, "QA-9")
+        for size in (120, 121, 1200):
+            reason = "p" * size
+            with patched(PK, roster=lambda *a, _r=reason, **k: {"elements": [], "removed": [], "problem": _r}):
+                first = brief_pack.s3_roster_lines(task, {}, "")[0]
+            check_in(f"roster: an unreadable registry's {size}-character reason is whole", f"cannot be read ({reason});", first)
+        for label, role, story, clipped in (("AT 60/40", "r" * 60, "s" * 40, False), ("BEYOND", "r" * 61, "s" * 40, True),
+                                            ("BEYOND story", "r" * 60, "s" * 41, True), ("10x", "r" * 600, "s" * 400, True)):
+            with patched(PK, roster=lambda *a, _r=role, _s=story, **k: {"elements": [], "removed": [{"role": _r, "story": _s}], "problem": ""}):
+                removed = next(l for l in brief_pack.s3_roster_lines(task, {}, "") if l.startswith("Removed by the person"))
+            check_eq(f"roster, removed line {label}: it ends with `(whole: <registry file>)` exactly when a name or story was clipped",
+                     removed.endswith(" (whole: " + brief_pack.RP.rel_text(brief_pack.S3_ROSTER_NAME_OF_FILE, brief_pack.RP.project_for_task(task)) + ")"),
+                     clipped)
+
+        # the case id form (case_form_lines): every problem whole, none dropped - 3 (old bound), 4, 30 problems, one of 10 000 characters
+        import case_forms
+        for count, size in ((3, 40), (4, 40), (30, 40), (1, 10_000)):
+            problems = [f"entry {i}: " + "z" * size for i in range(count)]
+            with patched(case_forms, problems=lambda cfg, _p=problems: _p):
+                got = brief_pack.case_form_lines("QA-9", task, "qa-automator")
+            check_eq(f"case_form_lines, {count} problem(s) of {size} characters: each whole on its line, the tail names no hidden count",
+                     (got[1:1 + count], got[-1], any("not shown" in l for l in got)),
+                     ([f"- {p}" for p in problems], "- that entry is ignored, so the form above is the one in force", False))
+        with patched(case_forms, problems=lambda cfg: []):
+            check_eq("case_form_lines: no problem, no problem lines", len(brief_pack.case_form_lines("QA-9", task, "qa-automator")), 1)
+
+        # one row per remaining function id of the class: the text is whole at the old bound, beyond it and at 10x
+        import archive_task
+        import handoff_check
+        import manual_evidence as ME
+        import walk_session as WS
+        check_eq("_assumption_lines: both lines whole (no cut mark, the last words present)",
+                 [l.endswith(e) and "..." not in l[-12:] for l, e in zip(brief_pack._assumption_lines({}),
+                                                                           ("never a Then's expected value.", "`then_bindings[].about`."))], [True, True])
+        for size in (100, 101, 1000):
+            text = "n" * size
+            with patched(brief_pack.config_contract, siblings=lambda tr: [Path("other")]), patched(brief_pack, last_accepted_form=lambda o, s, r: "f.yaml",
+                                                                                                    _resolve=lambda f, o, p: ("disp", None)):
+                with patched(handoff_check, form_view=lambda p, _t=text: types.SimpleNamespace(data={"tried": [], "tried_note": _t})):
+                    empty = brief_pack.prior_retro_lines(task, root)
+                check_in(f"prior_retro_lines: a {size}-character tried_note is whole", f"is empty ({text})", "\n".join(empty))
+                with patched(handoff_check, form_view=lambda p, _t=text: (_ for _ in ()).throw(ValueError(_t))):
+                    bad = brief_pack.prior_retro_lines(task, root)
+                check_in(f"prior_retro_lines: a {size}-character unreadable-form reason is whole", f"cannot be read ({text});", "\n".join(bad))
+            with patched(FL_MOD := __import__("first_look"), read=lambda tr, _t=text: {"problem": _t, "rows": [], "null": None, "stale": False}):
+                check_in(f"first_look_input_line: a {size}-character problem is whole", f"no first look - {text}", brief_pack.first_look_input_line(task, "d", "1 B"))
+            with patched(FL_MOD, walk_actors=lambda *a, _t=text: {"accounts": [], "none": [], "problem": _t}), patched(WS, data=lambda: {"max_actors": 3}):
+                check_in(f"_first_look_accounts: a {size}-character problem is whole", f"cannot be read ({text}):", brief_pack._first_look_accounts(task, "s", []))
+            with patched(FL_MOD, read_attempt=lambda tr: {"walk": "w", "env": "s"}, register_ids=lambda tr, _t=text: ([], _t)), \
+                    patched(WS, read_record=lambda tr, w: {}), patched(brief_pack, _first_look_accounts=lambda *a: "acc"):
+                check_in(f"first_look_runner_lines: a {size}-character why is whole", f"holds none or cannot be read ({text});", "\n".join(brief_pack.first_look_runner_lines(task)))
+            with patched(ME, request_actors=lambda tr, case, _t=text: ([], _t)):
+                lines, _keys = brief_pack._case_actor_lines(task, ["TC-1"])
+            check_in(f"_case_actor_lines: a {size}-character reason is whole", f"actors could not be read ({text})", "\n".join(lines))
+
+        # exploration_lines (2g): the failure to write the cells file is named with the exception text whole
+        blocker = root / "cells-blocker"
+        blocker.write_text("x", encoding="utf-8")
+        try:
+            blocker.mkdir(parents=True, exist_ok=True)
+            said, kind = "", ""
+        except OSError as exc:
+            said, kind = " ".join(str(exc).split()), type(exc).__name__
+        got = "\n".join(brief_pack.exploration_lines(task, "QA-9", "S6-1", briefs_dir=blocker, write=True))
+        check_in("exploration_lines: a write that fails names the exception text whole (the OS words are longer than the old 60)",
+                 f"not written ({kind}: {said}); rebuild the brief", got)
+    finally:
+        harness.cleanup(root)
+
+    # the first look (2e): problems whole; a clipped line makes the block end naming the record
+    import first_look as FL
+    for size in (160, 161, 1600):
+        problem = "f" * size
+        with patched(FL, state=lambda task_root, _p=problem: {"kind": "unreadable", "got": {"problem": _p}, "error": ""}):
+            state, got = brief_pack._fl_state(Path("."))
+        check_eq(f"first look, an unreadable record's {size}-character problem is whole", (state, got),
+                 ("line", [f"First look: the record cannot be read ({problem}); treat the stand as not walked."]))
+    row = {"req": "R-1", "status": "missing"}
+    short_line = brief_pack._fl_line(row, "b")
+    clipped_line = brief_pack._fl_line(row, "b" * 600)
+    check_eq("_fl_line: a short line is not clipped; a 600-character body is, to FIRST_LOOK_LINE_CHARS, and says so",
+             (brief_pack._fl_line_clipped(short_line), brief_pack._fl_line_clipped(clipped_line), len(clipped_line)),
+             (False, True, brief_pack.FIRST_LOOK_LINE_CHARS))
+    for label, body, ends in (("no clipped line", [short_line], False), ("one clipped line", [short_line, clipped_line], True)):
+        with patched(brief_pack, _fl_state=lambda task_root: ("rows", {}), _fl_body=lambda kind, task_root, got, _b=body: list(_b)):
+            got = brief_pack.first_look_lines(Path("."), "S4", "qa-case-designer")
+        check_eq(f"first_look_lines, {label}: the block ends `whole: work/first-look.yaml` exactly when a line was clipped",
+                 (got[-1] == f"whole: {brief_pack.FIRST_LOOK_FILE}", got[:len(body)]), (ends, body))
+
+    # walk_lines (2h): a function's name is whole - 60 (old bound), 61 and 200 characters
+    import sizing
+    for size in (60, 61, 200):
+        name = "fn" + "n" * (size - 2)
+        fake = {"read": True, "functions": [{"name": name, "requirements": ["R-1"]}]}
+        with patched(sizing, parse_register=lambda p: {"found": True, "rows": []}, _split_rows=lambda rows: ([], []),
+                     functions_of=lambda *a, _f=fake, **k: _f, _read_text=lambda p: ""):
+            got = brief_pack.walk_lines(Path("."))
+        check_in(f"walk_lines: a {size}-character function name is whole in the line", f"{brief_pack.PREFIX_WALK}{name} (R-1)", "\n".join(got))
+
+    # the per-test timeout line: the unreadable reason whole; every profile named (no `(+K more profiles)`)
+    import execution_request as ER
+    import profile_contract as PCON
+    for size in (120, 121, 1200):
+        why = "t" * size
+        with patched(PCON, profile_command=lambda profile, kind: ({"cwd": "."}, ""), command_argv=lambda spec: (["pytest"], "")), \
+                patched(ER, is_pytest_command=lambda argv: True, pytest_timeout_setting=lambda *a, _w=why, **k: {"state": "unreadable", "why": _w}):
+            got = brief_pack._timeout_entry(".", {"profile_id": "p1"})
+        check_eq(f"timeout entry: an unreadable setting's {size}-character reason is whole", got, f"p1: could not be read ({why})")
+    for count in (3, 4, 30):
+        profiles = [{"profile_id": f"p{i}"} for i in range(count)]
+        with patched(PCON, selected_profiles=lambda cfg, _p=profiles: _p), patched(brief_pack, _timeout_entry=lambda project, p: f"{p['profile_id']}: none configured"):
+            line = brief_pack.test_timeout_line(".", "qa-automator", {})
+        check_eq(f"timeout line, {count} profiles: every profile named, no `more profiles`",
+                 ([f"p{i}: none configured" in line for i in range(count)].count(True), "more profiles" in line), (count, False))
+
+    # the delta of a plan rework: the reviewer's problem / expected / fix are whole
+    for size in (200, 201, 2000):
+        words = {"problem": "a" * size, "expected": "b" * size, "fix": "c" * size}
+        sp = types.SimpleNamespace(remarks_of=lambda task_root, state, _w=words: [dict(id="PR-1", kind="blocker", **_w)])
+        got = brief_pack._delta_tail(Path("."), "S5-x-1", sp, "plan", "qa-automator", None, {})
+        check_in(f"delta tail: a blocker's problem, expected and fix of {size} characters are whole",
+                 f"{'a' * size} Expected: {'b' * size} Fix: {'c' * size}", "\n".join(got))
+        sp = types.SimpleNamespace(remarks_of=lambda task_root, state: (_ for _ in ()).throw(RuntimeError("r" * size)))
+        got = brief_pack._delta_tail(Path("."), "S5-x-1", sp, "plan", "qa-automator", None, {})
+        check_in(f"delta tail: a {size}-character failure text is whole", f"the review chain cannot be read ({'r' * size})", "\n".join(got))
+
+    # the fit row (`fit_target_lines`): a clipped target names the plan row that holds the whole; at the clip it does not
+    for label, size, clipped in (("AT the clip", brief_pack.FIT_ABSENT_CHARS, False), ("one BEYOND", brief_pack.FIT_ABSENT_CHARS + 1, True),
+                                 ("10x", 10 * brief_pack.FIT_ABSENT_CHARS, True)):
+        target = "t" * size
+        fake_pc = types.SimpleNamespace(fit_target=lambda task_root, row, ctx=None, _t=target: {
+            "state": "absent", "word": "extend", "target": _t, "file": "", "path": "", "selector": "", "why": ""})
+        line = brief_pack._fit_row_line(fake_pc, Path("."), None, {"id": "T-9"}, "extend", "test")
+        check_eq(f"fit row, target {label}: `(whole: work/test-plan.json T-9)` exactly when clipped",
+                 line.endswith(" (whole: work/test-plan.json T-9)"), clipped)
+    check_eq("fit row: an empty row says nothing (None)", brief_pack._fit_row_line(types.SimpleNamespace(fit_target=lambda *a, **k: None), Path("."), None, {"id": "T"}, "", "test"), None)
 
 
 def bind_brief_lists_only_open_rows_and_pending_instances() -> None:
@@ -2760,6 +3040,20 @@ def bind_brief_lists_only_open_rows_and_pending_instances() -> None:
         beyond = pc8_head(brief_of(dispatch=PC8_BIND))
         check_eq("(PC-8) BEYOND the bound only SHOWN rows are listed", beyond.count("- open P-"), brief_pack.PROVISIONAL_SHOWN)
         check_in("(PC-8) ... and the rest is counted", "+2 more rows to settle", beyond)
+        # FV1-4 N2: a row line clipped at PROVISIONAL_LINE_CHARS makes the last bind line name the manifest keys that hold the whole
+        row_head, row_tail = "- open P-1 (placeholder_locator) on backend: ", " - home tests/pages/basket.py"
+        bind_whole = "whole: work/automation-manifest.json `provisional` / `unresolved`"
+        for label, size, clipped in (("AT the clip", brief_pack.PROVISIONAL_LINE_CHARS, False),
+                                     ("one BEYOND", brief_pack.PROVISIONAL_LINE_CHARS + 1, True),
+                                     ("10x", 10 * brief_pack.PROVISIONAL_LINE_CHARS, True)):
+            manifest["provisional"] = [dict(rows[0], what="w" * (size - len(row_head) - len(row_tail)))]
+            pc8_story_path.write_text(json.dumps(manifest), encoding="utf-8")
+            sized = pc8_head(brief_of(dispatch=PC8_BIND))
+            check_eq(f"(FV1-4 N2) a row line {label}: the `whole:` line is present exactly when it was clipped", bind_whole in sized, clipped)
+            check_eq(f"(FV1-4 N2) a row line {label}: the whole `what` is in the head exactly when it was not clipped",
+                     "w" * (size - len(row_head) - len(row_tail)) in sized, not clipped)
+        manifest["provisional"] = many
+        pc8_story_path.write_text(json.dumps(manifest), encoding="utf-8")
         # empty outcomes are said
         manifest["provisional"] = []
         manifest["unresolved"] = []
@@ -3565,6 +3859,7 @@ def main() -> None:
     p1v_n3_brief_size_record()
     role_brief_ratchet()
     pc8_scenarios()
+    n2_summaries_name_their_whole()
     ss1_11_stand_lessons()
 
     base =Path(tempfile.mkdtemp(prefix="qa-factory-brief-p4-"))
