@@ -1,0 +1,1 @@
+- The retro's stage table now names, per stage, the test launches, their minutes and the repeats over unchanged inputs (a launch that ran the same tests over the same recorded inputs as an earlier one); a launch with no recorded duration is said to be not measured. A reparse of a launch is no longer counted as a second launch.
