@@ -1,0 +1,66 @@
+{
+ "schema": 1,
+ "group": "s0",
+ "routes": {
+  "executor": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "class_source": "route:executor"
+  },
+  "no_project": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+  },
+  "readiness": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "class_source": "question:s0.readiness"
+  },
+  "s0_receipt": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+  },
+  "story_budget": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "class_source": "route:story_budget"
+  },
+  "uninitialized": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+  }
+ },
+ "joints": {},
+ "kinds_without_key": {
+  "halt": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:resume_role",
+    "driver_dispatch:run_role",
+    "driver_machine:_finish_saved_result"
+   ]
+  },
+  "package": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "raised_at": [
+    "driver_machine:take_package_answer"
+   ]
+  },
+  "ticket_changed": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "raised_at": [
+    "driver_s0:ticket_changed_person"
+   ]
+  }
+ },
+ "ratchet": {
+  "live_only": 0,
+  "after": 0,
+  "unwalked": 9,
+  "hook_layer": 0,
+  "raised_by": []
+ }
+}

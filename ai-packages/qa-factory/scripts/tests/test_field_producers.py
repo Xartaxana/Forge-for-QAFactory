@@ -40,6 +40,7 @@ import null_outcomes as NO  # noqa: E402
 PRODUCERS = harness.PLUGIN_ROOT / "references" / "field-producers.json"
 ROUNDS = harness.FIXTURES / "form-rounds.json"
 ROUNDS_REL = "scripts/tests/fixtures/form-rounds.json"
+WORLD_DIFF = harness.FIXTURES / "stories" / "dry-codemie-14857" / "tracker" / "mr-4566.diff"   # the one merge request diff the repository holds: the text `work/impl-diff.txt` is filled with
 WALK: dict = {}          # row id -> True/False for EVERY row this file checks: what `known_red.reconcile` judges (P1-a N3 item 7)
 OUTCOMES: dict = {}      # (agree label, reader row id) -> the verdict of its forward round row: what C4 compares
 LANG_NOTES: dict = {}    # language -> why the reverse walk walks it on its own (a runner key with no language link): printed in the row
@@ -604,8 +605,9 @@ def every_stage_output_fills_or_is_named() -> None:
     required field gone is NAMED in the summary (`outputs no reader refuses`), a `NotCovered` one too; neither is red (E7, E21)."""
     import form_filler as FF
     import validate_artifacts as VA
+    diff_text = WORLD_DIFF.read_bytes().decode("utf-8")
     ctx = FF.FillContext(task_key="TP1-1", dispatch_id="S1-dispatch-1", cases=["TC-001", "TC-002"], bugs=["BUG-1", "BUG-2"],
-                         minted={"P": ["P-1"], "TC": ["TC-001"]})
+                         minted={"P": ["P-1"], "TC": ["TC-001"]}, impl_diff=diff_text)
     try:
         pairs = FF.stage_outputs()
     except Exception as exc:                       # an unreadable table is red, never "no outputs"
@@ -982,6 +984,23 @@ def every_stage_output_fills_or_is_named() -> None:
         check(f"output: {manifest}[same input, same bytes]", FF.fill_artifact(manifest, ctx).files == FF.fill_artifact(manifest, ctx).files, "bytes differ")
         check(f"output: {manifest}[token with no key in the context]", [u.path for u in FF.fill_artifact(manifest, FF.FillContext(task_key="")).unfillable] == ["ticket"],
               "the empty task key was written")
+        diff_out = "work/impl-diff.txt"
+        check(f"output: {diff_out}[the world's diff lands byte for byte]", FF.fill_artifact(diff_out, ctx).files.get(diff_out) == diff_text, "the text changed on its way")
+        none = FF.fill_artifact(diff_out, FF.FillContext(task_key="TP1-1"))
+        try:
+            FF.write_outputs(task_root_of(root / "e22"), root / "e22", none)
+            refused = False
+        except FF.NotFillable:
+            refused = not (task_root_of(root / "e22") / diff_out).exists()
+        check(f"output: {diff_out}[no diff in the context: unfillable naming the token, nothing written]",
+              [u.hint for u in none.unfillable] == ["<the diff text>"] and refused, str([(u.path, u.hint) for u in none.unfillable]))
+        source = json.loads(FF.fill_artifact(manifest, ctx).files[manifest])["implementations"][0].get("source_sha", "")
+        check(f"output: {manifest}[implementations[0].source_sha is a commit id the bundle's schema accepts, marked synthetic by the row]",
+              bool(re.fullmatch(r"[0-9a-f]{40}", source)) and "implementations[0].source_sha" in (FF._row_of(manifest).get("synthetic") or {}), repr(source))
+        reg_text = FF.fill_artifact(register, ctx).files[register]
+        check(f"output: {register}[carries `## Branches` with the contract's empty form and `## Source obligations` with the contract's header and its `rest` row]",
+              "\n## Branches\n\nBranches: none -- " in reg_text and "\n## Source obligations\n\n| unit | home |\n|---|---|\n| rest | unreconciled: " in reg_text,
+              reg_text[reg_text.find("## Branches"):][:200])
         cell = FF._fill_md("synthetic", {"template": "| <TICKET> | x |\n"}, FF.FillContext(task_key="A|B"), {}, [], [])
         check("output: synthetic table row[a bar in a cell goes through grammar.escape_cell]", cell == "| A\\|B | x |\n", repr(cell))
         for name, bad in (("a parent step", "../escape.txt"), ("a step inside", "work/../../escape.txt"), ("an absolute path", str(root / "abs.txt")),

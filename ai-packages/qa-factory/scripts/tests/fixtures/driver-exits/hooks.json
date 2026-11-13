@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "group": "hooks",
+ "routes": {},
+ "joints": {},
+ "kinds_without_key": {},
+ "ratchet": {
+  "live_only": 0,
+  "after": 0,
+  "unwalked": 0,
+  "hook_layer": 77,
+  "raised_by": []
+ }
+}

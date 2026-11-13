@@ -1,0 +1,101 @@
+{
+ "schema": 1,
+ "group": "gates",
+ "routes": {
+  "active_dispatch": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "already_done": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "committed_event": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "dead_dispatch": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "form_vocabulary": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "gate_stage": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "handoff_form": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "handover_form": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "known_false": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "marked_person": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group",
+   "class_source": "route:marked_person"
+  },
+  "marked_repair": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "missing_output": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "not_in_build": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "stale_revision": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "unmatched": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  }
+ },
+ "joints": {
+  "exit_gate:scoped": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "exit_gate:detector_errors": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "exit_gate:witness_errors": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "exit_gate:digest": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "exit_gate:required_outputs": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "exit_gate:text_end_after_handback": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  }
+ },
+ "kinds_without_key": {},
+ "ratchet": {
+  "live_only": 0,
+  "after": 0,
+  "unwalked": 21,
+  "hook_layer": 0,
+  "raised_by": []
+ }
+}

@@ -37,9 +37,16 @@
   ],
   "artifact_tokens": {
     "<case id>": "case_id",
-    "<bug id>": "bug_id"
+    "<bug id>": "bug_id",
+    "<the diff text>": "impl_diff"
   },
   "artifact_templates": {
+    "work/impl-diff.txt": {
+      "contract": "references/artifact-contract.md",
+      "anchor": "      ticket-snapshot.json  context-manifest.json  context-bundle.json  impl-diff.txt",
+      "format": "text",
+      "template": "<the diff text>\n"
+    },
     "test-plan.md": {
       "contract": "references/artifact-contract-plan.md",
       "anchor": "## `test-plan.md`",
@@ -244,6 +251,7 @@
             "mr": "<the merge request reference>",
             "branch": "<the branch name>",
             "commit": "<the commit id>",
+            "source_sha": "0000000000000000000000000000000000000000",
             "diff_path": "work/impl-diff.txt"
           }
         ],
@@ -256,14 +264,17 @@
         ],
         "witness": "<what the scout read, one sentence>"
       },
+      "synthetic": {
+        "implementations[0].source_sha": "declared synthetic: the all-zero commit id of references/profile-shape.json (implementation_repos[].source_sha); the dry world has no repository, so no commit exists to name. Derived from the bundle's own schema (record-schemas.json ContextBundle.source_revisions[].source_sha, required, non-empty) and context_bundle.py SOURCE_FIELD_HINTS: the commit the diff was read at"
+      },
       "required": ["ticket", "acceptance_criteria", "implementation"]
     },
     "work/requirements-register.md": {
       "contract": "references/artifact-contract-plan.md",
       "anchor": "## `requirements-register.md`",
       "format": "md",
-      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nids: [<R-n>]\nby_source: {ac: 1}\nconfidence: <high|low>\n---\n\n# Requirements register\n\n## Register\n\n| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact | delta | code_says |\n|---|---|---|---|---|---|---|---|---|---|\n| <R-n> | <one verifiable statement of the story> | ac | - | yes | <AC-n> | expected-contract:spec | none | new | unknown |\n\n## Contradiction matrix\n\n| R | story | ac |\n|---|---|---|\n| <R-n> | silent | silent |\n",
-      "required": ["task", "created", "ids", "by_source", "confidence"]
+      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nids: [<R-n>]\nby_source: {ac: 1}\nconfidence: <high|low>\n---\n\n# Requirements register\n\n## Register\n\n| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact | delta | code_says |\n|---|---|---|---|---|---|---|---|---|---|\n| <R-n> | <one verifiable statement of the story> | ac | - | yes | <AC-n> | expected-contract:spec | none | new | unknown |\n\n## Contradiction matrix\n\n| R | story | ac |\n|---|---|---|\n| <R-n> | silent | silent |\n\n## Branches\n\nBranches: none -- the filler reads no branch out of the story; this is the contract's empty form, not a judgment that the story has none\n\n## Source obligations\n\n| unit | home |\n|---|---|\n| rest | unreconciled: the filler gives no unit its own home; the remainder is declared and left to the gate as a debt |\n",
+      "required": ["task", "created", "ids", "by_source", "confidence", "body:## Branches", "body:## Source obligations"]
     },
     "work/requirements-readiness.json": {
       "contract": "references/artifact-contract-json.md",
@@ -353,7 +364,6 @@
     }
   },
   "not_covered": {
-    "work/impl-diff.txt": "no contract shape: a diff text; the story kit supplies it",
     "work/s5-plan.json": "shape is the skeleton s5_plan.py --init writes; no contract template",
     "work/s5-notes/": "free notes, no contract shape",
     "work/evidence/manual/<case>/tried.md": "no contract heading; the recorder's build reads it",
