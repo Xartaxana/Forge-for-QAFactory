@@ -461,8 +461,9 @@ def _reason_in_words(task_root, reason) -> list:
     return lines
 
 
-BLOCKING_NOTE = ("A question marked as blocking is settled only by a line with its id, or passed with `go on`; "
-                 "words alone go to the role, and the question is asked again.")
+BLOCKING_NOTE = ("A question marked as blocking is settled only by a recorded answer - a line with its id, or your own words "
+                 "once the assistant running this story has recorded them - or passed with `go on`; a blocking question "
+                 "nobody could record is asked again.")
 
 
 def batch_text(task_root, reason, card=None, previous_answer_at=None, priced: str = "") -> str:

@@ -17,7 +17,7 @@ import no_move as NM
 import waiver
 from driver_core import HALT_RECORD_WHY, OpenWork, Person, Priced, Refusal, ReworkRefused, _now, _read_answer, _read_json, _sha, _write_json, finding_key
 from driver_runner import HANDOFF_FORM
-from driver_conductor import PATH_RE
+from driver_conductor import MOVES_RULE, OWN_TOKEN_RULE, PATH_RE, PRE_FILLED
 
 
 DIGEST_MAX = 1800
@@ -1743,12 +1743,14 @@ class DriverDispatch:
         return self.run_role(stage, role, scope=scope, complete=complete,
                              rework={"id": dispatch, "scope": scope, "reason": words})
 
-    def take_question_answer(self, stage: str, dispatch: str, words: str) -> None:
+    def take_question_answer(self, stage: str, dispatch: str, words: str, qtext: str = "") -> None:
         """R17: the person's words at a threshold stop. Closed tokens (`Q1: a`, `Q2: not needed`) become
-        answer records by code, `where` = `<stage> stop`; the whole words go to the role's own session.
-        Nothing here calls the conductor (FR-48). It errs toward NOT recording: an id that is not open, a
-        letter beyond the readings, two answers for one question stay with the role, which reads meaning
-        (FR-12) - and are printed back, so the person is never left guessing (never a dead end).
+        answer records by code, `where` = `<stage> stop`, and are saved FIRST (FR-48: code recorded its tokens and says so);
+        the whole words go to the role's own session. What code could not read (a line that is not a token, an id that is
+        not open, a letter beyond the readings, two answers for one question) goes to the conductor through
+        `register_words_to_conductor`, which reads meaning (FR-12) - code never counts free words as a choice - and the
+        role is resumed only after that. An answer that is all tokens never calls the conductor (FR-55). What was done is
+        printed back, so the person is never left guessing (never a dead end).
 
         The answer is the informed pass (Q8): the count and share the person was shown are kept - and the blockers they were
         passed ON (`blocking_ids`) are kept as they were: only a `go on` adds to them (H26). HF2-7: the lines are read by
@@ -1778,7 +1780,9 @@ class DriverDispatch:
                                 "blocking_ids": {**self.passed_blockers(stop), **(stop.get("blocking_ids_shown") or {})}}
             self.state["pending_words"].pop(dispatch, None)
             return
-        self.record_question_words(stage, words, stop.get("shown") if isinstance(stop.get("shown"), dict) else {})
+        shown = stop.get("shown") if isinstance(stop.get("shown"), dict) else {}
+        read = self.record_question_words(stage, words, shown)
+        self.answer_row(f"{stage} question stop: ", words, what="your answers at the question stop")
         told = self.apply_question_answers(stage)["plan_lines"]
         if told:
             self.state.setdefault("question_pass_lines", {}).setdefault(dispatch, []).extend(told)      # H36: for the resumed role
@@ -1786,7 +1790,82 @@ class DriverDispatch:
                             "blocking_ids": self.passed_blockers(stop)}
         stop["resume"] = True
         self.state["pending_words"][dispatch] = words
-        self.answer_row(f"{stage} question stop: ", words, what="your answers at the question stop")
+        # I5 (FV1-3): everything a later process needs is on disk BEFORE the seam, which may raise a Person or end the process -
+        # the answer's audit row too (once per answer: the end of `take_answer` is then a no-op), so a rerun's re-ask carries FR-7's block
+        self.answer_file()
+        self.record_answer_row("", dispatch)
+        self.save_state()
+        if not (read["all_tokens"] and not read["unread"]):
+            lines = self.register_words_to_conductor("questions", stage, dispatch, qtext, words, read, shown=shown)
+            if lines:
+                self.state.setdefault("question_pass_lines", {}).setdefault(dispatch, []).extend(lines)   # AR-22: the role is told
+                self.save_state()                                                                          # and not lost to a crash
+
+    def register_words_to_conductor(self, kind: str, stage: str, dispatch: str, qtext: str, words: str, recorded,
+                                    *, shown=None) -> list:
+        """FV1-3: the ONE hand-over of a person's free words over a register to the conductor (`unread`, the one seam, AR-17), for the
+        question stop (`take_question_answer`) and the halt road (`_unread_halt_or_review`). `recorded` is `record_answers`' dict (code
+        already recorded its tokens, FR-48; the text says so) or None when no register was read. The judge reads only where no register
+        was read (F-9). POSITION INVARIANT of the text: every instruction precedes `## The question`, so a cut of the question never
+        cuts an instruction. After the seam returns, the conductor's records are laid over the plan and what changed in the register is
+        printed back (AR-28: a register that cannot be read back says so). Returns the plan lines of that apply (`[]` without a
+        register). `Person` / `Stop` propagate."""
+        def snapshot():
+            """`{id: (status, reading, at)}` of the register, or None when it cannot be read (AR-28: an unknown is not "nothing")."""
+            try:
+                import question_register as QR
+                loaded = QR.load(self.task_root)
+                if loaded.get("problems") and not loaded.get("questions"):
+                    return None
+                return {q["id"]: (q.get("status"), q.get("reading"), q.get("at")) for q in loaded["questions"]}
+            except Exception:
+                return None
+
+        nouns = {"s1_review": "a source review", "halt": "a halt", "questions": "the open questions"}   # a closed driver vocabulary
+        read = self.judged_reply(qtext, words, kind) if recorded is None else ""
+        before = snapshot() if recorded is not None else None
+        commands = ("assess / accept-gap / review --record / log_append human_answer|escalated / stage_done --set / waiver.py"
+                    if recorded is None else "assess / accept-gap / review --record / question_register.py / stage_done --set / waiver.py")
+        text = (f"The person answered {nouns.get(kind, 'a halt')} of dispatch {dispatch} at {stage}. Record what they decided "
+                f"with the factory's own commands ({commands}), nothing else; the role itself is resumed by the driver afterwards.")
+        if recorded is not None:
+            hash_text = ("the --register-hash that --show prints" if not shown else
+                         "--register-hash = the hash the person was SHOWN: `question_stop.shown` in "
+                         f"{self.state_dir / 'driver-state.json'}; only for an id not there, the one --show prints")
+            text += (" The factory read their lines against the register's questions by code - recorded by code: "
+                     + (", ".join(recorded["recorded"] + [f"{q} (until the report)" for q in recorded["deferred"]]) or "nothing")
+                     + "; do not record these again, and do not journal their words again (the driver did). "
+                     + ("Not recorded by code (each line says why): " + "; ".join(recorded["unread"] + recorded["unknown_ids"]) + ". "
+                        if recorded["unread"] or recorded["unknown_ids"] else "")
+                     + "An answer they gave to a question in other words is recorded with question_register.py "
+                     f"(--answer QID --reading <letter> | --not-needed QID | --defer QID, with --words-file, --where \"{stage} stop\", "
+                     f"--by conductor and {hash_text})."
+                     f" Read the questions whole with `python {self.scripts / 'question_register.py'} --task {self.task} --show`: "
+                     "the question text below may be cut.")
+        # `s1_review` gets no options: `record_review` records ANY words as the S1 review before the conductor sees them (C1-3 owns that
+        # text); a `halt` re-raises as a `halt` (C1-2, C1).
+        text += ("" if kind == "s1_review" else " " + MOVES_RULE + " " + OWN_TOKEN_RULE)
+        text += "\n\n## The question\n" + qtext[:6000] + (PRE_FILLED + read if read else "")
+        self.unread(kind, stage, dispatch, text, words=words)
+        if recorded is None:
+            return []
+        lines = self.apply_question_answers(stage)["plan_lines"]
+        after = snapshot()
+        if before is None or after is None:
+            print("note: the register could not be read back after the assistant's moves; run question_register.py --show "
+                  "to see what was recorded")
+            return lines
+        names = {"not_needed": "not needed", "deferred_to_report": "until the report", "open": "open again"}
+        changed = []
+        for qid, now in after.items():
+            if qid not in before:                  # new to the register during the seam: it was never answered, so "open again" would lie
+                continue
+            if before.get(qid) != now:
+                status, reading, _at = now
+                changed.append(f"{qid}: " + (str(reading) if status == "answered" and reading else names.get(status, str(status))))
+        print(f"{stage}: recorded by the assistant from your own words — " + ", ".join(changed) if changed else
+              f"{stage}: the assistant recorded nothing from your own words; those questions stay open")
+        return lines
 
     @staticmethod
     def passed_blockers(stop: dict) -> dict:
