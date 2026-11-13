@@ -24,6 +24,7 @@
 |---|---|---|---|---|---|---|
 | PC3-1 | П3 | `DOORS_ONLY_BRIEF_MAX` = число `REPORT K7` из лога CI после PC2-6, отдельным коммитом «shrink»; состояние PC2-1 пачки 2 (`findings/20261112-khrapovik-doors-only-brief-max-posle-pc2-6.md`; критик t-056 N9; AR-20) | builder → critic | `ai-packages/qa-factory/scripts/tests/test_brief_pack_s5_plan.py` | слияние PC2-6 и CI на нём | ожидает |
 | PC3-2 | П2 | `test_probe_by_code_languages.py` режется (узел N9 волны 2 спеки td-11c §7) и идёт дорогой «в процессе» (td-11d §7 F2, слово владельца 12.11.2026): ночной прогон 43178152997 на `5eeab44` красный по таймауту 300 с; потолок не поднимается; четыре файла на 260–288 с — списком узла после замера CI (`findings/20261112-nochnoj-prohod-krasnyj-probe-by-code-languages-300-s.md`; FR-31) | builder → critic | `ai-packages/qa-factory/scripts/tests/test_probe_by_code_languages.py`, `ai-packages/qa-factory/scripts/tests/probe_by_code_languages_common.py`, `ai-packages/qa-factory/scripts/slow_tests.json` | нет | ожидает |
+| PC3-3 | П3 | Голый `os.replace` в ~41 месте ~33 файлов пакета заменить на `event_store.replace_file` (гонка читателя на Windows, WinError 5/32; `findings/20261113-golyj-os-replace-v-41-mestah-33-fajlov-bez-povtora-na-windows.md`; t-205 F3). Направление: каждое место зовёт `replace_file`; место, которое `event_store` импортировать не может, — строкой «не может: причина» в таблицу билдера и Lead. Первый шаг — свежий перечень (`grep -rn "os\.replace(" ai-packages/qa-factory --include=*.py`, без `tests/`). Тест: сторож-перепись `os\.replace\(` по `scripts/*.py` пуста (shrink-only список допустимых, поимённо), одна строка поведения — `PermissionError(winerror=32)` дважды, затем успех | builder → critic | `scripts/event_store.py` (только если нужен новый вход), перечисленные билдером файлы `scripts/*.py`, `scripts/tests/test_event_store.py` | слияние HF8-4 P10 (`execution_request.py`, `onboarding-forge/2`) | ожидает |
 
 ## Ход
 
@@ -31,6 +32,7 @@
 
 - 12.11 — пачка открыта: находка из критика кода t-056 (N9), положена тем же ходом, что файл в `findings/` (D-0044); пачка 2 взята и заморожена.
 - 12.11 — ночной красный 43178152997 (`test_probe_by_code_languages.py`, 300 с) — узел PC3-2 тем же ходом, что файл в `findings/` (D-0044, builder t-093); узлы PC3-1 и PC3-2 пишут в непересекающиеся файлы
+- 13.11 — узел PC3-3 (голый `os.replace`, t-205 F3) тем же ходом, что файл в `findings/` (D-0044, t-233)
 
 ## Живые доказательства
 

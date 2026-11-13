@@ -19,6 +19,7 @@
 | 1 | онбординг и доктор говорят по делу, читатели контекста ролей одни, процесс и тесты форджа без дыр (П2, 40 узлов) | B-133, B-164, B-188, B-297, B-318, B-319, B-320, B-326, B-333, B-344, B-370, B-381, B-386, B-404, B-413, B-427, B-428, B-429, B-437, B-438, B-446, B-448, B-460 | L | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-forge/batch-1` | — |
 | 2 | хвосты онбординга, ролей и форджа, публикация КБ после обновления до текущего релиза (П3, 56 узлов) | B-161, B-169, B-444, B-447, B-452 | L | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-forge/batch-2` | — |
 | 3 | фабрика спрашивает на онбординге только стартовый набор (≤ 10 вопросов), остальное — при первой нужде стори, один раз, и помнит ответ (П1, 6 узлов — фазы 1–6 плана знаний о проекте) | — | L | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-forge/batch-3` | — |
+| 5 | остатки HF8-4 (разбор мест `isinstance(then, int)`, один дом слов исхода и один читатель красного слова) и читатели «только имена» в таблице одного env-файла (П3, 3 узла; пачка 4 — на ветке `wip/of-batch4`, номер 4 занят) | `batch-5-ostatki-hf8-4-i-oh3-42.md` (3 находки; 3 узла) | S (3 узла) | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -154,6 +155,10 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261101-test-run-suite-mine-pin-vremeni-fazy-flake.md` | находка | `test_run_suite_mine`: пины времени фаз (`build_s >= 0.35` у медленного импорта, `collect_s`/`stand_probe_s >= 0.3` у `sleep(0.35)`) — флейк под нагрузкой и … | `scripts/tests/test_run_suite_mine.py` | пачка 2, PC1-12 | нет | PC1-12 |
 | `findings/20261101-ostatki-starykh-pachek-forge-kb-pri-peresborke.md` | находка, id — | Остатки старых пачек forge/6 и kb/1: устаревшие носители и находки билдера KB1-2 | — | пачка 2 (Остатки) | нет | — |
 | `findings/B-164-completion-for-story-run-py-3575-3592-put.md` | находка | критик последнего окна закрывает S5 при любом маршруте; вести через `repair_route.route` | `story_run.py`, `repair_route.py` | пачка 1 (перенесено из driver-controller при пересборке 01.11.2026; сделано в conductor/1 C1-5b1, cb8c4b26) | нет | — |
+| **Остатки HF8-4 и OH3-42 (13.11.2026)** | | | | | | |
+| `findings/20261113-dyuzhina-isinstance-then-int-ne-razobrana-chitateli-ili-validatory.md` | находка, id — | места `isinstance(then, int)`: читатели номера Then или проверки формы; один скаут разбирает | `scripts/contract.py`, `scripts/planning_contract.py`, `scripts/question_register.py`, `scripts/s5_precheck.py`, `scripts/manifest_put.py`, `scripts/ledger.py` | пачка 5, OF5-1 | нет | HF2-0 п. 3; t-205 F5 |
+| `findings/20261113-odin-dom-slov-blocked-by-env-handed-to-person-probe-gap-i-chitatel-krasnogo-slova.md` | находка, id — | один дом в `contract` для слов исхода и один читатель «в строке манифеста есть красное слово» | `scripts/contract.py`, `scripts/controller.py`, `scripts/acceptance.py`, `scripts/driver_stage_s7.py`, `scripts/s7_pretriage.py` | пачка 5, OF5-2 | нет | HF2-0 п. 1; t-205 F7 |
+| `findings/20261113-chitateli-imen-klyuchej-slepy-v-tablice-odnogo-env-fajla.md` | находка, id — | таблица одного env-файла слепа для читателей «только имена» (однобуквенные имена не проходят фильтр) | `scripts/tests/test_manual_capture.py` | пачка 5, OF5-3 | нет | OH3-42; t-230 |
 
 ## Входящие
 
