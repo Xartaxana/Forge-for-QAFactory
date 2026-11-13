@@ -4,7 +4,7 @@
 allowed values are already there, and whose header, ticket and dispatch id are already
 written - so the first thing it does is the work, not the form.
 
-  handoff_init.py --task T --stage S5 --role qa-automator [--to qa-code-critic]
+  handoff_init.py --task T --stage S5 --role qa-automator [--to qa-code-critic] [--purpose s5_plan]
                   [--dispatch S5-qa-automator-1] [--scope TC-001,TC-002] [--out PATH] [--carry-from PARENT_FORM]
 
 Nothing is invented here: the contract comes from `handoffs/index.yaml`, never from a file
@@ -376,12 +376,50 @@ def _stale_values(out: Path) -> str:
                 "new form at the next check - remove it before the role starts")
 
 
+PURPOSE_WORD = re.compile(r"[a-z][a-z0-9_]*")      # the shape of every purpose the index and the dispatch records use
+PURPOSE_MAX = 64
+
+
+def clean_purpose(raw: str) -> str:
+    """The purpose the call asks for: "" for an empty or whitespace-only value (read as none: the stage's usual contract),
+    the value itself otherwise. A value with a space inside, over `PURPOSE_MAX` characters, or outside `PURPOSE_WORD`
+    raises `ValueError` carrying the refusal sentence (what is wrong, what is expected); it never falls back to none."""
+    if not raw or not raw.strip():
+        return ""
+    if len(raw) > PURPOSE_MAX:
+        raise ValueError(f"--purpose is {len(raw)} characters long, over the {PURPOSE_MAX} a purpose word has. "
+                         "Pass the one word handoffs/index.yaml names (S5's plan: s5_plan), or leave --purpose out.")
+    if not PURPOSE_WORD.fullmatch(raw):
+        shown = raw if raw.isascii() and raw.isprintable() else ascii(raw)
+        space_hint = " A purpose is one word, with no space inside." if re.search(r"\s", raw) else ""
+        raise ValueError(f"--purpose `{shown}` is not a purpose word: expected lowercase letters, digits and `_`, "
+                         f"starting with a letter (S5's plan: s5_plan).{space_hint} Leave --purpose out for the stage's "
+                         "usual contract.")
+    return raw
+
+
+def known_purposes_note(stage: str, role: str) -> str:
+    """One sentence naming the purposes handoffs/index.yaml registers for this stage and role, or saying there are none."""
+    try:
+        found = sorted({str(row.get("purpose")) for row in handoff.index().get("handoffs", [])
+                        if row.get("purpose") and str(row.get("from") or "") == role
+                        and str(stage) in (str(row.get("stage") or ""), str(row.get("gate") or ""))})
+    except Exception:                                 # noqa: BLE001 - an unreadable index is an unknown, said as such
+        return "The registry of purposes could not be read. "
+    if found:
+        return f"Known purposes for {role} at {stage}: {', '.join(found)}. "
+    return f"No handover of {role} at {stage} carries a purpose, so --purpose does not apply there. "
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", required=True)
     ap.add_argument("--stage", required=True, help="S0..S9, or A / B for a gate")
     ap.add_argument("--role", required=True, help="the role that FILLS the form")
     ap.add_argument("--to", default="", help="the receiving role, when a stage has two contracts")
+    ap.add_argument("--purpose", default="",
+                    help="the purpose of the dispatch, when its handover has its own row (S5's plan: `s5_plan`); "
+                         "empty reads as none: the stage's usual contract")
     ap.add_argument("--dispatch", default="")
     ap.add_argument("--scope", default="")
     ap.add_argument("--contract", default="", help="override the lookup (a test, a new handover)")
@@ -404,11 +442,21 @@ def main() -> int:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 2
 
-    contract = args.contract or handoff.contract_of(args.stage, args.role, args.to)
+    purpose = ""
+    if not args.contract:                             # `--contract` wins: its purpose is neither read nor validated
+        try:
+            purpose = clean_purpose(args.purpose)
+        except ValueError as exc:
+            print(f"handoff_init: {exc}")
+            return 2
+    contract = args.contract or handoff.contract_of(args.stage, args.role, args.to, purpose)
     if not contract:
         print(f"handoff_init: no contract for {args.role} at {args.stage}"
               + (f" -> {args.to}" if args.to else "")
-              + " in handoffs/index.yaml. A handover without a contract is a gap of the "
+              + (f" with purpose `{purpose}`" if purpose else "")
+              + " in handoffs/index.yaml. "
+              + (known_purposes_note(args.stage, args.role) if purpose else "")
+              + "A handover without a contract is a gap of the "
                 "factory: add the row and the file, or pass --contract to name one.")
         return 2
     try:

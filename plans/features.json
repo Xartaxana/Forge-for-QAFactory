@@ -682,6 +682,7 @@
         "scripts/tests/test_account_word.py",
         "scripts/app_card.py",
         "scripts/tests/test_app_card.py",
+        "scripts/tests/test_app_card_stand_lessons.py",
         "references/walk-charter.md"
       ],
       "stages": [],
@@ -736,6 +737,7 @@
         "scripts/tests/test_acceptance_semantics.py",
         "scripts/tests/test_environment_*.py",
         "scripts/tests/test_import_test_receipt.py",
+        "scripts/tests/test_import_test_receipt_refusal.py",
         "scripts/tests/test_node_ids.py",
         "scripts/tests/test_blocked_by_env_*.py",
         "scripts/tests/test_run_block_producer.py",
@@ -1389,6 +1391,7 @@
         "scripts/tests/test_exploratory_findings.py",
         "scripts/tests/test_investigation.py",
         "scripts/tests/test_place_answers.py",
+        "scripts/tests/test_place_of_draft_observation.py",
         "scripts/tests/test_place_driver.py",
         "scripts/tests/test_place_session.py",
         "scripts/tests/test_investigation_probe.py",

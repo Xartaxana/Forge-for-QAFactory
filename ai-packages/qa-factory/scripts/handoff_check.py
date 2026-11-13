@@ -2980,7 +2980,8 @@ TWO_CONTRACTS_NOTE = ("If this stage has two contracts, add --to <contract> "
 def _door_to(path: Path) -> tuple:
     """`(flag, note)` for the door of the not-UTF-8 refusal: the form's own `contract:` line is read from its bytes
     (read-only, never written back), mapped through the index to the row's `to`; the flag is ` --to <to>` only when
-    `handoff_init.py` without it would resolve another contract (a secondary row, a stage with two). A single-contract
+    `handoff_init.py` without it would resolve another contract (a secondary row, a stage with two); a row that carries a
+    `purpose` and is found only by it also prints ` --purpose <purpose>` after `--to`. A single-contract
     stage gives `("", "")`: the door is as it always was. A line that cannot be found or mapped (FR-59: no guess) gives
     `("", <sentence naming the option>)`."""
     unknown = ("", TWO_CONTRACTS_NOTE + " ")
@@ -2999,6 +3000,9 @@ def _door_to(path: Path) -> tuple:
             return "", ""
         if handoff.contract_of(stage, role, to) == found.group(1):
             return f" --to {to}", ""
+        purpose = str(row.get("purpose") or "")
+        if purpose and handoff.contract_of(stage, role, to, purpose) == found.group(1):
+            return f" --to {to} --purpose {purpose}", ""      # a row found only by its purpose (S5's plan): both flags
     except Exception:                       # noqa: BLE001 - an unreadable index is an unknown, never a guess
         pass
     return unknown
