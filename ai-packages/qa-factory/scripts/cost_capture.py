@@ -64,6 +64,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import state_dir, read_event, load_config, load_ref_json, read_json, ref, project_root, role_name, _carries_project
+import hooklib
 import runtime_paths as RP
 from event_store import atomic_json, content_hash, EventStore, StateConflict
 
@@ -1904,7 +1905,7 @@ def _capture(event) -> bool:
     capture_started = time.time()
     tpath = Path(event.get("transcript_path", "") or "")
     session_id = event.get("session_id", "") or tpath.stem
-    if not tpath.is_file() or any(c in session_id for c in "/\\:") or session_id in (".", ".."):
+    if not tpath.is_file() or not hooklib.is_one_component(session_id):
         sys.exit(0)
     if not _session_scope_ok(event, tpath):
         sys.exit(0)
@@ -3797,7 +3798,7 @@ def main() -> None:
         if meta.get("id"):
             event["session_id"] = meta["id"]
     session_id = event.get("session_id", "") or tpath.stem
-    if not tpath.is_file() or any(c in session_id for c in "/\\:") or session_id in (".", ".."):
+    if not tpath.is_file() or not hooklib.is_one_component(session_id):
         return
     debounced = "--debounced" in sys.argv
     cost_dir = state_dir(event) / "state" / "cost"

@@ -18,7 +18,7 @@ def controller_record(root, ticket, dispatch):
     uses (`worker_lifecycle.binding_is_active`) answers True on every doubt - the wrong direction for a hook that moves."""
     import hooklib
     ticket, dispatch = str(ticket or ""), str(dispatch or "")
-    if not ticket or not dispatch or ticket in (".", "..") or any(char in ticket for char in "/\\:"):
+    if not dispatch or not hooklib.is_one_component(ticket):
         return None
     state = read_json(hooklib.artifact_root(root=root) / ticket / "state" / "controller.json", {}, kind=dict, errors=Exception)
     records = state.get("dispatches")
