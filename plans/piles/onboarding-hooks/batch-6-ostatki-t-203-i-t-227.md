@@ -1,6 +1,6 @@
 # Онбординг, установка, хуки и гард — пачка 6: остатки t-203 и критика t-227 (копии проверки компоненты пути, потолок компоненты, суффикс `_publish`, отказы нативного контекста)
 
-кучка: `onboarding-hooks` | статус: ожидает | взял: — | ветка: — | MR: — | стенд: не нужен (CI) | приоритет: П3
+кучка: `onboarding-hooks` | статус: в работе | взял: Lead dev1 (Opus), 13.11.2026 | ветка: `pile/onboarding-hooks/batch-6` | MR: — | стенд: не нужен (CI) | приоритет: П3
 
 Открыта 13.11.2026 (задача t-233, D-0044): находки спеки t-203 (§4 «Copies», §5, §6 F-2, F-5, F-6) и критика t-227 (B-2, B-3, Q3, Q5) легли в следующую пачку, потому что пачки 1-5 взяты или закрыты.
 
@@ -8,6 +8,8 @@
 
 Решения владельца: нет (направления выбрал координатор, 13.11.2026, «по рекомендации, до слова владельца»; один вопрос Lead — NUL в `is_one_component`, OH6-1 п. 3).
 очередь: onboarding-hooks/5 → onboarding-hooks/6
+очередь: onboarding-forge/1 → onboarding-hooks/6
+очередь: onboarding-forge/2 → onboarding-hooks/6
 Порядок по общим файлам: `hooklib.py`, `stage_guard.py`, `cost_capture.py`, `native_context.py`, `inject_context.py`: после OH5-10, OH5-11, OH5-13 (`onboarding-hooks/5`) и слияния веток `wip/oh5-11`, `wip/oh3-36` (`onboarding-forge/1`); `stage_guard.py` — со списком функций в `owns` диспатча (OH6-1: `story_named_by_text`, `resolve_ticket`, `_recipient_receipts`).
 Скоуп свидетеля: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <пути узла>`; BATCH CANON — CI интегратора.
 Общий бриф дизайнерам: находка узла (раздел «Что именно менять»); `design/factory-rules.md`; `docs/tasks/specs/t-203-native-context-long-root.md`; вернуть спеку в `docs/tasks/specs/t-nnn-oh6-n.md`, развилки — наверх.
