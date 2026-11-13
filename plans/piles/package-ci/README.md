@@ -24,7 +24,7 @@ Windows-машине, тесты стабильны под нагрузкой и
 |---|---|---|---|---|---|---|---|
 | 1 | полный прогон зелёный на Linux и на второй Windows-машине, тесты не падают под нагрузкой, время тестов в лимите | B-307, B-301, B-302 | M | закрыта | — | — | `855d4e5c` |
 | 2 | пины потолков брифа в тестах строятся во время теста, а не берутся из измеренной константы | — (находка 02.11.2026, узел PC2-1) | S | закрыта | dev1, 11.11.2026 | `pile/package-ci/batch-2` | `b592d8a` |
-| 3 | потолок брифа «только двери» в тесте ужат до замера CI после PC2-6 | — (находки 12.11.2026, 13.11.2026, узлы PC3-1, PC3-2, PC3-3, PC3-4) | S | ожидает | — | — | — |
+| 3 | потолок брифа «только двери» в тесте ужат до замера CI после PC2-6 | — (находки 12.11.2026, 13.11.2026, узлы PC3-1, PC3-2, PC3-3, PC3-4, PC3-5) | M | ожидает | — | — | — |
 | 4 | несделанные части чистки тестов TD-11 (резка исходников и тестов, один мир на файл) и TD-15 (фаза 2, удаление карантина по слову владельца) идут узлами, а не живут только в спеках | — (слово владельца 12.11.2026, узлы PC4-1…PC4-18) | L | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → words-gates/1, onboarding-forge/1, onboarding-forge/2.
@@ -111,6 +111,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261112-nochnoj-prohod-krasnyj-probe-by-code-languages-300-s.md` | находка, id — | ночной прогон 43178152997 красный: `test_probe_by_code_languages.py` упёрся в 300 с (канон: 209,2 с); файл режется (N9 td-11c) и идёт «в процессе»; потолок не поднимается | `scripts/tests/test_probe_by_code_languages.py`, `scripts/slow_tests.json` | пачка 3, PC3-2 | нет (слово владельца 12.11.2026, td-11d F2) | td-11c §7 N9; FR-31 |
 | `findings/20261113-golyj-os-replace-v-41-mestah-33-fajlov-bez-povtora-na-windows.md` | находка, id — | голый `os.replace` в ~41 месте ~33 файлов: гонка читателя на Windows лечится только у `event_store.replace_file` | `scripts/*.py` (перечень — шаг билдера), `scripts/tests/test_event_store.py` | пачка 3, PC3-3 | нет | B-333; HF2-0 п. 9; t-205 F3 |
 | `findings/20261113-pin-izmerennoj-konstanty-role-load-v-test-walk-plan-fields.md` | находка, id — | `test_walk_plan_fields.py` повторяет измеренные храповики `role-load.json`: пин на измеренное число, каждый сдвиг правит два файла | `scripts/tests/test_walk_plan_fields.py`, `references/role-load.json` | пачка 3, PC3-4 | нет | t-240 (P11); TESTING.md |
+| `findings/20261113-krasnoe-v-karantine-ne-razobrano-dva-fajla.md` | находка, id — | два карантинных файла красные: `test_stage_acceptance_consumer` сгнил (заглушка читателя), `test_env_access_onboarding` 105/106 на `localhost:80` | `scripts/tests/test_stage_acceptance_consumer.py`, `scripts/tests/test_env_access_onboarding.py` | пачка 3, PC3-5 | дано 13.11.2026 («ок») | план `20261113-plan-fabrika-ne-huzhe-agenta.md` §7; `docs/TESTING.md` |
 
 ## Входящие
 
