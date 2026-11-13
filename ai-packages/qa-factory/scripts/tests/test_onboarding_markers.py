@@ -35,9 +35,7 @@ ELLIPSIS = chr(0x2026)
 
 # A marker no `add` pairs, and why it may stay so. The table only SHRINKS (AR-20): a row is deleted
 # by the node that gives its marker an `add`, never added without a verdict naming where it goes.
-EXCEPTIONS = {
-    "application repo paths": "finding plans/piles/onboarding-hooks/findings/20261021-marker-application-repo-paths-bez-komandy-add.md (OH3-2)",
-}
+EXCEPTIONS = {}
 
 # `project_decisions.py [--root X] add --field-ref ... --essence "<E>"`: within ONE backtick span (a
 # span never crosses a command), `add` as a word followed by its own `--field-ref` (so `add-finding`

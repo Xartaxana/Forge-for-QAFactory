@@ -1,0 +1,1 @@
+- Onboarding now writes the deferred-decision row for application repository paths nobody could give, so the audit pairs the marker.
