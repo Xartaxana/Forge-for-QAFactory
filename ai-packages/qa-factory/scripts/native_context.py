@@ -185,8 +185,14 @@ def stage(root, event, role, context, ticket):
     # inside the lock and ahead of the write, so two concurrent stagings cannot both pass it.
     path = _slot(root, session, raw.get('task_name'))
     with EventStore(path.parent).lock():
-        if path.is_file() and json.loads(path.read_text(encoding='utf-8')).get('status') == 'pending':
-            raise StateConflict('A factory launch is awaiting SubagentStart; retry after it starts, do not replace it')
+        held = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else None
+        if path.is_file() and not isinstance(held, dict):
+            # An unreadable packet, like a corrupt one: the same exception type, which `refuse_native_stage` already takes.
+            raise json.JSONDecodeError('launch packet ' + path.name + ' is not a JSON object; relaunch the role under a '
+                                       'unique task name', '', 0)
+        if held and held.get('status') == 'pending':
+            raise StateConflict('A factory launch is awaiting SubagentStart; retry after it starts, do not replace it; '
+                                'if the launch never starts, relaunch the role under a unique task name')
         atomic_json(path, {'status':'pending', 'role':role, 'context':context,
                           'session_id':session, 'tool_use_id':event['tool_use_id'],
                           'transcript_path':event.get('transcript_path'), 'task_id':ticket,
