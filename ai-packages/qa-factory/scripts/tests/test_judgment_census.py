@@ -21,7 +21,8 @@ WHAT A UNIT IS (any one of):
       (also through `import judge as X` / `from judge import ask_one`);
   u3  the body holds a refusal site that `refusal_registry.sites()` sees (`deny`/`block`, `raise StateConflict|ValueError`).
       A raise through a package SUBCLASS of those (resolved per file, `raise_family`) or in the attribute form (`mod.Name(...)`)
-      never makes a unit (OH8-7, c1): it flips `blocks` on a unit found by another route, or the function is PENDING (see below).
+      never makes a unit (OH8-7, c1): it flips `blocks` on a unit found by another route, or the function is PENDING (see below);
+      only in a file (or function) listed in SUBCLASS_UNIT_FILES (OH8-7b..h) does a widened site create the unit, like a literal one.
 Plus: a row of `stages.json` `detectors`/`advice` for a script that has no function-units, and an entry of
 `refusal_registry.REGISTRY` whose (file, function) is not a unit already. Count by distinct (file, function): a stage row or a
 registry entry on a function that is a unit is a `ref` on that function's row, not a second unit.
@@ -37,7 +38,8 @@ check's meaning under a neutral name, with no judge call and no refusal site, is
 of `ValueError` or `StateConflict` flips `blocks` on a unit found by another route; a function that refuses ONLY through a
 subclass, under a neutral name, is PENDING: counted (the totals line prints `subclass_pending`), held under the test constant
 SUBCLASS_PENDING_CEILING (red above and below it), not classified, and closed by the follow-up nodes OH8-7b and after, each of
-which lowers the constant (a temporary second road; 0 is the end state). The pending bound is a COUNT: swapping one pending
+which lowers the constant (a temporary second road; 0 is the end state); a file listed in SUBCLASS_UNIT_FILES creates units from
+its widened sites and its rows classify them. The pending bound is a COUNT: swapping one pending
 function for a new one keeps the count and is not seen. Still unseen: a stdlib subclass, a class defined only
 under `scripts/tests/`, a base that is neither a plain name nor `alias.Name` (a call, a subscript, or `mod.B` where `mod` comes
 from a from-import of a module), a raise through a variable or assignment alias (`E = MyErr; raise E(...)`), `raise A` with no
@@ -96,7 +98,22 @@ MEANING_CEILING = 24
 # OH8-7 (c1): the functions that refuse only through a package subclass and are no unit by another route. A test constant like
 # MEANING_CEILING, NOT a `ratchet` key (the gate's item 7 is untouched). Dense: red above it (a new such refuser) and below it
 # (lower this line). Each follow-up node OH8-7b... gives a file group rows and lowers it; 0 is the end state.
-SUBCLASS_PENDING_CEILING = 190
+SUBCLASS_PENDING_CEILING = 167
+# OH8-7b..h (F1 (a)): files (names relative to scripts/) in which a widened raise site (a package subclass of
+# ValueError/StateConflict resolved per file, or the attribute form) CREATES a unit exactly like a literal raise. An entry is
+# `file.py` (the whole file) or `file.py::function` (that function only; used for the split of probe_by_code.py).
+# Grow-only: each node of the chain adds its files with their rows and lowers SUBCLASS_PENDING_CEILING by its count;
+# OH8-7h removes this tuple and the pending machinery (every scanned file then creates units from widened sites).
+SUBCLASS_UNIT_FILES = (
+    "probe_by_code.py::__init__", "probe_by_code.py::parse_node", "probe_by_code.py::locate",
+    "probe_by_code.py::_python_entry", "probe_by_code.py::find_oracle", "probe_by_code.py::plan_mutation",
+    "probe_by_code.py::parse_detector_node", "probe_by_code.py::body_span", "probe_by_code.py::locate_target",
+    "probe_by_code.py::_statement_span", "probe_by_code.py::_matcher_position", "probe_by_code.py::_inverted",
+    "probe_by_code.py::plan_detector_mutation", "probe_by_code.py::checks_of", "probe_by_code.py::_parse_at",
+    "probe_by_code.py::_parse_at_row", "probe_by_code.py::_target_file", "probe_by_code.py::_profile_of",
+    "probe_by_code.py::_longer_title", "probe_by_code.py::run_shape_checks", "probe_by_code.py::manifest_entry",
+    "probe_by_code.py::_profile_cwd", "probe_by_code.py::build_request",
+)
 
 
 # --- reading the package -------------------------------------------------------------------------------------------
@@ -210,12 +227,13 @@ def blocking_detector_files(rows: dict) -> set:
     return out
 
 
-def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FILES) -> dict:
+def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FILES, unit_files=SUBCLASS_UNIT_FILES) -> dict:
     """{(file, function): {'via': set, 'spans': [(start, end)], 'blocks': bool, 'refs': set}} plus the problems found.
 
     `blocks` (b1) a refusal site of `refusal_registry.sites(files=...)`, widened by `raises=raise_family(...)`, sits in the unit
     (by the scanner's `function`, or by its line inside the unit's span - a nested unit is then judged on its own lines, an error
-    toward a lone EXTRA `true`); units are CREATED (u3) only from the sites without `raises`;
+    toward a lone EXTRA `true`); units are CREATED (u3) from the sites without `raises`, and, in a file (or a function) listed in
+    `unit_files` (SUBCLASS_UNIT_FILES, OH8-7b..h), also from the widened sites;
     (b2) the file is on the blocking path: BLOCKING_ENTRY_FILES, or a `detectors` script that is not an adviser."""
     pkg = read_package(root, files)
     trees = pkg["trees"]
@@ -226,6 +244,25 @@ def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FI
     for s in seen:
         sites_by_file.setdefault(s["file"], []).append(s)
     units, problems = {}, list(pkg["errors"])
+    # OH8-7b: the family and the widened sites are computed BEFORE the per-file loop: a listed file creates units from them.
+    family = refusal_registry.raise_family(plugin_root=Path(root), files=sorted(trees))
+    wide = refusal_registry.sites(plugin_root=Path(root), files=sorted(trees), raises=family)
+    wide_by_file = {}
+    for s in wide:
+        wide_by_file.setdefault(s["file"], []).append(s)
+    entries = tuple(unit_files)
+    listed_files = {e for e in entries if "::" not in e}
+    listed_functions = {e for e in entries if "::" in e}
+    list_problems = []
+    for i, entry in enumerate(entries):
+        file, _sep, function = entry.partition("::")
+        if entry in entries[:i] or (_sep and file in listed_files):
+            list_problems.append(f"SUBCLASS_UNIT_FILES lists `{entry}` twice (or a function of a listed file): remove the "
+                                 "duplicate - one entry per file keeps the list reviewable and a removal never masked")
+        if file not in trees or (_sep and not any(s["function"] == function for s in wide_by_file.get(file, []))):
+            list_problems.append(f"SUBCLASS_UNIT_FILES lists `{entry}`, which the scan does not hold (renamed or deleted?): "
+                                 "rename the entry in the commit that renames the file, or remove it; its rows go stale "
+                                 "under C1 the same way")
 
     def add(file, function, via, span=None):
         u = units.setdefault((file, function), {"via": set(), "spans": [], "blocks": False, "refs": set()})
@@ -245,6 +282,9 @@ def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FI
                 add(file, node.name, "u2", span)
         for s in sites_by_file.get(file, []):
             add(file, s["function"], "u3")
+        for s in wide_by_file.get(file, []):           # a listed file / function: a widened site CREATES the unit (OH8-7b)
+            if file in listed_files or f"{file}::{s['function']}" in listed_functions:
+                add(file, s["function"], "u3")
         # a refusal through a wrapper or an alias: invisible to sites(); the file must stand on the blocking path
         wrappers = _alias_refusals(imports)
         hidden = [n for n in calls if isinstance(n.func, ast.Name) and (WRAPPER_RE.match(n.func.id) or n.func.id in wrappers)]
@@ -272,9 +312,8 @@ def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FI
         if file in blocking_files:
             u["blocks"] = True
     # (c1, OH8-7) a raise through a package subclass (or the attribute form) flips `blocks` on a unit found by ANOTHER route; it
-    # never creates a unit. A widened site in a function that is no unit goes to `pending`, which is counted (C7), not classified.
-    family = refusal_registry.raise_family(plugin_root=Path(root), files=sorted(trees))
-    wide = refusal_registry.sites(plugin_root=Path(root), files=sorted(trees), raises=family)
+    # creates a unit only in a listed file (above). A widened site in a function that is no unit goes to `pending`, which is
+    # counted (C7), not classified.
     by_file = {}
     for key in units:
         by_file.setdefault(key[0], []).append(key)
@@ -289,7 +328,7 @@ def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FI
             pending.add(f"{s['file']}::{s['function']}")
     names = {n for spec in family.values() for n in spec["names"]} - set(refusal_registry.REFUSAL_RAISES)
     return {"units": units, "problems": problems, "blocking_files": sorted(blocking_files), "sites": len(seen),
-            "files": sorted(trees), "pending": sorted(pending), "family": len(names)}
+            "files": sorted(trees), "pending": sorted(pending), "family": len(names), "list_problems": list_problems}
 
 
 # --- the census against the package --------------------------------------------------------------------------------
@@ -449,7 +488,8 @@ def _c7(pending: list, ceiling: int, probs: dict) -> None:
     if n > ceiling:
         probs["C7"].append(f"{n} functions refuse only through a subclass of `ValueError`/`StateConflict` and are no check unit, "
                            f"above SUBCLASS_PENDING_CEILING {ceiling}: a new one is a refusal the census does not classify - "
-                           "give the function a check-family name and a row, or refuse with a literal `ValueError`/`StateConflict`; "
+                           "give the function a check-family name and a row, or refuse with a literal `ValueError`/`StateConflict`, "
+                           "or list its file in SUBCLASS_UNIT_FILES with its rows (the OH8-7 chain); "
                            "the ceiling only shrinks and bounds a COUNT: swapping one pending function for a new one keeps the count "
                            f"and is not seen; some of them: {', '.join(pending[:12])}")
     elif n < ceiling:
@@ -458,14 +498,15 @@ def _c7(pending: list, ceiling: int, probs: dict) -> None:
 
 
 def analyse(root: Path, census: dict, roles=None, registry=None, entry_files=BLOCKING_ENTRY_FILES,
-            meaning_ceiling=None, pending_ceiling=None) -> dict:
+            meaning_ceiling=None, pending_ceiling=None, unit_files=None) -> dict:
     """{'problems': {C1..C5, C7: [text]}, 'totals': {...}}. Every problem names the thing, what was expected and the door."""
     root = Path(root)
     roles = list(roles if roles is not None else roles_of(root))
     registry = refusal_registry.REGISTRY if registry is None else registry
     ceiling_meaning = MEANING_CEILING if meaning_ceiling is None else meaning_ceiling
     ceiling_pending = SUBCLASS_PENDING_CEILING if pending_ceiling is None else pending_ceiling
-    found = units_of(root, scan_files(root), registry, entry_files)
+    listed = SUBCLASS_UNIT_FILES if unit_files is None else unit_files
+    found = units_of(root, scan_files(root), registry, entry_files, listed)
     units = found["units"]
     probs = {k: [] for k in ("C1", "C2", "C3", "C4", "C5", "C7")}
     for text in found["problems"]:
@@ -475,6 +516,7 @@ def analyse(root: Path, census: dict, roles=None, registry=None, entry_files=BLO
     got = _c3(census, rows, units, roles, probs)
     _c4(got, ceiling_meaning, probs)
     _c7(found["pending"], ceiling_pending, probs)
+    probs["C7"].extend(found["list_problems"])
     totals = {"files": len(found["files"]), "units": len(units), "counts": got["counts"], "breach": len(got["breach"]),
               "breach_rows": sorted(got["breach"]), "blocks_overrides": got["overrides"], "blocking_per_role": got["per_role"],
               "blocking_units": sum(1 for k, u in units.items() if k in rows and effective_blocks(u, rows[k])),
@@ -497,7 +539,8 @@ BLIND_SPOT = ("blind spot: class `meaning` is a hand label; a unit that judges m
               "a raise through a package subclass of `ValueError` or `StateConflict` (resolved per file) or through the attribute "
               "form flips `blocks` on a unit found by another route; a function that refuses ONLY that way, under a neutral name, "
               "is pending: counted under SUBCLASS_PENDING_CEILING, not classified, and closed by the follow-up nodes OH8-7b and "
-              "after (a temporary second road, P31); the pending bound is a COUNT, so swapping one pending function for a new one "
+              "after (a temporary second road, P31); a file listed in SUBCLASS_UNIT_FILES creates units from widened sites; the "
+              "pending bound is a COUNT, so swapping one pending function for a new one "
               "keeps the count and is not seen; still unseen: a stdlib subclass (`json.JSONDecodeError`), a class defined "
               "only under `scripts/tests/`, a base that is neither a plain name nor `alias.Name` (a call such as `make()`, a "
               "subscript, or `mod.B` where `mod` comes from a from-import of a module), a raise through a variable or assignment "
@@ -600,6 +643,7 @@ def _row(file, function, cls="shape", roles=("qa-x",), owner="data", **extra) ->
 def _run(files: dict, census: dict, **kw) -> dict:
     root = _package(files, stages=kw.pop("stages", None))
     kw.setdefault("pending_ceiling", 0)           # a synthetic package holds no pending refuser unless the case says so
+    kw.setdefault("unit_files", ())               # and lists no file (else E5 fires: the real tuple names files it lacks)
     try:
         return analyse(root, census, registry=[], **kw)
     finally:
@@ -801,27 +845,65 @@ SUBCLASS_ROWS = (
     ("no_arg", {"helpers_x.py": _A + "def check_f(x):\n    raise A()\n"}, 0, 0),
     ("cycle", {"helpers_x.py": "class A(B):\n    pass\n\n\nclass B(A):\n    pass\n\n\n" + _RAISE.format("A")}, 0, 0),
     ("neutral_only", {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}, 0, 1),
+    # OH8-7b: the sixth column lists files/functions in SUBCLASS_UNIT_FILES. A listed file (or function) CREATES the unit `f` from
+    # its widened site (pending 0); the E11 safe-side misses stay misses even when listed; another function listed leaves `f` pending.
+    ("listed_neutral", {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}, 0, 0, ("helpers_x.py",)),
+    ("listed_function", {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}, 0, 0, ("helpers_x.py::f",)),
+    ("listed_unrelated", {"helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _RAISE.format("A")}, 0, 0, ("helpers_x.py",)),
+    ("listed_shadowed_local", {"mod_a.py": _A, "helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _RAISE.format("A")},
+     0, 0, ("helpers_x.py",)),
+    ("listed_tests_only", {"tests/t_mod.py": _A, "helpers_x.py": "from tests.t_mod import A\n\n\n" + _RAISE.format("A")},
+     0, 0, ("helpers_x.py",)),
+    ("listed_no_arg", {"helpers_x.py": _A + "def check_f(x):\n    raise A()\n"}, 0, 0, ("helpers_x.py",)),
+    ("listed_other_function", {"helpers_x.py": _A + "def f():\n    raise A('no')\n\n\ndef g():\n    raise A('no')\n"},
+     0, 1, ("helpers_x.py::g",)),
 )
 
 
 def test_neg_subclass_raises_flip_blocks_or_are_pending() -> None:
-    for case, files, blocking, pending in SUBCLASS_ROWS:
-        rows = [] if case == "neutral_only" else [_row("helpers_x.py", "check_f")]
-        r = _run(files, _census(rows))
+    for case, files, blocking, pending, *rest in SUBCLASS_ROWS:
+        unit_files = rest[0] if rest else ()
+        rows = [] if "def f()" in files["helpers_x.py"] else [_row("helpers_x.py", "check_f")]
+        r = _run(files, _census(rows), unit_files=unit_files)
         t = r["totals"]
         assert t["blocking_units"] == blocking, (case, "blocks flip", t["blocking_units"], "want", blocking)
         assert t["pending"] == pending, (case, "pending", t["pending_names"], "want", pending)
-        assert not _has(r["problems"]["C1"], "helpers_x.py::f is a check unit"), (case, "a subclass raise never makes a unit")
+        created = "helpers_x.py" in unit_files or "helpers_x.py::f" in unit_files
+        assert _has(r["problems"]["C1"], "helpers_x.py::f is a check unit (u3)") == (created and "def f()" in files["helpers_x.py"]), \
+            (case, "a unit is created from a subclass raise iff its file/function is listed", r["problems"]["C1"])
         if case == "neutral_only":
             assert t["pending_names"] == ["helpers_x.py::f"], t["pending_names"]
             assert not r["problems"]["C1"], (case, r["problems"]["C1"])
+        if case == "listed_other_function":
+            assert t["pending_names"] == ["helpers_x.py::f"], t["pending_names"]
+            assert not _has(r["problems"]["C1"], "helpers_x.py::f is a check unit"), r["problems"]["C1"]
+            assert _has(r["problems"]["C1"], "helpers_x.py::g is a check unit (u3)"), r["problems"]["C1"]
+
+
+C7_NEUTRAL = {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}
+# OH8-7b (E4, E5): (id, unit_files, text the C7 problems must hold or None for none); the pending ceiling is 0 and `f` is rowed
+C7_LISTS = (
+    ("ok", ("helpers_x.py",), None),
+    ("twice", ("helpers_x.py", "helpers_x.py"), "lists `helpers_x.py` twice"),
+    ("file_and_function", ("helpers_x.py", "helpers_x.py::f"), "lists `helpers_x.py::f` twice (or a function of a listed file)"),
+    ("stale_file", ("helpers_x.py", "gone_x.py"), "lists `gone_x.py`, which the scan does not hold"),
+    ("stale_function", ("helpers_x.py::nope",), "lists `helpers_x.py::nope`, which the scan does not hold"),
+)
 
 
 def test_neg_pending_is_dense_and_only_shrinks_c7() -> None:
-    files = {"helpers_x.py": _A + "def f():\n    raise A('no')\n"}
+    files = C7_NEUTRAL
     assert _has(_run(files, _census())["problems"]["C7"], "above SUBCLASS_PENDING_CEILING 0")
+    assert _has(_run(files, _census())["problems"]["C7"], "or list its file in SUBCLASS_UNIT_FILES with its rows (the OH8-7 chain)")
     assert not _run(files, _census(), pending_ceiling=1)["problems"]["C7"]
     assert _has(_run(files, _census(), pending_ceiling=2)["problems"]["C7"], "lower the constant to 1")
+    for case, unit_files, text in C7_LISTS:
+        found = _run(files, _census([_row("helpers_x.py", "f")], blocking_per_role={"qa-x": 1, "conductor": 0}),
+                     unit_files=unit_files)["problems"]["C7"]
+        if text is None:
+            assert not found, (case, found)
+        else:
+            assert _has(found, text), (case, found)
 
 
 def test_neg_the_attribute_form_and_the_family_need_raises_and_the_default_scan_is_todays() -> None:
@@ -858,7 +940,7 @@ def test_neg_the_attribute_form_and_the_family_need_raises_and_the_default_scan_
 def test_blind_spot_states_the_subclass_clause() -> None:
     for label, text in (("BLIND_SPOT", BLIND_SPOT), ("census about", load_census()["about"]), ("docstring", __doc__ or "")):
         low = text.lower()
-        for needle in ("flips `blocks`", "pending", "oh8-7b", "stdlib", "`raise a()`"):
+        for needle in ("flips `blocks`", "pending", "oh8-7b", "stdlib", "`raise a()`", "subclass_unit_files"):
             assert needle in low, f"{label} must say {needle!r} (the subclass clause of OH8-7)"
         assert "invisible to `refusal_registry.sites`" not in text, f"{label} still carries the old gap clause"
     assert "subclass_pending=" in totals_line({"files": 0, "units": 0, "counts": {c: 0 for c in CLASSES}, "breach": 0,
