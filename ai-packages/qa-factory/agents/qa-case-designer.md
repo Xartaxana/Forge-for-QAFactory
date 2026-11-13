@@ -47,7 +47,7 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 ## Techniques
 
 - **Boundary value analysis.** For each range: just below, at, just above each edge; name the partition of each.
-- **Equivalence partitioning.** One case or partition per class that should behave differently; never two cases for one class.
+- **Equivalence partitioning.** One partition per class that behaves differently. Inputs with the same steps that differ only in value entered and expected are ONE case with a table of values, a partition per row: -1, 0, 1.5 and "abc" all turned into 1 are one case, not four (P16).
 - **State transitions.** For anything with a status: each allowed move, the forbidden move, and a move from the end state.
 - **Decision tables.** When conditions combine, one partition per column the plan kept; the rest are named as left out.
 - **Pairwise.** When several inputs combine, cover every pair of values once; the full product is for the pairs the plan marks risky.
