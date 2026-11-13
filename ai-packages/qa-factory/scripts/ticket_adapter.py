@@ -753,10 +753,11 @@ def resolve_method(adapter_cfg: dict) -> str:
     return ""
 
 
-def snapshot_hint(ticket: str) -> str:
+def snapshot_hint(ticket: str, root: Path | None = None) -> str:
     """Where the story's one ticket snapshot lives. Nothing calls this today; it names the file
-    the driver writes and the brief reads, so a caller added later cannot invent another."""
-    return f"qa-factory/artifacts/{ticket}/work/ticket-snapshot.json"
+    the driver writes and the brief reads, so a caller added later cannot invent another. The story's
+    folder comes from the artifact root's one reader (`source_exclusions.task_dir_hint`, AR-13)."""
+    return f"{source_exclusions.task_dir_hint(ticket, root)}/work/ticket-snapshot.json"
 
 
 def has_usable_direct_api(adapter_cfg: dict) -> bool:

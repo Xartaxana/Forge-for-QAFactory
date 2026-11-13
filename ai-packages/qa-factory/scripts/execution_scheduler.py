@@ -84,6 +84,7 @@ class LeaseRegistry:
     """Project-level, OS-locked worker/resource registry."""
 
     def __init__(self, project_root: Path):
+        self.project_root = project_root
         self.path = project_root / "qa-factory" / "state" / "execution-leases.json"
         self.lock_path = self.path.with_suffix(".lock")
 
@@ -151,7 +152,8 @@ class LeaseRegistry:
             # Close the acquire/spawn/update race using the runner's independently durable
             # job identity.  An alive exact child is adopted; uncertainty stays blocked.
             if status == "blocked_orphan" and lease.get("task") and lease.get("idempotency_key"):
-                store = JobStore(self.path.parents[1] / "artifacts" / str(lease["task"]) /
+                import hooklib      # the job store lives under the configured artifact root (AR-13); a broken config raises
+                store = JobStore(hooklib.artifact_root(root=self.project_root) / str(lease["task"]) /
                                  "state" / "execution-jobs")
                 job = store.read(str(lease["idempotency_key"]))
                 if job and job.get("status") == "running" and _same_process(

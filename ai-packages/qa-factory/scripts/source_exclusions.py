@@ -50,7 +50,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from source_inventory import (TICKET_KEY_RE, VCS_URL_RE, _atomic_write, normalize_url,  # noqa: E402
                               revoke_marks, utc_now)
-from hooklib import sorted_paths
+from hooklib import artifact_root, project_root, sorted_paths
 
 SCHEMA_VERSION = 1
 RECORD_NAME = "source-exclusions.json"
@@ -532,7 +532,19 @@ def _named_by(target: dict) -> str:
     return str(target.get("sha") or (f"branch:{target['branch']}" if target.get("branch") else ""))
 
 
-def _door(entry: dict, restored: list, task: str = "") -> str:
+def task_dir_hint(task: str, root: Path | None = None) -> str:
+    """Where a story's folder is, as a path to put in a command a role is told to run (AR-13): the root `hooklib.artifact_root`
+    reads (the project's `artifact_root` key, else qa-factory/artifacts), shown relative to the project when it lies inside it,
+    absolute (forward slashes) when it does not. A broken config raises the reader's ValueError: no guessed root."""
+    project = Path(root).resolve() if root is not None else project_root().resolve()
+    folder = artifact_root(root=project) / str(task)
+    try:
+        return folder.relative_to(project).as_posix()
+    except ValueError:
+        return folder.as_posix()
+
+
+def _door(entry: dict, restored: list, task: str = "", root: Path | None = None) -> str:
     """What the conductor runs to bring a taken-back source in when S1 is already completed (nothing in the
     factory reads a `pending` item then). Every command is whole: the key, url, source id and inventory path
     come from the exclusion, from what `revoke_marks` restored, or from the task; a step that cannot be a
@@ -542,7 +554,8 @@ def _door(entry: dict, restored: list, task: str = "") -> str:
     own target."""
     target = entry["target"]
     kind = target["kind"]
-    inventory = f"qa-factory/artifacts/{task}/work/{INVENTORY_NAME}"
+    folder = task_dir_hint(task, root)
+    inventory = f"{folder}/work/{INVENTORY_NAME}"
     adapter = _script("ticket_adapter")
     late = f"`{adapter} review --output {inventory} --late`"
     lead = "S1 of this story is already completed, so nothing runs by itself: the conductor brings it in."
@@ -565,7 +578,7 @@ def _door(entry: dict, restored: list, task: str = "") -> str:
         found = re.search(r"/-/merge_requests/(\d+)", fetch)
         if found and row.get("source_id"):
             rel = f"sources/{row['source_id']}/mr-{found.group(1)}.json"
-            steps.append(f"`{_script('vcs_evidence')} --url \"{fetch}\" --output qa-factory/artifacts/{task}/work/{rel}`")
+            steps.append(f"`{_script('vcs_evidence')} --url \"{fetch}\" --output {folder}/work/{rel}`")
             steps.append(f"`{adapter} inspect --output {inventory} --source-id {row['source_id']} --media-url \"{url}\" "
                          f"--inspection-status read --local-ref {rel}` (when the collection failed, record why "
                          "with `--inspection-status unavailable --reason` and the failure instead)")
