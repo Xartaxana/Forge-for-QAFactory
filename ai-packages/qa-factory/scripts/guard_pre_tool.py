@@ -821,8 +821,7 @@ def _section_door(path_raw: str, event) -> str:
                 task = story.group(1) if story else "<TICKET>"
                 script = "plan_row.py" if kind == "plan_rows" else "grounding_section.py"
                 shape = "--show --row <TS-n> [--row ...]" if kind == "plan_rows" else "--show <id> [--show ...] | --requirement <R-n>"
-                import runtime_paths as RP
-                door += f"\nWith a shell: {RP.script_command(script)} --task {task} {shape}"
+                door += f"\nWith a shell: {_door_command(script)} --task {task} {shape}"
             return door
     except Exception:  # noqa: BLE001 - see the docstring
         return ""
@@ -874,8 +873,7 @@ def big_read_check(ti: dict, cfg: dict, event: dict | None = None) -> None:
         door = ("This is a picture: it cannot be read in parts. If it is a ticket attachment, record it as unread with cause "
                 "`too_large` so the person sees it with its size; do not try `offset`/`limit`.")
         if _has_bash(event):
-            import runtime_paths as RP
-            door += (f"\nWith a shell: {RP.script_command('ticket_adapter.py')} inspect --output <work/source-inventory.json> "
+            door += (f"\nWith a shell: {_door_command('ticket_adapter.py')} inspect --output <work/source-inventory.json> "
                      "--source-id <source id> --attachment-id <attachment id> --evidence-ref <path of the evidence you wrote> "
                      "--inspection-status unavailable --reason \"too_large: <what you saw: the size and the limit>\"")
         else:

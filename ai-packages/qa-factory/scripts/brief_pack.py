@@ -65,10 +65,10 @@ PERSON_WORDS_MAX = 20000
 MAP_INLINE_LINES = 14
 PLAN_ROW_RE = re.compile(r"^\s*plan_row:\s*(\S+)", re.M)
 STAGE_ORDER = [f"S{i}" for i in range(10)]
-# The brief is a runtime packet under work/, written by the copy that is running: its own absolute
-# path is what the role's Bash must use. `${CLAUDE_PLUGIN_ROOT}` in a brief was text nobody expanded
-# (B-014, step 0: agent and brief text are not expanded, and a Bash tool's env carries whatever the
-# host session had), so a role could run the scripts of another copy than the driver's.
+# The brief is a runtime packet under work/, written by the copy that is running. The card's script paths are spelled
+# by the survivor (`runtime_paths.script_command`) as absolute paths of that copy: `${CLAUDE_PLUGIN_ROOT}` in a brief
+# was text nobody expanded (B-014, step 0), so a role could run the scripts of another copy than the driver's.
+# SCRIPTS is kept as the folder value, for readers in tests; no product code reads it.
 SCRIPTS = (RP.package_root() / "scripts").as_posix()
 # SC1-14 C2 / SC1-15: the S5 plan (`s5_plan.PLAN_REL`, spelled here because ROLE_FILES is data read at import). It is named to the
 # two dispatches of the plan only; a window reads its slice of it, and an S5 history of the earlier form (`legacy`) reads neither.

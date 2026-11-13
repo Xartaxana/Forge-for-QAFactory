@@ -94,7 +94,6 @@ def part_scanner() -> None:
 def part_door_texts() -> None:
     """OH5-2 A (AR-8, FR-15): the doors the guard builds name existing scripts of the copy that runs it (E4, E10); the card head
     and the brief's SCRIPTS are spelled by the same survivor."""
-    import ast as _ast
     import json
     import re
     import guard_pre_tool as G
@@ -139,11 +138,17 @@ def part_door_texts() -> None:
     # F8 / N4: the brief's SCRIPTS is the survivor's folder, and both card heads are built through the survivor
     import brief_pack
     check_eq("brief_pack.SCRIPTS is the package scripts folder", brief_pack.SCRIPTS, (RP.package_root() / "scripts").as_posix())
-    tree = _ast.parse((SCRIPTS / "brief_pack.py").read_text(encoding="utf-8"))
-    heads = [n for n in _ast.walk(tree) if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
-             and n.func.attr == "script_command" and n.args and isinstance(n.args[0], _ast.Constant)
-             and n.args[0].value == "<script>" and any(k.arg == "must_exist" for k in n.keywords)]
-    check_eq("both card heads call script_command('<script>', must_exist=False)", len(heads), 2)
+    # the card head follows the running copy, and a `$` root gets the single-quoted form (E3c) through the card itself
+    saved = RP.package_root
+    RP.package_root = lambda: Path("C:/qa$root/copy")
+    try:
+        card = brief_pack.command_card_lines("T-1", "walk-1", (), "")
+        want = RP.script_command("<script>", must_exist=False)
+    finally:
+        RP.package_root = saved
+    check_eq("the card head is the survivor's single-quoted form on a `$` root", want,
+             "python 'C:/qa$root/copy/scripts/<script>'")
+    check_in("the card head carries that command", f"Every command is `{want}`", card[0])
 
 
 def part_live_package() -> None:

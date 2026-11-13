@@ -553,13 +553,14 @@ def k5_script_command() -> None:
     saved = os.environ.get("CLAUDE_PLUGIN_ROOT")
     os.environ["CLAUDE_PLUGIN_ROOT"] = "C:/elsewhere"
     try:
-        got = RP.script_command("x.py", real)
+        got = RP.script_command("runtime_paths.py")
+        want = RP.script_command("runtime_paths.py", RP.package_root())
     finally:
         if saved is None:
             os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
         else:
             os.environ["CLAUDE_PLUGIN_ROOT"] = saved
-    check("K5 E5 a host root variable never decides the path", "elsewhere" not in got, got)
+    check("K5 E5 a host root variable never decides the path", "elsewhere" not in got and got == want, f"{got} vs {want}")
     check("K5 the default root is package_root()",
           RP.script_command("runtime_paths.py") == RP.script_command("runtime_paths.py", RP.package_root()))
 
