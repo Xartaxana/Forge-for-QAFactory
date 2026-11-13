@@ -1024,6 +1024,7 @@
         "scripts/tests/test_stage_joints*.py",
         "scripts/tests/test_judgment_census.py",
         "scripts/tests/fixtures/judgment-census.json",
+        "scripts/tests/fixtures/told-ratchet.json",
         "scripts/tests/test_current_audit_contract.py",
         "scripts/tests/test_live_audit_contract.py",
         "scripts/tests/test_arch_check.py",

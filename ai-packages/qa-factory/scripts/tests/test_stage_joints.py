@@ -733,18 +733,31 @@ def measure_untold(units: dict, rows: dict, found: list) -> int:
     return count
 
 
-def role_set(rows: list, mapped: set) -> set:
-    return {r for row in rows for e in row.get("producers") or [] for r in (e.get("roles") or []) if r != SJ.ANY} | (
-        mapped if any(SJ.ANY in (e.get("roles") or []) for row in rows for e in row.get("producers") or []) else set())
-
-
 def k5_problems(unit_roles: dict, unit_rows: dict, mapped: set) -> list:
-    """K5: the roles of a unit (census roles minus the conductor) are a subset of the roles of its told rows."""
+    """K5: the roles of a unit (census roles minus the conductor) are each named by a told row of it (`SJ._row_names`: `*` is
+    every mapped role, never the conductor)."""
     out = []
     for unit, rows in sorted(unit_rows.items()):
-        missing = (set(unit_roles.get(unit) or []) - {"conductor"}) - role_set(rows, mapped)
+        missing = {r for r in set(unit_roles.get(unit) or []) - {"conductor"}
+                   if not any(SJ._row_names(row, r, lambda: mapped) for row in rows)}
         if missing:
             out.append(f"{unit[0]}::{unit[1]} is met by {', '.join(sorted(missing))}, which no row of it names")
+    return out
+
+
+def told_unit_rows(ids: dict, data: dict) -> dict:
+    """{unit: [rows]} of the rows that state a requirement (`SJ._states_requirement`), grouped by the unit of the check id they
+    cover: the row's own id, a `<stem>:*` row for every id of that stem, a sub-id row `<id>.<part>` for its parent id."""
+    out = {}
+    for row in data["joints"]:
+        if not SJ._states_requirement(row):
+            continue
+        check = str(row.get("check"))
+        stem = check.split(":", 1)[0]
+        hit = [u for i, u in ids.items() if i == check or i == check.rsplit(".", 1)[0]
+               or (check == f"{stem}:{SJ.ANY}" and i.split(":", 1)[0] == stem)]
+        for unit in set(hit):
+            out.setdefault(unit, []).append(row)
     return out
 
 
@@ -811,8 +824,9 @@ def told_real() -> None:
              unit_problems(world["by_unit"], told["units"]), [])
     check_eq("K4/baseline-covers-join: the baseline names every role-reachable unit of the join, and the join's count is the fixture's",
              (sorted(world["by_unit"]), totals["role_reachable_units"]), (sorted(told["units"]), len(told["units"])))
-    check_eq("K5/real: no row of the real file states a requirement yet, so K5 judges no unit (T1r makes it live)",
-             k5_problems(world["unit_roles"], {}, set()), [])
+    check_eq("K5/real: the rows of the real file that state a requirement name every role of their unit (live now: it judges the units "
+             "of those rows, none yet; T1r's rows are judged with no further edit)",
+             k5_problems(world["unit_roles"], told_unit_rows(world["ids"], REAL), SJ._mapped_roles()), [])
     check_eq("conductor-only/printed-per-group: every conductor-only join unit sits in exactly one named group with its reason",
              (sum(world["groups"].values()), set(world["groups"]) <= set(GROUP_REASONS), totals["conductor_only_units"]),
              (totals["conductor_only_units"], True, totals["conductor_only_units"]))
@@ -896,6 +910,14 @@ def told_variants() -> None:
              [k5_problems({u: r}, {u: [a_row("x:y", roles=rr)]}, {"qa-runner", "qa-scout"}) for r, rr in (
                  (["qa-runner", "conductor"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("*",)))],
              [[], ["f.py::g is met by qa-scout, which no row of it names"], []])
+    stub = a_rows_file(a_row("x:one", roles=("qa-runner",), requirement="a requirement"), a_row("y:*", roles=("qa-scout",), requirement="r"),
+                       a_row("x:two"))
+    ids = {"x:one": u, "y:a": ("f.py", "h"), "x:two": u}
+    check_eq("K5/real-reads-the-rows: the rows that state a requirement are grouped by the unit of their id (a `<stem>:*` row covers the stem's ids, "
+             "a row with no requirement is left out) and a role they do not name is red (the negative control of the real-tree row)",
+             (sorted(map(len, told_unit_rows(ids, stub).values())), k5_problems({u: ["qa-runner", "qa-scout"], ("f.py", "h"): ["qa-scout"]},
+                                                                               told_unit_rows(ids, stub), set())),
+             ([1, 1], ["f.py::g is met by qa-scout, which no row of it names"]))
     groups = conductor_only([{"file": "f.py", "function": n, "roles": r} for n, r in (("a", ["conductor"]), ("b", ["conductor"]), ("c", ["conductor"]),
                                                                                      ("d", ["qa-runner"]), ("e", None))],
                             {("f.py", "a"): {"note": "x, parent 2.8 group G-free"}, ("f.py", "b"): {"note": "parent 2.8 group G-zzz"}, ("f.py", "c"): {}})
