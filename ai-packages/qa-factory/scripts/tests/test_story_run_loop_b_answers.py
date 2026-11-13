@@ -95,7 +95,7 @@ def hf2_7_blocking_stop() -> None:
         person = s.run_role()
         check_eq("K2: six open questions, one a blocker: the story stops", getattr(person, "kind", None), "questions")
         check_in("K2: and says why, in words", "marked as blocking", person.text)
-        check_in("K2: and how a blocking question is settled", "A question marked as blocking is settled only by a line with its id", person.text)
+        check_in("K2: and how a blocking question is settled", "A question marked as blocking is settled only by a recorded answer", person.text)
         # t-1336: the K15 census names this file as the pin of the key `questions.blocking` (the blocking stop's priced section, not the count's)
         check_eq("K2: the blocking stop's options are the priced section of `questions.blocking` (go on / stop)",
                  tuple(getattr(person.text, "priced", ())), ("go on", "stop"))
