@@ -2286,8 +2286,8 @@ def _proved_warnings(task_root: Path, warnings: list) -> tuple:
     lift it (E25). `vcs_api`: the newest fresh `ok` receipt, and `api_capability` over the receipts says `ok` (a fresh `denied` on
     any host forbids it). `host_hooks`: `host_capabilities.hooks_proved` and the real dispatch's receipt (`role_context`).
 
-    The error direction is a line too many, never one too few (AR-28): no `S0.finished`, a time with no offset, a layout of the task
-    root that is not `<project>/qa-factory/artifacts/<T>`, a reader that raises - every line stays. `proved` lists what left, each
+    The error direction is a line too many, never one too few (AR-28): no `S0.finished`, a time with no offset, a story no project proves
+    (`runtime_paths.project_for_task`, whatever the configured artifact root), a reader that raises - every line stays. `proved` lists what left, each
     with its name, the line and the time of the evidence (the `proved_warnings` key of `collect`, for whoever reads `--json`)."""
     kept, proved = list(warnings), []
     try:
@@ -2298,9 +2298,13 @@ def _proved_warnings(task_root: Path, warnings: list) -> tuple:
         stages = pipeline.get("stages") if isinstance(pipeline.get("stages"), dict) else {}
         s0 = stages.get("S0") if isinstance(stages.get("S0"), dict) else {}
         started = _aware(s0.get("finished"))
-        if started is None or task_root.parents[1].name != "qa-factory":
+        if started is None:
             return kept, proved
-        project = task_root.parents[2]
+        import runtime_paths
+        try:
+            project = runtime_paths.project_for_task(task_root)
+        except ValueError:  # no project proves this story: every line stays
+            return kept, proved
         evidence = {}
         if "vcs_api" in names:
             from vcs_evidence import api_capability, read_api_receipts

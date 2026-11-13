@@ -247,7 +247,11 @@ def report(task_root) -> dict:
     if not walks:
         return {"task": task_root.name, "timed": False, "text": f"no walk timed for {task_root.name}", "old_road": old_road,
                 "problems": problems}
-    config = hooklib.read_json(task_root.parents[2] / "qa-factory" / "config.json", {}, kind=dict)
+    import runtime_paths
+    try:
+        config = hooklib.read_json(runtime_paths.project_for_task(task_root) / "qa-factory" / "config.json", {}, kind=dict)
+    except ValueError:  # no project proves this story: the same "config absent" as a missing file
+        config = {}
     reports = [walk_report(task_root, walk, timed, config, problems) for walk, timed in sorted(walks.items())]
     places = {}
     for rep in reports:

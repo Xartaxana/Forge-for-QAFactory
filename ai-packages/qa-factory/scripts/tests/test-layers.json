@@ -3949,6 +3949,16 @@
     "tests/harness.py"
    ]
   },
+  "test_project_for_task_readers.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): walk_timing and gate_brief take the story's project through runtime_paths.project_for_task, default and configured artifact root (OF4-19)",
+   "covers": [
+    "walk_timing.py",
+    "gate_brief.py",
+    "runtime_paths.py",
+    "tests/harness.py"
+   ]
+  },
   "test_project_knowledge.py": {
    "layer": "register",
    "why": "PK0-1: the project's answer registry keys, error direction toward asking (AR-13, AR-14, AR-25, AR-28)",
