@@ -66,6 +66,9 @@ BROKEN = {
     "first_look.py show": ["show"],
     # t-2181 PC-9b: the runner's `reference_snapshot.py put`; the broken call is the missing --reference/--items-file (a refusal through RefusingParser, with the card)
     "reference_snapshot.py put": ["put", "--task-root", "{task}"],
+    # OF5-10: the broken call is the missing --input (a refusal through role_cli.refuse, with the card); a record with a missing
+    # field is a validator RESULT (valid: false), held in manual_examples
+    "manual_evidence.py validate": ["validate", "--task-root", "{task}"],
     "manual_evidence.py export": ["export", "--task-root", "{task}", "--input", "{bad}",
                                   "--output", "{root}/exported.json"],
     "artifact_producer.py publish": ["publish", "--kind", "triage", "--task-root", "{task}",
@@ -683,6 +686,23 @@ def manual_examples() -> None:
         card_names("manual_capture.py ui", "--session", "session close", "calls of one --profile join one open attempt")
         card_names("manual_capture.py http", "--session", "only in the same --profile's open attempt", "signs in again")
 
+        # --- manual_evidence.py validate: ONE record, as `build` wrote it (OF5-10) ----------------------------------------------
+        command = "manual_evidence.py validate"
+
+        def validate_one(record):
+            path = t.task / "one-record.json"
+            path.write_text(json.dumps(record), encoding="utf-8")
+            with t.patched():
+                return S.run(["validate", "--task-root", str(t.task), "--input", str(path)], main=M.main, command=command)
+
+        code, out, err = validate_one(good)
+        accepted_example(command, code, out + err)
+        check_in("manual_evidence validate: the printed JSON says valid, as the card says", '"valid": true', out)
+        code, out, err = validate_one({k: v for k, v in good.items() if k != "case"})
+        check("manual_evidence validate: a record with a field missing is exit 1 and `valid: false`, as the card says",
+              code == 1 and '"valid": false' in out, f"exit {code}: {(out + err)[-300:]}")
+        card_names(command, "--task-root", "--input", "build")
+
         command = "manual_evidence.py export"
         code, out, err = block([good], "export")
         accepted_example(command, code, out + err)
@@ -948,6 +968,14 @@ def main() -> int:
               set(COMMANDS) == set(BROKEN),
               f"registry only: {sorted(set(COMMANDS) - set(BROKEN))}; "
               f"test only: {sorted(set(BROKEN) - set(COMMANDS))}")
+
+        # OF5-10: every `manual_evidence.py <subcommand>` the manual-evidence reference page hands a role has a card
+        page = (PLUGIN_ROOT / "references" / "manual-evidence.md").read_text(encoding="utf-8")
+        handed = sorted(set(re.findall(r"manual_evidence\.py ([a-z][a-z-]*)", page)))
+        check("the manual-evidence reference page hands at least one manual_evidence.py subcommand", bool(handed), str(handed))
+        for sub in handed:
+            check(f"manual-evidence.md hands `manual_evidence.py {sub}`: it has a card", f"manual_evidence.py {sub}" in COMMANDS,
+                  f"cards of manual_evidence.py: {sorted(c for c in COMMANDS if c.startswith('manual_evidence.py'))}")
 
         for command, row in sorted(COMMANDS.items()):
             script = command.split()[0]
