@@ -179,12 +179,24 @@ def k1_k2_k3_the_gate() -> None:
                        "covers": [CASE], "status": "green"}],
             "unresolved": [{"case": CASE, "reason": "deferred_by_decision:S5", "partitions": ["datasource-link"]}],
             "then_bindings": [covered(1), covered(2), covered(3), covered(4)]}
-    result, _ = precheck(live, pipeline_with(word_for("partial-green"), word_for("*")))
-    tags = [f["id"] for f in result["findings"] if f["id"].endswith(":partial-green")]
-    check_eq("K3: the live shape is still refused as partial-green (even with `partial-green` and `*` recorded)",
-             tags, ["manifest:TC-700:partial-green"])
-    text = printed(result)
-    check_in("K3: with the family refusal line", DV.refusal_line("manifest:TC-700:partial-green", "family"), text)
+    # FV1-30a (critic B2): the owner's word 13.11 - a person's recorded word passes any passable finding by ONE road. `partial-green`
+    # is the finding's tag, so that word, or `*`, passes it and the note says so, with no `family` line; no word: it stands and its fix
+    # still names the Then-level door. The waiting `then-remainder-unrecorded-<n>` stays passed by nothing: E14 above (the conflicting
+    # pair: `partial-green` passes THIS finding and never the unrecorded Then).
+    for label, words in (("`partial-green`", (word_for("partial-green"),)), ("`*`", (word_for("*"),))):
+        result, _ = precheck(live, pipeline_with(*words))
+        check_eq(f"K3: with {label} recorded the partial-green finding is passed",
+                 [f["id"] for f in result["findings"] if f["id"].endswith(":partial-green")], [])
+        check_in(f"K3: ... and a note says the person's word passed it ({label})", "passed by the person's word: " + WORDS,
+                 "\n".join(result["notes"]))
+        check_not_in(f"K3: ... with no `family` refusal line ({label})", DV.refusal_line("manifest:TC-700:partial-green", "family"),
+                     printed(result))
+    result, _ = precheck(live, pipeline_with(word_for("partial")))
+    check_eq("K3: a PART of the tag (`partial`) passes nothing - the finding stands",
+             [f["id"] for f in result["findings"] if f["id"].endswith(":partial-green")], ["manifest:TC-700:partial-green"])
+    result, _ = precheck(live, pipeline_with())
+    check_eq("K3: with no word the live shape is refused as partial-green",
+             [f["id"] for f in result["findings"] if f["id"].endswith(":partial-green")], ["manifest:TC-700:partial-green"])
     fix = next(f["fix"] for f in result["findings"] if f["id"].endswith(":partial-green"))
     check_in("K3: its fix names the Then-level door and the block", "then handed: <case>#<n>", fix)
     check_in("K3: ... and the marker", 'reason="handed_to_person"', fix)

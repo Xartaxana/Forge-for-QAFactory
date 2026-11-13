@@ -22,6 +22,7 @@ from harness import (check, check_eq, check_in, check_not_in, cleanup, finish,  
                      run_script, temp_project)
 
 import coverage_contract as CC  # noqa: E402
+from event_store import content_hash  # noqa: E402
 import manifest_put as M  # noqa: E402
 import s5_precheck as P  # noqa: E402
 
@@ -185,7 +186,8 @@ def main() -> None:
             {"case": "TC-006", "file": "tests/t.py", "instance_id": "test_six",
              "covers": ["TC-006"], "status": "green"}],
             "obligation_bindings": [
-                {"obligation_id": "OB-1", "instance_ids": ["test_five"], "sensitivity": "proven"},
+                {"obligation_id": "OB-1", "instance_ids": ["test_five"], "sensitivity": "proven",
+                 "obligation_hash": "hb"},
                 {"obligation_id": "OB-2", "instance_ids": ["test_five"]},
                 {"obligation_id": "OB-3", "instance_ids": ["test_six"]},
                 {"obligation_id": "OB-4", "instance_ids": ["test_six"]}]}
@@ -228,8 +230,16 @@ def main() -> None:
             five = next(t for t in migrated["tests"] if t.get("instance_id") == "test_five")
             check_eq("the instance re-cites the same obligation by the plan's id",
                      five.get("obligation_ids"), ["TS-1-O1"])
-            check_eq("and so do its obligation_refs, hash untouched",
-                     five.get("obligation_refs"), [{"obligation_id": "TS-1-O1", "obligation_hash": "h1"}])
+            # FV1-19 (D4, row o): a hash read from a stored row is never forwarded; the stamp writes the plan's hash of the NEW id.
+            plan_hash = content_hash(PLAN_ROWS[0]["coverage_obligations"][0])
+            check_eq("and so do its obligation_refs, the hash is the plan's (the stored h1 was not forwarded, nor refused)",
+                     five.get("obligation_refs"), [{"obligation_id": "TS-1-O1", "obligation_hash": plan_hash}])
+            check_eq("the row's own hash is the hash of the stamped refs",
+                     five.get("obligation_hash"), content_hash(five.get("obligation_refs")))
+            check_eq("the renamed binding carries the plan's hash of its new id (the seed's `hb` is gone)",
+                     next(b for b in migrated["obligation_bindings"] if b["obligation_id"] == "TS-1-O1").get("obligation_hash"), plan_hash)
+            again_run = run_script("migrate_artifacts.py", "--task-root", str(task), "--if-older", cwd=root)
+            check_eq("--if-older exits 0 again over the stamped manifest", again_run.returncode, 0)
 
             # the point of the whole package: the projection joins again.
             projection = CC.coverage_projection(task, report={}, manifest=migrated)
@@ -247,6 +257,36 @@ def main() -> None:
             check_eq("a second run renames nothing", again["changed"], [])
     finally:
         cleanup(root)
+
+    # --- 4b. FV1-19 (row p, re-pinned by F1): the two retraction sites resend the covering rows by identity only ------------
+    import migrate_artifacts as MA
+    stale_cover = {"case": "TC-005", "file": "tests/t.py", "instance_id": "test_five", "covers": ["TC-005"], "status": "green",
+                   "obligation_refs": [{"obligation_id": "TS-1-O1", "obligation_hash": "stale"}], "obligation_ids": ["TS-1-O1"],
+                   "obligation_hash": "stale-row"}
+    ghost = {"case": "TC-005", "file": "tests/t.py", "instance_id": "TC-005", "covers": ["TC-005"], "status": "unknown"}
+    legacy = {"case": "TC-005", "selector": "test_five", "status": "unknown"}
+    for site, run_site, extra, said in (
+            ("_retract_case_ghosts", MA._retract_case_ghosts, ghost, "ghost retracted"),
+            ("_retract_legacy_selector_rows", MA._retract_legacy_selector_rows, legacy, "legacy selector row retracted")):
+        for cites in ("TS-1-O1", "TS-9-O9"):   # an id the plan names, and one it no longer names
+            root, task = make_story()
+            try:
+                cover = dict(stale_cover, obligation_refs=[{"obligation_id": cites, "obligation_hash": "stale"}], obligation_ids=[cites])
+                seed = {"tests": [extra, cover]}
+                (task / "work" / "automation-manifest.json").write_text(json.dumps(seed), encoding="utf-8")
+                (task / "state").mkdir(exist_ok=True)
+                result = run_site(task, TICKET, root, json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8")))
+                after = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
+                five = next(t for t in after["tests"] if t.get("instance_id") == "test_five")
+                # FV1-19 F1 (Lead, t-515): a retraction resends the covering row by identity only - no refs, ids or row hash -
+                # so the stored references stay exactly as stored (stale stays stale) and the retraction never depends on the plan.
+                check_eq(f"(p) {site}: a covering row citing {cites} (stale stored hash): the retraction commits, nothing left",
+                         (len(result["left"]), any(said in c for c in result["changed"]), len(after["tests"])), (0, True, 1))
+                check_eq(f"(p) {site}: ... and the covering row's refs, ids and row hash stay exactly as stored (never restamped)",
+                         (five["obligation_refs"], five["obligation_ids"], five["obligation_hash"]),
+                         ([{"obligation_id": cites, "obligation_hash": "stale"}], [cites], "stale-row"))
+            finally:
+                cleanup(root)
 
     # --- one stale test row can leave the manifest (TP1-13797, 27.09) -------------------
     # `tests[]` had no door: a row leaves only when every case it proves goes unresolved, and a

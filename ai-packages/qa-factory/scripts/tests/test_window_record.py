@@ -1803,6 +1803,53 @@ def the_window_reads_its_row_fields_from_the_carrier():
         cleanup(project)
 
 
+def fv1_19_the_carrier_the_origin_notes_and_the_charter():
+    """FV1-19b N2 rows (g), (i), (k), (l), QB: the `obligation_refs` row field is one carrier entry the automator fills through
+    the fragment door; the window item keeps its list; the origin notes and the charter name the door."""
+    import brief_pack
+    import proof_level
+    spec = WR.REQUIRED_ROW_FIELDS["obligation_refs"]
+    check_eq("N2 (i): the carrier says the automator fills `obligation_refs` through the fragment door, and it is no window text",
+             (spec.filled_by, spec.origin_door, spec.window, spec.when), ("automator", WR.FRAGMENT_DOOR, False, "plan_obligation"))
+    check_eq("N2 (i): no field of the carrier is filled by anything but the automator (the marker value is gone)",
+             sorted({s.filled_by for s in WR.REQUIRED_ROW_FIELDS.values()}), ["automator"])
+    check_eq("N2: the marker door is gone from the module", hasattr(WR, "MARKER" + "_DOOR"), False)
+    lines = [line for line in brief_pack._row_field_lines() if line.startswith("- obligation_refs:")]
+    check_eq("N2 (i): the brief line generator prints the carrier's `what` for it", lines, [f"- obligation_refs: {spec.what}"])
+    check_not_in("N2 (i): ...with no marker text", "marker", lines[0])
+    check_in("N2 (i): ...and the shape of the field", '[{"obligation_id": "<plan obligation id>"}]', lines[0])
+    check_eq("N2 (g): the window does not copy `obligation_refs` as text", "obligation_refs" in WR.window_text_fields(), False)
+    for field in ("obligation_refs", "obligation_ids", "obligation_hash"):
+        text = " ".join(WR.ORIGIN[field])
+        check_in(f"N2 (k): ORIGIN[{field}] names the fragment door", "manifest_put.py --task <T> --fragment <file>", text)
+        check_in(f"N2 (k): ...and that the code writes the hashes", "the code writes the hash", text)
+        check_not_in(f"N2 (k): ...and none says the automator writes them", "automator writes", text)
+        check_not_in(f"N2 (k): ...nor names the marker", "marker", text)
+    charter = (SCRIPTS.parent / "agents" / "qa-automator.md").read_text(encoding="utf-8")
+    named = [line for line in charter.splitlines() if "`obligation_refs`" in line]
+    check_eq("N2 (l): ONE charter line names `obligation_refs`", len(named), 1)
+    check_in("N2 (l): ...it names the fragment door", "manifest_put.py", named[0])
+    check_in("N2 (l): ...says ids", "ids", named[0])
+    check_not_in("N2 (l): ...and does not name the marker", "qa(obligations=", named[0])
+
+    project = temp_project("qa-window-refs-")
+    use_project(project)
+    try:
+        task = project / "qa-factory" / "artifacts" / TICKET
+        (task / "work").mkdir(parents=True)
+        test_file(project, "TC-1", "test_a")
+        proof_level._reset()
+        refs = [{"obligation_id": "OB-1", "obligation_hash": "oh-1"}, {"obligation_id": "OB-2", "obligation_hash": "oh-2"}]
+        _window, items = built_items(task, novelty_row("refs[1]", obligation_refs=refs))
+        item = items["refs[1]"]
+        check_eq("N2 (g): the item built from a row with refs keeps `obligation_refs` as a LIST", item.get("obligation_refs"), refs)
+        check_eq("N2 (g): ...beside the ids and the hash derived from it",
+                 (item.get("obligation_ids"), item.get("obligation_hash")), (["OB-1", "OB-2"], content_hash(refs)))
+    finally:
+        proof_level._reset()
+        cleanup(project)
+
+
 # ---- the story group: the window built from a real story, and accepted by the controller ----------------
 
 def the_window_carries_the_list_on_a_story(project: Path, task: Path):
@@ -2138,6 +2185,7 @@ def pure_group():
     a_terminal_run_is_the_latest_by_the_clock()
     the_item_carries_the_novelty_its_row_had_resolved()
     the_window_reads_its_row_fields_from_the_carrier()
+    fv1_19_the_carrier_the_origin_notes_and_the_charter()
     a_blocked_instance_is_built_with_its_outcome_and_list()
     a_word_nothing_reads_is_printed_and_changes_nothing()
     a_word_a_reader_passes_is_not_called_unread()

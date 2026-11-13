@@ -743,20 +743,16 @@ class Story:
         return None
 
     def obligation(self, case: str, oid: str, where: str) -> dict:
-        info = self.case(case, where)
-        row_id = str(info.get("plan_row") or "")
-        row = self.plan.get(row_id)
-        if not row_id or row is None:
-            raise Refusal(f"{where}: `obligations` names {oid} for {case}, and the case's plan row "
-                          f"({row_id or 'none recorded'}) is not in work/test-plan.json — an "
-                          "obligation can only be checked against the row that owns it")
-        found = {str(ob.get("obligation_id")): ob for ob in row.get("coverage_obligations") or []
-                 if isinstance(ob, dict) and ob.get("obligation_id")}
-        if oid not in found:
-            raise Refusal(f"{where}: {oid} is not an obligation of {case}'s plan row {row_id} "
-                          f"(it has: {', '.join(sorted(found)) or 'none'}) — name one of those, "
-                          "or leave `obligations` out")
-        return found[oid]
+        """The plan's obligation `oid` (FV1-19, F7 (b)): membership is judged against the WHOLE plan, the rule the fragment
+        door's stamp applies too. A plan that names no obligation refuses nothing (`{}`; the ids are stored unhashed)."""
+        self.case(case, where)
+        if "_obligation_map" not in self.__dict__:
+            self._obligation_map = C.plan_obligation_map(self.root)
+        known = self._obligation_map
+        if known and oid not in known:
+            raise Refusal(f"{where}: {oid} is not an obligation of the plan (it names: "
+                          f"{', '.join(sorted(known))}) — name one of those, or leave `obligations` out")
+        return known.get(oid, {})
 
     def dispatch(self, dispatch_id: str) -> dict:
         state = C.load_json(self.root / "state" / "controller.json")
@@ -1461,8 +1457,7 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
                     entry["partitions"] = _unique(partitions)
                 if obligations:
                     entry["obligation_ids"] = list(obligations)
-                    entry["obligation_refs"] = [{"obligation_id": oid, "obligation_hash": content_hash(ob)}
-                                                for oid, ob in obligations.items()]
+                    entry["obligation_refs"] = [{"obligation_id": oid} for oid in obligations]   # ids only: the stamp writes the hashes
                 if shapes:
                     entry["shape"] = shapes[-1]
                 if note_lines:
@@ -1542,6 +1537,12 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
     read_files = {tf.rel for tf in files}
     if helpers or (isinstance(held, list) and any(isinstance(r, dict) and r.get("file") in read_files for r in held)):
         fragment["introduced_helpers"] = helpers
+    # The marker writes obligation IDS; the hashes and the row's derived ids and hash come from the one stamp `manifest_put`
+    # runs too (AR-15), here so `--dry-run` and the row form see the rows as they will be stored. A refusal is impossible
+    # for ids `Story.obligation` accepted (both read one map), and still ends the call before anything is written.
+    fragment, stamp_problems = C.stamp_obligation_refs(fragment, getattr(story, "_obligation_map", None) or C.plan_obligation_map(story.root))
+    if stamp_problems:
+        raise Refusal("obligation_refs: " + "; ".join(stamp_problems))
     return {"fragment": fragment, "notes": notes, "scope": scope,
             "cases": _case_picture(story, cases_named, bindings, whole_unresolved)}
 
@@ -1672,11 +1673,8 @@ def _summary(result: dict, fragment: dict) -> list:
 # --- the row form: what each `tests[]` row still lacks, printed and never sent (HF2-12, EP1-18 (a)) ------------------
 
 def _legend_line(field: str, spec, cfg: dict, rows: list) -> str:
-    """One line of what a missing field holds: the carrier's own words (`window_record.RowField.what`), the profiles that
-    can own the file for `profile_id`, the marker for a field the marker writes (no slot for it in the form: a hand value
-    would not carry the plan's hash)."""
-    if spec.filled_by != "automator":
-        return f"{spec.what}; written by the marker, not by hand: {spec.origin_door}"
+    """One line of what a missing field holds: the carrier's own words (`window_record.RowField.what`) and the profiles
+    that can own the file for `profile_id`."""
     if field != "profile_id":
         return spec.what
     import execution_request as ER
@@ -1703,6 +1701,7 @@ def _row_form(task_root: Path, view: dict, wanted: list) -> tuple:
     from s5_precheck import case_plan_row, instances_of_case
     cfg, scfg = load_config(), C.case_config(task_root)
     plan, handed = C.plan_obligations(task_root), {row["case"] for row in C.handed_tests(view)}
+    known = C.plan_obligation_map(task_root)
     form, needed, asked = {"tests": [], "legend": {}}, {}, []
     for entry in C.manifest_tests(view):
         aliases = C.instance_id_aliases(entry, scfg)
@@ -1714,7 +1713,7 @@ def _row_form(task_root: Path, view: dict, wanted: list) -> tuple:
             plan_row = case_plan_row(task_root, case, "", instances_of_case(view, case)) \
                 if plan and case not in handed else ""
             owed += [ob for row, ob in plan if plan_row and row == plan_row]
-        gaps = WR.row_field_gaps(entry, cfg, owed)
+        gaps = WR.row_field_gaps(entry, cfg, owed, known)
         for field, _problem in gaps:
             needed.setdefault(field, []).append(entry)
         slots = {f: None for f, _problem in gaps if WR.REQUIRED_ROW_FIELDS[f].filled_by == "automator"}
@@ -1730,8 +1729,6 @@ def _row_form(task_root: Path, view: dict, wanted: list) -> tuple:
                   f"(a field left null counts as missing) and send it with `{WR.FRAGMENT_DOOR.replace('<T>', task)}` "
                   "before your handback:",
                   json.dumps({"tests": form["tests"]}, ensure_ascii=False, indent=2)]
-    else:
-        lines.append("row fields still missing, and not yours to fill by hand:")
     lines += [f"  `{field}`: {line}" for field, line in form["legend"].items()]
     return form, lines
 
