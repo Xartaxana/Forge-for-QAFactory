@@ -30,7 +30,8 @@
   "s6-w1-frozen/calls.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/console.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/events.json": "test_story_run_s6_w1_frozen.py",
-  "s6-w1-frozen/state_keys.json": "test_story_run_s6_w1_frozen.py"
+  "s6-w1-frozen/state_keys.json": "test_story_run_s6_w1_frozen.py",
+  "told-ratchet.json": "test_stage_joints.py"
  },
  "keep": {
   "test_adapter_forms.py": {

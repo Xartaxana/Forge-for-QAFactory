@@ -1056,7 +1056,8 @@ def text_end_after_handback(event: dict, agent: str = "", task: str = "") -> lis
         if not host_adapter.ended_in_text_after_handback(path, forms, DIGEST_TAIL_ROWS):
             return []
         return [DV.Record(f"Your last turn ended in text. A resumed role hands its report back with the host's handback "
-                          f"call: call {name} with your digest line.", script="exit_gate_text_end")]
+                          f"call: call {name} with your digest line.", script="exit_gate_text_end",
+                          check="exit_gate:text_end_after_handback")]
     except Exception:  # noqa: BLE001 - a crash of the reader refuses no one
         return []
 
@@ -1875,20 +1876,21 @@ def all_errors(agent: str, task: str, digest: str = "", facts_text: str = "") ->
 
     `facts_text` is what the identity decision read (`_identity`'s `scope["identity_facts"]`), for the header of an
     audit of a stop that named no story."""
-    def own(records: list, family: str) -> list:
-        # P1-v W0: the gate's OWN producers name their family (`exit_gate:<family>`) right after the call, before `judge_words`;
+    def own(records: list, check: str) -> list:
+        # P1-v W0: the gate's OWN producers name their check (`exit_gate:<family>`, written in full at each call so that
+        # `stage_joints.exit_members` reads the id as a literal) right after the call, before `judge_words`;
         # the detectors and `check_witness` name theirs in `detector_records`. The text of a record is not touched.
-        return [DV.with_check(r, f"exit_gate:{family}") for r in records]
+        return [DV.with_check(r, check) for r in records]
 
-    errors = own(scoped_errors(agent, task, facts_text), "scoped") + detector_errors(agent, task) + witness_errors(agent, task)
-    errors += own(grounding_errors(agent, task), "grounding") + own(case_identity_errors(agent, task), "case_identity")
-    errors += own(digest_errors(agent, task, digest), "digest")
+    errors = own(scoped_errors(agent, task, facts_text), "exit_gate:scoped") + detector_errors(agent, task) + witness_errors(agent, task)
+    errors += own(grounding_errors(agent, task), "exit_gate:grounding") + own(case_identity_errors(agent, task), "exit_gate:case_identity")
+    errors += own(digest_errors(agent, task, digest), "exit_gate:digest")
     if not is_halting_handoff(digest):
-        errors += own(required_outputs_errors(agent, task), "required_outputs")
+        errors += own(required_outputs_errors(agent, task), "exit_gate:required_outputs")
     if not errors:
         # nothing blocks: the advisers run and write the advice file for THE NAMED story (GW1-10); what an adviser refuses
         # and is not advice (E-X2-2c) is judged below like any other block
-        refused = own(run_advisers(agent, task), "adviser")
+        refused = own(run_advisers(agent, task), "exit_gate:adviser")
         if not refused:
             return [], []
         errors = refused
@@ -1898,7 +1900,7 @@ def all_errors(agent: str, task: str, digest: str = "", facts_text: str = "") ->
         # a summary never blocks and is shown to no one, whatever the outcome (rule 1)
         blocking, passed = [e for e in errors if getattr(e, "kind", "finding") != "summary"], []
     if not blocking:                        # a person's word passed every block: the same as a clean stop
-        late = own(run_advisers(agent, task), "adviser")
+        late = own(run_advisers(agent, task), "exit_gate:adviser")
         if late:
             try:
                 blocking, more = judge_words(late, _task_pipeline(agent, task), _stage_id(agent, task))

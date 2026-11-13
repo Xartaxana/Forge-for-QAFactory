@@ -494,6 +494,27 @@ def test_handoff_keys_pages() -> None:
         cleanup(tmp)
 
 
+def test_keys_through_load_rows() -> None:
+    """T1b: `_keys_outputs` reads the rows through `stage_joints.load_rows` (AR-13) and the pages are what they were."""
+    import stage_joints
+    check_eq("keys/findings-clean: every generated key page of the shipped package is fresh (byte-identical after the rename)",
+             CS.keys_findings(PLUGIN_ROOT), [])
+    role, page = "qa-scout", "references/slices/qa-scout/handoff-keys.md"
+    rows = {"joints": [{"producers": [{"roles": [role], "field": "a synthetic field", "demands": ["zz_demand_zz"],
+                                       "told": [{"path": page}]}]}]}
+    seen, saved = [], stage_joints.load_rows
+    try:
+        stage_joints.load_rows = lambda path=None: (seen.append(Path(path).name), (rows, ""))[1]
+        lines = CS._keys_outputs(PLUGIN_ROOT, role, {"id": "S1"}, {})
+        stage_joints.load_rows = lambda path=None: (None, "stage-joints.json cannot be read (OSError)")
+        unread = CS._keys_outputs(PLUGIN_ROOT, role, {"id": "S1"}, {})
+    finally:
+        stage_joints.load_rows = saved
+    check_eq("keys/through-load-rows: the page asks `load_rows` for the file", seen, ["stage-joints.json"])
+    check_in("keys/through-load-rows: a row it returns reaches the page", "- a synthetic field: `zz_demand_zz`", "\n".join(lines))
+    check_not_in("keys/through-load-rows: a file `load_rows` cannot read adds no demand line (as a lost file did before)", "zz_demand_zz", "\n".join(unread))
+
+
 def test_ladder_one_carrier() -> None:
     """X7-0 (K-L1, K-L1b): the P28 decision and the P19 ladder live in the manifesto alone; roles refer to the rung."""
     manifesto = (PLUGIN_ROOT / "references" / "tester-manifesto.md").read_text(encoding="utf-8")
@@ -514,6 +535,7 @@ def test_ladder_one_carrier() -> None:
 
 test_rendering()
 test_handoff_keys_pages()
+test_keys_through_load_rows()
 test_plan_role_charter_line()
 test_findings_and_write()
 test_shipped_package()
