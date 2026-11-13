@@ -39,7 +39,8 @@ def active_records(rows: list[dict], task: str) -> list[dict]:
 
 def task_binding(project_root: Path, task: str) -> dict:
     from hooklib import artifact_root
-    if not task or task in {'.','..'} or '/' in task or '\\' in task:
+    import hooklib
+    if not hooklib.is_one_component(task):
         raise ValueError('task must be a single task identifier')
     task_root = artifact_root(root=project_root) / task
     retro = task_root / "retro.md"

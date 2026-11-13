@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
+import hooklib  # noqa: E402
 
 # What the orchestrator branches on. `done` and `review` are the 0.7.x spellings of `ok` and
 # `concerns`; they stay readable so an un-updated role file is not a blocked handoff.
@@ -320,7 +321,7 @@ def file_notes(task_root, dispatch_id: str, text: str) -> str:
     digest's own verdict does not depend on it). An existing file of an earlier stop of the same dispatch is replaced."""
     tail = notes_tail(text)
     name = str(dispatch_id or "")
-    if not tail or not name or name != Path(name).name or name in (".", ".."):
+    if not tail or not hooklib.is_one_component(name):
         return ""
     try:
         target = Path(task_root).joinpath(*NOTES_DIR, name + NOTES_SUFFIX)

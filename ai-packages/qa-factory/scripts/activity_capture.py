@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from event_store import atomic_json
 from hooklib import project_root, read_event, state_dir
+import hooklib
 import session_identity
 
 # The ONE set of activity types (COLLECT, CL1-4: `collect` is the packing skill's own type, else its spend reads `unclassified`, P18).
@@ -41,7 +42,7 @@ def _segment_id(activity_id, event_id):
     return hashlib.sha256(f"{activity_id}:{event_id}".encode()).hexdigest()[:24]
 
 def activity_path(event, session):
-    if not session or session in {".", ".."} or any(c in session for c in "/\\:"):
+    if not hooklib.is_one_component(session):
         raise ValueError("session identity must be a single safe component")
     root = project_root(event)
     identity = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
