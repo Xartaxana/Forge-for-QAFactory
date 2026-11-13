@@ -1845,25 +1845,91 @@ def _git_out(args: list, cwd):
     return out if done.returncode == 0 and out else None
 
 
+def _git_rc(args: list, cwd):
+    """Exit code of `git <args>`; None on any exception (a missing git, a timeout)."""
+    try:
+        return subprocess.run(["git"] + args, cwd=cwd, capture_output=True, timeout=5).returncode
+    except Exception:
+        return None
+
+
+def _isolation_dispatch(payload: dict) -> bool:
+    """True only for a Task/Agent dispatch asking the host for `isolation: worktree`."""
+    if payload.get("tool_name") not in ("Task", "Agent"):
+        return False
+    tool_input = payload.get("tool_input")
+    return isinstance(tool_input, dict) and tool_input.get("isolation") == "worktree"
+
+
 def push_before_launch_warn(payload: dict) -> str:
     """WARN text when a worktree dispatch would be cut from an origin/main that lacks local commits; else "".
 
-    Only local commits missing on origin count (rev-list origin/main..main > 0); origin ahead is silent."""
-    if payload.get("tool_name") not in ("Task", "Agent"):
-        return ""
-    if (payload.get("tool_input") or {}).get("isolation") != "worktree":
+    Only local commits missing on origin count (rev-list origin/main..main > 0); origin ahead is silent.
+    Refs are fully qualified (a registered worktree path named origin/main makes the short form ambiguous)."""
+    if not _isolation_dispatch(payload):
         return ""
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
-    ahead = _git_out(["rev-list", "--count", "origin/main..main"], cwd)
+    ahead = _git_out(["rev-list", "--count", "refs/remotes/origin/main..refs/heads/main"], cwd)
     if not ahead or not ahead.isdigit() or int(ahead) < 1:
         return ""
-    local, remote = _git_out(["rev-parse", "main"], cwd), _git_out(["rev-parse", "origin/main"], cwd)
+    local = _git_out(["rev-parse", "refs/heads/main"], cwd)
+    remote = _git_out(["rev-parse", "refs/remotes/origin/main"], cwd)
     if not local or not remote:
         return ""
     return (
         "PUSH BEFORE LAUNCH: local main is %s, %s commit(s) ahead of origin/main %s; a worktree agent is cut "
-        "from origin/main, so those commits are not in its tree. Two exits: push main first, or say "
-        "`merge %s first` in the dispatch." % (local, ahead, remote, local))
+        "from origin/main, so those commits are not in its tree. Two exits: push main first, or create the "
+        "worktree yourself from main (git worktree add <path> -b <branch> main) and dispatch without isolation."
+        % (local, ahead, remote))
+
+
+# Names that are never a base to check (data, FR-13).
+BASE_REF_NAMES = frozenset({"main", "HEAD", "origin", "origin/main", "origin/HEAD"})
+BASE_REFS_CHECKED = 5
+_BASE_TOKEN_STRIP = "`'\"()[],.;:"
+
+
+def worktree_base_warn(payload: dict, cut=None) -> str:
+    """WARN text when an isolation dispatch names a branch that refs/remotes/origin/main does not contain; else "".
+
+    A WARN errs toward silence: any git error, an unknown exit code, or no origin/main gives ""."""
+    if not _isolation_dispatch(payload):
+        return ""
+    cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
+    refs_out = _git_out(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], cwd)
+    if refs_out is None:
+        return ""
+    known = set(refs_out.splitlines())
+    local = set((_git_out(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd) or "").splitlines())
+    if cut is not None and not getattr(cut, "degraded", True):
+        text = "\n".join(line for line, q in zip(cut.lines, cut.quoted) if not q)
+    else:
+        prompt = (payload.get("tool_input") or {}).get("prompt")
+        text = prompt if isinstance(prompt, str) else ""
+    names, seen = [], set()
+    for raw in text.split():
+        for tok in raw.split("`"):
+            name = tok.strip(_BASE_TOKEN_STRIP)
+            if name and name in known and name not in BASE_REF_NAMES and name not in seen:
+                seen.add(name)
+                names.append(name)
+    unchecked = max(0, len(names) - BASE_REFS_CHECKED)
+    kept = []
+    for name in names[:BASE_REFS_CHECKED]:
+        ref = ("refs/heads/" if name in local else "refs/remotes/") + name
+        if _git_rc(["merge-base", "--is-ancestor", ref, "refs/remotes/origin/main"], cwd) == 1:
+            kept.append(name)
+    if not kept:
+        return ""
+    sha = _git_out(["rev-parse", "refs/remotes/origin/main"], cwd) or "?"
+    shown = kept
+    more = " (%d more names not checked)" % unchecked if unchecked else ""
+    return (
+        "WORKTREE BASE: this dispatch asks for a host worktree (isolation: worktree) and names %s, which "
+        "refs/remotes/origin/main (%s) does not contain; the host cuts the worktree from origin/main, so those "
+        "commits will not be in the worker's tree. Door: create the worktree yourself -- git -C <repo> worktree "
+        "add <path> -b <branch> %s -- and dispatch without isolation (RUNBOOK §12 item 8).%s"
+        % (", ".join(shown), sha, shown[0], more))
 
 
 def _reconfigure_stderr_utf8():
@@ -2116,6 +2182,10 @@ def main() -> int:
         warn_push = push_before_launch_warn(payload)
     except Exception:
         warn_push = ""
+    try:
+        warn_base = worktree_base_warn(payload, decision.cut)
+    except Exception:
+        warn_base = ""
 
     warn_parts = [
         w
@@ -2124,6 +2194,7 @@ def main() -> int:
             path_report,
             cap_note,
             warn_push,
+            warn_base,
             warn_given,
             warn_role,
             warn_dod_quoted,

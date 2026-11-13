@@ -2520,7 +2520,9 @@ def _fake_git(answers, calls=None):
     return run
 
 
-AHEAD = ("rev-list", "--count", "origin/main..main")
+AHEAD = ("rev-list", "--count", "refs/remotes/origin/main..refs/heads/main")
+LOCAL_MAIN = ("rev-parse", "refs/heads/main")
+ORIGIN_MAIN = ("rev-parse", "refs/remotes/origin/main")
 
 
 def _worktree_dispatch():
@@ -2529,7 +2531,7 @@ def _worktree_dispatch():
 
 def test_push_before_launch_warns_when_main_is_ahead_of_origin(monkeypatch, capsys):
     calls = []
-    git = {AHEAD: "3", ("rev-parse", "main"): "aaa1111", ("rev-parse", "origin/main"): "bbb2222"}
+    git = {AHEAD: "3", LOCAL_MAIN: "aaa1111", ORIGIN_MAIN: "bbb2222"}
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git(git, calls))
     payload = _dispatch(cwd="Z:/repo")
     payload["tool_input"]["isolation"] = "worktree"
@@ -2537,13 +2539,13 @@ def test_push_before_launch_warns_when_main_is_ahead_of_origin(monkeypatch, caps
     ctx = _context(json.loads(out))
     assert code == 0
     assert "aaa1111" in ctx and "bbb2222" in ctx and "3 commit(s) ahead" in ctx and "push main first" in ctx
-    assert "merge aaa1111 first" in ctx
+    assert "create the worktree yourself from main" in ctx and "merge aaa1111 first" not in ctx
     assert all(cwd == "Z:/repo" for _a, cwd in calls)
 
 
 def test_push_before_launch_silent_when_origin_is_ahead_or_equal(monkeypatch):
     """t-576 F7: only LOCAL commits missing on origin matter; origin ahead of main must not warn."""
-    shas = {("rev-parse", "main"): "aaa", ("rev-parse", "origin/main"): "bbb"}
+    shas = {LOCAL_MAIN: "aaa", ORIGIN_MAIN: "bbb"}
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({AHEAD: "0", **shas}))
     assert dispatch_gate.push_before_launch_warn(_worktree_dispatch()) == ""  # origin ahead: shas differ, count 0
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({AHEAD: "1", **shas}))
@@ -2552,11 +2554,11 @@ def test_push_before_launch_silent_when_origin_is_ahead_or_equal(monkeypatch):
 
 def test_push_before_launch_silent_on_other_isolation_and_git_errors(monkeypatch):
     base = _worktree_dispatch()
-    git = {AHEAD: "2", ("rev-parse", "main"): "aaa", ("rev-parse", "origin/main"): "bbb"}
+    git = {AHEAD: "2", LOCAL_MAIN: "aaa", ORIGIN_MAIN: "bbb"}
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git(git))
     assert dispatch_gate.push_before_launch_warn({**base, "tool_input": {}}) == ""
     assert dispatch_gate.push_before_launch_warn({**base, "tool_input": {"isolation": "none"}}) == ""
-    monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({("rev-parse", "main"): "aaa"}))  # no origin/main
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({LOCAL_MAIN: "aaa"}))  # no origin/main
     assert dispatch_gate.push_before_launch_warn(base) == ""
     monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git({AHEAD: "not a number"}))
     assert dispatch_gate.push_before_launch_warn(base) == ""
@@ -2566,6 +2568,120 @@ def test_push_before_launch_silent_on_other_isolation_and_git_errors(monkeypatch
 
     monkeypatch.setattr(dispatch_gate.subprocess, "run", boom)
     assert dispatch_gate.push_before_launch_warn(base) == ""
+
+
+def _base_git(refs, ahead=(), rc_other=1, calls=None):
+    """Fake git for worktree_base_warn: refs = for-each-ref output lines (local ones carry no `origin/`);
+    `ahead` = ref names whose is-ancestor exit is 1; every other is-ancestor exit is `rc_other` (None = OSError)."""
+    def run(args, **kwargs):
+        if calls is not None:
+            calls.append(args)
+        rest = tuple(args[1:])
+        if rest[:1] == ("for-each-ref",):
+            if refs is None:
+                return subprocess.CompletedProcess(args, 128, stdout="", stderr="")
+            wanted = [r for r in refs if (not r.startswith("origin/")) == (rest[-1] == "refs/heads")] \
+                if rest[-1] in ("refs/heads", "refs/remotes") and len(rest) == 3 else list(refs)
+            return subprocess.CompletedProcess(args, 0, stdout="\n".join(wanted) + "\n", stderr="")
+        if rest[:2] == ("merge-base", "--is-ancestor"):
+            if rc_other is None:
+                raise OSError("no git")
+            name = rest[2].split("/", 2)[2] if rest[2].startswith("refs/heads/") else rest[2][len("refs/remotes/"):]
+            return subprocess.CompletedProcess(args, 1 if name in ahead else rc_other, stdout="", stderr="")
+        if rest == ORIGIN_MAIN:
+            return subprocess.CompletedProcess(args, 0, stdout="bbb2222\n", stderr="")
+        return subprocess.CompletedProcess(args, 128, stdout="", stderr="")
+    return run
+
+
+def _base_payload(prompt, **tool_input):
+    return {"tool_name": "Agent", "cwd": "Z:/r", "tool_input": {"isolation": "worktree", "prompt": prompt, **tool_input}}
+
+
+_MANY = ["wip/b%d" % i for i in range(7)]
+_BASE_ROWS = [
+    ("b1", "Base: pile/x/batch-1 please", ["pile/x/batch-1"], ["pile/x/batch-1"], 1,
+     ["WORKTREE BASE", "pile/x/batch-1", "bbb2222", "git -C <repo> worktree add <path> -b <branch> pile/x/batch-1"]),
+    ("b2", "Base: pile/x/batch-1 please", ["pile/x/batch-1"], [], 0, None),
+    ("b4", "from main, origin/main, HEAD", ["main", "origin/main"], ["main", "origin/main"], 1, None),
+    ("b5", " ".join(_MANY), _MANY, _MANY, 1, ["(2 more names not checked)", "wip/b4"]),
+    ("b6", " ".join(_MANY[:5]), _MANY, _MANY, 1, ["wip/b4"]),
+    ("b7a", "base `wip/oh8-6`", ["wip/oh8-6"], ["wip/oh8-6"], 1, ["wip/oh8-6"]),
+    ("b7b", "base wip/oh8-6, then more", ["wip/oh8-6"], ["wip/oh8-6"], 1, ["wip/oh8-6"]),
+    ("b8", "base wip/x", ["wip/x"], ["wip/x"], 128, None),
+    ("b8a", "base wip/x", ["wip/x"], ["wip/x"], 1, ["wip/x"]),
+    ("b8b", "base wip/x", ["wip/x"], [], 0, None),
+    ("b8c", "base wip/x", ["wip/x"], [], None, None),
+    ("b9a", None, ["wip/x"], ["wip/x"], 1, None),
+    ("b9b", "", ["wip/x"], ["wip/x"], 1, None),
+    ("b9c", "prose " * 50000, ["wip/x"], ["wip/x"], 1, None),
+    ("b10", "base wip/\u0432\u0435\u0442\u043a\u0430 now", ["wip/\u0432\u0435\u0442\u043a\u0430"], ["wip/\u0432\u0435\u0442\u043a\u0430"], 1,
+     ["wip/\u0432\u0435\u0442\u043a\u0430"]),
+    ("b11", "base wip/x", ["wip/x", "origin/wip/x"], ["wip/x"], 1, ["wip/x"]),
+    ("b14", "base pile/x", ["origin/pile/x"], ["pile/x", "origin/pile/x"], 1, None),
+]
+
+
+@pytest.mark.parametrize("row,prompt,refs,ahead,rc_other,expect", _BASE_ROWS, ids=[r[0] for r in _BASE_ROWS])
+def test_worktree_base_warn(monkeypatch, row, prompt, refs, ahead, rc_other, expect):
+    """B.4 rows: a WARN only for an isolation dispatch naming a branch origin/main lacks; every error is silence."""
+    calls = []
+    # rc_other 128 / None model a failing merge-base; for the other rows `ahead` decides exit 1 vs 0
+    other = 0 if rc_other == 1 else rc_other
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(refs, ahead=ahead if rc_other == 1 else (), rc_other=other,
+                                                                   calls=calls))
+    if row == "b8":
+        monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(refs, rc_other=128))
+    out = dispatch_gate.worktree_base_warn(_base_payload(prompt), None)
+    if expect is None:
+        assert out == "", row
+    else:
+        assert all(part in out for part in expect), (row, out)
+        assert out.startswith("WORKTREE BASE")
+    if row == "b6":
+        assert "more names" not in out
+    if row == "b11":
+        assert sum(1 for a in calls if a[1:3] == ["merge-base", "--is-ancestor"]) == 1
+        assert [a for a in calls if a[1:3] == ["merge-base", "--is-ancestor"]][0][3] == "refs/heads/wip/x"
+
+
+def test_worktree_base_warn_b3_only_host_worktrees(monkeypatch):
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(["wip/x"], ahead=["wip/x"]))
+    prompt = "base wip/x"
+    assert "WORKTREE BASE" in dispatch_gate.worktree_base_warn(_base_payload(prompt), None)
+    for payload in ({"tool_name": "Agent", "cwd": "Z:/r", "tool_input": {"prompt": prompt}},
+                    _base_payload(prompt, isolation="none"),
+                    {**_base_payload(prompt), "tool_name": "Bash"},
+                    {"tool_name": "Agent", "cwd": "Z:/r", "tool_input": None}):
+        assert dispatch_gate.worktree_base_warn(payload, None) == ""
+
+
+def test_worktree_base_warn_b8_for_each_ref_fails(monkeypatch):
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(None))
+    assert dispatch_gate.worktree_base_warn(_base_payload("base wip/x"), None) == ""
+
+    def boom(*a, **k):
+        raise OSError("git is not installed")
+
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", boom)
+    assert dispatch_gate.worktree_base_warn(_base_payload("base wip/x"), None) == ""
+
+
+def test_worktree_base_warn_b12_push_warn_pins_the_qualified_argv(monkeypatch):
+    git = {AHEAD: "2", LOCAL_MAIN: "aaa", ORIGIN_MAIN: "bbb"}  # the fake answers ONLY the qualified argv
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _fake_git(git))
+    assert "PUSH BEFORE LAUNCH" in dispatch_gate.push_before_launch_warn(_worktree_dispatch())
+
+
+def test_worktree_base_warn_b13_quoted_names_do_not_count(monkeypatch):
+    monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(["wip/x"], ahead=["wip/x"]))
+    fenced = "Review.\n```\nbase wip/x\n```\nend"
+    cut = dispatch_manifest.section_cut(fenced)
+    assert not cut.degraded
+    assert dispatch_gate.worktree_base_warn(_base_payload(fenced), cut) == ""
+    # control: the same name in prose is found through the same cut
+    prose = "Review.\nbase wip/x\nend"
+    assert "wip/x" in dispatch_gate.worktree_base_warn(_base_payload(prose), dispatch_manifest.section_cut(prose))
 
 
 def _finish(folder, name):

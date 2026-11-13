@@ -591,8 +591,11 @@ PostgreSQL на том же `localhost:5433` и по отдельной базе
 7. A builder's hand-off written to BOTH the worktree and the main path leaves an untracked copy on main that blocks the
    merge («untracked working tree files would be overwritten») — move the copy aside, then merge; if the branch did NOT
    track it, move it back after the merge (t-856) — the template of item 11 prevents this.
-8. The Agent tool often gives a builder NO worktree («launched in the primary checkout») — the dispatch text must carry the
-   `git worktree add <path> -b <branch> <sha>` fallback, and the branch then lives in the main repo.
+8. The Agent tool often gives a builder NO worktree, and when it does, the worktree is cut from the PUSHED
+   refs/remotes/origin/main, never from a pile, wip or conv branch the dispatch names (F6-35; plans/builder-rules.md item
+   20). A builder that must start from another base gets a worktree the coordinator creates — git -C <repo> worktree add
+   <path> -b <branch> <base> — and is dispatched without isolation, its owns inside that path; the dispatch gate WARNs
+   (WORKTREE BASE) on an isolation dispatch naming a branch origin/main lacks.
 9. `git merge` refuses while the INDEX holds staged changes — even to files the merge does not touch: commit the staged part
    first, or `git stash push --staged`, merge, `stash pop`, re-`add`. The parallel cap counts a worker whose transcript was
    written in the last 10 minutes; a resume by `SendMessage` is not gated. A scout has NO Bash: a dispatch that needs a run or
