@@ -83,7 +83,7 @@ A JSON path string does not say which of three roots it is relative to:
 |---|---|
 | `config.json`: `app_root`, `tests_root`, `code_repos[].path`, `journal_path` | the **project root** — `../testproject1` is a sibling checkout |
 | proposals and artifacts: `bug_file`, `case_file`, artifact paths | the **state directory**, `<project>/qa-factory/` — `bugs/BUG-1.md` is `<project>/qa-factory/bugs/BUG-1.md` |
-| `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_SKILL_DIR}`, `references/…`, `scripts/…` | the **installed plugin**, never the project |
+| `references/…`, `scripts/…`, the script paths on your card | the **installed plugin**, never the project |
 
 `journal_path` carries the `qa-factory/` prefix and `bug_file` does not: write a path in its own
 frame, resolve it in the frame it was written in.

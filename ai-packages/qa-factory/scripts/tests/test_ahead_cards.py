@@ -42,6 +42,7 @@ import brief_pack  # noqa: E402
 import contract as C  # noqa: E402
 import critic_rollcall  # noqa: E402
 import grammar as G  # noqa: E402
+import host_adapter  # noqa: E402
 import handoff  # noqa: E402
 import manifest_put  # noqa: E402
 import s5_precheck  # noqa: E402
@@ -160,6 +161,34 @@ def sentences_naming(text: str, word: str) -> list:
 def has_word(text: str, word: str) -> bool:
     """`word` as a whole identifier: `fitted_to_codes` does not contain `fitted_to_code`."""
     return re.search(rf"(?<![A-Za-z0-9_]){re.escape(word)}(?![A-Za-z0-9_])", text) is not None
+
+
+ON_CARD_RE = re.compile(r"`([A-Za-z0-9_]+\.py)[^`]*`\s*(?:\([^)]*on your card[^)]*\)|\s*on your card)")
+# the five scripts the charters of roles with Bash name through "(on your card)" (spec t-254 section 3.2)
+CHARTER_CARD_SCRIPTS = {("qa-runner", "manual_evidence.py"), ("qa-failure-analyst", "bug_records.py"),
+                        ("qa-failure-analyst", "bug_snapshot.py"), ("qa-doc-scribe", "report_facts.py"),
+                        ("qa-retro-analyst", "retro_numbers.py")}
+
+
+def charter_card_join() -> None:
+    """A script a Bash role's charter names with `(on your card)` is on that role's card (FR-15, AR-8; the join K9 of the
+    quarantined test_brief_pack_roles.py used to make through the plugin root variable); and no text a role reads carries
+    the host root variable."""
+    found = set()
+    for path in sorted((PLUGIN / "agents").glob("*.md")):
+        role = path.stem
+        text = path.read_text(encoding="utf-8")
+        if not host_adapter.role_has_bash(role):
+            continue
+        flat = "\n".join(list(brief_pack.TOOLING.get(role, [])) + list(brief_pack.TOOLING_MANUAL.get(role, [])))
+        for name in dict.fromkeys(ON_CARD_RE.findall(text)):
+            found.add((role, name))
+            check(f"{role}: {name} is named 'on your card' and is on the card", name in flat)
+    check("the join finds exactly the five scripts the charters name (not vacuous)", found == CHARTER_CARD_SCRIPTS,
+          str(sorted(found ^ CHARTER_CARD_SCRIPTS)))
+    carriers = sorted((PLUGIN / "agents").glob("*.md")) + sorted((PLUGIN / "references" / "slices").rglob("*.md"))
+    bad = [str(p.relative_to(PLUGIN)) for p in carriers if "claude_plugin_root" in p.read_text(encoding="utf-8").lower()]
+    check("no charter and no slice carries the host root variable", not bad, str(bad))
 
 
 def main() -> None:
@@ -309,6 +338,8 @@ def main() -> None:
                       f"without the card: {bare['files']}")
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+    charter_card_join()
 
     harness.finish("test_ahead_cards")
 
