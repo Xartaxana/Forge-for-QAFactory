@@ -2985,11 +2985,19 @@ def of4_21_paths_follow_the_reader() -> None:
         # T9 a long absolute root: the blast line keeps both paths whole, only the reason is bounded
         long_root = harness.temp_dir("qa-of421-long-")
         cleanups.append(long_root)
-        deep = long_root / ("d" * 60) / ("e" * 60)
-        deep.mkdir(parents=True)
-        root, task = of4_21_world("long", deep.resolve().as_posix())
-        cleanups.append(root)
-        blast = of4_21_blast(task, root)
+        # the line's length must not depend on the temp prefix (a Windows temp dir is long, a Linux `/tmp/x` is short): measure a first
+        # line with a short pad, then lengthen the pad by the shortfall plus a margin, so it holds for a prefix of any length
+        pad = 120       # the old fixed pad: already enough on a long (Windows) temp prefix, which cannot take much more (MAX_PATH)
+        for attempt in range(3):
+            deep = long_root / f"p{attempt}" / ("d" * (pad // 2)) / ("e" * (pad - pad // 2))
+            deep.mkdir(parents=True)
+            root, task = of4_21_world(f"long{attempt}", deep.resolve().as_posix())
+            cleanups.append(root)
+            blast = of4_21_blast(task, root)
+            if len(blast) > brief_pack.BLAST_LINE_MAX:
+                break
+            # the reason (<= BLAST_REASON_MAX) absorbs part of each added character until its room is gone: add that much extra
+            pad += brief_pack.BLAST_LINE_MAX + 20 - len(blast) + 2 * brief_pack.BLAST_REASON_MAX
         folder = task.resolve().as_posix()
         check_in("OF4-21 T9 blast limit: the head path is whole", f"{folder}/work/blast-radius.json", blast)
         check("OF4-21 T9 blast limit: the line is longer than the old cut, with nothing cut off its end",
