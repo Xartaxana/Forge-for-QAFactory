@@ -630,6 +630,7 @@ only. `judgment-census.json`: T4 (wave 4) → T9c (wave 3, its own rows) / T9a (
 `brief_pack.py`: P1-v N3, RC2-1/2, FV1-4 → T3b. `contract_slices.py`: T1 (`_keys_outputs`) → T3a. `inject_context.py`: T3a (`collect_blocks`,
 `_dropped_headings`, `map_problems`) and T4 (census relabel only). `execution_request.py`: T5 (`validate_request`) and T5b (`MineRefusal`
 functions). `hooklib.py`/`stage_guard.py`: T2 (`block`/`deny`) and T4 (other functions). `controller.py`: T9a functions only.
+FV1-4 (docs/tasks/specs/20261113-fv1-4-no-brief-cut-spec.md §10a): role-load.json — FV1-4 N1 (allowances.brief, allowances.brief_charter_head, note) → T3a → T1r; role_load.py — FV1-4 N1 (_brief_allowance, static_load brief layer, notes) → T3a (native_headroom_problems + call); test_ahead_cards.py — FV1-4 N1 (:364-376) → T3a (:52, :249) → T1r. brief_pack.py: after N2, _stand_names ignores its limit argument, so FIRST_LOOK_ROLES_MAX is unused and T3b may delete it with its arguments.
 
 ## 8. Small choices closed by the designer
 

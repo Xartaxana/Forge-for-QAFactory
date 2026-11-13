@@ -665,6 +665,24 @@ what a decision left open is a fork (F7-F14, §9).
 | m6 | the new conductor-line format named for П1-в: `brief: <path> (<n> B[, side files: <a>, <b>][, not written])`; the token N-brief counted (`, over the 6144 budget B ceiling …`) disappears | §4 first row, §10a (П1-в line) |
 | m7 | the FR-55 window named as a residual owned by П1-в N6 | §2 last bullet, §8 E-15 |
 
+## §9c Lead acceptance of the fix round, 13.11.2026 (t-503) — forks F7–F14
+
+Owner away: every row is decided by the designer's recommendation («решила сама», reversible until the owner's word).
+
+| fork | decided | by | note |
+|---|---|---|---|
+| F7 | (a) multi-line words in a fenced block, fence = max(3, longest backtick run + 1) | Lead | the only rendering whose content is literal by definition |
+| F8 | (b) two ratchets: `S5_PLAN_BRIEF_BYTES_MAX` and the per-role `ROLE_BRIEF_BYTES_MAX` in `test_brief_pack.py`; `test_ahead_cards.py:364-365` deleted | Lead | T1r rewrites `test_ahead_cards.py`; a ratchet there would be lost |
+| F9 | (a) the lesson count cap and the `more` key removed, `gate_preflight.check_stand_lessons` in the same commit | Lead | a pointer to the same capped list reaches no one; P31 |
+| F10 | (b) hard-wrap at `WORDS_LINE_WIDTH` = 1 000 inside the words fence, no character dropped; the decisions side file holds the bytes as given | Lead | the host's line cap is an estimate, not verified; the width is revisited after N0m's `words_longest_line` |
+| F12 | (a) `OSError` propagates | Lead | same as the sibling `Driver.words_file`; no silent cut road |
+| F13 | (b) `answers_of` re-words the exact legacy marker (text before it at least 20 000 characters) | Lead | reads the factory's own marker, never a person's wording (FR-12) |
+| F14 | (a) `FV1-4 N1 → T3a`; flipped in both specs if T3a is ready first | Lead | mirror line added to the told-before-work spec §7 |
+| §9b 2f | the per-fixture instance tail of `_shared_fixture_lines` is removed with the fixture tail | Lead | same rule as F5 (a): a tail with no carrier |
+| §9b 2 (`app_card` caps) | NOT decided here: scout question dispatched; the answer becomes a row of N2 or a finding | Lead | N2 is not dispatched before the scout's digest is accepted |
+
+Order now: N0m (measurement, no repository write) ∥ N0 → N1; N2 after the `app_card` digest.
+
 ---
 
 ## §10 Nodes (for a weaker model; owns by FUNCTION; witness via `scenario_walk.py --witness-for`)
