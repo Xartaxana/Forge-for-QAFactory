@@ -206,6 +206,7 @@
 | `findings/20261112-obmen-skauta-8k-tokenov-pri-celi-2k.md` | находка, id — | форма обмена: медиана чтения скаута около 8,3K токенов при цели 2K, 75 из 106 хопов без связи с узлом | `tools/hop_metrics.py`, `.claude/agents/scout.md` | пачка 7, FG7-29 | нет | калибровка 12.11 п. 12; F5-2 |
 | `findings/20261112-nositel-perezhivaet-rezku-bez-izmenenij-source-split-carriers-i-named-by.md` | находка, id — | после резки `a8a9fb4` носитель проверяется по оболочке (`source-split-carriers.json:19-20`), `named_by` частей наследуют устаревшую строку (`state-exits.md:112`, надо :120) | `tools/source-split-carriers.json`, `ai-packages/qa-factory/scripts/tests/test-layers.json`, `tools/test_split.py` | пачка 7, FG7-30 | нет | td-11c; a8a9fb4 |
 | `findings/20261113-pravilo-pt4-gigieny-dohodit-do-bildera-tolko-tekstom-v-diszpatche.md` | находка, id — | правило гигиены п. 4 доходит до билдера только текстом диспатча: два нарушения 13.11 (`sed -i`, heredoc-`python`) | `tools/hygiene_gate.py` | пачка 7, FG7-31 | нет | критики P1-a N3, FV1-19 N3; калибровка |
+| `findings/20261114-zhurnal-starye-stroki-s-defektami-poryadka-bez-dveri.md` | находка, id — | валидатор журнала на pre-commit отказывает из-за старых строк с дефектами порядка и не называет двери; нужна дверь «объявить своё» и счёт для калибровки | `tools/journal_validator.py`, `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | пачка 7, FG7-32 | да (как коммитится журнал `dev1` до двери) | слово Lead t-661; FR-2, FR-57 |
 
 ## Входящие
 
@@ -215,4 +216,5 @@
 
 - B-229 (отчёт проекта о фабрике в формате «входящих»): что можно выносить из проекта — решает владелец.
 - B-331 (находка `findings/20261009-b-331-zakryt-kommentariem.md`): решено владельцем 09.10 — открыть работу: перед перезапуском открытой стадии закрытой истории фабрика спрашивает человека (причина, доработки, «перезапустить / оставить / сделаю сам»); узел в пачку кучки `package-ci`.
+- FG7-32 (находка `findings/20261114-zhurnal-starye-stroki-s-defektami-poryadka-bez-dveri.md`): как коммитится журнал `dev1`, пока двери для старых строк с дефектами порядка нет — решает владелец (по рекомендации находки обхода не диктуется).
 - (отвечено 09.10) недельная калибровка F3-4 — после закрытия пачки 4; приоритет пачки 3 — П3.

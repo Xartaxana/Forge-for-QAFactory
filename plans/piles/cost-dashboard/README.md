@@ -25,6 +25,7 @@
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
 | 1 | цена задачи одна и истинная (P18), дашборд по задачам и стадиям, прогноз по размеру, никаких «$0 как факт» | B-083 | M | закрыта | — | — | `855d4e5c` |
+| 2 | измерители не считают служебные строки журнала драйвера вызовами (`compare.driver_report`, `report_run.journal`) | CD2-1 | S | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → release-next/1, execution-report/1, onboarding-forge/1, execution-report/2.
 
@@ -125,6 +126,7 @@ D-03). Подробно — `batch-1-true-price.md`, раздел «Бриф».
 | `findings/20261030-nearest-precedents-bez-filtra-edinicy-i-svoej-zapisi.md` | находка | `nearest_precedents` без фильтра единицы и без исключения своей записи | `scripts/sizing.py`, `scripts/retro_numbers.py` | пачка 1, CD1-32 | нет | CD1-5; решение №8 |
 | `findings/20261030-u-actual-test-runs-i-function-count-net-chitatelya.md` | находка | у `actual.test_runs` и `forecast.function_count` реестра нет читателя | `scripts/factory_dashboard.py` | пачка 1, CD1-33 | нет | SC2-37, CD1-5; AR-22 |
 | `findings/20261030-povrezhdennyj-blok-run-ostanavlivaet-retro.md` | находка | `run_block_metrics` падает на блоке с не-списком `results`, `numbers()` останавливается | `scripts/retro_numbers.py` | пачка 1, CD1-34 | нет | SC2-37 фикс-раунд |
+| `findings/20261114-driver-report-schitaet-sluzhebnye-stroki-zhurnala-vyzovami.md` | находка, id — | `compare.driver_report` и `report_run.journal` считают служебные строки журнала драйвера вызовами; один перечень служебных видов | `experiments/measurers/compare.py`, `experiments/measurers/report_run.py` | пачка 2, CD2-1 | нет | критик темы CL4-1 (Q3); P18 |
 
 ## Входящие
 

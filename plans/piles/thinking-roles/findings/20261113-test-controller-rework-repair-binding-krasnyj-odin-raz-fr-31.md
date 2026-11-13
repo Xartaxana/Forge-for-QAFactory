@@ -18,6 +18,19 @@ id: — | кучка: `thinking-roles` | от: критик t-247, Red 2 (`docs/
 2. Критерий: повторный прогон файла под нагрузкой (`--jobs 4`) с инструментированной проверкой при следующем красном называет исключение; пока красного нет — файл зелёный, как был.
 3. Когда причина названа — узел-продолжение (не этот): чинится тест или код, по названной причине.
 
+## Второе наблюдение (14.11.2026, отчёт волны 3)
+
+Цитата `docs/tasks/specs/reports/20261113-wave3-integration-report.md`: «`=== qa-factory selftest (shard 1/2): 214/215 ok ===`, file `test_controller_rework_repair_binding.py` 234/235,
+row `a recorded id under a fresh key is refused: resume, do not replace` ('resume existing dispatch' not found). Evidence it is a flake and not this wave: the same file passed on the previous
+main canon (run 43510284960, 20.7 s) ...; it passes locally 4 of 4 runs (235/235); `gh run rerun 43515748054 --failed` on the SAME commit turned package-full (1) green.» И: «worth a look
+(suspect the timing `never_started_after_s: 0.01` in its setup)». Это ТА ЖЕ красная строка, второй раз (канон 43515748054, shard 1, первая попытка): причина снова не увидена, текст
+отказа в дайджесте CI не показан.
+
+Что делать сверх п. 1–3 выше: (а) упавшая строка уже названа — `:258-260` теста; её причину читать из текста падения при следующем красном (после шага п. 1 он называет исключение) либо из артефакта
+shard 1 прогона 43515748054, пока он жив (`tools/ci_read.py`), и назвать одним предложением; (б) подозрение отчёта проверяется замером, а не принимается: порог `never_started_after_s: 0.01`
+стоит в `ai-packages/qa-factory/scripts/tests/test_controller_rework_repair_binding.py:43`, и на нагруженном раннере запись может стать «не стартовавшей» между шагами теста; если замер
+подтвердит — часы или порог делаются независимыми от скорости раннера (FR-31) узлом-продолжением п. 3.
+
 ## Тест
 
 Сам узел — правка диагностики теста; свидетель — `python -B ai-packages/qa-factory/scripts/tests/test_controller_rework_repair_binding.py` (медленный, `test_controller_*` — локально не гоняется, судит CI); мутация: заменить ожидаемую подстроку на несуществующую — красная строка содержит `repr(...)` исключения.
