@@ -36,7 +36,7 @@ def k4_transient_then_success():
         check_eq("K4: S1 is done", json.loads((task_root / "pipeline.json").read_text(encoding="utf-8"))["stages"]["S1"]["status"], "done")
         check_eq("K4: the ordinary stub saw the retry only (a resume), no conductor", [c["kind"] for c in T.stub_calls(root)], ["resume"])
         check("K4: no conductor row", not (task_root / "state/conductor.jsonl").exists())
-        runs = T.jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in T.jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record, counted apart
         check_eq("K4: two journal lines, the retry counted", [(r["infra"], r["retry"], r["resumed"]) for r in runs],
                  [("transient", 0, False), (None, 1, True)])
         check_eq("K4: and the malformed text is nowhere in a refusal or a question",
@@ -57,7 +57,7 @@ def k5_transient_three_times():
         check_eq("K5: the waits are 5 and 15 seconds", delays, [5, 15])
         check_eq("K5: exactly three calls - AT the limit", len(calls(root)), 3)
         check_eq("K5: and no fourth - BEYOND it", taken(root), 3)
-        runs = T.jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in T.jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record, counted apart
         check_eq("K5: three journal lines, retry 0, 1, 2", [r["retry"] for r in runs], [0, 1, 2])
         check_in("K5: the message counts the answers", "3 times in a row", stop.reason if stop else "")
         check("K5: no session is stored for the dispatch", "S1-qa-scout-1" not in driver.state["sessions"])

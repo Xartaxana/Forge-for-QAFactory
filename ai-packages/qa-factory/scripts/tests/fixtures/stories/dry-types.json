@@ -1,0 +1,14 @@
+{"schema": 1, "default": "codemie-14857",
+ "types": [
+  {"id": "codemie-14857", "input": "dry-codemie-14857", "task": "TP1-14857",
+   "from_snapshot": "investigation-14857/TP1-14857", "package_at_capture": "0.10.2",
+   "tracker": {"kind": "jira", "routes": "tracker/routes.json"},
+   "kit": {"ticket_kind": "bug", "ac": true, "sides": ["api", "ui"], "channels": ["auto", "manual"], "mr_diff": true},
+   "words": {},
+   "stub": {"source_relevance": {"TP1-15791": {"relevance": "relevant", "reason": "explicit required source",
+                                               "from": "investigation-14857/TP1-14857/work/source-inventory.json:432-433"}}}}
+ ],
+ "gaps": [
+  {"id": "mybooks-local-1", "note": "live_only", "why": "no raw tracker input for LOCAL-1", "waits": "§L F-A1-6"},
+  {"id": "no-autotests", "note": "owner question OQ1 open", "why": "no type without automated tests", "waits": "OQ1"}
+ ]}

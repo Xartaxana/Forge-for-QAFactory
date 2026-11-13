@@ -41,7 +41,7 @@ The eight dimensions (S4), each `pass`/`concern`/`fail`:
    2. Atomicity (P16) — cases are merged by parametrisation when one red line still names the case and the branch (the parameter id names the case); "one behaviour per case" is a unit-level rule, not an API/e2e one. One case that takes several inputs of ONE requirement (a field's -1, 0, 1.5 and "abc" as one "data input" case) passes.
    2b. **Duplicates and level**. Cases one branch apart, on one requirement or one Given/When form, are one
       parametrised case; how many tests the automator writes for it is its call (P17), never yours. Answer each such pair under `## Merge candidates`: `keep` only for P16 (one red line could not
-      tell the branches apart) or P19 (another level); `merge` puts `parametrise into one test: <ids>` (the fixed marker the roll-call reads; it merges the CASES) in each case's
+      tell the branches apart) or P19 (another level); `merge` puts `parametrise into one test: <ids>` (the roll-call's fixed marker; S5 merges tests, cases stay) in each case's
       `note`, verdict `approve_with_concerns`. An e2e-ui or manual row's `note` says `lower level: impossible - <why>`
       or `lower level: <level> - <why>`, a `<level>` with verdict `approve_with_concerns`.
    3. Clarity — every Then is observable through an independent channel. A Given that

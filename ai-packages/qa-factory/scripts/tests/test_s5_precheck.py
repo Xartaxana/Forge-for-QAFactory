@@ -3018,8 +3018,9 @@ def the_verdict_is_one_line_per_finding() -> None:
     import detector_verdict as DETV
     import tempfile
     env = P._finding("environment", "TC-1", "the stand lacks a login", "name the variable", "stand-login")
-    mani = P._finding("manifest", "TC-1", "the manifest row has no file", "write the file", "no-file")
-    oracle = P._finding("oracle", "TC-1", "the Then left open", "assert the value", "open-then")
+    # FV1-30a: every finding but two tags is word-passable, so the findings "no word passes" are the two that WAIT (`open-oracle-asserted-*`)
+    mani = P._finding("oracle", "TC-1", "Then 1 is asserted over an open expectation", "answer the question", "open-oracle-asserted-1")
+    oracle = P._finding("oracle", "TC-1", "Then 2 is asserted over an open expectation", "answer the question", "open-oracle-asserted-2")
     out = printed({"ok": False, "findings": [env, mani, oracle], "hints": [{"check": "smell", "message": "twins",
                    "fix": "parametrize"}], "notes": ["a note"], "cases": ["TC-1"]})
     lines = out.splitlines()
@@ -3038,18 +3039,23 @@ def the_verdict_is_one_line_per_finding() -> None:
              verdict["refused"], ["", "family", "family"])
     check("the refusal lines stand ABOVE the header", all(i < heads[0] for i, line in enumerate(lines)
           if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)) and out.count(DETV.WORDS_REFUSED_AT_SOURCE) == 2, out[:300])
-    # the footer joins every tag of WORD_PASSABLE_TAGS (sides-undeclared and provisional-open-on-real joined changed-after-red later)
-    check_in("the footer names the door for the passable families and the tags", "an [environment] or [obligations] "
-             "finding or a " + " or ".join(P.WORD_PASSABLE_TAGS) + " one", out)
-    check_in("...the first tag is still changed-after-red", "finding or a changed-after-red or ", out)
-    check_in("...and says no word passes the rest, `*` included", "no recorded word, `*` included, passes any other "
-             "finding", out)
+    # FV1-30a (F1): the door is the finding's tag or its whole id; `*` is named only with its two exceptions
+    check_in("the footer names the door by the finding's tag or whole id", "--block \"<the finding's tag, or its whole id>\"", out)
+    check_in("...says it passes that finding", "`, which passes that finding; `*` passes every finding here except "
+             "`open-oracle-asserted-*` (answer the expectation question) and a Then left with its owner.", out)
+    check_not_in("...and no longer promises a part of the line, whole words, or that no word passes the rest",
+                 "part of the line", out)
+    check_not_in("...no `WHOLE_PART` clause", "whole words", out)
+    check_not_in("...no `no recorded word` sentence", "no recorded word", out)
     check_not_in("...and never names `--block \"*\"` as a door", '--block "*"', out)
     # no passable family at all: passed_by_word returns before it imports the waiver; the label and the tags stay
-    only = [mani, P._finding("smell", "TC-1", "sleep", "poll", "sleep-1")]
+    only = [mani, oracle]
     out = printed({"ok": False, "findings": P.passed_by_word(Path(tempfile.gettempdir()), only, []), "hints": [],
                    "notes": [], "cases": []})
     check_in("zero passable families: the label is in the header", DETV.WORDS_AT_SOURCE, out)
+    check_not_in("...and the door sentence is not printed (no finding is passable)", "--block", out)
+    out_zero = printed({"ok": False, "findings": [], "hints": [], "notes": [], "cases": []})
+    check_not_in("zero findings: no door either", "--block", out_zero)
     check_eq("...and every finding has its family line", [line for line in out.splitlines()
              if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)],
              [f"{DETV.WORDS_REFUSED_AT_SOURCE} {f['id']} family" for f in only])
@@ -3074,17 +3080,17 @@ def the_verdict_is_one_line_per_finding() -> None:
              "unmigrated output (t-772 m3)",
              (bool(parsed["defects"]), parsed["unmigrated"], parsed["findings"],
               empty_code), (True, "", [], 1))
-    # a word copied from the PRINTED line passes the finding here (it is judged against the line, not only the old text)
+    # FV1-30a: a phrase of the PRINTED line is no longer a word that passes (one road, `_names`); the tag the line carries is
     import waiver as W
     root = temp_project("qa-s5-line-word-")
     try:
-        pipeline = {"task": "QA-500"}
-        W.apply_stage_override(pipeline, "S5", "[environment environment:TC-1:stand-login] the stand lacks",
-                               "the person lets it stand", "2026-10-01T10:00:00+00:00")
-        (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
-        left = P.passed_by_word(root, [env, mani], [])
-        check_eq("a word taken from the printed line passes its finding and leaves the other", [f["id"] for f in left],
-                 [mani["id"]])
+        for word, passes in (("[environment environment:TC-1:stand-login] the stand lacks", False), ("stand-login", True)):
+            pipeline = {"task": "QA-500"}
+            W.apply_stage_override(pipeline, "S5", word, "the person lets it stand", "2026-10-01T10:00:00+00:00")
+            (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+            left = P.passed_by_word(root, [env, mani], [])
+            check_eq(f"a word copied from the printed line passes {'its finding' if passes else 'nothing'}; a tag word passes its finding "
+                     "and leaves the other", [f["id"] for f in left], [mani["id"]] if passes else [env["id"], mani["id"]])
     finally:
         cleanup(root)
 
@@ -3226,8 +3232,10 @@ def a_qualified_scope_case_binds_its_obligation() -> None:
     root, task = obligation_story()
     try:
         manifest = {"tests": [OB3_ROW], "obligation_bindings": [OB3_BINDING]}
-        check_eq("OB-3: the real 2406 shape (qualified scope, qualified covers) leaves no OB-3 finding",
-                 obligation_findings(task, manifest, OB3_SCOPE), [])
+        # FV1-19e F5 (b): OB3_BINDING carries a counting design_assessment and NO hash, so the STALE finding is owed
+        # (p8); this row speaks of the UNBOUND finding only
+        check_eq("OB-3: the real 2406 shape (qualified scope, qualified covers) leaves no unbound OB-3 finding",
+                 [f for f in obligation_findings(task, manifest, OB3_SCOPE) if f["id"].endswith("obligation-id-OB-3")], [])
         check_eq("OB-3: instances_of_case finds the row of the qualified case",
                  [e["instance_id"] for e in P.instances_of_case(manifest, "feedback-api/TC-003")],
                  [OB3_INSTANCE])
@@ -3263,6 +3271,107 @@ def a_qualified_scope_case_binds_its_obligation() -> None:
                      obligation_findings(task, bound, ["TC-003"]), [])
         check_eq("OB-3: and a qualified ask picks only its own area's row",
                  [e["instance_id"] for e in P.instances_of_case(both, "beta/TC-003")], ["test_b"])
+    finally:
+        cleanup(root)
+
+
+def a_stale_binding_is_named_before_the_finish() -> None:
+    """FV1-19e table T2 rows p1-p9, p11, p12 (the binding-currency finding of `check_obligations`; p10 is the QB row of
+    `fv1_19_obligation_refs_at_the_precheck`, p-proj lives in test_manifest_put_merge.py)."""
+    from event_store import content_hash
+    root, task = obligation_story()
+    plan_file = task / "work" / "test-plan.json"
+    try:
+        plan_hash = content_hash(C.plan_obligation_map(task)["OB-3"])
+
+        def stale_of(binding, manifest_extra=None, scope=OB3_SCOPE):
+            manifest = {"tests": [OB3_ROW], "obligation_bindings": [] if binding is None else [binding]}
+            return [f for f in obligation_findings(task, manifest, scope) if f["id"].endswith("binding-stale-OB-3")]
+
+        base = dict(OB3_BINDING, design_assessment="sufficient", code_validity="valid", obligation_hash="hb")
+        both = stale_of(base)
+        check_eq("p1: a stale hash with two counting judgments -> ONE finding", len(both), 1)
+        text = both[0]["message"] if both else ""
+        fix = both[0]["fix"] if both else ""
+        check_in("p1: names design_assessment", "`design_assessment`", text)
+        check_in("p1: names code_validity", "`code_validity`", text)
+        check_in("p1: says another text", "written against another text", text)
+        check_in("p1: the fix names the fragment door with the task's own id",
+                 f"manifest_put.py --task {task.name} --fragment <file>", fix)
+        check_not_in("p1/F2: and never the literal <T> slot", "<T>", fix)
+        check_in("F4: the message says what the map prints for design_assessment", "prints `unknown` for `design_assessment`", text)
+        check_in("F4: and for code_validity it says unverified", "`unverified` for `code_validity`", text)
+        check_not_in("F4: and never calls the field unknown with a word list", "as unknown", text)
+        check_in("p1: the example carries both fields", '"design_assessment": "<sufficient|partial|unknown>", '
+                 '"code_validity": "<valid|unverified>"', fix)
+        check_in("p1: never send the hash or judged_on", "you never send `obligation_hash` or `judged_on`", fix)
+        check_eq("p1: the family is `obligations`", both[0]["check"] if both else "", "obligations")
+
+        check_eq("p2: a current binding (hash and judged_on equal the plan's) -> no stale finding",
+                 stale_of(dict(base, obligation_hash=plan_hash, judged_on={"code_validity": plan_hash})), [])
+        check_eq("p2: a legacy-current binding (hash equals the plan's, no judged_on) -> none",
+                 stale_of(dict(base, obligation_hash=plan_hash)), [])
+
+        unknown_words = dict(base, design_assessment="unknown", code_validity="unverified", sensitivity="missing")
+        absent = {"obligation_id": "OB-3", "instance_ids": [OB3_INSTANCE], "obligation_hash": "hb"}
+        check_eq("p7/B3: a stale hash with only unknown words -> none", stale_of(unknown_words), [])
+        check_eq("p7/B2: a stale hash with the judgment fields absent -> none", stale_of(absent), [])
+        check_eq("B3: a null judgment is not a counting one -> none",
+                 stale_of(dict(absent, design_assessment=None, code_validity=None)), [])
+
+        no_hash = stale_of(OB3_BINDING)
+        check_eq("p8/B1 (F5 b): OB3_BINDING (no hash, design sufficient) -> one finding", len(no_hash), 1)
+        check_in("p8: naming design_assessment", "`design_assessment`", no_hash[0]["message"] if no_hash else "")
+        check_not_in("p8: and not the unknown code_validity", "code_validity", no_hash[0]["message"] if no_hash else "")
+        only_code = stale_of(dict(base, design_assessment="unknown"))
+        check_in("F4: a code_validity-only finding names unverified, not unknown",
+                 "prints `unverified` for `code_validity`", only_code[0]["message"] if only_code else "")
+        check_not_in("F4: and does not name design_assessment", "design_assessment", only_code[0]["message"] if only_code else "")
+
+        renamed = dict(base, judged_on={"code_validity": "hb"})
+        post = stale_of(renamed)
+        check_eq("p12: the post-rename shape -> one finding", len(post), 1)
+        check_in("p12: it names both fields", "`design_assessment`, `code_validity`", post[0]["message"] if post else "")
+        check_in("p12: and both causes, the rename included", "renamed to this id", post[0]["message"] if post else "")
+
+        check_eq("p6: no binding -> only the unbound finding",
+                 [f["id"].rsplit(":", 1)[1] for f in obligation_findings(
+                     task, {"tests": [OB3_ROW], "obligation_bindings": []}, OB3_SCOPE)], ["obligation-id-OB-3"])
+
+        # p9: ONE binding reached by TWO scoped cases is ONE finding (the first case)
+        second = {"instance_id": "test_two", "case": "TC-004", "covers": ["TC-004"], "file": "tests/t.py", "status": "green"}
+        shared = dict(base, instance_ids=[OB3_INSTANCE, "test_two"])
+        findings: list = []
+        P.check_obligations(task, {"tests": [OB3_ROW, second], "obligation_bindings": [shared]},
+                            ["feedback-api/TC-003", "TC-004"],
+                            {"feedback-api/TC-003": "Plan row: TS-3\n", "TC-004": "Plan row: TS-3\n"}, set(), findings)
+        check_eq("p9: one binding, two scoped cases -> ONE stale finding",
+                 len([f for f in findings if f["id"].endswith("binding-stale-OB-3")]), 1)
+
+        # p11: composition - the finding's field list is the fields where binding_currency is False and counting_value True
+        states = {"r2-state": dict(base, obligation_hash=plan_hash, judged_on={"code_validity": "hb"}),
+                  "r5-P2 (legacy, old hash)": dict(base),
+                  "r6 (materialized)": dict(base, obligation_hash=plan_hash, judged_on={"code_validity": "hb"}),
+                  "r7 (back to the old text)": dict(base, obligation_hash="h2", judged_on={"code_validity": plan_hash}),
+                  "current": dict(base, obligation_hash=plan_hash, judged_on={"code_validity": plan_hash})}
+        for label, binding in states.items():
+            cur = C.binding_currency(binding, plan_hash)
+            expected = {f for f in ("design_assessment", *C.JUDGED_FIELDS) if C.counting_value(binding, f) and not cur[f]}
+            found = stale_of(binding)
+            message = found[0]["message"] if found else ""
+            said = {f for f in ("design_assessment", "code_validity") if f in message}
+            check_eq(f"p11: {label}: the finding's fields are the predicate's", said, expected)
+            check_eq(f"p11: {label}: a finding exists exactly when a field is stale", len(found), 1 if expected else 0)
+
+        # p3 / p4 / p5: nothing is asked of a legacy plan, no plan, a manual obligation
+        ob = {"obligation_id": "OB-3", "decision": "new", "execution_scope": "current_task"}
+        plan_file.write_text(json.dumps({"rows": [{"id": "TS-3", "coverage_obligations": [ob]}]}), encoding="utf-8")
+        check_eq("p3: a legacy schema-1 plan -> none", stale_of(base), [])
+        plan_file.write_text(json.dumps({"rows": [{"id": "TS-3", "schema_version": 2,
+                                                   "coverage_obligations": [dict(ob, decision="manual-agent")]}]}), encoding="utf-8")
+        check_eq("p5: a manual-* obligation -> none", stale_of(base), [])
+        plan_file.unlink()
+        check_eq("p4: no plan file -> none", stale_of(base), [])
     finally:
         cleanup(root)
 
@@ -3893,7 +4002,9 @@ def a_sleep_in_the_fixtures_of_a_test_is_the_windows_code_only_when_it_changed()
         check("F3: advice asks nothing (no `?` in the fix)", bool(findings) and "?" not in findings[0]["fix"])
         # X7-2: advice is not a finding of the gate - no recorded word applies to it, and no judge is asked about it
         sleeper = findings[0]
-        check("X7-2: ... it is not word-passable and has no word door", not P._passable(sleeper) and "word_door" not in sleeper)
+        # (FV1-30a: `_passable` is now every finding but two tags, so the proof is the level: advice never enters `findings`)
+        check("X7-2: ... it is advice, never a finding a word is read over, and has no word door",
+              sleeper["level"] == "advice" and "word_door" not in sleeper)
         check_eq("X7-2: ... and no judge question exists for a smell any more", P._judge_plan(sleeper, task, {"TC-1": [parsed]}, {"TC-1": CASE_MD}), None)
         check("X7-2: ... and it carries no code excerpt for a judge", "code_excerpt" not in sleeper)
         check_eq("AK1: nothing else is said", notes, [])
@@ -4525,7 +4636,342 @@ def a_then_row_does_not_swallow_the_thens_behind_a_red() -> None:
              M.then_remainder_problems(Path("/nonexistent-root"), {"then_bindings": [blocked], "unresolved": [then_row]}), [])
 
 
+OB_AUTO = {"obligation_id": "OB-A", "decision": "new", "text": "the limit is enforced"}
+OB_MANUAL = {"obligation_id": "OB-M", "decision": "manual-run", "text": "looked at by a person"}
+ROW_FIELDS_DONE = {"assertion_id": "tests/test_validate.py:12", "defect_location": "src/app.py:3",
+                   "change_disposition": "unchanged", "change_basis_ref": "manifest:TC-500"}
+
+
+def refs_story(root: Path, rows: list, plan_rows=None) -> Path:
+    """A story whose dispatch scope is TC-500 (its plan row owes the AUTOMATED OB-A) and TC-501 (its plan row owes only the
+    manual OB-M); `plan_rows=None` writes that plan, `[]` writes no plan file."""
+    import shutil
+    shutil.rmtree(root / "qa-factory", ignore_errors=True)    # one story per call under one root
+    task = make_story(root, {"tests": rows})
+    (task / "state").mkdir(parents=True, exist_ok=True)
+    (task / "state" / "controller.json").write_text(json.dumps({"dispatches": {"S5-qa-automator-1": {
+        "id": "S5-qa-automator-1", "stage": "S5", "role": "qa-automator", "scope": ["TC-500", "TC-501"],
+        "status": "running"}}}), encoding="utf-8")
+    if plan_rows != []:
+        (task / "work" / "test-plan.json").write_text(json.dumps({"rows": plan_rows or [
+            {"id": "TS-1", "schema_version": 2, "coverage_obligations": [OB_AUTO]},
+            {"id": "TS-2", "schema_version": 2, "coverage_obligations": [OB_MANUAL]}]}), encoding="utf-8")
+    return task
+
+
+def refs_row(instance: str, case: str, plan_row: str, **over) -> dict:
+    return {"instance_id": instance, "case": case, "covers": [case], "file": "tests/test_validate.py", "status": "green",
+            "plan_row": plan_row, **ROW_FIELDS_DONE, **over}
+
+
+def refs_finding(task: Path) -> tuple:
+    """(the one row-fields finding or None, the notes) of `check_row_fields` over the story, as the gate calls it."""
+    manifest = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
+    findings, notes = [], []
+    P.check_row_fields(task, manifest, ["TC-500", "TC-501"], findings, notes, "S5-qa-automator-1",
+                       plan=C.plan_obligations(task))
+    return (findings[0] if findings else None), notes
+
+
+def fv1_19_obligation_refs_at_the_precheck() -> None:
+    """FV1-19b N2: the precheck judges PRESENT `obligation_refs` on every row by `contract.obligation_ref_problems` and demands
+    them only of a row whose case owes an automated obligation; its texts name the fragment door for every language."""
+    from event_store import content_hash
+    root = temp_project("qa-fv119-n2-")
+    try:
+        h_auto, h_manual = content_hash(OB_AUTO), content_hash(OB_MANUAL)
+        # (a) an owed TS row (a file the marker never reads) with no refs: the fix names the fragment door, no marker
+        ts = refs_row("owed-ts", "TC-500", "TS-1", file="tests/cart.spec.ts")
+        found, _ = refs_finding(refs_story(root, [ts]))
+        text = found["message"] + " || " + found["fix"]
+        check_in("N2 (a): the owed row without refs is named, obligation_refs missing", "owed-ts: obligation_refs (missing)", text)
+        check_in("N2 (a): the fix names the fragment door with the task", "manifest_put.py --task QA-500 --fragment <file>", text)
+        check_in("N2 (a): ...and the shape of the field", '[{"obligation_id": "<plan obligation id>"}]', text)
+        check_in("N2 (a): ...and that the code writes the hash", "the code adds each hash", text)
+        check_not_in("N2 (a): no marker door in the finding", "marker", text)
+        check_not_in("N2 (a): no `qa(obligations` in the finding", "qa(obligations", text)
+        py = refs_row("owed-py", "TC-500", "TS-1")
+        found, _ = refs_finding(refs_story(root, [py]))
+        check_eq("N2 (a): a Python row gets the very same fix text (one text, no language branch)",
+                 found["fix"], refs_finding(refs_story(root, [ts]))[0]["fix"])
+
+        # (c)-(e), (h), (j): every input on an OWED row (OB-A, plan row TS-1) and a NON-owed row (OB-M, TS-2)
+        def refs_of(kind, oid, good, other):
+            return {"valid": [{"obligation_id": oid, "obligation_hash": good}],
+                    "missing hash": [{"obligation_id": oid}],
+                    "stale (a hash typed)": [{"obligation_id": oid, "obligation_hash": "c7ca9a5f" + "0" * 56}],
+                    "unknown id": [{"obligation_id": "OB-ZZ", "obligation_hash": good}],
+                    "hash of another obligation": [{"obligation_id": oid, "obligation_hash": other}],
+                    "hash with a trailing space": [{"obligation_id": oid, "obligation_hash": good + " "}],
+                    "uppercase hex": [{"obligation_id": oid, "obligation_hash": good.upper()}],
+                    "id in another case": [{"obligation_id": oid.lower(), "obligation_hash": good}],
+                    "id twice, two hashes": [{"obligation_id": oid, "obligation_hash": good},
+                                             {"obligation_id": oid, "obligation_hash": other}],
+                    "hash null": [{"obligation_id": oid, "obligation_hash": None}]}[kind]
+        kinds = ["valid", "missing hash", "stale (a hash typed)", "unknown id", "hash of another obligation",
+                 "hash with a trailing space", "uppercase hex", "id in another case", "id twice, two hashes", "hash null"]
+        plan_rows = [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [OB_AUTO]},
+                     {"id": "TS-2", "schema_version": 2, "coverage_obligations": [OB_MANUAL]}]
+        pmap = C.obligation_map(plan_rows)
+        rows, want = [], {}
+        for at, kind in enumerate(kinds):
+            rows.append(refs_row(f"o{at}", "TC-500", "TS-1", obligation_refs=refs_of(kind, "OB-A", h_auto, h_manual)))
+            rows.append(refs_row(f"n{at}", "TC-501", "TS-2", obligation_refs=refs_of(kind, "OB-M", h_manual, h_auto)))
+            want[f"o{at}"], want[f"n{at}"] = kind, kind
+        found, _ = refs_finding(refs_story(root, rows))
+        message = found["message"] if found else ""
+        by_row = {row["instance_id"]: row["obligation_refs"] for row in rows}
+        for iid, kind in want.items():
+            said = f"{iid}: obligation_refs (" in message
+            owed = iid.startswith("o")
+            check_eq(f"N2 (h)/(j): {'owed' if owed else 'NON-owed'} row, {kind}: refused unless valid", said, kind != "valid")
+            # (n) agreement by composition: the precheck's verdict is N1's predicate's, never the controller's
+            check_eq(f"N2 (n): {'owed' if owed else 'NON-owed'} row, {kind}: the precheck agrees with the predicate strict",
+                     said, bool(C.obligation_ref_problems(by_row[iid], pmap, strict=True)))
+        check_in("N2 (c): a ref stored before the change with no hash says `missing hash`, naming the repair",
+                 "(missing hash)", message)
+        check_in("N2 (d)/(j): a stale hash says `stale`", "stale: ", message)
+        check_in("N2 (d): ...and that the plan changed or the hash was typed, with the ids-only door",
+                 "send the row's obligation_refs again, ids only", message)
+        check_in("N2 (e): an id the plan does not name is named with the plan's ids",
+                 "OB-ZZ is not an obligation of the plan (the plan names OB-A, OB-M)", message)
+        # QB (FV1-19e p10, AR-15): the stale-binding door lives in ONE text, the binding finding; the row-refs finding no
+        # longer names the binding's `design_assessment` at all
+        stale_text = found["message"] + " || " + found["fix"]
+        check_not_in("QB/p10: the stale ROW-refs finding no longer carries the binding clause", "design_assessment", stale_text)
+
+        # (j) a NON-owed row with no refs, and an owed row with valid refs: nothing
+        quiet = [refs_row("q1", "TC-501", "TS-2"), refs_row("q2", "TC-500", "TS-1", obligation_refs=[
+            {"obligation_id": "OB-A", "obligation_hash": h_auto}])]
+        check_eq("N2 (j): a non-owed row with no refs, and a valid owed row -> no finding",
+                 refs_finding(refs_story(root, quiet)), (None, []))
+
+        # (f) the legacy plan / no plan: nothing demanded; present refs judged for shape only
+        legacy = [{"id": "TS-1", "coverage_obligations": []}]
+        for label, plan in (("a legacy plan", legacy), ("no plan file", [])):
+            absent = [refs_row("a1", "TC-500", "TS-1")]
+            check_eq(f"N2 (f): {label}, refs absent -> no finding", refs_finding(refs_story(root, absent, plan)), (None, []))
+            typed = [refs_row("a2", "TC-500", "TS-1", obligation_refs=[{"obligation_id": "X", "obligation_hash": "typed"}])]
+            check_eq(f"N2 (f): {label}, refs present with a hash -> no hash or id judged (empty map)",
+                     refs_finding(refs_story(root, typed, plan)), (None, []))
+            bare = [refs_row("a3", "TC-500", "TS-1", obligation_refs=[{"obligation_id": "X"}, "junk"])]
+            found, _ = refs_finding(refs_story(root, bare, plan))
+            check_in(f"N2 (f): {label}, a broken list -> the shape is still judged", "a3: obligation_refs (", found["message"] if found else "")
+    finally:
+        cleanup(root)
+
+
+def _with_words(*words) -> Path:
+    """A throwaway story folder whose `pipeline.json` carries `words` (`(match, decision, at)` or a ready record)."""
+    root = temp_dir("qa-s5-road-")
+    records = [w if isinstance(w, dict) else {"stage": "S5", "match": w[0], "decision": w[1] if len(w) > 1 else "the person lets it stand",
+                                              "at": w[2] if len(w) > 2 else "2026-10-01T10:00:00+00:00"} for w in words]
+    (root / "pipeline.json").write_text(json.dumps({"task": "QA-500", "stage_overrides": records}), encoding="utf-8")
+    return root
+
+
+def a_word_by_tag_passes_every_family_but_the_two_that_wait() -> None:
+    """FV1-30a (1): `_passable` is every finding except `open-oracle-asserted-*` and `then-remainder-unrecorded-*`; one row per
+    family 1-4, 6, 7 of the spec's table (the word is the finding's tag: the finding leaves and the note says so), plus the families
+    that were passable before (`environment`, `obligations`) on the same road, and the two tags a word - `*` included - never passes."""
+    rows = (("manifest", "TC-1", "row-fields-missing"), ("bindings", "TC-1", "no-bindings"), ("bindings", "TC-1", "ghost-i1"),
+            ("oracle", "TC-1", "dispute-unstated"), ("oracle", "TC-1", "case-is-oracle"), ("run_mapping", "TC-1", "no-row-i1"),
+            ("plan", "", "plan-unreadable"), ("sides", "TC-1", "sides-undeclared-i1"), ("environment", "TC-1", "stand-login"),
+            ("obligations", "TC-1", "obligation-id-TS-1-O1"), ("bindings", "TC-1", "then-remainder-shape-1"))
+    for check_name, case, tag in rows:
+        finding = P._finding(check_name, case, f"a {check_name} problem", "repair it", tag)
+        root, notes = _with_words((tag, "go on")), []
+        try:
+            left = P.passed_by_word(root, [finding], notes)
+            check_eq(f"{check_name}:{tag}: the word by its tag passes it", (left, len(notes)), ([], 1))
+            check_in(f"{check_name}:{tag}: and the note carries the person's words", "passed by the person's word: go on", notes[0] if notes else "")
+            check_eq(f"{check_name}:{tag}: it is passable and carries no refusal line", (P._passable(finding), P.refusal_cause(finding)), (True, ""))
+        finally:
+            cleanup(root)
+    waits = (P._finding("oracle", "TC-1", "Then 1 is asserted open", "answer", "open-oracle-asserted-1"),
+             P._finding("bindings", "TC-1", "a Then of the case waits", "name it", f"{P.THEN_REMAINDER_WAITS}1"))
+    for finding in waits:
+        for match in (P._finding_tag(finding), "*", finding["id"]):
+            root, notes = _with_words((match,)), []
+            try:
+                check_eq(f"{finding['id']}: the word {match!r} passes nothing, `*` included",
+                         (P.passed_by_word(root, [finding], notes), notes), ([finding], []))
+            finally:
+                cleanup(root)
+        check_eq(f"{finding['id']}: not passable", P._passable(finding), False)
+
+
+def one_road_selects_the_word_for_the_finding() -> None:
+    """FV1-30a (2, 3): every input of the spec's table about words, on ONE road for every family; `*` passes each passable finding
+    of the stage and records it by name; a word the finding is not named by passes nothing and leaves no note."""
+    case = "TP1-13797_TC_002"
+    run_row = P._finding("run_mapping", case, "no run block carries a result row for i1 — x", "run it", "no-row-i1")
+    bound = P._finding("bindings", case, "bindings missing: the case has 2 Then clause(s) and no row", "add rows", "no-bindings")
+    other = P._finding("bindings", "TC-9", "bindings missing: the case has 1 Then clause(s) and no row", "add rows", "no-bindings")
+    waiting = P._finding("oracle", case, "Then 1 is asserted open", "answer", "open-oracle-asserted-1")
+    early = "2026-09-30T04:00:00+00:00"
+
+    def ids(*words, findings=(run_row, bound)) -> tuple:
+        root, notes = _with_words(*words), []
+        try:
+            left = P.passed_by_word(root, list(findings), notes)
+            return sorted(f["id"] for f in left), len(notes)
+        finally:
+            cleanup(root)
+
+    both = sorted([run_row["id"], bound["id"]])
+    check_eq("`*` passes every passable finding of the stage, each noted; the waiting one stands",
+             ids(("*",), findings=(run_row, bound, other, waiting)), ([waiting["id"]], 3))
+    check_eq("a case id given on the run-mapping finding passes neither: `bindings` STANDS (t-108)", ids((case,)), (both, 0))
+    check_eq("the run-mapping finding is passed by its WHOLE id and the bindings one stands",
+             ids((run_row["id"],)), ([bound["id"]], 1))
+    check_eq("the run-mapping finding is passed by its tag and the bindings one stands", ids(("no-row-i1",)), ([bound["id"]], 1))
+    check_eq("the tag `no-bindings` passes every `no-bindings` finding of the stage, each noted",
+             ids(("no-bindings",), findings=(run_row, bound, other)), ([run_row["id"]], 2))
+    for phrase in ("case", "bindings missing", "no run block carries a result row for i1", "run it", "TC-9"):
+        check_eq(f"a word of the message or the fix ({phrase!r}), not a tag and not an id, passes nothing and leaves no note",
+                 ids((phrase,)), (both, 0))
+    check_eq("the id of another finding of the same case does not pass this one", ids((bound["id"],), findings=(run_row,)),
+             ([run_row["id"]], 0))
+    check_eq("a part of a tag does not name it", ids(("bindings",), ("row",), ("no",)), (both, 0))
+    # FV1-30a fix round (critic B1): a word names a finding by EQUALITY with its tag or whole id, never by containment, so a
+    # sub-identifier of a tag that sits after `[`, `.`, `:` (a parameter label, a field leaf, a line number) names nothing
+    inst = P._finding("run_mapping", case, "no run block carries a result row", "run it", "no-row-test_x[missing-assistant]")
+    leaf = P._finding("bindings", case, "a literal contradicts the body", "fix it", "contradicted-literal-1-body.id")
+    changed = P._finding("oracle", case, "a test changed after its red run", "restore it", "changed-after-red-a.py:12")
+    sub = (inst, leaf, changed)
+    for part in ("missing-assistant", "neg", "12", "id", "a.py", "body", "test_x"):
+        check_eq(f"B1: the part {part!r} of an instance id / field leaf / line number passes nothing",
+                 ids((part,), findings=sub), (sorted(f["id"] for f in sub), 0))
+    for finding in sub:
+        others = sorted(f["id"] for f in sub if f is not finding)
+        check_eq(f"B1: the whole tag {P._finding_tag(finding)!r} passes exactly its finding",
+                 ids((P._finding_tag(finding),), findings=sub), (others, 1))
+        check_eq(f"B1: the whole id of {P._finding_tag(finding)!r} passes exactly its finding",
+                 ids((finding["id"],), findings=sub), (others, 1))
+    check_eq("B1: the tag, in another case, passes exactly the findings carrying exactly that tag (a sibling's whole id passes nothing here)",
+             ids(("no-bindings",), (other["id"],), findings=(bound, other)), ([], 2))
+    check_eq("B1: a word equal to the whole id of the SIBLING (another case) never passes this finding",
+             ids((other["id"],), findings=(bound,)), ([bound["id"]], 0))
+    # Q5: `obligation-id` is a stage-wide stem: it passes `obligation-id-<oid>` and no tag that merely contains it
+    ob = P._finding("obligations", case, "an obligation is unbound", "bind it", "obligation-id-OB-1")
+    ob_in = P._finding("obligations", case, "an obligation is unbound", "bind it", "not-an-obligation-id-OB-1")
+    check_eq("Q5: the word `obligation-id` passes `obligation-id-OB-1` and not a tag that merely contains it",
+             ids(("obligation-id",), findings=(ob, ob_in)), ([ob_in["id"]], 1))
+    check_eq("Q5: the stem is a stem: `obligation` (a part) passes nothing", ids(("obligation",), findings=(ob,)), ([ob["id"]], 0))
+    check_eq("Q5: the constant is `STAGE_WIDE_STEMS`, with `obligation-id` in it", ("obligation-id" in P.STAGE_WIDE_STEMS,
+             hasattr(P, "WORD_PASSABLE_TAGS")), (True, False))
+    for label, word in (("an empty word", ""), ("a whitespace-only word", "   "), ("a placeholder", "<the finding's tag>"),
+                        ("a revoked word", {"stage": "S5", "match": "*", "decision": "go on", "at": early, "revoked_at": "2026-10-02T10:00:00+00:00"}),
+                        ("a word of another stage", {"stage": "S3", "match": "*", "decision": "go on", "at": early}),
+                        ("a word with no decision", {"stage": "S5", "match": "*", "decision": "", "at": early})):
+        check_eq(f"{label} passes nothing", ids(word if isinstance(word, dict) else (word,)), (both, 0))
+    # time: a finding with `pair_at` keeps the rule of today; one without has no time and passes if the word names it
+    pair = dict(P._finding("oracle", case, "a test changed after its red run", "restore it", "changed-after-red-test_x"), pair_at="2026-09-30T05:00:00+00:00")
+    root, notes = _with_words(("changed-after-red", "go on", early)), []
+    try:
+        left = P.passed_by_word(root, [pair], notes)
+        check_eq("a stage-wide word given BEFORE the pair's green run: `predating`, as today",
+                 ([f.get("refused") for f in left], notes), (["predating"], []))
+        check_eq("...and the refusal reads as the cause of the source", P.refusal_cause(left[0]), "predating")
+    finally:
+        cleanup(root)
+    check_eq("a word given before a finding that has no `pair_at` passes it", ids(("no-bindings", "go on", "2020-01-01T00:00:00+00:00"),
+                                                                                    findings=(bound,)), ([], 1))
+    root = _with_words(("no-bindings", "go on", "2020-01-01T00:00:00+00:00"))
+    try:
+        left, passes = P._judge_words(root, [bound], [])
+        check_eq("...and the pass carries the word's own `at` and decision", (left, passes),
+                 ([], [{"finding_id": bound["id"], "check": "bindings", "case": case, "tag": "no-bindings",
+                        "decision": "go on", "at": "2020-01-01T00:00:00+00:00"}]))
+    finally:
+        cleanup(root)
+    # a 24 KB word that equals nothing passes nothing (a long `match` is never a tag); a 24 KB DECISION on a word that equals the
+    # tag passes and is kept whole (the cut is the writer's, `_record_person_pass`)
+    big = "x" * 24 * 1024
+    root = _with_words((big, "go on"))
+    try:
+        left, passes = P._judge_words(root, [bound], [])
+        check_eq("a 24 KB word equal to no tag and no id passes nothing", (left, passes), ([bound], []))
+    finally:
+        cleanup(root)
+    root = _with_words(("no-bindings", big))
+    try:
+        left, passes = P._judge_words(root, [bound], [])
+        check_eq("a 24 KB decision on the word = the tag passes, the pass keeps it whole", (left, len(passes[0]["decision"])), ([], 24 * 1024))
+    finally:
+        cleanup(root)
+    check_eq("no pipeline, no words: nothing passes and nothing raises", P.passed_by_word(Path(temp_dir("qa-s5-none-")), [bound], []), [bound])
+
+
+def the_result_carries_the_word_passes_and_the_helper_reads_them() -> None:
+    """FV1-30a (3, 4a): `word_passes` is a top-level field of `run`'s result - `[]` with no word, never absent; with a word it
+    equals the notes, one row per pass; `word_passes(task_root, scope)` returns the same rows for the scope and writes nothing."""
+    import waiver as W
+    root = temp_project("qa-s5-wpfield-")
+    try:
+        task = filter_story(root)
+        param_run(task, "r1", 0, "failed", "P-new", "X")
+        param_run(task, "g1", 10, "passed", "P-new", "Y")
+        result = P.run(task)
+        check_eq("no word: the field is there and is []", ("word_passes" in result, result.get("word_passes")), (True, []))
+        check_eq("no word: the helper says [] too", P.word_passes(task), [])
+        finding = car(result)[0]
+        own = P._pair_tag(result["expectation_changes"]["pairs"][0])
+        pipeline = {"task": "QA-500"}
+        W.apply_stage_override(pipeline, "S5", own, "the person lets the test stand", "2026-10-01T10:00:00+00:00")
+        (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        before = sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file())
+        result = P.run(task)
+        expected = [{"finding_id": finding["id"], "check": finding["check"], "case": finding["case"], "tag": P._finding_tag(finding),
+                     "decision": "the person lets the test stand", "at": "2026-10-01T10:00:00+00:00"}]
+        check_eq("a word: the field holds the pass, and the finding left", (result["word_passes"], len(car(result))), (expected, 0))
+        check_eq("the field and the notes are the same passes", len(result["word_passes"]),
+                 "\n".join(result["notes"]).count("passed by the person's word"))
+        scope = P.scope_cases(task, manifest_of(task), None)
+        check_eq("the helper returns them for the scope", P.word_passes(task, scope), expected)
+        check_eq("...for no scope (every case)", P.word_passes(task), expected)
+        check_eq("...and nothing for a scope the finding is not in", P.word_passes(task, ["TC-NOT-HERE"]), [])
+        check_eq("the helper is pure: no file written, none changed",
+                 sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file()), before)
+        # F2: the passes are taken BEFORE the judges - with the judge on and a stub that would record a call, `word_passes` makes
+        # none (neither `passed_by_judge` nor `judged_refusal`) and writes no file; `run` (the exit gate's road) still does
+        import judge
+        saved = (judge.settings, judge.active, judge.judged_refusal, P.passed_by_judge)
+        calls: list = []
+        try:
+            judge.settings = lambda *_a, **_k: {"provider": "typesafe", "mode": "on"}
+            judge.active = lambda *_a, **_k: True
+            judge.judged_refusal = lambda *a, **_k: calls.append(("judged_refusal", a[0])) or {"passed": False}
+
+            def recording(task_root, findings, *_a, **_k):
+                calls.append(("passed_by_judge", len(findings)))
+                return findings
+            P.passed_by_judge = recording
+            rows = P.word_passes(task, scope)
+            check_eq("F2: judge mode on: `word_passes` makes no judge call and returns the same rows", (calls, rows), ([], expected))
+            check_eq("F2: ...and writes no file", sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file()), before)
+            gate_result = P.run(task)
+            check_eq("F2 control: `run` (the exit gate) still goes through the judges, and its `word_passes` field is the helper's rows",
+                     ([c[0] for c in calls], gate_result["word_passes"]), (["passed_by_judge"], expected))
+            calls.clear()
+            no_word = temp_dir("qa-s5-noword-")
+            check_eq("F2: no live S5 word: `[]` without building the findings (no judge call either)",
+                     (P.word_passes(no_word, ["TC-1"]), calls), ([], []))
+            (no_word / "pipeline.json").write_text("{not json", encoding="utf-8")
+            check_eq("F2: `pipeline.json` unreadable: `[]`", P.word_passes(no_word), [])
+            cleanup(no_word)
+        finally:
+            judge.settings, judge.active, judge.judged_refusal, P.passed_by_judge = saved
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
+    fv1_19_obligation_refs_at_the_precheck()
+    a_word_by_tag_passes_every_family_but_the_two_that_wait()
+    one_road_selects_the_word_for_the_finding()
+    the_result_carries_the_word_passes_and_the_helper_reads_them()
     a_then_row_does_not_swallow_the_thens_behind_a_red()
     a_relative_oracle_on_an_unasserted_base_is_refused()
     a_copy_of_existing_code_is_advice_for_the_critic()
@@ -4539,6 +4985,7 @@ def main() -> None:
     an_unresolved_row_is_found_by_the_qualified_scope_case()
     a_qualified_ask_finds_the_binding_rows_that_name_it()
     a_qualified_scope_case_binds_its_obligation()
+    a_stale_binding_is_named_before_the_finish()
     check_manifest_sees_the_qualified_scope_case()
     the_merged_record_keeps_its_note()
     the_refusal_prints_the_pairs_own_door_or_none()

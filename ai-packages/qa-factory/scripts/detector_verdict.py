@@ -76,6 +76,10 @@ COMPOUND_HEAD = "{n} problems - the request is refused whole, every one is liste
 COMPOUND_HEAD_RE = re.compile(r"^(\d+) problems - the request is refused whole, every one is listed:$", re.MULTILINE)
 ITEM_RE = re.compile(r"^\d+\) ")
 STORY_STEP_PREFIX = "story_step: refused - "
+# The machine line `story_step.py finish` prints LAST on an exit-gate refusal (`checks: ["s5_precheck:manifest", ...]`, a JSON
+# list of the check ids of the blocking records) and `Driver.finish` takes OUT of the text before anyone reads it (P1-v W0, F17):
+# one spelling for its writer and its one reader.
+CHECKS_LINE_PREFIX = "checks: "
 # The end of the defect `parse` writes for a refusal that printed nothing: the ONE spelling, so the gate that tells the
 # role whose defect it is (`exit_gate.detector_records`) matches a constant and not a copy of the sentence.
 PRINTED_NOTHING = "printed nothing"
@@ -90,16 +94,48 @@ LIST_LIMIT = 6
 class Record(str):
     """One record of the exit gate: an ordinary string (printing, JSON, `finding_key`, `split_overridden` see a
     `str`) that also says where it came from and what may judge it. A plain `str` read without these attributes
-    is `kind="finding"`, `words="gate"`, `refused=""`."""
+    is `kind="finding"`, `words="gate"`, `refused=""`.
+
+    `check` (P1-v W0) is the id of the check that produced the record, `<producer stem>:<family>` (`s5_precheck:manifest`),
+    and `tag` the stable third part of the finding's own id (`row-fields-missing`); both are `""` on a record no producer
+    named. The text of a record never carries them: they are fields (FR-12), read by `check_id` and the exit gate."""
     script = ""
     words = "gate"
     kind = "finding"
     refused = ""
+    check = ""
+    tag = ""
 
-    def __new__(cls, text, *, script="", words="gate", kind="finding", refused=""):
+    def __new__(cls, text, *, script="", words="gate", kind="finding", refused="", check="", tag=""):
         obj = super().__new__(cls, text)
         obj.script, obj.words, obj.kind, obj.refused = script, words, kind, refused
+        obj.check, obj.tag = check, tag
         return obj
+
+
+def check_id(record) -> str:
+    """THE name of the check a record came from (P1-v W0, AR-13): `record.check` when a producer set it, else
+    `<script stem>:unlabelled` when the record knows its script, else `unknown` (a plain `str`, a record built by hand).
+    Direction of error: toward `unknown` / `unlabelled` (a finding counted under no family or a coarse one), never toward
+    naming a check that did not produce the finding."""
+    check = getattr(record, "check", "")
+    if isinstance(check, str) and check:
+        return check
+    script = getattr(record, "script", "")
+    if isinstance(script, str) and script:
+        return f"{Path(script).stem}:unlabelled"
+    return "unknown"
+
+
+def with_check(record, check: str):
+    """`record` carrying the check id `check` (the one helper the exit gate's own producers go through): a record that
+    already has a `check` is returned as it is; any other is copied as a `Record` keeping `script`, `words`, `kind`,
+    `refused` and `tag`, and a plain `str` becomes a `Record` with the defaults. The TEXT is byte-identical."""
+    if getattr(record, "check", ""):
+        return record
+    return Record(str(record), script=getattr(record, "script", ""), words=getattr(record, "words", "gate"),
+                  kind=getattr(record, "kind", "finding"), refused=getattr(record, "refused", ""), check=check,
+                  tag=getattr(record, "tag", ""))
 
 
 def one_line(text) -> str:
@@ -219,17 +255,21 @@ def _refused_of(tags: list) -> str:
 
 
 def _unmigrated(out: dict, stdout: str, stderr: str, tags: list) -> None:
-    out["findings"], out["refused"] = [], []
+    out["findings"], out["refused"], out["labels"] = [], [], []
     out["unmigrated"] = " ".join((stdout + "\n" + stderr).split())
     out["unmigrated_refused"] = _refused_of(tags)
 
 
 def _link(out: dict, tags: list) -> None:
-    """Tie each `WORDS_REFUSED_AT_SOURCE` line to its finding by the id in the finding's label."""
-    ids = []
+    """Tie each `WORDS_REFUSED_AT_SOURCE` line to its finding by the id in the finding's label. The same ONE match per line
+    gives `out["labels"]`, parallel to `findings`: `(check, id)` of the label, `None` for a line with no label at its start
+    (P1-v W0: no second parser; a `[x y]` in the middle of a message is not a label)."""
+    ids, labels = [], []
     for line in out["findings"]:
         label = LABEL_RE.match(line)
         ids.append(label.group(2) if label else "")
+        labels.append((label.group(1), label.group(2)) if label else None)
+    out["labels"] = labels
     by_id = {}
     for fid, cause, _line in tags:
         by_id.setdefault(fid, cause)
@@ -279,9 +319,10 @@ def _unreadable_of(code: int, stdout: str, stderr: str):
 
 
 def parse(code: int, stdout: str, stderr: str) -> dict:
-    """`{"findings": [str], "refused": [str], "marker": "repair"|"person"|"", "defects": [str], "unmigrated": str,
+    """`{"findings": [str], "refused": [str], "labels": [(check, id) | None], "marker": "repair"|"person"|"", "defects": [str], "unmigrated": str,
     "unmigrated_refused": str, "words": "source"|"gate", "unreadable": str, "advice": [str]}`. `refused` runs parallel
-    to `findings`: `""`, `family`, `predating` or `unreadable`. `advice` is the lines of the `ADVICE` blocks of stdout
+    to `findings`: `""`, `family`, `predating` or `unreadable`; so does `labels` (P1-v W0): the `(check, id)` of the
+    `[<check> <id>]` label a finding starts with, `None` for one that has none. `advice` is the lines of the `ADVICE` blocks of stdout
     (X2-2), read at exit 0 and 1 alike, `[]` for an unreadable run; a block that breaks its shape is a `defects` entry.
 
     `unreadable` (RH1-5, FR-59) is the reason the check did not run, `""` when it did: exit 3 (the line
@@ -296,7 +337,7 @@ def parse(code: int, stdout: str, stderr: str) -> dict:
     own contract, which is the factory's defect and not the role's). An output cut off at its end keeps what it
     printed and says how many it declared. Nothing printed at all is `unreadable`, never a pass."""
     out = {"findings": [], "refused": [], "marker": "", "defects": [], "unmigrated": "",
-           "unmigrated_refused": "", "words": "gate", "unreadable": "", "advice": []}
+           "unmigrated_refused": "", "words": "gate", "unreadable": "", "advice": [], "labels": []}
     reason = _unreadable_of(code, stdout, stderr)
     if reason is not None:
         out["unreadable"] = reason

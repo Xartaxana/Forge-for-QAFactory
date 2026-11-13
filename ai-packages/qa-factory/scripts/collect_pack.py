@@ -61,6 +61,11 @@ REQUIRED_KEYS = ("schema", "note", "limits", "archive", "set_names", "never_cont
 LIMIT_KEYS = ("file_max_bytes", "part_max_bytes", "excerpt_lines")
 EXCERPT_LINE_CHARS = 2000
 HISTORY_FILES_THAT_TOUCH = ("state/events.jsonl", "pipeline.json")
+_Y, _N, _U = collect_stall.YES, collect_stall.NO, collect_stall.UNKNOWN
+# the state words of the "no transcripts" gap by `collect_stall.loop_state`; (NO, NO) is absent: the caller is behind the gate
+_STATE_WORDS = {(_Y, _Y): "stalled and looping", (_Y, _N): "stalled", (_Y, _U): "stalled", (_N, _Y): "looping",
+                (_N, _U): "possibly looping", (_U, _Y): "looping and possibly stalled", (_U, _N): "possibly stalled",
+                (_U, _U): "possibly stalled or looping"}
 ZIP_LOCAL, ZIP_CENTRAL, ZIP_END = 30, 46, 22
 _REFUSAL_TAIL = "reinstall the plugin - packing without its redaction rules would send unredacted data"
 
@@ -1069,7 +1074,7 @@ class _Run:
         for story in self.story_dirs:
             pipeline = hooklib.read_json(story / "pipeline.json", {}, errors=Exception, kind=dict)
             item = {"task": story.name, "plugin_version": story_version.plugin_version_of(pipeline) or None, "touched": self.touch[story.name],
-                    "closed_at": hooklib.story_closed(pipeline) or None, "stalled": None, "stall_signals": [], "looped": None, "loop_signals": [], "transcripts": [], "record": None}
+                    "closed_at": hooklib.story_closed(pipeline) or None, "stalled": None, "stall_signals": [], "ignored": [], "looped": None, "loop_signals": [], "loop_ignored": [], "transcripts": [], "record": None}
             if self.onboarded:          # B-H are skipped for a project that is not onboarded (set_status says so); H does not pack transcripts the sets deny
                 self._stall(story, item, mark, quiet)
             out.append(item)
@@ -1113,7 +1118,10 @@ class _Run:
         item["looped"] = verdict.get("looped")
         item["loop_signals"] = [{"id": s.get("id"), "where": s.get("where"), "at": _iso_epoch(s.get("at"))}
                                 for s in verdict.get("loop_signals") or [] if isinstance(s, dict)]
-        if item["looped"] is None and not verdict.get("stalled") and verdict.get("loop_unreadable_reasons"):
+        item["ignored"] = [{"where": e.get("where"), "why": e.get("why")} for e in verdict.get("ignored") or [] if isinstance(e, dict)]
+        item["loop_ignored"] = [{"where": e.get("where"), "why": e.get("why")} for e in verdict.get("loop_ignored") or [] if isinstance(e, dict)]
+        stall, loop = collect_stall.loop_state(verdict)
+        if loop == collect_stall.UNKNOWN and stall != collect_stall.YES and verdict.get("loop_unreadable_reasons"):
             self.gap("H", f"loops of {story.name} unknown", "; ".join(str(r) for r in verdict["loop_unreadable_reasons"]))
         if collect_stall.wants_transcripts(verdict):
             self._pack_transcripts(story, verdict, item)
@@ -1126,8 +1134,7 @@ class _Run:
             self.gap("H", f"the transcript of session {g['sid']} of {task} is not packed" if g.get("sid") else f"the sessions of {task} could not all be read",
                      str(g.get("why")))
         if not (got["main"] or got["subagents"] or got["gaps"]):
-            state = {(True, True): "stalled and looping", (True, False): "stalled", (False, True): "looping"}.get(
-                (bool(verdict.get("stalled")), verdict.get("looped") is True), "possibly looping")
+            state = _STATE_WORDS[collect_stall.loop_state(verdict)]
             self.gap("H", f"no transcripts for the {state} story {task}", str(got["why"]))
         e = {"id": "H-transcripts", "set": "H", "scope": "p", "mode": "copy", "transcript": True, "flags": ["transcript"]}
         sid_of = {str(s["transcript"]): s.get("sid") for s in sessions if s.get("transcript")}

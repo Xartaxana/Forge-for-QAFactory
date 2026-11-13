@@ -21,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness import (check, check_eq, check_in, check_not_in, cleanup, finish,  # noqa: E402
                      run_script, temp_project)
 
+import contract as C  # noqa: E402
 import coverage_contract as CC  # noqa: E402
+from event_store import content_hash  # noqa: E402
 import manifest_put as M  # noqa: E402
 import s5_precheck as P  # noqa: E402
 
@@ -185,7 +187,8 @@ def main() -> None:
             {"case": "TC-006", "file": "tests/t.py", "instance_id": "test_six",
              "covers": ["TC-006"], "status": "green"}],
             "obligation_bindings": [
-                {"obligation_id": "OB-1", "instance_ids": ["test_five"], "sensitivity": "proven"},
+                {"obligation_id": "OB-1", "instance_ids": ["test_five"], "sensitivity": "proven",
+                 "obligation_hash": "hb"},
                 {"obligation_id": "OB-2", "instance_ids": ["test_five"]},
                 {"obligation_id": "OB-3", "instance_ids": ["test_six"]},
                 {"obligation_id": "OB-4", "instance_ids": ["test_six"]}]}
@@ -228,8 +231,16 @@ def main() -> None:
             five = next(t for t in migrated["tests"] if t.get("instance_id") == "test_five")
             check_eq("the instance re-cites the same obligation by the plan's id",
                      five.get("obligation_ids"), ["TS-1-O1"])
-            check_eq("and so do its obligation_refs, hash untouched",
-                     five.get("obligation_refs"), [{"obligation_id": "TS-1-O1", "obligation_hash": "h1"}])
+            # FV1-19 (D4, row o): a hash read from a stored row is never forwarded; the stamp writes the plan's hash of the NEW id.
+            plan_hash = content_hash(PLAN_ROWS[0]["coverage_obligations"][0])
+            check_eq("and so do its obligation_refs, the hash is the plan's (the stored h1 was not forwarded, nor refused)",
+                     five.get("obligation_refs"), [{"obligation_id": "TS-1-O1", "obligation_hash": plan_hash}])
+            check_eq("the row's own hash is the hash of the stamped refs",
+                     five.get("obligation_hash"), content_hash(five.get("obligation_refs")))
+            check_eq("the renamed binding carries the plan's hash of its new id (the seed's `hb` is gone)",
+                     next(b for b in migrated["obligation_bindings"] if b["obligation_id"] == "TS-1-O1").get("obligation_hash"), plan_hash)
+            again_run = run_script("migrate_artifacts.py", "--task-root", str(task), "--if-older", cwd=root)
+            check_eq("--if-older exits 0 again over the stamped manifest", again_run.returncode, 0)
 
             # the point of the whole package: the projection joins again.
             projection = CC.coverage_projection(task, report={}, manifest=migrated)
@@ -245,8 +256,91 @@ def main() -> None:
                 task, TICKET, root,
                 json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8")))
             check_eq("a second run renames nothing", again["changed"], [])
+            # FV1-19e t3-d: the seed binds a `sensitivity` and no counting judgment field (design_assessment / code_validity),
+            # so nothing is owed again and no `left` row names the renamed id; t3-e: the second run adds none either.
+            check_eq("t3-d: no `left` row names TS-1-O1 (no counting judgment field to re-judge)",
+                     [x for x in report["left"] if "TS-1-O1" in x["artifact"]], [])
+            check_eq("t3-e: a second run adds no `left` row for a renamed id",
+                     [x for x in again["left"] if x["artifact"].startswith("obligation_bindings[]:TS-")], [])
     finally:
         cleanup(root)
+
+    # --- 4a. FV1-19e t3-a..t3-c: the rename never drops a judgment and never carries one as current ----------------------
+    new_ob = PLAN_ROWS[0]["coverage_obligations"][0]
+    new_hash = content_hash(new_ob)
+    for name, seed_binding, want_kept, want_hash, want_judged_on, want_current, want_stale in (
+            ("t3-a: a judgment made on another text (hash hb)",
+             {"obligation_hash": "hb", "design_assessment": "sufficient", "code_validity": "valid"},
+             {"design_assessment": "sufficient", "code_validity": "valid"}, "hb", {"code_validity": "hb"},
+             {"design_assessment": False, "code_validity": False}, "design_assessment, code_validity"),
+            ("t3-b: a judgment made on the plan's text now (hash == plan hash)",
+             {"obligation_hash": new_hash, "design_assessment": "sufficient", "code_validity": "valid"},
+             {"design_assessment": "sufficient", "code_validity": "valid"}, new_hash, {"code_validity": new_hash},
+             {"design_assessment": True, "code_validity": True}, None),
+            ("t3-c: a counting design_assessment that no text ever certified (no hash)",
+             {"design_assessment": "sufficient"},
+             {"design_assessment": "sufficient"}, None, {},
+             {"design_assessment": False, "code_validity": False}, "design_assessment")):
+        root, task = make_story()
+        try:
+            seed = {"obligation_bindings": [dict({"obligation_id": "OB-1", "instance_ids": ["test_five"]}, **seed_binding)]}
+            (task / "work" / "automation-manifest.json").write_text(json.dumps(seed), encoding="utf-8")
+            (task / "state").mkdir(exist_ok=True)
+            proc = run_script("migrate_artifacts.py", "--task-root", str(task), "--if-older", cwd=root)
+            try:
+                rep = json.loads(proc.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                check(f"{name}: the last stdout line is the JSON report", False, f"stdout tail: {proc.stdout[-400:]!r}")
+                continue
+            stored = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))["obligation_bindings"]
+            b = next(x for x in stored if x["obligation_id"] == "TS-1-O1")
+            check_eq(f"{name}: every judgment is kept, the stamps are the OLD ones, and `renamed_from` is never stored",
+                     ({k: b.get(k) for k in want_kept}, b.get("obligation_hash"), b.get("judged_on"), "renamed_from" in b),
+                     (want_kept, want_hash, want_judged_on, False))
+            check_eq(f"{name}: currency against the plan's hash", C.binding_currency(b, new_hash), want_current)
+            rows = [x for x in rep["left"] if x["artifact"] == "obligation_bindings[]:TS-1-O1"]
+            if want_stale is None:
+                check_eq(f"{name}: no `left` row", rows, [])
+            else:
+                check_eq(f"{name}: exactly one `left` row", len(rows), 1)
+                reason = rows[0]["reason"] if rows else ""
+                check(f"{name}: the reason opens with the field list and names the rename and the door",
+                      reason.startswith(f"not current, re-judge: {want_stale} (") and "renamed from OB-1" in reason
+                      and f"manifest_put.py --task {task.name} --fragment" in reason,f"reason: {reason!r}")
+                check(f"{name}: the journal's 80-character cut keeps the field list", f"re-judge: {want_stale}" in reason[:80],
+                      f"reason[:80]: {reason[:80]!r}")
+        finally:
+            cleanup(root)
+
+    # --- 4b. FV1-19 (row p, re-pinned by F1): the two retraction sites resend the covering rows by identity only ------------
+    import migrate_artifacts as MA
+    stale_cover = {"case": "TC-005", "file": "tests/t.py", "instance_id": "test_five", "covers": ["TC-005"], "status": "green",
+                   "obligation_refs": [{"obligation_id": "TS-1-O1", "obligation_hash": "stale"}], "obligation_ids": ["TS-1-O1"],
+                   "obligation_hash": "stale-row"}
+    ghost = {"case": "TC-005", "file": "tests/t.py", "instance_id": "TC-005", "covers": ["TC-005"], "status": "unknown"}
+    legacy = {"case": "TC-005", "selector": "test_five", "status": "unknown"}
+    for site, run_site, extra, said in (
+            ("_retract_case_ghosts", MA._retract_case_ghosts, ghost, "ghost retracted"),
+            ("_retract_legacy_selector_rows", MA._retract_legacy_selector_rows, legacy, "legacy selector row retracted")):
+        for cites in ("TS-1-O1", "TS-9-O9"):   # an id the plan names, and one it no longer names
+            root, task = make_story()
+            try:
+                cover = dict(stale_cover, obligation_refs=[{"obligation_id": cites, "obligation_hash": "stale"}], obligation_ids=[cites])
+                seed = {"tests": [extra, cover]}
+                (task / "work" / "automation-manifest.json").write_text(json.dumps(seed), encoding="utf-8")
+                (task / "state").mkdir(exist_ok=True)
+                result = run_site(task, TICKET, root, json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8")))
+                after = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
+                five = next(t for t in after["tests"] if t.get("instance_id") == "test_five")
+                # FV1-19 F1 (Lead, t-515): a retraction resends the covering row by identity only - no refs, ids or row hash -
+                # so the stored references stay exactly as stored (stale stays stale) and the retraction never depends on the plan.
+                check_eq(f"(p) {site}: a covering row citing {cites} (stale stored hash): the retraction commits, nothing left",
+                         (len(result["left"]), any(said in c for c in result["changed"]), len(after["tests"])), (0, True, 1))
+                check_eq(f"(p) {site}: ... and the covering row's refs, ids and row hash stay exactly as stored (never restamped)",
+                         (five["obligation_refs"], five["obligation_ids"], five["obligation_hash"]),
+                         ([{"obligation_id": cites, "obligation_hash": "stale"}], [cites], "stale-row"))
+            finally:
+                cleanup(root)
 
     # --- one stale test row can leave the manifest (TP1-13797, 27.09) -------------------
     # `tests[]` had no door: a row leaves only when every case it proves goes unresolved, and a

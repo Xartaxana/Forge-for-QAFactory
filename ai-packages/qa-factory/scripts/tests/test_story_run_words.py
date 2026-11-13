@@ -120,8 +120,10 @@ def spying(driver) -> list:
 
 
 def words_files(task_root: Path) -> list:
+    # `driver-journalnote-*` is the journal row of the answer (`log_append --notes-file`, FV1-4 N0): a file of its own road, not one of the
+    # calls this file counts (the words files of the gate and review calls)
     folder = task_root / "state" / "words"
-    return sorted(folder.glob("*")) if folder.is_dir() else []
+    return sorted(f for f in folder.glob("*") if not f.name.startswith("driver-journalnote-")) if folder.is_dir() else []
 
 
 def count_sites(source: str, literal: str) -> int:

@@ -1,0 +1,11 @@
+{
+ "id": "codemie-14857",
+ "task": "TP1-14857",
+ "synthetic": true,
+ "package_version": "0.10.2",
+ "walk": [
+  {"stage": "S1", "role": "qa-scout"},
+  {"stage": "S2", "role": "qa-requirements-tester"},
+  {"stage": "S3", "role": "qa-test-strategist"}
+ ]
+}

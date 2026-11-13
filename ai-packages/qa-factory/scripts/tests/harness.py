@@ -318,6 +318,18 @@ def use_project(root: Path) -> None:
     hooklib._PROJECT_ROOT_CACHE = None
 
 
+def normalised_bytes(text: str, *roots) -> int:
+    """FV1-4 (AR-4, AR-20): the UTF-8 byte length of `text` with every given root and the plugin root (`PLUGIN_ROOT`) replaced
+    by the token `<root>` first - each in both separator spellings, without a trailing separator, the longest first - so the
+    same fixture brief weighs the same on CI and on a machine whose temp path is shorter. An empty root is skipped. The
+    test-side twin of the former `brief_pack.measured_bytes`; the size ratchets of the brief tests count with it."""
+    spelled = {spelling for root in (*roots, PLUGIN_ROOT) if root
+               for spelling in (str(root).replace("\\", "/").rstrip("/"), str(root).replace("/", "\\").rstrip("\\")) if spelling}
+    for spelling in sorted(spelled, key=len, reverse=True):
+        text = text.replace(spelling, "<root>")
+    return len(text.encode("utf-8"))
+
+
 def run_controller_inprocess(argv_tail: list, root: Path | None = None) -> tuple:
     """`controller.py <argv_tail>` run in THIS process: `(exit code, stdout text, stderr text)` (DC1-27, FR-54: the ONE in-process
     controller run of the tests; `Story.decide` and `run_controller` of test_gate_words_road.py and `decide` of

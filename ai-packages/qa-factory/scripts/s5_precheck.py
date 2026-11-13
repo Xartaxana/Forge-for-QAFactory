@@ -61,7 +61,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402  (the contract of this output, its label and its refusal line)
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
-from person_words import WHOLE_PART, door  # noqa: E402
+from person_words import door  # noqa: E402
 from role_cli import REPAIR_MARKER  # noqa: E402
 # The block reader and the "a test changed after its red run" detector live in `run_history.py`;
 # these names stay importable from here (same objects), because readers import them from this module.
@@ -77,28 +77,28 @@ UNCHECKED_CHECKS = ("Then assertions", "contradictions", "smells")
 # in the wild (`contract.case_levels` reads both), and either one is the join to the plan row
 # whose coverage obligations this case is supposed to discharge.
 PLAN_ROW_RE = re.compile(r"^\s*(?:Plan row|plan_row):\s*(TS-\d+)", re.MULTILINE)
-# The families a recorded word can pass here. Everything else is a repair the author can make
-# without asking anybody, and a waiver of one would only hide work that is still owed.
+# The two families of the first generation of word-passable findings. Since FV1-30a this set decides NOTHING: every finding but
+# the `NOT_PASSABLE_TAGS` ones is passable (`_passable`), whatever its family. It stays only because tests read it as the
+# historical name of those two families.
 PASSABLE = {"environment", "obligations"}
-# `changed-after-red`: a test that went red and later passed on different code. It is one finding
-# of the `oracle` family, not the family: `oracle` is not in PASSABLE because the other oracle
-# findings are repairs the author can always make, while this one can be a decision only a person
-# can take (the author restored nothing and the reason is not in the artifacts). So a recorded
-# word passes it BY TAG (`waiver.py --stage S5 --block "changed-after-red"`), the way
-# `obligation-id-` is passed, and nothing else of the family.
+# `changed-after-red`: a test that went red and later passed on different code - a decision only a person can take (the author
+# restored nothing and the reason is not in the artifacts). A recorded word passes it by its tag, or by the stage-wide stem
+# (`waiver.py --stage S5 --block "changed-after-red"`, see `STAGE_WIDE_STEMS`).
 CHANGED_AFTER_RED = "changed-after-red"
 # `open-oracle-asserted-<n>`: Then n of a case reads `open` or `invalid` through the one resolver
-# (`traceability.then_oracle_states`) and the manifest binds it to an asserting instance. Also one finding of the
-# `oracle` family, outside WORD_PASSABLE_TAGS: a person settles it only by answering the question (the gate's
-# INPUT changes), never by a waiver (FR-4, FR-58, FR-59).
+# (`traceability.then_oracle_states`) and the manifest binds it to an asserting instance. One finding of the `oracle` family
+# and one of the two `NOT_PASSABLE_TAGS`: a person settles it only by answering the question (the gate's INPUT changes),
+# never by a waiver (FR-4, FR-58, FR-59).
 OPEN_ORACLE_ASSERTED = "open-oracle-asserted"
-# The family `sides` (t-2181 PC-4, C1-C6) is NOT in PASSABLE (S10): two tags of it are passable BY TAG, nothing else of it.
-# `sides-undeclared` (C1): a test of a story with a non-real side that declares no `sides` - the person may say the
-# declaration is not needed; `provisional-open-on-real` (C6 a): an open provisional row whose side is now real - the person's
-# word `substitute kept: <side>` keeps it. A C2-C5 finding and the other C6 ones are repairs no word passes.
+# The family `sides` (t-2181 PC-4, C1-C6): every finding of it is passable like any other (FV1-30a). Two tags have a
+# stage-wide stem: `sides-undeclared` (C1): a test of a story with a non-real side that declares no `sides` - the person may
+# say the declaration is not needed; `provisional-open-on-real` (C6 a): an open provisional row whose side is now real - the
+# person's word `substitute kept: <side>` keeps it.
 SIDES_UNDECLARED = "sides-undeclared"
 PROVISIONAL_OPEN_ON_REAL = "provisional-open-on-real"
-WORD_PASSABLE_TAGS = (CHANGED_AFTER_RED, SIDES_UNDECLARED, PROVISIONAL_OPEN_ON_REAL)
+# The stage-wide stems (`_names`): the word `<stem>` names every finding whose tag is `<stem>-<...>`. `obligation-id` is the word
+# `manifest_put` tells the person (one word passes the writer and this check, `check_obligations`).
+STAGE_WIDE_STEMS = (CHANGED_AFTER_RED, SIDES_UNDECLARED, PROVISIONAL_OPEN_ON_REAL, "obligation-id")
 # Tags no judge may downgrade to a hint. A judge answers whether the code still demands the
 # Then's value; the change a red run forced is a fact about two runs, which only the record and
 # the critic's verdict speak to.
@@ -1517,7 +1517,8 @@ def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: d
     (case, Then, problem), family `bindings`, level `repair`; the unrecorded one is the only one a word answers.
 
     Invariants: nothing here passes on an unknown (no case file, no such Then, an unreadable `pipeline.json` all
-    refuse: FR-59); no stage-override substring can remove these findings (the family is not in `PASSABLE`); a case
+    refuse: FR-59); no stage-override substring can remove these findings (a word passes by tag, whole id or `*` only,
+    `_names`; the waiting tag `then-remainder-unrecorded-<n>` is passed by nothing); a case
     with a whole-case `unresolved[]` row is not judged here (`contract.then_remainder_rows`).
 
     A Then behind a red assert of its own test (`blocked_by_check`, HF2-3) is judged by the same function and needs NO
@@ -2369,10 +2370,11 @@ def _sides_placeholders(ctx) -> None:
 
 
 def check_sides(manifest: dict, sides: dict, task_root, findings: list, scope=None) -> None:
-    """C1-C6 of t-2181 §1.3: appends findings of the family `sides` (outside PASSABLE, S10). `sides` is `contract.story_sides`
+    """C1-C6 of t-2181 §1.3: appends findings of the family `sides` (passable like every family, FV1-30a). `sides` is `contract.story_sides`
     of the story's pipeline. A story with no `pipeline.sides` record, every side real, no `sides_unknown` and no provisional
-    rows is read exactly as before: nothing here runs (TEMPORAL: until PC-2 nothing makes a side non-real). Which finding a
-    person's word may pass: only `sides-undeclared` (C1) and `provisional-open-on-real` (C6 a), by tag.
+    rows is read exactly as before: nothing here runs (TEMPORAL: until PC-2 nothing makes a side non-real). A person's word
+    passes any finding of it by its tag or whole id (`_names`); `sides-undeclared` and `provisional-open-on-real` also have
+    a stage-wide stem.
 
     `scope` is the window's `{case: [instance ids]}` (the dispatch scope of `run`): tests, `then_bindings`, pending rows and
     provisional rows are judged only when they fall in it, so a window is not refused over another window's test (B5, the
@@ -3696,7 +3698,7 @@ def check_env_evidence(task_root: Path, manifest: dict, owned: list, findings: l
 
     Per instance of the row (`_row_instances`) its NEWEST run block is read (a receipt measured on other bytes never counts), and
     the row stands only if EVERY named instance's newest run shows the stand (`_stand_shown`). A run that shows none is a
-    finding in family `environment` (the person's word still passes it, `PASSABLE`). An instance with NO run: a finding when
+    finding in family `environment` (the person's word still passes it, by tag or whole id, `_names`). An instance with NO run: a finding when
     the story started on `ENV_EVIDENCE_SINCE` or later, a NOTE when it started earlier or the version is unknown (the lenient
     direction, FR-59: `pipeline.json` carries the story's start version, not the row's). A row of a case this dispatch does
     not own is a note in every branch (the window that wrote it is closed)."""
@@ -3776,19 +3778,11 @@ def _row_fields_text(gaps: list, task_name: str) -> tuple:
             groups.setdefault(problem, []).append(field)
         parts.append(f"{iid}: " + ", ".join(f"{', '.join(names)} ({problem})" for problem, names in groups.items()))
     named = list(dict.fromkeys(field for _iid, fields in gaps for field, _problem in fields))
-    by_hand = [f for f in named if WR.REQUIRED_ROW_FIELDS[f].filled_by == "automator"]
-    by_marker = [f for f in named if WR.REQUIRED_ROW_FIELDS[f].filled_by != "automator"]
     legend = "; ".join(f"`{f}`: {WR.REQUIRED_ROW_FIELDS[f].what}" for f in named)
-    fix = ""
-    if by_hand:
-        fix += ("fill " + ", ".join(f"`{f}`" for f in by_hand) + " now, in one fragment: the row form "
-                "`manifest_from_tests.py` prints for this window, or "
-                '{"tests": [{"instance_id": "<id>", "<field>": <value>}]} through '
-                f"`manifest_put.py --task {task_name} --fragment <file>`; ")
-    if by_marker:
-        fix += (", ".join(f"`{f}`" for f in by_marker) + " is written by the marker, not by hand (a hand-written value "
-                "would not carry the hash the plan's obligation has): put "
-                '`qa(obligations=["<plan obligation id>"])` on the test and run `manifest_from_tests.py` again; ')
+    fix = ("fill " + ", ".join(f"`{f}`" for f in named) + " now, in one fragment: the row form "
+           "`manifest_from_tests.py` prints for this window, or "
+           '{"tests": [{"instance_id": "<id>", "<field>": <value>}]} through '
+           f"`manifest_put.py --task {task_name} --fragment <file>`; ")
     fix += f"what each field holds - {legend}; a field present but empty counts as missing"
     message = (f"{len(gaps)} tests[] row(s) of this window miss {pairs} field(s) the S5 window record or the test run "
                "will refuse: " + "; ".join(parts))
@@ -3809,8 +3803,8 @@ def check_row_fields(task_root: Path, manifest: dict, cases: list, findings: lis
     (`dispatch_scope` is None - no dispatch, an unknown id, or a dispatch with no scope) refuses nothing and says so in a note,
     because it would speak about rows of windows that closed before this rule existed.
 
-    Family `manifest`, outside PASSABLE: no recorded word, `*` included, and no judge pass lifts it - it is a repair the
-    author makes with one command (FR-4)."""
+    Family `manifest`: a recorded word passes it by tag, whole id or `*` (`_names`, FV1-30a); no judge pass lifts it - it is
+    a repair the author makes with one command (FR-4)."""
     scope = dispatch_scope(task_root, dispatch_id)
     if scope is None:
         # said only when there are rows it would have looked at: a story with no test row has nothing unchecked, and
@@ -3828,16 +3822,35 @@ def check_row_fields(task_root: Path, manifest: dict, cases: list, findings: lis
         plan_row = case_plan_row(task_root, case, "", entries) if plan and case not in handed else ""
         for entry in entries:
             owed.setdefault(id(entry), []).extend(ob for row, ob in plan or [] if plan_row and row == plan_row)
-    gaps = []
+    gaps, known = [], C.plan_obligation_map(task_root)
     for entry in C.manifest_tests(manifest):
         if id(entry) not in owed:
             continue
-        fields = WR.row_field_gaps(entry, cfg, owed[id(entry)])
+        fields = WR.row_field_gaps(entry, cfg, owed[id(entry)], known)
         if fields:
             gaps.append((C.test_instance_id(entry) or "(a row with no instance_id)", fields))
     if gaps:
         message, fix = _row_fields_text(gaps, Path(task_root).name)
         findings.append(_finding("manifest", "", message, fix, ROW_FIELDS_TAG))
+
+
+def _stale_binding_text(oid: str, case: str, stale: list, road: str) -> tuple:
+    """`(what is wrong, what to do)` of the `binding-stale-<oid>` finding. The coverage map prints the field's own word
+    for a judgment it does not count (`C.JUDGED_UNKNOWN`), so the text names that word per field."""
+    many = len(stale) > 1
+    names = ", ".join(f"`{f}`" for f in stale)
+    shown = " and ".join(f"`{C.JUDGED_UNKNOWN.get(f, 'unknown')}` for `{f}`" for f in stale)
+    example = ", ".join(f"\"{f}\": \"<{'|'.join(C.BINDING_VOCAB.get(f, ('value',)))}>\"" for f in stale)
+    what = (f"{oid} ({case}): the binding's {names} {'were' if many else 'was'} written against "
+            "another text of this obligation than the plan states now (the plan changed, or the "
+            f"binding was renamed to this id, after {'they were' if many else 'it was'} judged), "
+            f"so the coverage map counts {'them' if many else 'it'} for nothing and prints {shown}")
+    fix = ("read the obligation as the plan states it now, judge again, and send the field(s) you "
+           f"re-judged in one fragment through `{road}`: "
+           "{\"obligation_bindings\": [{\"obligation_id\": \"" + oid + "\", " + example
+           + "}]}; the code stamps each field you send with the current hash, a field you do not "
+           "send stays uncounted, and you never send `obligation_hash` or `judged_on`")
+    return what, fix
 
 
 def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
@@ -3861,6 +3874,8 @@ def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
     unknown = C.unknown_obligation_ids(
         [str(b.get("obligation_id") or "") for b in bindings], task_root)
     known = C.plan_obligation_ids(task_root)
+    from event_store import content_hash
+    plan_map, reported = C.plan_obligation_map(task_root), set()
     named = ""
     if unknown:
         named = (f"; the manifest binds {', '.join(unknown)}, which the plan does not name — "
@@ -3879,8 +3894,20 @@ def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
                 continue
             if str(obligation.get("decision") or "").startswith("manual-"):
                 continue
-            if any(str(b.get("obligation_id") or "") == oid
-                   and aliases & {str(i) for i in b.get("instance_ids") or []} for b in bindings):
+            owners = [b for b in bindings if str(b.get("obligation_id") or "") == oid
+                      and aliases & {str(i) for i in b.get("instance_ids") or []}]
+            if owners:
+                # FV1-19e: a bound obligation whose binding carries a judgment written against another text of it.
+                # ONE finding per id (the first case reaching it); only a COUNTING value that is not current is named
+                # (an absent judgment or an unknown word asks for nothing); `C.binding_currency` is the one reader.
+                if oid in plan_map and oid not in reported:
+                    cur = C.binding_currency(owners[0], content_hash(plan_map[oid]))
+                    stale = [f for f in ("design_assessment", *C.JUDGED_FIELDS)
+                             if C.counting_value(owners[0], f) and not cur.get(f)]
+                    if stale:
+                        reported.add(oid)
+                        what, fix = _stale_binding_text(oid, case, stale, _road(task_root.name))
+                        findings.append(_finding("obligations", case, what, fix, f"binding-stale-{oid}"))
                 continue
             findings.append(_finding(
                 "obligations", case,
@@ -3923,14 +3950,34 @@ def finding_line(finding: dict) -> str:
                        f"— fix: {finding['fix']}")
 
 
-def _by_tag(finding: dict) -> bool:
-    return _finding_tag(finding).startswith(WORD_PASSABLE_TAGS)
+# The two tags no recorded word passes, `*` included (FV1-30a): `open-oracle-asserted-<n>` waits for the answer to the
+# expectation question (owner idea node OI-assumptions), `then-remainder-unrecorded-<n>` waits for the person's word BY NAME
+# of the Then (`then handed: <case>#<n>`, read in `check_then_remainders`). Every other finding is passable.
+NOT_PASSABLE_TAGS = (OPEN_ORACLE_ASSERTED, THEN_REMAINDER_WAITS)
 
 
 def _passable(finding: dict) -> bool:
-    """Can ANY recorded word pass this finding here? Only the families of `PASSABLE` and the tags of
-    `WORD_PASSABLE_TAGS`; every other finding is a repair of the role and no word passes it, `*` included."""
-    return finding["check"] in PASSABLE or _by_tag(finding)
+    """Can ANY recorded word pass this finding here? Every finding except the two tags of `NOT_PASSABLE_TAGS`: one rule
+    for every family (P31). WHICH word passes it is `_names` - the ONE road, the same for a family and a tag."""
+    return not _finding_tag(finding).lower().startswith(NOT_PASSABLE_TAGS)
+
+
+def _names(finding: dict, match) -> bool:
+    """Does the recorded word `match` name THIS finding: it is `*`, or it EQUALS the finding's whole id, or it EQUALS the finding's
+    tag (any case), or it is a stage-wide stem (`STAGE_WIDE_STEMS`: `changed-after-red` names every `changed-after-red-<...>`
+    finding). Equality, never containment: a part of a tag (a parameter label, a line number, a field leaf) names nothing, and a
+    sibling's whole id names nothing here. A word naming the case, or a phrase of the message or the fix, names nothing (t-108: a
+    word given for ONE finding of a case passed another in silence). The error direction is toward `False`, which asks the
+    person again."""
+    word = str(match if match is not None else "").strip()
+    if not word:
+        return False
+    if word == "*":
+        return True
+    low, tag = word.lower(), _finding_tag(finding)
+    if low == str(finding.get("id") or "").lower() or low == tag.lower():
+        return True
+    return low in STAGE_WIDE_STEMS and tag.lower().startswith(low + "-")
 
 
 def refusal_cause(finding: dict) -> str:
@@ -3941,7 +3988,7 @@ def refusal_cause(finding: dict) -> str:
 
     One finding is not refused to a word, it WAITS for one (GW1-14): `then-remainder-unrecorded-<n>` is satisfied by
     the person's `then handed:` word for that Then (read by identifier in `check_then_remainders`), so it carries no
-    refusal line; every other `then-remainder-*` finding is a repair and keeps the `family` line."""
+    refusal line; every other `then-remainder-*` finding is passable by its tag, whole id or `*` and has no `family` line."""
     if _finding_tag(finding).startswith(THEN_REMAINDER_WAITS):
         return ""
     if not _passable(finding):
@@ -3949,9 +3996,57 @@ def refusal_cause(finding: dict) -> str:
     return "predating" if finding.get("refused") == "predating" else ""
 
 
+def _judge_words(task_root: Path, findings: list, notes: list) -> tuple:
+    """`(standing findings, word passes)`: the ONE judgment of the recorded words over the findings of the S5 exit. A word
+    passes a finding only by `_names` (the same road for every family, P31); the first live word of `stage_overrides[]` in file
+    order that names it wins. A pass is `{finding_id, check, case, tag, decision, at}` (the finding's own parts - `case` is `""` for
+    a finding with no case - and the word's own `decision` and `at`), one note says it in
+    words, and the data under the finding is never touched: a word passes the STEP, never the fact. Reads `pipeline.json`, writes
+    nothing (FR-45). Error direction: a word that cannot be read or that names a finding ambiguously passes nothing (a false
+    refusal asks the person again); a finding the word did NOT name is never passed."""
+    if not any(_passable(f) for f in findings):
+        return findings, []
+    try:
+        from waiver import PLACEHOLDER_RE
+    except Exception:
+        return findings, []
+    pipeline = _load(task_root / "pipeline.json")
+    # the live words of this stage (a revoked one acts nowhere, FR-40); a blank `match` and a `<placeholder>` are no word
+    valid = [w for w in C.live_stage_overrides(pipeline, ("S5",))
+             if str(w.get("match") or "").strip() and not PLACEHOLDER_RE.search(str(w.get("match")))]
+    out, passes = [], []
+    for finding in findings:
+        if not _passable(finding):
+            out.append(finding)
+            continue
+        named = [w for w in valid if _names(finding, w.get("match"))]
+        # time rule, as before, for a finding that carries `pair_at`: a stage-wide word given before this pair's green run
+        # does not pass it; a finding with no `pair_at` has no time and any word that names it passes
+        kept, left_out = _words_for_pair({"stage_overrides": named}, finding.get("pair_at"))
+        if kept["stage_overrides"]:
+            word = kept["stage_overrides"][0]
+            passes.append({"finding_id": str(finding["id"]), "check": str(finding.get("check") or ""),
+                           "case": str(finding.get("case") or ""), "tag": _finding_tag(finding),
+                           "decision": str(word.get("decision") or ""), "at": word.get("at")})
+            notes.append(f"{finding['case'] or 'a case'}: {finding['message']} — passed by "
+                         f"the person's word: {word.get('decision')}")
+        elif left_out:
+            # an informed pass covers what the person saw: the stage-wide word was given before this
+            # pair's green run existed, so it stops again - and says why, instead of looking ignored
+            # `refused` is read by `report`, which prints the `WORDS_REFUSED_AT_SOURCE ... predating` line;
+            # the text names the word as it was recorded (its `match`), not the constant
+            given = next((str(w.get("match")).strip() for w in named if str(w.get("at")) == left_out[0]), CHANGED_AFTER_RED)
+            out.append(dict(finding, refused="predating", message=finding["message"] + (
+                f"; the stage-wide word `{given}` (given {left_out[0]}) predates this run, so it "
+                "does not pass this pair - a person sees it now")))
+        else:
+            out.append(finding)
+    return out, passes
+
+
 def passed_by_word(task_root: Path, findings: list, notes: list) -> list:
-    """Drop the environment and obligation findings a person has already answered with
-    `waiver.py --stage S5 --block ...`, and say in a note which words passed which.
+    """Drop the findings a person has already answered with `waiver.py --stage S5 --block ...`, and say in a note which
+    words passed which (`_judge_words`; the passes themselves are `word_passes`).
 
     A check stops a silent pass, never an informed one. The exit gate does not judge a word over this
     output again: every finding is printed with its line, the header says the words were judged here
@@ -3960,59 +4055,29 @@ def passed_by_word(task_root: Path, findings: list, notes: list) -> list:
     same reason: one recorded word about an obligation id passes both the writer and this check, not
     one of them.
 
-    The `changed-after-red` findings are passable by TAG (`WORD_PASSABLE_TAGS`) although their
-    family, `oracle`, is not: until B-194 `waiver.py --block "changed-after-red"` matched nothing,
-    because this function skipped the family. Each finding is judged alone, so a word for this tag
-    leaves every other finding of the run — other oracle findings included — standing.
+    Which word passes which finding is `_names` and nothing else (FV1-30a): `*`, the tag, or the whole id. The old
+    `split_overridden` read over the id, message and fix passed a finding by a word given for ANOTHER finding of the case (`--block
+    "TP1-13797_TC_002"`, t-108, critic) and by any phrase of its text; that road is gone for every family."""
+    return _judge_words(task_root, findings, notes)[0]
 
-    `split_overridden` matches a word by WHOLE WORDS (`contract.names_whole`) over the finding's id, message and fix, and this
-    finding's id carries the case id: a word given for ANOTHER finding of the case (`--block
-    "TP1-13797_TC_002"`) passed it in silence (t-108, critic). So a finding passable by tag is
-    passed only by a word whose `match` names the tag (`changed-after-red`, or the whole finding
-    id, which contains it) or is `*` — every other word is not shown to `split_overridden` for it."""
-    by_tag, passable = _by_tag, _passable
-    if not any(passable(f) for f in findings):
-        return findings
-    try:
-        from waiver import split_overridden
-    except Exception:
-        return findings
-    pipeline = _load(task_root / "pipeline.json")
-    # The words that name the tag (or are `*`); the rest of `stage_overrides[]` is unchanged for
-    # every other finding.
-    tag_words = {**pipeline, "stage_overrides": [
-        word for word in pipeline.get("stage_overrides") or []
-        if isinstance(word, dict) and (str(word.get("match") or "").strip() == "*"
-                                       or any(tag in str(word.get("match") or "").lower()
-                                              for tag in WORD_PASSABLE_TAGS))]}
-    out = []
-    for finding in findings:
-        if not passable(finding):
-            out.append(finding)
-            continue
-        # the old text stays in front so a word recorded against it keeps matching (FR-7); the printed line
-        # is added so a word copied from what the role was shown matches too
-        text = f"{finding['id']} {finding['message']} {finding['fix']} {finding_line(finding)}"
-        words, predating = tag_words, []
-        if by_tag(finding):
-            words, predating = _words_for_pair(tag_words, finding.get("pair_at"))
-        blocking, passed = split_overridden([text], words if by_tag(finding) else pipeline, "S5")
-        if blocking and predating:
-            # an informed pass covers what the person saw: the stage-wide word was given before this
-            # pair's green run existed, so it stops again - and says why, instead of looking ignored
-            # `refused` is read by `report`, which prints the `WORDS_REFUSED_AT_SOURCE ... predating` line;
-            # the text names the word as it was recorded (its `match`), not the constant
-            given = next((str(w.get("match")).strip() for w in tag_words["stage_overrides"]
-                          if str(w.get("at")) == predating[0]), CHANGED_AFTER_RED)
-            out.append(dict(finding, refused="predating", message=finding["message"] + (
-                f"; the stage-wide word `{given}` (given {predating[0]}) predates this run, so it "
-                "does not pass this pair - a person sees it now")))
-        elif blocking:
-            out.append(finding)
-        else:
-            notes.append(f"{finding['case'] or 'a case'}: {finding['message']} — passed by "
-                         f"the person's word: {passed[0]['decision']}")
-    return out
+
+def word_passes(task_root, scope=None, dispatch_id=None) -> list:
+    """`[{finding_id, check, case, tag, decision, at}]`: the findings of the S5 exit that a person's recorded word passed, for the
+    cases of `scope` (a list of case ids; None or empty is every case the state names; a finding with no case, `case == ""`,
+    belongs to every scope). The same rows `run` carries as its `word_passes` field - one judgment (`_judge_words`), read by the
+    controller to RECORD the pass (`passed-by-person.jsonl`) and by `branch_accounting` and the window gap check to not ask a
+    second time (FR-7). PURE and cheap (FR-45, FR-55): `[]` at once when no live S5 word stands (or `pipeline.json` cannot be
+    read: no word, nothing passes), and the passes are taken BEFORE the judges (`run(..., judges=False)`: no judge call, no judge
+    journal write, whatever `judge.mode` is). Reads the artifacts and `pipeline.json`, writes nothing. May raise on an unreadable
+    artifact: the caller decides what that means (the controller records a stderr line, the readers keep their refusal)."""
+    task_root = Path(task_root)
+    if not C.live_stage_overrides(_load(task_root / "pipeline.json"), ("S5",)):
+        return []
+    rows = list(run(task_root, dispatch_id, scope, judges=False).get("word_passes") or [])
+    if not scope:
+        return rows
+    cases = {str(c) for c in scope}
+    return [row for row in rows if not row["case"] or row["case"] in cases]
 
 
 def _flag_word_passed(pairs: list, standing_ids: set) -> None:
@@ -4263,7 +4328,10 @@ def plan_result(task_root: Path, dispatch_id: str | None = None) -> dict:
     # note that says the hints were not checked (AR-28), not a crash and not a pass.
     rows, why = SP.hint_rows(task_root)
     notes = [str(n) for n in notes] + ([f"not checked: the grouping hints of the plan ({why})"] if why else [])
-    hints = [_hint("plan", row["case"], row["message"], row["fix"], row["tag"]) for row in rows]
+    # TQ2-1 K2: the case critic's merge the plan neither follows nor answers: the same advice, the same row shape, the same printer
+    merges, merge_why = SP.merge_hint_rows(task_root)
+    notes += [f"not checked: the case-critic merge hints of the plan ({merge_why})"] if merge_why else []
+    hints = [_hint("plan", row["case"], row["message"], row["fix"], row["tag"]) for row in rows + merges]
     return {"ok": not findings, "findings": findings, "hints": hints, "notes": notes, "cases": [],
             "expectation_changes": {"pairs": [], "unmeasured": []}, "unchecked": [], "plan": True}
 
@@ -4497,11 +4565,15 @@ def check_plan_conformance(task_root, manifest: dict, cases: list, findings: lis
 
 # --- entry points -----------------------------------------------------------------------------
 
-def run(task_root, dispatch_id: str | None = None) -> dict:
+def run(task_root, dispatch_id: str | None = None, scope: list | None = None, judges: bool = True) -> dict:
+    """The S5 exit's judgment. `scope` (FV1-30a, used by `word_passes`): the cases to judge when the caller knows them better than
+    the state view does (a case that no manifest row names yet is in no manifest-derived scope); None is as it always was.
+    `judges=False` (`word_passes` only): `passed_by_judge` is not called - no judge call and no judge journal write - so the
+    result's `findings` are not judge-downgraded, and only its `word_passes` field is meant to be read."""
     task_root = Path(task_root)
     manifest = _load(C.artifact(task_root, "automation-manifest.json"))
     rows = run_block_rows(task_root)
-    cases = scope_cases(task_root, manifest, dispatch_id)
+    cases = sorted({str(c) for c in scope if c}) if scope else scope_cases(task_root, manifest, dispatch_id)
     # What the code saw in the test code and the critic judges (X7-2): smells, relative oracles, parametrisation candidates, copies.
     # `advice` goes out in an `ADVICE` block (`report`), is filed in `work/advice-S5.json` by the exit gate, and never moves `ok`.
     findings, hints, advice, notes, every_target = ([] for _ in range(5))
@@ -4521,8 +4593,8 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
     sides = C.story_sides(_load(task_root / "pipeline.json"))
     scope_ids = {case: [C.test_instance_id(e) for e in instances_of_case(manifest, case)] for case in cases}
     check_sides(manifest, sides, task_root, findings, scope_ids)
-    # Right after the manifest invariants and before `passed_by_word`: the family is `manifest`, outside PASSABLE, so no
-    # word and no `*` removes what it finds (HF2-12). The config and the plan are what make `profile_id` and
+    # Right after the manifest invariants and before `_judge_words`: a recorded word passes a finding of the family `manifest` only
+    # by its tag, whole id or `*` (`_names`, FV1-30a; HF2-12). The config and the plan are what make `profile_id` and
     # `obligation_refs` demandable; a call without them would demand neither.
     check_row_fields(task_root, manifest, cases, findings, notes, dispatch_id,
                      cfg=hooklib.load_config(), plan=C.plan_obligations(task_root))
@@ -4580,8 +4652,9 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
         check_relative_oracle(case, text, targets, advice, task_root, notes, s7_round)
 
     # A Then left with its owner (GW1-14): after the per-case loop (it needs the case texts) and BEFORE
-    # `passed_by_word`, so no stage-override substring (`*`, `partial-green`) can remove what it finds: the family is
-    # `bindings`, outside PASSABLE, and only the person's `then handed:` word, joined by identifier, satisfies it.
+    # `_judge_words`, so no stage-override substring can remove what it finds: `then-remainder-unrecorded-<n>` waits for the
+    # person's `then handed:` word, joined by identifier, and is passed by no other word, `*` included (`NOT_PASSABLE_TAGS`);
+    # another `then-remainder-*` tag is passed by its tag, whole id or `*` like any finding.
     check_then_remainders(task_root, manifest, cases, texts, findings, notes)
 
     # Across the whole window, not per case: the twins that read as one parametrized test
@@ -4598,7 +4671,7 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
     # After the per-case loop: the join to the plan is per case, but what it reports on is the
     # one `obligation_bindings[]` map every case shares.
     check_obligations(task_root, manifest, cases, texts, handed_cases, findings)
-    # The window against its plan (SC1-14 B2): the family is `plan`, outside PASSABLE, so no word removes what it finds; a story
+    # The window against its plan (SC1-14 B2): the family is `plan`; a word passes it by tag, whole id or `*` (FV1-30a); a story
     # whose S5 is not on the plan form gets one note and nothing else changes.
     check_plan_conformance(task_root, manifest, cases, findings, notes, dispatch_id)
     # The tests that went red and later passed on changed code, or vanished after a red run: from
@@ -4611,12 +4684,13 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
         changes["unmeasured"].append(f"the expectation-change findings could not be written "
                                      f"({type(exc).__name__}: {exc})")
         notes.append("expectation changes not measured: " + changes["unmeasured"][-1])
-    findings = passed_by_word(task_root, findings, notes)
+    findings, word_pass_rows = _judge_words(task_root, findings, notes)
     # a pair whose finding a person's word removed is still a pair: it stays here, on the
     # critic's list and in the report, marked as passed by that word
     _flag_word_passed(changes["pairs"], {f["id"] for f in findings})
     # Under `judge.provider: none` (the default) this returns the same list object untouched.
-    findings = passed_by_judge(task_root, findings, hints, notes, parsed_files, texts)
+    if judges:
+        findings = passed_by_judge(task_root, findings, hints, notes, parsed_files, texts)
 
     def unique(rows: list) -> list:
         out, seen_ids = [], set()
@@ -4630,7 +4704,9 @@ def run(task_root, dispatch_id: str | None = None) -> dict:
     # make; failing the gate on one would be the removed "functions per case" rule again.
     repairs = unique(findings)
     return {"ok": not repairs, "findings": repairs, "hints": unique(hints), "advice": unique(advice),
-            "notes": notes, "cases": cases, "expectation_changes": changes, "unchecked": unchecked}
+            "notes": notes, "cases": cases, "expectation_changes": changes, "unchecked": unchecked,
+            # the findings a person's recorded word passed (`_judge_words`), one row each, `[]` with no word (FV1-30a)
+            "word_passes": word_pass_rows}
 
 
 def advice_block(result: dict) -> list:
@@ -4688,18 +4764,16 @@ def report(result: dict) -> int:
     # refusal ("no run block carries a result row") was the automator's own repair, and without
     # the marker it went to the conductor three times and then to the person. It prints only
     # here, after the findings: the OK path returns above and never carries it. The door is named
-    # for the findings a word can pass (built from the two constants that decide it) - not for the
-    # others, which no recorded word passes, `*` included.
-    families = " or ".join(f"[{family}]" for family in sorted(PASSABLE))
+    # only when a finding of the list is passable (`_passable`): the word is the finding's tag or its whole id (`_names`).
     print("These are repairs, not questions: nothing here goes to the person as it stands. "
           + REPAIR_MARKER + ". "
           "A role that cannot repair one returns it in its digest and stops; it does not "
-          "record anybody's word. The orchestrator asks the person and records the answer "
-          "with `" + door("waiver.py --task <TICKET> --stage S5 --block "
-                          "\"<part of the line>\"") + f"` {WHOLE_PART}, which passes an {families} finding or a "
-          f"{' or '.join(WORD_PASSABLE_TAGS)} one"
-          + "; no recorded word, `*` included, passes any other "
-          "finding here - it is a repair."
+          "record anybody's word."
+          + (" The orchestrator asks the person and records the answer "
+             "with `" + door("waiver.py --task <TICKET> --stage S5 --block "
+                             "\"<the finding's tag, or its whole id>\"") + "`, which passes that finding; `*` passes every finding "
+             "here except `open-oracle-asserted-*` (answer the expectation question) and a Then left with its owner."
+             if any(_passable(f) for f in findings) else "")
           + (" A Then the person takes is the one exception: the orchestrator records their words under "
              f"`{C.THEN_HANDED_MATCH_PREFIX} <case>#<n>` (named in the finding); that block is read by NAME, "
              "so no substring of a line passes it."

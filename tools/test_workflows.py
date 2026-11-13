@@ -284,12 +284,12 @@ def test_the_canon_is_named_by_its_ref_and_its_clock_runs_after_a_red_job():
     """F-19 (d): `run-name: canon ${{ inputs.ref }}` (head_branch of a dispatched run is always main). .gitlab-ci.yml:278-293:
     canon-clock, last stage, `when: always`, `canon_clock.py --created-at <output of the first job> --message <head message>`."""
     doc = load("canon.yml")
-    assert doc["run-name"] == "canon ${{ inputs.ref }}"
+    assert doc["run-name"] == "${{ inputs.spike && 'dry-spike' || 'canon' }} ${{ inputs.ref }}"   # a spike run never reads as a canon in the list
     jobs = doc["jobs"]
     assert jobs["start"]["outputs"] == {"created_at": "${{ steps.t.outputs.created_at }}"}
     assert jobs["checks"]["needs"] == "start" and jobs["full"]["needs"] == "start"
     clock = jobs["clock"]
-    assert clock["if"] == "always()" and set(clock["needs"]) == {"start", "checks", "full"}
+    assert clock["if"] == "${{ always() && !inputs.spike }}" and set(clock["needs"]) == {"start", "checks", "full"}
     assert clock["env"] == {"CREATED_AT": "${{ needs.start.outputs.created_at }}"}
     (run,) = runs(clock)
     assert run == 'python tools/canon_clock.py --created-at "$CREATED_AT" --message "$(git log -1 --format=%B)"'

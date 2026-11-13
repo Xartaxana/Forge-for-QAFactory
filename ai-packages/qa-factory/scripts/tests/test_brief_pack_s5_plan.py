@@ -11,13 +11,13 @@
     at most 60 code lines an excerpt and 28 000 bytes with the left-out list (E15, at 28 000 and 28 001); the head grows by at
     most two lines and the brief stays under 6 KB;
   * a resumed rework writes a delta with the fallback line (E4); a fresh one does not;
-  * the earlier form (`legacy`) is the brief as it was: no plan path, no slice, no side file.
+  * the earlier form (`legacy`) is the brief as it was plus the case critic's concerns for its window: no plan path, no slice.
 
 Every key names the mutation it kills (spec section 5, C2: M38 the 28 000 cap without the left-out list, M39 the head over the cap,
 M40 a global remark missing from window 2, M41 a plan over the cap with no slices).
 """
+import hashlib
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -195,9 +195,8 @@ def k4_over_cap_and_head():
         check_eq("an over-cap window: one count line and one over-cap line, no more",
                  (len([l for l in head if l.startswith("Plan slice")]), len([l for l in head if l.startswith("This window holds")])), (1, 1))
         check_in("the over-cap line is the slice's own wording", "over the other window cap of 2", "\n".join(head))
-        check("M39: the brief stays under 6 KB with the plan lines and 10 KB of the person's words",
-              got["budget_bytes"] <= brief_pack.BRIEF_MAX_BYTES, str(got["budget_bytes"]))
-        check("M39: the plan slice line stayed under the ceiling", "S5-qa-automator-1-plan.md" in got["markdown"], got["markdown"][-300:])
+        check("M39: the plan slice line is in the brief with 10 KB of the person's words (FV1-4: no size row; §7 ratchet is the S5 plan fixture)",
+              "S5-qa-automator-1-plan.md" in got["markdown"], got["markdown"][-300:])
     finally:
         cleanup(project)
 
@@ -281,6 +280,108 @@ def k6_code_file_cap():
         check("excerpts are dropped from the end", omitted and omitted[-1].startswith("tests/test_many.py:") and len(text.encode("utf-8")) <= 28_000,
               str(omitted))
         check_in("the first excerpt stays", "test_0 (the test you extend)" if False else "T-0: tests/test_many.py::test_0", text)
+        # FV1-4 N2 (E-29): when even the bare file is over the cap, EVERY left-out excerpt is named by file:lines - no "... and N more"
+        write_code(project, "tests/test_hundreds.py", "".join(f"def test_{n}():\n    pass\n\n\n" for n in range(1500)))
+        tests = [test_row(f"T-{n}", ["TC-1"], ["TC-1#1"], file=f"tests/test_h{n}.py", function="test_new", extends=f"tests/test_hundreds.py::test_{n}", shape="extend")
+                 for n in range(1500)]
+        text, omitted = brief_pack.window_code_file(project, {"schema": 1, "tests": tests}, tests, "D-1")
+        shown = text.count("```python")
+        check("E-29: the bare file is over the cap (the precondition of the row)", len(text.encode("utf-8")) > brief_pack.CODE_FILE_BYTES, str(len(text)))
+        check_eq("E-29: every left-out excerpt is in `omitted` and named under the heading", (len(omitted) + shown >= 1500, all(f"- {w}" in text for w in omitted)), (True, True))
+        check_not_in("E-29: no unnamed `... and N more`", "... and ", text)
+    finally:
+        cleanup(project)
+
+
+def n2_could_not_lines_name_the_whole_text():
+    """FV1-4 N2: every "could not" / "cannot be parsed" / "not read" line of the plan and code-file builders names its exception or
+    reason text WHOLE on one line (the old cuts were 60, 80, 100, 160), and the helper / fixture lists name every file and id.
+    Each row: AT the old bound, ONE BEYOND, 10x."""
+    import ast
+    import probe_by_code as PB
+    import s5_precheck
+    project = temp_project("qa-bp-n2-")
+    try:
+        harness.use_project(project)
+        write_code(project, "tests/test_bad.py", "def test_bad(:\n")
+        plan = one_target_plan("tests/test_bad.py::test_bad")
+        ctx = brief_pack._CodeCollector(project, SP, plan)
+        try:
+            ast.parse("def test_bad(:\n")
+            parse_text = ""
+        except SyntaxError as exc:
+            parse_text = " ".join(str(exc).split())
+        check_eq("read: a file that does not parse names the parser's text whole", ctx.read("tests/test_bad.py")[3], f"cannot be parsed ({parse_text})")
+        real_parse = PB.parse_node
+        for size in (100, 101, 1000):
+            def refusing(extends, proj, _s="x" * size):
+                raise PB.Refusal(_s)
+            PB.parse_node = refusing
+            try:
+                ctx = brief_pack._CodeCollector(project, SP, plan)
+                ctx.extends({"extends": "tests/test_bad.py::test_bad"}, "T-1")
+            finally:
+                PB.parse_node = real_parse
+            check_eq(f"extends: a {size}-character refusal text is whole in the note", ctx.notes,
+                     [f"T-1 extends tests/test_bad.py::test_bad: not found ({'x' * size})"])
+        # helper_lines: 30 test files nobody wrote yet - every one named, no `(+N more)`
+        ctx = brief_pack._CodeCollector(project, SP, plan)
+        files = [f"tests/test_unread{i:02d}.py" for i in range(30)]
+        got = "\n".join(ctx.helper_lines([{"file": f} for f in files]))
+        check_eq("helper_lines: 30 unread files all named, no `more)`", ([f"`{f}`" in got for f in files].count(True), "more)" in got), (30, False))
+        # reached_by_receipted: 30 broken fixture ids and 3 long closure notes - all named, whole
+        import proof_level
+        real_receipts, real_read = proof_level._receipt_variants, s5_precheck.read_python
+        rows = [{"instance_id": f"test_b{i:02d}", "file": "tests/test_b.py"} for i in range(30)]
+        proof_level._receipt_variants = lambda entry, manifest, task_root: [1]
+        s5_precheck.read_python = lambda path: (None, "")
+        try:
+            ctx = brief_pack._CodeCollector(project, SP, plan)
+            ctx.reached_by_receipted(rows, {}, project, set())
+        finally:
+            proof_level._receipt_variants, s5_precheck.read_python = real_receipts, real_read
+        note = " ".join(ctx.notes)
+        check_eq("reached_by_receipted: 30 broken ids all named, no `and N more`", ([f"test_b{i:02d}" in note for i in range(30)].count(True), " more" in note), (30, False))
+        # the plan-dispatch readers: the cap's reason, the form's kind, the slice
+        import guard_pre_tool
+        real_cap = guard_pre_tool.big_read_cap
+        for size in (80, 81, 800):
+            def failing_cap(cfg, _s="c" * size):
+                raise ValueError(_s)
+            guard_pre_tool.big_read_cap = failing_cap
+            try:
+                check_eq(f"_plan_cap: a {size}-character reason is whole", brief_pack._plan_cap(), (None, f"ValueError: {'c' * size}"))
+            finally:
+                guard_pre_tool.big_read_cap = real_cap
+            real_mode = SP.mode
+            SP.mode = lambda task_root, state, _s="k" * size: (_ for _ in ()).throw(RuntimeError(_s))
+            try:
+                got = brief_pack._s5_kind(project, {}, {"id": "S5-x-1"})
+            finally:
+                SP.mode = real_mode
+            check_eq(f"_s5_kind: a {size}-character reason is whole", got[:2], ("unknown", f"RuntimeError: {'k' * size}"))
+    finally:
+        cleanup(project)
+    project, task, c = story()
+    try:
+        real_load = SP.load
+        for size in (160, 161, 1600):
+            SP.load = lambda root, _s="p" * size: (_ for _ in ()).throw(RuntimeError(_s))
+            try:
+                got = brief_pack.plan_lines(task, "QA-1", "S5-w-1", ["TC-1"], {}, False)
+            finally:
+                SP.load = real_load
+            check_in(f"plan_lines: a {size}-character failure text is whole in the head", f"could not be cut ({'p' * size});", got["head"][0])
+        real_cap, real_slice = brief_pack._plan_cap, SP.window_slice
+        brief_pack._plan_cap = lambda: (1, "")           # the plan is over the cap: the slices are asked for
+        for size in (100, 101, 1000):
+            SP.window_slice = lambda *a, _s="s" * size, **k: (_ for _ in ()).throw(RuntimeError(_s))
+            try:
+                got = brief_pack.plan_dispatch_lines(task, "QA-1", "S5-plan-x-1", AUTHOR, {}, False, project)
+            finally:
+                SP.window_slice = real_slice
+            check_in(f"plan_dispatch_lines: a {size}-character slice failure is whole", f"could not be cut ({'s' * size}):", "\n".join(got["files"]))
+        brief_pack._plan_cap = real_cap
     finally:
         cleanup(project)
 
@@ -436,20 +537,14 @@ def k8_legacy():
         cleanup(project)
 
 
-# The doors-only overflow of the plan critic's brief, measured at G4b (t-1884 m-8, AR-20): the brief may be this large, in bytes, when the
-# trimmer reports `doors only`. SHRINK-ONLY: a raise needs a named reason in the verdict, never a quiet edit of this number.
-DOORS_ONLY_BRIEF_MAX = 6443   # CI fix G8 (AR-20, a named raise 6403 -> 6443): measured on CI (LF); a Windows run measures lower because its temp paths are shorter (the brief has no CR). Was 6401 at G4b, +2 B at m-1 (t-1884)
+# The size of the plan critic's full brief on the K7 fixture, in path-normalised bytes (`harness.normalised_bytes`; AR-4, AR-20).
+# SHRINK-ONLY: a raise needs a named reason in the verdict, never a quiet edit of this number.
+S5_PLAN_BRIEF_BYTES_MAX = 9559   # FV1-4 N1 (AR-20): re-based from DOORS_ONLY_BRIEF_MAX (6443 budget B) to normalised bytes (harness.normalised_bytes); measured 2026-11-13 on Windows (the helper makes the number machine-independent). TQ2-1 K2 (AR-20): +39 B, the plan brief states the case critic's concerns, "none carried" on the K7 story (AR-23)
 
 
-def ceiling_verdict(got):
-    """(ok, note): a brief under the ceiling is ok; over it, ok ONLY when the trimmer reports `doors only` (nothing non-door is left
-    to trim: the doors are never cut, so the overflow is REPORTED) AND the size is within `DOORS_ONLY_BRIEF_MAX`; any other overflow is red."""
-    size, reasons = got["budget_bytes"], got["over_ceiling"]
-    if size <= brief_pack.BRIEF_MAX_BYTES:
-        return True, ""
-    if "doors only" in reasons and size <= DOORS_ONLY_BRIEF_MAX:
-        return True, f"doors-only overflow: {size} B over a ceiling of {brief_pack.BRIEF_MAX_BYTES} B, over_ceiling={reasons}"
-    return False, f"{size} B, over_ceiling={reasons}"
+def size_verdict(n):
+    """(ok, note): the brief's normalised size is ok at or under `S5_PLAN_BRIEF_BYTES_MAX`, red above it."""
+    return n <= S5_PLAN_BRIEF_BYTES_MAX, f"{n} B against {S5_PLAN_BRIEF_BYTES_MAX} B"
 
 
 def k9_grouping_hint_line():
@@ -478,13 +573,14 @@ def k9_grouping_hint_line():
         check_eq("K7: a plan that cannot be read: no line (its finding is the plan check's)", [h for h in lines(CRITIC) if "grouping hint" in h], [])
         write_plan(task, fixture_plan())
         real = SP.plan_for_hints
-        SP.plan_for_hints = lambda root: (None, "RuntimeError: " + "z" * 200)
-        try:
-            noted = [h for h in lines(CRITIC) if "grouping hints" in h]
-        finally:
-            SP.plan_for_hints = real
-        check("K7: hints that could not be computed are said, with the words cut at 80", len(noted) == 1 and noted[0].startswith("grouping hints not computed (RuntimeError: ")
-              and len(noted[0]) <= len("grouping hints not computed ()") + 80, str(noted))
+        for size in (80, 81, 800):      # FV1-4 N2: the reason is the exception's own text, with no other carrier: whole at, beyond and 10x the old 80 clip
+            reason = "RuntimeError: " + "z" * (size - len("RuntimeError: "))
+            SP.plan_for_hints = lambda root, _r=reason: (None, _r)
+            try:
+                noted = [h for h in lines(CRITIC) if "grouping hints" in h]
+            finally:
+                SP.plan_for_hints = real
+            check_eq(f"K7: hints that could not be computed are said, with the {size}-character words whole", noted, [f"grouping hints not computed ({reason})"])
     # the whole brief: two tests of one file in a story built by the helpers of this file
     project, task, c = story(cases=("TC-1", "TC-2", "TC-3"))
     try:
@@ -494,26 +590,118 @@ def k9_grouping_hint_line():
         atomic_json(task / SP.PLAN_REL, plan)
         got = build(CRITIC, "S5-plan-critic-1")
         check_in("K7: the full brief of the plan critic carries the line in its head", "prints 1 grouping hint(s)", head_of(got["markdown"]))
-        ok, note = ceiling_verdict(got)
-        check("K7: ... and the brief stays under its ceiling (a doors-only overflow is reported, not failed)", ok, note)
-        if note:
-            print("REPORT K7:", note)
-        # CI fix G4b: the verdict itself, at and beyond the ceiling, with the negative controls
-        top = brief_pack.BRIEF_MAX_BYTES
-        check("K7 verdict: exactly at the ceiling is green", ceiling_verdict({"budget_bytes": top, "over_ceiling": []})[0], "")
-        check("K7 verdict: over with doors only is green and reported",
-              ceiling_verdict({"budget_bytes": DOORS_ONLY_BRIEF_MAX, "over_ceiling": ["doors only"]})[0] and
-              bool(ceiling_verdict({"budget_bytes": DOORS_ONLY_BRIEF_MAX, "over_ceiling": ["doors only"]})[1]), "")
-        check("K7 verdict: one byte past the pinned doors-only size stays RED (the number only shrinks)",
-              not ceiling_verdict({"budget_bytes": DOORS_ONLY_BRIEF_MAX + 1, "over_ceiling": ["doors only"]})[0], "")
-        check("K7 verdict: over with words at level 1 and doors only is green (nothing non-door is left to trim)",
-              ceiling_verdict({"budget_bytes": top + 1, "over_ceiling": ["words at level 1", "doors only"]})[0], "")
-        check("K7 verdict: one byte over with only a trimmable non-door reason (no `doors only`) stays RED",
-              not ceiling_verdict({"budget_bytes": top + 1, "over_ceiling": ["words at level 1"]})[0], "")
-        check("K7 verdict: one byte over with no reason named stays RED",
-              not ceiling_verdict({"budget_bytes": top + 1, "over_ceiling": []})[0], "")
+        measured = harness.normalised_bytes(got["markdown"], project)
+        print(f"RATCHET S5_PLAN_BRIEF_BYTES_MAX {measured}")
+        ok, note = size_verdict(measured)
+        check("K7: ... and the brief is within the S5 plan ratchet (normalised bytes)", ok, note)
+        # the verdict itself, AT and one byte BEYOND the ratchet (the number only shrinks)
+        top = S5_PLAN_BRIEF_BYTES_MAX
+        check("K7 verdict: exactly AT the ratchet is green", size_verdict(top)[0], "")
+        check("K7 verdict: one byte BEYOND the ratchet is RED", not size_verdict(top + 1)[0], "")
     finally:
         cleanup(project)
+
+
+FINDINGS = "work/test-cases/critic-findings.md"
+TOKEN = "parametrise into one test:"
+
+
+def concern_scenario(role, dispatch, notes, legacy=None, tamper=False, groups=None, read=None, other=2, same_file=False, over=False):
+    """`(brief markdown, {side file name: text})` of a story whose accepted S4 case-critic round carries `notes` ((case, note) rows
+    of its roll-call; the S4 dispatch listing is the one patched seam: the file, its receipt and the reader are real). `legacy` is
+    the scope of a driver-process window (the earlier form); None is the plan dispatch."""
+    cases = ("TC-1", "TC-2", "TC-3")
+    if legacy is None:
+        project, task, c = story(cases, groups, other, read)
+    else:
+        project = temp_project("qa-bp-cc-")
+        task = project / "qa-factory" / "artifacts" / TICKET
+        task.mkdir(parents=True)
+        put(task, "pipeline.json", json.dumps({"ticket": TICKET, "size": "S", "environment": "local", "stages": {}, "gates": {}, "halts": []}))
+        c = s5_story(task, cases=cases, with_case_files=True)
+        config(project, other)
+        harness.use_project(project)
+    real = SP._case_critic_files
+    try:
+        if notes:
+            data = ("# Case critic findings - QA-9 - round 1 (dispatch S4-qa-case-critic-1)\n\nVerdict: approve_with_concerns\n\n## Roll-call\n\n"
+                    "| plan row | case | reviewed | verdict | note |\n|---|---|---|---|---|\n"
+                    + "".join(f"| TS-{n[-1]} | {n} | yes | approve_with_concerns | {note} |\n" for n, note in notes) + "\n").encode("utf-8")
+            put(task, FINDINGS, data)
+            sha = hashlib.sha256(data).hexdigest()
+            if tamper:
+                put(task, FINDINGS, data + b"edited after the receipt\n")
+            SP._case_critic_files = lambda state: {tuple(FINDINGS.split("/")): [(sha, "S4-qa-case-critic-1")]}
+        if same_file:
+            plan = SP.load(task)
+            for test in plan["tests"]:
+                test["file"], test["shape"], test["level"] = "tests/test_same.py", "new", "api"
+            atomic_json(task / SP.PLAN_REL, plan)
+        if over:
+            plan = SP.load(task)
+            plan["refactor"] = "x" * 4000
+            atomic_json(task / SP.PLAN_REL, plan)
+        if legacy is not None:
+            with harness.run_mode("driver"):
+                send(c, task, dispatch, role, scope=legacy)
+        got = build(role, dispatch, write=True)
+        return got["markdown"], {Path(p).name: Path(p).read_text(encoding="utf-8") for p in got["written"]}
+    finally:
+        SP._case_critic_files = real
+        cleanup(project)
+
+
+def k14_case_concerns_reach_the_s5_brief():
+    """TQ2-1 K2 B1-B8: the case critic's concerns reach the plan author and the plan critic (under and over the guard's read cap), and
+    every window of the earlier form its own (the concerns of ITS cases). Each row names the input; its empty outcome is one of three
+    distinct lines (none carried / none raised / could not be read against the receipt: AR-23, AR-28)."""
+    # a real round: S4 exit demands the token on EVERY case of a merged pair (`_merge_concern_errors`)
+    merge = [("TC-1", f"{TOKEN} TC-1, TC-2"), ("TC-2", f"{TOKEN} TC-1, TC-2"), ("TC-3", "F-3 another concern")]
+    pair = merge[:2]
+    two_pairs = [("TC-1", f"{TOKEN} TC-1, TC-2"), ("TC-2", f"{TOKEN} TC-1, TC-2"), ("TC-3", f"{TOKEN} TC-2, TC-3")]
+    three_group = [(f"TC-{n}", f"{TOKEN} TC-1, TC-2, TC-3") for n in (1, 2, 3)]
+    untagged = [("TC-1", "F-1 plain concern"), ("TC-2", "F-2 plain concern")]
+    plan_split = dict(same_file=True)       # one test per case, all in one file and level: the grouping line fires too
+    rows = [  # label, args, kwargs, must be in the brief, must not be, must be in the side file (None: no side file)
+        ("B1 author-under-cap", (AUTHOR, "S5-plan-author-1", pair), {}, ["S5-plan-author-1-case-concerns.md", "2 concern(s)",
+         "1 ask to parametrise", "in `apart_reason`", "the windows get the same lines"], ["none carried"], ["CC-1", "CC-2", TOKEN]),
+        ("B2 critic-under-cap, the plan splits TC-1/TC-2", (CRITIC, "S5-plan-critic-1", pair), plan_split,
+         ["prints 1 merge hint(s)", "is a blocker (rubric", "prints 1 grouping hint(s)", "S5-plan-critic-1-case-concerns.md"], ["none carried"], ["CC-1", TOKEN]),
+        ("B3 author-over-cap", (AUTHOR, "S5-plan-author-1", pair), dict(read=2500, over=True),
+         ["S5-plan-author-1-case-concerns.md", "as the windows will cut it"], [], ["CC-1", "CC-2"]),
+        ("B4 critic-over-cap", (CRITIC, "S5-plan-critic-1", pair), dict(read=2500, over=True),
+         ["S5-plan-critic-1-case-concerns.md", "Judge whether the plan answers each"], [], ["CC-1", "CC-2"]),
+        ("B5 no accepted case-critic dispatch", (AUTHOR, "S5-plan-author-1", []), {}, ["case critic's concerns: none carried"],
+         ["case-concerns.md"], None),
+        ("B6 findings edited after the receipt", (AUTHOR, "S5-plan-author-1", pair), dict(tamper=True),
+         ["could not be read against the critic's receipt", "work/test-cases/critic-findings.md - case critic's findings that gave no"],
+         ["none carried", "none raised", "case-concerns.md - the case critic"], None),
+        ("B1b two pairs sharing TC-2 are two groups", (AUTHOR, "S5-plan-author-1", two_pairs), {},
+         ["3 concern(s)", "(2 ask to parametrise"], ["(1 ask", "(3 ask"], ["CC-1", "CC-3"]),
+        ("B1c a group of three cases is one ask", (AUTHOR, "S5-plan-author-1", three_group), {},
+         ["3 concern(s)", "(1 ask to parametrise"], ["(2 ask", "(3 ask"], ["CC-3"]),
+        ("B1d concerns with no token ask nothing, none dropped", (AUTHOR, "S5-plan-author-1", untagged), {},
+         ["2 concern(s)", "(0 ask to parametrise"], ["none carried", "none raised"], ["CC-1", "CC-2"]),
+        ("B7a legacy author, window [TC-1]", (AUTHOR, "S5-qa-automator-1", merge), dict(legacy=["TC-1"], other=1),
+         ["1 concern(s) for the cases of this window", "1 ask to parametrise", "1 name a case of another window"], ["3 concern(s)"], ["CC-1"]),
+        ("B7b legacy author, window [TC-1, TC-2]", (AUTHOR, "S5-qa-automator-1", merge), dict(legacy=["TC-1", "TC-2"]),
+         ["2 concern(s) for the cases of this window"], ["name a case of another window", "CC-3"], ["CC-1", "CC-2"]),
+        ("B8 legacy code critic, window [TC-1, TC-2]", (CRITIC, "S5-qa-code-critic-1", merge), dict(legacy=["TC-1", "TC-2"]),
+         ["2 concern(s) for the cases of this window", "judge each answer (C12)"], ["name a case of another window"], ["CC-1", "CC-2"]),
+    ]
+    for label, args, kwargs, wanted, unwanted, side in rows:
+        text, sides = concern_scenario(*args, **kwargs)
+        mine = [t for name, t in sides.items() if name.endswith("-case-concerns.md")]
+        check(f"{label}: the brief holds {wanted}", all(w in text for w in wanted), str([w for w in wanted if w not in text]))
+        check(f"{label}: the brief holds none of {unwanted}", not any(w in text for w in unwanted), str([w for w in unwanted if w in text]))
+        if side is None:
+            check_eq(f"{label}: no side file of concerns", mine, [])
+        else:
+            check(f"{label}: the side file holds {side}", len(mine) == 1 and all(w in mine[0] for w in side), str(mine)[:300])
+    text, sides = concern_scenario(AUTHOR, "S5-plan-author-1", pair, read=2500, over=True)
+    slices = sorted((t for name, t in sides.items() if "-plan-w" in name))
+    check("B3: over the cap each slice still prints the remarks (window 1 holds the concerns of its cases)",
+          len(slices) >= 2 and "CC-1" in slices[0] and "no remarks for this window" in slices[-1], str(slices)[:300])
 
 
 def k12_helpers_section():
@@ -628,14 +816,13 @@ def hf8_18_n3_the_window_names_what_its_fixture_edit_makes_stale():
         check_in("C-6: the readable instance is still listed", "`test_old_a`", text)
         check_in("C-6: the unreadable one is a line under 'Not found', named", "test_old_e reach could not be read", text)
 
-        # C-7: AT the limit (20) no tail, BEYOND it (21) twenty and `(+1 more)`
-        for count, tail in ((20, False), (21, True)):
-            old = {f"test_o{n:02d}": ("client_fx", True) for n in range(count)}
+        # C-7 (FV1-4 N2): the old bound was 20 instances per fixture and `(+N more)` beyond; now every instance is named - AT 20, BEYOND 21, 10x 200
+        for count in (20, 21, 200):
+            old = {f"test_o{n:03d}": ("client_fx", True) for n in range(count)}
             task_root = shared_world(project, old)
             text = brief_pack.window_code_file(project, plan, plan["tests"], "D-3", task_root)[0]
             line = next(l for l in text.splitlines() if l.startswith("- `client_fx (tests/conftest.py)`"))
-            check_eq(f"C-7 {count} instances: {'twenty and the tail' if tail else 'all twenty, no tail'}",
-                     (line.count("`test_o") , "(+1 more)" in line), (20, tail))
+            check_eq(f"C-7 {count} instances: every instance named, no tail", (line.count("`test_o"), "more)" in line), (count, False))
     finally:
         cleanup(project)
 
@@ -675,11 +862,11 @@ def k13_base_log_lines():
         cleanup(project)
 
 
-def hf8_18_n3_the_section_has_a_byte_budget():
-    """C-K13 (B3), the form of 12586: 20 fixtures the window uses, 60 earlier instances reaching them, at the id lengths of the real
-    manifest (48, 55, 67; min 48, median 55, max 67) and one beyond (70): the section stays within `SHARED_SECTION_BYTES`, the file
-    within `CODE_FILE_BYTES`, and what was cut is COUNTED - `(+N more)` on a fixture line, the count in the `Left out` heading.
-    Kills: the budget removed (the file at 55 loses every excerpt, at 70 breaks the cap)."""
+def hf8_18_n3_the_section_names_every_fixture_and_instance():
+    """C-K13 (B3, FV1-4 N2), the form of 12586: 20 fixtures the window uses, 60 earlier instances reaching them, at the id lengths of the
+    real manifest (48, 55, 67; min 48, median 55, max 67) and one beyond (70): the section has NO byte budget any more - every fixture
+    and every instance is named (no `(+N more)`), every excerpt the cap left out is named by `file:lines` under the `Left out` heading,
+    and the file may pass `CODE_FILE_BYTES`. Kills: a fixture line that loses names; an unnamed left-out excerpt."""
     names = [f"fx_{n:02d}_with_a_long_descriptive_name" for n in range(20)]
     asks = ", ".join(names)
     for length in (48, 55, 67, 70):
@@ -695,35 +882,36 @@ def hf8_18_n3_the_section_has_a_byte_budget():
             size, shown = len(text.encode("utf-8")), text.count("```python")
             section = text.split("## If you change a shared fixture")[1].split("\n## ")[0]
             print(f"C-K13 MEASURED: 20 fixtures x 60 earlier instances, id length {length}: file {size} B of {brief_pack.CODE_FILE_BYTES}, "
-                  f"section {len(section.encode('utf-8'))} B of {brief_pack.SHARED_SECTION_BYTES}, excerpts shown {shown}, left out {len(omitted)}")
-            check(f"C-K13 ({length}): the file is within CODE_FILE_BYTES", size <= brief_pack.CODE_FILE_BYTES, str(size))
-            check(f"C-K13 ({length}): the section is within its budget", len(section.encode("utf-8")) <= brief_pack.SHARED_SECTION_BYTES, str(len(section)))
-            check(f"C-K13 ({length}): the excerpts are kept (at least the test's own and half of the fixtures)", shown >= 11, str(shown))
+                  f"section {len(section.encode('utf-8'))} B, excerpts shown {shown}, left out {len(omitted)}")
             check_eq(f"C-K13 ({length}): shown + omitted = every excerpt the window asked for", shown + len(omitted), 20 + 1)
             lines = [l for l in text.splitlines() if l.startswith("- `fx_")]
-            check(f"C-K13 ({length}): a fixture line that lost names says how many (+N more)", bool(lines) and all("more)" in l for l in lines), str(lines[:1]))
+            check_eq(f"C-K13 ({length}): every fixture has a line naming all 60 instances, no `(+N more)`",
+                     ([l.count("`test_x") for l in lines], any("more)" in l for l in lines)), ([60] * 20, False))
+            check_not_in(f"C-K13 ({length}): no `more fixtures not listed` line", "fixtures not listed", text)
             if omitted:
                 check_in(f"C-K13 ({length}): the heading counts the excerpts left out", f"## Left out ({len(omitted)} excerpts;", text)
+                check(f"C-K13 ({length}): each left-out excerpt is named by file:lines", all(f"- {w}" in text for w in omitted), str(omitted[:2]))
         finally:
             cleanup(project)
 
 
 def hf8_18_n3_the_budget_at_and_beyond():
-    """B3: `_shared_fixture_lines` AT the budget (a section that fits whole has no tail) and BEYOND it (names cut from the end of each
-    fixture's list with `(+N more)`; fixtures that cannot show one name are one last line); never more than `SHARED_SECTION_BYTES`."""
+    """B3 (FV1-4 N2): `_shared_fixture_lines` has no budget: a small section is whole; 20 fixtures x 20 long instance ids (far past the old
+    6 000 B) and 200 fixtures (far past the old fixture tail) are named whole - every fixture, every instance, no `(+N more)`."""
     small = brief_pack._shared_fixture_lines({"fx_a (tests/conftest.py)": ["test_a", "test_b"]})
-    check_in("at the budget: a small section is whole", "- `fx_a (tests/conftest.py)` -> `test_a`, `test_b`", "\n".join(small))
-    check_not_in("at the budget: no tail", "more", "\n".join(small))
+    check_in("a small section is whole", "- `fx_a (tests/conftest.py)` -> `test_a`, `test_b`", "\n".join(small))
+    check_not_in("... with no tail", "more", "\n".join(small))
     check_eq("no fixture, no section", brief_pack._shared_fixture_lines({}), [])
     many_names = {f"fx_{n:02d} (tests/conftest.py)": [f"test_{'y' * 60}{i:02d}" for i in range(20)] for n in range(20)}
     text = "\n".join(brief_pack._shared_fixture_lines(many_names))
-    check("beyond the budget: the section is within it", len(text.encode("utf-8")) <= brief_pack.SHARED_SECTION_BYTES, str(len(text)))
-    check("beyond the budget: every fixture keeps a line with a name and a count of what was cut",
-          all(f"fx_{n:02d}" in text for n in range(20)) and text.count("more)") == 20, text[-300:])
+    check("20 fixtures x 20 instances: every fixture and every instance is named, and the section passes the old 6 000 B",
+          all(f"fx_{n:02d}" in text for n in range(20)) and text.count("`test_" + "y" * 60) == 400 and "more)" not in text
+          and len(text.encode("utf-8")) > 6000, text[-300:])
     crowd = {f"fx_{n:03d} (tests/conftest.py)": [f"test_{'z' * 60}{i:02d}" for i in range(3)] for n in range(200)}
     text = "\n".join(brief_pack._shared_fixture_lines(crowd))
-    check("200 fixtures: within the budget", len(text.encode("utf-8")) <= brief_pack.SHARED_SECTION_BYTES, str(len(text)))
-    check("200 fixtures: the last line counts the fixtures not listed", bool(re.search(r"\n- \(\+\d+ more fixtures not listed\)$", text)), text[-120:])
+    check_eq("200 fixtures: every fixture is named, no `fixtures not listed` line", (text.count("- `fx_"), "not listed" in text), (200, False))
+    one = {"fx_a (tests/conftest.py)": [f"test_{i}" for i in range(1000)]}
+    check_eq("one fixture with 1 000 instances: all 1 000 named", "\n".join(brief_pack._shared_fixture_lines(one)).count("`test_"), 1000)
 
 
 def hf8_18_n3_what_it_could_not_read_is_a_line():
@@ -770,7 +958,7 @@ def k11_budget_is_path_independent():
     assert len(short) >= 20 and len(long_) == 80
     def body(root):
         return f"- {root}/references/code-review-rubric.md (9.4 KB)\nrun `python \"{root}/scripts/x.py\"`\n"
-    a, b = brief_pack.measured_bytes(body(short), [short]), brief_pack.measured_bytes(body(long_), [long_])
+    a, b = harness.normalised_bytes(body(short), short), harness.normalised_bytes(body(long_), long_)      # FV1-4: the test-side measure
     check_eq("K11: the same text at a 20-char and an 80-char root weighs the same", a, b)
     project, _task, _c = story()
     try:
@@ -779,25 +967,29 @@ def k11_budget_is_path_independent():
         check_in("K11: ... and a built brief still carries the real plugin path (the measure does not rewrite the brief)", brief_pack.SCRIPTS, built)
     finally:
         cleanup(project)
-    check_eq("K11: an empty or None root is skipped", brief_pack.measured_bytes("abc", ["", None]), 3)
+    check_eq("K11: an empty or None root is skipped", harness.normalised_bytes("abc", "", None), 3)
     check_eq("K11: a root that is the prefix of another is replaced longest first",
-             brief_pack.measured_bytes("C:/a/b/x C:/a/y", ["C:/a", "C:/a/b"]), len("<plugin>/x <plugin>/y"))
+             harness.normalised_bytes("C:/a/b/x C:/a/y", "C:/a", "C:/a/b"), len("<root>/x <root>/y"))
     check_eq("K11: a backslash spelling of the root is replaced too",
-             brief_pack.measured_bytes("C:\\a\\b\\x", ["C:/a/b"]), len("<plugin>\\x"))
+             harness.normalised_bytes("C:\\a\\b\\x", "C:/a/b"), len("<root>\\x"))
+    check_eq("K11: the plugin root is replaced without being named",
+             harness.normalised_bytes(str(harness.PLUGIN_ROOT).replace("\\", "/") + "/x"), len("<root>/x"))
 
 
 def main():
     k13_base_log_lines()
     k12_helpers_section()
     k1_plan_dispatch()
+    k14_case_concerns_reach_the_s5_brief()
     k9_grouping_hint_line()
+    n2_could_not_lines_name_the_whole_text()
     k2_plan_over_the_cap()
     k3_window_plan_slice()
     k4_over_cap_and_head()
     k5_code_file()
     k6_code_file_cap()
     hf8_18_n3_the_window_names_what_its_fixture_edit_makes_stale()
-    hf8_18_n3_the_section_has_a_byte_budget()
+    hf8_18_n3_the_section_names_every_fixture_and_instance()
     hf8_18_n3_the_budget_at_and_beyond()
     hf8_18_n3_what_it_could_not_read_is_a_line()
     k10_marker_form()

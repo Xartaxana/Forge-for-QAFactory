@@ -86,7 +86,7 @@ def refusal_round_trip_gate_and_routing() -> None:
         system = Path(calls[0]["sysfile"])
         check("the rule layer travels as the appended system prompt", system.is_file() and "Your factory rules" in system.read_text(encoding="utf-8"))
         check_in("with the resolved task packet", "Resolved task packet", system.read_text(encoding="utf-8"))
-        runs = jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record, counted apart
         check_eq("driver-runs.jsonl has the one role line", len(runs), 1)
         check_eq("with the session id", runs[0].get("session_id"), "sess-S1-qa-scout-1")
         check_eq("the cost", runs[0].get("total_cost_usd"), 0.0123)
@@ -155,7 +155,7 @@ def refusal_round_trip_gate_and_routing() -> None:
         check_eq("a recorded gate decision costs no conductor session",
                  len(stub_calls(root)) - quiet, 0)
 
-        runs = jsonl(task_root / "state/driver-runs.jsonl")
+        runs = [r for r in jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the run record rows (P1-v N1) are counted apart
         check_eq("driver-runs.jsonl has the conductor line", runs[-1]["kind"], "conductor")
 
         # --- a known refusal never reaches the conductor -------------------------------------
@@ -428,6 +428,44 @@ def refusal_judge_and_source_gaps() -> None:
         check_in("with the provenance saying who produced it", "person_pasted", list(pasted_call))
         check_in("and the question offers that route in words",
                  "provenance: person_pasted", gap)
+
+        # FV1-4 L3 (Q5): the note of supplied material names EVERY file, whole, from both fenced-answer callers; the shown text of
+        # a kinds acceptance reaches `accept-gap --shown-text` whole (S-1501), as on the other road.
+        saved_pasted, saved_row = driver.record_pasted, driver.answer_row
+        fenced = "the thread:\n```\nreviewer: the fixture shape was unreal\n```"
+        try:
+            for label, lines in (
+                    ("M-1500", ["x" * 1500]),
+                    ("M-1501", ["y" * 1501]),
+                    ("M-15000", [f"https://host.example.invalid/{n:02d}/" + "z" * 360 + f" <- work/pasted-{n}.md (pasted by the person)"
+                                 for n in range(40)]),
+                    ("M-CYR", ["https://" + "".join(chr(c) for c in (0x43f, 0x440, 0x438)) + ".example.invalid/" + chr(0x43f) * 8 + "/x" * 900 + " " + "<- work/p.md (pasted by the person)"])):
+                for caller in ("_answer_s1_gap", "record_gaps"):
+                    notes = []
+                    driver.record_pasted = lambda ids, words, _l=lines: list(_l)
+                    driver.answer_row = lambda note, words, **kw: notes.append(note)
+                    if caller == "_answer_s1_gap":
+                        taken = driver._answer_s1_gap(fenced, {"sources": ["SRC-1"], "classes": []}, "q", "S1", "S1-qa-scout-1")
+                    else:
+                        taken = driver.record_gaps("q", fenced, ids=["SRC-1"])
+                    check_eq(f"{label} {caller}: the fenced answer is taken", taken, True)
+                    check_eq(f"{label} {caller}: the note holds every name whole", notes,
+                             ["S1 material supplied by the person: " + "; ".join(lines)])
+        finally:
+            driver.record_pasted, driver.answer_row = saved_pasted, saved_row
+        for size in (1500, 1501):
+            argv = []
+            saved_py = driver.py
+            driver.py = lambda *a, **k: (argv.append(list(a)), (1, "stop"))[1]
+            try:
+                driver._accept_gap_kinds("skip all like these", ["SRC-1"], ["unreachable"],
+                                         "- " + "q" * (size - 2), "qa-factory/artifacts/QA-J6/work/source-inventory.json")
+            except Exception:  # the refusal of the stub is a held question; the argument is what is checked
+                pass
+            finally:
+                driver.py = saved_py
+            shown_arg = argv[0][argv[0].index("--shown-text") + 1]
+            check_eq(f"S-{size} the shown text reaches accept-gap whole", len(shown_arg), size)
 
         # F1: `ask_person` without a question is the conductor failing its own contract.
         driver.pass_to_person({"action": "ask_person", "question": "", "did": ""},
@@ -1247,9 +1285,10 @@ def refusal_person_words_kept_whole() -> None:
     """t-208 / FR-8: the driver writes a person's answer into the `human_answer` journal note, and every later
     brief reads that note as the person's standing instructions. Cut at 1,500 characters (cmp2, 01.10: the S1
     source-review answer, about 1,900 characters), the sentence at the END of an answer - the standing
-    instruction - never reached a role. INVARIANT: a note carries the words whole up to
-    `brief_pack.PERSON_WORDS_MAX`; a cut past it says so; the stage prefix and an empty answer stay as they were."""
+    instruction - never reached a role. INVARIANT: a note carries the words whole, any size (it goes to the journal by a file,
+    `log_append.py --notes-file`); the stage prefix and an empty answer stay as they were; an owed row keeps the file."""
     import brief_pack
+    import person_words
     import story_run
     standing = "Standing for every role after this: never write to the tracker, Draft only."
     # 2,500 characters with a line break in the middle and the standing sentence last: the part a cut at
@@ -1290,7 +1329,7 @@ def refusal_person_words_kept_whole() -> None:
                  "S1 source review: " + words, notes())
         check_eq("and the driver's own answers file holds it whole too",
                  jsonl(driver.state_dir / "driver-answers.jsonl")[-1]["words"], words)
-        _shown, _minimal, whole = brief_pack.decisions({}, "S2", "qa-case-designer", "QA-9", root)
+        _shown, whole = brief_pack.decisions({}, "S2", "qa-case-designer", "QA-9", root)
         check_in("the standing sentence at its end is in the next brief's decisions side file",
                  standing, "\n".join(whole))
         check_in("with the whole answer beside it", "S1 source review: " + words, "\n".join(whole))
@@ -1301,24 +1340,134 @@ def refusal_person_words_kept_whole() -> None:
         check_in("a question-stop answer is in its note whole, after `S2 question stop: `",
                  "S2 question stop: " + stop_words, notes())
         check_in("and its standing sentence reaches the side file too", "S2 question stop: " + stop_words,
-                 "\n".join(brief_pack.decisions({}, "S3", "qa-case-designer", "QA-9", root)[2]))
+                 "\n".join(brief_pack.decisions({}, "S3", "qa-case-designer", "QA-9", root)[1]))
 
-        # (3) at and beyond the limit, through the real journal writer (one command-line argument)
-        at_limit = "a" * brief_pack.PERSON_WORDS_MAX
-        beyond = "b" * (brief_pack.PERSON_WORDS_MAX + 1000)
-        answer("questions", "S2", "S2-qa-case-designer-1", at_limit)
-        check_in("an answer at the limit is written untouched", "S2 question stop: " + at_limit, notes())
-        answer("questions", "S2", "S2-qa-case-designer-1", beyond)
-        cut = [n for n in notes() if n.startswith("S2 question stop: b")]
-        check_eq("an answer beyond the limit is written once", len(cut), 1)
-        check_in("and its cut says how much and where the whole text is",
-                 "[cut: 1000 more characters, the whole text is in ", cut[0] if cut else "")
-        check_eq("while the answers file keeps all of it",
-                 jsonl(driver.state_dir / "driver-answers.jsonl")[-1]["words"], beyond)
+        # (3) at and beyond the old limit (FV1-4 N0, J-1): no size cuts the note - it travels by a file, not a command line
+        for size in (20000, 21000, 40000):
+            sized = chr(ord("a") + size % 7) * size
+            answer("questions", "S2", "S2-qa-case-designer-1", sized)
+            got = [n for n in notes() if n == "S2 question stop: " + sized]
+            check_eq(f"J-1: an answer of {size} characters is in its note whole, once", len(got), 1)
+            check_not_in(f"J-1: and the note of {size} characters has no cut marker", "[cut:", got[0] if got else "")
+            check_eq(f"J-1: while the answers file keeps all of {size}",
+                     jsonl(driver.state_dir / "driver-answers.jsonl")[-1]["words"], sized)
 
         # (4) edges of the helper itself: a prefix with nothing after it is today's note, CRLF becomes LF
-        check_eq("an empty answer is the prefix alone, as before", story_run._answer_note("S1: ", ""), "S1: ")
-        check_eq("CRLF in an answer becomes LF in the note", story_run._answer_note("S1: ", "a\r\nb"), "S1: a\nb")
+        check_eq("J-2: an empty answer is the prefix alone, as before", story_run._answer_note("S1: ", ""), "S1: ")
+        check_eq("J-3: CRLF in an answer becomes LF in the note", story_run._answer_note("S1: ", "a\r\nb"), "S1: a\nb")
+        check_eq("J-3: person_words.lf is the one place of that rule", (person_words.lf("a\r\nb\rc\n"), person_words.lf(None)),
+                 ("a\nb\nc\n", ""))
+        # J-2 end to end: an empty answer reaches answer_row as the prefix alone, written to its file
+        before = len(notes())
+        driver.answer_row("S1: ", "", what="the empty answer")
+        check_eq("J-2: the prefix alone is a note, written by its file", notes()[before:], ["S1: "])
+        check_eq("J-2: the file that carried it holds the prefix", [p.read_text(encoding="utf-8") for p in
+                 sorted((driver.state_dir.parent / "state" / "words").glob("driver-journalnote-*.txt"))][-1], "S1: ")
+
+        # J-4 the door itself: refused with the reader's own words, nothing written
+        story_dir = driver.state_dir.parent
+        bad = root / "bad-notes"
+        bad.mkdir(exist_ok=True)
+
+        def door(*extra):
+            return real_py("log_append.py", "--event", "human_answer", "--task", "QA-9", *extra)
+        count = len(notes())
+        empty, utf16 = bad / "empty.txt", bad / "utf16.txt"
+        empty.write_bytes(b"")
+        utf16.write_bytes("words".encode("utf-16"))
+        for label, extra in (("missing", ["--notes-file", str(bad / "none.txt")]), ("empty", ["--notes-file", str(empty)]),
+                             ("not UTF-8", ["--notes-file", str(utf16)]), ("a directory", ["--notes-file", str(bad)])):
+            code, out = door(*extra)
+            check_eq(f"J-4: a {label} --notes-file is refused, exit 1, naming the option", (code, "--notes-file" in out), (1, True))
+        code, out = door("--notes", "inline words", "--notes-file", str(empty))
+        check_eq("J-4: --notes with --notes-file is refused naming both", (code, "--notes" in out and "--notes-file" in out), (1, True))
+        good = bad / "good.txt"
+        good.write_bytes("first\r\nsecond".encode("utf-8"))
+        check_eq("J-4: --notes at its default with --notes-file is accepted", door("--notes", "", "--notes-file", str(good))[0], 0)
+        check_eq("J-4: nothing was written by the refusals; the file's text is whole, as given",
+                 notes()[count:], ["first\r\nsecond"])
+
+        # (5) J-5 / TEMPORAL / E-31 / E-32 / blank: the owed row keeps the file, the replay writes whole
+        calls = []
+        failing = [True]
+
+        def py_fail(script, *args, **kwargs):
+            if script == "log_append.py" and "human_answer" in args:
+                calls.append(list(args))
+                if failing[0]:
+                    return (1, "journal refused once")
+            return real_py(script, *args, **kwargs)
+        driver.py = py_fail
+        long_words = "five " + "x" * 39990 + "\nsecond line"
+        before = len(notes())
+        with contextlib.redirect_stdout(io.StringIO()):
+            driver.answer_row("S3: ", long_words, what="the long answer")
+        owed = driver.owed_list()
+        args = owed[-1]["args"]
+        kept = Path(args[args.index("--notes-file") + 1])
+        check_eq("J-5: the failed first write left no row and the owed row names the file by an absolute path",
+                 (len(notes()) - before, "--notes" in args, kept.is_absolute()), (0, False, True))
+        check_eq("J-5: the file holds prefix + words whole", kept.read_text(encoding="utf-8"), "S3: " + long_words)
+        failing[0] = False
+        with contextlib.redirect_stdout(io.StringIO()):
+            driver.owed_rows_step()
+        check_eq("J-5: the replay writes prefix + words whole", notes()[before:], ["S3: " + long_words])
+        check_eq("J-5: the file is still there and the row left the list", (kept.is_file(), driver.owed_list()), (True, []))
+
+        # TEMPORAL: a row owed BEFORE this change carries --notes <text> and replays to the same note
+        driver.state["owed_rows"] = [{"id": "row-old", "script": "log_append.py", "tries": 1, "exit": 1, "what": "an old row",
+                                      "stage": "S1", "at": "2026-11-01T00:00:00+00:00", "tail": "",
+                                      "args": ["--event", "human_answer", "--task", "QA-9", "--notes", "S1: an old note"]}]
+        before = len(notes())
+        with contextlib.redirect_stdout(io.StringIO()):
+            driver.owed_rows_step()
+        check_eq("TEMPORAL: a pre-change owed row replays to the same note", notes()[before:], ["S1: an old note"])
+
+        # a blank note (no prefix, blank words) writes no file and passes --notes as before
+        calls.clear()
+        files_before = sorted((story_dir / "state" / "words").glob("driver-journalnote-*.txt"))
+        driver.answer_row("", "  ", what="a blank note")
+        check_eq("blank: the row passes --notes with the blank note, and no file is made",
+                 (calls[-1][calls[-1].index("--notes"):], sorted((story_dir / "state" / "words").glob("driver-journalnote-*.txt"))
+                  == files_before), (["--notes", "  "], True))
+
+        # E-32: the story folder moved before the replay -> refused naming the file, the row stays owed
+        failing[0] = True
+        with contextlib.redirect_stdout(io.StringIO()):
+            driver.answer_row("S3: ", "moved words", what="the moved answer")
+        moved = Path(driver.owed_list()[-1]["args"][-1])
+        hidden = moved.with_name(moved.name + ".moved")
+        moved.rename(hidden)
+        failing[0] = False
+        before = len(notes())
+        import driver_core
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                driver.owed_rows_step()
+            asked = False
+        except driver_core.Person:
+            asked = True        # the second failure is the seam's question (OWED_ROW_TRIES, unchanged)
+        rows = driver.owed_list()
+        check_eq("E-32: the replay is refused, the row stays owed with the file it names, nothing is written, the seam asks",
+                 (len(notes()) - before, len(rows), moved.name in rows[0]["tail"], asked), (0, 1, True, True))
+        hidden.rename(moved)
+        driver.state["owed_rows"] = []
+
+        # E-31 (F12 a): the note file cannot be written -> OSError propagates, the command line is never the road
+        calls.clear()
+        real_write = person_words.write_words
+
+        def broken_write(*a, **k):
+            raise OSError("disk full")
+        person_words.write_words = broken_write
+        try:
+            driver.answer_row("S3: ", "unsaved", what="the unsaved answer")
+            raised = False
+        except OSError:
+            raised = True
+        finally:
+            person_words.write_words = real_write
+        check_eq("E-31: a failed write raises OSError and no log_append call is made", (raised, calls), (True, []))
     finally:
         harness.cleanup(root)
 
@@ -3100,9 +3249,11 @@ def refusal_cc_fix_round_two_blocks_two_episodes_full_retro_and_s6_closes() -> N
         with contextlib.redirect_stdout(out):
             rig.driver.after_close("S9", "  my words ")
         row = [a for s, a in rig.scripts if s == "log_append.py"][-1]
-        check_eq("F-3: the helper prints the old line and files the old journal row",
-                 (out.getvalue(), row), ("S9 is done already; recording the words and going on\n",
-                                         ["--event", "human_answer", "--task", "QA-9", "--notes", story_run._answer_note("S9 (after close): ", "my words")]))
+        check_eq("F-3: the helper prints the old line and files the journal row, its note by a file",
+                 (out.getvalue(), row[:5]), ("S9 is done already; recording the words and going on\n",
+                                             ["--event", "human_answer", "--task", "QA-9", "--notes-file"]))
+        check_eq("F-3: the file named holds the note whole", Path(row[5]).read_text(encoding="utf-8"),
+                 story_run._answer_note("S9 (after close): ", "my words"))
     finally:
         rig.done()
 

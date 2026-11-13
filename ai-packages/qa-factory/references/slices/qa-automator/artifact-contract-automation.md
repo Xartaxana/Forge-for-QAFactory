@@ -142,12 +142,14 @@ carries `obligation_refs` (`[{obligation_id, obligation_hash}]`), agreeing `obli
 `change_disposition`, `change_basis_ref` and `case_version_links`.
 
 `obligation_bindings[]`, keyed by `obligation_id`, merged by `manifest_put.py`:
-`{obligation_id, obligation_hash (sha256 of the approved obligation), instance_ids[],
-design_assessment sufficient|partial|unknown, assertion_refs[],
+`{obligation_id, obligation_hash (the code's: the hash of the obligation text design_assessment was judged on),
+instance_ids[], design_assessment sufficient|partial|unknown, assertion_refs[],
 change_disposition new_or_changed|unchanged, change_basis_ref,
 code_validity valid|unverified, sensitivity proven|not_required|missing,
 quality_receipt_refs[], quality_not_applicable_reason?, probe_receipt_ref,
-review_receipt_ref}`.
+review_receipt_ref}`. `judged_on` is the code's too (the obligation hash each other judgment
+field was written against); never send it or `obligation_hash`: re-send the fields you
+re-judged and the code stamps them.
 
 Quality refs are ids from the WINDOW's `required_quality_checks`, not paths; an empty list takes neither
 `quality_receipt_refs` nor `quality_not_applicable_reason`. An unchanged instance

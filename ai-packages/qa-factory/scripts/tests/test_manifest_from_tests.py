@@ -183,8 +183,76 @@ def tq1_18_the_marker_takes_base_checked() -> None:
     check_eq("the marker is read, not refused", (found[0], found[1].get("base_checked")), (MFT.MARK_QA, "tests/a.py::check_base"))
 
 
+def fv1_19_marker_through_the_stamp() -> None:
+    """FV1-19 N1 rows (h), (i), (r): the marker writes obligation IDS, the one stamp writes the hashes, and the marker and the
+    fragment door meet in it (AR-15); membership is the whole plan on both roads (F7 (b))."""
+    root = harness.temp_project("qa-mft-fv119-")
+    try:
+        task = seed(root)
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+        plan = json.loads((task / "work" / "test-plan.json").read_text(encoding="utf-8"))
+        ob = {o["obligation_id"]: o for r in plan["rows"] for o in r["coverage_obligations"]}
+        first = run(root, "--json")
+        check_eq("(h) the marker run writes", first.returncode, 0)
+        marker_row = _manifest_rows(task)["test_limit"]
+        check_eq("(h) the marker's row holds the plan's hash, the derived ids and the row hash",
+                 (marker_row["obligation_refs"], marker_row["obligation_ids"], marker_row["obligation_hash"]),
+                 ([{"obligation_id": "TS-1-O1", "obligation_hash": content_hash(ob["TS-1-O1"])}], ["TS-1-O1"],
+                  content_hash([{"obligation_id": "TS-1-O1", "obligation_hash": content_hash(ob["TS-1-O1"])}])))
+        hand = {"tests": [{"instance_id": "test_hand", "file": "tests/test_hand.py", "case": "TC-001", "covers": ["TC-001"],
+                           "obligation_refs": [{"obligation_id": "TS-1-O1"}]}]}
+        put = harness.run_script("manifest_put.py", "--task", TICKET, "--fragment", json.dumps(hand), cwd=root, env=env)
+        check_eq("(h) the hand fragment (ids only) is taken", put.returncode, 0)
+        hand_row = _manifest_rows(task)["test_hand"]
+        check_eq("(h) the marker road and the fragment door store byte-identical obligation_refs, ids and row hash",
+                 [json.dumps(hand_row[k]) for k in ("obligation_refs", "obligation_ids", "obligation_hash")],
+                 [json.dumps(marker_row[k]) for k in ("obligation_refs", "obligation_ids", "obligation_hash")])
+    finally:
+        harness.cleanup(root)
+    root, task = _form_root(plan2=True)
+    try:
+        dry = json.loads(run(root, "--dry-run", "--json").stdout)
+        row = next(t for t in dry["fragment"]["tests"] if t["instance_id"] == "test_limit")
+        slot = next(t for t in dry["row_form"]["tests"] if t["instance_id"] == "test_limit")
+        check_eq("(i) --dry-run: the marker row is stamped before the merge view, and the row form reports no obligation_refs gap",
+                 ("obligation_hash" in row["obligation_refs"][0], "obligation_refs" in slot), (True, False))
+    finally:
+        harness.cleanup(root)
+    for what, replace, want_code, want in (
+            ("(r) a marker naming an obligation of ANOTHER plan row is accepted and stamped", ("TS-1-O1", "TS-2-O1"), 0, "stamped"),
+            ("(r) a marker naming an id absent from the whole plan is refused naming the plan's ids", ("TS-1-O1", "TS-9-O1"), 2,
+             "(it names: TS-1-O1, TS-2-O1, TS-3-O1, TS-4-O1)")):
+        root = harness.temp_project("qa-mft-fv119-")
+        try:
+            task = seed(root)
+            path = root / "tests" / "test_coupon.py"
+            path.write_text(path.read_text(encoding="utf-8").replace(f'obligations=["{replace[0]}"]', f'obligations=["{replace[1]}"]'), encoding="utf-8")
+            out = run(root, *(("--dry-run", "--json") if want_code == 0 else ("--dry-run",)))
+            if want_code == 0:
+                refs = next(t for t in json.loads(out.stdout)["fragment"]["tests"] if t["instance_id"] == "test_limit")["obligation_refs"]
+                other = {"obligation_id": "TS-2-O1", "obligation_hash": content_hash(
+                    {"obligation_id": "TS-2-O1", "behavior": "row 2", "decision": "new"})}
+                check_eq(what, (out.returncode, refs), (0, [other]))
+            else:
+                check_eq(what, (out.returncode, want in out.stderr), (want_code, True))
+        finally:
+            harness.cleanup(root)
+    root = harness.temp_project("qa-mft-fv119-")
+    try:
+        task = seed(root)
+        rows = [{"id": f"TS-{n}", "disposition": "automate"} for n in (1, 2, 3, 4)]
+        (task / "work" / "test-plan.json").write_text(json.dumps({"rows": rows}), encoding="utf-8")
+        out = run(root, "--dry-run", "--json")
+        refs = next(t for t in json.loads(out.stdout)["fragment"]["tests"] if t["instance_id"] == "test_limit")["obligation_refs"]
+        check_eq("(r) a plan that names no obligation: the marker's ids are stored unhashed, no refusal", (out.returncode, refs),
+                 (0, [{"obligation_id": "TS-1-O1"}]))
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
     tq1_18_the_marker_takes_base_checked()
+    fv1_19_marker_through_the_stamp()
     root = harness.temp_project("qa-manifest-from-tests-")
     try:
         task = seed(root)
@@ -235,8 +303,9 @@ def main() -> None:
               "change_disposition" not in plain and "change_basis_ref" not in plain,
               str(sorted(plain)))
         import window_record as WR
-        by_hand = [f for f, spec in WR.REQUIRED_ROW_FIELDS.items() if spec.filled_by == "automator"]
-        check_eq("HF2-12 K7 (c): no row of the fragment carries a field the automator writes (the carrier's list, not a literal one):"
+        by_hand = [f for f, spec in WR.REQUIRED_ROW_FIELDS.items() if spec.filled_by == "automator" and f != "obligation_refs"]
+        check_eq("HF2-12 K7 (c): no row of the fragment carries a field the automator writes (the carrier's list, not a literal one;"
+                 " `obligation_refs` apart: the marker's ids-only refs of a Python row go through the stamp):"
                  " the printed form is the only place they are asked for",
                  sorted((row["instance_id"], f) for row in fragment["tests"] for f in by_hand if f in row), [])
 
@@ -317,8 +386,9 @@ def main() -> None:
         original = test_py.read_text(encoding="utf-8")
         test_py.write_text(original.replace('obligations=["TS-1-O1"]', 'obligations=["TS-9-O1"]'), encoding="utf-8")
         bad = run(root, "--dry-run")
-        check_eq("an obligation not on the plan row is refused", bad.returncode, 2)
-        check_in("with the row and what it has", "TS-9-O1 is not an obligation of TC-001's plan row TS-1 (it has: TS-1-O1)", bad.stderr)
+        check_eq("an obligation the plan does not name is refused", bad.returncode, 2)
+        check_in("with the plan's ids (FV1-19 F7 (b): membership is the whole plan)",
+                 "TS-9-O1 is not an obligation of the plan (it names: TS-1-O1, TS-2-O1, TS-3-O1, TS-4-O1)", bad.stderr)
         check_in("and where", "tests/test_coupon.py:9", bad.stderr)
 
         test_py.write_text(original.replace('case="TC-001"', 'case="TC-030"'), encoding="utf-8")
@@ -1829,6 +1899,13 @@ def hf_k7() -> None:
               json.dumps(form_dry["tests"])[:300])
         check_in("K7 (d'): a dry run says the rows are not in the manifest yet", "send it after the write: these rows are not in the manifest yet", notes)
 
+        print("-- F-2: an empty `wanted` prints no header with nothing under it; a non-empty one keeps its form (pinned by K7 (a), text mode)")
+        import manifest_put as _mp
+        view_none = _mp.merge(copy.deepcopy(story.manifest), copy.deepcopy(fragment))[0]
+        form_none, lines_none = MFT._row_form(task, view_none, [])
+        check_eq("F-2: empty wanted -> an empty form and no line at all", (form_none, lines_none), ({"tests": [], "legend": {}}, []))
+        check_not_in("F-2: ...so no `row fields still missing` header", "row fields still missing", "\n".join(lines_none))
+
         print("-- K7 (i): a fragment that was not written leaves no form")
         notes = []
         check_eq("K7 (i): put_code 3 -> no form", MFT._form_after_write(task, story, fragment, False, 3, notes), (None, []))
@@ -1845,9 +1922,21 @@ def hf_k7() -> None:
         check("K7 (d): ...the form is there, from the merged view", len(dry["row_form"]["tests"]) == 7, str(dry["row_form"])[:300])
         check_in("K7 (d): ...with the note", "send it after the write: these rows are not in the manifest yet", dry["notes"])
         legend = dry["row_form"]["legend"]
-        check_in("K7 (obligation_refs): a marker field is in the legend and names the marker", "qa(obligations=", legend["obligation_refs"])
-        check("K7 (obligation_refs): ...and has NO slot (a hand value would not carry the plan's hash)",
-              all("obligation_refs" not in t for t in dry["row_form"]["tests"]))
+        check_eq("N2 (m): the legend for `obligation_refs` is the carrier's words (ids, the code adds the hash)",
+                 legend["obligation_refs"], WR.REQUIRED_ROW_FIELDS["obligation_refs"].what)
+        check_in("N2 (m): ...and shows the fragment shape", '[{"obligation_id": "<plan obligation id>"}]', legend["obligation_refs"])
+        check_not_in("N2 (m): ...and does not name the marker", "qa(obligations=", legend["obligation_refs"])
+        slotted = [t["instance_id"] for t in dry["row_form"]["tests"] if "obligation_refs" in t]
+        check("N2 (m): rows of owed cases WITHOUT refs now carry an `obligation_refs` slot (null)",
+              bool(slotted) and all(t["obligation_refs"] is None for t in dry["row_form"]["tests"] if "obligation_refs" in t),
+              str(dry["row_form"])[:400])
+        check_not_in("N2 (m): ...but not the row the marker gave refs", "test_limit", " ".join(slotted))
+        blank, blank_lines = MFT._blank_row_form("QA-700")
+        check_eq("N2 (b): the blank row form prints a null slot for `obligation_refs` with the legend's `what`",
+                 (blank["tests"][0]["obligation_refs"], blank["legend"]["obligation_refs"]),
+                 (None, WR.REQUIRED_ROW_FIELDS["obligation_refs"].what))
+        check_in("N2 (b): ...and the text names the fragment door with the task", "manifest_put.py --task QA-700 --fragment <file>",
+                 "\n".join(blank_lines))
         check("K7 (obligation_refs): the row that has it (the marker wrote it) asks for the four only",
               [t for t in dry["row_form"]["tests"] if t["instance_id"] == "test_limit"] == [{"instance_id": "test_limit", **dict.fromkeys(FOUR)}])
     finally:

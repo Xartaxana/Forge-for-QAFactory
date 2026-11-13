@@ -22,7 +22,7 @@ import uuid
 from pathlib import Path
 import hooklib
 from artifact_registry import entries, canonical
-from event_store import EventStore, atomic_json
+from event_store import EventStore, atomic_json, content_hash
 import contract as C
 import story_version
 
@@ -163,6 +163,29 @@ def _is_case_shaped_id(value: str, cfg: dict | None = None) -> bool:
     return C.is_case_id(text.rsplit("/", 1)[-1], cfg=C.case_config() if cfg is None else cfg)
 
 
+def _forwardable(row: dict, refs: bool = True) -> dict:
+    """`row` as a code writer may send it back through `manifest_put` (FV1-19, AR-14): without what the one stamp
+    (`contract.stamp_obligation_refs`) writes from the CURRENT plan — each ref's `obligation_hash`, the row's or the
+    binding's `obligation_hash`, and, on a row that carries `obligation_refs`, `obligation_ids`. A hash read from a stored
+    row is never forwarded: it may be stale, and the stamp refuses a hash that differs from the plan's. A binding's
+    `judged_on` (the per-field stamps, FV1-19e) is the stamp's alone and is never forwarded either.
+
+    `refs=False` (the two RETRACTION sites, which resend a covering row only to match its identity) also leaves out
+    `obligation_refs` and `obligation_ids`: the stored references stay exactly as they are (a stale one stays stale, for
+    the precheck to name), and a retraction never depends on the plan. The RENAME sites keep `refs=True`: their ids
+    change and must be resent, to be stamped from the plan."""
+    if not refs:
+        return {k: v for k, v in row.items()
+                if k not in ("obligation_refs", "obligation_ids", "obligation_hash", "judged_on")}
+    out = {k: v for k, v in row.items() if k not in ("obligation_hash", "judged_on")}
+    refs = out.get("obligation_refs")
+    if isinstance(refs, list):
+        out["obligation_refs"] = [{k: v for k, v in r.items() if k != "obligation_hash"} if isinstance(r, dict) else r
+                                  for r in refs]
+        out.pop("obligation_ids", None)
+    return out
+
+
 def _retract_case_ghosts(root: Path, task_id: str, project_root: Path, manifest: dict) -> dict:
     """Retract a `tests[]` row whose `instance_id` IS a case id (`"TC-012"`, no function) —
     a 0.7.6 window's placeholder, written before per-instance rows existed. `manifest_test_keys`
@@ -212,7 +235,7 @@ def _retract_case_ghosts(root: Path, task_id: str, project_root: Path, manifest:
     for _, covering in retract:
         for row in covering:
             protect.setdefault(C.test_instance_id(row), row)
-    resend = list(protect.values())
+    resend = [_forwardable(row, refs=False) for row in protect.values()]
     unresolved = [{"case": case_key} for case_key, _ in retract]
 
     ok, reason = _run_manifest_put(root, task_id, project_root,
@@ -296,7 +319,7 @@ def _retract_legacy_selector_rows(root: Path, task_id: str, project_root: Path,
     for _, _, covering in retract:
         for row in covering:
             protect.setdefault(C.test_instance_id(row), row)
-    resend = list(protect.values())
+    resend = [_forwardable(row, refs=False) for row in protect.values()]
     unresolved = [{"case": case_key} for case_key, _, _ in retract]
 
     ok, reason = _run_manifest_put(root, task_id, project_root,
@@ -348,7 +371,7 @@ def _legacy_obligation_patches(manifest: dict, mapping: dict) -> tuple:
                 str(r.get("obligation_id") or ""), r.get("obligation_id"))) for r in refs]
         if ids:
             patch["obligation_ids"] = [mapping.get(i, i) for i in ids]
-        patches.append(patch)
+        patches.append(_forwardable(patch))
         spellings.append(f"{C.test_instance_id(entry)}: " + ", ".join(
             f"{i} -> {mapping[i]}" for i in sorted(legacy)))
     return patches, spellings, left
@@ -392,7 +415,7 @@ def _rename_legacy_obligations(root: Path, task_id: str, project_root: Path,
                          "reason": f"{new} already carries a binding of its own; merging the "
                                    "two is a person's decision — left as it stands"})
             continue
-        renamed.append(dict(binding, obligation_id=new))
+        renamed.append(_forwardable(dict(binding, obligation_id=new, renamed_from=old)))
         retract.append(old)
         changed.append(f"{old} -> {new}")
     patches, spellings, cited_left = _legacy_obligation_patches(manifest, {
@@ -411,6 +434,28 @@ def _rename_legacy_obligations(root: Path, task_id: str, project_root: Path,
     note = "obligation_bindings[] renamed to the plan's ids: " + ", ".join(changed)
     if spellings:
         note += " | instances re-cited: " + "; ".join(spellings)
+    # Requirement 7 (FV1-19e): a judgment the old binding made against another text than the plan states now stays on
+    # the new binding with its OLD stamp (the stamp's `renamed_from` road), counts for nothing, and is NAMED here - field
+    # list first, the journal cuts each reason to 80 characters. Read from the STORED manifest after the put, through
+    # `binding_currency`; an id the plan no longer names has every counting field named (the safe side).
+    try:
+        stored = [b for b in _read_manifest(root).get("obligation_bindings") or [] if isinstance(b, dict)]
+        plan_map = C.plan_obligation_map(root)
+    except Exception as exc:
+        return {"changed": [note], "left": left + [{"artifact": "automation-manifest.json",
+                "reason": "renamed; the judgment currency of the renamed bindings could not be read back "
+                          f"({type(exc).__name__}: {exc}): the S5 precheck names any stale one"}]}
+    for old, new in zip(retract, [b["obligation_id"] for b in renamed]):
+        binding = next((b for b in reversed(stored) if b.get("obligation_id") == new), None)
+        current = C.binding_currency(binding, content_hash(plan_map[new])) if new in plan_map else {}
+        stale = [f for f in ("design_assessment", *C.JUDGED_FIELDS)
+                 if C.counting_value(binding, f) and not current.get(f)]
+        if stale:
+            left.append({"artifact": f"obligation_bindings[]:{new}",
+                         "reason": "not current, re-judge: " + ", ".join(stale)
+                                   + f" (renamed from {old}; judged against another text of this obligation than the plan "
+                                   "states now, so they count for nothing until the automator re-sends them through "
+                                   f"manifest_put.py --task {task_id} --fragment <file>; the S5 precheck names them)"})
     return {"changed": [note], "left": left}
 
 

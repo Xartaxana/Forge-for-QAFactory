@@ -2404,15 +2404,40 @@ class Controller:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as handle:
                 for item in passed:
-                    handle.write(json.dumps({
+                    block = str((item or {}).get("error") or "")
+                    line = {
                         "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "+00:00",
                         "stage": str(stage or ""), "dispatch": str(dispatch_id or ""),
-                        "block": str((item or {}).get("error") or "")[:400],
+                        "block": block[:400],
                         "decision": str((item or {}).get("decision") or "")[:1000],
                         "by": str((item or {}).get("by") or "human"),
-                    }, ensure_ascii=False) + "\n")
+                    }
+                    # AR-24: the cuts above lose nothing the report needs. `word_at` is the `at` of the person's word in
+                    # `pipeline.json.stage_overrides[]` - the pointer to the word WHOLE; `finding_id` holds a block that was
+                    # cut whole in the same line. Old lines carry neither: a reader never requires them.
+                    if str((item or {}).get("at") or ""):
+                        line["word_at"] = str(item["at"])
+                    if len(block) > 400:
+                        line["finding_id"] = block
+                    handle.write(json.dumps(line, ensure_ascii=False) + "\n")
         except OSError as exc:  # a record that cannot be written must not fail the pass itself
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
+
+    def _record_s5_word_passes(self, d, state):
+        """Record, by name, every finding of the S5 exit that a person's recorded word passed (FV1-30a): the one road is
+        `s5_precheck.word_passes` (PURE; the same judgment the exit gate made, `*` and a tag word included) and the one writer
+        `_record_person_pass`. Called only for an ACCEPTED S5 completion. A recording that cannot be made - `s5_precheck` does not
+        import, `word_passes` raises - never refuses the completion and is never silent: one stderr line, like an `OSError`
+        in the writer. The same completion accepted twice may write the same line twice; the reader collapses them (no state here
+        to prevent it)."""
+        try:
+            import s5_precheck as S5  # lazy, as `finalize_task` does: the detector's home is not a controller import
+            rows = S5.word_passes(self.store.root, d.get("scope") or None, d.get("id"))
+        except Exception as exc:
+            print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
+            return
+        self._record_person_pass("S5", d.get("id"), [
+            {"error": row["finding_id"], "decision": row["decision"], "at": row["at"], "by": "human"} for row in rows])
 
     def _passed_by_person(self, stage, errors):
         """(still blocking, passed by a person's recorded word) — the factory's standing rule.
@@ -5879,6 +5904,9 @@ class Controller:
                     # t-1937 TR3-4 (item 5): the backstop first in the list, the rest of the tiers as they were.
                     self._raise_all(self._s5_running_beside_problems(d, state)
                                     + self._s5_completion_problems(d, p, state, review))
+                    # POSITION (FV1-30a): only here, after the line above did not raise, i.e. when this S5 completion is ACCEPTED.
+                    # INVARIANT: a refused completion writes nothing.
+                    self._record_s5_word_passes(d, state)
                 if d["stage"] == "S6" and p.get("stage_complete"):
                     # t-2147 TR3-9d (the S6 twin of the S5 backstop above): the code gate UNDER the driver's close predicate.
                     # INVARIANT: S6 never closes over a manual lane still at work; a story with no running manual sibling is
@@ -7288,17 +7316,19 @@ class Controller:
                     + "`."))
         approved_plan = self._tier3_call(self._plan_document)
         approved_rows = approved_plan.get("rows") if isinstance(approved_plan, dict) else approved_plan
-        approved_obligations = {str(ob.get("obligation_id")): content_hash(ob)
-                                for row in approved_rows for ob in row.get("coverage_obligations") or []
-                                if ob.get("obligation_id")}
+        import contract as C  # the ONE reader of a valid reference (FV1-19c, AR-13)
+        approved_obligations = C.obligation_map(approved_rows)
         for item in window.get("instances") or []:
             refs = item.get("obligation_refs")
+            # `strict`: an empty map makes every reference `unknown`, never a pass (AR-28). A broken list
+            # comes back as `shape` alone, so it never reaches the hash comparison below.
+            ref_problems = (C.obligation_ref_problems(refs, approved_obligations, strict=True)
+                            if isinstance(refs, list) and refs else [])
+            ref_kinds = {kind for kind, _ in ref_problems}
             # Within ONE instance the first failure stops: broken refs make every hash below
             # them meaningless. Between instances the failures are collected (and merged).
             if (item.get("schema_version", 2) != 2 or not isinstance(refs, list) or not refs
-                    or any(not isinstance(ref, dict) or not ref.get("obligation_id")
-                           or not ref.get("obligation_hash") for ref in refs)
-                    or len({ref["obligation_id"] for ref in refs}) != len(refs)):
+                    or "shape" in ref_kinds):
                 problems.append((ValueError, "coverage v2 instance requires unique obligation_refs with exact hashes"))
                 continue
             # An instance the person took over never ran here, so it has no
@@ -7312,8 +7342,7 @@ class Controller:
                     and item.get("outcome") not in (HANDED_OUTCOME, BLOCKED_OUTCOME)):
                 problems.append((ValueError, "coverage v2 instance requires execution_fingerprint"))
                 continue
-            if any(approved_obligations.get(str(ref["obligation_id"])) != ref["obligation_hash"]
-                   for ref in refs):
+            if ref_kinds:  # `unknown` / `stale`
                 problems.append((StateConflict, "instance obligation_refs do not match the current approved plan"))
                 continue
             if set(item.get("obligation_ids") or []) != {ref["obligation_id"] for ref in refs}:
@@ -7321,6 +7350,21 @@ class Controller:
                 continue
             if item.get("obligation_hash") != content_hash(refs):
                 problems.append((ValueError, "instance obligation_hash must bind exact obligation_refs"))
+
+    def _s5_no_row_passed(self, d):
+        """The instance ids whose `run_mapping:<case>:no-row-<iid>` finding a person's word passed (`s5_precheck.word_passes`), a
+        set; empty when the reader cannot answer (an import or a read failure): nothing is let go on a guess."""
+        try:
+            import s5_precheck as S5
+            rows = S5.word_passes(self.store.root, d.get("scope") or None, d.get("id"))
+        except Exception:
+            return set()
+        found = set()
+        for row in rows:
+            tag = str(row.get("tag") or "")
+            if row.get("check") == "run_mapping" and tag.startswith("no-row-"):
+                found.add(tag[len("no-row-"):])
+        return found
 
     def _s5_gap_problems(self, d, p, window):
         """Tier 4: what `validate_window` finds, as items - the four gap checks collected."""
@@ -7397,6 +7441,13 @@ class Controller:
                 + "): accept it as unresolved with `unresolved` naming `" + CONTRADICTS_REQUIREMENT + "` - `story_step.py finish "
                 "--task " + self._ticket() + " --dispatch-id " + str(d.get("id"))
                 + " --digest \"<digest>\"` derives that pair from the window record"))
+        # An instance whose "no run row" finding a person's word passed at the S5 exit (FV1-30a) is not refused a second time
+        # here (FR-7): the pass is read through `s5_precheck.word_passes`, the reader the exit gate and the recording share.
+        # INVARIANT: only `product:<iid>` of an instance with a passed `run_mapping` `no-row-<iid>` finding is let go; any other
+        # gap, and an instance not passed, still refuses. A reader that cannot answer lets go of nothing (the refusing direction).
+        if any(g.startswith("product:") for g in other_gaps):
+            word_passed = self._s5_no_row_passed(d)
+            other_gaps = [g for g in other_gaps if not (g.startswith("product:") and g[len("product:"):] in word_passed)]
         if other_gaps and (not p.get("unresolved") or not p.get("reason")):
             problems.append((StateConflict, "unresolved window: " + ", ".join(other_gaps)))
         if gaps and p.get("passed_green"):

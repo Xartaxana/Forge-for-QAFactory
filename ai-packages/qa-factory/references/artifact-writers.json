@@ -198,6 +198,10 @@
       ],
       "why": "t-1937 P2-1: one line per timed driver step ({ts, stage, dispatch, step, seconds, error?}), appended by Driver.timing_write (one O_APPEND write, no read-modify-write); driver_timing.py is its one reader and prints the hops; a missing file means no timings recorded, never 0 s of overhead"
     },
+    "state/brief-sizes.jsonl": {
+      "writer": "brief_pack.py",
+      "why": "one line per dispatched brief ({ts, stage, role, dispatch, bytes}; lines written before FV1-4 may carry budget_bytes, ceiling, over, which no reader here reads), appended by brief_pack.build (one O_APPEND write; not on --dry-run or --output); a record for the forge's scoreboard (run_counters), never read or compared with a size inside a run; a missing file means no sizes recorded; a brief built twice has two lines and the reader de-duplicates"
+    },
     "state/walks/": {
       "writer": "walk_session.py",
       "why": "the kept-session server of a manual walk: its record state/walks/<W>.json (pid, port, token, state), its log, its profile folders under state/walks/<W>/sessions/, and the full answer of every step call under state/walks/<W>/batches/; nothing else writes here"

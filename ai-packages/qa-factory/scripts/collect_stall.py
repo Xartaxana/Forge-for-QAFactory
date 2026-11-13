@@ -69,9 +69,11 @@ repair pass key built by `controller.repair_pass_key`, or a block named in `exit
 L6 the exit gate granted a round; L7 `driver-questions.jsonl` rows of the repair/exit-limit questions - the DURABLE carrier:
 the driver pops `window_rounds`, `exit_limit` and its passes when a window or dispatch is accepted and overwrites a
 `repair_limit` slot, so L2/L4/L6 see only what is open at collect time and L7 sees what was ever asked (of the repair/exit-limit
-questions only). Known gap: a window-round cap question (`no_move` kind `refusal`, why `threshold`) leaves no durable row, so a
-window that hit the cap and then closed is seen only through L1/L5; queued: a driver-journal row (`kind: window_round`,
-`outcome`) from story_run.py. Exceeded caps only
+questions only). L2 reads two carriers: the open `window_rounds` of driver-state.json and the driver journal's `window_round`
+rows (`driver_machine.window_round_gate` writes one per series record; the journal outlives the pop). Known gap: a story run
+by a driver older than that row has none, so a window of it that hit the cap and closed before the collect is seen only through
+L1/L5. The rule does not read the story's `plugin_version` to tell: the version that first writes the row is not known when
+the row is written. This paragraph and the release note are the carriers of that gap (CL4-1). Exceeded caps only
 (a cap exactly reached is not a loop). `looped` is True with any signal, None (unknown, packs) when any loop reason or stall
 reason stands, else False. `driver-state.json` absent while the driver journal has rows is an unknown; absent with no driver
 rows (the skill road keeps no such record) is "not recorded". A verdict without the key `looped` is read as NOT looped.
@@ -388,33 +390,56 @@ def _l_records(facts, floor, table, ignored, reasons):
 
     for row in table["records"]:
         if row["shape"] == "rows":
-            for r in _rows_of(facts, row):
-                if hit(row, r):
-                    take(row, "row", r.get(row["time"]), r.get(row["field"]))
-            continue
-        held = _shape(state, row["key"], dict, row["carrier"], reasons)
-        label = f"{row['carrier']} {row['key']}"
-        want = list if row["shape"] == "series" else dict
-        for name, rec in held.items():
-            if not isinstance(rec, want):               # a record in another shape is a reason, never "no loop"
-                _not_read(label, name, want, rec, reasons)
-            elif row["shape"] == "series":
-                for r in _dicts(rec):
-                    if hit(row, r):
-                        take(row, name, r.get(row["time"]), r.get(row["field"]))
-            elif row["shape"] == "records":
-                if hit(row, rec):
-                    take(row, name, rec.get(row["time"]), rec.get(row["field"]))
-            else:
-                inner = _shape(rec, row["inner"], dict, f"{label} {name}", reasons)
-                for k, sub in inner.items():
-                    if not isinstance(sub, dict):
-                        _not_read(f"{label} {name} {row['inner']}", k, dict, sub, reasons)
-                        continue
-                    got = sub.get(row["field"])
-                    if isinstance(got, int) and not isinstance(got, bool) and got >= row["min"]:
-                        take(row, f"{name} {k}", sub.get(row["time"]), got)
+            _l_rows(facts, row, take, hit)
+        else:
+            _l_state(state, row, take, hit, reasons)
     return out
+
+
+def _l_rows(facts, row, take, hit):
+    """A `rows` table row: the journal rows of its carrier (narrowed by `kind`) whose field holds one of its values."""
+    for r in _rows_of(facts, row):
+        if hit(row, r):
+            take(row, "row", r.get(row["time"]), r.get(row["field"]))
+
+
+def _l_state(state, row, take, hit, reasons):
+    """A table row over `driver-state.json`: each record of its key, read by the row's shape; a record in another shape is a
+    reason, never "no loop"."""
+    held = _shape(state, row["key"], dict, row["carrier"], reasons)
+    label = f"{row['carrier']} {row['key']}"
+    want = list if row["shape"] == "series" else dict
+    reader = {"series": _l_series, "records": _l_records_flat, "nested_records": _l_nested}[row["shape"]]
+    for name, rec in held.items():
+        if not isinstance(rec, want):
+            _not_read(label, name, want, rec, reasons)
+        else:
+            reader(row, label, name, rec, take, hit, reasons)
+
+
+def _l_series(row, label, name, rec, take, hit, reasons):
+    """`series`: the record is a list of dicts; each item that hits is a signal."""
+    for r in _dicts(rec):
+        if hit(row, r):
+            take(row, name, r.get(row["time"]), r.get(row["field"]))
+
+
+def _l_records_flat(row, label, name, rec, take, hit, reasons):
+    """`records`: the record is one dict; it is a signal when it hits."""
+    if hit(row, rec):
+        take(row, name, rec.get(row["time"]), rec.get(row["field"]))
+
+
+def _l_nested(row, label, name, rec, take, hit, reasons):
+    """`nested_records`: the record holds a dict of dicts under `inner`; each inner record whose count reaches `min` is a signal."""
+    inner = _shape(rec, row["inner"], dict, f"{label} {name}", reasons)
+    for k, sub in inner.items():
+        if not isinstance(sub, dict):
+            _not_read(f"{label} {name} {row['inner']}", k, dict, sub, reasons)
+            continue
+        got = sub.get(row["field"])
+        if isinstance(got, int) and not isinstance(got, bool) and got >= row["min"]:
+            take(row, f"{name} {k}", sub.get(row["time"]), got)
 
 
 def _l5_person_pass(facts, floor, ignored, reasons):
@@ -492,11 +517,32 @@ def judge(facts, mark, now, quiet_hours=DEFAULT_QUIET_HOURS, loop_table=None):
     return _verdict(signals, reasons, ignored, waiting, current, bool(live), _loop_half(facts, floor, loop_table, reasons))
 
 
+YES, NO, UNKNOWN = "yes", "no", "unknown"
+
+
+def loop_state(record):
+    """(stall, loop) of a verdict or of a manifest story: each YES, NO or UNKNOWN. The ONE reading of the pair (CL4-1):
+    True is YES, False is NO, anything else (None, a missing `stalled`, a non-bool such as 0, 1 or "x") is UNKNOWN; a
+    missing `looped` is NO (an older producer). Not a dict: (NO, NO) - no record, no story."""
+    if not isinstance(record, dict):
+        return NO, NO
+    s, l = record.get("stalled"), record.get("looped", False)
+    return (YES if s is True else NO if s is False else UNKNOWN, YES if l is True else NO if l is False else UNKNOWN)
+
+
 def wants_transcripts(verdict):
     """The ONE gate of H: a stalled story, or one that looped, or one whose looping is not known (an extra transcript is the
-    safe side). A verdict with no `looped` key at all is read as not looped (an older producer, a hand-made verdict)."""
-    verdict = verdict if isinstance(verdict, dict) else {}
-    return bool(verdict.get("stalled")) or verdict.get("looped", False) is not False
+    safe side). A verdict with no `looped` key at all is read as not looped (an older producer, a hand-made verdict).
+    It errs only toward packing: any value that is not literally True or False is unknown, and unknown packs."""
+    return loop_state(verdict) != (NO, NO)
+
+
+# the words of `select_transcripts`'s `why` by the pair; (NO, NO) is absent: the early return there precedes the lookup
+_WHY = {(YES, YES): "the story is stalled and looped", (YES, NO): "the story is stalled", (YES, UNKNOWN): "the story is stalled",
+        (NO, YES): "the story looped", (NO, UNKNOWN): "whether the story looped is not known",
+        (UNKNOWN, YES): "the story looped; whether it stalled is not known",
+        (UNKNOWN, NO): "whether the story stalled is not known",
+        (UNKNOWN, UNKNOWN): "whether the story stalled or looped is not known"}
 
 
 # --- H: which transcripts go with a stalled or looped story ---------------------------------------------------------------------
@@ -511,8 +557,9 @@ def select_transcripts(verdict, sessions, subagent_paths):
     A carrier the sessions are read from that could not be read arrives as an entry `{sid: None, unreadable: True, why}`
     (`session_transcripts`): it is a gap with no sid, and when nothing else is known the answer says the sessions are
     UNREADABLE - never that none is recorded (t-1022 M-4: an unknown is not an absence)."""
-    verdict = verdict if isinstance(verdict, dict) else {}
-    if not wants_transcripts(verdict):
+    is_dict = isinstance(verdict, dict)
+    verdict = verdict if is_dict else {}
+    if not is_dict or not wants_transcripts(verdict):
         return {"main": [], "subagents": [], "gaps": [], "why": verdict.get("record") or "the story neither stalled nor looped"}
     sessions = _dicts(sessions)
     broken = [s for s in sessions if s.get("unreadable")]
@@ -527,9 +574,7 @@ def select_transcripts(verdict, sessions, subagent_paths):
     kept = [str(p) for p in subagent_paths or [] if Path(str(p)).parent.parent.name in stems]
     gaps += [{"sid": str(s.get("sid")), "why": str(s.get("why") or "the transcript file is not on disk")}
              for s in sessions if not s.get("exists")]
-    looped = verdict.get("looped", False)
-    why = ("the story is stalled and looped" if looped is True and verdict.get("stalled") else "the story looped" if looped is True
-           else "the story is stalled" if verdict.get("stalled") else "whether the story looped is not known")
+    why = _WHY[loop_state(verdict)]
     return {"main": main, "subagents": kept, "gaps": gaps, "why": why}
 
 

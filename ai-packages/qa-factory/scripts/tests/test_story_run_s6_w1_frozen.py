@@ -26,7 +26,7 @@ Volatile fields, masked on both sides (each mask named here and nowhere else):
   - M5 the key `noted` of the driver state is left out of `state_keys` (it holds one-time notes, written by whichever code path met them);
   - M6 a duration or a process id a console line prints (`12.3s`, `pid 123`): replaced by `<secs>` and `<pid>` (none appeared at capture; the
     mask is the same one a progress line would need and stays inert while no such text is printed);
-  - M7 the two byte figures of the `note: brief: ... (5,480 B, 4,174 B against the ceiling)` line: replaced by `<bytes>` (they count the real brief, which
+  - M7 the byte figure(s) of the `note: brief: ... (5,480 B, 4,174 B against the ceiling)` line (since FV1-4 N1 one figure: `(5,738 B)`): replaced by `<bytes>` (they count the real brief, which
     depends on the install path length, AR-4); applied to the live console and to the fixture text at compare time, the rest of the line stays.
 A difference that is not one of these is a finding: a change of the serial road. Never mask it.
 
@@ -35,6 +35,7 @@ Capture (a builder or a lead, once, on the tree before C1, never in CI):
 Retaken on 12.11.2026 at tree 8afd343 (the owner's word, t-107): the prompt gained the input line of the story's first-look record (`work/first-look.yaml`,
 `brief_pack.FIRST_LOOK_FILE`) and the brief note prints `N budget B against the ceiling` (2b1b36c); `events` and `state_keys` came out byte-equal.
 Refreshed 13.11.2026 at 5efb17e (OH8-4 C11, t-340): calls.json only; the card head's <plugin>/scripts/<name>.py became one double-quoted word in every prompt (s5: 9, s6: 2); events, state_keys and console byte-equal.
+Retaken on 13.11.2026 after FV1-4 N1 (8207150, the brief is rendered once and whole, no size ladder) by the owner's word: console.json only; the brief note prints `(N B)`, and M7 masks that form too.
 
 This file is CI's (`story_run_*` is a slow-tier name): a builder never runs the compare in CI's place (plans/builder-rules.md 7b).
 """
@@ -158,12 +159,12 @@ def mask(text: str, root, task_root) -> str:
     return mask_brief_bytes(text)
 
 
-BRIEF_BYTES = re.compile(r"\(\d[\d,]* B, \d[\d,]* (?:budget )?B against the ceiling\)")      # both labels the product has printed: `N B, N B` and `N B, N budget B`
+BRIEF_BYTES = re.compile(r"\(\d[\d,]* B(?:, \d[\d,]* (?:budget )?B against the ceiling)?\)")      # the forms the product has printed: `N B, N B`, `N B, N budget B` and (FV1-4 N1) `N B`
 
 
 def mask_brief_bytes(text: str) -> str:
     """M7: the two byte figures of the `note: brief:` line depend on the install path (AR-4), so they are replaced by `<bytes>`; the rest of the line (the label included) stays."""
-    return BRIEF_BYTES.sub(lambda m: "(<bytes> B, <bytes> " + ("budget " if "budget" in m.group(0) else "") + "B against the ceiling)", text)
+    return BRIEF_BYTES.sub(lambda m: "(<bytes> B)" if "against" not in m.group(0) else "(<bytes> B, <bytes> " + ("budget " if "budget" in m.group(0) else "") + "B against the ceiling)", text)
 
 
 def enter(driver, world):
@@ -254,9 +255,44 @@ def w1_frozen_state_keys():
     compare("w1_frozen_state_keys", "the keys of the driver state equal the pre-C1 capture", live()["state_keys"], frozen("state_keys"))
 
 
+DIFF_LINE, DIFF_ENTRY_CUT, DIFF_ENTRIES = 200, 4000, 5      # CI cuts a log line at 300 characters: a printed line carries at most 200 of the value plus its prefix
+
+
+def console_diff_lines(live_console: list, expected: list) -> list:
+    """The failure path of the console compare only: the differing entries, readable under CI's 300-character line cut.
+
+    Lengths first when they differ; then, for the first differing entry and at most DIFF_ENTRIES in all, the index and the expected and the got
+    value (json text, so one entry stays on its own lines), each cut at DIFF_ENTRY_CUT characters with a visible mark and wrapped by DIFF_LINE.
+    """
+    lines = []
+    if len(live_console) != len(expected):
+        lines.append(f"console entries: expected {len(expected)}, got {len(live_console)}")
+    if not live_console:
+        lines.append("got: <empty>")
+    shown = 0
+    for i in range(max(len(live_console), len(expected))):
+        a = live_console[i] if i < len(live_console) else "<absent>"
+        b = expected[i] if i < len(expected) else "<absent>"
+        if a == b:
+            continue
+        if shown == DIFF_ENTRIES:
+            break
+        shown += 1
+        for prefix, value in (("exp", b), ("got", a)):
+            text = json.dumps(value, ensure_ascii=True)
+            if len(text) > DIFF_ENTRY_CUT:
+                text = text[:DIFF_ENTRY_CUT] + f"...(cut, {len(text)} chars)"
+            parts = [text[k:k + DIFF_LINE] for k in range(0, len(text), DIFF_LINE)] or [""]
+            lines.extend(f"{prefix}[{i}] {k + 1}/{len(parts)}: {part}" for k, part in enumerate(parts))
+    return lines
+
+
 def w1_frozen_console():
-    compare("w1_frozen_console", "the console of every entry equals the pre-C1 capture (M1, M2, M6, M7 masked)", live()["console"],
-            [mask_brief_bytes(x) for x in frozen("console")])
+    expected = [mask_brief_bytes(x) for x in frozen("console")]
+    compare("w1_frozen_console", "the console of every entry equals the pre-C1 capture (M1, M2, M6, M7 masked)", live()["console"], expected)
+    if live()["console"] != expected:      # after the verdict line; a green run prints nothing more
+        for line in console_diff_lines(live()["console"], expected):
+            print(line)
 
 
 def w1_frozen_brief_bytes_mask():

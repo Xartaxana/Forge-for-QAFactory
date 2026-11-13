@@ -23,6 +23,7 @@ B-K5 a fragment that binds a Then to the id it retracts (refused by `run`, kept 
 """
 import copy
 import inspect
+import json
 import sys
 from pathlib import Path
 
@@ -749,6 +750,468 @@ def ep1_38_obligation_hash() -> None:
         check_eq("a patch that leaves the hash out is taken", stand.put({"tests": [dict(row, critic_verdict="approved")]})[0], 0)
 
 
+def _plan_file(stand, ids=("OB-1", "OB-2"), text=None) -> dict:
+    """The story's plan on disk: one schema-2 row naming `ids`; `{id: obligation}` of what it wrote. `text` writes that instead."""
+    rows = [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [{"obligation_id": i, "decision": "automate"} for i in ids]}]
+    (stand.task / "work" / "test-plan.json").write_text(text if text is not None else json.dumps({"rows": rows}), encoding="utf-8")
+    return {ob["obligation_id"]: ob for ob in rows[0]["coverage_obligations"]}
+
+
+def _row_of(stand, iid="test_ob") -> dict:
+    return next(t for t in stand.manifest()["tests"] if t["instance_id"] == iid)
+
+
+def _ob_row(**extra) -> dict:
+    return dict({"instance_id": "test_ob", "file": "tests/t.py", "covers": ["TC-018"], "case": "TC-018", "status": "green"}, **extra)
+
+
+def fv1_19_predicate() -> None:
+    """FV1-19 N1: the ONE reader of a valid obligation reference and the one stamp, pure (`contract`)."""
+    from event_store import content_hash
+    plan = {"OB-1": {"obligation_id": "OB-1", "decision": "a"}, "OB-2": {"obligation_id": "OB-2", "decision": "b"}}
+    good = lambda oid: {"obligation_id": oid, "obligation_hash": content_hash(plan[oid])}   # noqa: E731
+    check_eq("map: last occurrence wins; non-dict rows, non-list obligations, non-dict and id-less items are skipped",
+             C.obligation_map([{"coverage_obligations": [{"obligation_id": "A", "v": 1}, "x", {"v": 2}]}, "row", {"coverage_obligations": "no"},
+                               {"schema_version": 1, "coverage_obligations": [{"obligation_id": "A", "v": 3}]}]), {"A": {"obligation_id": "A", "v": 3}})
+    check_eq("map: a non-list of rows is an empty map", (C.obligation_map(None), C.obligation_map("x")), ({}, {}))
+    check_eq("predicate: valid refs and an empty list are no problem",
+             (C.obligation_ref_problems([good("OB-1"), good("OB-2")], plan, strict=True), C.obligation_ref_problems([], plan, strict=True)), ([], []))
+    kinds = lambda refs, m=plan, strict=False: [k for k, _t in C.obligation_ref_problems(refs, m, strict)]   # noqa: E731
+    bad_hashes = ["h", good("OB-1")["obligation_hash"] + " ", good("OB-1")["obligation_hash"].upper(), content_hash(plan["OB-2"])]
+    check_eq("predicate E19: a hash of another obligation, a trailing space, uppercase hex, a wrong hash are all stale",
+             [kinds([{"obligation_id": "OB-1", "obligation_hash": h}]) for h in bad_hashes], [["stale"]] * 4)
+    check_eq("predicate: an id of another case is unknown, naming the plan's ids",
+             (kinds([good("OB-1") | {"obligation_id": "ob-1"}]), C.obligation_ref_problems([good("OB-1") | {"obligation_id": "ob-1"}], plan)[0][1]
+              .endswith("(the plan names OB-1, OB-2)")), (["unknown"], True))
+    check_eq("predicate: shape problems come ALONE (a broken list never reaches the hash comparison)",
+             kinds([{"obligation_id": "OB-1", "obligation_hash": "stale"}, "junk", good("OB-2") | {"obligation_hash": None}]), ["shape", "shape"])
+    check_eq("predicate: not a list / non-dict item / non-string id or hash / twice / missing hash are shape",
+             [kinds(r) for r in ("OB-1", {"obligation_id": "OB-1"}, [1], [{"obligation_id": 7, "obligation_hash": "h"}],
+                                 [{"obligation_id": "OB-1", "obligation_hash": 123}], [good("OB-1"), good("OB-1")],
+                                 [{"obligation_id": "OB-1"}], [{"obligation_id": "OB-1", "obligation_hash": ""}])], [["shape"]] * 8)
+    check_eq("predicate: strict with an empty or missing map makes EVERY ref unknown, as the finish reads it today",
+             (kinds([good("OB-1"), good("OB-2")], {}, True), kinds([good("OB-1")], None, True)), (["unknown", "unknown"], ["unknown"]))
+    check_eq("predicate: not strict with an empty or missing map judges shape only",
+             (kinds([good("OB-1")], {}), kinds([good("OB-1")], None), kinds([{"obligation_id": "OB-1"}], None)), ([], [], ["shape"]))
+    check_eq("predicate: strict with an empty map still returns shape alone when the list is broken", kinds(["x"], {}, True), ["shape"])
+    sent = {"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])], "obligation_bindings": [{"obligation_id": "OB-1"}]}
+    frozen = copy.deepcopy(sent)
+    stamped, problems = C.stamp_obligation_refs(sent, plan)
+    check_eq("stamp: pure - the input is never edited", sent, frozen)
+    check_eq("stamp: the ref, the derived ids, the row hash and the binding hash are the code's",
+             (problems, stamped["tests"][0]["obligation_refs"], stamped["tests"][0].get("obligation_ids"), stamped["tests"][0].get("obligation_hash"),
+              stamped["obligation_bindings"]), ([], [good("OB-1")], ["OB-1"], content_hash([good("OB-1")]),
+                                                [dict(good("OB-1"), judged_on={})]))
+    check_eq("stamp: idempotent - the stamped rows stamp to themselves (a binding carrying the code's `judged_on` is refused, FV1-19e)",
+             (C.stamp_obligation_refs({"tests": stamped["tests"]}, plan), len(C.stamp_obligation_refs(stamped, plan)[1])),
+             (({"tests": stamped["tests"]}, []), 1))
+    check_eq("(k) stamp: a binding with an id the plan does not name gets no stamp and no `judged_on` (a sent hash is dropped, F8 (a))",
+             C.stamp_obligation_refs({"obligation_bindings": [{"obligation_id": "OB-9", "obligation_hash": "x"}, {"obligation_id": "OB-8"}]}, plan),
+             ({"obligation_bindings": [{"obligation_id": "OB-9"}, {"obligation_id": "OB-8"}]}, []))
+    check_eq("stamp: a non-string hash on a ref or a non-string id is refused as shape, never coerced",
+             [len(C.stamp_obligation_refs({"tests": [_ob_row(obligation_refs=[r])]}, plan)[1]) for r in
+              ({"obligation_id": "OB-1", "obligation_hash": 123}, {"obligation_id": 1}, {"obligation_id": ""})], [1, 1, 1])
+    check_eq("stamp: a fragment with no tests and no bindings passes through (a non-dict too)",
+             (C.stamp_obligation_refs({"unresolved": []}, plan), C.stamp_obligation_refs("x", plan)), (({"unresolved": []}, []), ("x", [])))
+    want = content_hash(plan["OB-1"])
+    hashed = lambda b, stored: C.stamp_obligation_refs({"obligation_bindings": [b]}, plan, stored)   # noqa: E731
+    receipt = {"obligation_id": "OB-1", "review_receipt_ref": "r"}
+    check_eq("B1 stamp: no stored binding (absent, None, not a list, non-dict items, another id), a stored one with no or an "
+             "empty hash, a stored hash equal to the plan's -> stamped",
+             [hashed(receipt, s)[0]["obligation_bindings"][0].get("obligation_hash") for s in
+              (None, "x", {"obligation_id": "OB-1"}, [1, "x", None], [{"obligation_id": "OB-2", "obligation_hash": "old"}],
+               [{"obligation_id": "OB-1"}], [{"obligation_id": "OB-1", "obligation_hash": ""}], [{"obligation_id": "OB-1", "obligation_hash": want}])],
+             [want] * 8)
+    stale = [{"obligation_id": "OB-1", "obligation_hash": "old", "design_assessment": "sufficient"}]
+    check_eq("B1 stamp: a STALE stored binding + a hash-less patch (a receipt, a null hash, an empty hash, a null design_assessment) "
+             "-> no hash key, no problem",
+             [hashed(dict(receipt, **extra), stale) for extra in ({}, {"obligation_hash": None}, {"obligation_hash": ""}, {"design_assessment": None})],
+             [({"obligation_bindings": [dict(receipt, judged_on={}, **({"design_assessment": None} if "design_assessment" in extra else {}))]}, [])
+              for extra in ({}, {"obligation_hash": None}, {"obligation_hash": ""}, {"design_assessment": None})])
+    check_eq("B1 stamp: a STALE stored binding + a re-sent design_assessment -> stamped (a re-judgment); the last stored row of an id is read",
+             (hashed(dict(receipt, design_assessment="insufficient"), stale)[0]["obligation_bindings"][0]["obligation_hash"],
+              hashed(receipt, [{"obligation_id": "OB-1", "obligation_hash": "old"}, {"obligation_id": "OB-1", "obligation_hash": want}])[0]
+              ["obligation_bindings"][0].get("obligation_hash")), (want, want))
+    check_eq("B1 stamp POSITIONAL: over a stale stored binding a wrong sent hash is still a problem, an unknown id still left alone",
+             (len(hashed({"obligation_id": "OB-1", "obligation_hash": "zzz"}, stale)[1]),
+              hashed({"obligation_id": "OB-9"}, [{"obligation_id": "OB-9", "obligation_hash": "old"}])), (1, ({"obligation_bindings": [{"obligation_id": "OB-9"}]}, [])))
+    check_eq("F2 one shape wording: every shape text of the reader is the stamp's, but for the missing hash only the reader refuses",
+             [(len(C.stamp_obligation_refs({"tests": [_ob_row(obligation_refs=r)]}, plan)[1]),
+               [t for _k, t in C.obligation_ref_problems(r, plan)]
+               == [t.replace("tests[0].obligation_refs", "obligation_refs") for t in C.stamp_obligation_refs({"tests": [_ob_row(obligation_refs=r)]}, plan)[1]])
+              for r in ("OB-1", [1], [{"obligation_id": 7}], [{"obligation_id": "OB-1", "obligation_hash": 123}], [good("OB-1"), good("OB-1")])],
+             [(1, True)] * 5)
+    check_eq("F2 ... the missing hash: the reader says shape, the stamp writes the hash",
+             ([k for k, _t in C.obligation_ref_problems([{"obligation_id": "OB-1"}], plan)],
+              C.stamp_obligation_refs({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])]}, plan)[1]), (["shape"], []))
+
+
+def fv1_19_obligation_stamp() -> None:
+    """FV1-19 N1 rows (a)-(g), (j), (k), (l), (m), (n), (q): `manifest_put.run` stamps the hashes; a role sends ids."""
+    from event_store import content_hash
+    ref = lambda plan, oid: {"obligation_id": oid, "obligation_hash": content_hash(plan[oid])}   # noqa: E731
+    with Stand() as stand:
+        plan = _plan_file(stand)
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])]})
+        stored = _row_of(stand)
+        check_eq("(a) ids only: the stored ref carries the plan's hash, the row its ids and the hash of the stored refs",
+                 (code, err, stored["obligation_refs"], stored.get("obligation_ids"), stored.get("obligation_hash")),
+                 (0, "", [ref(plan, "OB-1")], ["OB-1"], content_hash(stored["obligation_refs"])))
+        before = (stand.journal(), stand.tree())
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-2", "obligation_hash": "zzz"}])]})
+        check_eq("(b) a wrong hash is refused before the commit: exit, journal and tree unchanged", (code, (stand.journal(), stand.tree())),
+                 (MP.EXIT_BAD_FRAGMENT, before))
+        for what, needle in (("the id", "OB-2"), ("the hash sent", "zzz"), ("the plan's hash", content_hash(plan["OB-2"])),
+                             ("the door", "leave `obligation_hash` out"), ("the repair marker", MP.REPAIR_MARKER)):
+            check_in(f"(b) ... the refusal names {what}", needle, err)
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-2", "obligation_hash": content_hash(plan["OB-2"])}])]})
+        check_eq("(b) the hash the code would write is accepted", (code, _row_of(stand)["obligation_refs"]), (0, [ref(plan, "OB-2")]))
+        before = (stand.journal(), stand.tree())
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-9"}])]})
+        check_eq("(c) an id the plan does not name is refused, naming the plan's ids", (code, (stand.journal(), stand.tree()), "the plan names OB-1, OB-2" in err),
+                 (MP.EXIT_BAD_FRAGMENT, before, True))
+        for what, refs in (("a string", "OB-1"), ("a dict", {"obligation_id": "OB-1"}), ("a list holding a non-dict", [1])):
+            code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=refs)]})
+            check_eq(f"(e) refs that are {what} are refused (shape, with the expected shape)", (code, "obligation_refs" in err and '"obligation_id": "<plan obligation id>"' in err),
+                     (MP.EXIT_BAD_FRAGMENT, True))
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}, {"obligation_id": "OB-1"}])]})
+        check_eq("(g) a duplicate id in one row is refused", (code, "OB-1 appears twice" in err), (MP.EXIT_BAD_FRAGMENT, True))
+        check_eq("(g)+(e) a non-string id is refused as shape, never coerced",
+                 stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": 1}])]})[0], MP.EXIT_BAD_FRAGMENT)
+
+        print("-- (f) null = not sent; [] clears")
+        stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}, {"obligation_id": "OB-2"}])],
+                   "obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_ob"]}]})
+        held = copy.deepcopy(_row_of(stand))
+        binding = copy.deepcopy(stand.manifest()["obligation_bindings"][0])
+        check_eq("(f) the binding was stamped", binding.get("obligation_hash"), content_hash(plan["OB-1"]))
+        # Re-seeded (FV1-19 B1): the plan's OB-1 changes, so the stored binding hash is STALE - a null must keep it, not restamp it.
+        replanned = {"obligation_id": "OB-1", "decision": "manual"}
+        _plan_file(stand, text=json.dumps({"rows": [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [
+            replanned, {"obligation_id": "OB-2", "decision": "automate"}]}]}))
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=None, obligation_ids=None, obligation_hash=None, status="red")],
+                                     "obligation_bindings": [{"obligation_id": "OB-1", "obligation_hash": None, "sensitivity": "proven"}]})
+        now = _row_of(stand)
+        check_eq("(f) nulls keep the stored refs, ids and row hash (the key is dropped before the merge)",
+                 (code, now["status"], {k: now[k] for k in ("obligation_refs", "obligation_ids", "obligation_hash")}),
+                 (0, "red", {k: held[k] for k in ("obligation_refs", "obligation_ids", "obligation_hash")}))
+        check_eq("(f) a binding `obligation_hash: null` keeps the stored (STALE) binding hash, not the re-planned one",
+                 (stand.manifest()["obligation_bindings"][0], binding["obligation_hash"] != content_hash(replanned)),
+                 (binding | {"sensitivity": "proven"}, True))
+        _plan_file(stand)
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[])]})
+        now = _row_of(stand)
+        check_eq("(f) [] clears refs, ids and the row hash", (code, now["obligation_refs"], now["obligation_ids"], now["obligation_hash"]), (0, [], [], ""))
+
+        print("-- (m) the ids the role sends")
+        two = [{"obligation_id": "OB-1"}, {"obligation_id": "OB-2"}]
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=two, obligation_ids=["OB-1"])]})
+        check_eq("(m) obligation_ids that differ as a set from the refs are refused", (code, "leave it out, the code writes it" in err),
+                 (MP.EXIT_BAD_FRAGMENT, True))
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=two, obligation_ids=["OB-2", "OB-1"])]})
+        check_eq("(m) the same set in another order is accepted, stored in refs order", (code, _row_of(stand)["obligation_ids"]), (0, ["OB-1", "OB-2"]))
+        code, _out, err = stand.put({"tests": [_ob_row(instance_id="test_ids_only", obligation_ids=["OB-2"])]})
+        check_eq("(m) a row sending only obligation_ids is stored as sent (today's behaviour)",
+                 (code, _row_of(stand, "test_ids_only")["obligation_ids"]), (0, ["OB-2"]))
+
+        print("-- (n) the row hash never outlives its refs")
+        h_old = _row_of(stand)["obligation_hash"]
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-2"}], fit_note="n")]})
+        now = _row_of(stand)
+        check_eq("(n) an ids-only fragment over a stored row: the row hash is the hash of the NEW stamped refs",
+                 (code, now["obligation_hash"] == content_hash(now["obligation_refs"]), now["obligation_hash"] != h_old), (0, True, True))
+
+        print("-- (k) bindings")
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-2", "instance_ids": ["test_ob"]}]})
+        check_eq("(k) a binding without a hash is stamped", (code, next(b for b in stand.manifest()["obligation_bindings"] if b["obligation_id"] == "OB-2")
+                                                              .get("obligation_hash")), (0, content_hash(plan["OB-2"])))
+        before = (stand.journal(), stand.tree())
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-2", "obligation_hash": "zzz"}]})
+        check_eq("(k) a binding with a wrong hash is refused", (code, (stand.journal(), stand.tree()), "leave `obligation_hash` out" in err),
+                 (MP.EXIT_BAD_FRAGMENT, before, True))
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-9"}]})
+        check_eq("(k) a binding with an id the plan does not name keeps the `obligation-id` refusal and its word road",
+                 (code, "obligation ids not in the plan: OB-9" in err, 'waiver.py --task <TICKET> --stage S5 --block "obligation-id"' in err),
+                 (MP.EXIT_BAD_FRAGMENT, True, True))
+
+    print("-- B1: a hash-less binding patch never refreshes a STALE stored binding hash; a re-sent design_assessment does")
+    with Stand() as stand:
+        _plan_file(stand)
+        stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_ob"], "design_assessment": "sufficient"}]})
+        old_hash = stand.manifest()["obligation_bindings"][0]["obligation_hash"]
+        replanned = {"obligation_id": "OB-1", "decision": "manual"}
+        _plan_file(stand, text=json.dumps({"rows": [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [
+            replanned, {"obligation_id": "OB-2", "decision": "automate"}]}]}))
+        stored_b = lambda: stand.manifest()["obligation_bindings"][0]   # noqa: E731
+        for what, patch in (("review-receipt", {"review_receipt_ref": "state/r.json"}), ("sensitivity-only", {"sensitivity": "proven"})):
+            code, _out, err = stand.put({"obligation_bindings": [dict({"obligation_id": "OB-1"}, **patch)]})
+            check_eq(f"B1 a stale stored binding + a hash-less {what} patch: stored, the stored hash unchanged, still not current",
+                     (code, {k: stored_b().get(k) for k in patch}, stored_b()["obligation_hash"], stored_b()["obligation_hash"] == content_hash(replanned)),
+                     (0, patch, old_hash, False))
+        before = (stand.journal(), stand.tree())
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "obligation_hash": "zzz", "review_receipt_ref": "x"}]})
+        check_eq("B1 POSITIONAL: over a stale stored binding a caller-sent wrong hash is still refused, nothing written",
+                 (code, (stand.journal(), stand.tree())), (MP.EXIT_BAD_FRAGMENT, before))
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-9", "review_receipt_ref": "x"}]})
+        check_eq("B1 POSITIONAL: an id the plan does not name is still refused", (code, (stand.journal(), stand.tree())), (MP.EXIT_BAD_FRAGMENT, before))
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "design_assessment": "sufficient"}]})
+        check_eq("B1 a stale stored binding + a hash-less patch re-sending design_assessment is a re-judgment: stamped with the current plan hash",
+                 (code, stored_b()["obligation_hash"]), (0, content_hash(replanned)))
+
+    print("-- (d) an empty plan and no plan: the refs are stored as sent")
+    for what, write in (("no plan file", None), ("a plan naming no obligation", {"rows": [{"id": "TS-1", "schema_version": 2}]})):
+        with Stand() as stand:
+            if write is not None:
+                _plan_file(stand, text=json.dumps(write))
+            code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}, {"obligation_id": "OB-2", "obligation_hash": "typed"}])]})
+            now = _row_of(stand)
+            check_eq(f"(d) {what}: exit 0, no note, no hash added, ids and row hash derived",
+                     (code, err, now["obligation_refs"], now["obligation_ids"], now["obligation_hash"] == content_hash(now["obligation_refs"])),
+                     (0, "", [{"obligation_id": "OB-1"}, {"obligation_id": "OB-2", "obligation_hash": "typed"}], ["OB-1", "OB-2"], True))
+
+    print("-- (q) a plan that is not JSON")
+    with Stand() as stand:
+        _plan_file(stand, text="{not json")
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])]})
+        notes = [line for line in err.splitlines() if line.startswith("manifest_put: note: the plan")]
+        check_eq("(q) exit 0, ONE note line naming what the finish will do, the refs stored as sent",
+                 (code, len(err.splitlines()), len(notes), "without hashes, and the window finish refuses them until the plan reads" in err,
+                  _row_of(stand)["obligation_refs"]), (0, 1, 1, True, [{"obligation_id": "OB-1"}]))
+
+    print("-- (l) magnitude")
+    with Stand() as stand:
+        many = {f"O-{n}": {"obligation_id": f"O-{n}"} for n in range(1000)}
+        rows = [{"id": "TS-1", "schema_version": 2, "coverage_obligations": list(many.values())}]
+        (stand.task / "work" / "test-plan.json").write_text(json.dumps({"rows": rows}), encoding="utf-8")
+        refs = [{"obligation_id": oid} for oid in many]
+        for at in (3, 500, 999):
+            refs[at]["obligation_hash"] = "typo"
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=refs)]})
+        check_eq("(l) 1000 refs, 3 bad: ONE refusal line naming the 3 and no more",
+                 (code, len(err.strip().splitlines()), [f"O-{n} carries hash typo" in err for n in (3, 500, 999)], err.count("carries hash")),
+                 (MP.EXIT_BAD_FRAGMENT, 1, [True] * 3, 3))
+        check_eq("(l) 1000 refs, 0 bad: one write", stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": oid} for oid in many])]})[0], 0)
+    ceiling = 6000
+    for beyond in (0, 1):
+        with Stand() as stand:
+            def two_problems(pad):
+                ids = ["A" * 40, "B" * pad]
+                plan = _plan_file(stand, ids=ids)
+                frag = {"tests": [_ob_row(obligation_refs=[{"obligation_id": i, "obligation_hash": "zz"} for i in ids])]}
+                return frag, C.stamp_obligation_refs(frag, plan)[1]
+            pad = 40
+            while len("; ".join(two_problems(pad)[1])) < ceiling + beyond:
+                pad += 1
+            frag, problems = two_problems(pad)
+            joined = "; ".join(problems)
+            before = stand.tree()
+            code, _out, err = stand.put(frag)
+            spill = stand.task / "state" / "findings" / "manifest-put-obligation-refs.txt"
+            if not beyond:
+                check_eq("(l) AT the ceiling (joined text exactly 6000 characters): the whole list in the line, no pointer, no file",
+                         (len(joined), code, joined in err, "more problem" in err, spill.exists()), (6000, MP.EXIT_BAD_FRAGMENT, True, False, False))
+            else:
+                spilled = spill.read_text(encoding="utf-8") if spill.exists() else ""
+                check_eq("(l) BEYOND (6001): the items that fit, the pointer, and the file holding every problem",
+                         (len(joined), code, "(+1 more problem(s) — the whole list: " in err, "manifest-put-obligation-refs.txt)" in err,
+                          problems[0] in err, problems[1] in err, all(p in spilled for p in problems)),
+                         (6001, MP.EXIT_BAD_FRAGMENT, True, True, True, False, True))
+                (stand.task / "state" / "findings" / "manifest-put-obligation-refs.txt").unlink()
+                (stand.task / "state" / "findings").rmdir()
+                (stand.task / "state" / "findings").write_text("a file where the folder should be", encoding="utf-8")
+                code, _out, err = stand.put(frag)
+                check_eq("(l) the spill file that cannot be written: the refusal still prints, saying so, no crash",
+                         (code, "the whole list could not be saved" in err), (MP.EXIT_BAD_FRAGMENT, True))
+
+    print("-- (j) a journal holding old unstamped events folds unchanged; merge stays pure")
+    old = {"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1", "obligation_hash": "stale"}, {"obligation_id": "OB-7"}],
+                             obligation_ids=["OB-1"], obligation_hash="whatever")]}
+    folded = MP.fold(journal(old))
+    check_eq("(j) the replay stores the old event as it was written: no stamp, no refusal", folded["tests"][0],
+             {**old["tests"][0], "obligation_refs": old["tests"][0]["obligation_refs"]})
+    check_eq("(j) merge itself never stamps", MP.merge({}, old)[0]["tests"][0]["obligation_refs"], old["tests"][0]["obligation_refs"])
+
+
+def fv1_19e_binding_currency() -> None:
+    """FV1-19e table T1 "binding currency" (rows r1-r17): a judgment field counts only when the plan hash it was stamped with
+    equals the current obligation's; the stamp (`stamp_obligation_refs`) and the per-key fold (`merge`) are the only writers."""
+    from event_store import content_hash
+    import migrate_artifacts as MA
+    ob = lambda d: {"obligation_id": "OB-1", "decision": d}   # noqa: E731
+    h = lambda d: content_hash(ob(d))   # noqa: E731
+    both = lambda a, c: {"design_assessment": a, "code_validity": c}   # noqa: E731
+    TT, FF, TF, FT = both(True, True), both(False, False), both(True, False), both(False, True)
+    plan_of = lambda d: {"rows": [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [ob(d)]}]}   # noqa: E731
+    judged = {"obligation_id": "OB-1", "design_assessment": "sufficient", "code_validity": "valid"}
+    w1 = lambda d, **extra: dict(judged, obligation_hash=h(d), **extra)   # noqa: E731  # a binding as it was written before C1
+
+    def bound(stand):
+        return next((b for b in stand.manifest().get("obligation_bindings") or [] if b["obligation_id"] == "OB-1"), None)
+
+    def run_steps(stand, steps):
+        codes = []
+        for kind, what in steps:
+            if kind == "plan":
+                _plan_file(stand, text=json.dumps(plan_of(what)))
+            elif kind == "noplan":
+                (stand.task / "work" / "test-plan.json").unlink()
+            elif kind == "world1":
+                stand.append_projected({"fragment": {"obligation_bindings": [what]}}, f"w1-{len(codes)}")
+            else:
+                codes.append(stand.put({"obligation_bindings": [what]})[0])
+        return codes
+
+    step1 = [("plan", "P1"), ("put", judged)]
+    redesign = ("put", {"obligation_id": "OB-1", "design_assessment": "sufficient"})
+    for name, steps, final, currency, stamps in (
+            ("r1 world 2: both judgments stamped with P1's hash", step1, "P1", TT, {"code_validity": h("P1")}),
+            ("r2 (the defect) re-plan, re-send ONLY design_assessment: validity stops counting", step1 + [("plan", "P2"), redesign],
+             "P2", TF, {"code_validity": h("P1")}),
+            ("r3 ... then re-send code_validity: it counts again", step1 + [("plan", "P2"), redesign, ("put", {"obligation_id": "OB-1", "code_validity": "valid"})],
+             "P2", TT, {"code_validity": h("P2")}),
+            ("r4 receipt-only and sensitivity-only patches over a stale binding make nothing current",
+             step1 + [("plan", "P2"), ("put", {"obligation_id": "OB-1", "review_receipt_ref": "r"}),
+                      ("put", {"obligation_id": "OB-1", "sensitivity": "proven"})], "P2", FF, {"code_validity": h("P1")}),
+            ("r6 world 1 + a design-only re-send under P2: the legacy currency is materialized from the STORED hash",
+             [("plan", "P1"), ("world1", w1("P1")), ("plan", "P2"), redesign], "P2", TF, {"code_validity": h("P1")}),
+            ("r7 ... and the plan back to P1: the old text counts again, the re-judged design does not",
+             [("plan", "P1"), ("world1", w1("P1")), ("plan", "P2"), redesign, ("plan", "P1")], "P1", FT, {"code_validity": h("P1")})):
+        with Stand() as stand:
+            codes = run_steps(stand, steps)
+            b = bound(stand)
+            check_eq(name, (codes, C.binding_currency(b, h(final)), b.get("judged_on")), ([0] * len(codes), currency, stamps))
+
+    print("-- r5 world 1: an old-shape event (no judged_on) folded through merge keeps today's reading")
+    folded = MP.fold(journal({"obligation_bindings": [w1("P1")]}))["obligation_bindings"][0]
+    check_eq("r5 under P1 every field is current, under P2 none; no judged_on invented by the fold",
+             (C.binding_currency(folded, h("P1")), C.binding_currency(folded, h("P2")), "judged_on" in folded), (TT, FF, False))
+
+    print("-- r8 a sent judged_on is refused with a door; null is dropped")
+    with Stand() as stand:
+        _plan_file(stand, text=json.dumps(plan_of("P1")))
+        before = (stand.journal(), stand.tree())
+        for what in ({}, {"code_validity": h("P1")}, "x", [], {"a": {"b": 1}}, {f"k{n}": n for n in range(10000)}):
+            code, _out, err = stand.put({"obligation_bindings": [dict(judged, judged_on=what)]})
+            check_eq(f"r8 judged_on {str(what)[:30]!r}: refused, journal and tree unchanged, the stderr names the field and the door",
+                     (code, (stand.journal(), stand.tree()), "judged_on" in err, "leave it out, the code writes it" in err),
+                     (MP.EXIT_BAD_FRAGMENT, before, True, True))
+        check_eq("r8 judged_on null: exit 0, the key is the code's (never null)",
+                 (stand.put({"obligation_bindings": [dict(judged, judged_on=None)]})[0], bound(stand)["judged_on"]),
+                 (0, {"code_validity": h("P1")}))
+
+    print("-- r9, r10 a sent hash never refreshes; with no plan nothing is stamped and the stored stamps stand")
+    with Stand() as stand:
+        run_steps(stand, step1 + [("plan", "P2")])
+        code, _out, _err = stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "obligation_hash": h("P2"), "review_receipt_ref": "r"}]})
+        check_eq("r9 a sent hash EQUAL to the plan's over a stale binding without design_assessment: stored hash unchanged",
+                 (code, bound(stand)["obligation_hash"]), (0, h("P1")))
+    with Stand() as stand:
+        code, _out, _err = stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "code_validity": "valid", "obligation_hash": "zzz"}]})
+        check_eq("r10 no plan file: exit 0, no judged_on written, the sent hash not stored",
+                 (code, "judged_on" in bound(stand), "obligation_hash" in bound(stand)), (0, False, False))
+    with Stand() as stand:
+        run_steps(stand, step1 + [("noplan", None)])
+        code, _out, _err = stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "code_validity": "valid", "obligation_hash": "zzz"}]})
+        check_eq("r10 over a stored world-2 binding the stamps are unchanged (the new value inherits h(P1))",
+                 (code, bound(stand)["judged_on"], bound(stand)["obligation_hash"]), (0, {"code_validity": h("P1")}, h("P1")))
+    with Stand() as stand:
+        run_steps(stand, [("plan", "P1"), ("world1", w1("P1")), ("noplan", None)])
+        code, _out, _err = stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "code_validity": "valid", "obligation_hash": "zzz"}]})
+        check_eq("r10 over a stored world-1 binding the stored hash is unchanged and no judged_on appears",
+                 (code, bound(stand)["obligation_hash"], "judged_on" in bound(stand)), (0, h("P1"), False))
+
+    print("-- r11 old events fold unchanged, a world-2 journal folds the same twice")
+    old_events = journal({"obligation_bindings": [w1("P1")]}, {"obligation_bindings": [{"obligation_id": "OB-1", "sensitivity": "proven"}]})
+    check_eq("r11 old events fold to exactly what dict(old, **new) says, no judged_on",
+             MP.fold(old_events)["obligation_bindings"], [dict(w1("P1"), sensitivity="proven")])
+    new_events = journal({"obligation_bindings": [dict(w1("P1"), judged_on={"code_validity": h("P1")})]},
+                         {"obligation_bindings": [{"obligation_id": "OB-1", "design_assessment": "partial", "judged_on": {}}]})
+    check_eq("r11 a world-2 journal folded twice gives equal results", MP.fold(new_events), MP.fold(copy.deepcopy(new_events)))
+
+    print("-- r12 race shape: two stamps computed from one snapshot, applied in both orders")
+    plan2 = {"OB-1": ob("P2")}
+    snapshot = [dict(w1("P1"), judged_on={"code_validity": h("P1")})]
+    frag_a = C.stamp_obligation_refs({"obligation_bindings": [{"obligation_id": "OB-1", "design_assessment": "sufficient"}]}, plan2, snapshot)[0]
+    frag_b = C.stamp_obligation_refs({"obligation_bindings": [{"obligation_id": "OB-1", "code_validity": "valid"}]}, plan2, snapshot)[0]
+    frag_c = C.stamp_obligation_refs({"obligation_bindings": [{"obligation_id": "OB-1", "review_receipt_ref": "r"}]}, plan2, snapshot)[0]
+    for label, second, expect_validity in (("validity re-send", frag_b, True), ("receipt only", frag_c, False)):
+        for order in ((frag_a, second), (second, frag_a)):
+            state = {"obligation_bindings": copy.deepcopy(snapshot)}
+            for frag in order:
+                state, _s = MP.merge(state, copy.deepcopy(frag))
+            check_eq(f"r12 {label}: validity counts iff its own fragment stamped it with the current hash",
+                     C.binding_currency(state["obligation_bindings"][0], h("P2"))["code_validity"], expect_validity)
+
+    print("-- r13 the code writers forward no judged_on")
+    row = dict(judged, judged_on={"code_validity": "x"}, obligation_hash="hb")
+    check_eq("r13 _forwardable drops judged_on on both branches",
+             ["judged_on" in MA._forwardable(row, refs) for refs in (True, False)], [False, False])
+
+    print("-- r14 binding_currency errs only toward not current")
+    hp = h("P1")
+    bad = [("judged_on []", dict(judged, obligation_hash="o", judged_on=[]), hp), ("judged_on 'x'", dict(judged, obligation_hash="o", judged_on="x"), hp),
+           ("judged_on None", dict(judged, obligation_hash="o", judged_on=None), hp),
+           ("trailing space", dict(judged, obligation_hash="o", judged_on={"code_validity": hp + " "}), hp),
+           ("uppercase hex", dict(judged, obligation_hash="o", judged_on={"code_validity": hp.upper()}), hp),
+           ("int stamp", dict(judged, obligation_hash="o", judged_on={"code_validity": 123}), hp),
+           ("empty stamp, empty plan hash", dict(judged, obligation_hash="o", judged_on={"code_validity": ""}), ""),
+           ("hash None, judged_on absent", dict(judged, obligation_hash=None), hp), ("hash absent, judged_on absent", dict(judged), hp),
+           ("not a dict", "x", hp), ("None", None, hp), ("plan hash None", dict(judged, obligation_hash=hp, judged_on={"code_validity": hp}), None),
+           ("plan hash int", dict(judged, obligation_hash=5, judged_on={"code_validity": 5}), 5)]
+    check_eq("r14 every adversarial input reads not current", [(n, C.binding_currency(b, p)) for n, b, p in bad], [(n, FF) for n, _b, _p in bad])
+
+    print("-- r16 F5 (b): a stored binding with no hash and a COUNTING design is not stamped by a receipt")
+    plan1 = {"OB-1": ob("P1")}
+    want = h("P1")
+    stamp = lambda b, stored=None, **frag: C.stamp_obligation_refs({"obligation_bindings": [b], **frag}, plan1, stored)   # noqa: E731
+    receipt = {"obligation_id": "OB-1", "review_receipt_ref": "r"}
+    out_hash = lambda b, stored: stamp(b, stored)[0]["obligation_bindings"][0].get("obligation_hash")   # noqa: E731
+    check_eq("r16 counting design, no hash: no hash key; `unknown`: stamped; counting + a re-sent design: stamped; no design: stamped",
+             [out_hash(receipt, [{"obligation_id": "OB-1", "design_assessment": "sufficient"}]),
+              out_hash(receipt, [{"obligation_id": "OB-1", "design_assessment": "unknown"}]),
+              out_hash(dict(receipt, design_assessment="sufficient"), [{"obligation_id": "OB-1", "design_assessment": "sufficient"}]),
+              out_hash(receipt, [{"obligation_id": "OB-1"}])], [None, want, want, want])
+
+    print("-- r17 B-1, B26: a rename carries the OLD stamps, never the plan's hash, and renamed_from is never stored")
+    renamed = {"obligation_id": "OB-1", "renamed_from": "X", "design_assessment": "sufficient", "code_validity": "valid"}
+    gone = {"retracted_obligations": ["X"]}
+    pull = lambda stored, b=renamed, **frag: stamp(b, stored, **(frag or gone))   # noqa: E731
+    out_b = lambda stored, b=renamed: pull(stored, b)[0]["obligation_bindings"][0]   # noqa: E731
+    stale_x = out_b([{"obligation_id": "X", "obligation_hash": "old"}])
+    check_eq("r17 X hash old: the hash and the validity stamp are old, no renamed_from, nothing current",
+             (stale_x["obligation_hash"], stale_x["judged_on"], "renamed_from" in stale_x, C.binding_currency(stale_x, want)),
+             ("old", {"code_validity": "old"}, False, FF))
+    fresh_x = out_b([{"obligation_id": "X", "obligation_hash": want}])
+    check_eq("r17 X hash == the plan's: carried and current", (fresh_x["obligation_hash"], fresh_x["judged_on"], C.binding_currency(fresh_x, want)),
+             (want, {"code_validity": want}, TT))
+    bare_x = out_b([{"obligation_id": "X"}])
+    check_eq("r17 X with no hash and no judged_on: no hash key, judged_on {}", ("obligation_hash" in bare_x, bare_x["judged_on"]), (False, {}))
+    check_eq("r17 X with its own judged_on: that stamp is carried",
+             out_b([{"obligation_id": "X", "obligation_hash": "old", "judged_on": {"code_validity": "jv"}}])["judged_on"], {"code_validity": "jv"})
+    check_eq("r17 a binding with no design_assessment (only sensitivity) over X hash old: the plan's hash, as a row (o)",
+             out_b([{"obligation_id": "X", "obligation_hash": "old"}], {"obligation_id": "OB-1", "renamed_from": "X", "sensitivity": "proven"})["obligation_hash"],
+             want)
+    stored_x = [{"obligation_id": "X", "obligation_hash": "old"}]
+    for what, value, stored, frag in (("5", 5, stored_x, gone), ("empty", "", stored_x, gone), ("a list", [], stored_x, gone),
+                                      ("an id the fragment does not retract", "Y", stored_x + [{"obligation_id": "Y"}], gone),
+                                      ("retracted_obligations not a list", "X", stored_x, {"retracted_obligations": "X"}),
+                                      ("retracted but no stored binding", "X", [], gone),
+                                      ("the binding's own id", "OB-1", [{"obligation_id": "OB-1"}], {"retracted_obligations": ["OB-1"]})):
+        problems = pull(stored, dict(renamed, renamed_from=value), **frag)[1]
+        check_eq(f"r17 renamed_from {what}: exactly one problem naming the key and the migration",
+                 (len(problems), "renamed_from" in "".join(problems), "it is the migration's" in "".join(problems)), (1, True, True))
+    null_out, null_problems = pull(stored_x, dict(renamed, renamed_from=None))
+    check_eq("r17 renamed_from null: dropped, no problem, the normal stamp", (null_problems, null_out["obligation_bindings"][0]["obligation_hash"],
+             "renamed_from" in null_out["obligation_bindings"][0]), ([], want, False))
+
+    print("-- r15 a judged field sent as null is not stamped and never counts")
+    with Stand() as stand:
+        run_steps(stand, [("plan", "P1"), ("put", dict(judged, code_validity=None))])
+        b = bound(stand)
+        check_eq("r15 stored null, judged_on {}, not counting", (b.get("code_validity"), b["judged_on"], C.counting_value(b, "code_validity")),
+                 (None, {}, False))
+
+
 def t9(iid: str = "test_nine[a]", **extra) -> dict:
     return dict({"instance_id": iid, "file": "tests/test_nine.py", "case": "TC-009", "covers": ["TC-009"]}, **extra)
 
@@ -929,11 +1392,36 @@ def pc3_provisional_beside_the_other_lists() -> None:
              ("unprojected_events" in bad, [(r["id"], r["status"]) for r in bad["provisional"]]), (False, [("P-1", "open")]))
 
 
+def fv1_19e_projection_reads_the_currency() -> None:
+    """FV1-19e table T2 row p-proj: the coverage projection reads a binding through `contract.binding_currency` - after the
+    r2 steps (re-plan, ONLY design_assessment re-sent) the design counts and the code validity does not."""
+    import coverage_contract as CC
+    ob = lambda d: {"obligation_id": "OB-1", "decision": d, "execution_scope": "current_task"}   # noqa: E731
+    plan_of = lambda d: json.dumps({"rows": [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [ob(d)]}]})   # noqa: E731
+    judged = {"obligation_id": "OB-1", "design_assessment": "sufficient", "code_validity": "valid"}
+    with Stand() as stand:
+        _plan_file(stand, text=plan_of("automate"))
+        check_eq("p-proj setup: the first write lands", stand.put({"obligation_bindings": [judged]})[0], 0)
+        item = CC.coverage_projection(stand.task, {"current_results": []}, stand.manifest())["obligations"][0]
+        check_eq("p-proj before the re-plan: both judgments count", (item["design_assessment"], item["code_validity"]),
+                 ("sufficient", "valid"))
+        _plan_file(stand, text=plan_of("new"))
+        check_eq("p-proj re-plan: the design re-send lands",
+                 stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "design_assessment": "sufficient"}]})[0], 0)
+        item = CC.coverage_projection(stand.task, {"current_results": []}, stand.manifest())["obligations"][0]
+        check_eq("p-proj (r2): the design counts, the validity judged on the old text reads unverified",
+                 (item["design_assessment"], item["code_validity"]), ("sufficient", "unverified"))
+
+
 def main() -> None:
+    fv1_19e_projection_reads_the_currency()
     pc3_provisional_beside_the_other_lists()
     ep1_39_then_row_keeps_tests()
     ep1_39_critic_approval()
     ep1_38_obligation_hash()
+    fv1_19_predicate()
+    fv1_19_obligation_stamp()
+    fv1_19e_binding_currency()
     tq1_18_base_outcome()
     tq1_7_helpers()
     hf3_2_b_k1_retraction_takes_the_rows()

@@ -1,7 +1,7 @@
 ---
 name: qa-collect
 description: >-
-  Pack the QA factory's records of this project (what ran, where it stalled, what it cost, and your own
+  Pack the QA factory's records of this project (what ran, where it stalled or looped, what it cost, and your own
   words about it) into one file you send to the factory's developers. Asks two questions in one message,
   runs one packing command, changes nothing in your stories. Trigger phrases: "collect the factory's
   records", "send the factory data to its developers", "qa collect", "/qa-factory:qa-collect".

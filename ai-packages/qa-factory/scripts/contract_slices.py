@@ -487,7 +487,8 @@ def _keys_outputs(plugin_root: Path, role: str, stage, writers: dict) -> list:
     if ran:
         lines.append("Re-run by the gate at your stop: "
                      + ", ".join(f"`{s}`" + (" (advice only)" if s in advice else "") for s in ran) + ".")
-    joints = _json_of(plugin_root / "references" / "stage-joints.json") or {}
+    import stage_joints
+    joints = stage_joints.load_rows(plugin_root / "references" / "stage-joints.json")[0] or {}   # THE reader of the rows (AR-13)
     page = f"references/slices/{role}/{KEYS_NAME}"
     extra = []
     for joint in joints.get("joints") or []:

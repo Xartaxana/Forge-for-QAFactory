@@ -84,7 +84,7 @@ class DriverSources:
         if "```" in (words or ""):
             pasted = self.record_pasted(set(sources), words)
             if pasted:
-                self.answer_row("S1 material supplied by the person: " + "; ".join(pasted)[:1500], "", what="the note of the material you supplied")
+                self.answer_row("S1 material supplied by the person: " + "; ".join(pasted), "", what="the note of the material you supplied")
                 return True
         return False
 
@@ -93,7 +93,7 @@ class DriverSources:
         points of the named sources that have no cause at all (one `--point` call per source). The first call writes the kinds; a
         refusal of it leaves nothing recorded. A refusal of a later call leaves the kinds ON DISK, and the text says so."""
         import source_inventory as SI
-        shown = " ".join(line.strip() for line in qtext.splitlines() if line.startswith("- "))[:1500]
+        shown = " ".join(line.strip() for line in qtext.splitlines() if line.startswith("- "))
         code, recorded = self.py("ticket_adapter.py", "accept-gap", "--output", inv_rel, "--cause", ",".join(classes),
                                  "--shown-text", shown, *self.words_args(words, "s1gap"))
         if code:
@@ -139,7 +139,7 @@ class DriverSources:
             # the conductor reads the words, `False`).
             if not pasted:
                 return False
-            self.answer_row("S1 material supplied by the person: " + "; ".join(pasted)[:1500], "", what="the note of the material you supplied")
+            self.answer_row("S1 material supplied by the person: " + "; ".join(pasted), "", what="the note of the material you supplied")
             return True
         code, out = self.py("ticket_adapter.py", "accept-gap", "--output",
                             f"qa-factory/artifacts/{self.task}/work/source-inventory.json",

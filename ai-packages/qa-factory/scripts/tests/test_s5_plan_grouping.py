@@ -428,8 +428,87 @@ def kfix_one_printer_and_the_vocabulary():
              "hint: [plan] 2 tests in one file\n  consider: write one test\n")
 
 
+# --- TQ2-1 K2 G1-G9: the case critic's merge the plan neither follows nor answers (advice, never a gate) --------------------
+
+def concern(case="TC-1", problem="parametrise into one test: TC-1, TC-2"):
+    return {"id": "CC-1", "case": case, "problem": problem}
+
+
+def mplan(keys, *tests):
+    return {"cases": [{"case": key} for key in keys], "tests": list(tests)}
+
+
+def k_merge_hints_table():
+    two = [row("T-1", ["TC-1"]), row("T-2", ["TC-2"])]
+    both = [row("T-1", ["TC-1"], apart_reason="another fixture"), row("T-2", ["TC-2"], apart_reason="another surface")]
+    three = concern(problem="parametrise into one test: TC-1, TC-2, TC-3")
+    table = [  # label, plan, concerns, None (no hint) or the words the ONE hint holds
+        ("G1 one test holds both", mplan(["TC-1", "TC-2"], row("T-1", ["TC-1", "TC-2"], shape="extend")), [concern()], None),
+        ("G2 two tests, no reason", mplan(["TC-1", "TC-2"], *two), [concern()], ["CC-1", "TC-1", "TC-2", "T-1", "T-2"]),
+        ("G3a a reason on both", mplan(["TC-1", "TC-2"], *both), [concern()], None),
+        ("G3b a reason on one only", mplan(["TC-1", "TC-2"], two[0], both[1]), [concern()], ["T-1", "T-2"]),
+        ("G4 group of three, one test holds two", mplan(["TC-1", "TC-2", "TC-3"], row("T-1", ["TC-1", "TC-2"]), row("T-3", ["TC-3"])),
+         [three], ["TC-3", "T-1", "T-3"]),
+        ("G5 a case outside the plan", mplan(["TC-1"], row("T-1", ["TC-1"])), [concern(problem="parametrise into one test: TC-1, TC-9, TC-9")], None),
+        ("G6 TC-2 is a remainder (no test)", mplan(["TC-1", "TC-2"], row("T-1", ["TC-1"])), [concern()], None),
+        ("G7 area keys, bare ids in the concern", mplan(["speakers/TC-1", "speakers/TC-2"], row("T-1", ["speakers/TC-1"]), row("T-2", ["speakers/TC-2"])),
+         [concern()], ["speakers/TC-1", "speakers/TC-2"]),
+        ("G7b TC-10 is not TC-1 (the one matcher)", mplan(["TC-1", "TC-10"], row("T-1", ["TC-1"]), row("T-10", ["TC-10"])), [concern()], None),
+        ("G8a no token", mplan(["TC-1", "TC-2"], *two), [concern(problem="F-2 flag precondition TC-1, TC-2")], None),
+        ("G8b a global concern", mplan(["TC-1", "TC-2"], *two), [concern(case=None, problem="the case critic's findings file cannot be read")], None),
+        ("G8c malformed concerns and plan rows", mplan(["TC-1", "TC-2"], *two, "x", {"cases": 5}), [None, {"problem": 5}, {"id": "CC-1"}], None),
+        ("G8d a plan that is not a mapping", None, [concern()], None),
+    ]
+    for label, plan, concerns, wanted in table:
+        got = SP.merge_hints(plan, concerns)
+        if wanted is None:
+            check_eq(f"{label}: no hint", got, [])
+        else:
+            check(f"{label}: ONE hint of the grouping hint's shape naming {wanted}",
+                  len(got) == 1 and sorted(got[0]) == ["case", "fix", "message", "tag"] and all(w in got[0]["message"] for w in wanted), str(got))
+    again = SP.merge_hints(mplan(["TC-1", "TC-2"], *two), [concern()])[0]
+    check("G2: the tag is stable over two calls and has the merge form", again["tag"] == SP.merge_hints(mplan(["TC-1", "TC-2"], *two), [concern()])[0]["tag"]
+          and again["tag"].startswith("merge-") and len(again["tag"]) == len("merge-") + 8, again["tag"])
+    check_eq("G2: two concerns naming one group give ONE hint", len(SP.merge_hints(mplan(["TC-1", "TC-2"], *two), [concern(), concern("TC-2")])), 1)
+    # a dispatch that names no scope (the controller refuses to send one, but a legacy record may hold none): over-carry, said aloud
+    for label, scope in (("G10a empty scope list", []), ("G10b scope None", None)):
+        got, why = SP.concerns_for_scope(None, None, [concern(), concern("TC-2")], scope)
+        check_eq(f"{label}: every concern comes back unplaced", [c["placement"] for c in got], ["unplaced", "unplaced"])
+        check_eq(f"{label}: the reason says no scope was named", why, "the dispatch names no scope")
+        check_eq(f"{label}: no concerns for no concerns", SP.concerns_for_scope(None, None, [], scope), ([], "the dispatch names no scope"))
+
+
+def k_merge_hint_both_paths():
+    """G9: the producer's real plan and a concern splitting two of its cases: `--check` and `s5_precheck.plan_result` print the same hint
+    line; the findings, `ok` and the exit code are those of the same plan with no concern (advice, never a gate)."""
+    import s5_precheck as PC
+    split = concern("TC-001", "parametrise into one test: TC-001, TC-002")
+    real = SP.case_concerns
+    try:
+        results = {}
+        for label, carried in (("with", [split]), ("without", [])):
+            SP.case_concerns = lambda root, state, _c=carried: list(_c)
+            with fixture_story() as (project, task):
+                code, out, _err = run_main(project, "--task", "QA-1", "--check")
+                result = PC.plan_result(task)
+                printed = io.StringIO()
+                with contextlib.redirect_stdout(printed):
+                    PC.report(result)
+            lines = lambda text: [l for l in text.splitlines() if "asked to parametrise" in l or "write one parameterized test over" in l]
+            results[label] = (code, result["ok"], result["findings"], lines(out), lines(printed.getvalue()))
+    finally:
+        SP.case_concerns = real
+    check_eq("G9: --check and plan_result print the same merge hint lines", results["with"][3], results["with"][4])
+    check("G9: ... and the hint names the two cases and the door", len(results["with"][3]) == 2 and "TC-001, TC-002" in results["with"][3][0]
+          and "apart_reason" in results["with"][3][1], str(results["with"][3]))
+    check_eq("G9: no concern, no merge line", results["without"][3], [])
+    check_eq("G9: the exit code, `ok` and the findings are those of the plan with no concern", results["with"][:3], results["without"][:3])
+
+
 def main():
     k1_the_real_plan()
+    k_merge_hints_table()
+    k_merge_hint_both_paths()
     kfix_one_printer_and_the_vocabulary()
     k3_apart_reason()
     k3b_red_as_a_parameter()

@@ -46,7 +46,7 @@ OWNER_KEYS = [
     ("routing:hygiene-6", "CLAUDE.md", "from an INCORRECTLY invoked tool is a miscall, not proof the object is absent"),
     ("routing:rule-9", "CLAUDE.md", "the rule against recurrence goes on the highest level that ties the siblings together"),
     ("cost:cap", "CLAUDE.md", "WARN 250K, STOP 400K"),
-    ("cost:queue", "CLAUDE.md", "queue is kept FULL"),
+    ("cost:queue", "PROJECT.md", "в работе всегда шесть пишущих билдеров"),      # 63bbd5e: the full-queue text moved to PROJECT.md item 12; CLAUDE.md rule 12 points there
 ]
 
 # (carrier, pointer text it must hold, target, anchor the target must still hold)

@@ -30,7 +30,8 @@
   "s6-w1-frozen/calls.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/console.json": "test_story_run_s6_w1_frozen.py",
   "s6-w1-frozen/events.json": "test_story_run_s6_w1_frozen.py",
-  "s6-w1-frozen/state_keys.json": "test_story_run_s6_w1_frozen.py"
+  "s6-w1-frozen/state_keys.json": "test_story_run_s6_w1_frozen.py",
+  "told-ratchet.json": "test_stage_joints.py"
  },
  "keep": {
   "test_adapter_forms.py": {
@@ -344,7 +345,7 @@
   },
   "test_brief_pack_s5_plan.py": {
    "layer": "data_join",
-   "why": "shrink-only ceiling DOORS_ONLY_BRIEF_MAX (a raise needs a named reason)",
+   "why": "shrink-only ratchet S5_PLAN_BRIEF_BYTES_MAX in normalised bytes (a raise needs a named reason)",
    "covers": [
     "brief_pack.py",
     "event_store.py",
@@ -1684,12 +1685,70 @@
    "why": "AR-21/AR-22 field producer-reader join",
    "covers": [
     "acceptance.py",
+    "brief_pack.py",
+    "check_delivery.py",
+    "contract.py",
+    "factory_dashboard.py",
+    "gate_brief.py",
+    "grounding_table.py",
+    "handoff.py",
     "handoff_check.py",
+    "handoffs/gate-a-to-automator.yaml",
+    "handoffs/gate-b-to-delivery.yaml",
+    "handoffs/index.yaml",
+    "handoffs/role-to-conductor.yaml",
+    "handoffs/s0-setup-to-scout.yaml",
+    "handoffs/s1-scout-to-tester.yaml",
+    "handoffs/s2-stage-critic-to-tester.yaml",
+    "handoffs/s2-tester-to-strategist.yaml",
+    "handoffs/s3-stage-critic-to-strategist.yaml",
+    "handoffs/s3-strategist-to-designer.yaml",
+    "handoffs/s4-case-critic-to-designer.yaml",
+    "handoffs/s4-designer-to-case-critic.yaml",
+    "handoffs/s4-designer-to-runner.yaml",
+    "handoffs/s5-automator-plan-to-critic.yaml",
+    "handoffs/s5-automator-to-critic.yaml",
+    "handoffs/s5-automator-to-runner.yaml",
+    "handoffs/s5-critic-plan-to-automator.yaml",
+    "handoffs/s5-critic-to-automator.yaml",
+    "handoffs/s6-runner-to-analyst.yaml",
+    "handoffs/s7-analyst-to-automator.yaml",
+    "handoffs/s7-analyst-to-scribe.yaml",
+    "handoffs/s7-automator-to-analyst.yaml",
+    "handoffs/s8-bug-reporter-to-scribe.yaml",
+    "handoffs/s8-scribe-to-gate-b.yaml",
+    "handoffs/s9-retro-to-project.yaml",
+    "handoffs/vocabulary.yaml",
+    "manifest_from_tests.py",
     "null_outcomes.py",
     "probe_by_code.py",
     "red_sandbox.py",
+    "references/artifact-contract-automation.md",
+    "references/artifact-contract-first-look.md",
+    "references/artifact-contract-grounding.md",
+    "references/artifact-contract-json.md",
+    "references/artifact-contract-plan.md",
+    "references/artifact-contract-results.md",
+    "references/artifact-contract-run.md",
+    "references/artifact-contract.md",
+    "references/ahead-cards.json",
+    "references/artifact-writers.json",
+    "references/case-markers.json",
+    "references/detectors.json",
     "references/field-producers.json",
-    "tests/harness.py"
+    "references/slices/qa-test-strategist/handoff-keys.md",
+    "references/stages.json",
+    "agents/qa-automator.md",
+    "s5_precheck.py",
+    "scripts/tests/fixtures/form-fill-rules.json",
+    "scripts/tests/fixtures/form-rounds.json",
+    "stage_done.py",
+    "tests/form_filler.py",
+    "tests/harness.py",
+    "tests/known_red.py",
+    "traceability.py",
+    "validate_artifacts.py",
+    "window_record.py"
    ]
   },
   "test_file_lock.py": {
@@ -3656,7 +3715,7 @@
     "tests/test_probe_by_code.py"
    ]
   },
-  "test_probe_by_code_languages.py": {
+  "test_probe_by_code_languages_cli.py": {
    "layer": "gate_named",
    "why": "named by gate-registry.json",
    "covers": [
@@ -3668,6 +3727,41 @@
     "proof_level.py",
     "reporters.py",
     "tests/harness.py",
+    "tests/probe_by_code_languages_common.py",
+    "tests/probe_entries.py",
+    "tests/test_probe_by_code.py"
+   ]
+  },
+  "test_probe_by_code_languages_plan.py": {
+   "layer": "gate_named",
+   "why": "named by gate-registry.json",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "onboarding_probe.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "reporters.py",
+    "tests/harness.py",
+    "tests/probe_by_code_languages_common.py",
+    "tests/probe_entries.py",
+    "tests/test_probe_by_code.py"
+   ]
+  },
+  "test_probe_by_code_languages_ts_playwright.py": {
+   "layer": "gate_named",
+   "why": "named by gate-registry.json",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "onboarding_probe.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "reporters.py",
+    "tests/harness.py",
+    "tests/probe_by_code_languages_common.py",
     "tests/probe_entries.py",
     "tests/test_probe_by_code.py"
    ]
@@ -4483,6 +4577,7 @@
     "factory_dashboard.py",
     "retro_numbers.py",
     "role_load.py",
+    "run_counters.py",
     "stage_joints.py",
     "tests/harness.py"
    ]

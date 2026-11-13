@@ -1940,7 +1940,20 @@ def _merge(current: dict, fragment: dict, trail: dict) -> tuple:
             raise ValueError("duplicate obligation binding in one fragment")
         by_id = {b["obligation_id"]: b for b in merged.get("obligation_bindings", [])}
         for binding in incoming:
-            by_id[binding["obligation_id"]] = dict(by_id.get(binding["obligation_id"], {}), **binding)
+            old = by_id.get(binding["obligation_id"], {})
+            new = dict(old, **binding)
+            if isinstance(binding.get("judged_on"), dict):
+                # the per-key fold of the stamps (FV1-19e): an incoming `judged_on` never replaces the whole map, and a
+                # binding written before it (no `judged_on` key) first has its legacy currency materialized from the
+                # STORED hash - read here, before `dict(old, **binding)` refreshes it.
+                if isinstance(old.get("judged_on"), dict):
+                    base = dict(old["judged_on"])
+                elif "judged_on" in old or not (isinstance(old.get("obligation_hash"), str) and old["obligation_hash"]):
+                    base = {}
+                else:
+                    base = {f: old["obligation_hash"] for f in C.JUDGED_FIELDS if old.get(f) is not None}
+                new["judged_on"] = dict(base, **binding["judged_on"])
+            by_id[binding["obligation_id"]] = new
         merged["obligation_bindings"] = list(by_id.values())
     _retract_obligations(merged, fragment, summary)
     held_before = _worn(current)
@@ -2422,6 +2435,20 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
         print("manifest_put: " + _problems_text(task_root, "expectation", problems)
               + ". " + REPAIR_MARKER + ". " + _word_door(task_root, task, fragment.get("expectation_changes")),
               file=sys.stderr)
+        return EXIT_BAD_FRAGMENT
+    # The hashes of `obligation_refs` (and the row's derived ids and hash) are the code's alone (FV1-19, AR-14): a role sends
+    # obligation ids, the stamp writes the rest from the plan BEFORE the row-hash check below, the merge view and the commit
+    # (`merge` stays pure and replays old journals as they are). A fragment the stamp refuses leaves the manifest as it was.
+    plan_notes = []
+    plan_map = C.plan_obligation_map(task_root, plan_notes)
+    for plan_note in plan_notes:
+        print(f"manifest_put: note: {plan_note}", file=sys.stderr)
+    # The stored bindings go to the stamp so a hash-less binding patch (a receipt, a sensitivity) never refreshes a STALE
+    # stored binding hash by itself: only a re-sent `design_assessment` re-judges it (FV1-19 B1, AR-28).
+    fragment, ref_problems = C.stamp_obligation_refs(fragment, plan_map, _current_rows(task_root, "obligation_bindings"))
+    if ref_problems:
+        print("manifest_put: " + _problems_text(task_root, "obligation-refs", ref_problems)
+              + ". " + REPAIR_MARKER + ".", file=sys.stderr)
         return EXIT_BAD_FRAGMENT
     # A hand-typed `obligation_hash` is refused before the commit (EP1-38, AR-14): the code builds it from the refs.
     hash_problems = obligation_hash_problems(fragment, _current_tests(task_root))

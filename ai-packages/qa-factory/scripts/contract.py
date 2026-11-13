@@ -2866,6 +2866,16 @@ def md_table(text: str, heading: str) -> list:
     return rows
 
 
+def md_column(header, name) -> "int | None":
+    """Index of the FIRST column of a table header (`md_table`'s first row) whose cell, stripped, backticks off and lower case,
+    equals `name` EXACTLY (a prefix is not a match); None when there is none, and for an empty header or a None name (never raises).
+    A caller that wants a looser rule (`startswith`, `in`) keeps it on its own side."""
+    if not header or not name:
+        return None
+    want = str(name).strip().strip("`").lower()
+    return next((i for i, cell in enumerate(header) if str(cell).strip().strip("`").strip().lower() == want), None)
+
+
 # --- test-plan.md ----------------------------------------------------------------------------
 
 def parse_plan(path: Path) -> list:
@@ -5175,7 +5185,9 @@ DELIVERY_VOLATILE_PATHS = (
 )
 
 
-def _plan_rows_of(task_root) -> list:
+def _plan_rows_of(task_root, errors=None) -> list:
+    """The plan's dict rows, `[]` when there is no plan or it cannot be read. A plan file that exists and cannot be read
+    appends `(path, exception)` to `errors` when a list is given (the one reading `plan_obligation_map` reports from)."""
     path = Path(task_root) / WORK_DIR / "test-plan.json"
     if not path.is_file():
         path = Path(task_root) / "test-plan.json"
@@ -5183,7 +5195,9 @@ def _plan_rows_of(task_root) -> list:
         return []
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        if isinstance(errors, list):
+            errors.append((path, exc))
         return []
     rows = value.get("rows", []) if isinstance(value, dict) else value
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
@@ -5223,6 +5237,299 @@ def legacy_obligation_map(task_root) -> dict:
     ids = plan_obligation_ids(task_root)
     return {f"OB-{index + 1}": oid for index, oid in enumerate(ids)
             if not LEGACY_OBLIGATION_RE.match(oid)}
+
+
+# --- one reader of a valid obligation reference, one stamp that writes its hash (FV1-19) -----------------
+
+REF_SHAPE = '[{"obligation_id": "<plan obligation id>"}]'
+_NULLABLE_REF_KEYS = ("obligation_refs", "obligation_ids", "obligation_hash")
+
+
+def obligation_map(rows) -> dict:
+    """`{str(obligation_id): obligation}` over ALL plan rows given, whatever their schema; a LATER occurrence of an id
+    replaces an earlier one (the window finish's reading). Non-dict rows, a non-list `coverage_obligations`, non-dict
+    items and items with no id are skipped."""
+    out = {}
+    for row in rows if isinstance(rows, (list, tuple)) else []:
+        obligations = row.get("coverage_obligations") if isinstance(row, dict) else None
+        for ob in obligations if isinstance(obligations, list) else []:
+            if isinstance(ob, dict) and ob.get("obligation_id"):
+                out[str(ob["obligation_id"])] = ob
+    return out
+
+
+def plan_obligation_map(task_root, notes=None) -> dict:
+    """`obligation_map` of the story's plan. A plan file that exists and cannot be read adds ONE sentence to `notes`
+    (when a list is given) and gives `{}`; an absent plan adds nothing. The plan is found and parsed ONCE, by
+    `_plan_rows_of`."""
+    errors = []
+    rows = _plan_rows_of(task_root, errors)
+    for path, exc in errors:
+        if isinstance(notes, list):
+            notes.append(f"the plan {path.as_posix()} could not be read ({type(exc).__name__}: "
+                         f"{' '.join(str(exc).split())}): obligation_refs are stored as sent, without hashes, "
+                         "and the window finish refuses them until the plan reads")
+    return obligation_map(rows)
+
+
+def _plan_names(plan_map) -> str:
+    return ", ".join(sorted(plan_map)) or "none"
+
+
+def _ref_shape_problems(refs, where: str, hash_required: bool) -> list:
+    """The shape texts of one `obligation_refs` list, ONE wording for the reader (`obligation_ref_problems`,
+    `hash_required=True`) and the stamp (`_stamp_row_refs`, `hash_required=False`: a missing hash is what the stamp
+    writes). At most one problem per ref: not an object / an id that is not a non-empty string / an id twice / (when
+    required) no hash / a hash that is not a string."""
+    if not isinstance(refs, list):
+        return [f"{where} is {type(refs).__name__}, not a list; send {REF_SHAPE}"]
+    out, seen = [], set()
+    for j, ref in enumerate(refs):
+        oid = ref.get("obligation_id") if isinstance(ref, dict) else None
+        sent = ref.get("obligation_hash") if isinstance(ref, dict) else None
+        if not isinstance(ref, dict):
+            out.append(f"{where}[{j}] is not an object; send {REF_SHAPE}")
+        elif not isinstance(oid, str) or not oid:
+            out.append(f"{where}[{j}].obligation_id is not a non-empty string; send {REF_SHAPE}")
+        elif oid in seen:
+            out.append(f"{where}[{j}]: {oid} appears twice; send {REF_SHAPE}")
+        elif sent in (None, ""):
+            if hash_required:
+                out.append(f"{where}[{j}]: {oid} has no obligation_hash (missing hash)")
+        elif not isinstance(sent, str):
+            out.append(f"{where}[{j}]: the obligation_hash of {oid} is not a string; leave it out, the code writes it")
+        if isinstance(oid, str) and oid:
+            seen.add(oid)
+    return out
+
+
+def obligation_ref_problems(refs, plan_map=None, strict=False) -> list:
+    """`[(kind, text), ...]` of the references in `refs`, kinds `shape` / `unknown` / `stale`; `[]` for an empty list
+    (whether refs are DEMANDED is the caller's rule). Any `shape` problem is returned ALONE: a broken list never reaches
+    the hash comparison. `unknown`: an id the non-empty `plan_map` does not name; with `strict` and no map every ref is
+    unknown. `stale`: a hash that is not `content_hash` of the plan's obligation. With `strict=False` and no map only
+    shape is judged."""
+    shape = _ref_shape_problems(refs, "obligation_refs", hash_required=True)
+    if shape:
+        return [("shape", text) for text in shape]
+    if not plan_map:
+        return [("unknown", f"obligation_refs[{at}]: {ref['obligation_id']} is not an obligation of the plan "
+                            "(the plan names none)") for at, ref in enumerate(refs)] if strict else []
+    from event_store import content_hash
+    out = []
+    for at, ref in enumerate(refs):
+        oid = ref["obligation_id"]
+        if oid not in plan_map:
+            out.append(("unknown", f"obligation_refs[{at}]: {oid} is not an obligation of the plan "
+                                   f"(the plan names {_plan_names(plan_map)})"))
+        elif ref["obligation_hash"] != content_hash(plan_map[oid]):
+            out.append(("stale", f"obligation_refs[{at}]: {oid} carries hash {ref['obligation_hash']}, the plan's "
+                                 f"obligation hashes to {content_hash(plan_map[oid])}"))
+    return out
+
+
+def _hash_problem(where: str, oid: str, sent, plan_hash: str) -> str:
+    return (f"{where}: {oid} carries hash {sent}, the plan's obligation hashes to {plan_hash}; "
+            "leave `obligation_hash` out, the code writes it")
+
+
+def _stamp_row_refs(row: dict, at: int, plan_map: dict, problems: list) -> None:
+    """Steps 3-5 of `stamp_obligation_refs` on ONE row (already a copy) that sends `obligation_refs`."""
+    from event_store import content_hash
+    where, refs = f"tests[{at}].obligation_refs", row["obligation_refs"]
+    broken = _ref_shape_problems(refs, where, hash_required=False)
+    if broken:
+        problems.extend(broken)
+        return
+    stamped = []
+    for j, ref in enumerate(refs):
+        oid, sent = ref["obligation_id"], ref.get("obligation_hash")
+        if plan_map:
+            if oid not in plan_map:
+                problems.append(f"{where}[{j}]: {oid} is not an obligation of the plan (the plan names {_plan_names(plan_map)}); "
+                                f"send {REF_SHAPE}")
+            elif sent in (None, ""):
+                ref = dict(ref, obligation_hash=content_hash(plan_map[oid]))
+            elif sent != content_hash(plan_map[oid]):
+                problems.append(_hash_problem(f"{where}[{j}]", oid, sent, content_hash(plan_map[oid])))
+        stamped.append(ref)
+    ids = [r["obligation_id"] for r in stamped]
+    sent_ids = row.get("obligation_ids")
+    if sent_ids is not None:
+        if not isinstance(sent_ids, list) or not all(isinstance(i, str) for i in sent_ids):
+            problems.append(f"tests[{at}].obligation_ids is not a list of obligation id strings; leave it out, the code writes it")
+        elif set(sent_ids) != set(ids):
+            problems.append(f"tests[{at}].obligation_ids {sent_ids} are not the ids of its obligation_refs ({ids}); "
+                            "leave it out, the code writes it")
+    row["obligation_refs"], row["obligation_ids"] = stamped, ids
+    if row.get("obligation_hash") in (None, ""):
+        row["obligation_hash"] = content_hash(stamped) if stamped else ""
+
+
+JUDGED_FIELDS = ("code_validity",)
+JUDGED_UNKNOWN = {"design_assessment": "unknown", "code_validity": "unverified", "sensitivity": "missing"}
+# the closed words of a binding's judged fields (`references/artifact-contract-automation.md`), for a finding's example
+BINDING_VOCAB = {"design_assessment": ("sufficient", "partial", "unknown"), "code_validity": ("valid", "unverified")}
+
+
+def counting_value(binding, field: str) -> bool:
+    """True when `binding[field]` is a value the coverage projection would COUNT (if its stamp were current): present,
+    not None and not the projection's own "counts for nothing" word (`JUDGED_UNKNOWN`). The ONE such test (FV1-19e)."""
+    return isinstance(binding, dict) and binding.get(field) is not None and binding.get(field) != JUDGED_UNKNOWN.get(field)
+
+
+def _binding_stamp_allowed(binding: dict, stored, want: str) -> bool:
+    """May the stamp write the plan's hash `want` onto an incoming hash-less `binding`? Only when that cannot revive a
+    STALE stored judgment (FV1-19 B1): no stored binding of the id; the stored one has a hash that already equals the
+    plan's, or the incoming binding re-sends the judgment the hash certifies (a non-null `design_assessment`); or the
+    stored one has NO hash and carries no COUNTING `design_assessment` (`counting_value`: a judgment never written
+    against any recorded text must not start counting on a receipt write). `stored` is the stored binding of the id or
+    None."""
+    if not isinstance(stored, dict):
+        return True
+    resent = binding.get("design_assessment") is not None
+    if stored.get("obligation_hash") in (None, ""):
+        return resent or not counting_value(stored, "design_assessment")
+    return stored.get("obligation_hash") == want or resent
+
+
+def binding_currency(binding, plan_hash) -> dict:
+    """`{"design_assessment": bool, <each JUDGED field>: bool}`: which judgments of `binding` were written against the
+    obligation text whose hash is `plan_hash`. The ONE reader of a binding's stamps. `design_assessment` is current
+    iff `obligation_hash` is a non-empty str equal to `plan_hash`; a JUDGED field iff the binding's `judged_on` is a
+    dict holding `plan_hash` for it, or (no `judged_on` key: a binding written before the per-field stamp) the binding
+    hash equals `plan_hash`. It errs only toward False: a non-dict binding, a `plan_hash` that is not a non-empty str,
+    a non-dict `judged_on`, a non-str stamp. Never raises."""
+    out = {"design_assessment": False, **{f: False for f in JUDGED_FIELDS}}
+    if not isinstance(binding, dict) or not isinstance(plan_hash, str) or not plan_hash:
+        return out
+    bound = binding.get("obligation_hash") == plan_hash
+    out["design_assessment"] = bound
+    stamps = binding.get("judged_on")
+    for f in JUDGED_FIELDS:
+        if "judged_on" not in binding:
+            out[f] = bound
+        elif isinstance(stamps, dict):
+            out[f] = stamps.get(f) == plan_hash
+    return out
+
+
+def _renamed_stamps(binding: dict, old: dict, want: str) -> None:
+    """Step 4b of `stamp_obligation_refs` (a valid `renamed_from`, `old` = the stored binding of the old id): writes the
+    CARRIED stamps onto `binding` in place. A counting judgment keeps the stamp it was written with, never `want`."""
+    old_hash = old.get("obligation_hash")
+    old_hash = old_hash if isinstance(old_hash, str) and old_hash else None
+    if not counting_value(binding, "design_assessment"):
+        binding["obligation_hash"] = want
+    elif old_hash:
+        binding["obligation_hash"] = old_hash
+    stamps, old_stamps = {}, old.get("judged_on")
+    for f in JUDGED_FIELDS:
+        if binding.get(f) is None:
+            continue
+        if not counting_value(binding, f):
+            stamps[f] = want
+        elif isinstance(old_stamps, dict):
+            if isinstance(old_stamps.get(f), str) and old_stamps[f]:
+                stamps[f] = old_stamps[f]
+        elif "judged_on" not in old and old_hash:
+            stamps[f] = old_hash
+    binding["judged_on"] = stamps
+
+
+def _renamed_from_valid(value, oid, retracted, stored_by_id: dict) -> bool:
+    """True when `renamed_from` `value` is a rename instruction the fragment backs: a non-empty string that is not the
+    binding's own id, is listed in the fragment's `retracted_obligations` (a list) and has a stored binding."""
+    return (isinstance(value, str) and bool(value) and value != oid and isinstance(retracted, list)
+            and value in retracted and value in stored_by_id)
+
+
+def stamp_obligation_refs(fragment, plan_map, stored_bindings=None) -> tuple:
+    """`(fragment', problems)`: the ONE writer of every hash an obligation reference carries. Pure: the input is never
+    edited. A role sends obligation IDS; per `tests[]` row, in this order:
+    1. a key `obligation_refs`, `obligation_ids` or `obligation_hash` sent as `None` is DROPPED (null = not sent: the
+       merge keeps the stored value; `[]` is how refs are cleared);
+    2. a row that sends no `obligation_refs` is not touched by steps 3-5;
+    3. the shape of the sent refs (a list of dicts, each a non-empty string id, an id once);
+    4. with a NON-empty `plan_map`: an id the plan does not name is a problem, a ref with no hash gets the plan's, a ref
+       with a different hash is a problem; with an empty map the refs stay as sent;
+    5. `obligation_ids` = the refs' ids in refs order (a sent list that differs as a SET is a problem), and the row's
+       `obligation_hash` = `content_hash(<stamped refs>)` (`""` for `[]`) unless the row sent one.
+    An `obligation_bindings[]` row, per binding, in this order (FV1-19e):
+    1. `judged_on`, `renamed_from` and `obligation_hash` sent as `None` are dropped (null = not sent); any other
+       `judged_on` is a problem (the stamp is the code's: leave it out) and is never kept;
+    2. `renamed_from` is the migration's instruction, POPPED and never stored: valid iff a non-empty string, not the
+       binding's own id, listed in the fragment's `retracted_obligations` (a list) and holding a stored binding in
+       `stored_bindings`; anything else is ONE problem;
+    3. the sent `obligation_hash` is ALWAYS popped after it is compared: with a non-empty map and a known id a value
+       that differs from the plan's is a problem, an equal one counts as not sent; with an empty map or an id the map
+       lacks it is dropped (the merge keeps the stored hash);
+    4. a binding naming a plan obligation (non-empty map, known id): (a) no valid `renamed_from`: it gets the plan's
+       hash unless `_binding_stamp_allowed` says a STALE stored judgment would be revived (then it goes on WITHOUT a
+       hash, the merge keeps the stored one and the binding stays not current: a receipt never re-validates a
+       judgment made on other plan text), and `judged_on` = `{f: <plan hash>}` for every `JUDGED_FIELDS` field it
+       sends non-null (`{}` included: it triggers the legacy materialization in `merge`); (b) a valid `renamed_from`:
+       the CARRIED stamps (`_renamed_stamps`): a counting judgment keeps the stamp the old id's stored binding held
+       for it, never the plan's hash, so a judgment made on another text counts for nothing and stays to be named;
+    5. an empty map or an id the plan does not name: no hash, no `judged_on` (the id's refusal is `manifest_put`'s).
+    Absent, None, non-list `stored_bindings` and non-dict items are "no stored binding"; the LAST row of an id is read."""
+    import copy
+    from event_store import content_hash
+    problems = []
+    stored_by_id = {b["obligation_id"]: b for b in (stored_bindings if isinstance(stored_bindings, list) else [])
+                    if isinstance(b, dict) and isinstance(b.get("obligation_id"), str)}
+    if not isinstance(fragment, dict):
+        return fragment, problems
+    out = dict(fragment)
+    tests = fragment.get("tests")
+    if isinstance(tests, list):
+        rows = []
+        for at, row in enumerate(tests):
+            if not isinstance(row, dict):
+                rows.append(row)
+                continue
+            row = {k: copy.deepcopy(v) for k, v in row.items() if not (k in _NULLABLE_REF_KEYS and v is None)}
+            if "obligation_refs" in row:
+                _stamp_row_refs(row, at, plan_map or {}, problems)
+            rows.append(row)
+        out["tests"] = rows
+    bindings = fragment.get("obligation_bindings")
+    if isinstance(bindings, list):
+        rows = []
+        for at, binding in enumerate(bindings):
+            if not isinstance(binding, dict):
+                rows.append(binding)
+                continue
+            binding = {k: copy.deepcopy(v) for k, v in binding.items()
+                       if not (k in ("obligation_hash", "judged_on", "renamed_from") and v is None)}
+            oid = binding.get("obligation_id")
+            where = f"obligation_bindings[{at}]"
+            if "judged_on" in binding:
+                binding.pop("judged_on")
+                problems.append(f"{where}.judged_on is the code's (the obligation hash each judgment was made against); "
+                                "leave it out, the code writes it")
+            old = None
+            if "renamed_from" in binding:
+                source = binding.pop("renamed_from")
+                if _renamed_from_valid(source, oid, fragment.get("retracted_obligations"), stored_by_id):
+                    old = stored_by_id[source]
+                else:
+                    problems.append(f"{where}.renamed_from {source!r} names no stored binding this fragment retracts; "
+                                    "leave it out, it is the migration's")
+            sent = binding.pop("obligation_hash", None)
+            if plan_map and isinstance(oid, str) and oid in plan_map:
+                want = content_hash(plan_map[oid])
+                if sent not in (None, "", want):
+                    problems.append(_hash_problem(where, oid, sent, want))
+                elif old is not None:
+                    _renamed_stamps(binding, old, want)
+                else:
+                    if _binding_stamp_allowed(binding, stored_by_id.get(oid), want):
+                        binding["obligation_hash"] = want
+                    binding["judged_on"] = {f: want for f in JUDGED_FIELDS if binding.get(f) is not None}
+            rows.append(binding)
+        out["obligation_bindings"] = rows
+    return out, problems
 
 
 def binding_receipt_ref(manifest: dict, entry: dict, artifacts) -> dict:
@@ -5708,6 +6015,13 @@ def product_implied(sides) -> bool:
     entries = sides.values() if isinstance(sides, dict) else ()
     return not any(isinstance(entry, dict) and entry.get("reality") == "real" and entry.get("deliverable") is not False
                    for entry in entries)
+
+
+def product_default_entry() -> dict:
+    """THE one spelling of the implicit `product` side record (`reality` real, `deliverable` true, `source` default) that the S0 record
+    (`Driver.s0_sides_sets`) and the re-read after a registry repair (`Driver.sides_reread`) add when `product_implied` says so.
+    A fresh dict on every call: a caller may add keys to it without touching another's."""
+    return {"reality": "real", "deliverable": True, "source": "default"}
 
 
 def registry_sides(root, env_name=None) -> dict:

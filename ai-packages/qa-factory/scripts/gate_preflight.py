@@ -3211,7 +3211,7 @@ class Rehearsal:
         """ONE note with what a person taught about the chosen stand (`project_knowledge.py lesson`), so the approval sees it.
 
         Data only (P27, AR-29): the person's words are carried as they are stored, cut for display by `PK.lessons` (the one reader,
-        AR-13); code never decides that a lesson applies to a test or a timeout, and never adds a finding - a note never blocks.
+        AR-13), every lesson whole; code never decides that a lesson applies to a test or a timeout, and never adds a finding - a note never blocks.
         No project, no stand chosen (a fact other checks own) or no lesson: nothing. A registry that cannot be read is a note
         in plain words (the problem travels in the machine field), never "no lessons" (FR-59)."""
         if self.project_root is None:
@@ -3227,9 +3227,7 @@ class Rehearsal:
             self.note("stand_lessons", f"What you taught about {stand} could not be read this time, so the roles may not have it; "
                                        "it is not lost.", problem=got["problem"])
         elif got["lines"]:
-            shown = got["lines"][:len(got["lines"]) - 1] if got["more"] else got["lines"]     # the last line is the roles' pointer
-            more = f" and {got['more']} more (the roles are told how to read them all)" if got["more"] else ""
-            self.note("stand_lessons", "What you taught about " + stand + " (the roles read it): " + "; ".join(shown) + more
+            self.note("stand_lessons", "What you taught about " + stand + " (the roles read it): " + "; ".join(got["lines"])
                       + ". To change it, say so.")
 
     def _stand_limit_card(self, check: str, profile_id: str, limit: dict) -> None:

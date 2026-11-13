@@ -220,20 +220,26 @@ def a_fixture_is_not_a_stand() -> None:
 
 
 def a_persons_word_passes_it() -> None:
-    root = temp_dir("qa-remedy-waiver-")
-    try:
-        answered = [{"stage": "S5", "match": "remedy", "decision": "accept it as it stands",
-                     "at": "2026-09-23T10:00:00+00:00", "by": "human"}]
-        task = make_story(root, [{"case": "TC-700", "reason": "blocked_by_env",
-                                  "detail": "the feature is off"}], overrides=answered)
-        result = P.run(task, "S5-qa-automator-1")
-        check_eq("the refusal a person answered is gone", messages(result), "")
-        check_in("and their words are kept where the reader sees them",
-                 "accept it as it stands", "\n".join(result["notes"]))
-        check_in("the note still says what was passed", "with no `remedy`",
-                 "\n".join(result["notes"]))
-    finally:
-        cleanup(root)
+    # FV1-30a (critic B2): a word passes a finding by its tag (`remedy-missing`) or whole id, never by a phrase of its message -
+    # `remedy` is a phrase of the message, so it leaves the finding standing
+    for match, passes in (("remedy-missing", True), ("remedy", False)):
+        root = temp_dir("qa-remedy-waiver-")
+        try:
+            answered = [{"stage": "S5", "match": match, "decision": "accept it as it stands",
+                         "at": "2026-09-23T10:00:00+00:00", "by": "human"}]
+            task = make_story(root, [{"case": "TC-700", "reason": "blocked_by_env",
+                                      "detail": "the feature is off"}], overrides=answered)
+            result = P.run(task, "S5-qa-automator-1")
+            notes = "\n".join(result["notes"])
+            if passes:
+                check_eq(f"the word {match!r} (the tag): the refusal a person answered is gone", messages(result), "")
+                check_in("and their words are kept where the reader sees them", "accept it as it stands", notes)
+                check_in("the note still says what was passed", "with no `remedy`", notes)
+            else:
+                check("the word `remedy` (a phrase of the message) leaves the finding standing", messages(result) != "", messages(result))
+                check_not_in("...and leaves no note of a pass", "accept it as it stands", notes)
+        finally:
+            cleanup(root)
 
 
 def the_writers_and_readers_agree() -> None:

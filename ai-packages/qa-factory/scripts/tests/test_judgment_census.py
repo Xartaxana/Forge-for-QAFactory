@@ -22,6 +22,12 @@ WHAT A UNIT IS (any one of):
   u3  the body holds a refusal site that `refusal_registry.sites()` sees (`deny`/`block`, `raise StateConflict|ValueError`).
       A raise through a package SUBCLASS of those (resolved per file, `raise_family`) or in the attribute form (`mod.Name(...)`)
       is a refusal site like a literal raise since OH8-7h: every widened raise site creates its unit, and C1 demands its row.
+      Since told-before-work T1a the scan is the WIDE one (`raise_family(wide=True)`): a site of every NON-LIST transport
+      (`refuse(...)`, `sys.exit(str)`, `SystemExit(str)`, a stderr print or write whose next statement fails the block, the
+      record sinks) creates its unit and flips `blocks`, and a module-level site is the unit `<module>`. The LIST transport
+      (`.append` / `.extend` / `+= [..]`) never creates or flips a unit (it is bounded by the blocking set this census
+      computes, `refusal_registry._census_blocking`), and a walk-error record (an unparsable file, a check argument the scanner
+      cannot read) creates nothing: `read_package` names an unparsable file in C1.
 Plus: a row of `stages.json` `detectors`/`advice` for a script that has no function-units, and an entry of
 `refusal_registry.REGISTRY` whose (file, function) is not a unit already. Count by distinct (file, function): a stage row or a
 registry entry on a function that is a unit is a `ref` on that function's row, not a second unit.
@@ -42,9 +48,11 @@ with no call, `raise A()` with no argument, and a raise of a call to a module FA
 (`raise _held_by(...)`) or of a call to a method or attribute that returns one (`raise self._reuse_refusal(...)`,
 event_store.py): the scanner does not see that form, and the Lead measured 52 module-function rowless functions that carry such a
 raise on 097f58d (spec t-346 §6b; an upper bound: the scan does not subtract functions that also raise directly; `exploration.py::acquire` is one) - the
-critic's question 11 and calibration check 41 catch them.
+critic's question 11 and calibration check 41 catch them. A stderr text that no failing return, `sys.exit` or `raise`
+follows in its block is a note, not a refusal site: no unit, counted as a blind spot of the wide scan (T0-gate change 1); so is
+an alias of a transport (`b = block; b(msg)`) and a message built in another function.
 
-    python -B scripts/tests/test_judgment_census.py            # as a script (PASS/FAIL lines)
+    python -B scripts/tests/test_judgment_census.py           # as a script (PASS/FAIL lines)
     python -B -m pytest scripts/tests/test_judgment_census.py -q -p no:cacheprovider
 """
 import ast
@@ -210,18 +218,23 @@ def blocking_detector_files(rows: dict) -> set:
 def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FILES) -> dict:
     """{(file, function): {'via': set, 'spans': [(start, end)], 'blocks': bool, 'refs': set}} plus the problems found.
 
-    `blocks` (b1) a refusal site of `refusal_registry.sites(files=...)`, widened by `raises=raise_family(...)`, sits in the unit
-    (by the scanner's `function`, or by its line inside the unit's span - a nested unit is then judged on its own lines, an error
-    toward a lone EXTRA `true`); units are CREATED (u3) from every widened site (OH8-7h: a raise through a package subclass or
-    the attribute form is a refusal site like a literal one);
+    `blocks` (b1) a refusal site of `refusal_registry.sites(files=...)`, widened by `raises=raise_family(..., wide=True)`, sits
+    in the unit (by the scanner's `function`, or by its line inside the unit's span - a nested unit is then judged on its own
+    lines, an error toward a lone EXTRA `true`); units are CREATED (u3) from every such site (OH8-7h: a raise through a package
+    subclass or the attribute form is a refusal site like a literal one; T1a: a site of every non-list wide transport too).
+    The records are filtered ONCE, BEFORE both loops: a `walk_error` record and a `list` transport record are dropped, so the
+    list transport never creates or flips a unit;
     (b2) the file is on the blocking path: BLOCKING_ENTRY_FILES, or a `detectors` script that is not an adviser."""
     pkg = read_package(root, files)
     trees = pkg["trees"]
     srows = stage_rows(root)
     blocking_files = set(entry_files) | blocking_detector_files(srows)
     units, problems = {}, list(pkg["errors"])
-    family = refusal_registry.raise_family(plugin_root=Path(root), files=sorted(trees))
-    wide = refusal_registry.sites(plugin_root=Path(root), files=sorted(trees), raises=family)
+    family = refusal_registry.raise_family(plugin_root=Path(root), files=sorted(trees), wide=True)
+    scanned = refusal_registry.sites(plugin_root=Path(root), files=sorted(trees), raises=family)
+    # E4 (POSITIONAL): the filter runs BEFORE both loops below. INVARIANT: the list transport never creates or flips a unit,
+    # and a walk-error record (a file or a check argument the scanner could not read) creates none either.
+    wide = [s for s in scanned if s.get("state") != "walk_error" and s.get("transport") != "list"]
     wide_by_file = {}
     for s in wide:
         wide_by_file.setdefault(s["file"], []).append(s)
@@ -469,7 +482,9 @@ BLIND_SPOT = ("blind spot: class `meaning` is a hand label; a unit that judges m
               "is not seen by MEANING_CEILING - the critic's question 11 and calibration check 41 (d) catch it; "
               "a raise through a package subclass of `ValueError` or `StateConflict` (resolved per file) or through the attribute "
               "form is a refusal site like a literal raise (OH8-7h): every widened raise site creates a unit, and C1 demands its "
-              "row; still unseen: a stdlib subclass (`json.JSONDecodeError`), a class defined "
+              "row; the wide non-list transports (`refuse`, `sys.exit(str)`, `SystemExit(str)`, a stderr text followed by a "
+              "failing statement) create units too, the list transport (`.append`, `.extend`, `+= [..]`) never creates or flips "
+              "one, and a stderr text not followed by a failing statement is a note: no unit (a counted blind spot); still unseen: a stdlib subclass (`json.JSONDecodeError`), a class defined "
               "only under `scripts/tests/`, a base that is neither a plain name nor `alias.Name` (a call such as `make()`, a "
               "subscript, or `mod.B` where `mod` comes from a from-import of a module), a raise through a variable or assignment "
               "alias (`E = MyErr; raise E(...)`), `raise A` with no call, `raise A()` "
@@ -836,6 +851,91 @@ def test_blind_spot_states_the_subclass_clause() -> None:
     assert "subclass_family=" in line and "pending" not in line, line
 
 
+# T1a: the wide NON-LIST transports create and flip units; the list transport and a walk error never do. One row per behaviour:
+# `units` = the exact {function: blocks} the package yields (function names avoid UNIT_NAME_RE unless the row is about a u1 unit),
+# `sites` = the kept records, `cases` = (census rows, ratchet override, {class: needles that must show}, green) against the same
+# package; the narrow road is checked for EVERY row (E5: a unit of the old scan stays a unit).
+_ERR = "print('bad', file=sys.stderr)\n"
+_FILE = "helpers_x.py"
+_STAGES = {"stages": [{"id": "S2", "detectors": {"qa-x": ["tool_x.py"]}}]}
+_ONE_BLOCKING = {"blocking_per_role": {"qa-x": 1, "conductor": 0}}
+WIDE_ROWS = (
+    {"id": "w-stderr-return", "files": {_FILE: "def f():\n    " + _ERR + "    return 2\n"}, "units": {"f": True}, "sites": 1},
+    {"id": "w-stderr-exit", "files": {_FILE: "def f():\n    " + _ERR + "    sys.exit(2)\n"}, "units": {"f": True}, "sites": 1},
+    {"id": "w-stderr-raise", "files": {_FILE: "def f():\n    " + _ERR + "    raise RuntimeError('x')\n"},
+     "units": {"f": True}, "sites": 1},
+    {"id": "w-stderr-exit-name", "files": {_FILE: "def f():\n    " + _ERR + "    return EXIT_BAD\n"}, "units": {"f": True}, "sites": 1},
+    {"id": "w-stderr-note", "files": {_FILE: "def f():\n    " + _ERR + "    return 0\n"}, "units": {}, "sites": 0},
+    {"id": "w-sys-exit-str", "files": {_FILE: "def f():\n    sys.exit('bad')\n"}, "units": {"f": True}, "sites": 1},
+    {"id": "w-systemexit-str", "files": {_FILE: "def f():\n    raise SystemExit('bad')\n"}, "units": {"f": True}, "sites": 1},
+    {"id": "w-refuse", "files": {_FILE: "def f(a):\n    return refuse(a, 'bad')\n"}, "units": {"f": True}, "sites": 1},
+    {"id": "w-module-level", "files": {_FILE: "sys.exit('stop')\n"}, "units": {"<module>": True}, "sites": 1},
+    {"id": "w-walk-error",
+     "files": {_FILE: "import detector_verdict as DV\n\n\ndef f(name):\n    return DV.refusal(f'id-{name}', 'text')\n"},
+     "units": {}, "sites": 0},
+    {"id": "w-append-no-unit",
+     "files": {_FILE: "def f(out):\n    out.append('x')\n\n\ndef g(out):\n    out.extend(['x'])\n\n\n"
+                      "def h(out):\n    out += ['x']\n"}, "units": {}, "sites": 0},
+    {"id": "w-append-no-flip", "files": {_FILE: "def check_f(out):\n    out.append('x')\n    out += ['y']\n    return out\n"},
+     "units": {"check_f": False}, "sites": 0},
+    {"id": "w-narrow-subset",
+     "files": {_FILE: "def a():\n    deny('no')\n\n\ndef b():\n    raise ValueError('no')\n\n\ndef c():\n    block('no')\n",
+               "mod_a.py": _A, "helpers_y.py": "from mod_a import A\n\n\ndef d():\n    raise A('no')\n"},
+     "units": {"a": True, "b": True, "c": True, "d": True}, "sites": 4},
+    {"id": "w-flip-existing", "files": {_FILE: "def check_f(x):\n    " + _ERR + "    return 2\n"}, "units": {"check_f": True},
+     "sites": 1,
+     "cases": [([_row(_FILE, "check_f")], {}, {"C3": ["`blocking_per_role.qa-x` is 1, above its ceiling 0"]}, False),
+               ([_row(_FILE, "check_f")], _ONE_BLOCKING, {}, True)],
+     "control": ({_FILE: "def check_f(x):\n    return 2\n"}, {"check_f": False})},
+    {"id": "w-flip-nested-span",
+     "files": {_FILE: "def outer(x):\n    def check_inner():\n        " + _ERR + "        return 2\n    return check_inner\n"},
+     "units": {"outer": True, "check_inner": True}, "sites": 1},
+    {"id": "w-script-unit-replaced", "stages": _STAGES,
+     "files": {"tool_x.py": "def f(a):\n    sys.exit('bad')\n"}, "units": {"f": True}, "sites": 1,
+     "cases": [([_row("tool_x.py", "<script>", ref="stages.json:S2/qa-x")], {},
+                {"C1": ["stale row `tool_x.py::<script>`", "tool_x.py::f is a check unit (u3)"]}, False),
+               ([_row("tool_x.py", "f")], {}, {"C1": ["tool_x.py::f: `ref` lacks `stages.json:S2/qa-x`"]}, False),
+               ([_row("tool_x.py", "f", ref="stages.json:S2/qa-x")], _ONE_BLOCKING, {}, True)],
+     "control": ({"tool_x.py": "X = 1\n"}, {"<script>": True})},
+    {"id": "w-raise-named", "files": {_FILE: "def f():\n    sys.exit('bad')\n"}, "units": {"f": True}, "sites": 1,
+     "cases": [([_row(_FILE, "f")], _ONE_BLOCKING, {}, True),
+               ([_row(_FILE, "f")], {}, {"C3": ["`blocking_per_role.qa-x` is 1, above its ceiling 0"]}, False),
+               ([_row(_FILE, "f")], {"blocking_per_role": {"qa-x": 2, "conductor": 0}},
+                {"C3": ["`blocking_per_role.qa-x` is 1, below its ceiling 2"]}, False)]},
+)
+
+
+def _wide_units(files: dict, stages=None) -> tuple:
+    """(units as {function: blocks} over every scanned file, the kept-record count, narrow-road keys not units) of a package."""
+    root = _package(files, stages=stages)
+    try:
+        names = scan_files(root)
+        found = units_of(root, names)
+        narrow = refusal_registry.sites(plugin_root=root, files=names, raises=refusal_registry.raise_family(root, names))
+        lost = sorted({(s["file"], s["function"]) for s in narrow} - set(found["units"]))
+        return {k[1]: u["blocks"] for k, u in found["units"].items()}, found["sites"], lost
+    finally:
+        harness.cleanup(root)
+
+
+def test_wide_rows_units_come_from_non_list_sites_only() -> None:
+    for row in WIDE_ROWS:
+        units, sites, lost = _wide_units(row["files"], row.get("stages"))
+        assert units == row["units"], (row["id"], "units", units, "want", row["units"])
+        assert sites == row["sites"], (row["id"], "kept records", sites, "want", row["sites"])
+        assert not lost, (row["id"], "a unit of the narrow road is no longer a unit", lost)
+        if row.get("control"):
+            before, want = row["control"]
+            assert _wide_units(before, row.get("stages"))[0] == want, (row["id"], "control", want)
+        for rows, ratchet, needles, green in row.get("cases", ()):
+            r = _run(row["files"], _census(rows, **ratchet), stages=row.get("stages"))
+            for cls, wanted in needles.items():
+                for needle in wanted:
+                    assert _has(r["problems"][cls], needle), (row["id"], cls, needle, r["problems"][cls])
+            if green:
+                assert not any(r["problems"][k] for k in r["problems"]), (row["id"], "want green", r["problems"])
+
+
 TESTS = [
     test_c1_every_unit_has_a_row_and_every_row_a_unit, test_c2_every_row_is_well_formed,
     test_c3_the_ratchet_is_dense_and_only_shrinks, test_c4_the_meaning_ceiling_is_the_tests_constant,
@@ -850,7 +950,7 @@ TESTS = [
     test_neg_meaning_ceiling_is_not_data, test_neg_stage_row_counts_once,
     test_neg_subclass_raises_flip_blocks_and_create_units,
     test_neg_the_attribute_form_and_the_family_need_raises_and_the_default_scan_is_todays,
-    test_blind_spot_states_the_subclass_clause,
+    test_blind_spot_states_the_subclass_clause, test_wide_rows_units_come_from_non_list_sites_only,
 ]
 
 

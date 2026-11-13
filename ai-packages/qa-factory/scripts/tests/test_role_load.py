@@ -119,9 +119,10 @@ def test_shape_and_sums() -> None:
     layers = by_name(load)
     check_eq("K-S6: packet and launch are the allowances of role-load.json, labelled", [(layers[n]["bytes"], layers[n]["measured"], layers[n]["reason"]) for n in ("packet", "launch")],
              [(5400, False, "allowance"), (2000, False, "allowance")])
-    import brief_pack
-    check_eq("K-S6: the brief counts at brief_pack.BRIEF_MAX_BYTES, labelled a ceiling", (layers["brief"]["bytes"], layers["brief"]["reason"]),
-             (brief_pack.BRIEF_MAX_BYTES, "ceiling"))
+    allowances = RL.settings(root)["allowances"]       # FV1-4 F3 (a): the brief is an allowance (a fixture settings file without the key: 6144 / 1024, E-13)
+    check_eq("K-S6: the brief counts at allowances.brief (a non-charter role: no head), labelled an allowance",
+             (layers["brief"]["bytes"], layers["brief"]["reason"], allowances["brief"], allowances["brief_charter_head"]),
+             (allowances["brief"], "allowance", 6144, 1024))
     check_eq("K-S6: the side files are not counted without a story", (layers["brief_sides"]["bytes"], layers["brief_sides"]["reason"]), (None, "per story"))
     check("K-S6: every allowance and ceiling is listed as not measured",
           {"packet", "launch", "brief", "brief_sides"} <= set(load["unmeasured"]), str(load["unmeasured"]))
@@ -292,6 +293,25 @@ def test_slack_key() -> None:
         check_in(f"K-B1: ratchet_slack_tokens {bad!r} is refused naming the key", "ratchet_slack_tokens", raised)
     write(root / "references" / "role-load.json", json.dumps(dict(settings_doc(), ratchet_slack_tokens=0)))
     check_eq("K-B1: a slack of 0 is legal (a tight ratchet)", RL.settings(root)["ratchet_slack_tokens"], 0)
+    # FV1-4 L4 (Q7): the two allowance keys are validated when present, absent they keep their defaults
+    for key in ("brief", "brief_charter_head"):
+        for bad in (-1, "6144", None, True, 6144.0, []):
+            doc = settings_doc()
+            doc["allowances"][key] = bad
+            write(root / "references" / "role-load.json", json.dumps(doc))
+            try:
+                RL.settings(root)
+                raised = ""
+            except RL.RoleLoadError as exc:
+                raised = str(exc)
+            check_in(f"K-L4: allowances.{key} {bad!r} is refused naming the key", f"allowances.{key}", raised)
+        doc = settings_doc()
+        doc["allowances"][key] = 0
+        write(root / "references" / "role-load.json", json.dumps(doc))
+        check_eq(f"K-L4: allowances.{key} 0 is legal", RL.settings(root)["allowances"][key], 0)
+    write(root / "references" / "role-load.json", json.dumps(settings_doc()))
+    got = RL.settings(root)["allowances"]
+    check_eq("K-L4: both keys absent keep the defaults", (got["brief"], got["brief_charter_head"]), (6144, 1024))
 
 
 def test_cli_adversarial() -> None:

@@ -61,7 +61,11 @@ and the critic role file's rule 18 point here (B-419).
    reason), and an unnamed raise is a finding. The ratchets: `audit_factory.NO_MOVE_BASELINE` /
    `NO_MOVE_BASELINE_MAX` (A27), `OUTSIDE_WALKS` / `OUTSIDE_WALKS_MAX`, `fixtures/env-facts-baseline.json`,
    the driver-layers upward edges and L8 rows, `tools/dup-baseline.json`, the lint ratchet baseline,
-   A24 / A26 `ANCHOR_FLOOR`. A diff that DOORS a site (`# remains: <reason>`) gets its reason read.
+   A24 / A26 `ANCHOR_FLOOR`; the known-red ledger `scripts/tests/fixtures/form-rounds.json` (`known_red`,
+   `not_in_world` and `pins.not_in_world`, read through `scripts/tests/known_red.py`) and the hand-input
+   line of `tools/lint_ratchet.py` (`HandReaderInput`). A diff that adds a row to `known_red` or
+   `not_in_world`, or raises its pin, names each raise and its existing pile node; a raise the verdict
+   does not name is a blocker. A diff that DOORS a site (`# remains: <reason>`) gets its reason read.
 
 10. **ARCHITECTURE** (D-0055; `design/architecture.md`): which AR-n invariants does the diff touch by its files and functions (grep the map), and does the commit/report name them? For each named one: is its change check done (the producer–reader walk BOTH ways with a positive control; the twins; the one-way rule — no second reader, writer, form or seam)? An AR-n touched but not named, a producer removed while a reader stays, or a second way of an existing thing is a finding with a severity (blocks when a reader is starved).
 11. **JUDGMENT** (P27, AR-29): does the diff move judgment into code — a check that classifies a role's judgment, closes a role's

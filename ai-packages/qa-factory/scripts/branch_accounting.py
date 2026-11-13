@@ -1904,6 +1904,35 @@ def _manifest(task_root):
     return C.load_json(C.artifact(Path(task_root), "automation-manifest.json")), C.case_config(Path(task_root))
 
 
+def _word_pass_rows(task_root, scope) -> list:
+    """The S5 findings a person's recorded word passed, as the rows `s5_precheck.word_passes` returns (the ONE reader of a word
+    over the S5 findings, FV1-30a; a row carries `check`, `case`, `tag`), `[]` when it cannot be read (an import or a read
+    failure): nothing is passed on a guess, the refusing direction. `scope` is the window's cases; `UNKNOWN_SCOPE`, a string, is
+    every case."""
+    try:
+        import s5_precheck as S5
+        cases = sorted(str(c) for c in scope) if isinstance(scope, (list, tuple, set)) else None
+        root = Path(task_root)
+        return list(S5.word_passes(root, cases, S5.window_dispatch(root)))
+    except Exception:
+        return []
+
+
+def _no_row_passed(manifest, cfg, case, then, pass_rows) -> bool:
+    """Did a person's word pass THIS fact - the Then has no `then_bindings` row - at the S5 exit: the word named `bindings:<case>:
+    no-bindings` or `bindings:<case>:unbound-<then>` (`s5_precheck.check_bindings`, the same fact under the other detector's
+    name), and the manifest holds no row for the Then. INVARIANT: a Then with a row (bound to something that does not hold, held
+    elsewhere) was not named by that word and still refuses; so does any other case's Then."""
+    if any(_same_case(b.get("case"), case, cfg) and C.then_number(b.get("then")) == then
+           for b in manifest.get("then_bindings") or [] if isinstance(b, dict)):
+        return False
+    for row in pass_rows:
+        if (row.get("check") == "bindings" and _same_case(row.get("case"), case, cfg)
+                and row.get("tag") in ("no-bindings", f"unbound-{then}")):
+            return True
+    return False
+
+
 def s5_problems(task_root, text, branches, scope):
     """`(problems, notes)` of the S5 exit (the automator's): every (branch, Then, partition) a case of the dispatch carries is covered
     in the manifest, or held in a remainder or an `unresolved[]` row (with its slice) - a partition is never dropped by the shape of
@@ -1918,6 +1947,7 @@ def s5_problems(task_root, text, branches, scope):
     manifest, cfg = _manifest(task_root)
     in_scope = _scoped(scope)
     rows = {rid: row for rid, row, _names in plan["rows"]}
+    word_passed = []        # read once, only when a problem is about to be raised: the rows `s5_precheck.word_passes` returned
     for case in _case_records(task_root):
         if str((rows.get(case["plan_row"]) or {}).get("disposition") or "") in MANUAL_DISPOSITIONS + PLAN_EXCLUDING:
             continue
@@ -1926,6 +1956,13 @@ def s5_problems(task_root, text, branches, scope):
             if name not in plan["owed"] or _pair(manifest, cfg, case["id"], then, partition) != "none":
                 continue
             where = f"Then {then}" + (f", partition {partition}" if partition not in (None, "") else "")
+            if in_scope(case):
+                if not word_passed:
+                    word_passed.append(_word_pass_rows(task_root, scope))
+                if _no_row_passed(manifest, cfg, case["id"], then, word_passed[0]):
+                    notes.append(f"{case['id']}: {_label(name, plan['owed'][name])} - {where} has no `then_bindings` row, passed by the "
+                                 "person's word at the S5 exit (the fact stays: it is not bound)")
+                    continue
             (problems if in_scope(case) else notes).append(
                 f"{case['id']}: {_label(name, plan['owed'][name])} - {where} is bound to no instance that covers it and no remainder or "
                 "`unresolved` row holds it - fix: bind it in `then_bindings` to a test that proves it, or record it in `unresolved` "

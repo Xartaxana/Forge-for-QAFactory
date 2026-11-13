@@ -113,10 +113,40 @@ class Refusal(Exception):
     # refusal built before this field existed (or by any other raiser) reads True and keeps its move.
     known = True
     chain = None            # TR3-17: a class default too, so a subclass that does not call `super().__init__` still reads None
+    # P1-v W0: the ids of the checks that produced the refusal (`detector_verdict.check_id`), sorted and unique, and how many
+    # findings each named where that is known. Class defaults, so a subclass that skips `super().__init__` reads empty.
+    checks = ()
+    checks_n: dict | None = None        # `None` here, a dict of its own per instance below: a reader writes `or {}`
+
+    @staticmethod
+    def id_set(ids) -> tuple:
+        """THE normal form of a set of check ids: sorted, unique, strings; ONE `unknown` when there is none (`None` and an empty
+        value alike) - never dropped, never spread (§7.12). A tuple: a caller that needs a list converts at the call."""
+        return tuple(sorted({str(i) for i in ids or ()})) or ("unknown",)
+
+    @staticmethod
+    def id_counts(records) -> dict:
+        """`{check id: how many records carry it}` for a list of finding records, read from their fields BEFORE anything
+        stringifies them (`detector_verdict.check_id`; a plain `str` is the id `unknown`). The ONE counter of the ids of a
+        finding set: `Refusal` and the resume callers of the driver both read it."""
+        counts: dict = {}
+        for record in records or []:
+            found = DV.check_id(record)
+            counts[found] = counts.get(found, 0) + 1
+        return counts
 
     def __init__(self, text: str, retry=None, files=None, dispatch: str = "", findings=None, window_findings=None,
-                 title: str = "", close=None):
+                 title: str = "", close=None, checks=None):
         super().__init__(text)
+        # `checks=` wins (a refusal rebuilt from text and ids another process printed: the `checks:` line of `story_step finish`,
+        # an exit record); else the ids are read from the finding RECORDS, here, before `findings` is stringified below. A refusal
+        # with no id at all is ONE `unknown` - never dropped, never spread (§7.12).
+        if checks:
+            named = [checks] if isinstance(checks, str) else list(checks)
+            self.checks, self.checks_n = self.id_set(named), {}
+        else:
+            self.checks_n = self.id_counts(findings)
+            self.checks = self.id_set(self.checks_n)
         # `close` (C2-8): the mark of a refusal at a place where the CODE closes a stage with no role - `{site, stage, step, ...}`.
         # A non-empty `close` is the whole mark (no second field that could disagree); `handle_refusal` reads it.
         self.close = dict(close or {})
@@ -263,10 +293,11 @@ def _now() -> str:
 def _answer_note(prefix: str, words: str) -> str:
     """A journal note that carries a person's words: the prefix, then the words WHOLE (FR-8).
     Every later brief reads `human_answer` notes as the person's standing instructions, so a
-    silent cut here loses them for every role after it. Only `brief_pack.PERSON_WORDS_MAX` cuts,
-    and that cut says so (the one helper, `brief_pack.person_words_whole`)."""
-    import brief_pack
-    return prefix + brief_pack.person_words_whole(words)
+    silent cut here loses them for every role after it. Nothing cuts, at any size: CRLF becomes LF
+    (`person_words.lf`, the one place of that rule) and that is all. The note travels to the journal
+    by a file (`log_append.py --notes-file`), never on the command line that cuts it."""
+    import person_words
+    return prefix + person_words.lf(words)
 
 
 def _sha(path: Path) -> str:

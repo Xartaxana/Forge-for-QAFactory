@@ -757,7 +757,6 @@ def the_question_prices_are_data() -> None:
             except story_run.Person:
                 pass
         raised(driver.s0_ticket_read_question, 1, "the tracker said no")
-        raised(driver.s0_criteria, {"title": "T", "provenance": {"title_from": "first_line"}, "acceptance_criteria": []}, "through the tracker")
         # D-0050: a ticket with NO criteria section no longer asks; a criteria heading with text the reader took nothing from does
         raised(driver.s0_criteria, {"title": "T", "description": "## Acceptance criteria\n\nThe operator can tag an item.",
                                     "acceptance_criteria": []}, "through the tracker")                                  # s0.ticket_incomplete
@@ -768,6 +767,16 @@ def the_question_prices_are_data() -> None:
         driver.state.setdefault("s0_answers", {})["ticket_read"] = "not needed"
         raised(driver.s0_rest_read)                                                                                   # ...not_needed_empty
         driver.state["s0_answers"].pop("ticket_read", None)
+        # FV1-11: no code raises `s0.ticket_title` any more (no row in the data), but a question of that id STORED by an older run is
+        # still answered: `go on` is a pass with the person's words, `retry` runs the step again and records nothing
+        for word, passed in (("go on", True), ("retry", False)):
+            driver.state.pop("s0_passes", None)
+            driver.state.update(s0_block="ticket_title", pending_words={"S0": word},
+                                s0_ask={"kind": "halt", "text": "old question", "doors": {"retry": "retry", "go on": "go on"},
+                                        "problems": ["title taken from the first line"], "paste": True})
+            driver.s0_read_word()
+            check_eq(f"FV1-11 stored `s0.ticket_title` question answered `{word}`: pass recorded exactly for `go on`",
+                     ("ticket_title" in (driver.state.get("s0_passes") or {}), driver.state.get("s0_block")), (passed, None))
         raised(driver.s0_source_list, {"skip_sources": str(root / "no-such-list.txt"), "mr": None})
         conflicting = root / "conflicting-list.txt"
         conflicting.write_text("testproject1-ui!1924 — a draft merge request\n", encoding="utf-8")
