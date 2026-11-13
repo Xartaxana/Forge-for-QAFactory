@@ -69,6 +69,8 @@ class FillContext:
     case_id: str = ""            # what the artifact token `<case id>` reads: set by `fill_artifact` for each id of `cases` (forms never read it)
     bug_id: str = ""             # what the artifact token `<bug id>` reads: set by `fill_artifact` for each id of `bugs`
     area: str = "general"        # what the token `<area>` reads: the area the artifact templates put their cases in
+    cases_root: str = ""         # what the token `<cases_root>` reads when the form has no plain `cases_root` field: the world's own case store, as the
+                                 # product's reader (`contract.cases_root`) resolves it there; empty keeps the token unfillable (the caller names it)
 
     @property
     def first_case(self) -> str:
@@ -555,10 +557,15 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
             if token not in text:
                 continue
             value = given_by.get(field_path)
+            fallback_key = rules().get("context_fallback_tokens", {}).get(token)       # the form has no plain value: the world's own, when a row names its key
+            fallback = getattr(ctx, fallback_key, "") if fallback_key else ""
             if isinstance(value, str) and value.strip() and not HINT.search(value):
                 text = text.replace(token, value)
+            elif isinstance(fallback, str) and fallback.strip():
+                text = text.replace(token, fallback)
             else:
-                missing.append(f"the contract's token {token} reads the field `{field_path}` of this form, which gives no plain value (it was {value!r})")
+                known = f"; and the context has no key `{fallback_key}` value for it" if fallback_key else ""
+                missing.append(f"the contract's token {token} reads the field `{field_path}` of this form, which gives no plain value (it was {value!r}){known}")
         _finish_token(item, text, missing, ops, fills, unfillable)
     doc = survey.tmpl
     for node, action, value, path in sorted(ops, key=lambda op: op[0].line, reverse=True):

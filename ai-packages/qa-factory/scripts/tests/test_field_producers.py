@@ -397,6 +397,10 @@ def form_filler_hint_cases() -> None:
         ("<cases_root> is filled from the form's own cases_root field", cases, "base", None, "inputs[0].path", "filled cases_root/general/TC-001.md"),
         ("<cases_root> follows the value the form gives its cases_root field", cases, "base", {"artifacts.cases_root": "store"}, "inputs[0].path", "store/general/TC-001.md"),
         ("<cases_root> of a form with no cases_root field is unfillable", cases, "base", {"artifacts.cases_root": ABS}, "<unfillable>", "inputs[0].path"),
+        ("<cases_root> of a form with no cases_root field is the world's own (ctx.cases_root)", FF.FillContext(author_dispatch="S2-author-1", cases=["TC-001"], cases_root="work/test-cases"),
+         "base", {"artifacts.cases_root": ABS}, "inputs[0].path", "work/test-cases/general/TC-001.md"),
+        ("<cases_root>: the form's own plain field beats ctx.cases_root", FF.FillContext(author_dispatch="S2-author-1", cases=["TC-001"], cases_root="work/test-cases"),
+         "base", {"artifacts.cases_root": "store"}, "inputs[0].path", "store/general/TC-001.md"),
         ("<cases_root> with no case in the world is unfillable naming the token", ctx, "base", None, "<unfillable>", "inputs[0].path"),
         ("kept_in_contract: a contract-owned hint no token names is counted", cases, "base", None, "<kept_in_contract>", "inputs[1].path"),
         ("kept_in_contract: and stays as the contract wrote it", cases, "base", None, "inputs[1].path", "work/probes/<instance>.json"),
@@ -466,6 +470,17 @@ def _form_world(root) -> None:
         json.dumps({"totals": {"passed": 1, "failed": 0, "error": 0}, "results": []}), encoding="utf-8")
 
 
+def _world_cases_root(world, task) -> str:
+    """What the product's own reader (`contract.cases_root`, which reads `config.cases_root` of the world's config.json, or falls back to the
+    story's `work/test-cases`) answers in this world, written as the path a form names it: relative to the story, else to the project."""
+    import contract as C
+    found = Path(C.cases_root(task)).resolve()
+    for base in (Path(task).resolve(), Path(world).resolve()):
+        if found.is_relative_to(base):
+            return found.relative_to(base).as_posix()
+    return found.as_posix()
+
+
 def every_form_fills_from_its_own_hints() -> None:
     """P1-a N1: every handoff form, filled from its own hints in every variant, passes its own check (`handoff_check.check`).
 
@@ -495,10 +510,14 @@ def every_form_fills_from_its_own_hints() -> None:
     literal_total, kept = 0, []
     try:
         _form_world(root)
-        ctx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id="negative-w1", cases=["TC-001"])
+        project = harness.mark_project(root / "project")           # the world's config.json: the product's reader answers `cases_root` from it
+        story = project / "qa-factory" / "artifacts" / "TP1-1"
+        story.mkdir(parents=True, exist_ok=True)
+        store = _world_cases_root(project, story)
+        ctx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id="negative-w1", cases=["TC-001"], cases_root=store)
         for contract in forms:
             spec = handoff.spec(contract)
-            cx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id=f"{contract}-w1", cases=["TC-001"])   # the dispatch the world reads the form as
+            cx = FF.FillContext(author_dispatch="S2-author-1", dispatch_id=f"{contract}-w1", cases=["TC-001"], cases_root=store)   # the dispatch the world reads the form as
             listed = FF.variants(contract)
             if len(listed) < max(len(words) if "header.verdict" in spec else 1, 1):
                 short.append(contract)
@@ -1145,9 +1164,10 @@ def _f_check_plan(obj, w, value, row):
     return errors
 
 
-def _accept_form(FF, row):
+def _accept_form(FF, row, w):
     author = f"{row['stage']}-{row['author_role']}-1"
-    filled = FF.fill_form(row["contract"], FF.FillContext(author_dispatch=author, dispatch_id=f"{row['contract']}-w1", cases=["TC-001"]), verdict="concerns")
+    filled = FF.fill_form(row["contract"], FF.FillContext(author_dispatch=author, dispatch_id=f"{row['contract']}-w1", cases=["TC-001"],
+                                                          cases_root=_world_cases_root(w.world, w.task)), verdict="concerns")
     if filled.unfillable:
         raise _Red(f"the form {row['contract']} cannot be filled: {[(u.path, u.why) for u in filled.unfillable][:2]}")
     return filled, author
@@ -1155,7 +1175,7 @@ def _accept_form(FF, row):
 
 def _f_accept_record(obj, w, value, row):
     import acceptance as AC
-    filled, author = _accept_form(row["FF"], row)
+    filled, author = _accept_form(row["FF"], row, w)
     record, problems = AC.stage_acceptance_from_form(filled.data, stage=row["stage"], role=row["author_role"], acceptor=row["acceptor"],
                                                      reviewed_dispatch=author, witness_form=f"work/handoffs/{row['contract']}-w1.yaml",
                                                      at="2026-11-13T00:00:00")
@@ -1164,7 +1184,7 @@ def _f_accept_record(obj, w, value, row):
 
 def _f_accept_dispatch(obj, w, value, row):
     import acceptance as AC
-    filled, author = _accept_form(row["FF"], row)
+    filled, author = _accept_form(row["FF"], row, w)
     row["value"] = author
     return obj(filled.data, {"dispatches": {author: {"stage": row["stage"], "role": row["author_role"]}}}, AC.stage_def_of(row["stage"]))
 
