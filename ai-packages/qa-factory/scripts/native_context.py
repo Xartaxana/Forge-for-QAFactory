@@ -5,25 +5,26 @@ import json
 import os
 import sys
 from pathlib import Path, PureWindowsPath
-from event_store import EventStore, StateConflict, atomic_json
+from event_store import EventStore, StateConflict, atomic_json, TEMP_NAME_HEX
 from hooklib import person_signal, sorted_paths
 
 PROBE_TASK = 'qa_factory_context_probe'
 NAME_HEX = 32
 # Longest project root (characters) for which the packet, written through event_store's temp
-# name (`.json.<32 hex>.tmp`), stays within the Windows 259-character path limit:
-# root + len('\qa-factory\state\native-context\') 33 + 32 + 1 + 32 + len('.json') 5 + len('.<32 hex>.tmp') 37 <= 259.
-# The binding receipt `host_dispatch.binding_path` (64 hex) has the same limit, root + 140.
-PACKET_ROOT_LIMIT = 119
-# Length of `.<uuid4 hex>.tmp`, the temp name `event_store._publish` adds.
-TEMP_NAME_EXTRA = 37
+# name (`.json.<8 hex>.tmp`), stays within the Windows 259-character path limit:
+# root + len('\qa-factory\state\native-context\') 33 + 32 + 1 + 32 + len('.json') 5 + len('.<8 hex>.tmp') 13 <= 259.
+# The binding receipt `host_dispatch.binding_path` (64 hex) has the same limit, root + 116 (34 + 64 + 5 + 13).
+# The literal is pinned against `write_path_length` by test_doctor_context.PacketNameLength.
+PACKET_ROOT_LIMIT = 143
+# Length of `.<8 hex>.tmp`, the temp name `event_store._publish` adds (derived: event_store owns the length).
+TEMP_NAME_EXTRA = len('.') + TEMP_NAME_HEX + len('.tmp')
 # The longest path an ordinary Windows open accepts when long paths are off; a platform not in the table has no
 # limit the factory knows.
 PATH_LIMITS = {'nt': 259}
 # The longest project root the factory's bounded-suffix writers fit under the Windows limit (the native packet and the
-# host-dispatch binding, root + 140; measured across the package by t-216); not this file's packet alone. Writers with
+# host-dispatch binding, root + 116; measured across the package by t-216); not this file's packet alone. Writers with
 # uncapped components are not covered by it.
-SUPPORTED_ROOT = 119
+SUPPORTED_ROOT = 143
 
 DELIVER_WRITE_FAILED = 'FACTORY CONTEXT: the context of {role} ({task}) was delivered, but {what} ({error_type}: {error}).{tail}'
 BINDING_UNWRITTEN = ('its launch receipt could not be written; the duplicate-spawn guard and recovery cannot see this '

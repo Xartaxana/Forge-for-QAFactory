@@ -271,6 +271,77 @@ class EventStoreTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertEqual(list(target.parent.glob("*.tmp")), [])
 
+    def test_publish_temp_name_table(self):
+        """OH6-3: the temp name is `.<8 hex>.tmp`, opened with "x"; a taken name is never written or unlinked."""
+        import re
+        import native_context
+        golden = json.loads((Path(__file__).resolve().parent / "fixtures" / "driver-golden-rules.json")
+                            .read_text(encoding="utf-8"))
+        n8a = next(r for r in golden["rows"] if r["id"] == "N8a")["pattern"]
+        names = []
+
+        def write(stream):
+            names.append(stream.name)
+            stream.write("value")
+
+        def run(row_id, taken, fresh):
+            """Pre-create one temp per token in `taken`, feed `taken + fresh` to the seam, publish."""
+            folder = self.root / row_id
+            folder.mkdir()
+            target = folder / "t.json"
+            for token in taken:
+                (folder / ("t.json." + token + ".tmp")).write_bytes(b"other")
+            tokens = iter(list(taken) + list(fresh))
+            with patch("event_store._temp_token", side_effect=lambda: next(tokens)):
+                try:
+                    event_store._publish(target, write)
+                    error = None
+                except FileExistsError as exc:
+                    error = exc
+            return folder, target, error
+
+        folder = self.root / "E-1"
+        folder.mkdir()
+        event_store._publish(folder / "t.json", write)
+        self.assertRegex(Path(names[-1]).name, r"^t\.json\.[0-9a-f]{8}\.tmp$", "E-1 shape")
+        self.assertEqual((folder / "t.json").read_text(encoding="utf-8"), "value")
+        self.assertEqual(list(folder.glob("*.tmp")), [])
+        suffix = Path(names[-1]).name[len("t.json"):]
+
+        folder, target, error = run("E-2a", ["aaaaaaaa"], ["bbbbbbbb"])
+        self.assertIsNone(error, "E-2a")
+        self.assertEqual(target.read_text(encoding="utf-8"), "value")
+        self.assertEqual((folder / "t.json.aaaaaaaa.tmp").read_bytes(), b"other", "E-2a")
+        self.assertFalse((folder / "t.json.bbbbbbbb.tmp").exists(), "E-2a")
+
+        taken = ["%08x" % i for i in range(7)]
+        folder, target, error = run("E-2b", taken, ["ffffffff"])
+        self.assertIsNone(error, "E-2b")
+        self.assertEqual(target.read_text(encoding="utf-8"), "value")
+        for token in taken:
+            self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2b")
+        self.assertEqual(sorted(p.name for p in folder.glob("*.tmp")), sorted("t.json.%s.tmp" % t for t in taken))
+
+        taken = ["%08x" % i for i in range(8)]
+        folder, target, error = run("E-2c", taken, ["ffffffff"])
+        self.assertIsInstance(error, FileExistsError, "E-2c")
+        self.assertFalse(target.exists(), "E-2c")
+        for token in taken:
+            self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2c")
+        self.assertEqual(len(list(folder.glob("*.tmp"))), 8, "E-2c")
+
+        self.assertEqual(len(suffix), native_context.TEMP_NAME_EXTRA, "E-3")
+        self.assertEqual(native_context.TEMP_NAME_EXTRA, 13)
+        for length, total in ((143, 259), (144, 260)):
+            root = "C:\\" + "p" * (length - 3)
+            slot = native_context._slot(root, "s", "qa_scout__qa_1")
+            self.assertEqual(len(str(slot)) + len(suffix), total, "E-3 root %d" % length)
+
+        self.assertTrue(re.search(n8a, "x/t.json" + suffix), "E-4 8 hex")
+        self.assertTrue(re.search(n8a, "x/t.json." + "a" * 32 + ".tmp"), "E-4 32 hex")
+        for bad in (7, 9):
+            self.assertFalse(re.search(n8a, "x/t.json." + "a" * bad + ".tmp"), "E-4 %d hex" % bad)
+
     def test_other_permission_errors_are_not_retried(self):
         target = self.root / "pipeline.json"
         attempts = []

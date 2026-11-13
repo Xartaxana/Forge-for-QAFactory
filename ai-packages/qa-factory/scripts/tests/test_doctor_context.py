@@ -169,12 +169,12 @@ class PacketNameLength(unittest.TestCase):
 
     def test_root_at_the_limit_writes_and_one_beyond_exceeds_the_windows_path(self):
         import native_context as N
-        self.assertEqual(N.PACKET_ROOT_LIMIT, 119)
+        self.assertEqual(N.PACKET_ROOT_LIMIT, 143)
         at = self.root_of(N.PACKET_ROOT_LIMIT)
-        N.stage(at, self.event(), 'qa-scout', 'ctx', 'QA-1')   # writes through event_store's `.<32 hex>.tmp` name
+        N.stage(at, self.event(), 'qa-scout', 'ctx', 'QA-1')   # writes through event_store's `.<8 hex>.tmp` name
         path = N.pending_path(at, 's', 'qa_scout__qa_1')
         self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['context'], 'ctx')
-        temp_name_extra = len('.' + 'f' * 32 + '.tmp')
+        temp_name_extra = len('.' + 'f' * 8 + '.tmp')
         self.assertEqual(len(str(path)) + temp_name_extra, 259)          # the longest the host path allows
         beyond = N._slot(Path('p' * (N.PACKET_ROOT_LIMIT + 1)), 's', 'qa_scout__qa_1')
         self.assertEqual(len(str(beyond)) + temp_name_extra, 260)         # the old failing length, one past the limit
@@ -201,13 +201,15 @@ class PacketNameLength(unittest.TestCase):
     def test_length_arithmetic_is_pure_and_pins_the_limits(self):
         """A1: string roots only, no disk, no TEMP."""
         import native_context as N
-        self.assertEqual((N.NAME_HEX, N.PACKET_ROOT_LIMIT, N.SUPPORTED_ROOT), (32, 119, 119))
+        self.assertEqual((N.NAME_HEX, N.PACKET_ROOT_LIMIT, N.SUPPORTED_ROOT), (32, 143, 143))
+        self.assertEqual(N.TEMP_NAME_EXTRA, 13)
         root = lambda length: 'C:\\' + 'p' * (length - 3)
-        for length, total in ((119, 259), (120, 260)):
+        for length, total in ((143, 259), (144, 260)):
             with self.subTest(root=length):
-                self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), length + 140)
+                self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), length + 116)
                 self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), total)
-        self.assertEqual(N.write_path_length(root(152), 's'), 259)
+        self.assertEqual(N.write_path_length(root(176), 's'), 259)
+        self.assertEqual(N.write_path_length(root(177), 's'), 260)
 
     def test_unwritten_facts_table(self):
         """A4: which cause text applies; string roots, explicit platform."""
@@ -222,18 +224,18 @@ class PacketNameLength(unittest.TestCase):
 
         fnf, drive = FileNotFoundError('x'), 'C:\\'
         rows = {
-            'at_limit_nt': (padded(drive, 119), fnf, 'nt', 'q', 'write_error'),
-            'over_nt': (padded(drive, 120), fnf, 'nt', 'q', 'path_limit'),
-            'over_permission': (padded(drive, 120), PermissionError('x'), 'nt', 'q', 'write_error'),
-            'over_enametoolong': (padded(drive, 120), OSError(errno.ENAMETOOLONG, 'x'), 'nt', 'q', 'path_limit'),
-            'over_winerror206': (padded(drive, 120), Winerror206('x'), 'nt', 'q', 'path_limit'),
-            'unc_over': (padded('\\\\srv\\share\\', 120), fnf, 'nt', 'q', 'path_limit'),
+            'at_limit_nt': (padded(drive, 143), fnf, 'nt', 'q', 'write_error'),
+            'over_nt': (padded(drive, 144), fnf, 'nt', 'q', 'path_limit'),
+            'over_permission': (padded(drive, 144), PermissionError('x'), 'nt', 'q', 'write_error'),
+            'over_enametoolong': (padded(drive, 144), OSError(errno.ENAMETOOLONG, 'x'), 'nt', 'q', 'path_limit'),
+            'over_winerror206': (padded(drive, 144), Winerror206('x'), 'nt', 'q', 'path_limit'),
+            'unc_over': (padded('\\\\srv\\share\\', 144), fnf, 'nt', 'q', 'path_limit'),
             'extended': (padded('\\\\?\\C:\\', 200), fnf, 'nt', 'q', 'write_error'),
             'extended_unc': (padded('\\\\?\\UNC\\srv\\share\\', 200), fnf, 'nt', 'q', 'write_error'),
             'extended_forward_slash': (padded('//?/C:/', 200), fnf, 'nt', 'q', 'write_error'),
             'posix_long': (padded('/', 300), fnf, 'posix', 'q', 'write_error'),
-            'unnamed_153': (padded(drive, 153), fnf, 'nt', None, 'path_limit'),
-            'empty_message': (padded(drive, 120), FileNotFoundError(), 'nt', 'q', 'path_limit'),
+            'unnamed_177': (padded(drive, 177), fnf, 'nt', None, 'path_limit'),
+            'empty_message': (padded(drive, 144), FileNotFoundError(), 'nt', 'q', 'path_limit'),
         }
         for name, (root, exc, platform, task, cause) in rows.items():
             with self.subTest(row=name):
@@ -241,7 +243,7 @@ class PacketNameLength(unittest.TestCase):
                 self.assertEqual(facts['cause'], cause, facts)
                 if name == 'over_nt':
                     self.assertEqual((facts['length'], facts['root_length'], facts['packet_limit'], facts['supported']),
-                                     (260, 120, 119, 119))
+                                     (260, 144, 143, 143))
                 if name == 'posix_long':
                     self.assertIsNone(facts['limit'])
                 if name == 'empty_message':
@@ -268,8 +270,8 @@ class PacketNameLength(unittest.TestCase):
         """A5: no pass road (ticket empty); the text is a machine line to the orchestrator."""
         from hooklib import TRAPPED
         cases = {
-            'path': ('C:\\' + 'p' * 117, FileNotFoundError('gone'),
-                     ('qa-scout', 'refused', '120', '260', '259', 'at most 119 characters', 'shorter is safer', 'long paths',
+            'path': ('C:\\' + 'p' * 141, FileNotFoundError('gone'),
+                     ('qa-scout', 'refused', '144', '260', '259', 'at most 143 characters', 'shorter is safer', 'long paths',
                       'if they can and want to', '(owner: environment)')),
             'write': ('C:\\' + 'p' * 20, PermissionError('locked'), ('qa-scout', 'refused', 'PermissionError', 'again once')),
         }
