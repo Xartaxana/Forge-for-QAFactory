@@ -332,6 +332,208 @@ class PacketNameLength(unittest.TestCase):
                         self.assertIn('--block "could not be written"', err.getvalue())
 
 
+class NativeStageRefusal(unittest.TestCase):
+    """OH6-4: a refused native launch leaves a denial row (named, or inert while a launch of its key is pending); the
+    refusal itself (stderr text, exit 2) is unchanged."""
+
+    def setUp(self):
+        import hooklib
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / 'qa-factory').mkdir()
+        (self.root / 'qa-factory/config.json').write_text('{"schema_version": 1}', encoding='utf-8')
+        self.story = self.root / 'qa-factory/artifacts/QA-1'
+        self.story.mkdir(parents=True)
+        (self.story / 'pipeline.json').write_text(json.dumps({'ticket': 'QA-1', 'stages': {'S1': {'status': 'running'}}}),
+                                                  encoding='utf-8')
+        patches = (mock.patch.dict(os.environ, {'CLAUDE_PROJECT_DIR': str(self.root)}),
+                   mock.patch.object(hooklib, '_PROJECT_ROOT_CACHE', None))
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def event(self, **drop):
+        ev = {'host': 'codex', 'cwd': str(self.root), 'session_id': 's', 'tool_use_id': 'u1', 'tool_name': 'Agent',
+              'tool_input': {'subagent_type': 'qa-scout', 'prompt': 'Dispatch id: D-1\nwork'},
+              '_qa_host': {'input': {'task_name': 'qa_scout__qa_1'}}}
+        for key in drop:
+            ev.pop(key)
+        return ev
+
+    def staged(self, ev, context='ctx'):
+        import native_context as N
+        N.stage(self.root, ev, 'qa-scout', context, 'QA-1')
+
+    def refused(self, ev, exc, ticket='QA-1'):
+        import inject_context as IC
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stop:
+            IC.refuse_native_stage(ev, ticket, 'qa-scout', self.root, exc)
+        return stop.exception.code, err.getvalue()
+
+    def raised(self, ev, context='ctx'):
+        with self.assertRaises(ValueError) as caught:
+            self.staged(ev, context)
+        return caught.exception
+
+    def rows(self, path=None):
+        path = path or self.story / 'state/dispatch-denials.jsonl'
+        if not path.is_file():
+            return []
+        return [json.loads(x) for x in path.read_text(encoding='utf-8').splitlines()]
+
+    def belongs(self):
+        from controller import Controller
+        return Controller(self.story)._denial_times({'id': 'D-1', 'role': 'qa-scout', 'stage': 'S1'}, {}, {})
+
+    def test_native_stage_refusals(self):
+        big = 'x' * 100001
+
+        def too_large():
+            return self.event(), self.raised(self.event(), big), 'QA-1'
+
+        def no_identity():
+            ev = self.event(tool_use_id=None)
+            return ev, self.raised(ev), 'QA-1'
+
+        def pending():
+            ev = self.event()
+            self.staged(ev)
+            return ev, self.raised(ev), 'QA-1'
+
+        def busy_lock():
+            from event_store import StateConflict
+            return self.event(), StateConflict('task has an active state writer'), 'QA-1'
+
+        def big_while_pending():
+            ev = self.event()
+            self.staged(ev)
+            return ev, self.raised(ev, big), 'QA-1'
+
+        def unreadable_pending():
+            import native_context as N
+            ev = self.event()
+            self.staged(ev)
+            N._slot(self.root, 's', 'qa_scout__qa_1').write_text('{broken', encoding='utf-8')
+            return ev, self.raised(ev, big), 'QA-1'
+
+        def list_pending():
+            import native_context as N
+            ev = self.event()
+            self.staged(ev)
+            N._slot(self.root, 's', 'qa_scout__qa_1').write_text('[1]', encoding='utf-8')
+            return ev, self.raised(ev, big), 'QA-1'
+
+        def no_ticket():
+            return self.event(), self.raised(self.event(), big), ''
+
+        rows = [('B-1 too_large', too_large, 'named'), ('B-2 no_identity', no_identity, 'named'),
+                ('B-3 pending', pending, 'inert'), ('B-4 busy_lock', busy_lock, 'inert'),
+                ('B-5 too_large_while_pending', big_while_pending, 'inert'),
+                ('B-6 unreadable_pending', unreadable_pending, 'inert'),
+                ('B-6b list_pending', list_pending, 'inert'), ('B-7 no_ticket', no_ticket, 'project')]
+        for name, build, kind in rows:
+            with self.subTest(row=name):
+                self.tearDown_story()
+                ev, exc, ticket = build()
+                code, err = self.refused(ev, exc, ticket)
+                self.assertEqual((code, err), (2, 'INJECT: ' + str(exc) + '\n'))
+                if kind == 'project':
+                    self.assertEqual(self.rows(), [])
+                    project = self.rows(self.root / 'qa-factory/state/dispatch-denials.jsonl')
+                    self.assertEqual([r['reason'] for r in project], ['INJECT: ' + str(exc)])
+                    continue
+                story_rows = self.rows()
+                self.assertEqual(len(story_rows), 1)
+                if kind == 'named':
+                    self.assertEqual(story_rows[0]['dispatch_id'], 'D-1')
+                    self.assertEqual(len(self.belongs()), 1)
+                else:
+                    self.assertEqual((story_rows[0]['dispatch_id'], story_rows[0]['stage']), (None, None))
+                    self.assertEqual(self.belongs(), [])
+
+    def tearDown_story(self):
+        """Each row starts from an empty story state and an empty packet folder."""
+        import shutil
+        shutil.rmtree(self.story / 'state', ignore_errors=True)
+        shutil.rmtree(self.root / 'qa-factory/state', ignore_errors=True)
+
+    def test_dispatch_refusals_without_a_packet_leave_a_named_row(self):
+        """B-8 (check_override) and B-9 (rewritten_input): `dispatch` refuses, writes the row, exits 2 as before."""
+        import inject_context as IC
+        import host_adapter
+        import codex_roles
+        import stage_guard
+        (self.story / 'state').mkdir()
+        (self.story / 'state/controller.json').write_text(json.dumps({'dispatches': {'D-1': {
+            'id': 'D-1', 'role': 'qa-scout', 'stage': 'S1', 'status': 'running', 'resolved_model': {}}}}), encoding='utf-8')
+        imap = {'roles': {'qa-scout': {}}}
+        cases = [('B-8 check_override', 'check_override', True), ('B-9 rewritten_input', 'rewritten_input', False)]
+        for name, target, codex in cases:
+            with self.subTest(row=name):
+                ev = self.event()
+                if codex:
+                    ev['_qa_host']['input']['agent_type'] = 'qa_scout'
+                else:
+                    ev['host'] = 'claude'
+                (self.story / 'state/dispatch-denials.jsonl').unlink(missing_ok=True)
+                err = io.StringIO()
+                module = codex_roles if codex else host_adapter
+                with contextlib.ExitStack() as stack, contextlib.redirect_stderr(err):
+                    stack.enter_context(mock.patch.object(IC, 'load_map', return_value=imap))
+                    stack.enter_context(mock.patch.object(IC, 'run_stage_guard'))
+                    stack.enter_context(mock.patch.object(IC, 'collect_blocks', return_value=['\nblock']))
+                    stack.enter_context(mock.patch.object(stage_guard, 'requested_ticket', return_value='QA-1'))
+                    stack.enter_context(mock.patch.object(module, target, side_effect=ValueError('refused: ' + target)))
+                    if codex:
+                        import worker_lifecycle
+                        stack.enter_context(mock.patch.object(worker_lifecycle, 'guard'))
+                        stack.enter_context(mock.patch.object(host_adapter, 'role_policy'))
+                        stack.enter_context(mock.patch.object(IC, 'codex_role_instructions'))
+                    with self.assertRaises(SystemExit) as stop:
+                        IC.dispatch(ev, {'rewritten': False})
+                self.assertEqual(stop.exception.code, 2, err.getvalue())
+                self.assertEqual(err.getvalue(), 'refused: ' + target + '\n')
+                rows = self.rows()
+                self.assertEqual([(r['dispatch_id'], r['reason']) for r in rows], [('D-1', 'refused: ' + target)])
+
+    def test_launch_pending_table(self):
+        import native_context as N
+        ev = self.event()
+        self.assertFalse(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))      # absent
+        self.assertFalse(N.launch_pending(self.root, '', 'qa_scout__qa_1'))       # no session
+        self.staged(ev)
+        self.assertTrue(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))
+        self.assertFalse(N.launch_pending(self.root, 's', 'other_task'))          # another key is another launch
+        path = N._slot(self.root, 's', 'qa_scout__qa_1')
+        path.write_text(json.dumps({'status': 'delivered'}), encoding='utf-8')
+        self.assertFalse(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))
+        path.write_bytes(b'\xff\xfe')
+        self.assertTrue(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))       # undecodable counts as pending
+        with mock.patch.object(N, '_slot', side_effect=RuntimeError('boom')):
+            self.assertTrue(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))   # never raises
+
+    def test_one_a24_row_per_native_refusal(self):
+        import refusal_registry as RR
+        ids = ('NC-context-too-large', 'NC-launch-identity-missing', 'NC-launch-pending')
+        entries = {e['id']: e for e in RR.REGISTRY if e['id'] in ids}
+        self.assertEqual(sorted(entries), sorted(ids))
+        live = RR.sites(RR.PLUGIN_ROOT)
+        for ident, entry in entries.items():
+            with self.subTest(entry=ident):
+                self.assertEqual((entry['file'], entry['function']), ('native_context.py', 'stage'))
+                self.assertTrue(entry['unpassable_because'])
+                covered = [s for s in live if s['file'] == 'native_context.py' and s['function'] == 'stage'
+                           and s['call'].startswith(entry['call'])]
+                self.assertEqual(len(covered), 1)
+        self.assertEqual(RR.findings(RR.PLUGIN_ROOT), [])
+        with mock.patch.object(RR, 'SCANNED', tuple(x for x in RR.SCANNED if x != 'native_context.py')):
+            text = '\n'.join(map(str, RR.findings(RR.PLUGIN_ROOT)))
+        for ident in ids:
+            self.assertIn(ident, text)
+
+
 DOOR = ('context diagnostic requires current allow/deny evidence in this host session; '
         'run host_probe.py --prepare, its two native commands, then --check')
 OTHER = 'belongs to another host session'

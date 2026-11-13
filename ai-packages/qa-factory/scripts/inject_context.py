@@ -299,7 +299,7 @@ def dispatch_id_of(event: dict) -> str | None:
     return m.group(1) if m else (str(ti.get("dispatch_id") or "") or None)
 
 
-def note_denial(event: dict, ticket: str, stage, role, reason: str) -> None:
+def note_denial(event: dict, ticket: str, stage, role, reason: str, *, name_dispatch: bool = True) -> None:
     """One JSON line in <task_root>/state/dispatch-denials.jsonl for a dispatch this hook
     refused.
 
@@ -332,6 +332,8 @@ def note_denial(event: dict, ticket: str, stage, role, reason: str) -> None:
         row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                "stage": stage or None, "role": role or None,
                "dispatch_id": dispatch_id_of(event), "reason": reason or "denied"}
+        if not name_dispatch:      # an INERT row: it belongs to no dispatch, so `recover` never closes one on it
+            row.update(stage=None, dispatch_id=None)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:
@@ -504,6 +506,22 @@ def refuse_native_packet(event: dict, ticket, role, root, exc, stage=None) -> No
     block(NATIVE_PACKET_UNWRITTEN.format(**parts))
 
 
+def refuse_native_stage(event: dict, ticket, role, root, exc) -> None:
+    """`native_context.stage` raised a ValueError (too large, no host identity, a launch pending, a busy lock): refuse
+    (exit 2, stderr `INJECT: <message>`, unchanged) and leave a denial row (OH6-4). The row is NAMED (it may close this
+    dispatch through `recover`) only when the exception is not a `StateConflict` and no launch of the same key is
+    pending or unreadable; otherwise it is INERT (no dispatch id, no stage), so a live pending launch is never closed on
+    it. The choice is by exception TYPE and by the packet read, never by the message (FR-12)."""
+    import native_context
+    from event_store import StateConflict
+    print('INJECT: ' + str(exc), file=sys.stderr)
+    raw = (event.get("_qa_host") or {}).get("input") or {}
+    named = not isinstance(exc, StateConflict) and not native_context.launch_pending(
+        root, event.get("session_id"), raw.get("task_name"))
+    note_denial(event, ticket, None, role, 'INJECT: ' + str(exc), name_dispatch=named)
+    sys.exit(2)
+
+
 def main() -> None:
     """The PreToolUse hook of a dispatch. An unknown never passes silently (RH1-5 B9, AR-28): an event that cannot be
     parsed (H13) and any exception (H14) ALLOW the dispatch and leave a `hook_signal` of kind `inject` - the injection is
@@ -649,7 +667,9 @@ def dispatch(event: dict, out: dict) -> None:
                         from hooklib import project_root
                         try: check_override(project_root(event), role, resolved)
                         except ValueError as exc:
-                            print(str(exc), file=sys.stderr); sys.exit(2)
+                            print(str(exc), file=sys.stderr)
+                            note_denial(event, ticket, None, role, str(exc))      # F-6: the same road as every refusal
+                            sys.exit(2)
     last = matching[-1] if matching else None          # the running dispatch of this role: the one record the hook speaks for
     try:
         blocks = collect_blocks(role, imap, event, dispatch_kind(last))
@@ -706,8 +726,7 @@ def dispatch(event: dict, out: dict) -> None:
             refuse_native_packet(event, ticket, role, project_root(event), exc,
                                  last.get("stage") if isinstance(last, dict) else None)
         except ValueError as exc:
-            print('INJECT: ' + str(exc), file=sys.stderr)
-            sys.exit(2)
+            refuse_native_stage(event, ticket, role, project_root(event), exc)
         sys.exit(0)
     ti["prompt"] = str(prompt) + "".join(blocks)
     from host_probe import injection_marker
@@ -715,7 +734,9 @@ def dispatch(event: dict, out: dict) -> None:
     from host_adapter import rewrite_output, rewritten_input
     try: ti = rewritten_input(event, ti)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr); sys.exit(2)
+        print(str(exc), file=sys.stderr)
+        note_denial(event, ticket, None, role, str(exc))      # F-6: the same road as every refusal
+        sys.exit(2)
     # The advice queued on the way goes to `rewrite_output` as its `context`: the host adapter alone decides where an
     # advice beside `updatedInput` goes (it reaches nobody there, B0 a), so the queue is empty when `main` ends.
     import hooklib

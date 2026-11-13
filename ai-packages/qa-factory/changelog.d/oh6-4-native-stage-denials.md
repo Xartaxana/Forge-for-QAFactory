@@ -1,0 +1,1 @@
+- A refused native launch (context too large, no host identity, a launch already pending) now leaves a denial record; the refusal itself is unchanged. The Codex role-override refusal and the rewritten-input refusal of the dispatch hook leave one too.
