@@ -140,10 +140,71 @@ def the_sensitivity_gap_is_reported_not_hidden() -> None:
     check("an instance with no probe receipt is still refused", bool(gaps), str(gaps))
 
 
+def known_red_ledger_cases() -> None:
+    """The `known_red` helper (P1-a spec 3.6): one table, the row id is the case name. A gate errs only toward red (AR-28).
+
+    Each row: (name, ledger file text or None for a missing file, results of the walk, expected).
+    expected is ("error", text the LedgerError names) or (ok, problems that must start with these, known that must equal these).
+    """
+    import known_red as KR
+    row = '{"node": "FV1-1", "raised_by": "Lead, 2026-11-13"}'
+    ledger = '{"known_red": {"a: w -> r": %s}}' % row
+    def red(rid: str) -> str:
+        return (f'new red: {rid} — fix it, or add "{rid}": {{"node": "<FV1-n or node id>", "raised_by": '
+                f'"<verdict or word that names this raise>"}} to L known_red')
+    new_red = red("x")
+    cases = [
+        ("known red passes", ledger, {"a: w -> r": False}, (True, [], ["known red: a: w -> r -> FV1-1"])),
+        ("new red refused with door", '{"known_red": {}}', {"x": False}, (False, [new_red], [])),
+        ("stale green refused", ledger, {"a: w -> r": True},
+         (False, ["stale: a: w -> r is green; remove its known_red row (node FV1-1) in this commit"], [])),
+        ("unknown row refused", ledger, {"b": True},
+         (False, ["unknown row: a: w -> r is not a row of this walk; rename it to the walk's id or remove it"], [])),
+        ("green without row ok", '{"known_red": {}}', {"x": True}, (True, [], [])),
+        ("empty ledger: every red is new", '{}', {"x": False, "y": False, "z": True},
+         (False, [new_red, red("y")], [])),
+        ("empty results with rows: every row unknown", '{"known_red": {"p": %s, "q": %s}}' % (row, row), {},
+         (False, ["unknown row: p is not", "unknown row: q is not"], [])),
+        ("missing file", None, {}, ("error", "cannot read the ledger file")),
+        ("section absent = empty", '{"other": {}}', {"x": False}, (False, [new_red], [])),
+        ("duplicate id", '{"known_red": {"d": %s, "d": %s}}' % (row, row), {}, ("error", "duplicate key 'd'")),
+        ("whitespace id", '{"known_red": {" d": %s}}' % row, {}, ("error", "leading/trailing whitespace")),
+        ("blank raised_by", '{"known_red": {"d": {"node": "FV1-1", "raised_by": "  "}}}', {}, ("error", "raised_by")),
+        ("null raised_by", '{"known_red": {"d": {"node": "FV1-1", "raised_by": null}}}', {}, ("error", "raised_by None")),
+        ("bad node fv1-1", '{"known_red": {"d": {"node": "fv1-1", "raised_by": "Lead"}}}', {}, ("error", "node 'fv1-1'")),
+        ("extra key", '{"known_red": {"d": {"node": "FV1-1", "raised_by": "Lead", "why": "x"}}}', {}, ("error", "unknown key")),
+        ("case-different id stays red", ledger, {"A: w -> r": False},
+         (False, [red("A: w -> r"), "unknown row: a: w -> r is not"], [])),
+        ("kind-level row does not cover variant",
+         '{"known_red": {"exit_limit": %s}}' % row, {"exit_limit/empty": False},
+         (False, ["unknown row: exit_limit is not", red("exit_limit/empty")], [])),
+    ]
+    root = harness.temp_dir()
+    try:
+        for name, text, results, expected in cases:
+            path = root / "ledger.json"
+            path.unlink(missing_ok=True)
+            if text is not None:
+                path.write_text(text, encoding="utf-8")
+            try:
+                got = KR.reconcile(results, KR.load(path), ledger_path="L")
+            except KR.LedgerError as exc:
+                check(f"known_red: {name}", expected[0] == "error" and expected[1] in str(exc), f"{exc} / wanted {expected}")
+                continue
+            ok, problems, known = expected
+            # problems come sorted by id; a wanted text may be just the start of the message
+            fits = (got.ok is ok and got.known == tuple(known) and len(got.problems) == len(problems)
+                    and all(g.startswith(w) for g, w in zip(got.problems, problems)))
+            check(f"known_red: {name}", expected[0] != "error" and fits, f"{got} / wanted {expected}")
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
     every_required_field_has_a_producer_or_a_declared_gap()
     the_two_paths_this_walk_wired()
     the_sensitivity_gap_is_reported_not_hidden()
+    known_red_ledger_cases()
     finish("test_field_producers")
 
 

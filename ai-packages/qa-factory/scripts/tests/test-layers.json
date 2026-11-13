@@ -1688,7 +1688,8 @@
     "probe_by_code.py",
     "red_sandbox.py",
     "references/field-producers.json",
-    "tests/harness.py"
+    "tests/harness.py",
+    "tests/known_red.py"
    ]
   },
   "test_file_lock.py": {
