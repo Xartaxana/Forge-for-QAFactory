@@ -263,9 +263,15 @@ def _load(path: Path) -> dict:
     return hooklib.read_json(path, {}, kind=dict, errors=Exception)
 
 
-def _finding(check: str, case: str, message: str, fix: str, tag: str, level: str = "repair") -> dict:
-    return {"id": f"{check}:{case or '-'}:{tag}", "check": check, "case": case,
-            "message": message, "fix": fix, "level": level}
+def _finding(check: str, case: str, message: str, fix: str, tag: str, level: str = "repair", subjects=None) -> dict:
+    """One finding. `subjects` (FV1-30b) says WHICH instances or Thens it is about, for the readers of a word's pass
+    (`waiver.word_passed_index`): `{"instance_id": iid}`, `{"instance_id": iid, "fields": [names]}` or `{"case": case,
+    "then": n}`. The key is present only when the producer gives it, so every other finding is byte for byte as before."""
+    out = {"id": f"{check}:{case or '-'}:{tag}", "check": check, "case": case,
+           "message": message, "fix": fix, "level": level}
+    if subjects is not None:
+        out["subjects"] = list(subjects)
+    return out
 
 
 def _hint(check: str, case: str, message: str, fix: str, tag: str) -> dict:
@@ -1260,7 +1266,7 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
             "row — nothing says which test and which assertion proves each one",
             "add then_bindings[] to the fragment: {case, then, instance_id, assertion_ref, "
             "status} per clause; an uncovered clause is `status: unresolved` with a reason",
-            "no-bindings"))
+            "no-bindings", subjects=[{"case": case, "then": number} for number, _clause in clauses]))
     else:
         bound = {C.then_number(b.get("then")) for b in bindings if str(b.get("status") or "covered") != "unresolved"
                  and (b.get("instance_id") and b.get("assertion_ref"))}
@@ -1273,7 +1279,7 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
                 f"Then {number} of {case} has no `then_bindings` row — neither a test and "
                 "assertion that proves it nor a recorded reason it is unresolved",
                 "bind it to an instance and an assertion line, or record it in unresolved[] "
-                "with a reason from the closed list", f"unbound-{number}"))
+                "with a reason from the closed list", f"unbound-{number}", subjects=[{"case": case, "then": number}]))
         # a clause of case B may be bound to a test of any shape, as long as that test
         # SAYS it covers B. Without the link the consolidation is invisible to the ledger,
         # the roll-call and the stage guard, and B reaches gate B as `not_executed`.
@@ -1957,7 +1963,7 @@ def check_run_mapping(case: str, entries: list, targets: list, rows: list, findi
                  if ("spelling differs" in why or "mapping is missing" in why) else
                  "run the instance once, or — if it did run and only the reporter row is "
                  "missing — `run_suite.py --task <TICKET> --reparse-block <block> --mapping "
-                 "<json>`; a rerun does not add a missing row"), f"no-row-{iid}"))
+                 "<json>`; a rerun does not add a missing row"), f"no-row-{iid}", subjects=[{"instance_id": iid}]))
             continue
         last = series[-1]
         if last.get("report_matched") is False or str(last.get("status")) == "not_run":
@@ -1969,7 +1975,7 @@ def check_run_mapping(case: str, entries: list, targets: list, rows: list, findi
                 # without --task made the one sanctioned remedy error out (0.7.7 review).
                 "`run_suite.py --task <TICKET> --reparse-block " + str(last.get("block"))
                 + " --mapping <instance->report_test_id JSON>` — the run happened; the "
-                "mapping is what is missing, so a rerun buys nothing", f"unmatched-{iid}"))
+                "mapping is what is missing, so a rerun buys nothing", f"unmatched-{iid}", subjects=[{"instance_id": iid}]))
 
     # There used to be a "this case covers N test functions but tests[] carries M instances"
     # finding here. It counted METHODS PER CASE, so the one shape 0.7.7 wants — one
@@ -3831,7 +3837,9 @@ def check_row_fields(task_root: Path, manifest: dict, cases: list, findings: lis
             gaps.append((C.test_instance_id(entry) or "(a row with no instance_id)", fields))
     if gaps:
         message, fix = _row_fields_text(gaps, Path(task_root).name)
-        findings.append(_finding("manifest", "", message, fix, ROW_FIELDS_TAG))
+        findings.append(_finding("manifest", "", message, fix, ROW_FIELDS_TAG,
+                                 subjects=[{"instance_id": iid, "fields": [field for field, _problem in fields]}
+                                           for iid, fields in gaps]))
 
 
 def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
@@ -3966,8 +3974,9 @@ def refusal_cause(finding: dict) -> str:
 def _judge_words(task_root: Path, findings: list, notes: list) -> tuple:
     """`(standing findings, word passes)`: the ONE judgment of the recorded words over the findings of the S5 exit. A word
     passes a finding only by `_names` (the same road for every family, P31); the first live word of `stage_overrides[]` in file
-    order that names it wins. A pass is `{finding_id, check, case, tag, decision, at}` (the finding's own parts - `case` is `""` for
-    a finding with no case - and the word's own `decision` and `at`), one note says it in
+    order that names it wins. A pass is `{finding_id, check, case, tag, decision, at, subjects}` (the finding's own parts - `case` is `""` for
+    a finding with no case, `subjects` is the finding's own `subjects` or `[]` (FV1-30b, a copy: which instances or Thens it is
+    about) - and the word's own `decision` and `at`), one note says it in
     words, and the data under the finding is never touched: a word passes the STEP, never the fact. Reads `pipeline.json`, writes
     nothing (FR-45). Error direction: a word that cannot be read or that names a finding ambiguously passes nothing (a false
     refusal asks the person again); a finding the word did NOT name is never passed."""
@@ -3994,7 +4003,8 @@ def _judge_words(task_root: Path, findings: list, notes: list) -> tuple:
             word = kept["stage_overrides"][0]
             passes.append({"finding_id": str(finding["id"]), "check": str(finding.get("check") or ""),
                            "case": str(finding.get("case") or ""), "tag": _finding_tag(finding),
-                           "decision": str(word.get("decision") or ""), "at": word.get("at")})
+                           "decision": str(word.get("decision") or ""), "at": word.get("at"),
+                           "subjects": finding.get("subjects") or []})
             notes.append(f"{finding['case'] or 'a case'}: {finding['message']} — passed by "
                          f"the person's word: {word.get('decision')}")
         elif left_out:
@@ -4029,7 +4039,8 @@ def passed_by_word(task_root: Path, findings: list, notes: list) -> list:
 
 
 def word_passes(task_root, scope=None, dispatch_id=None) -> list:
-    """`[{finding_id, check, case, tag, decision, at}]`: the findings of the S5 exit that a person's recorded word passed, for the
+    """`[{finding_id, check, case, tag, decision, at, subjects}]` (`subjects`: the finding's own list of the instances or Thens it
+    is about, `[]` when it names none - FV1-30b; `waiver.word_passed_index` reads it): the findings of the S5 exit that a person's recorded word passed, for the
     cases of `scope` (a list of case ids; None or empty is every case the state names; a finding with no case, `case == ""`,
     belongs to every scope). The same rows `run` carries as its `word_passes` field - one judgment (`_judge_words`), read by the
     controller to RECORD the pass (`passed-by-person.jsonl`) and by `branch_accounting` and the window gap check to not ask a

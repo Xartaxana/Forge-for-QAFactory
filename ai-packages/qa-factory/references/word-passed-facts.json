@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "note": "word-passed-facts: which finding of the S5 exit is which FACT a person's recorded word passed (`facts`: the finding's check and tag, exact or prefix), and which tests[] row fields that word may pass (`row_fields`: a field with no row, or a row with pass false, is NEVER passed: the safe default is that the field is deleted when empty and refused as before). The one reader is waiver.word_passed_index (and waiver.row_fields); no other script keeps a (check, tag) list or a field list. A pass whose (check, tag) matches no `facts` row is fact `other`: a report line only, read by no gate. `words` is the wording of each fact for the report.",
+  "facts": [
+    {"check": "bindings", "tag": "no-bindings", "match": "exact", "fact": "then_unbound"},
+    {"check": "bindings", "tag": "unbound-", "match": "prefix", "fact": "then_unbound"},
+    {"check": "run_mapping", "tag": "no-row-", "match": "prefix", "fact": "not_run"},
+    {"check": "manifest", "tag": "row-fields-missing", "match": "exact", "fact": "row_fields_unestablished"},
+    {"check": "plan", "tag": "plan-unreadable", "match": "exact", "fact": "s5_plan_unread"}
+  ],
+  "row_fields": {
+    "obligation_refs": {
+      "pass": true,
+      "window_keys": {"obligation_refs": [], "obligation_ids": [], "obligation_hash": ""},
+      "tier4_gaps": ["obligation_binding", "obligation_hash"]
+    },
+    "change_disposition": {
+      "pass": false,
+      "why": "an empty value switches off the probe demand (contract.py probe-missing line; proof_level.proof_required)"
+    },
+    "input_hash": {
+      "pass": false,
+      "why": "an empty value makes the item malformed_instance and skips every later check of it (acceptance.validate_window)"
+    }
+  },
+  "words": {
+    "then_unbound": "Then not bound to a test",
+    "not_run": "no run row",
+    "row_fields_unestablished": "row fields not given",
+    "s5_plan_unread": "the S5 plan not read",
+    "other": "the finding stays as it was"
+  }
+}

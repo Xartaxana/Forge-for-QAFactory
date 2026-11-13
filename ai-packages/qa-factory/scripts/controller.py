@@ -2419,6 +2419,18 @@ class Controller:
                         line["word_at"] = str(item["at"])
                     if len(block) > 400:
                         line["finding_id"] = block
+                    # FV1-30b: the finding's own parts and WHICH instances / Thens it was about (`waiver.person_passes` reads
+                    # them back); each only when it has a value, so a pass of a finding with no subjects is the line it was.
+                    # `subjects` is cut at 200 entries with the whole count beside it: the reader names only the 200 listed, so a
+                    # cut never passes an instance it does not list.
+                    for key in ("check", "case", "tag"):
+                        if str((item or {}).get(key) or ""):
+                            line[key] = str(item[key])
+                    subjects = [s for s in ((item or {}).get("subjects") or []) if isinstance(s, dict)]
+                    if subjects:
+                        line["subjects"] = subjects[:200]
+                        if len(subjects) > 200:
+                            line["subjects_cut"] = len(subjects)
                     handle.write(json.dumps(line, ensure_ascii=False) + "\n")
         except OSError as exc:  # a record that cannot be written must not fail the pass itself
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
@@ -2437,7 +2449,9 @@ class Controller:
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
             return
         self._record_person_pass("S5", d.get("id"), [
-            {"error": row["finding_id"], "decision": row["decision"], "at": row["at"], "by": "human"} for row in rows])
+            {"error": row["finding_id"], "decision": row["decision"], "at": row["at"], "by": "human",
+             "check": row.get("check"), "case": row.get("case"), "tag": row.get("tag"), "subjects": row.get("subjects")}
+            for row in rows])
 
     def _passed_by_person(self, stage, errors):
         """(still blocking, passed by a person's recorded word) — the factory's standing rule.
