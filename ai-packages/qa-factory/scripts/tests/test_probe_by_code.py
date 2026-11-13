@@ -3138,7 +3138,33 @@ def b355_i_in_test_root_reads_the_one_reader() -> None:
         check_eq(f"B355-I {label}", PBC._in_test_root(cfg, rel), expected)
 
 
+OF4_6_ROOTS = ["tests", "./tests/", ".", "..", "../x", "", "/srv/tests", "/tests"]
+OF4_6_PATHS = ["tests/a.py", "a.py", "x/tests/a.py"]
+
+
+def of4_6_expected(root: str, rel: str) -> bool:
+    """The requirement, not the code: a root names a folder INSIDE the project; `.` (the whole project), a root above it,
+    an empty one and an absolute one own nothing (refusal only toward False). Under a real root a path is owned if it is
+    that folder or lies in it, and only then."""
+    if root in ("tests", "./tests/"):
+        return rel.startswith("tests/")
+    return False
+
+
+def of4_6_profiles_owning_and_in_test_root_agree() -> None:
+    """OF4-6: `execution_request.profiles_owning` (reads `roots.test` itself) and `probe_by_code._in_test_root` (through
+    `test_locations`) give ONE answer for every root x path of the table; the expectation is the requirement above."""
+    import execution_request as ER
+    for root in OF4_6_ROOTS:
+        cfg = {"profiles": [{"profile_id": "api", "roots": {"test": root}}]}
+        for rel in OF4_6_PATHS:
+            want = of4_6_expected(root, rel)
+            check_eq(f"OF4-6 root {root!r} path {rel!r}: _in_test_root", PBC._in_test_root(cfg, rel), want)
+            check_eq(f"OF4-6 root {root!r} path {rel!r}: profiles_owning", bool(ER.profiles_owning(cfg, rel)), want)
+
+
 def main() -> None:
+    of4_6_profiles_owning_and_in_test_root_agree()
     b355_i_in_test_root_reads_the_one_reader()
     second_hop_name_in_two_files_is_refused()
     n2_k7_the_red_probe_reads_the_stand_as_the_run_does()

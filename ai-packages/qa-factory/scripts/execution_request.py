@@ -1605,7 +1605,9 @@ def _path_key(path) -> str:
     """One spelling of a project-relative path, for comparing it with a profile's `roots.test`: backslashes become
     slashes, `./`, `a//b` and `a/../b` are folded, the outer slashes are cut, and on Windows the case is folded
     (that file system does not tell `Tests` from `tests`). '' for none. Invariant: `tests`, `./tests/` and, on
-    Windows, `Tests` are one key, so no reader sees one root as two (AR-13)."""
+    Windows, `Tests` are one key, so no reader sees one root as two (AR-13). Readers: `profiles_owning` (the
+    profile roots) and, for the protected paths only, `probe_by_code._in_test_root`; the test roots there are read
+    through `test_locations.is_test_path`, not through this spelling."""
     text = str(path or "").replace("\\", "/").strip()
     text = posixpath.normpath(text) if text else ""
     text = "" if text == "." else text.strip("/")
@@ -1614,8 +1616,8 @@ def _path_key(path) -> str:
 
 def path_under(path_key: str, root_key: str) -> bool:
     """Whether the `_path_key` spelling `path_key` is the root `root_key` or lies below it. False when either is empty
-    (no path, or no root: nothing is under nothing). The one comparison of "under a root" (`profiles_owning`,
-    `probe_by_code._in_test_root`); both keys must come from `_path_key` (AR-13)."""
+    (no path, or no root: nothing is under nothing). The comparison of "under a root" for `profiles_owning` and, for
+    the protected paths only, `probe_by_code._in_test_root`; both keys must come from `_path_key` (AR-13)."""
     if not path_key or not root_key:
         return False
     return path_key == root_key or path_key.startswith(root_key + "/")
@@ -1626,11 +1628,18 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     the DEEPEST such root. [] when no root holds it; one id when one profile owns it; MORE THAN ONE when several
     profiles share that deepest root - a tie the path cannot break and no caller may break by taking the first.
     The one predicate of "which profiles own this path" (`_profile_for`, `probe_by_code._profile_cwd`,
-    `gate_preflight.Rehearsal._profiles_sharing_root`), with one normalisation (`_path_key`)."""
+    `gate_preflight.Rehearsal._profiles_sharing_root`), with one normalisation (`_path_key`). A root the one reader of
+    test places ignores - empty or absolute (`test_locations._grammar_problem`), or folded by `_path_key` to a place
+    above the project (`..`, `../x`); `.` is already no key - owns nothing, like `probe_by_code._in_test_root`
+    (OF4-6: a root `/tests` is not the project's `tests`)."""
+    import test_locations as TL
     key = _path_key(rel_path)
     deepest, owners = -1, []
     for profile in selected_profiles(cfg):
-        root = _path_key((profile.get("roots") or {}).get("test"))
+        raw = str((profile.get("roots") or {}).get("test") or "").replace("\\", "/").strip()
+        root = _path_key(raw)
+        if TL._grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
+            continue    # `tests/ui/..` is folded by `_path_key` to `tests` and stays a root; only a root that ends above the project goes
         if not path_under(key, root):
             continue
         pid = str(profile["profile_id"])
