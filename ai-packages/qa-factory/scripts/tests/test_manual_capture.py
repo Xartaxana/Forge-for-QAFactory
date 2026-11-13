@@ -2056,6 +2056,10 @@ def of3_1e_one_env_file_parse():
             ("a BOM before the first key", "﻿A_KEY=1\nB_KEY=2", ["A_KEY", "B_KEY"]),
             ("export lower case dropped", "export A_KEY=1", ["A_KEY"]),
             ("a name without a secret marker is not named", "AB=1", []),
+            # one shape of a key name for both names-only readers (project_inventory.KEY_NAME_RE): P31, AR-13
+            ("EXPORT upper case is part of the name, so no key name", "EXPORT A_KEY=1", []),
+            ("a space inside the name is not a key name", "A B_KEY=1", []),
+            ("a name starting with a digit is not a key name", "1A_KEY=1", []),
             ("a repeated name is named once, at its first place", "A_KEY=1\nB_KEY=2\nA_KEY=3", ["A_KEY", "B_KEY"]),
             ("an empty file", "", []),
         ]

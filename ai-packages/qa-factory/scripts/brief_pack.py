@@ -2552,10 +2552,12 @@ def _stand_pick(cfg: dict, env_name: str) -> tuple:
 
 def _env_file_key_names(block: dict, project: Path) -> tuple:
     """(names | None, rel): the key NAMES of the stand's env file that look like an account or a secret
-    (`env_probe.SECRET_NAME`) - never a value, and not the process environment. None: the file is configured and cannot be read."""
+    (`env_probe.SECRET_NAME`) and have the shape of a key name (`project_inventory.KEY_NAME_RE`, the one shape both names-only
+    readers share) - never a value, and not the process environment. None: the file is configured and cannot be read."""
     import env_probe as EP
     import gate_preflight as GP
     import manual_capture as MC
+    from project_inventory import KEY_NAME_RE
     files = GP.configured_env_files(block, project)[0]      # the files the login reads: `env_file` and `env_files`
     if not files:
         return [], ""
@@ -2564,7 +2566,8 @@ def _env_file_key_names(block: dict, project: Path) -> tuple:
     if not there:
         return None, rel
     try:
-        return list(dict.fromkeys(k for p in there for k in EP.parse_env_file(p) if EP.SECRET_NAME.search(k))), rel
+        return list(dict.fromkeys(k for p in there for k in EP.parse_env_file(p)
+                                if EP.SECRET_NAME.search(k) and KEY_NAME_RE.match(k))), rel
     except OSError:
         return None, rel
 
