@@ -3832,6 +3832,25 @@ def check_row_fields(task_root: Path, manifest: dict, cases: list, findings: lis
         findings.append(_finding("manifest", "", message, fix, ROW_FIELDS_TAG))
 
 
+def _stale_binding_text(oid: str, case: str, stale: list, road: str) -> tuple:
+    """`(what is wrong, what to do)` of the `binding-stale-<oid>` finding. The coverage map prints the field's own word
+    for a judgment it does not count (`C.JUDGED_UNKNOWN`), so the text names that word per field."""
+    many = len(stale) > 1
+    names = ", ".join(f"`{f}`" for f in stale)
+    shown = " and ".join(f"`{C.JUDGED_UNKNOWN.get(f, 'unknown')}` for `{f}`" for f in stale)
+    example = ", ".join(f"\"{f}\": \"<{'|'.join(C.BINDING_VOCAB.get(f, ('value',)))}>\"" for f in stale)
+    what = (f"{oid} ({case}): the binding's {names} {'were' if many else 'was'} written against "
+            "another text of this obligation than the plan states now (the plan changed, or the "
+            f"binding was renamed to this id, after {'they were' if many else 'it was'} judged), "
+            f"so the coverage map counts {'them' if many else 'it'} for nothing and prints {shown}")
+    fix = ("read the obligation as the plan states it now, judge again, and send the field(s) you "
+           f"re-judged in one fragment through `{road}`: "
+           "{\"obligation_bindings\": [{\"obligation_id\": \"" + oid + "\", " + example
+           + "}]}; the code stamps each field you send with the current hash, a field you do not "
+           "send stays uncounted, and you never send `obligation_hash` or `judged_on`")
+    return what, fix
+
+
 def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
                       handed: set, findings: list) -> None:
     """Every coverage obligation of the plan row a scoped case belongs to is bound, under the
@@ -3855,8 +3874,6 @@ def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
     known = C.plan_obligation_ids(task_root)
     from event_store import content_hash
     plan_map, reported = C.plan_obligation_map(task_root), set()
-    # the closed words of the contract (`references/artifact-contract-automation.md`), for the finding's example only
-    _BINDING_VOCAB = {"design_assessment": ("sufficient", "partial", "unknown"), "code_validity": ("valid", "unverified")}
     named = ""
     if unknown:
         named = (f"; the manifest binds {', '.join(unknown)}, which the plan does not name — "
@@ -3887,21 +3904,8 @@ def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
                              if C.counting_value(owners[0], f) and not cur.get(f)]
                     if stale:
                         reported.add(oid)
-                        many = len(stale) > 1
-                        names = ", ".join(f"`{f}`" for f in stale)
-                        findings.append(_finding(
-                            "obligations", case,
-                            f"{oid} ({case}): the binding's {names} {'were' if many else 'was'} written against "
-                            "another text of this obligation than the plan states now (the plan changed, or the "
-                            f"binding was renamed to this id, after {'they were' if many else 'it was'} judged), "
-                            f"so the coverage map counts {'them' if many else 'it'} as unknown",
-                            "read the obligation as the plan states it now, judge again, and send the field(s) you "
-                            "re-judged in one fragment through `" + FRAGMENT_ROAD
-                            + "`: {\"obligation_bindings\": [{\"obligation_id\": \"" + oid + "\", "
-                            + ", ".join(f"\"{f}\": \"<{'|'.join(_BINDING_VOCAB.get(f, ('value',)))}>\"" for f in stale)
-                            + "}]}; the code stamps each field you send with the current hash, a field you do not "
-                            "send stays uncounted, and you never send `obligation_hash` or `judged_on`",
-                            f"binding-stale-{oid}"))
+                        what, fix = _stale_binding_text(oid, case, stale, _road(task_root.name))
+                        findings.append(_finding("obligations", case, what, fix, f"binding-stale-{oid}"))
                 continue
             findings.append(_finding(
                 "obligations", case,

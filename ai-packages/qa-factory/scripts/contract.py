@@ -5358,6 +5358,8 @@ def _stamp_row_refs(row: dict, at: int, plan_map: dict, problems: list) -> None:
 
 JUDGED_FIELDS = ("code_validity",)
 JUDGED_UNKNOWN = {"design_assessment": "unknown", "code_validity": "unverified", "sensitivity": "missing"}
+# the closed words of a binding's judged fields (`references/artifact-contract-automation.md`), for a finding's example
+BINDING_VOCAB = {"design_assessment": ("sufficient", "partial", "unknown"), "code_validity": ("valid", "unverified")}
 
 
 def counting_value(binding, field: str) -> bool:

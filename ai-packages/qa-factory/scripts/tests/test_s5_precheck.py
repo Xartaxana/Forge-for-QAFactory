@@ -3290,7 +3290,12 @@ def a_stale_binding_is_named_before_the_finish() -> None:
         check_in("p1: names design_assessment", "`design_assessment`", text)
         check_in("p1: names code_validity", "`code_validity`", text)
         check_in("p1: says another text", "written against another text", text)
-        check_in("p1: the fix names the fragment door", "manifest_put.py --task <T> --fragment <file>", fix)
+        check_in("p1: the fix names the fragment door with the task's own id",
+                 f"manifest_put.py --task {task.name} --fragment <file>", fix)
+        check_not_in("p1/F2: and never the literal <T> slot", "<T>", fix)
+        check_in("F4: the message says what the map prints for design_assessment", "prints `unknown` for `design_assessment`", text)
+        check_in("F4: and for code_validity it says unverified", "`unverified` for `code_validity`", text)
+        check_not_in("F4: and never calls the field unknown with a word list", "as unknown", text)
         check_in("p1: the example carries both fields", '"design_assessment": "<sufficient|partial|unknown>", '
                  '"code_validity": "<valid|unverified>"', fix)
         check_in("p1: never send the hash or judged_on", "you never send `obligation_hash` or `judged_on`", fix)
@@ -3312,6 +3317,10 @@ def a_stale_binding_is_named_before_the_finish() -> None:
         check_eq("p8/B1 (F5 b): OB3_BINDING (no hash, design sufficient) -> one finding", len(no_hash), 1)
         check_in("p8: naming design_assessment", "`design_assessment`", no_hash[0]["message"] if no_hash else "")
         check_not_in("p8: and not the unknown code_validity", "code_validity", no_hash[0]["message"] if no_hash else "")
+        only_code = stale_of(dict(base, design_assessment="unknown"))
+        check_in("F4: a code_validity-only finding names unverified, not unknown",
+                 "prints `unverified` for `code_validity`", only_code[0]["message"] if only_code else "")
+        check_not_in("F4: and does not name design_assessment", "design_assessment", only_code[0]["message"] if only_code else "")
 
         renamed = dict(base, judged_on={"code_validity": "hb"})
         post = stale_of(renamed)

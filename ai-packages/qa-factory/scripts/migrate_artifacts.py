@@ -455,7 +455,7 @@ def _rename_legacy_obligations(root: Path, task_id: str, project_root: Path,
                          "reason": "not current, re-judge: " + ", ".join(stale)
                                    + f" (renamed from {old}; judged against another text of this obligation than the plan "
                                    "states now, so they count for nothing until the automator re-sends them through "
-                                   "manifest_put.py --fragment; the S5 precheck names them)"})
+                                   f"manifest_put.py --task {task_id} --fragment <file>; the S5 precheck names them)"})
     return {"changed": [note], "left": left}
 
 
