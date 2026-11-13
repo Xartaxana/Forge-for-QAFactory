@@ -86,9 +86,10 @@ PENDING = {
     # Two doors that were converted to the file form and are back to upstream's inline text, because an
     # upstream test pins that text: the S9 report-check door (test_story_closed.py) and the mode-switch
     # door of `run_mode_refusal` (test_package_generation.py). The matched text is as the scan renders it
-    # (`{}` for a formatted value; the second one keeps the quote that closes the script's path).
+    # (`{}` for a formatted value; `run_mode_refusal` spells the script through `RP.script_command`, so its
+    # placeholder renders as the bare `waiver.py`, with no closing quote after the name).
     "scripts/stage_done.py": ('waiver.py --task {} --stage S9 --block "{}" --decision "',),
-    "scripts/story_step.py": ('waiver.py" --task {} --stage {} --block "{}" --decision "',),
+    "scripts/story_step.py": ('waiver.py --task {} --stage {} --block "{}" --decision "',),
 }
 # Entries whose reason is not the default one.
 PENDING_PINNED = ("scripts/stage_done.py", "scripts/story_step.py")

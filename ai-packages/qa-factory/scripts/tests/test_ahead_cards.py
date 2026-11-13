@@ -196,12 +196,11 @@ def charter_card_join() -> None:
     check("no charter, no slice and no data carrier a role reads carries the host root variable", not bad, str(bad))
 
     # data files a role reads RAW name a script with the card marker; the role that reads each has it on its card (OH8-4 Part 2)
-    import handoff as handoff_form
     readers = {
         "references/templates/requirements-register.md":
             {role for role, entry in brief_pack.ROLE_FILES.items()
              if "plugin:references/templates/requirements-register.md" in json.dumps(entry)},
-        "handoffs/s0-setup-to-scout.yaml": {str(handoff_form.template("s0-setup-to-scout").data.get("to_role") or "")},
+        "handoffs/s0-setup-to-scout.yaml": {str(handoff.template("s0-setup-to-scout").data.get("to_role") or "")},
     }
     data_found = set()
     for rel, roles_reading in readers.items():
@@ -226,6 +225,8 @@ def charter_card_join() -> None:
     check("the L3 remedy holds the survivor's command for stand_health.py",
           RP.script_command("stand_health.py") in str(l3.get("remedy")), str(l3.get("remedy")))
     check("no string of the loaded table holds a script token", "{script:" not in json.dumps(table))
+    check("no string of the loaded table names a script missing from this copy",
+          "(missing from the plugin copy at" not in json.dumps(table), json.dumps(table)[:90])
 
 
 def main() -> None:
@@ -404,7 +405,6 @@ def role_text_roots() -> None:
     import story_step
     import first_look
     import s5_plan
-    sys.path.insert(0, str(Path(harness.__file__).resolve().parent))
     import story_run_common as common
 
     tmp = harness.temp_dir("qa-textroots-")
