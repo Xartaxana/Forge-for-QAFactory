@@ -218,12 +218,59 @@ def a_blank_field_code_fills_is_not_refused_by_values_report() -> None:
         check_in("K-A20: but a blank field code does NOT fill still is a problem", "review.outcome", _paths(problems))
         check_eq("K-A20: and the good line is kept", kept, ["header.verdict: ok"])
         # the one answer
+        # the one answer, by contract and full path (FV2-2): `(row id, path, contract, expected)`
+        s3, s4c, s4r, s8 = ("s3-strategist-to-designer", "s4-designer-to-case-critic", "s4-designer-to-runner",
+                            "s8-bug-reporter-to-scribe")
         yes = ["review.findings_file", "scope[3].case_version", "artifacts.tests[0]", "artifacts.tests[2]", "size.computed",
                "rounds[1].verify.witness", "claims." + next(iter(H.CLAIMS))]
         no = ["header.verdict", "scope[0].reason", "claims.never_heard_of_it", "artifacts.tests_other", "scope[0].id"]
-        check_eq("K-A20: _code_fills says yes for what a deriver, a list deriver, a leaf or a verifier fills",
-                 [H._code_fills(p) for p in yes], [True] * len(yes))
-        check_eq("K-A20: and no for what only the role knows", [H._code_fills(p) for p in no], [False] * len(no))
+        rows = ([(f"yes {p}", p, S4, True) for p in yes] + [(f"no {p}", p, S4, False) for p in no] + [
+            ("s3 scope requirements", "scope[0].requirements", s3, False),
+            ("s3 inputs_read requirements", "inputs_read[0].requirements", s3, False),
+            ("s8 filed requirements", "filed[0].requirements", s8, False),
+            ("unknown contract", "scope[0].requirements", "", False),
+            ("absent contract", "scope[0].requirements", None, False),
+            ("case-different contract", "scope[0].requirements", s4c.upper(), False),
+            ("bare leaf", "requirements", s4c, False),
+            ("extra nesting", "scope[0][1].requirements", s4c, False),
+            ("path the form lacks", "inputs_read[0].requirements", s4c, False),
+            ("form with no such leaf", "scope[0].plan_row", s3, False),
+            ("s4c scope requirements", "scope[0].requirements", s4c, True),
+            ("s4r scope requirements index 7", "scope[7].requirements", s4r, True),
+            ("s4c plan_row", "scope[0].plan_row", s4c, True),
+            ("s4r plan_row", "scope[0].plan_row", s4r, True),
+            ("s5 critic case_version", "scope[0].case_version", "s5-automator-to-critic", True),
+        ])
+        for row_id, path, contract, expected in rows:
+            check_eq(f"K-A20 _code_fills: {row_id}", H._code_fills(path, contract), expected)
+        # the refusal skeleton offers a field the role writes and hides one code fills: `(row id, contract, section, role, needle, present)`
+        for row_id, contract, section, role, needle, present in [
+                ("s3 scope offers requirements", s3, "scope", "qa-test-strategist", '"scope[0].requirements": <', True),
+                ("s3 inputs_read offers requirements", s3, "inputs_read", "qa-test-strategist",
+                 '"inputs_read[0].requirements": <', True),
+                ("s8 filed offers requirements", s8, "filed", "qa-bug-reporter", '"filed[0].requirements": <', True),
+                ("s4c hides requirements", s4c, "scope", "qa-case-designer", "scope[0].requirements", False),
+                ("s4c hides plan_row", s4c, "scope", "qa-case-designer", "scope[0].plan_row", False),
+                ("s4r hides requirements", s4r, "scope", "qa-case-designer", "scope[0].requirements", False),
+                ("s4r hides plan_row", s4r, "scope", "qa-case-designer", "scope[0].plan_row", False)]:
+            sketch = H.values_skeleton([H.Problem(section, "no rows", "fix")], contract, role)
+            (check_in if present else check_not_in)(f"K-A20 skeleton: {row_id}", needle, sketch)
+        # the guard refuses a blank field the role writes and forgives one code fills: `(row id, contract, path, refused)`
+        # (the templates of the S3 `scope`, the S8 `filed` and the S4 `scope` hold no row, so the values text opens row 0 by its id)
+        for row_id, contract, path, refused, opening in [
+                ("s3 scope requirements refused", s3, "scope[0].requirements", True, "scope[0].id: P-1\n"),
+                ("s3 inputs_read requirements refused", s3, "inputs_read[0].requirements", True, ""),
+                ("s8 filed requirements optional, not refused", s8, "filed[0].requirements", False, "filed[0].draft: D-1\n"),
+                ("s4c requirements forgiven (code's)", s4c, "scope[0].requirements", False, "scope[0].id: TC-1\n"),
+                ("s4c plan_row forgiven (code's)", s4c, "scope[0].plan_row", False, "scope[0].id: TC-1\n")]:
+            tform = art / "work" / "handoffs" / f"{contract}-fv22.yaml"
+            tform.parent.mkdir(parents=True, exist_ok=True)
+            tform.write_text(handoff.template(contract).text(), encoding="utf-8")
+            named = _paths(H.values_report(tform, "header.verdict: ok\n" + opening)[0])
+            check_eq(f"K-A20 guard: {row_id}", path in named, refused)
+            if not refused:
+                check_in(f"K-A20 guard: {row_id}: the row was opened (the control)", f"{path.split('.')[0]}.state"
+                         if contract == s4c else f"{path.split('.')[0]}.bug", named)
         check("K-A20: a Problem says its kind structurally: 'not filled' is blank, a wrong word is not",
               {p.path: p.kind for p in control if p.path in ("review.findings_file", "review.outcome")}
               == {"review.findings_file": "blank", "review.outcome": "blank"}
@@ -456,7 +503,7 @@ def the_contract_is_read_once_and_only_when_a_line_is_bad() -> None:
 
 
 def _scalar_paths(contract: str) -> list:
-    return [p for p in H.row_form(handoff.spec(contract))[1] if not p.endswith("]")]
+    return [p for p in H.row_form(handoff.spec(contract), contract=contract)[1] if not p.endswith("]")]
 
 
 def the_row_form_of_every_contract_is_a_path_the_writer_takes() -> None:
@@ -468,14 +515,14 @@ def the_row_form_of_every_contract_is_a_path_the_writer_takes() -> None:
     seen = 0
     for contract in contracts:
         spec = handoff.spec(contract)
-        name, paths = H.row_form(spec)
+        name, paths = H.row_form(spec, contract=contract)
         if not paths:
             continue
         seen += 1
         first, later = H.row_pair(paths)
         check(f"K8 {contract}: a scalar path to show", bool(first) and bool(later) and first != later, f"{paths}")
         check(f"K8 {contract}: nothing owned by the contract or filled by code",
-              not any(handoff.owned_by_contract(p) or H._code_fills(p) for p in paths), f"{paths}")
+              not any(handoff.owned_by_contract(p) or H._code_fills(p, contract) for p in paths), f"{paths}")
         doc, applied, problems, _notes = H.apply_values(handoff.template(contract), contract, [(first, "word", 1, "")])
         check_eq(f"K8 {contract}: `{first}` is written", (applied, [p.path for p in problems]), (1, []))
     check("K8: the contracts with a list of rows were really walked", seen >= 5, f"{seen}")

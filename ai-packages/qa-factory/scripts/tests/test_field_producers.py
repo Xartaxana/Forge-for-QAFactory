@@ -104,7 +104,7 @@ def walk() -> tuple:
         text = (harness.PLUGIN_ROOT / "handoffs" / f"{contract}.yaml").read_text(encoding="utf-8")
         leaf = path.rsplit(".", 1)[-1]
         producer = ""
-        if path in derived or leaf in HC.BY_LEAF:
+        if path in derived or HC._by_path(contract, path) is not None:
             producer = "handoff_check --fix"
         else:
             named = SCRIPT_RE.search(hint) or SCRIPT_RE.search(
@@ -542,7 +542,7 @@ def every_form_fills_from_its_own_hints() -> None:
                     else:
                         check(f"{row}: crashed: {type(exc).__name__}", False, str(exc))
                     continue
-                problems = [p for p in problems if p.path not in skip and not (p.kind == "blank" and HC._code_fills(p.path))]
+                problems = [p for p in problems if p.path not in skip and not (p.kind == "blank" and HC._code_fills(p.path, contract))]
                 if contract in help_forms:
                     stray = [p for p in problems if re.sub(r"\[\d+\]", "[]", p.path) not in spec]
                     if stray:
@@ -1390,7 +1390,7 @@ def every_derived_field_meets_its_deriver() -> None:
                 except Exception as exc:               # E14: an exception is never a pass
                     check(f"derive: {contract}: crashed: {type(exc).__name__}", False, str(exc))
                     continue
-                skipped = {p.path for p in before if p.kind == "blank" and HC._code_fills(p.path)}
+                skipped = {p.path for p in before if p.kind == "blank" and HC._code_fills(p.path, contract)}
                 for path in sorted(set(filled.left_for_code) | skipped):
                     now = doc.get(path)
                     met = now is not None and not handoff.is_placeholder(now) and str(now).strip() != ""
