@@ -1,0 +1,12 @@
+{"schema": 1,
+ "note": "first row whose `match` is inside the request path answers (a file = 200); no row = 404. Raw answers only, copied from investigation-14857 (K5 corpus). Not in the world on purpose: /remotelink, /field, /comment, the merge request.",
+ "routes": [
+  {"match": "/issue/TP1-14857?fields=", "file": "TP1-14857.json"},
+  {"match": "/issue/TP1-15791?fields=", "file": "TP1-15791.json"},
+  {"match": "/issue/TP1-10937?fields=", "file": "TP1-10937.json"},
+  {"match": "/issue/TP1-217?fields=", "file": "TP1-217.json"},
+  {"match": "/issue/TP1-13171?fields=", "file": "TP1-13171.json"},
+  {"match": "/issue/TP1-12780?fields=", "file": "TP1-12780.json"},
+  {"match": "/issue/TP1-12034?fields=", "file": "TP1-12034.json"},
+  {"match": "/issue/TP1-13289?fields=", "file": "TP1-13289.json"}
+ ]}

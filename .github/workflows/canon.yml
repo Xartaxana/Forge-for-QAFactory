@@ -32,6 +32,12 @@ on:
         description: "keep = measure only the keep rows of test-layers.json; empty = every test file"
         required: false
         default: ""
+      # P1-b node N0: true = run ONLY the dry-story spike (minutes) and none of the canon; false (the default) = the canon exactly as before
+      spike:
+        description: "true = run only the dry-story spike (the timings the gate numbers are judged by); false = the canon"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   start:
@@ -43,16 +49,36 @@ jobs:
         run: echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
   checks:
     needs: start
+    if: ${{ !inputs.spike }}
     uses: ./.github/workflows/forge-check.yml
     with:
       ref: ${{ inputs.ref }}
   full:
     needs: start
+    if: ${{ !inputs.spike }}
     uses: ./.github/workflows/nightly.yml
     with:
       ref: ${{ inputs.ref }}
       TEST_REDUNDANCY: ${{ inputs.TEST_REDUNDANCY }}
       REDUNDANCY_SCOPE: ${{ inputs.REDUNDANCY_SCOPE }}
+  dry-story-spike:
+    needs: start
+    if: ${{ inputs.spike }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: dry story spike (S0..S3, a snapshot, three probe rows)
+        run: python -B ai-packages/qa-factory/scripts/tests/dry_world.py --spike
   clock:
     needs: [start, checks, full]
     if: always()
