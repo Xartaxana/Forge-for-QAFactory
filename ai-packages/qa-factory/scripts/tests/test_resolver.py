@@ -1670,7 +1670,7 @@ OH61_ROWS = (
      lambda o, n: o[:2] == ("raised", "ValueError") and o[2].startswith("stale_marker must be a plain file name"),
      lambda o, n: o[0] == "value" and o[1].stale_marker == "T", True),
     ("selftest_slow_tests", _oh61_row_selftest_slow_tests,
-     lambda o, n: o == ("value", f'"files" key {n!r} is not a test file name'), lambda o, n: o == ("value", None), True),
+     lambda o, n: o == ("value", f'"files" key {n!r} is not a test file name'), lambda o, n: o == ("value", None), False),
     ("dependency_drift", _oh61_row_dependency_drift,
      lambda o, n: o == ("value", (None, "t.json locks[0] needs a plain file name, a `format` and a `manager`")),
      lambda o, n: o[0] == "value" and o[1][0]["locks"][0]["file"] == "T" and o[1][1] == "", True),
@@ -1678,8 +1678,10 @@ OH61_ROWS = (
 
 
 def oh6_1_one_component_table() -> None:
-    """OH6-1 Part A: 18 callers x 7 names. One check per cell, and (17 rows) one spy check per cell: the caller asked
-    `hooklib.is_one_component` about the exact name, so a copy that kept its own test cannot pass."""
+    """OH6-1 Part A: 18 callers x 7 names. One check per cell, and (16 rows) one spy check per cell: the caller asked
+    `hooklib.is_one_component` about the exact name, so a copy that kept its own test cannot pass. The `selftest` row is
+    not spied: the runner does not import hooklib, it keeps the named mirror `selftest._is_one_component`, and the
+    agreement row below pins the mirror to the survivor."""
     base = scratch()
     for row_id, run, refused, accepted, spied in OH61_ROWS:
         for label, name in OH61_NAMES:
@@ -1704,8 +1706,19 @@ def oh6_1_one_component_table() -> None:
 OH61_COPY = re.compile(r"""for \w+ in ['"]/\\\\:""")
 OH61_TUPLE = re.compile(r"""for \w+ in \(\s*['"]/['"],\s*['"]\\\\['"]""")
 OH61_PATH_NAME = re.compile(r"!= Path\(\w+\)\.name")
-# shrink-only (AR-20): emptied by OH8-1 (event_store.py 1 -> 0, selftest.py 1 -> 0); a raise is named in the verdict
-OH61_ALLOWED = {}
+def oh6_1_mirror_agreement() -> None:
+    """OH6-1 / OH8-1: the one named mirror (`selftest._is_one_component`) answers like the survivor for every name of the
+    battery and for non-str inputs; its drift from `hooklib.is_one_component` goes red here."""
+    import selftest
+    inputs = [name for _, name in OH61_NAMES] + ["", 5, None, ["a"], b"a", "a b", "a.b", "..."]
+    for value in inputs:
+        check(f"OH6-1 mirror agreement: selftest._is_one_component({value!r})",
+              selftest._is_one_component(value) == hooklib.is_one_component(value))
+
+
+# shrink-only (AR-20): event_store.py 1 -> 0 by OH8-1; selftest.py keeps ONE named mirror (`selftest._is_one_component`,
+# the runner does not import hooklib), pinned to the survivor by `oh6_1_mirror_agreement`; a raise is named in the verdict
+OH61_ALLOWED = {"selftest.py": 1}
 
 
 def oh6_1_hits(text: str, patterns=(OH61_COPY, OH61_TUPLE, OH61_PATH_NAME)) -> list:
@@ -1727,7 +1740,7 @@ def oh6_1_sentinel() -> None:
     stale = {n: c for n, c in OH61_ALLOWED.items() if counts.get(n, 0) < c}
     check("OH6-1 sentinel: no script outside the allowance carries a copy", over == {}, str(over))
     check("OH6-1 sentinel: the allowance is not stale (shrink the allowance)", stale == {}, str(stale))
-    check("OH6-1 sentinel: the allowance is empty", OH61_ALLOWED == {})
+    check("OH6-1 sentinel: the allowance is the one named mirror", OH61_ALLOWED == {"selftest.py": 1})
     text = (harness.SCRIPTS / "hooklib.py").read_text(encoding="utf-8")
     start = text.index("def is_one_component")
     body = text[start:text.index("\ndef ", start + 1)]
@@ -1751,6 +1764,7 @@ def main() -> None:
     os.environ[SKIP] = "1"
     try:
         oh6_1_one_component_table()
+        oh6_1_mirror_agreement()
         oh6_1_sentinel()
         b1_artifacts_dir_root()
         b2_binding_is_active()
