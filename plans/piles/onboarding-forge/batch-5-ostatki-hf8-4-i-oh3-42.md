@@ -8,13 +8,15 @@
 
 Решения владельца: нет (направления — спека t-205 §5 F5, F7, «по рекомендации, до слова владельца», и координатор 13.11.2026).
 очередь: onboarding-forge/4 → onboarding-forge/5
+очередь: OF4-10 → OF4-10r
+очередь: OF4-10 → OF4-21b
 Порядок по общим файлам: `contract.py`, `controller.py`, `ledger.py`, `acceptance.py`, `check_delivery.py`, `waiver.py`: после слияния HF8-4 (`onboarding-forge/2`); `controller.py`, `ledger.py`, `acceptance.py` — со списком функций в `owns` диспатча. `gate_preflight.py`, `env_probe.py`: после слияния `onboarding-forge/4` (OF4-12). `scripts/tests/test_manual_capture.py`: после слияния ветки `wip/oh3-42r` (OH3-42).
 Скоуп свидетеля: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <пути узла>`; BATCH CANON — CI интегратора.
 Общий бриф дизайнерам: находка узла (раздел «Что именно менять»); `design/factory-rules.md`; `docs/tasks/specs/t-205-hf8-4-parts.md`; вернуть спеку в `docs/tasks/specs/t-nnn-of5-n.md`, развилки — наверх.
 
 ## Бриф
 
-Что сделать: одиннадцать узлов. НЕ делать: P1-P11 HF8-4 (они в `onboarding-forge/2`); данные `handoffs/vocabulary.yaml` и `references/*.json` (AR-1-данные, закреплены `test_handoff.py:90`).
+Что сделать: тринадцать узлов. НЕ делать: P1-P11 HF8-4 (они в `onboarding-forge/2`); данные `handoffs/vocabulary.yaml` и `references/*.json` (AR-1-данные, закреплены `test_handoff.py:90`).
 
 ## Узлы
 
@@ -34,6 +36,8 @@
 | OF5-9 | П3 | Производитель шагов `readiness.py` (`remedy.steps`, :301-307) кладёт человеку строки скриптов и пути; тексты `qa-onboarding`/`qa-story` отдают человеку `*.py` (`findings/20261113-readiness-remedy-steps-nesut-stroki-skriptov-i-puti-dlya-cheloveka.md`; критик t-223 O3). Направление и тесты — в находке, «Что именно менять» | designer → builder → critic | `scripts/readiness.py`, скиллы `qa-onboarding`, `qa-story`, тесты | OH3-6 (в `main` после слияния волны 2) | ожидает |
 | OF5-10 | П3 | Карточка `manual_evidence.py validate` в `references/role-commands.json`, строки «нет карточки» теста RC1-10 — на синтетическую команду (`findings/20261113-net-karty-manual-evidence-validate-v-role-commands.md`; критик t-223 R3). Направление и тесты — в находке | builder | `references/role-commands.json`, тест RC1-10 в `scripts/tests/` | RC1-10 (в `main` после слияния волны 2) | ожидает |
 | OF5-11 | П3 | Скрипты с карточкой на голом `argparse.ArgumentParser` → `RefusingParser` (`findings/20261113-skripty-s-kartoj-na-golom-argparse.md`; критик t-223 R4). Места, тесты и сторож — в находке | builder → critic | `scripts/case_versions.py`, `scripts/execution_fingerprint.py`, `scripts/manifest_put.py`, `scripts/red_sandbox.py`, `scripts/grounding_section.py`, `scripts/external_writes.py`, тесты | RC1-10 (в `main` после слияния волны 2) | ожидает |
+| OF5-12 | П2 | Остаток мест `artifact_root(` вне OF4-10 (`findings/20261113-ostatok-artifact-root-vyzovov-vne-of4-10.md`; перепись скаута t-303 — `docs/tasks/specs/reviews/t-303-of4-10r-census.md`; метка OF4-10r). Первый шаг — второй проход скаута по 32 непроверенным строкам дайджеста (таблица «место — путь — перехват — исход»; строка, которую скаут не смог классифицировать, остаётся «не установлено» и идёт наверх, а не в «ничего не нужно» — FR-59). Затем узел режется по разделу «Proposed cut» дайджеста: хуки (`host_dispatch.record`, `stage_guard`, `guard_pre_tool`, `inject_context`, `gate_shown`, `dashboard_refresh` + `cost_capture`), CLI без перехвата (одна обёртка или `role_cli.run_guarded`), catch-all и перехваты кортежем (решение по месту; `ConfigUnreadable` остаётся подклассом `ValueError`). Тест: на каждое правимое место таблица «читатель пути поднял `ConfigUnreadable` -> исход места» (хук без traceback и с сигналом; CLI — отказ с названием и дверью) | scout → designer → builder → critic | после скаута: `scripts/host_dispatch.py`, `scripts/stage_guard.py`, `scripts/guard_pre_tool.py`, `scripts/inject_context.py`, `scripts/gate_shown.py`, `scripts/dashboard_refresh.py`, `scripts/cost_capture.py`, `scripts/run_suite.py`, `scripts/execution_request.py`, `scripts/red_sandbox.py` и места скаута (названы в его отчёте), их тесты | OF4-10 (`onboarding-forge/4`) | ожидает |
+| OF5-13 | П3 | Буквальный `qa-factory/artifacts` в `driver_sources.py:356` и в существующем тексте `vcs_evidence.py:646` берётся у читателя пути (`findings/20261113-literaly-qa-factory-artifacts-v-driver-sources-i-vcs-evidence.md`; остаток F7 спеки `docs/tasks/specs/t-290-of4-21-brief-pack-paths.md`, §11/§12; метка OF4-21b). Направление: путь строится от `hooklib.story_root` / `artifact_root`, остальные места F7 (a) — по спеке t-290; направление ошибки читателя сохраняется. Тест: таблица (корень по умолчанию — байт-в-байт как прежде; настроенный корень; `rel` с подпапкой; читатель поднял `ConfigUnreadable`) для `driver_sources` и для текста `vcs_evidence` | designer → builder → critic | `scripts/driver_sources.py`, `scripts/vcs_evidence.py (left_out_by_person)`, их тесты | OF4-10 (`vcs_evidence.left_out_by_person`), OF4-21 | ожидает |
 
 ## Ход
 
@@ -41,6 +45,7 @@
 
 - 13.11 — пачка открыта: три находки t-205/t-230 положены тем же ходом, что файлы в `findings/` (D-0044, t-233)
 - 13.11 — узлы OF5-4 (шесть длинных функций, t-205 F4, t-240 M-1), OF5-5 (читатели слова о стенде, t-240 M-2), OF5-6 (Python-only скан загрузчика env, t-231 ось 34) тем же ходом, что файлы в `findings/` (D-0044, t-244); пачка по-прежнему не взята
+- 13.11 — узлы OF5-12 (остаток `artifact_root(` вне OF4-10, t-303) и OF5-13 (литералы `qa-factory/artifacts`, F7 спеки t-290) тем же ходом, что файлы в `findings/` (D-0044, t-309); пачка по-прежнему не взята
 
 ## Живые доказательства
 

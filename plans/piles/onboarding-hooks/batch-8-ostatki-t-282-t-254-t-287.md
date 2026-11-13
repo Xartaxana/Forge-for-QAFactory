@@ -14,7 +14,7 @@
 
 ## Бриф
 
-Что сделать: шесть узлов из шести находок. НЕ делать: расширять `is_one_component` сверх одной компоненты; менять исход отказов; ставить `CLAUDE_PLUGIN_ROOT` в `run_headless` до измерения (OH8-5).
+Что сделать: семь узлов из семи находок. НЕ делать: расширять `is_one_component` сверх одной компоненты; менять исход отказов; ставить `CLAUDE_PLUGIN_ROOT` в `run_headless` до измерения (OH8-5).
 
 ## Узлы
 
@@ -28,12 +28,14 @@
 | OH8-4 | П2 | Литерал `${CLAUDE_PLUGIN_ROOT}` в текстах и данных для роли из другого кода (`findings/20261113-oh5-2d-bukvalnyj-claude-plugin-root-v-tekstah-dlya-roli-iz-drugogo-koda.md`; t-254 §4). Направление: носители читают корень через `runtime_paths.script_command`. Тест: соединение «ни один читаемый ролью носитель не держит переменную», строки построенных текстов | designer → builder → critic | `scripts/driver_dispatch.py`, `scripts/driver_stage_s7.py`, `scripts/execution_request.py`, `scripts/stage_done.py`, `scripts/story_step.py`, `scripts/handoff_check.py`, `references/templates/requirements-register.md`, `handoffs/s0-setup-to-scout.yaml`, `references/stand-answers.json`, их `keep`-тесты | OH5-2 (`onboarding-hooks/5`) | ожидает |
 | OH8-5 | П3 | Литерал `${CLAUDE_PLUGIN_ROOT}` и `${CLAUDE_SKILL_DIR}` в текстах дирижёра (`findings/20261113-oh5-2e-literal-claude-plugin-root-v-tekstah-dlya-konduktora.md`; t-254 §4). Направление: сначала ОДИН опыт (hygiene 6a) — раскрывает ли хост переменную; затем оставить под правилом `common-rules.md:131-140` или переписать через `runtime_paths.py`; `run_headless` задаёт переменную только по итогам опыта | scout → designer → builder | после опыта: `skills/**`, `references/common-rules.md`, `scripts/source_exclusions.py`, `scripts/config_contract.py`, `experiments/measurers/run_headless.py`, `skills/qa-doctor/evals/evals.json` | OH8-4 | ожидает |
 | OH8-6 | П3 | Аналоги пачки 7 (`findings/20261113-batch-7-analogi-json-loads-vne-scanned-i-ustarevshij-scope.md`; t-287 Q1, Q5, Q6). Скаут: другие модули хоста вне `SCANNED` с `json.loads` пакета роли; абзац `SCOPE` докстринга `refusal_registry.py` ссылается на `SCANNED`. Тест: сверка докстринга и `SCANNED`; мутация красит | scout → builder | `scripts/refusal_registry.py` (докстринг), `scripts/tests/test_refusal_registry.py`, места скаута | OH7-2, OH7-3 | ожидает |
+| OH8-7 | П3 | Перепись суждений не считает подклассы исключений отказа (`findings/20261113-oh7-2-f2-2-rasshirenie-perepisi-na-podklassy-isklyuchenij-otkaza.md`; билдер t-296, F2-2). Направление (координатор, 13.11.2026, вариант (c)): расширение — своим узлом, который поднимает храповик с 489 одним названным подъёмом (AR-20) вместе с расширением; текст слепого пятна остаётся до этого узла. Измерено на `wip/oh7-2`: единиц 949 -> 1106, счёт дирижёра 474 -> 496 (> 489); подклассы `ConfigUnreadable`, `PathSyntax`, `WindowsUnreadable`, `PreparationError`, `LaunchIdRowRefused`. Тест: `test_judgment_census.py` считает подклассы (таблица класс × считается; мутация красит), новый храповик назван в коммите | builder → critic | `scripts/tests/test_judgment_census.py`, `scripts/tests/fixtures/judgment-census.json` | OH7-2 | ожидает |
 
 ## Ход
 
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
 
 - 13.11 — пачка открыта: шесть находок положены тем же ходом, что файлы в `findings/` (D-0044, t-298)
+- 13.11 — узел OH8-7 (расширение переписи на подклассы, F2-2 билдера t-296) тем же ходом, что файл в `findings/` (D-0044, t-309); пачка по-прежнему не взята
 
 ## Живые доказательства
 
