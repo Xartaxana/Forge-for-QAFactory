@@ -1008,19 +1008,11 @@ class DriverS0:
             entries = {}
         return {"entries": entries, "problem": read["problem"], "names": read["names"]}
 
-    def s0_write_sides(self, environment=None) -> None:
-        """t-2181 PC-2: the question of the story's sides - `sides.deliverable` for a non-real side whose `deliverable` nothing says,
-        on a story that names a side other than `product` (a single-side story is never asked: the default is true). Called in `s0`,
-        after the stand is selected (`environment`, so a side known only from that stand's row is asked, never silently deliverable):
-        the question must stand BEFORE `pipeline.json`. The record itself is `s0_sides_sets`
-        (built into `pipeline.json` by `s0_rest`). Sides come from `--side <name>=<reality>`, `--reference <side>=<stand>`, the answer
-        `not built yet` and the answers kept by `_keep_sides_answer`; the registry's rows come first (PC-1b), so a side whose
-        `deliverable` a `product.sides` row says is not asked again (the second story of a project).
-        C15 (INVARIANT: a side is one name everywhere, so `UI` never lives beside a recorded `ui`): a `--side` / `--reference` name that
-        is not a recorded side name but equals one but for letter case is REFUSED, naming the recorded name; the offending name is
-        dropped from the kept launch first, so the corrected flag on the next start is the door (it is not met again)."""
-        got = self._sides_entries(environment)
-        entries = got["entries"]
+    def side_case_twins(self, got: dict) -> None:
+        """C15, the one check (AR-15) that `s0_write_sides` and the sides re-read (`Driver.sides_reread`) both call with the result of
+        `_sides_entries`: a `--side` / `--reference` name that is not a recorded side name (`got["names"]`) but equals one but for
+        letter case is REFUSED, naming the recorded name; the offending name is dropped from the kept launch first. Nothing is
+        written by it. INVARIANT: a side is one name everywhere, so `UI` never lives beside a recorded `ui`."""
         flags = self.launch_flags()
         recorded = set(got["names"])
         for key in ("side", "reference"):
@@ -1034,6 +1026,39 @@ class DriverS0:
                                   f"names are compared exactly, so they would be two sides. Start again with --{key} using `{twins[0]}`, "
                                   f"or have the conductor record `{name}` as a new side (project_knowledge.py side --name {name} "
                                   "--deliverable yes|no --words-file <file>). Nothing was run for the story.")
+
+    def side_attrs(self, entry: dict, now: str, *, unanswered_ok: bool = False) -> dict:
+        """The attributes of one merged side entry as `pipeline.sides.<name>.*` text values, the one spelling (AR-15) for `s0_sides_sets`
+        and the re-read. `deliverable` of an entry nobody answered about is `true` (S0's rule, `unanswered_ok=False`); with
+        `unanswered_ok=True` (the re-read) a NON-real entry with no `deliverable` stays unanswered (key absent), since the re-read
+        has no question to ask and must not invent the answer."""
+        deliverable = entry.get("deliverable")
+        if deliverable is None and (not unanswered_ok or entry["reality"] == self.SIDE_REAL):
+            deliverable = True
+        attrs = {"reality": entry["reality"]}
+        if deliverable is not None:
+            attrs["deliverable"] = "true" if deliverable else "false"
+        attrs.update(source=entry["source"], at=now)
+        if deliverable is not None and entry.get("settles_by"):
+            attrs["settles_by"] = entry["settles_by"]
+        if entry.get("reference"):
+            attrs["reference"] = entry["reference"]
+        return attrs
+
+    def s0_write_sides(self, environment=None) -> None:
+        """t-2181 PC-2: the question of the story's sides - `sides.deliverable` for a non-real side whose `deliverable` nothing says,
+        on a story that names a side other than `product` (a single-side story is never asked: the default is true). Called in `s0`,
+        after the stand is selected (`environment`, so a side known only from that stand's row is asked, never silently deliverable):
+        the question must stand BEFORE `pipeline.json`. The record itself is `s0_sides_sets`
+        (built into `pipeline.json` by `s0_rest`). Sides come from `--side <name>=<reality>`, `--reference <side>=<stand>`, the answer
+        `not built yet` and the answers kept by `_keep_sides_answer`; the registry's rows come first (PC-1b), so a side whose
+        `deliverable` a `product.sides` row says is not asked again (the second story of a project).
+        C15 (INVARIANT: a side is one name everywhere, so `UI` never lives beside a recorded `ui`): a `--side` / `--reference` name that
+        is not a recorded side name but equals one but for letter case is REFUSED, naming the recorded name; the offending name is
+        dropped from the kept launch first, so the corrected flag on the next start is the door (it is not met again)."""
+        got = self._sides_entries(environment)
+        entries = got["entries"]
+        self.side_case_twins(got)
         if not entries or all(name == "product" for name in entries):
             return
         for name in sorted(entries):
@@ -1083,14 +1108,7 @@ class DriverS0:
             entries.setdefault("product", contract.product_default_entry())
         try:
             for name in sorted(entries):
-                entry = entries[name]
-                raw = {"reality": entry["reality"], "deliverable": "true" if entry.get("deliverable", True) else "false",
-                       "source": entry["source"], "at": now}
-                if entry.get("settles_by"):
-                    raw["settles_by"] = entry["settles_by"]
-                if entry.get("reference"):
-                    raw["reference"] = entry["reference"]
-                for attr, value in raw.items():
+                for attr, value in self.side_attrs(entries[name], now).items():
                     key = f"sides.{name}.{attr}"
                     sets[key] = stage_done.coerce_value(key, value)
         except ValueError as exc:
