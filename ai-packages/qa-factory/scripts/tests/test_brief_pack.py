@@ -2817,16 +2817,64 @@ def ss1_11_stand_lessons() -> None:
                  for role, d in (("qa-automator", PC8_AUTHOR), ("qa-code-critic", PC8_CRITIC))}
         for role, head in heads.items():
             check_in(f"{role}: the lesson line is in the S5 head, whole", "\n".join(got), head)
+        # F1 (t-405): the story's stand is found by ONE function (`_stand_pick`) for the manual section and the S5 head, in three states
+        pipeline_path, config_path = task / "pipeline.json", root / "qa-factory/config.json"
+        saved_pipeline = pipeline_path.read_text(encoding="utf-8")
+        saved_config = config_path.read_text(encoding="utf-8") if config_path.exists() else None
+        base = json.loads(saved_pipeline)
+
+        def stand_state(environment, rows):
+            base["environment"] = environment
+            pipeline_path.write_text(json.dumps(base), encoding="utf-8")
+            config_path.write_text(json.dumps({"environments": rows}), encoding="utf-8")
+            return {role: pc8_head(brief_of(role=role, dispatch=d))
+                    for role, d in (("qa-automator", PC8_AUTHOR), ("qa-code-critic", PC8_CRITIC))}
+        try:
+            one = [{"name": "localhost", "base_url": "http://stand.invalid:8080"}]
+            manual_one = [l for l in brief_pack.manual_stand_lines(task, root, {"environments": one}, [], "") if "Stand lessons" in l]
+            check_eq("F1: the manual section finds the ONE configured stand with no name in the pipeline", manual_one, got)
+            for role, head in stand_state(None, one).items():
+                check_in(f"F1: {role} head carries the manual section's lines (pipeline names none, ONE stand)", "\n".join(manual_one), head)
+            for label, rows in (("several stands", one + [{"name": "second", "base_url": "http://other.invalid"}]), ("no stand", [])):
+                for role, head in stand_state(None, rows).items():
+                    check_not_in(f"F1: {role} head, pipeline names none and the config has {label}: no lesson line, never a guess",
+                                 "Stand lessons", head)
+            for role, head in stand_state("localhost", one).items():
+                check_in(f"F1: {role} head, pipeline names the stand", "\n".join(got), head)
+        finally:
+            pipeline_path.write_text(saved_pipeline, encoding="utf-8")
+            if saved_config is None:
+                config_path.unlink()
+            else:
+                config_path.write_text(saved_config, encoding="utf-8")
         s4 = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
         check_not_in("E55: an S4 role's head carries no lesson line", "Stand lessons", s4)
         check_eq("E55: a stage that is not S5 or a role outside SIDES_ROLES is handed nothing",
                  [r for r in ("qa-case-designer", "qa-case-critic") if r in brief_pack.SIDES_ROLES], [])
-        for n in range(2, 12):
+        for n in range(2, 11):
             teach(root, "localhost", f"op{n:02d}", f"words {n}")
+        ten = brief_pack.stand_lesson_lines(root, "localhost")
+        check_eq("E47 AT: exactly 10 lessons are 10 lines and no pointer", (len(ten), any("more:" in l for l in ten)), (10, False))
+        teach(root, "localhost", "op11", "words 11")
         many = brief_pack.stand_lesson_lines(root, "localhost")
         check_eq("E47: 11 lessons are 10 lines and the pointer", (len(many), many[-1].startswith("- Stand lessons: (+1 more: ")), (11, True))
+        check_in("E47: the pointer quotes the stand", '--stand "localhost")', many[-1])
         text = brief_of()
         check_in("E54: the head holds every lesson line whole, whatever the ceiling cut", "\n".join(many), pc8_head(text))
+        # E54 (F4): ten lessons with words of 200 characters (BEYOND the cut), the brief forced over its ceiling: the lines stay whole in the head
+        for n in range(1, 12):
+            teach(root, "localhost", f"op{n:02d}", f"{n % 10}" * 200 + " tail", 60)         # a newer row per subject
+        wide = brief_pack.stand_lesson_lines(root, "localhost")
+        check_eq("E54: ten lines and the pointer, each lesson cut at 200", (len(wide), all(' ..."' in l for l in wide[:10])), (11, True))
+        real_ceiling = brief_pack.BRIEF_MAX_BYTES
+        try:
+            brief_pack.BRIEF_MAX_BYTES = 1
+            squeezed = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=False)
+            check("E54: the brief is over the ceiling", squeezed["bytes"] > brief_pack.BRIEF_MAX_BYTES, str(squeezed["bytes"]))
+            check_in("E54: the head holds every lesson line whole over the ceiling", "\n".join(wide), pc8_head(squeezed["markdown"]))
+            check_in("E54: the over-budget line stands in `Not in the brief`", "stays over its", squeezed["markdown"].split("## Not in the brief")[-1])
+        finally:
+            brief_pack.BRIEF_MAX_BYTES = real_ceiling
         (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
         bad = brief_pack.stand_lesson_lines(root, "localhost")
         check_eq("E46: an unreadable registry is one line that says so",

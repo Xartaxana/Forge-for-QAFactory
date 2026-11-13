@@ -424,6 +424,11 @@ def subjects(root, key, environment=None) -> dict:
     return out
 
 
+def _untrimmed_or_control(text) -> bool:
+    """True when `text` carries a space at an end or a C0 control character or DEL (names are compared exactly)."""
+    return text != text.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in text)
+
+
 def _plain(text) -> str:
     """Display form: C0 control characters and DEL removed (the store keeps them)."""
     return "".join(ch for ch in str(text) if ord(ch) >= 32 and ord(ch) != 127)
@@ -449,9 +454,9 @@ def lessons(root, stand) -> dict:
     one live subject each, the newest usable row, sorted by subject. PURE: writes nothing, never raises. The registry is loaded ONCE.
 
     A line is `<subject>: "<their words, cut at 200 characters>"`, plus the wait and who gave it when; at most 10 lines, then one
-    `(+k more: ...)` line; the store keeps the words whole. No stand chosen (empty or the placeholder) is `no_stand` True with no
+    `(+k more: ...)` line (the stand quoted; `more` is `k`, 0 when none); the store keeps the words whole. No stand chosen (empty or the placeholder) is `no_stand` True with no
     problem: it is not a read problem. An unreadable registry or catalogue is `problem`, never "no lessons" (FR-59)."""
-    out = {"lines": [], "rows": [], "problem": "", "no_stand": False}
+    out = {"lines": [], "rows": [], "problem": "", "no_stand": False, "more": 0}
     try:
         stand = str(stand or "")
         if not stand.strip() or stand == PLACEHOLDER_STAND:
@@ -474,10 +479,11 @@ def lessons(root, stand) -> dict:
         lines = [_lesson_line(row) for row in picked]
         if len(lines) > LESSON_LINES_MAX:
             extra = len(lines) - LESSON_LINES_MAX
-            lines = lines[:LESSON_LINES_MAX] + [f"(+{extra} more: project_knowledge.py lessons --stand {stand})"]
+            lines = lines[:LESSON_LINES_MAX] + [f'(+{extra} more: project_knowledge.py lessons --stand "{stand}")']
+            out["more"] = extra
         out["lines"] = lines
     except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not an empty list
-        out.update(lines=[], rows=[], problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
+        out.update(lines=[], rows=[], more=0, problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
     return out
 
 
@@ -588,7 +594,7 @@ def _lesson_value_faults(element, value) -> list:
     out = []
     if not text.strip():
         out.append("the lesson's subject is empty; name what the stand does (a few words, e.g. what takes long); nothing was recorded")
-    elif text != text.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+    elif _untrimmed_or_control(text):
         out.append(f"the lesson subject {text.strip()[:60]!r} carries a space at an end or a control character; subjects are compared "
                    "exactly, so give the subject in a few plain words; nothing was recorded")
     elif len(text) > LESSON_SUBJECT_MAX:
@@ -627,7 +633,7 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
         out += _side_value_faults(key, value)
         if not text.strip():
             out.append("the side's name is empty; name it; nothing was recorded")
-        elif text != text.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        elif _untrimmed_or_control(text):
             out.append(f"the side name {text.strip()[:60]!r} carries a space at an end or a control character; side names are compared "
                        "exactly, so give the name as it is written in the tests; nothing was recorded")
         elif "." in text or "=" in text:
@@ -798,13 +804,16 @@ def _words(ns, command: str) -> tuple:
     return ER._words(ns, command, "project_knowledge.py")
 
 
-def _context(task: str) -> tuple:
+def _context(task: str, read: bool = False) -> tuple:
     """`(project root, story folder, config, the story's id, problem)` from `--task`; a story that is not there is a problem, not a raise."""
     try:
         import hooklib
         import runtime_paths
         task_root = hooklib.artifacts_dir(task)
         if not task_root.is_dir():
+            if read:
+                return None, None, {}, "", (f"there is no story `{task}` in this project; pass the running story's id as --task, "
+                                            "or name the stand with --stand <name>")
             return None, None, {}, "", (f"there is no story `{task}` in this project, so nothing was recorded; pass the id of the "
                                         "story that is running as --task")
         root = runtime_paths.project_for_task(task_root)
@@ -916,6 +925,19 @@ def cmd_revoke(ns) -> int:
     return 0
 
 
+def _story_stand(ns, task_root, cfg) -> tuple:
+    """`(stand, refusal)`: `--stand`, else the story's chosen stand; the placeholder (none chosen) is a refusal with the stands."""
+    stand = ns.stand or ""
+    if not stand:
+        import stand_gaps
+        stand = stand_gaps.stand_name(task_root)
+        if stand == PLACEHOLDER_STAND:
+            names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
+            return "", ("no stand is named and the story has none chosen; pass --stand <name>"
+                        + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
+    return stand, ""
+
+
 def cmd_lesson(ns) -> int:
     """What the person taught about the stand: a subject (free words) and their words, with an optional wait in seconds. The stand is
     `--stand`, else the story's chosen stand. A story that leaves no trace refuses it with the door."""
@@ -932,14 +954,9 @@ def cmd_lesson(ns) -> int:
     if refusal:
         return _fail(refusal)
     words, root, task_root, cfg, story = got
-    stand = ns.stand or ""
-    if not stand:
-        import stand_gaps
-        stand = stand_gaps.stand_name(task_root)
-        if stand == PLACEHOLDER_STAND:
-            names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
-            return _fail("no stand is named and the story has none chosen; pass --stand <name>"
-                         + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
+    stand, refusal = _story_stand(ns, task_root, cfg)
+    if refusal:
+        return _fail(refusal)
     row, problem, created = record(root, key=LESSONS_KEY, environment=stand, element=ns.subject, state=KNOWN, scope="stand",
                                    value={"wait_s": wait}, words=words, source="person", story=story, by="conductor",
                                    task_root=task_root)
@@ -952,7 +969,7 @@ def cmd_lesson(ns) -> int:
 def cmd_lessons(ns) -> int:
     """Read-only: what was taught about a stand. The stand is `--stand`, else the chosen stand of the story of `--task`."""
     if ns.task:
-        root, task_root, _cfg, _story, problem = _context(ns.task)
+        root, task_root, _cfg, _story, problem = _context(ns.task, read=True)
         if problem:
             return _fail(problem)
         stand = ns.stand or ""
@@ -992,14 +1009,9 @@ def cmd_side(ns) -> int:
                 return _fail(f"the file of who makes the side real, {ns.settles_by_file}, cannot be read ({type(exc).__name__}); nothing was recorded")
         key, environment, scope, value = SIDES_KEY, "", "project", {"deliverable": ns.deliverable == "yes", "settles_by": settles}
     else:
-        environment = ns.stand or ""
-        if not environment:
-            import stand_gaps
-            environment = stand_gaps.stand_name(task_root)
-            if environment == PLACEHOLDER_STAND:
-                names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
-                return _fail("no stand is named and the story has none chosen; pass --stand <name>"
-                             + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
+        environment, refusal = _story_stand(ns, task_root, cfg)
+        if refusal:
+            return _fail(refusal)
         key, scope = (STAND_SIDES_KEY, "stand") if ns.reality else (REFERENCE_KEY, "stand")
         value = {"reality": ns.reality} if ns.reality else {"reference": True}
     row, problem, created = record(root, key=key, environment=environment, element=ns.name, state=KNOWN, scope=scope, value=value,

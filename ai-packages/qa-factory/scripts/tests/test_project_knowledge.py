@@ -909,10 +909,10 @@ def test_lesson_refused_on_a_no_trace_story_with_the_door(tmp_path, monkeypatch,
 
 
 def test_lessons_reader_and_verb(proj, capsys):
-    assert PK.lessons(proj.root, "dev") == {"lines": [], "rows": [], "problem": "", "no_stand": False}     # E39: no file
+    assert PK.lessons(proj.root, "dev") == {"lines": [], "rows": [], "problem": "", "no_stand": False, "more": 0}     # E39: no file
     assert run(["lessons", "--stand", "dev"]) == 0 and capsys.readouterr().out.strip() == "no lesson is recorded for dev"
     for stand in ("", PK.PLACEHOLDER_STAND):                                                              # E53
-        assert PK.lessons(proj.root, stand) == {"lines": [], "rows": [], "problem": "", "no_stand": True}
+        assert PK.lessons(proj.root, stand) == {"lines": [], "rows": [], "problem": "", "no_stand": True, "more": 0}
     assert run(["lessons"]) == 0 and capsys.readouterr().out.strip() == "no stand is chosen; pass --stand <name>"
     proj.facts([lesson_fact("PK-1", "B-wait", "2026-11-01T10:00:00", words="old"),
                 lesson_fact("PK-2", "B-wait", "2026-11-02T10:00:00", words="new", value={"wait_s": 90}),
@@ -926,7 +926,10 @@ def test_lessons_reader_and_verb(proj, capsys):
     assert run(["lessons", "--stand", "dev"]) == 0 and capsys.readouterr().out.strip().splitlines() == got["lines"]
     assert run(["lessons", "--task", "T-1", "--stand", "prod"]) == 0 and 'other: "w"' in capsys.readouterr().out
     assert run(["lessons", "--task", "T-1"]) == 0 and capsys.readouterr().out.strip().splitlines() == got["lines"]   # the story's one stand
+    capsys.readouterr()
     assert run(["lessons", "--task", "T-9", "--stand", "dev"]) == 2                                     # no such story
+    err = capsys.readouterr().err                                                                      # F6: a read verb never says "recorded"
+    assert "there is no story `T-9`" in err and "--stand <name>" in err and "recorded" not in err
 
 
 def test_lessons_reader_never_drops_a_hand_edited_row_and_strips_controls_in_the_display(proj):
@@ -950,10 +953,26 @@ def test_lessons_cap_ten_lines_and_cut_the_words_at_200(proj):          # E47, E
     long_words = "w" * 1000
     proj.facts([lesson_fact(f"PK-{n}", f"s{n:02d}", "2026-11-01T10:00:00", words=long_words) for n in range(1, 12)])
     got = PK.lessons(proj.root, "dev")
-    assert len(got["lines"]) == 11 and got["lines"][-1] == "(+1 more: project_knowledge.py lessons --stand dev)"
+    assert len(got["lines"]) == 11 and got["lines"][-1] == '(+1 more: project_knowledge.py lessons --stand "dev")' and got["more"] == 1
     assert got["lines"][0].startswith('s01: "' + "w" * 200 + ' ..."') and len(got["rows"]) == 11
     assert got["rows"][0]["provenance"]["words"] == long_words                                     # stored whole, shown cut
     assert PK.lessons(proj.root, "dev")["rows"][0]["provenance"]["words"] == long_words           # a reader never writes the cut back
+
+
+def test_lessons_at_ten_no_pointer_and_words_at_200_and_201(proj):          # E47 AT, E48 AT and BEYOND (F4)
+    proj.facts([lesson_fact(f"PK-{n}", f"s{n:02d}", "2026-11-01T10:00:00", words="w" * (200 if n == 1 else 201 if n == 2 else 5))
+                for n in range(1, 11)])
+    got = PK.lessons(proj.root, "dev")
+    assert len(got["lines"]) == 10 and got["more"] == 0 and not any("more:" in line for line in got["lines"])
+    assert got["lines"][0].startswith('s01: "' + "w" * 200 + '"') and " ..." not in got["lines"][0]       # 200: whole
+    assert got["lines"][1].startswith('s02: "' + "w" * 200 + ' ..."')                                       # 201: cut
+
+
+def test_lessons_pointer_quotes_a_stand_with_a_space(tmp_path, monkeypatch):          # F3
+    proj = Proj(tmp_path, monkeypatch, stands=[{"name": "staging eu"}])
+    proj.facts([lesson_fact(f"PK-{n}", f"s{n:02d}", "2026-11-01T10:00:00", environment="staging eu") for n in range(1, 12)])
+    got = PK.lessons(proj.root, "staging eu")
+    assert got["more"] == 1 and got["lines"][-1] == '(+1 more: project_knowledge.py lessons --stand "staging eu")'
 
 
 def test_lessons_problem_is_not_no_lesson(proj, monkeypatch):           # E40 and the unreadable registry

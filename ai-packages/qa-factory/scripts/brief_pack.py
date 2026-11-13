@@ -4196,7 +4196,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         # t-2181 PC-8: the sides of the story (the code critic gets the SAME lines from the same call), then the automator's fields and, on
         # a bind round, its open rows. [] on an all-real story: that brief is as it was. The head is never shrunk; every part is capped.
         head += side_lines(pipeline)
-        head += stand_lesson_lines(project, str(pipeline.get("environment") or ""))
+        head += stand_lesson_lines(project, _stand_pick(hooklib.load_config() or {}, str(pipeline.get("environment") or ""))[1])    # the twin of manual_stand_lines
         head += provisional_lines(task_root, pipeline, dispatch, role, dispatch_id)
     if not first_look:
         # t-2277 FL-4 (after PC-8: the build order of §4.4 row h): the case critic's roles, then what the first look saw for the role that
