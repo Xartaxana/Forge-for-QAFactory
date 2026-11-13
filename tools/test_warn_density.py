@@ -4,7 +4,7 @@ Structure: registry validation (required fields, duplicate id, the "{"
 adversarial battery, literal overlap, reachable/reason rules), the
 structural hook_success/hook_additional_context definition (including a
 RED CONTROL that a layer name inside a message body/toolUseResult must
-NOT count), sidechain exclusion, dedup, orphan hac, window boundaries,
+NOT count), subagent files counted, dedup, orphan hac, window boundaries,
 population predicates, compute_run_defects (including the calls>
 achievable boundary), --check (registry + negative form), and CLI
 --no-sidecar. Synthetic corpora live in tmp_path -- live repo artifacts
@@ -321,21 +321,48 @@ def test_process_corpus_dedup_same_unit_hook(tmp_path):
     assert report.dedup_dropped == 1
 
 
-def test_process_corpus_sidechain_files_excluded_from_denominator(tmp_path):
+def _hac_line(content_key_present, content):
+    att = {"type": "hook_additional_context", "hookName": "PreToolUse:Bash", "toolUseID": "t1"}
+    if content_key_present:
+        att["content"] = content
+    return json.dumps({"uuid": "u2", "timestamp": "2026-01-01T00:00:02.000Z", "attachment": att})
+
+
+@pytest.mark.parametrize(
+    "lines, want_calls, want_tool_use, want_hac_seen",
+    [
+        pytest.param(
+            [_tool_use_line("u1", "2026-01-01T00:00:01.000Z", "t1", "Bash"),
+             _hac_line(True, ["MY WARN: from a subagent"])],
+            1, 1, 1, id="subagent-record-with-hook_additional_context-counted"),
+        pytest.param(
+            [_tool_use_line("u1", "2026-01-01T00:00:01.000Z", "t1", "Bash")],
+            0, 1, 0, id="subagent-no-record-adds-zero-call-still-in-denominator"),
+        pytest.param(
+            [_hac_line(False, None)], 0, 0, 1, id="old-format-field-absent-adds-zero"),
+        pytest.param(
+            [_hac_line(True, None)], 0, 0, 1, id="field-null-adds-zero"),
+        pytest.param(
+            [_hac_line(True, 42)], 0, 0, 1, id="field-not-a-string-adds-zero"),
+        pytest.param([], 0, 0, 0, id="empty-file-adds-zero"),
+        pytest.param(
+            ["this is not json"], 0, 0, 0, id="non-json-line-adds-zero"),
+    ],
+)
+def test_process_corpus_subagent_files_are_counted(
+        tmp_path, lines, want_calls, want_tool_use, want_hac_seen):
     session_dir = tmp_path / "session1"
-    session_dir.mkdir()
     subagents_dir = session_dir / "subagents"
-    subagents_dir.mkdir()
+    subagents_dir.mkdir(parents=True)
     side_file = subagents_dir / "sub.jsonl"
-    side_file.write_text(
-        _tool_use_line("u1", "2026-01-01T00:00:01.000Z", "t1", "Bash") + "\n",
-        encoding="utf-8",
-    )
+    side_file.write_text("".join(ln + "\n" for ln in lines), encoding="utf-8")
     assert wd.is_sidechain_file(side_file) is True
     layer = _layer(id="L1", literal="MY WARN:")
     report = wd.process_corpus([side_file], [layer], None, None, {}, compute_fixture=False)
-    assert report.total_tool_use_in_window == 0
-    assert report.sidechain_tool_use_in_window == 1
+    assert report.counts["L1"].calls == want_calls
+    assert report.total_tool_use_in_window == want_tool_use
+    assert report.sidechain_tool_use_in_window == want_tool_use
+    assert report.total_hook_additional_context == want_hac_seen
 
 
 def test_process_corpus_orphan_hac_counted_once(tmp_path):
