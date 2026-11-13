@@ -89,7 +89,9 @@ def question_stop_road() -> None:
         check("answer: the question flag is cleared", not d.state.get("asked"))
         check("answer: the words are journalled as a human answer by code",
               any(sc == "log_append.py" and "human_answer" in a for sc, a in s.py_calls))
-        check_eq("answer: no conductor was called (FR-48)", s.conductor_calls, [])
+        check_eq("answer: the conductor was called once, for the lines code could not read", len(s.conductor_calls), 1)
+        check_in("answer: and it was told what code recorded first (FR-48)", "recorded by code: Q1: a, Q2: b, Q3: not needed",
+                 s.conductor_calls[0][0])
 
         # --- the resume: the SAME session, its own text, no conductor, halted -> running -> done ------
         check_eq("resume: the role's session is the one the driver stored", d.state["sessions"][s.dispatch], "sess-1")
@@ -105,7 +107,7 @@ def question_stop_road() -> None:
                           ("from where you stopped",), prompt)
         check_eq("resume: the stage goes halted -> running, then the finish closes it (E-7)",
                  (s.statuses(), len(s.finishes())), (["halted", "running"], 1))
-        check_eq("resume: no conductor on the resume (B2 row mutation a)", s.conductor_calls, [])
+        check_eq("resume: no conductor on the resume (B2 row mutation a)", len(s.conductor_calls), 1)
         check("resume: the words are consumed and the resume mark is gone",
               s.dispatch not in d.state["pending_words"] and "resume" not in d.state["question_stop"])
 
@@ -136,7 +138,7 @@ def question_stop_road() -> None:
             check_eq("re-stop: it is recorded at the new count, and the earlier answer is kept",
                      (d.state["question_stop"]["count"], d.state["question_stop"]["answered"]["count"]), (8, 7))
             check_eq("re-stop: the stage is halted again", s.statuses()[-1], "halted")
-        check_eq("the conductor stayed out of all of it", s.conductor_calls, [])
+        check_eq("one conductor call in all of it: the answer's", len(s.conductor_calls), 1)
     finally:
         harness.cleanup(root)
 
@@ -323,7 +325,8 @@ def question_stop_fallbacks() -> None:
                 check(f"{label}: the saved result is set aside, not deleted, so the role runs again and sees the words",
                       not (runs / f"{s.dispatch}.json").is_file() and (runs / f"{s.dispatch}.stopped.json").is_file())
                 check(f"{label}: the words are consumed", s.dispatch not in d.state["pending_words"])
-                check_eq(f"{label}: the conductor stayed out", s.conductor_calls, [])
+                check_eq(f"{label}: the conductor was called once at the answer, never at the rework or the resume",
+                         len(s.conductor_calls), 1)
         finally:
             harness.cleanup(root)
 
@@ -369,6 +372,317 @@ def question_stop_loop_moves() -> None:
         harness.cleanup(root)
 
 
+# --- FV1-3: a free answer to a question pack goes to the conductor -------------------------------------------------------------
+# The real answer of the live run (answers/s4-questions-batch-1.md of the factory-vs-free-agent experiment, copied VERBATIM: package tests
+# read nothing outside the package). Eighteen lines `Qn: <own words>`, none a token; the driver recorded nothing and said nothing.
+FV13_S4_ANSWER = """Q1: A product with zero stock showing a disabled "Out of Stock" button is correct.
+Q2: There is no decision on this yet. Record it as an open question for the product owner, with what you saw, and go on.
+Q3: The higher quantity wins (this is what the application's AUTH.md says).
+Q4: Stock is never exceeded, a failed add changes nothing, and no add touches another owner's cart - these hold. On a repeated add keeping one line there is no decision yet: record it as an open question for the product owner, with what you saw, and go on.
+Q5: R-11 and R-12 hold as norms (a failed add leaves the cart unchanged; an add never touches another owner's cart). R-8: a quantity of 0, -1, 1.5 or "abc" on the book page must be refused with a clear message, and nothing is added. R-10: there is no decision on this yet; record it as an open question for the product owner, with what you saw, and go on.
+Q6: There is no decision on this yet. Record it as an open question for the product owner, with what you saw, and go on.
+Q7: There is no decision on this yet. Record it as an open question for the product owner, with what you saw, and go on.
+Q8: A quantity of 0, -1, 1.5 or "abc" on the book page must be refused with a clear message, and nothing is added.
+Q9: Yes: a failed add leaves the cart unchanged.
+Q10: A product with zero stock showing a disabled "Out of Stock" button is correct.
+Q11: There is no decision on this yet. Record it as an open question for the product owner, with what you saw, and go on.
+Q12: The higher quantity wins (this is what the application's AUTH.md says).
+Q13: Yes: two guests, and a guest and a user, have fully separate carts.
+Q14: Yes: an add by one owner leaves other owners' carts unchanged.
+Q15: Yes: a signed-in user's cart holds only that user's own adds.
+Q16: There is no decision on this yet. Record it as an open question for the product owner, with what you saw, and go on.
+Q17: A quantity of 0, -1, 1.5 or "abc" on the book page must be refused with a clear message, and nothing is added.
+Q18: Yes: a second guest sees an empty cart, apart from the first guest and the user.
+"""
+FV13_HALTING = f"{ROLE_OF['S2']} S2 {Q_TASK} · halt\nR-1 · unresolved · the ticket says two opposite things\n"
+
+
+def fv13_open(mode: str = "stop", ids: int = 7, stage: str = "S2", opened: bool = True):
+    """A seeded story with `ids` open questions and the stop (`stop`) or the role's own halt (`halt`) asked. Returns (root, task_root, s)."""
+    root, task_root, env = seed(Q_TASK)
+    q_register(task_root, [f"Q{i}" for i in range(1, ids + 1)])
+    s = QStub(root, env, stage=stage, digest=FV13_HALTING if mode == "halt" else None)
+    if opened:
+        s.driver.ask(s.run_role())
+    return root, task_root, s
+
+
+def fv13_answer(s, root: Path, words: str):
+    """The answer taken as `take_answer` takes it; returns (what the driver printed, the exception it raised or None)."""
+    import contextlib
+    import io
+    path = root / "answer.md"
+    path.write_bytes(words.encode("utf-8"))
+    out, raised = io.StringIO(), None
+    with contextlib.redirect_stdout(out):
+        try:
+            s.driver.take_answer(path)
+        except Exception as exc:  # noqa: BLE001 - the raised Person / Stop is the subject
+            raised = exc
+    return out.getvalue(), raised
+
+
+def fv13_watch(s, task_root: Path, then=None) -> list:
+    """Wrap the conductor stub: per call the text, the words FILE as it was on disk, the register as the conductor saw it."""
+    seen, base = [], s.driver.conductor
+
+    def conductor(*a, **k):
+        named = k.get("words_file")
+        seen.append({"text": a[0], "file": (task_root / named).read_bytes() if named else b"", "register": q_load(task_root)})
+        if then:
+            then()
+        return base(*a, **k)
+    s.driver.conductor = conductor
+    return seen
+
+
+def fv1_3_free_answer_at_a_question_stop() -> None:
+    """FV1-3, one table: what code records, what the conductor is called for, and what it is told - per answer shape. Rows already pinned
+    elsewhere (the token grammar, `Q1: a or b`, two lines for one id) are not repeated."""
+    import story_run
+    import driver_conductor
+    cyr = "".join(chr(c) for c in (0x0432, 0x044B, 0x0448, 0x0435))                       # a word in another script
+    unreadable = lambda ctx: (ctx.task_root / "work" / "requirements-readiness.json").write_text("{not json", encoding="utf-8")  # noqa: E731
+
+    def settle_q1(ctx):                                    # Q1 settled AFTER the person saw it: a different token on it is refused (H6)
+        shown = ctx.s.driver.state["question_stop"]["shown"]["Q1"]
+        code, out = ctx.s.driver.py("question_register.py", "--task", Q_TASK, "--answer", "Q1", "--reading", "a", "--words", "earlier",
+                                    "--where", "S2 stop", "--by", "person", "--register-hash", shown)
+        eq("settled-other-answer: the earlier record is written", code, 0, out)
+
+    def seam_raises(ctx):
+        def spent(*a, **k):
+            raise driver_conductor.ConductorSpent(3, "x")
+        ctx.s.driver.conductor = spent
+        ctx.s.driver.apply_question_answers = lambda stage: {"opened": False, "plan_lines": ["a plan line"]}
+
+    def seam_raises_after(ctx, out, raised):
+        check("seam-raises: the seam's fallback Person comes out of take_answer", isinstance(raised, story_run.Person))
+        disk = json.loads((ctx.task_root / "state/driver-state.json").read_text(encoding="utf-8"))
+        check_eq("seam-raises: the words are filed and saved BEFORE the seam", disk["pending_words"].get(ctx.s.dispatch), ctx.words)
+        check_eq("seam-raises: code's own plan lines are saved BEFORE the seam", disk["question_pass_lines"].get(ctx.s.dispatch),
+                 ["a plan line"])
+        check_eq("seam-raises: ONE human_answer row", sum(1 for sc, a in ctx.s.py_calls if sc == "log_append.py" and "human_answer" in a), 1)
+
+    def printback_unreadable_after(ctx, out, raised):
+        check_in("printback-unreadable: a register that cannot be read back says so", "could not be read back", out)
+        check("printback-unreadable: and never says nothing was recorded", "recorded nothing" not in out)
+
+    def go_on_after(ctx, out, raised):
+        check("go-on-not-whole: no pass is written for words that are not the whole `go on`",
+              not any(sc == "waiver.py" for sc, a in ctx.s.py_calls))
+
+    def free_after(ctx, out, raised):
+        text = ctx.seen[0]["text"]
+        check_in(f"{ctx.row}: the text says code recorded nothing", "recorded by code: nothing", text)
+        check_in(f"{ctx.row}: and names the stop", '--where "S2 stop"', text)
+        check_in(f"{ctx.row}: and who records", "--by conductor", text)
+
+    def mixed_after(ctx, out, raised):
+        check_eq("mixed: Q1 was recorded by CODE before the conductor was called (the conductor saw it answered)",
+                 ctx.seen[0]["register"]["Q1"]["status"], "answered")
+        check_in("mixed: and the conductor is told it is recorded", "recorded by code: Q1: b", ctx.seen[0]["text"])
+
+    def settled_after(ctx, out, raised):
+        got = q_load(ctx.task_root)["Q1"]
+        check_eq("settled-other-answer: the settled record is not overwritten by code", (got["status"], got["reading"]), ("answered", "a"))
+        check_in("settled-other-answer: the refused line is listed with its reason", "Not recorded by code (each line says why)",
+                 ctx.seen[0]["text"])
+        check("settled-other-answer: and is never called `Not read, still open` (the old label)",
+              "Not read, still open" not in ctx.seen[0]["text"])
+
+    def unreadable_after(ctx, out, raised):
+        check_in("register-unreadable: the conductor is told nothing was recorded by code", "recorded by code: nothing", ctx.seen[0]["text"])
+
+    def lang_after(ctx, out, raised):
+        check_eq("another-language: the words FILE is the answer, byte for byte", ctx.seen[0]["file"], ctx.words.encode("utf-8"))
+
+    def limit_after(ctx, out, raised):
+        check_eq(f"{ctx.row}: the words FILE is whole", (len(ctx.seen[0]["file"]), ctx.seen[0]["file"]),
+                 (len(ctx.words.encode("utf-8")), ctx.words.encode("utf-8")))
+
+    # id, words, mode, conductor calls, records by code (None: not read), raises, setup (before the answer), in-conductor hook, after
+    rows = [
+        ("empty-whitespace", "  \n\t \n", "stop", 0, {}, story_run.Stop, None, None, None),
+        ("no-question-open", "Q1: a", "closed", 0, {}, story_run.Stop, None, None, None),
+        ("all-tokens", "Q1: a\nQ2: not needed", "stop", 0, {"Q1": "answered", "Q2": "not_needed"}, None, None, None, None),
+        ("token-word-inside-free-text", "Q1: a because the ticket says so", "stop", 1, {}, None, None, None, free_after),
+        ("mixed", "Q1: b\nQ3 go with the ticket", "stop", 1, {"Q1": "answered"}, None, None, None, mixed_after),
+        ("another-language", "Q3: " + cyr + "\nQ1: " + chr(0x0430), "stop", 1, {}, None, None, None, lang_after),
+        ("words-at-6000", "Q3 " + "w" * 5997, "stop", 1, {}, None, None, None, limit_after),
+        ("words-beyond-6001", "Q3 " + "w" * 5998, "stop", 1, {}, None, None, None, limit_after),
+        ("settled-other-answer", "Q1: b", "stop", 1, {"Q1": "answered"}, None, settle_q1, None, settled_after),
+        ("go-on-not-whole", "go on, but Q3 is the ticket's", "stop", 1, {}, None, None, None, go_on_after),
+        ("register-unreadable", "Q1: a", "stop", 1, None, None, unreadable, None, unreadable_after),
+        ("printback-unreadable", "Q3 go with the ticket", "stop", 1, None, None, None, unreadable, printback_unreadable_after),
+        ("seam-raises", "Q1: a\nQ3 go with the ticket", "stop", 0, {"Q1": "answered"}, story_run.Person, seam_raises, None, seam_raises_after),
+    ]
+    from types import SimpleNamespace
+    for row, words, mode, calls, records, raises, setup, in_conductor, after in rows:
+        root, task_root, s = fv13_open("stop" if mode == "closed" else mode, opened=mode != "closed")
+        try:
+            ctx = SimpleNamespace(row=row, s=s, task_root=task_root, words=words, seen=[])
+            if setup:
+                setup(ctx)
+            ctx.seen = fv13_watch(s, task_root, (lambda: in_conductor(ctx)) if in_conductor else None)
+            out, raised = fv13_answer(s, root, words)
+            check_eq(f"{row}: what the answer raised", type(raised) if raised else None, raises)
+            if row != "seam-raises":
+                check_eq(f"{row}: the conductor was called {calls} time(s)", len(ctx.seen), calls)
+            if records is not None:
+                got = {k: v["status"] for k, v in q_load(task_root).items() if v["status"] != "open"}
+                check_eq(f"{row}: what code recorded", got, records)
+            if after:
+                after(ctx, out, raised)
+        finally:
+            harness.cleanup(root)
+
+    # no-judge-on-register: on both register roads the judge stays uncalled (F-9), the conductor is called once
+    for mode in ("stop", "halt"):
+        root, task_root, s = fv13_open(mode)
+        try:
+            judged = []
+            s.driver.judged_reply = lambda *a, **k: judged.append(a) or ""
+            seen = fv13_watch(s, task_root)
+            out, raised = fv13_answer(s, root, "Q1: a\nand please go with the ticket on the rest")
+            check_eq(f"no-judge-on-register ({mode}): the judge was not called", judged, [])
+            check_eq(f"no-judge-on-register ({mode}): the conductor was called once", len(seen), 1)
+            check("no-judge-on-register (%s): and no judge section is in its text" % mode, "judge reads" not in seen[0]["text"])
+        finally:
+            harness.cleanup(root)
+
+    # halt-road-shares-member: both roads hand over through the ONE member
+    for mode, kind in (("stop", "questions"), ("halt", "halt")):
+        root, task_root, s = fv13_open(mode)
+        try:
+            handed = []
+            s.driver.register_words_to_conductor = lambda *a, **k: handed.append(a) or []
+            seen = fv13_watch(s, task_root)
+            fv13_answer(s, root, "Q1: a\nand please go with the ticket on the rest")
+            check_eq(f"halt-road-shares-member ({mode}): the member is called once, with kind {kind}", [h[0] for h in handed], [kind])
+            check_eq(f"halt-road-shares-member ({mode}): and the conductor only through it", len(seen), 0)
+        finally:
+            harness.cleanup(root)
+
+    # rerun-other-dispatch: words filed, but the open question is about ANOTHER dispatch -> today's branch, the role resumes
+    root, task_root, s = fv13_open()
+    try:
+        d = s.driver
+        d.state["asked"]["dispatch"] = "S3-qa-test-strategist-1"
+        d.state["pending_words"][s.dispatch] = "Q1: a"
+        q_register(task_root, ["Q1", "Q2"])                  # under the limit: the resumed role is not stopped by the threshold again
+        s.claude_calls.clear()
+        d.dispatch_action({"action": "wait_existing_job", "dispatch_id": s.dispatch})
+        check_eq("rerun-other-dispatch: the role resumes as today", [(c["kind"], c["resume"]) for c in s.claude_calls], [("role", "sess-1")])
+    finally:
+        harness.cleanup(root)
+
+
+def fv1_3_the_real_s4_answer() -> None:
+    """K2, the finding's own test: the 18 lines of the live run's answer at an S4 stop. Before FV1-3 the conductor was never called and Q3
+    stayed open; now the conductor (a stub that runs the register's own command) records Q3 and the person is told so."""
+    root, task_root, env = seed(Q_TASK)
+    try:
+        q_register(task_root, [f"Q{i}" for i in range(1, 19)])
+        s = QStub(root, env, stage="S4")
+        d = s.driver
+        d.ask(s.run_role())
+        order = []
+        real_apply = d.apply_question_answers
+        d.apply_question_answers = lambda stage: order.append("apply") or real_apply(stage)
+        base = d.conductor
+
+        def conductor(*a, **k):
+            order.append("conductor")
+            code, out = d.py("question_register.py", "--task", Q_TASK, "--answer", "Q3", "--reading", "a", "--words-file",
+                             str(task_root / d.answer_file()), "--where", "S4 stop", "--by", "conductor",
+                             "--register-hash", d.state["question_stop"]["shown"]["Q3"])
+            eq("the conductor's own command records", code, 0, out)
+            return base(*a, **k)
+        d.conductor = conductor
+        out, raised = fv13_answer(s, root, FV13_S4_ANSWER)
+        check_eq("real s4: nothing is raised", raised, None)
+        check_eq("real s4: the conductor was called once", len(s.conductor_calls), 1)
+        got = q_load(task_root)["Q3"]
+        check_eq("real s4: Q3 is answered with reading a, by the conductor", (got["status"], got["reading"]), ("answered", "a"))
+        check_eq("real s4: its words are the answer file's text", got["words"], (task_root / d.answer_file()).read_text(encoding="utf-8"))
+        check_eq("real s4: the record keeps the hash the person was SHOWN", got["record_row_hash"], d.state["question_stop"]["shown"]["Q3"])
+        check_eq("real s4: the plan is applied by code before the conductor and again after it", order, ["apply", "conductor", "apply"])
+        check_in("real s4: the person is told what the assistant recorded", "recorded by the assistant from your own words — Q3: a", out)
+        text = s.conductor_calls[0][0]
+        check_in("real s4: the conductor is told where the shown hashes are", "question_stop.shown", text)
+        check_in("real s4: and how to read the questions whole", "--show", text)
+        check("real s4: and no judge reading is put in front of it", "judge reads" not in text)
+    finally:
+        harness.cleanup(root)
+
+
+def fv1_3_rerun_with_no_answer() -> None:
+    """K4 (B2): a seam question raised over filed words is asked again by a rerun with no `--answer`, with its own tokens, before the role is
+    resumed; answering it resumes the role with the ORIGINAL words."""
+    import story_run
+    root, task_root, s = fv13_open()
+    try:
+        d = s.driver
+        words = "Q1: a\nand please keep the admin cases apart"
+        seam = story_run.Person("questions", "The assistant could not settle this; try again or stop?", "S2", s.dispatch)
+        seam.offered = ("retry", "stop")
+        seam.options = [{"token": "retry", "move": "person_does"}, {"token": "stop", "move": "stop_here"}]
+
+        def unread(*a, **k):
+            raise seam
+        d.unread = unread
+        out, raised = fv13_answer(s, root, words)
+        check("rerun: the seam's question comes out of the answer", raised is seam)
+        d.ask(raised)
+        s.claude_calls.clear()
+        try:
+            d.dispatch_action({"action": "wait_existing_job", "dispatch_id": s.dispatch})
+            again = None
+        except story_run.Person as exc:
+            again = exc
+        check("rerun: a rerun with no answer asks again", again is not None and again.kind == "questions")
+        if again is not None:
+            check_eq("rerun: with the seam's own tokens", tuple(again.offered), ("retry", "stop"))
+            check_in("rerun: and the seam's question", "try again or stop", again.text)
+        check_eq("rerun: no role was resumed over the open question", [c for c in s.claude_calls if c["kind"] == "role"], [])
+        check_eq("rerun: the words are still filed", d.state["pending_words"].get(s.dispatch), words)
+        del d.unread                                         # the real seam again
+        s.answer(root, "retry")
+        s.claude_calls.clear()
+        d.dispatch_action({"action": "wait_existing_job", "dispatch_id": s.dispatch})
+        check_eq("rerun: after the answer the role resumes in its own session", [(c["kind"], c["resume"]) for c in s.claude_calls],
+                 [("role", "sess-1")])
+        check_in("rerun: with the ORIGINAL words in its prompt", "and please keep the admin cases apart", s.claude_calls[0]["prompt"])
+    finally:
+        harness.cleanup(root)
+
+
+def fv1_3_the_real_pack_size() -> None:
+    """E8: a real S4 pack is over 13 000 characters. Neither cut (the question at 6000 in the member, the refusal text at 6000 in
+    `conductor()`) may take an instruction: both the recorded-by-code line and the `--show` pointer stand before character 6000."""
+    root, task_root, env = seed(Q_TASK)
+    try:
+        rows = [{"id": f"Q{i}", "question": f"what should happen for Q{i}? " + ("the ticket and the code disagree about this case. " * 14),
+                 "severity": "major",
+                 "readings": [{"reading": "the first reading " + "x" * 40, "from": "the ticket", "if_chosen": "x"},
+                              {"reading": "the second reading " + "y" * 40, "from": "the code", "if_chosen": "y"}]} for i in range(1, 19)]
+        (task_root / "work").mkdir(parents=True, exist_ok=True)
+        (task_root / "work" / "requirements-readiness.json").write_text(
+            json.dumps({"verdict": "blocked", "register": {"total": 24}, "open_questions": rows}), encoding="utf-8")
+        s = QStub(root, env, stage="S4")
+        s.driver.ask(s.run_role())
+        size = len((task_root / "state/driver-question.md").read_text(encoding="utf-8"))
+        check("pack size: the question file is at least 13300 characters", size >= 13300, str(size))
+        fv13_answer(s, root, FV13_S4_ANSWER)
+        check_eq("pack size: the conductor was called once", len(s.conductor_calls), 1)
+        text = s.conductor_calls[0][0]
+        check("pack size: `recorded by code:` stands before the cut", 0 <= text.find("recorded by code:") < 6000)
+        check("pack size: `--show` stands before the cut", 0 <= text.find("--show") < 6000)
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
     run_scenarios([], [
         question_stop_road,
@@ -376,6 +690,10 @@ def main() -> None:
         question_stop_edges,
         question_stop_fallbacks,
         question_stop_loop_moves,
+        fv1_3_free_answer_at_a_question_stop,
+        fv1_3_the_real_s4_answer,
+        fv1_3_rerun_with_no_answer,
+        fv1_3_the_real_pack_size,
     ])
     harness.finish("test_story_run_loop_b_threshold")
 

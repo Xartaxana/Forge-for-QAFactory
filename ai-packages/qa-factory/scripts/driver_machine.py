@@ -1439,18 +1439,20 @@ class DriverMachine:
         stage, role = str(record.get("stage") or ""), str(record.get("role") or "")
         self.boundary = f"{stage}:{dispatch}"
         words = self.state["pending_words"].get(dispatch)
+        asked = self.state.get("asked") or {}
+        if asked.get("kind") and asked.get("dispatch") == dispatch and self.question_path().is_file() \
+                and (words or asked.get("kind") == "questions"):
+            # INVARIANT (t-113 B2 edge x, FV1-3 I6): a role is never resumed while a question about its dispatch is open. A threshold
+            # stop that nobody has answered is asked again and never finished from the role's saved result below (that result is the
+            # very handoff the stop held back); filed words over an open question (a seam question raised over them) are asked again
+            # BEFORE the resume, through the helper that keeps `offered` / `options`. A state with no open question about THIS
+            # dispatch takes the branches below unchanged.
+            again = self.held_question("")
+            again.text = again.text.strip()
+            raise again
         if words:
             self.resume_role(stage, role, dispatch, words, complete=self.completion_for(stage, role, record))
             return
-        asked = self.state.get("asked") or {}
-        if asked.get("dispatch") == dispatch and asked.get("kind") == "questions" \
-                and self.question_path().is_file():
-            # INVARIANT (t-113 B2, edge x): a threshold stop that nobody has answered is asked again,
-            # and is never finished from the role's saved result below - that result is the very
-            # handoff the stop held back, so finishing it would close the stage over the questions.
-            text = self.question_path().read_text(encoding="utf-8", errors="replace")
-            raise Person("questions", QUESTION_HEAD_RE.sub("", ANSWER_BLOCK_RE.sub("", text), count=1).strip(),
-                         stage, dispatch)
         saved_path = self.state_dir / "driver-runs" / f"{dispatch}.json"
         saved = _read_json(saved_path)
         if saved.get("result") and self.retire_infra_result(saved_path, saved, role=role, stage=stage,
@@ -3542,9 +3544,9 @@ class DriverMachine:
             dispatch = self.s1_exit_gate(qtext)
             self.state["pending_words"][dispatch] = words
         elif kind == "questions":
-            # A threshold stop (t-113 B2, R17): tokens are recorded by code and the words go to the
-            # role's own session - no conductor, no judge. Only this kind reaches it.
-            self.take_question_answer(stage, dispatch, words)
+            # A threshold stop (t-113 B2, R17, FV1-3): tokens are recorded by code; words code could
+            # not read go to the conductor (`register_words_to_conductor`); the words go to the role's own session. Only this kind reaches it.
+            self.take_question_answer(stage, dispatch, words, qtext)
         elif kind == "halt" and stage == "S1" and self.s0_normalize(words) == "not built yet" and self.s1_has_no_diff():
             # t-2181 PC-7 B3 (FR-9, AR-19): the `not built yet` answer of `s1.no_diff` - the twin of the `s0.no_change` answer - records the
             # side before the words go to the scout. POSITION INVARIANT: only kind `halt` at S1 with the manifest's `none` source, the WHOLE
@@ -3815,28 +3817,9 @@ class DriverMachine:
         if recorded is not None and recorded["all_tokens"] and not recorded["unread"]:
             self.state["pending_words"][dispatch] = words
             return
-        read = self.judged_reply(qtext, words, kind)
-        commands = ("assess / accept-gap / review --record / log_append human_answer|escalated / stage_done --set / waiver.py"
-                    if recorded is None else "assess / accept-gap / review --record / question_register.py / stage_done --set / waiver.py")
-        self.unread(kind, stage, dispatch, "The person answered a " + ("source review" if kind == "s1_review" else "halt") +
-                                 f" of dispatch {dispatch} at {stage}. Record what they decided with the "
-                                 f"factory's own commands ({commands}), nothing else; the role "
-                                 "itself is resumed by the driver afterwards."
-                                 + ("" if recorded is None else
-                                    " The factory read their lines against the register's questions by code - recorded by code: "
-                                    + (", ".join(recorded["recorded"] + [f"{q} (until the report)" for q in recorded["deferred"]]) or "nothing")
-                                    + "; do not record these again, and do not journal their words again (the driver did). "
-                                    + ("Not read, still open: " + "; ".join(recorded["unread"] + recorded["unknown_ids"]) + ". "
-                                       if recorded["unread"] or recorded["unknown_ids"] else "")
-                                    + f"An answer they gave to a question in other words is recorded with question_register.py "
-                                    f"(--answer QID --reading <letter> | --not-needed QID | --defer QID, with --words-file, --where \"{stage} stop\", "
-                                    "--by conductor and the --register-hash that --show prints).")
-                                 # `s1_review` gets no options: `record_review` records ANY words as the S1 review before
-                                 # the conductor sees them (C1-3 owns that text); a `halt` re-raises as a `halt` (C1-2, C1).
-                                 + ("" if kind == "s1_review" else " " + MOVES_RULE + " " + OWN_TOKEN_RULE)
-                                 + "\n\n## The question\n" + qtext[:6000]
-                                 + (PRE_FILLED + read if read else ""),
-                                 words=words)
+        # FV1-3 (AR-15, AR-17): ONE hand-over for register words (`register_words_to_conductor`, driver_dispatch); the halt road's
+        # lines are discarded as `record_halt_words` discards its own, and the words are filed AFTER the seam (this road's order).
+        self.register_words_to_conductor(kind, stage, dispatch, qtext, words, recorded)
         self.state["pending_words"][dispatch] = words
 
     def _delivery_token(self, kind: str, stage: str, qtext: str, words: str, doors: tuple, reenter: bool = False) -> str:
@@ -4131,8 +4114,8 @@ class DriverMachine:
         if self.flags.answer:
             asked = self.state.get("asked") or {}
             if asked.get("kind") == "questions":
-                print(f"would record the answers in {self.flags.answer} by code, per open question, and resume the "
-                      "role's own session with the words (no conductor)")
+                print(f"would record the answers in {self.flags.answer} by code, per open question; words code could not "
+                      "read go to the conductor first; then the role's own session resumes with the words")
             else:
                 print(f"would route the answer in {self.flags.answer} to the conductor as kind `{asked.get('kind')}`"
                       if asked else "no question is open: the answer would be refused")
