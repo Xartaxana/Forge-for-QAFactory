@@ -254,9 +254,44 @@ def w1_frozen_state_keys():
     compare("w1_frozen_state_keys", "the keys of the driver state equal the pre-C1 capture", live()["state_keys"], frozen("state_keys"))
 
 
+DIFF_LINE, DIFF_ENTRY_CUT, DIFF_ENTRIES = 200, 4000, 5      # CI cuts a log line at 300 characters: a printed line carries at most 200 of the value plus its prefix
+
+
+def console_diff_lines(live_console: list, expected: list) -> list:
+    """The failure path of the console compare only: the differing entries, readable under CI's 300-character line cut.
+
+    Lengths first when they differ; then, for the first differing entry and at most DIFF_ENTRIES in all, the index and the expected and the got
+    value (json text, so one entry stays on its own lines), each cut at DIFF_ENTRY_CUT characters with a visible mark and wrapped by DIFF_LINE.
+    """
+    lines = []
+    if len(live_console) != len(expected):
+        lines.append(f"console entries: expected {len(expected)}, got {len(live_console)}")
+    if not live_console:
+        lines.append("got: <empty>")
+    shown = 0
+    for i in range(max(len(live_console), len(expected))):
+        a = live_console[i] if i < len(live_console) else "<absent>"
+        b = expected[i] if i < len(expected) else "<absent>"
+        if a == b:
+            continue
+        if shown == DIFF_ENTRIES:
+            break
+        shown += 1
+        for prefix, value in (("exp", b), ("got", a)):
+            text = json.dumps(value, ensure_ascii=True)
+            if len(text) > DIFF_ENTRY_CUT:
+                text = text[:DIFF_ENTRY_CUT] + f"...(cut, {len(text)} chars)"
+            parts = [text[k:k + DIFF_LINE] for k in range(0, len(text), DIFF_LINE)] or [""]
+            lines.extend(f"{prefix}[{i}] {k + 1}/{len(parts)}: {part}" for k, part in enumerate(parts))
+    return lines
+
+
 def w1_frozen_console():
-    compare("w1_frozen_console", "the console of every entry equals the pre-C1 capture (M1, M2, M6, M7 masked)", live()["console"],
-            [mask_brief_bytes(x) for x in frozen("console")])
+    expected = [mask_brief_bytes(x) for x in frozen("console")]
+    compare("w1_frozen_console", "the console of every entry equals the pre-C1 capture (M1, M2, M6, M7 masked)", live()["console"], expected)
+    if live()["console"] != expected:      # after the verdict line; a green run prints nothing more
+        for line in console_diff_lines(live()["console"], expected):
+            print(line)
 
 
 def w1_frozen_brief_bytes_mask():
