@@ -383,6 +383,42 @@ new units in 59 files (assertion_detectors.py ... vcs_evidence.py)
 - **F-B4: (a).**
 - Part B gets a critic-on-plan before any builder (PROJECT.md "package change" item 6 (b): the census changes meaning). Part A goes straight to its builder: no fork is left, and it changes no meaning.
 
+# Critic t-326 fixes (BINDING for part B; each overrides the body text it names)
+
+Review: `docs/tasks/specs/reviews/t-326-oh8-7-plan-review.md`, verdict fit_with_fixes. The coordinator accepts all of it. The builder reads part B, then the Lead decisions, then THIS section, which wins where they conflict.
+
+1. **(B1) The (c1) body.**
+   - `units_of` keeps creating u3 units from `sites(files=...)` WITHOUT `raises`, exactly as today. The `blocks` loop (:259-264) reads `sites(files=..., raises=family)`.
+   - A widened site in a function that is not a unit by any other route creates NO unit; it goes into the pending set.
+   - One call may return both lists. Either way the default return shape of `sites()` stays unchanged (FR-14).
+   - §B.5: every positive row asserts that `blocks` flips on a unit found by another route (synthetic `check_f`, a u1 unit). Add the row `neutral_only` (`class A(ValueError)`, `def f(): raise A('no')`): no unit is created, and `f` is pending.
+   - The §B.5 mutation red is C3 `blocking_per_role.conductor` below its new ceiling, plus the pending line.
+   - The BLIND_SPOT clause, `about`, the docstring and `blind_spot_names_subclass_gap` are REWRITTEN, not removed. They say that a subclass raise flips `blocks` on an existing unit, and that a function refusing only through a subclass is pending, counted, and closed by OH8-7b and the nodes after it.
+   - §B.0 handoff: replace "list of new rows" with "the list of flipped rows and the pending count". E2: replace "counted" with "flip or pending".
+2. **(B2) A bound on the second road.**
+   - The census computes the pending set and prints its size on the totals line.
+   - It holds the size under a shrink-only, dense test constant `SUBCLASS_PENDING_CEILING = <measured>`, a test constant like `MEANING_CEILING`, NOT a `ratchet` key. The census is red above the constant and red below it (the constant must then be lowered).
+   - `REQUIRED_CEILING_KEYS` and gate item 7 are untouched.
+   - Add a SIBLING_MAP axis-18 row in the same commit, and give the commit message a four-question block. This makes `docs/SIBLING_MAP.md` an owned path.
+   - Each follow-up node lowers the constant; 0 is the end state.
+3. **(B3) Per-file resolution.**
+   - `raise_family` resolves names per file. A raised name counts in file F only if F's own binding of that name is in the family: a local `ClassDef`, or `from M import N [as A]` where M is a scanned module whose `N` is in the family.
+   - A local non-family definition shadows a family class of the same name defined elsewhere. A name with no binding in F resolves only to the literals.
+   - Add rows `shadowed_local` and `shadowed_import` (both stay unflipped). The `alias` row becomes "counted".
+   - Drop E3's `blocks_override` remedy.
+   - Re-measure the raise; the critic's estimate is conductor 476 -> 491.
+4. **(B4) Attribute raises only with `raises=`.** Attribute-form acceptance (F-B3 (a)) happens only when `raises` is given, so the A24 default path stays byte-identical. Attribute-form literal raises are flip-only or pending under (c1).
+5. **(M1) The collision line.** The "name collisions: []" line in the Lead decisions came from a bug in the measurement script: it took `family - set(R.REFUSAL_RAISES)` AFTER the monkeypatch, which is always empty. The true collisions are `Refusal` x5 and `Refused` x1.
+6. **(M3) DoD 1** becomes: paste the node's totals line (with the pending count and family size), the intermediate C3 against ceiling 476, and the green run. No rerun of the §B.2 script.
+7. **(M2) E1** names the no-arg miss: `_key_text` drops `raise A()`, and 1 such family site exists. Name it in BLIND_SPOT. **E4** also asserts that every default-path site's raised callee is a literal `ast.Name` in `REFUSAL_RAISES`.
+8. **(M4) §B.7.**
+   - OH8-6 (spec t-324 §2.4) edits only the SCOPE paragraph of the `refusal_registry.py` module docstring. The OH8-7 function list is `_refusal_calls`, `sites`, `raise_family` and `REFUSAL_RAISES` (read only).
+   - The two lists are disjoint (D-0048). Whichever lands later merges `main`.
+   - If either node adds a REGISTRY entry or edits the census JSON, the later one re-measures the dense ceilings after merging.
+9. **E9** literal line: `judgment: adds data check refusal_registry.raise_family -- census sees refusals through package subclasses`.
+10. **§B.1 AR-28** row: "the remaining misses are named AND the pending set is counted (`SUBCLASS_PENDING_CEILING`)".
+11. **The carrier for OH8-7b and the nodes after it** (D-0044) is written by the coordinator at acceptance of this node: rows in an untaken onboarding-hooks batch, each naming its file group and the pending drop it delivers. It is not builder work.
+
 # Forks (returned; none decided)
 
 **F-A1. How `event_store.py` reaches `hooklib`.** `event_store.py` is deliberately "a leaf of the standard library while nothing is refused" (`_require_root` docstring :514-515; its one hooklib import is local, at :521).
