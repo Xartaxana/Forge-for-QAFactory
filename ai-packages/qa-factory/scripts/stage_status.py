@@ -62,12 +62,17 @@ def _int(value):
         return None
 
 
-def round_cap(task_root: Path, role: str = "") -> int:
-    """The number of repair rounds this factory allows before the rest is carried as debt."""
+def round_cap(task_root: Path, role: str = "", stage: str = "") -> int:
+    """The number of repair rounds this factory allows before the rest is carried as debt: the one reader
+    `runtime_policy.repair_cap`, over the stage's row (an unknown or empty stage reads today's value)."""
     try:
-        from runtime_policy import DEFAULT_LIMITS
-        key = "design_repair_cycles" if "case" in str(role) else "repair_cycles"
-        return int(DEFAULT_LIMITS.get(key) or FALLBACK_ROUND_CAP)
+        from runtime_policy import repair_cap
+        row = {}
+        if stage:
+            import acceptance
+            row = acceptance.stage_def_of(stage)
+        cap = repair_cap(str(role), row)
+        return FALLBACK_ROUND_CAP if cap is None else int(cap)
     except Exception:
         return FALLBACK_ROUND_CAP
 
@@ -227,7 +232,7 @@ def line(task_root, event: str, **facts) -> str:
         count = findings_count(task_root, stage, _clean(facts.get("dispatch") or "", 80))
     spent = _int(facts.get("round")) if facts.get("round") is not None \
         else rounds_spent(task_root, stage, role or "qa-automator")
-    cap = _int(facts.get("cap")) or round_cap(task_root, role)
+    cap = _int(facts.get("cap")) or round_cap(task_root, role, stage)
 
     def round_phrase() -> str:
         if not spent:

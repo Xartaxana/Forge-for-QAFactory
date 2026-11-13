@@ -214,6 +214,7 @@
         "qa-runner"
       ],
       "acceptance_by": "qa-failure-analyst",
+      "acceptance_rounds": 1,
       "requires": [
         "S5"
       ],
@@ -241,6 +242,7 @@
         "qa-failure-analyst"
       ],
       "acceptance_by": "qa-doc-scribe",
+      "acceptance_rounds": 1,
       "requires": [
         "S6"
       ],
