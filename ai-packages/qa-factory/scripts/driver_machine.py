@@ -11,6 +11,7 @@ from driver_chains import once_on
 from role_cli import PERSON_MARKER, REPAIR_MARKER
 from question_register import EARLIER_ANSWER_MARK
 import detector_verdict as DV
+import driver_journal as DJ
 import human_text
 import no_move as NM
 import person_owned as PO
@@ -266,14 +267,15 @@ class DriverMachine:
         if not sid:
             # t-764 E9 (FR-42): the dispatch is known and no session of it is - the one seam says so, with no `round`
             print("refusal: no session of the role is known; the person is asked")
-            self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid="", why="refusal", text=refusal.text)
+            self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid="", why="refusal", text=refusal.text,
+                            checks=refusal.checks)
         key = finding_key(self.refusal_lines(refusal))
         record = self.resume_record(dispatch, sid)
         if key not in record:
             self.note_resume(dispatch, sid, key, "refusal")
             print(f"refusal: {dispatch} is resumed in its own session with the refusal, once")
             self.resume_with(refusal, stage, dispatch, sid, "The factory refused to close your dispatch "
-                             + dispatch + ":\n\n")
+                             + dispatch + ":\n\n", kind="refusal_resume")
             return "continue"
         if "stand" not in record.values():
             probe = self.stand_probe(dispatch)
@@ -291,12 +293,13 @@ class DriverMachine:
                                  "The stand answers now:\n" + out + "\n\nThe factory refused to close your dispatch "
                                  + dispatch + ":\n\n",
                                  reason="the role reported its work blocked by the stand and the stand answers now; "
-                                 + resume_reason(refusal.findings or refusal.text))
+                                 + resume_reason(refusal.findings or refusal.text), kind="stand_answers")
                 return "continue"
         print(f"refusal: {dispatch} was already resumed on these findings; the person is asked")
         # t-764 E8: the ONE seam (the finish refusals `story_step finish (exit 3)` reach only this site); a round the person
         # bought is spent there and the loop judges the role's new result
-        self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="refusal", text=refusal.text)
+        self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="refusal", text=refusal.text,
+                        checks=refusal.checks)
         return "continue"
 
     def window_key(self, stage: str, dispatch: str) -> str:
@@ -530,7 +533,7 @@ class DriverMachine:
                         # the set is `finding_key` of the refusal's lines (`structured_resumes` is per dispatch), so a round the person
                         # buys is counted for THIS set; a round is spent there and the loop judges the role's new result
                         self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid or "",
-                                        why="structured", text=refusal.text)
+                                        why="structured", text=refusal.text, checks=refusal.checks)
                         return "continue"
                     return self.no_move({"why": "refusal", "kind": "refusal", "call": False, "stage": stage,
                                          "dispatch": self.refusal_dispatch(refusal), "lines": self.refusal_lines(refusal),
@@ -546,7 +549,9 @@ class DriverMachine:
                 self.run_claude("role", "The factory refused to close your dispatch " + dispatch + ":\n\n" + refusal.text.strip()
                                 + "\n\nRepair the named fields in the artifact, change nothing else, then your final "
                                   "message is the handoff form only.", role=role, dispatch=dispatch, stage=stage, resume=sid,
-                                resume_reason=resume_reason(refusal.findings or refusal.text))
+                                resume_reason=resume_reason(refusal.findings or refusal.text),
+                                checks=refusal.checks, checks_n=refusal.checks_n,
+                                resume_kind="structured_refusal")     # P1-v W0 (R-8): `unknown` - the controller prints no id
                 return "retry"
             elif action in ("resume_handoff", "resume_repair"):
                 # t-217 / F-cmp2-23: a refusal of the role's handoff or of its `finish` (exit 3) is answered by the
@@ -1768,17 +1773,59 @@ class DriverMachine:
             "idempotency_key": f"handoff:driver:{state.get('revision', 0)}"})
 
     def run(self) -> int:
+        """Run the story. The process leaves up to two rows in `driver-runs.jsonl` (P1-v W1, `driver_journal.process_start_row` /
+        `process_end_row`). A row is written ONLY while the story's state folder exists, checked right before each write, and never
+        creates it: the start row of a fresh story is skipped, and the END row describes the process alone (start time, package,
+        config hash, answer flag, run class, `start_row_written`); no folder at the end either -> no row. `start` is the FIRST row
+        written, `end` is written in the `finally`, after a `stopped_by_person` row
+        when the person stopped it, with `process_code` = the returned int, null when `run` ended by an exception (the exception
+        propagates unchanged). POSITION INVARIANT: nothing that can raise sits between entry and the `try` (two assignments), so a
+        process has a start row and no end row only when it was killed (no `finally` runs). A journal that cannot be written at the
+        start row is ONE `note:` line and the run goes on (the end row is still attempted and says `start_row_written: false`); a
+        failed end row is one `note:` line and never replaces the exception in flight. A fingerprint or class that cannot be established is null /
+        `unknown` plus one note, never a stop (P1)."""
         self.run_started = _now()       # TR4-11: when THIS process began; the stop record names it (`since`)
-        self.progress_line()            # the log header: where the story stands as this process starts
-        if not self.state.get("asked"):
-            self.state.pop("stuck_pending", None)       # B-20 F6: a mark left by a process that died in the conductor belongs to no open question
-        # TR4-11 (F-3): the OUTER try. Ctrl-C reaches here from the loop AND from the run-level handlers of the inner try (a `Refusal` handed
-        # to `funnel` can be a paid conductor call): a sibling `except` of the inner try would not see the second kind.
+        code = None
+        start_row = None
+        start_written = False
+
+        def put(record) -> bool:
+            # a process row NEVER creates the story folder (Lead decision, N1 fix round): the check is made immediately before each write
+            if not self.state_dir.is_dir():
+                return False
+            self.journal_run(record)
+            return True
         try:
-            return self._run_guarded()
-        except KeyboardInterrupt:
-            self.person_stop_record()
-            raise
+            notes: list = []
+            start_row = DJ.process_start_row(self.run_started, getattr(self, "project", None), getattr(self.flags, "answer", None), notes)
+            for line in notes:
+                print(line, flush=True)
+            try:
+                start_written = put(start_row)
+            except OSError as exc:
+                print(f"note: the start of the process could not be journalled ({type(exc).__name__}); it goes on", flush=True)
+            self.progress_line()            # the log header: where the story stands as this process starts
+            if not self.state.get("asked"):
+                self.state.pop("stuck_pending", None)       # B-20 F6: a mark left by a process that died in the conductor belongs to no open question
+            # TR4-11 (F-3): the OUTER try. Ctrl-C reaches here from the loop AND from the run-level handlers of the inner try (a `Refusal`
+            # handed to `funnel` can be a paid conductor call): a sibling `except` of the inner try would not see the second kind.
+            try:
+                code = self._run_guarded()
+                return code
+            except KeyboardInterrupt:
+                self.person_stop_record()
+                raise
+        finally:
+            try:
+                notes = []
+                row = DJ.process_end_row(self.run_started, code, self.question_path(), notes, start_row, start_written)
+                for line in notes:
+                    print(line, flush=True)
+                put(row)
+            except OSError as exc:
+                print(f"note: the end of the process could not be journalled ({type(exc).__name__}); it goes on", flush=True)
+            except KeyboardInterrupt:
+                pass
 
     def person_stop_record(self) -> None:
         """TR4-11: the person stopped the run (Ctrl-C, either road): ONE row of `driver-runs.jsonl`, through `journal_run`, so that the

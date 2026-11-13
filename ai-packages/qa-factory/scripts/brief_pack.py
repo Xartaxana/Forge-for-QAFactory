@@ -4113,6 +4113,27 @@ def case_critic_roster_lines(task_root, pipeline) -> list:
 
 # --- assembling ----------------------------------------------------------------------------
 
+def _record_brief_size(task_root: Path, result: dict) -> None:
+    """Append one line about the dispatched brief to `state/brief-sizes.jsonl`: a record for the forge's scoreboard
+    (`run_counters`), never read inside a run and never compared with the ceiling here. `budget_bytes` / `over_ceiling`
+    are carried as `budget_bytes` / `ceiling` + `over` when `result` has them; without them the line holds `bytes` only
+    (no zero is invented). A failure to write is one note on stderr: it never changes or fails the brief."""
+    state = task_root / "state"
+    try:
+        if not state.is_dir():
+            raise OSError(f"{state} is not a directory")
+        rec = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "stage": result["stage"],
+               "role": result["role"], "dispatch": result["dispatch"], "bytes": result["bytes"]}
+        if "budget_bytes" in result:
+            rec["budget_bytes"] = result["budget_bytes"]
+        if "over_ceiling" in result:
+            rec["ceiling"] = BRIEF_MAX_BYTES
+            rec["over"] = list(result["over_ceiling"])
+        hooklib.append_jsonl_line(state / "brief-sizes.jsonl", json.dumps(rec, ensure_ascii=False))
+    except (OSError, ValueError) as exc:
+        print(f"brief_pack: note: the size of {result.get('dispatch')} was not recorded ({exc})", file=sys.stderr)
+
+
 def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True,
           output: Path | None = None) -> dict:
     task_root = hooklib.story_root(task, "brief_pack")   # a brief is built for a story that EXISTS; S0 makes the folder
@@ -4564,11 +4585,14 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
                 p = briefs_dir / name
                 p.write_text(body, encoding="utf-8")
                 written.append(str(p))
-    return {"task": task, "stage": stage, "role": role, "dispatch": dispatch_id, "scope": scope,
-            "path": brief_rel if output is None else str(output), "bytes": len(text.encode("utf-8")),
-            "budget_bytes": budget_bytes, "omitted": omitted, "over_ceiling": over_ceiling,
-            "files": files, "sides": sides_needed, "written": written,
-            "repo_map": (repo or {}).get("path"), "markdown": text}
+    result = {"task": task, "stage": stage, "role": role, "dispatch": dispatch_id, "scope": scope,
+              "path": brief_rel if output is None else str(output), "bytes": len(text.encode("utf-8")),
+              "budget_bytes": budget_bytes, "omitted": omitted, "over_ceiling": over_ceiling,
+              "files": files, "sides": sides_needed, "written": written,
+              "repo_map": (repo or {}).get("path"), "markdown": text}
+    if write and output is None:        # the dispatched brief only: not a dry run, not a brief written elsewhere
+        _record_brief_size(task_root, result)
+    return result
 
 
 def main() -> int:

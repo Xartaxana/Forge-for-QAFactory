@@ -21,6 +21,10 @@ from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, f
 
 sys.path.insert(0, str(SCRIPTS))
 import retro_numbers as RN  # noqa: E402
+import run_counters as RC  # noqa: E402
+import driver_journal as DJ  # noqa: E402
+import driver_timing as DT  # noqa: E402
+import friction as FR  # noqa: E402
 
 CLASS_FORM = "the role's final message is not the handoff form"
 CLASS_HANDOVER = "the handover form is not complete"
@@ -339,7 +343,541 @@ def the_retro_prints_the_knowledge_table_beside_the_question_count() -> None:
         cleanup(root)
 
 
+# ----------------------------------------------------------------------------- run_counters (P1-v N4)
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+T0 = datetime(2026, 11, 13, 10, 0, 0, tzinfo=timezone.utc)
+MONEY_WORDS = ("usd", "cost", "price", "money", "priced")
+
+
+def at(seconds) -> str:
+    return (T0 + timedelta(seconds=seconds)).isoformat()
+
+
+def role_row(end_s, wall_s, dispatch="S1-x-1", session="s1", **extra) -> dict:
+    ms = None if wall_s is None else int(wall_s * 1000)
+    base = {"ts": at(end_s), "kind": "role", "role": "x", "dispatch": dispatch, "stage": "S1", "session_id": session, "num_turns": 3,
+            "total_cost_usd": 0.4, "duration_ms": ms, "wall_ms": ms, "resumed": False, "exit_code": 0, "is_error": False,
+            "infra": None, "retry": 0}
+    base.update(extra)
+    return base
+
+
+def conductor_row(end_s, wall_s, session="c1") -> dict:
+    return {"ts": at(end_s), "kind": "conductor", "role": "", "dispatch": "", "stage": "S1", "session_id": session, "num_turns": 1,
+            "total_cost_usd": 0.1, "duration_ms": int(wall_s * 1000), "wall_ms": int(wall_s * 1000), "resumed": False,
+            "exit_code": 0, "is_error": False, "infra": None, "retry": 0}
+
+
+def p_start(s, **extra) -> dict:
+    return {"ts": at(s), "kind": "process", "event": "start", "since": at(s), "package": "p1", "config_sha": "c1",
+            "answer_file": False, "run_class": "live", **extra}
+
+
+def p_end(since_s, end_s, **extra) -> dict:
+    return {"ts": at(end_s), "kind": "process", "event": "end", "since": at(since_s), "process_code": 0, "question_kind": None,
+            "package": "p1", "config_sha": "c1", "answer_file": False, "run_class": "live", "start_row_written": True, **extra}
+
+
+def write_state(troot: Path, name: str, rows: list, raw: str = "") -> None:
+    (troot / "state" / name).write_text("".join(json.dumps(r) + "\n" for r in rows) + raw, encoding="utf-8")
+
+
+def counted(troot: Path, friction_result=None) -> dict:
+    """`run_counters.counters` with `friction.story_friction` stubbed (no transcript hunt in the user's home)."""
+    real = FR.story_friction
+    FR.story_friction = lambda *a, **k: friction_result or {"status": "unknown", "reason": "stubbed: no transcripts"}
+    try:
+        return RC.counters(troot)
+    finally:
+        FR.story_friction = real
+
+
+def tree_digest(troot: Path) -> list:
+    return sorted((str(p.relative_to(troot)), p.read_bytes()) for p in troot.rglob("*") if p.is_file())
+
+
+def every_key(value) -> list:
+    if isinstance(value, dict):
+        return [str(k) for k in value] + [k for v in value.values() for k in every_key(v)]
+    if isinstance(value, (list, tuple)):
+        return [k for v in value for k in every_key(v)]
+    return []
+
+
+def run_counters_time_rows() -> None:
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [role_row(100, 100, session="a"), role_row(160, 100, dispatch="S1-x-2", session="b"),
+                                             conductor_row(180, 30), role_row(300, None, dispatch="S2-x-1", session="c")])
+    d = counted(troot)
+    check_eq("T2 union of overlapping role calls counts the overlap once", d["T2"]["union_s"], 160.0)
+    check_eq("T2 per-session sum counts every session's own time", d["T2"]["sum_s"], 200.0)
+    check_eq("T2 a call with no wall is counted as unknown, never 0 s", d["T2"]["calls_wall_unknown"], 1)
+    check_eq("T3 conductor time not overlapped by a role (30 s call, 10 s inside the role union)", d["T3"]["not_overlapped_s"], 20.0)
+    check_eq("T3 the conductor's own union is kept beside it", d["T3"]["union_s"], 30.0)
+    check_eq("T1 with no process rows: the fallback is named, the end is not recorded",
+             (d["T1"]["state"], d["T1"]["basis"].startswith("fallback"), d["T1"]["end_recorded"]), ("measured", True, False))
+    # T8 AT and BEYOND the one threshold
+    write_state(troot, "driver-runs.jsonl", [role_row(500, 130, duration_ms=10000, wall_ms=130000, session="a"),
+                                             role_row(900, 130, dispatch="S1-x-2", session="b", duration_ms=9999, wall_ms=130000),
+                                             role_row(1000, 5, dispatch="S1-x-3", session="c", duration_ms=None)])
+    t8 = counted(troot)["T8"]
+    check_eq("T8 wall - duration exactly 120000 ms is not hung; 120001 is (AT and BEYOND)", t8["n"], 1)
+    check_eq("T8 the excess seconds are the wall minus the CLI's own count", t8["excess_s"], 120.0)
+    check_eq("T8 a call with no duration is unmeasurable, not hung and not fine", t8["unmeasurable"], 1)
+    check_eq("T8 the threshold is the one in driver_timing", t8["threshold_ms"], DT.WALL_NOTE_OVER_MS)
+    # no journal: every journal row unknown, no crash
+    root2, base2, troot2 = project()
+    d2 = counted(troot2)
+    check_eq("no journal: T1 T2 T3 T8 G2 are unknown",
+             sorted(k for k in ("T1", "T2", "T3", "T8", "G2") if d2[k]["state"] == "unknown"), sorted(("T1", "T2", "T3", "T8", "G2")))
+    check_eq("no journal: no question and no answer record, no process row -> Q1 Q2 Q3 unknown (7.2: a missing file is never 0)",
+             [d2[k]["state"] for k in ("Q1", "Q2", "Q3")], ["unknown"] * 3)
+    # T4 / T5 only through driver_timing.report
+    check_eq("T4 no timings recorded is unknown", d2["T4"]["state"], "unknown")
+    (troot / "state" / "driver-timings.jsonl").write_text(
+        json.dumps({"ts": at(100), "stage": "S1", "dispatch": "S1-x-1", "step": "handoff", "seconds": 4.0}) + "\n", encoding="utf-8")
+    d3 = counted(troot)
+    check_eq("T4 the step totals ARE driver_timing.report's", d3["T4"]["step_totals"], DT.report(troot)["step_totals"])
+    cleanup(root)
+    cleanup(root2)
+
+
+def run_counters_windows_and_gaps() -> None:
+    # (a) 7.1 run died mid-stage
+    root, base, troot = project()
+    launched = {"ts": at(290), "kind": "launched", "call": "role", "role": "x", "dispatch_id": "S2-x-1", "stage": "S2",
+                "started_at": at(290), "model": "m", "retry": 0}
+    write_state(troot, "driver-runs.jsonl", [p_start(0), role_row(100, 100), launched])
+    d = counted(troot)
+    check_eq("7.1 died: T1 is measured to the last record, end not recorded",
+             (d["T1"]["wall_s"], d["T1"]["end_recorded"], d["T1"]["end_note"]), (290.0, False, "end not recorded"))
+    check_eq("7.1 died: the open call is `cut` with its known start and an unknown wall",
+             [(c["call"], c["started_at"], c["wall_s"]) for c in d["T1"]["cut_calls"]], [("S2-x-1", at(290), None)])
+    check_eq("7.1 died: the open call adds no invented seconds to T2", d["T2"]["union_s"], 100.0)
+    check_eq("7.1 died: a process with no end row is counted as such", d["run"]["processes_without_end"], 1)
+    # (b) 7.3 restarts: a table of (previous end row kwargs, next start kwargs, previous has end row) -> class
+    cases = {
+        "a question then an answer file": (dict(question_kind="halt"), dict(answer_file=True), True, "person"),
+        "a question then no answer file": (dict(question_kind="halt"), dict(answer_file=False), True, "operator"),
+        "a question, answer file not recorded": (dict(question_kind="halt"), dict(answer_file=None), True, "not_recorded"),
+        "no question posted": (dict(), dict(), True, "operator"),
+        "package changed (question and answer file present)": (dict(question_kind="halt"), dict(answer_file=True, package="p2"), True, "operator"),
+        "config changed": (dict(), dict(config_sha="c2"), True, "operator"),
+        "package unknown on one side is not a change": (dict(question_kind="halt", package=None), dict(answer_file=True), True, "person"),
+        "the earlier process left no end row": (dict(), dict(), False, "not_recorded"),
+    }
+    for name, (end_kw, start_kw, has_end, expected) in cases.items():
+        root, base, troot = project()
+        rows = [p_start(0), role_row(50, 50, session="shared")]
+        rows += [p_end(0, 60, **end_kw)] if has_end else []
+        rows += [p_start(160, **{k: v for k, v in start_kw.items()}), role_row(200, 40, dispatch="S1-x-2", session="shared"), p_end(160, 210, **start_kw)]
+        write_state(troot, "driver-runs.jsonl", rows)
+        d = counted(troot)
+        bucket = {"person": d["T6"].get("n"), "operator": d["T7"].get("n"), "not_recorded": d["T7"].get("not_recorded", {}).get("n")}
+        check_eq(f"T6/T7 gap class: {name} -> {expected}, in exactly one row", {k: v for k, v in bucket.items() if v}, {expected: 1})
+        if expected == "person":
+            check_eq("T6 the gap is last end -> next start (100 s), not model time", d["T6"]["seconds"], 100.0)
+        if has_end:
+            check_eq(f"7.3 {name}: a session reused across windows is one session, its time counted once",
+                     (list(d["T2"]["per_session_s"]), d["T2"]["sum_s"]), (["shared"], 90.0))
+    # (c) an open question at the end of the run
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [p_start(0), role_row(50, 50), p_end(0, 60, question_kind="exit_limit")])
+    d = counted(troot)
+    check_eq("T6 a question still open at the end is named, no seconds invented", (d["T6"]["n"], d["T6"]["open_question_kind"]), (0, "exit_limit"))
+    # (d) a fresh single-process run: NO start row, the END row is the row it works from
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [role_row(50, 50), p_end(0, 60, run_class="dry")])
+    d = counted(troot)
+    check_eq("an end row alone: the window starts at `since`, the run class is read from the end row",
+             (d["T1"]["basis"], d["T1"]["first"], d["T1"]["wall_s"], d["T1"]["end_recorded"], d["run"]["run_class"]),
+             ("process rows", at(0), 60.0, True, "dry"))
+    cleanup(root)
+
+
+def run_counters_run_class() -> None:
+    sessions = {"s": "plain-session", "stub": "stub-S1-x-1-1"}
+    cases = [
+        ("live in start and end", [p_start(0), p_end(0, 9)], "s", "live"),
+        ("dry in start and end", [p_start(0, run_class="dry"), p_end(0, 9, run_class="dry")], "s", "dry"),
+        ("smoke in the end row only", [p_end(0, 9, run_class="smoke")], "s", "smoke"),
+        ("unknown stays unknown", [p_start(0, run_class="unknown"), p_end(0, 9, run_class="unknown")], "s", "unknown"),
+        ("mixed: start live, end dry (one process)", [p_start(0), p_end(0, 9, run_class="dry")], "s", "mixed"),
+        ("mixed: two windows, dry then smoke", [p_start(0, run_class="dry"), p_end(0, 9, run_class="dry"), p_start(20, run_class="smoke"),
+                                                p_end(20, 30, run_class="smoke")], "s", "mixed"),
+        ("no process row: never live by default", [], "s", "unknown"),
+        ("live run with stub sessions: the safety net", [p_start(0), p_end(0, 9)], "stub", "unknown"),
+        ("dry run with stub sessions is dry", [p_start(0, run_class="dry"), p_end(0, 9, run_class="dry")], "stub", "dry"),
+        ("a non-string class is not a class", [p_start(0, run_class=7), p_end(0, 9, run_class=None)], "s", "unknown"),
+    ]
+    for name, process_rows, sid, expected in cases:
+        root, base, troot = project()
+        write_state(troot, "driver-runs.jsonl", process_rows + [role_row(5, 5, session=sessions[sid])])
+        d = counted(troot)
+        check_eq(f"run_class: {name} -> {expected}", d["run"]["run_class"], expected)
+        if name.startswith("live run with stub"):
+            check_in("run_class: the stub safety net says so in U1", "stub sessions in a run marked live", d["U1"]["lines"])
+            check_eq("run_class: the stub sessions are counted", d["U1"]["stub_sessions"], 1)
+        if expected == "dry":
+            check_eq("dry run: T9 T10 R1r are n/a (stub roles), decided by the class not the prefix",
+                     [d[k]["state"] for k in ("T9", "T10", "R1r")], ["n/a"] * 3)
+        if expected == "live":
+            check_eq("live run: T9 and T10 are unknown here (node N4b), R1r is read", [d[k]["state"] for k in ("T9", "T10")], ["unknown"] * 2)
+        cleanup(root)
+
+
+def run_counters_resumes_and_checks() -> None:
+    root, base, troot = project()
+    ids = ["s5_precheck:manifest", "handoff_check:header.verdict"]
+    rows = [role_row(10, 10, session="a"),
+            role_row(30, 20, session="a", resumed=True, resume_kind="handoff_findings", checks=ids, checks_n={ids[0]: 3, ids[1]: 1}),
+            role_row(60, 30, dispatch="S1-x-2", session="b", resumed=True, resume_kind="paid_round", checks=["unknown"], checks_n={"unknown": 1}),
+            role_row(70, 10, dispatch="S1-x-3", session="c", resumed=True, resume_kind="person_answer"),
+            role_row(80, 10, dispatch="S1-x-4", session="d", resumed=True, resume_kind="made_up_token", checks="a string"),
+            role_row(90, 10, dispatch="S1-x-5", session="e", resumed=True, resume_kind="unclassified", checks=[])]
+    write_state(troot, "driver-runs.jsonl", rows)
+    d = counted(troot)
+    f1, g1 = d["F1"], d["G1"]
+    check_eq("F1 first pass and resumed calls are split, their seconds are role wall", (f1["first_pass"]["calls"], f1["first_pass"]["role_s"], f1["resumed"]["calls"], f1["resumed"]["role_s"]), (1, 10.0, 5, 80.0))
+    check_eq("F1 resumed calls by token as written; a token outside the table is `unclassified`",
+             {k: v["calls"] for k, v in f1["resumed"]["by_kind"].items()}, {"handoff_findings": 1, "paid_round": 1, "person_answer": 1, "unclassified": 2})
+    check_eq("7.12 a call naming two checks counts one return for EACH", (g1["by_check"][ids[0]]["returns"], g1["by_check"][ids[1]]["returns"]), (1, 1))
+    check_eq("7.12 its role seconds go in full to each check, labelled shared", (g1["by_check"][ids[0]]["role_s_shared"], g1["by_check"][ids[1]]["role_s_shared"]), (20.0, 20.0))
+    check_eq("7.12 the de-duplicated total of resumed seconds is printed once (20+30+10+10)", g1["resumed_s_total"], 70.0)
+    check_in("7.12 the shared label is on the row", "do not sum", g1["shared_note"])
+    check_eq("7.12 a refusal with no id, a broken list and an empty list are each ONE `unknown` return, never dropped",
+             g1["by_check"]["unknown"]["returns"], 3)
+    check_eq("G1 findings per check come from checks_n", g1["by_check"][ids[0]]["findings"], 3)
+    check_eq("G1 a resume with no checks key (the person's answer) is not an unknown refusal", g1["resumed_without_checks"], 1)
+    check_eq("U1 the unknown check share is printed", (g1["unknown_check"]["returns"], g1["unknown_check"]["of"], g1["unknown_check"]["malformed_rows"]), (3, 5, 2))
+    check_eq("U1 unclassified resume kinds are counted", d["U1"]["unclassified_resume_kinds"], 2)
+    # QUEUE-1: a retried caller resume writes two rows; one resume plus one retry
+    rows = [role_row(10, 10, resumed=True, resume_kind="handoff_findings", checks=ids, infra="transient"),
+            role_row(30, 10, resumed=True, resume_kind="handoff_findings", checks=ids, retry=1)]
+    write_state(troot, "driver-runs.jsonl", rows)
+    d = counted(troot)
+    check_eq("a retried caller resume counts ONE resume and one retry, one return per check",
+             (d["F1"]["resumed"]["calls"], d["F1"]["retries"], d["G1"]["by_check"][ids[0]]["returns"]), (1, 1, 1))
+    # the transient in-call retry writes `unclassified` after a caller's resume: counted by token as written, as a resume
+    rows = [role_row(10, 10, resumed=True, resume_kind="handoff_findings", checks=ids),
+            role_row(30, 10, resumed=True, resume_kind="unclassified", retry=1)]
+    write_state(troot, "driver-runs.jsonl", rows)
+    d = counted(troot)
+    check_eq("a retry row with a different token is its own resume (no special case)",
+             {k: v["calls"] for k, v in d["F1"]["resumed"]["by_kind"].items()}, {"handoff_findings": 1, "unclassified": 1})
+    # 7.6 / 7.11 old rows: no resume_kind, no checks
+    rows = [role_row(10, 10), role_row(30, 10, resumed=True, resume_reason="free text that no code reads")]
+    write_state(troot, "driver-runs.jsonl", rows, raw="not json\n[1]\n")
+    d = counted(troot)
+    check_eq("7.6 old resumed rows: kind not recorded (never parsed from the text), G1 unknown", (d["F1"]["resumed"]["kind_not_recorded"], d["F1"]["resumed"]["by_kind"], d["G1"]["state"]), (1, {}, "unknown"))
+    check_eq("7.6 broken lines are counted in U1", d["U1"]["bad_lines"]["driver_runs"], 2)
+    check_eq("7.6 an old run: no process rows, T6 and T7 unknown", (d["T6"]["state"], d["T7"]["state"], d["B1"]["state"]), ("unknown",) * 3)
+    # the table cannot be read: every kind is `unclassified`, with its note in U1
+    rows = [role_row(10, 10, resumed=True, resume_kind="handoff_findings", checks=ids)]
+    write_state(troot, "driver-runs.jsonl", rows)
+    real = DJ.run_record
+    DJ.run_record = lambda path=None: ({}, "note: the run record could not be read (stub)")   # run_record_names calls it by name
+    try:
+        d = counted(troot)
+    finally:
+        DJ.run_record = real
+    check_eq("7.11 an unreadable table: the token counts under `unclassified`, the note reaches U1",
+             (list(d["F1"]["resumed"]["by_kind"]), d["U1"]["lines"][0].startswith("note: the run record")), (["unclassified"], True))
+    cleanup(root)
+
+
+ALL_KINDS = '["handoff_findings", "handoff_findings_mechanical", "person_answer", "refusal_resume", "stand_answers", "paid_round", "structured_refusal", "service_cut", "unclassified"]'
+FIVE_REWORK = '["handoff_findings", "handoff_findings_mechanical", "refusal_resume", "structured_refusal", "paid_round"]'
+KIND_ROWS = ("handoff_findings", "handoff_findings_mechanical", "refusal_resume", "structured_refusal", "paid_round",
+             "person_answer", "stand_answers", "service_cut", "made_up_token")
+
+
+def run_counters_rework_kinds() -> None:
+    """D1 (rework by `rework_kinds`), D4 (`service_cut` is a road of its own), D5 (a retried resume is ONE return)."""
+    root, base, troot = project()
+    rows = [role_row(10 + n, 1, dispatch=f"S1-x-{n}", session=f"s{n}", resumed=True, resume_kind=kind) for n, kind in enumerate(KIND_ROWS)]
+    rows.append(role_row(50, 1, dispatch="S1-x-old", session="old", resumed=True))      # a resumed row of an older record: no kind key
+    write_state(troot, "driver-runs.jsonl", rows)
+    real_path = DJ.RUN_RECORD_PATH
+    # (table text of run-record.json | None = the real file) -> (rework state, returns, non_rework, unclassified, notes in U1)
+    cases = {
+        "the real table": (None, ("measured", 5, 3, 1, 0)),
+        "a narrower valid list": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round"]}}', ("measured", 1, 7, 1, 0)),
+        "rework_kinds absent": (f'{{"resume_kinds": {ALL_KINDS}}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds not a list": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": "paid_round"}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds empty list: the one validator refuses it, as for every other key": (
+            f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": []}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds with an empty name": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round", ""]}}', ("unknown", None, None, 1, 1)),
+        "rework_kinds with a name resume_kinds lacks": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round", "bogus"]}}',
+                                                       ("unknown", None, None, 1, 1)),
+        "rework_kinds names unclassified": (f'{{"resume_kinds": {ALL_KINDS}, "rework_kinds": ["paid_round", "unclassified"]}}',
+                                           ("unknown", None, None, 1, 1)),
+        "resume_kinds absent": (f'{{"rework_kinds": {FIVE_REWORK}}}', ("unknown", None, None, 9, 2)),
+        "the file is not JSON": ("{not json", ("unknown", None, None, 9, 1)),
+    }
+    try:
+        for label, (text, want) in cases.items():
+            if text is None:
+                DJ.RUN_RECORD_PATH = real_path
+            else:
+                table = troot / "table.json"
+                table.write_text(text, encoding="utf-8")
+                DJ.RUN_RECORD_PATH = table
+            d = counted(troot)
+            rw = d["F1"]["rework"]
+            notes = [line for line in d["U1"]["lines"] if line.startswith("note:")]
+            check_eq(f"D1 {label}: state, rework returns, non-rework, unclassified, notes",
+                     (rw["state"], rw.get("returns"), rw.get("non_rework"), rw["unclassified"], len(notes)), want)
+            check_eq(f"D1 {label}: the per-token counts still print", bool(d["F1"]["resumed"]["by_kind"]), True)
+            if want[0] == "unknown":
+                check_eq(f"D1 {label}: unknown names its reason, and is never the number 0", (bool(rw["why"]), "returns" in rw), (True, False))
+            check_eq(f"D1 {label}: a resumed row of an older record is counted aside, in neither class", rw["kind_not_recorded"], 1)
+            if label == "the real table":
+                check_eq("D4 service_cut is a road of its own: counted under `service_cut`, never `unclassified`",
+                         (d["F1"]["resumed"]["by_kind"]["service_cut"]["calls"], d["F1"]["resumed"]["by_kind"]["unclassified"]["calls"],
+                          d["U1"]["unclassified_resume_kinds"]), (1, 1, 1))
+                check_eq("D1 the rework roads are the table's, in order of the table", rw["rework_kinds"], sorted(json.loads(FIVE_REWORK)))
+                check_eq("F4 the rework line carries role seconds per class (1 s per call): rework 5, non-rework 3, unclassified 1",
+                         (rw["role_s"], rw["wall_unknown"]),
+                         ({"rework": 5.0, "non_rework": 3.0, "unclassified": 1.0}, {"rework": 0, "non_rework": 0, "unclassified": 0}))
+    finally:
+        DJ.RUN_RECORD_PATH = real_path
+    # D5: a retried caller resume is ONE return (the retry row is not a second one), rework included
+    ids = ["s5_precheck:manifest"]
+    write_state(troot, "driver-runs.jsonl", [role_row(10, 10, resumed=True, resume_kind="handoff_findings", checks=ids, infra="transient"),
+                                             role_row(30, 10, resumed=True, resume_kind="handoff_findings", checks=ids, retry=1)])
+    d = counted(troot)
+    check_eq("D5 a retried caller resume: one resume, one retry, ONE rework return",
+             (d["F1"]["resumed"]["calls"], d["F1"]["retries"], d["F1"]["rework"]["returns"]), (1, 1, 1))
+    # F4: a rework call with no wall is counted in wall_unknown, never as 0 s
+    write_state(troot, "driver-runs.jsonl", [role_row(10, 10, resumed=True, resume_kind="handoff_findings"),
+                                             role_row(30, None, dispatch="S1-x-2", resumed=True, resume_kind="handoff_findings")])
+    rw = counted(troot)["F1"]["rework"]
+    check_eq("F4 a rework call with no wall: role seconds 10.0 and one wall unknown", (rw["role_s"]["rework"], rw["wall_unknown"]["rework"]), (10.0, 1))
+    cleanup(root)
+
+
+def run_counters_outside_hops() -> None:
+    """D3 + F5: T5 outside_hops_s = window seconds minus the seconds of the role / conductor calls inside it (`ts` is a call's end,
+    `wall_ms` its duration) minus the seconds of the hops (a call's result to the next launch) inside it; an open call is unknown."""
+    def late(row, **kw):
+        return dict(row, **kw)
+
+    def launched(start_s, dispatch="S1-x-2") -> dict:
+        return {"ts": at(start_s), "kind": "launched", "call": "role", "role": "x", "dispatch_id": dispatch, "stage": "S1",
+                "started_at": at(start_s), "model": "m", "retry": 0}
+    timing_row = {"ts": at(60), "stage": "S1", "dispatch": "S1-x-1", "step": "finish", "seconds": 10.0}
+    cases = {
+        "F5 probe (the verdict's): calls 10-50 and 70-90, one 20 s hop (10 s of step + 10 s unattributed): 100-60-20, not 40": (
+            [p_start(0), launched(10, "S1-x-1"), role_row(50, 40), launched(70), role_row(90, 20, dispatch="S1-x-2", session="b"), p_end(0, 100)],
+            ("measured", 20.0, [("measured", 20.0)], 0)),
+        "F5 a hop that crosses two windows is clipped to each (the gap between the processes is not window time)": (
+            [p_start(0), launched(10, "S1-x-1"), role_row(50, 40), p_end(0, 100), p_start(200), launched(250), role_row(290, 40, dispatch="S1-x-2", session="b"),
+             p_end(200, 300)], ("measured", 20.0, [("measured", 10.0), ("measured", 10.0)], 0)),
+        "F1 an OPEN call inside the window (Ctrl-C: end row, launched row with no outcome) is unknown, not a measured 540": (
+            [p_start(0), launched(60), p_end(0, 600)], ("unknown", None, [("unknown", None)], 0)),
+        "F1 an open call with an unreadable start and time is counted unplaced, the row total unknown": (
+            [p_start(0), late(launched(60), started_at="garbage", ts="garbage"), p_end(0, 600)], ("unknown", None, [("measured", 600.0)], 1)),
+        "F1 a call between two windows (clock skew) is counted unplaced, the row total unknown": (
+            [p_start(0), p_end(0, 100), p_start(200), p_end(200, 300), role_row(150, 10)],
+            ("unknown", None, [("measured", 100.0), ("measured", 100.0)], 1)),
+        "calls inside a 100 s window": ([p_start(0), role_row(60, 40), conductor_row(90, 20), p_end(0, 100)], ("measured", 40.0, [("measured", 40.0)], 0)),
+        "a call ending AT the window end is inside, one 1 s after is not": (
+            [p_start(0), role_row(100, 10), role_row(101, 10, dispatch="S1-x-2", session="b"), p_end(0, 100)],
+            ("unknown", None, [("measured", 90.0)], 1)),
+        "a 0 ms call is a measurement, not unknown": ([p_start(0), role_row(60, 0), p_end(0, 100)], ("measured", 100.0, [("measured", 100.0)], 0)),
+        "a window with no end row (killed) is unknown, named": ([p_start(0), role_row(60, 40)], ("unknown", None, [("unknown", None)], 0)),
+        "a call inside with no duration makes the window unknown, not 0 s": ([p_start(0), role_row(60, None), p_end(0, 100)],
+                                                                             ("unknown", None, [("unknown", None)], 0)),
+        "negative: overlapping calls, printed as measured, never clamped": (
+            [p_start(0), role_row(40, 40), role_row(45, 40, dispatch="S1-x-2", session="b"), p_end(0, 50)], ("measured", -30.0, [("measured", -30.0)], 0)),
+        "rows but no process rows (the record predates them) is unknown, as T6 and T7": ([role_row(60, 40)], ("unknown", None, [], 0)),
+        "two windows, the second killed: the row is unknown, the first window keeps its value": (
+            [p_start(0), p_end(0, 100), p_start(200), role_row(250, 10)], ("unknown", None, [("measured", 100.0), ("unknown", None)], 0)),
+        "a call with an unreadable time is placed in no window and counted": (
+            [p_start(0), role_row(60, 40), late(role_row(70, 10, dispatch="S1-x-2", session="b"), ts="garbage"), p_end(0, 100)],
+            ("unknown", None, [("measured", 60.0)], 1)),
+    }
+    for label, (rows, (state, total, windows, unplaced)) in cases.items():
+        root, base, troot = project()
+        write_state(troot, "driver-runs.jsonl", rows)
+        write_state(troot, "driver-timings.jsonl", [timing_row])
+        d = counted(troot)
+        out = d["T5"]["outside_hops"]
+        check_eq(f"D3 {label}: state, total, per-window (state, seconds), calls unplaced",
+                 (out["state"], out.get("outside_hops_s"), [(w["state"], w.get("outside_hops_s")) for w in out.get("windows", [])], out.get("calls_unplaced", 0)),
+                 (state, total, windows, unplaced))
+        if state == "unknown":
+            check_eq(f"D3 {label}: every unknown window names its reason", all(w.get("why") for w in out["windows"] if w["state"] == "unknown"), True)
+        notes = [line for line in d["U1"]["lines"] if line.startswith("note: T5")]
+        check_eq(f"D3 {label}: a note only for a negative window or an unplaced call", len(notes), 1 if (total is not None and total < 0) or unplaced else 0)
+        cleanup(root)
+    # a term of the subtraction that is absent: no driver timings -> no hop term -> unknown, never a partial sum
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [p_start(0), role_row(60, 40), p_end(0, 100)])
+    out = counted(troot)["T5"]["outside_hops"]
+    check_eq("F5 no driver timings: the hop term is unknown, so the window and the row are unknown (not 60.0)",
+             (out["state"], out["outside_hops_s"], out["windows"][0]["state"], bool(out["windows"][0]["why"])), ("unknown", None, "unknown", True))
+    cleanup(root)
+
+
+def run_counters_no_journal() -> None:
+    """D6: no driver journal (the skill road) and an empty journal file: resume-kind, process-window and T5 lines are n/a, never 0;
+    F2: a journal whose lines are all unreadable is unknown. F6: the controller rounds are attached in all three."""
+    lines_of = {"no journal file": (None, "n/a"), "an empty journal file": ([], "n/a"), "a journal of only unreadable lines": ("{broken\nnot json\n", "unknown")}
+    for label, (rows, state) in lines_of.items():
+        root, base, troot = project()
+        if isinstance(rows, str):
+            (troot / "state" / "driver-runs.jsonl").write_text(rows, encoding="utf-8")
+        elif rows is not None:
+            write_state(troot, "driver-runs.jsonl", rows)
+        d = counted(troot)
+        check_in(f"F6 {label}: F1 still carries the controller rounds, which are not read from the journal", "controller_rounds", d["F1"])
+        if state == "unknown":
+            check_eq(f"F2 {label}: F1 G1 T5 T6 T7 are unknown, not n/a", [d[k]["state"] for k in ("F1", "G1", "T5", "T6", "T7")], ["unknown"] * 5)
+            check_in(f"F2 {label}: the printed rework line says unknown", "F1 rework returns: unknown", RC.render(d))
+            cleanup(root)
+            continue
+        check_eq(f"D6 {label}: F1 G1 T5 T6 T7 are n/a", [d[k]["state"] for k in ("F1", "G1", "T5", "T6", "T7")], ["n/a"] * 5)
+        check_eq(f"D6 {label}: the time rows and G2 stay unknown, not measured 0", [d[k]["state"] for k in ("T1", "T2", "T3", "T8", "G2")], ["unknown"] * 5)
+        text = RC.render(d)
+        check_in(f"D6 {label}: the printed rework line says n/a", "F1 rework returns: n/a; non-rework resumes: n/a; unclassified resumes: n/a", text)
+        cleanup(root)
+    # the control: a journal with a first-pass row and nothing resumed IS a zero
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [role_row(10, 10)])
+    d = counted(troot)
+    check_eq("D6 control: a journal with no resumed call measures 0 rework returns, not n/a",
+             (d["F1"]["rework"]["state"], d["F1"]["rework"]["returns"], d["T5"]["outside_hops"]["state"]), ("measured", 0, "unknown"))
+    check_in("D6 control: the printed rework line carries the numbers", "F1 rework returns: 0; non-rework resumes: 0; unclassified resumes: 0", RC.render(d))
+    cleanup(root)
+
+
+def run_counters_questions_briefs_and_quality() -> None:
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [p_start(0), p_end(0, 9)])
+    d = counted(troot)
+    check_eq("7.2 the process rows prove the driver ran: no questions is 0 (measured)", (d["Q1"]["state"], d["Q1"]["n"], d["Q3"]["state"], d["Q3"]["n"]), ("measured", 0, "measured", 0))
+    write_state(troot, "driver-runs.jsonl", [role_row(5, 5)])
+    check_eq("7.2 no process rows and no question file: unknown", counted(troot)["Q1"]["state"], "unknown")
+    write_state(troot, "driver-questions.jsonl", [])
+    check_eq("7.2 an empty question file is 0, measured", (counted(troot)["Q1"]["state"], counted(troot)["Q1"]["n"]), ("measured", 0))
+    write_state(troot, "driver-questions.jsonl", [{"ts": at(1), "kind": "halt", "stage": "S0"}, {"ts": at(2), "kind": "halt", "stage": "S5"}, {"ts": at(3), "stage": "S5"}])
+    q1 = counted(troot)["Q1"]
+    check_eq("Q1 by kind and stage; a row with no kind is counted under `unknown`, never dropped", (q1["by_kind"], q1["by_stage"]), ({"halt": 2, "unknown": 1}, {"S0": 1, "S5": 2}))
+    # Q3 repeats
+    answers = [{"ts": at(1), "kind": "halt", "question_sha": "aa"}, {"ts": at(2), "kind": "halt", "question_sha": "aa"},
+               {"ts": at(3), "kind": "refusal", "question_sha": "bb"}, {"ts": at(4), "kind": "conductor", "question_sha": "bb"},
+               {"ts": at(5), "kind": "halt", "question_sha": "aa"}, {"ts": at(6), "kind": "halt"}, {"ts": at(7), "kind": "halt", "question_sha": 5}]
+    write_state(troot, "driver-answers.jsonl", answers[:1])
+    check_eq("Q3 one answer is no repeat", counted(troot)["Q3"]["n"], 0)
+    write_state(troot, "driver-answers.jsonl", answers[:2])
+    check_eq("Q3 AT: two answers with the same sha -> 1 repeat, under their kind", (counted(troot)["Q3"]["n"], counted(troot)["Q3"]["by_kind"]), (1, {"halt": 1}))
+    write_state(troot, "driver-answers.jsonl", answers[2:4])
+    check_eq("Q3 a different kind with the same sha is counted under the LATER row's kind", counted(troot)["Q3"]["by_kind"], {"conductor": 1})
+    write_state(troot, "driver-answers.jsonl", answers)
+    q3 = counted(troot)["Q3"]
+    check_eq("Q3 a third answer with the same sha is a second repeat; rows with no usable sha are counted aside, never as repeats",
+             (q3["by_kind"], q3["answers_without_sha"]), ({"conductor": 1, "halt": 2}, 2))
+    # gates passed by the person's word, gate repairs
+    write_state(troot, "passed-by-person.jsonl", [{"ts": at(1), "block": "x"}, {"ts": at(2), "block": "y"}])
+    check_eq("Q2 counts the rows of the carrier", counted(troot)["Q2"]["n"], 2)
+    write_state(troot, "driver-runs.jsonl", [{"ts": at(1), "kind": "gate_repair", "gate": "A", "moves": ["x", "y"]}, {"ts": at(2), "kind": "gate_repair", "gate": "A", "moves": 3}, {"ts": at(3)}, {"ts": "2026-11-13T10:00:04"}])
+    d = counted(troot)
+    check_eq("G2 gate repairs by gate with their moves", (d["G2"]["n"], d["G2"]["by_gate"], d["G2"]["moves"]), (2, {"A": 2}, 5))
+    check_eq("U1 a row with no kind and a time with no offset are counted", (d["U1"]["rows_without_kind"], d["U1"]["naive_timestamps"]), (2, 1))
+    # B1 at and beyond the ceiling
+    write_state(troot, "brief-sizes.jsonl", [{"role": "a", "budget_bytes": 6144, "ceiling": 6144}, {"role": "a", "budget_bytes": 6145, "ceiling": 6144},
+                                             {"role": "b", "budget_bytes": 100, "ceiling": 6144}, {"role": "b", "budget_bytes": 7}, {"role": "b", "budget_bytes": True, "ceiling": 1}])
+    b1 = counted(troot)["B1"]
+    check_eq("B1 AT the ceiling is not over, BEYOND (6145) is", (b1["by_role"]["a"]["n"], b1["by_role"]["a"]["over"]), (2, 1))
+    check_eq("B1 mean and max of the budget bytes per role", (b1["by_role"]["a"]["mean_budget_bytes"], b1["by_role"]["a"]["max_budget_bytes"]), (6144.5, 6145))
+    check_eq("B1 rows with no ceiling or a bool size are counted aside", b1["unreadable_rows"], 2)
+    check_eq("B1 no record: unknown", counted(project()[2])["B1"]["state"], "unknown")
+    # a dry run: counts stay, nothing is written
+    write_state(troot, "driver-runs.jsonl", [p_start(0, run_class="dry"), role_row(5, 5, session="stub-S1-x-1-1", resumed=True, resume_kind="refusal_resume", checks=["exit_gate:scoped"]), p_end(0, 9, run_class="dry")])
+    before = tree_digest(troot)
+    d = counted(troot)
+    check_eq("7.9 a dry run: the counts stay (returns per check, questions, briefs)", (d["G1"]["by_check"]["exit_gate:scoped"]["returns"], d["Q1"]["state"], d["B1"]["state"]), (1, "measured", "measured"))
+    check_eq("7.9 `counters` writes nothing (the whole state tree is byte-identical)", tree_digest(troot), before)
+    cleanup(root)
+
+
+def run_counters_friction_and_money() -> None:
+    root, base, troot = project()
+    money_row = {"dispatches": 2, "sessions": 2, "sessions_unreachable": 0, "turns": 40, "fric_turns": 10, "priced_turns": 40, "priced_cost": 1.5,
+                 "fric_cost": 0.5, "unpriced": 0, "kinds": {"guard": 6, "usage": 4}, "helpers": [{"path": "C:/stand/x.py", "call": "x"}],
+                 "turn_share": 25.0, "money_share": 33.3, "reachable": 2}
+    stub = {"status": "ok", "reason": "", "sessions": 2, "sessions_unreachable": 0, "unpriced": 0, "method": "m", "sources": {"cost file": 2},
+            "roles": {"qa-automator": money_row, "qa-case-critic": dict(money_row, turns=10, fric_turns=1, turn_share=10.0)},
+            "total": {"turns": 50, "fric_turns": 11, "priced_turns": 50, "priced_cost": 1.9, "fric_cost": 0.6, "unpriced": 0, "turn_share": 22.0, "money_share": 31.0}}
+    # the cumulative total_cost_usd of a resumed session rises (0.424 -> 0.455): no money key anywhere in the dict
+    write_state(troot, "driver-runs.jsonl", [role_row(10, 10, total_cost_usd=0.424), role_row(30, 10, resumed=True, total_cost_usd=0.455, resume_kind="person_answer")])
+    d = counted(troot, stub)
+    r1r = d["R1r"]
+    check_eq("R1r keeps turns, shares, kinds and counts only: no key of the money vocabulary in the row",
+             [k for k in every_key(r1r) if any(w in k.lower() for w in MONEY_WORDS)], [])
+    check_eq("R1r drops the helpers' paths and keeps their count (AR-4)", ("helpers" in every_key(r1r), r1r["roles"]["qa-automator"]["helpers_n"]), (False, 1))
+    check_eq("R1r turn_share equals story_friction's per role", {k: v["turn_share"] for k, v in r1r["roles"].items()}, {k: v["turn_share"] for k, v in stub["roles"].items()})
+    check_eq("R1r turn_share equals story_friction's total", r1r["total"]["turn_share"], stub["total"]["turn_share"])
+    check_eq("R1r the other counts are story_friction's", (r1r["roles"]["qa-automator"]["turns"], r1r["roles"]["qa-automator"]["kinds"], r1r["total"]["fric_turns"]), (40, {"guard": 6, "usage": 4}, 11))
+    check_eq("the whole dict carries no key of the money vocabulary (a rising total_cost_usd and a money-rich friction result in)",
+             [k for k in every_key(d) if any(w in k.lower() for w in MONEY_WORDS)], [])
+    # the real story_friction on a journal whose transcripts are absent: unknown with its reason, not 0 %
+    real = FR.story_friction
+    FR.story_friction = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+    try:
+        broken = RC.counters(troot)["R1r"]
+    finally:
+        FR.story_friction = real
+    check_eq("R1r a failure of the friction reader is unknown with its text, never a crash", (broken["state"], "boom" in broken["why"]), ("unknown", True))
+    check_eq("R1r no transcript reachable is unknown, not 0 %", counted(troot)["R1r"]["state"], "unknown")
+    cleanup(root)
+
+
+def run_counters_one_road_and_cli() -> None:
+    text = (SCRIPTS / "run_counters.py").read_text(encoding="utf-8")
+    for needle in ("json.loads(", "open(", ".read_text(", "splitlines("):
+        check_not_in(f"AR-13 run_counters parses no carrier of its own: no `{needle}`", needle, text)
+    check_in("AR-13 positive control: the same needle shape finds `json.loads(` in the one reader", "json.loads(", (SCRIPTS / "driver_journal.py").read_text(encoding="utf-8"))
+    for survivor in ("DJ.read_rows_counted(", "DJ.question_rows", "DJ.answer_rows", "DJ.parse_ts(", "DJ.run_record_names(", "driver_timing.report(",
+                     "friction.story_friction(", "retro_numbers.dispatch_rounds(", "driver_timing.WALL_NOTE_OVER_MS"):
+        check_in(f"AR-15 the survivor is called, not copied: {survivor}", survivor, text)
+    # the counted readers
+    root, base, troot = project()
+    path = troot / "state" / "driver-runs.jsonl"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps({"a": 1}).encode() + b"\nnot json\n[1]\n\n" + json.dumps({"b": 2}).encode() + b"\n")
+    check_eq("read_rows_counted: rows, and the lines left out (a broken line, a non-object)", DJ.read_rows_counted(path), ([{"a": 1}, {"b": 2}], 2))
+    check_eq("read_rows is the same loop without the count", DJ.read_rows(path), [{"a": 1}, {"b": 2}])
+    check_eq("an absent file is ([], 0) for the counted reader", DJ.read_rows_counted(troot / "state" / "nope.jsonl"), ([], 0))
+    write_state(troot, "driver-questions.jsonl", [{"kind": "k"}], raw="bad\n")
+    write_state(troot, "driver-answers.jsonl", [{"kind": "k"}, {"kind": "j"}])
+    check_eq("question_rows / answer_rows read their carriers with the count", (DJ.question_rows(troot), DJ.answer_rows(troot)), (([{"kind": "k"}], 1), ([{"kind": "k"}, {"kind": "j"}], 0)))
+    # the CLI prints the same dict as `counters`
+    import subprocess
+    write_state(troot, "driver-runs.jsonl", [p_start(0), role_row(5, 5), p_end(0, 9)])
+    done = subprocess.run([sys.executable, "-B", str(SCRIPTS / "run_counters.py"), "--task-root", str(troot), "--json"],
+                          capture_output=True, text=True, encoding="utf-8")
+    check_eq("CLI --task-root --json: exit 0, one JSON object, the run class and T2 as `counters` reads them",
+             (done.returncode, json.loads(done.stdout)["run"]["run_class"], json.loads(done.stdout)["T2"]["union_s"]), (0, "live", 5.0))
+    check_eq("CLI writes nothing to the state folder", sorted(p.name for p in (troot / "state").iterdir()),
+             sorted(["driver-runs", "driver-runs.jsonl", "driver-questions.jsonl", "driver-answers.jsonl"]))
+    cleanup(root)
+
+
 def main() -> None:
+    run_counters_time_rows()
+    run_counters_windows_and_gaps()
+    run_counters_run_class()
+    run_counters_resumes_and_checks()
+    run_counters_rework_kinds()
+    run_counters_outside_hops()
+    run_counters_no_journal()
+    run_counters_questions_briefs_and_quality()
+    run_counters_friction_and_money()
+    run_counters_one_road_and_cli()
     the_retro_prints_the_knowledge_table_beside_the_question_count()
     the_resumes_add_up_per_stage()
     the_unknown_and_the_empty_are_not_the_same()

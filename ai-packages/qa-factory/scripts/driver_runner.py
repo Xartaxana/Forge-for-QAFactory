@@ -770,10 +770,37 @@ class DriverRunner:
         except OSError:
             pass
 
+    RESUME_UNCLASSIFIED = "unclassified"
+
+    def resume_kind_of(self, token) -> str:
+        """The `resume_kind` of a resumed row (P1-v W2; AR-1, AR-14): `token` when the table `resume_kinds` of
+        `references/run-record.json` (read ONLY through `driver_journal.run_record`, once per process) names it, else `unclassified`
+        with ONE note line (per distinct token, and ONE for a table that is missing, unreadable, without the key or not a list of
+        names - every kind is then `unclassified`). Never raises, never stops the call (P1)."""
+        mine = self.__dict__
+        table = mine.get("_resume_kind_table")
+        if table is None:
+            import driver_journal
+            names, why = driver_journal.run_record_names("resume_kinds")
+            if why:
+                print(why, flush=True)
+            table = mine["_resume_kind_table"] = names
+        if isinstance(token, str) and token in table:
+            return token
+        said = mine.setdefault("_resume_kind_said", set())
+        key = token if isinstance(token, str) else repr(token)
+        if table and key not in said:
+            said.add(key)
+            shown = key[:60] if key else "(none)"
+            print(f"note: the resume kind {shown!r} is not in the run record's `resume_kinds`; the row says "
+                  f"`{self.RESUME_UNCLASSIFIED}`", flush=True)
+        return self.RESUME_UNCLASSIFIED
+
     def run_claude(self, kind: str, prompt: str, *, role: str = "", dispatch: str = "", stage: str = "",
                    resume: str = "", tools: str = ROLE_TOOLS, system_file: Path | None = None,
                    max_turns: int = 0, plugin_agent: bool = True, resume_key: str = "",
-                   resume_reason: str = "") -> dict:
+                   resume_reason: str = "", checks: tuple | None = None, checks_n: dict | None = None,
+                   resume_kind: str = "") -> dict:
         """One `claude -p` call, and the ONE place an infrastructure failure of it is recognised.
 
         POSITION INVARIANT (B-012): the classifier runs right after the process exits, before the
@@ -797,7 +824,19 @@ class DriverRunner:
         `driver-runs.jsonl` row (a row of a call that is not a resume carries no such key, and a row from before this
         field reads as it always did). A resume the driver itself chooses in here (the session of a call the service
         cut off; a retry after a broken response) names its own reason. A caller that names none gets
-        `unclassified (the call named no reason)` - never a silent resume."""
+        `unclassified (the call named no reason)` - never a silent resume.
+
+        `checks` (P1-v W0): the ids of the checks whose findings the CALLER resumes the session on (`Refusal.checks`, or the ids
+        of the records of a handoff ladder). A row of a resume the caller asked for carries `checks` (sorted, unique; an empty
+        value is ONE `unknown`) and `checks_n` (`{id: findings}` for the ids whose count the caller knows - an id of `checks`
+        with no entry there has no recorded count). A row of a call with `checks=None` - a person's answer, the driver's own
+        resume of a cut call, every call that is not a resume - carries neither key (`journal_run` readers: an absent key reads
+        `unknown`, never an error).
+
+        `resume_kind` (P1-v W2): the ROAD of the caller's resume, a closed token of `references/run-record.json` key
+        `resume_kinds` (`resume_kind_of`). Every resumed row carries `resume_kind` after the other keys; a row that is not a
+        resume carries no such key. The driver's own resume of a cut call is `service_cut`; a caller that names none, or a
+        token outside the table, is `unclassified` with one note."""
         if not self.claude:
             raise Stop(EXIT_ERROR, f"no `{self.host}` executable on PATH and STORY_RUN_{self.host.upper()} is not set")
         import infra_failure
@@ -808,6 +847,9 @@ class DriverRunner:
         original_prompt = prompt
         attempt_resume, attempt_prompt, driver_resumed = resume, prompt, False
         why = (resume_reason.strip() or "unclassified (the call named no reason)") if resume else ""
+        how = resume_kind if resume else ""         # P1-v W2: the road of the resume the CALLER asked for; `why`'s partner
+        ids = list(Refusal.id_set(checks)) if checks is not None else None     # P1-v W0: the row's `checks`
+        counted = {str(k): v for k, v in (checks_n or {}).items()}
         if prior:
             if resume:
                 note = self.continuation_note(kind, role, stage, dispatch, alone=False, known=True)
@@ -816,10 +858,11 @@ class DriverRunner:
                 attempt_resume, driver_resumed = str(prior["session_id"]), True
                 attempt_prompt = self.continuation_note(kind, role, stage, dispatch, alone=True, known=True)
                 why = "an earlier call of this dispatch was cut off by the model service; its own session goes on"
+                how = "service_cut"
             else:
                 note = self.continuation_note(kind, role, stage, dispatch, alone=False, known=True)
                 attempt_prompt = prompt + ("\n\n" + note if note else "")
-        base_resume, base_prompt, base_driver_resumed, base_why = attempt_resume, attempt_prompt, driver_resumed, why
+        base_resume, base_prompt, base_driver_resumed, base_why, base_how = attempt_resume, attempt_prompt, driver_resumed, why, how
         retries_used, fresh_after_loss = 0, False
         while True:
             self.stop_if_interrupted()      # B1: before the `launched` row and the process, on every attempt of the loop
@@ -907,7 +950,11 @@ class DriverRunner:
                               "infra_rule": infra["rule"] if infra else None, "retry": retries_used,
                               **({"host": self.host, "usage": result["usage"], "cost_basis": cost_basis,
                                   "call_cost_usd": call_cost} if codex else {}),
-                              **({"resume_reason": why} if attempt_resume else {})})
+                              **({"resume_reason": why} if attempt_resume else {}),
+                              # only the call the CALLER asked for: the driver's own resume of a cut call (`driver_resumed`) answers no refusal
+                              **({"checks": ids, "checks_n": {k: counted[k] for k in ids if k in counted}}
+                                 if attempt_resume and not driver_resumed and ids is not None else {}),
+                              **({"resume_kind": self.resume_kind_of(how)} if attempt_resume else {})})
             import driver_timing
             wall_said = driver_timing.wall_note(dispatch or kind, wall_ms, result["duration_ms"])
             if wall_said:
@@ -927,7 +974,7 @@ class DriverRunner:
                 note = self.continuation_note(kind, role, stage, dispatch, alone=False, known=True)
                 attempt_resume, driver_resumed, fresh_after_loss = "", False, True
                 attempt_prompt = original_prompt + ("\n\n" + note if note else "")
-                why = ""
+                why, how = "", ""
                 continue
             if infra and infra["kind"] == "transient":
                 decision = runtime_policy.retry_decision(infra.get("retry_code") or "", retries_used, 1)
@@ -944,16 +991,18 @@ class DriverRunner:
                                                                 known=bool(prior))
                         why = (f"the model service broke the response (retry {retries_used} of 2); the session "
                                "that did the work goes on")
+                        how = "service_cut"     # the same road as R-9: the driver's own resume after the service broke the call
                     elif base_driver_resumed:
                         # The retry falls back to what step (a) chose: the recorded session that did work,
                         # with the note alone - not to a fresh session that would lose it.
                         attempt_resume, driver_resumed, attempt_prompt = base_resume, True, base_prompt
-                        why = base_why
+                        why, how = base_why, base_how
                     else:
                         note = self.continuation_note(kind, role, stage, dispatch, alone=False, known=bool(prior))
                         attempt_resume, driver_resumed = base_resume, False
                         attempt_prompt = original_prompt + ("\n\n" + note if note else "")
                         why = base_why if base_resume else ""
+                        how = base_how if base_resume else ""
                     continue
             break
         if not infra or infra["kind"] == "unclassified":
