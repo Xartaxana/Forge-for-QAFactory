@@ -1,0 +1,49 @@
+# Онбординг, контекст ролей и форж — пачка 5: остатки HF8-4 (F5, F7) и OH3-42 (читатели «только имена»)
+
+кучка: `onboarding-forge` | статус: ожидает | взял: — | ветка: — | MR: — | стенд: не нужен (CI + эталоны) | приоритет: П3
+
+Открыта 13.11.2026 (задача t-233, D-0044): пачки 1-3 взяты, пачка 4 (`onboarding-forge/batch-4`, ветка `wip/of-batch4`, ещё не в `main`) взята; три находки легли в следующую. Номер 5, а не 4, чтобы не столкнуться с пачкой 4 при слиянии.
+
+Правило готовности: пачка закрыта, когда каждый узел «принято», свидетели узлов — в журнале взявшего.
+
+Решения владельца: нет (направления — спека t-205 §5 F5, F7, «по рекомендации, до слова владельца», и координатор 13.11.2026).
+очередь: onboarding-forge/4 → onboarding-forge/5
+Порядок по общим файлам: `contract.py`, `controller.py`: после слияния HF8-4 (`onboarding-forge/2`); `controller.py` — со списком функций в `owns` диспатча. `scripts/tests/test_manual_capture.py`: после слияния ветки `wip/oh3-42r` (OH3-42).
+Скоуп свидетеля: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <пути узла>`; BATCH CANON — CI интегратора.
+Общий бриф дизайнерам: находка узла (раздел «Что именно менять»); `design/factory-rules.md`; `docs/tasks/specs/t-205-hf8-4-parts.md`; вернуть спеку в `docs/tasks/specs/t-nnn-of5-n.md`, развилки — наверх.
+
+## Бриф
+
+Что сделать: три узла. НЕ делать: P1-P11 HF8-4 (они в `onboarding-forge/2`); данные `handoffs/vocabulary.yaml` и `references/*.json` (AR-1-данные, закреплены `test_handoff.py:90`).
+
+## Узлы
+
+Исполнитель «designer → builder → critic» — кодовый узел; «builder» — узел-документ или узкая правка; «scout → builder» — места ещё не перечислены. Статусы:
+`ожидает` → `в работе` → `сдано` → `принято` / `отклонено`.
+
+| Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
+|---|---|---|---|---|---|---|
+| OF5-1 | П3 | Десять (в дереве 13.11 — одиннадцать) мест `isinstance(then, int)`: читатели номера Then или проверки формы (`findings/20261113-dyuzhina-isinstance-then-int-ne-razobrana-chitateli-ili-validatory.md`; t-205 F5). Направление: один скаут классифицирует места (ВАЛИДАТОР / ЧИТАТЕЛЬ), результат открывает узел-перевод читателей на `contract.then_number`; нет читателей — находка закрывается строкой. Тест на место-читателя: `then` ∈ `1`, `"1"`, `True`, `[1]`, `0`, `-1`, `None`, нет | scout → builder → critic | `scripts/contract.py`, `scripts/planning_contract.py`, `scripts/question_register.py`, `scripts/s5_precheck.py`, `scripts/manifest_put.py`, `scripts/gate_preflight.py`, `scripts/ledger.py` (точный список — отчёт скаута), `scripts/tests/test_contract.py` | слияние HF8-4 (P6 — `ledger.py`) | ожидает |
+| OF5-2 | П3 | Один дом в `contract` для слов исхода `blocked_by_env`, `handed_to_person`, `probe_gap` и один читатель «в строке манифеста есть красное слово» вместо двух (`driver_stage_s7.py:44`, `s7_pretriage.py:129`) (`findings/20261113-odin-dom-slov-blocked-by-env-handed-to-person-probe-gap-i-chitatel-krasnogo-slova.md`; t-205 F7). Направление: константы в `contract`, `contract.row_carries(entry, word)` (рабочее имя), сторож «литералов слов вне `contract` нет» shrink-only. Тест: таблица `row_carries` × вход, оба вызывающих дают один ответ | designer → builder → critic | `scripts/contract.py`, `scripts/controller.py` (имена — по дизайну), `scripts/acceptance.py`, `scripts/s5_precheck.py`, `scripts/story_step.py`, `scripts/driver_stage_s7.py`, `scripts/s7_pretriage.py`, `scripts/tests/test_contract.py` | слияние HF8-4 (P1-P5: `contract.CONTRADICTS_REQUIREMENT`) | ожидает |
+| OF5-3 | П3 | Читатели «только имена» в таблице одного env-файла (`findings/20261113-chitateli-imen-klyuchej-slepy-v-tablice-odnogo-env-fajla.md`; t-230, `wip/oh3-42r` `b4e0fbc`): в `of3_1e_one_env_file_parse` добавить таблицу строк (BOM, `export`, `EXPORT`, имя без признака секрета, повтор, пустой файл, два файла) для `brief_pack._env_file_key_names` с именами, проходящими его фильтр (`A_KEY`, не `A`). Ожидание — из правил OH3-42, не из вывода читателя. Мутация: старый `parse_env_file` красит BOM и `export` | builder | `scripts/tests/test_manual_capture.py` | слияние `wip/oh3-42r` (OH3-42) | ожидает |
+
+## Ход
+
+Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
+
+- 13.11 — пачка открыта: три находки t-205/t-230 положены тем же ходом, что файлы в `findings/` (D-0044, t-233)
+
+## Живые доказательства
+
+| Что | Стенд / проект | Кто | Статус |
+|---|---|---|---|
+
+## Остатки
+
+<!--
+Пачка закрывается доделкой, не переносом (слово владельца 08.10.2026): `close` отказывает, пока в этом разделе есть
+пункт, у которого нет одной из двух форм (ключи в нижнем регистре, пары `ключ: значение` через ` | `, текст впереди):
+  - <что осталось> | сделано: <хэш 7-40 hex | t-nnn>
+  - <что осталось> | перенос: <findings/<файл> | пачка N | <кучка>/findings/<файл>> | обоснование: <почему> | подтвердил: <кто, дата>
+Пустой раздел — можно закрывать.
+-->
