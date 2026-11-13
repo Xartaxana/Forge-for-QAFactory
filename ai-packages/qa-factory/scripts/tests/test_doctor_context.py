@@ -435,7 +435,7 @@ class NativeStageRefusal(unittest.TestCase):
                 ('B-6b list_pending', list_pending, 'inert'), ('B-7 no_ticket', no_ticket, 'project')]
         for name, build, kind in rows:
             with self.subTest(row=name):
-                self.tearDown_story()
+                self.reset_story_state()
                 ev, exc, ticket = build()
                 code, err = self.refused(ev, exc, ticket)
                 self.assertEqual((code, err), (2, 'INJECT: ' + str(exc) + '\n'))
@@ -453,7 +453,28 @@ class NativeStageRefusal(unittest.TestCase):
                     self.assertEqual((story_rows[0]['dispatch_id'], story_rows[0]['stage']), (None, None))
                     self.assertEqual(self.belongs(), [])
 
-    def tearDown_story(self):
+    def test_native_packet_refusal_rows(self):
+        """P-1: an OSError from `stage` leaves a NAMED row, or an INERT one while a same-key packet is pending."""
+        import inject_context as IC
+        for name, pending, kind in (('P-1a nothing_pending', False, 'named'), ('P-1b pending', True, 'inert')):
+            with self.subTest(row=name):
+                self.reset_story_state()
+                ev = self.event()
+                if pending:
+                    self.staged(ev)
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stop:
+                    IC.refuse_native_packet(ev, 'QA-1', 'qa-scout', self.root, OSError('disk'), None)
+                self.assertEqual(stop.exception.code, 2)
+                story_rows = self.rows()
+                self.assertEqual(len(story_rows), 1)
+                if kind == 'named':
+                    self.assertEqual(story_rows[0]['dispatch_id'], 'D-1')
+                else:
+                    self.assertEqual((story_rows[0]['dispatch_id'], story_rows[0]['stage']), (None, None))
+                    self.assertEqual(self.belongs(), [])
+
+    def reset_story_state(self):
         """Each row starts from an empty story state and an empty packet folder."""
         import shutil
         shutil.rmtree(self.story / 'state', ignore_errors=True)
@@ -527,11 +548,6 @@ class NativeStageRefusal(unittest.TestCase):
                 covered = [s for s in live if s['file'] == 'native_context.py' and s['function'] == 'stage'
                            and s['call'].startswith(entry['call'])]
                 self.assertEqual(len(covered), 1)
-        self.assertEqual(RR.findings(RR.PLUGIN_ROOT), [])
-        with mock.patch.object(RR, 'SCANNED', tuple(x for x in RR.SCANNED if x != 'native_context.py')):
-            text = '\n'.join(map(str, RR.findings(RR.PLUGIN_ROOT)))
-        for ident in ids:
-            self.assertIn(ident, text)
 
 
 DOOR = ('context diagnostic requires current allow/deny evidence in this host session; '

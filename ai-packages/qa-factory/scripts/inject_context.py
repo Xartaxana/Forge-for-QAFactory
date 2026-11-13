@@ -502,7 +502,8 @@ def refuse_native_packet(event: dict, ticket, role, root, exc, stage=None) -> No
             print(f"INJECT: the factory context of {role} could not be written; the person's recorded word lets it "
                   "start without it.", file=sys.stderr)
             return
-    note_denial(event, ticket, None, role, NATIVE_PACKET_UNWRITTEN.format(**parts))
+    note_denial(event, ticket, None, role, NATIVE_PACKET_UNWRITTEN.format(**parts),
+                name_dispatch=not native_context.launch_pending(root, event.get("session_id"), raw.get("task_name")))
     block(NATIVE_PACKET_UNWRITTEN.format(**parts))
 
 
