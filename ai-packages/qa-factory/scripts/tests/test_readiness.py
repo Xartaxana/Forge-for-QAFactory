@@ -121,6 +121,60 @@ def main() -> None:
         p = cli(root, "--require", "teleportation")
         check_eq("--require rejects an unknown capability name", p.returncode, 1)
 
+        # 4b. SC5-13: the host_integration line counts receipts so far until the probe passed.
+        def host_line(host: dict) -> str:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                R.print_summary({"host_integration": {"status": "unknown", "live_parity": "unknown", **host}})
+            return next((ln for ln in buf.getvalue().splitlines() if ln.startswith("  host_integration")), "")
+
+        def mech(n_seen: int, n_all: int = 10) -> dict:
+            return {f"s{i}.py": {"invocation": "observed" if i < n_seen else "unverified"} for i in range(n_all)}
+
+        for case_id, host, want_in, want_out in (
+            ("fresh", {"story_ready": False, "mechanisms": mech(0), "missing": ["a.py"]},
+             "receipts so far: 0 of 10 expected scripts", "missing:"),
+            ("partial", {"story_ready": False, "mechanisms": mech(3), "missing": ["a.py"]},
+             "receipts so far: 3 of 10", "missing:"),
+            ("ready-missing", {"story_ready": True, "mechanisms": mech(9), "missing": ["exit_gate.py"]},
+             "missing: exit_gate.py", "receipts so far"),
+            ("ready-complete", {"story_ready": True, "mechanisms": mech(10), "missing": []},
+             "missing: none", "receipts so far"),
+            ("no-mechanisms", {"story_ready": False, "missing": ["a.py"]},
+             "receipts so far: unknown", "missing:"),
+            ("stray-receipt", {"story_ready": False, "mechanisms": mech(3), "observed": ["s0.py", "stray.py"],
+                               "missing": []},
+             "receipts so far: 3 of 10", "missing:"),
+        ):
+            line = host_line(host)
+            check_in(f"host_integration line [{case_id}]", want_in, line)
+            check(f"host_integration line [{case_id}] does not say {want_out!r}", want_out not in line, line)
+        import host_capabilities  # noqa: E402
+        out_text = cli(root).stdout
+        want_count = len(host_capabilities.inspect(root)["mechanisms"])
+        check_in("fresh project: the real host_integration line counts receipts",
+                 f"receipts so far: 0 of {want_count}", out_text)
+        check("fresh project: the real host_integration line lists nothing missing",
+              "missing:" not in next(ln for ln in out_text.splitlines() if ln.startswith("  host_integration")))
+
+        # 4c. SC5-13: an unknown capability the story did not ask for is a NOTE, never a WARN.
+        for case_id, args, in_out, not_in_out in (
+            ("asked", ("--require", "vcs_api"), "WARN vcs_api: unknown", "NOTE vcs_api"),
+            ("unasked", ("--require", "test_repo"), "NOTE vcs_api: unknown; this story did not ask for it",
+             "WARN vcs_api"),
+            ("unasked-hooks", ("--require", "test_repo"), "NOTE host_hooks: unknown; this story did not ask for it",
+             "WARN host_hooks"),
+            ("no-require", (), "", "\nNOTE "),
+            ("json", ("--require", "test_repo", "--json"), "NOTE vcs_api", "WARN vcs_api"),
+        ):
+            p = cli(root, *args)
+            check_eq(f"--require NOTE [{case_id}] exits 0", p.returncode, 0)
+            if in_out:
+                check_in(f"--require NOTE [{case_id}] prints it", in_out, p.stdout)
+            check(f"--require NOTE [{case_id}] does not print {not_in_out!r}", not_in_out not in "\n" + p.stdout, p.stdout)
+        p = cli(root, "--require", "test_repo", "--json")
+        check("NOTE comes after the JSON record", p.stdout.rfind("NOTE vcs_api") > p.stdout.rfind("}"), p.stdout[-300:])
+
         # 5. A stale schema names the required version and the keys to add.
         cfg_path = root / "qa-factory" / "config.json"
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
