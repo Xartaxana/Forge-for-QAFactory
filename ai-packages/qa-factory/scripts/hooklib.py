@@ -734,7 +734,12 @@ def artifact_root(event: dict | None = None, root: Path | None = None) -> Path:
     if value is None:
         return project / "qa-factory" / "artifacts"
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
-        shown = type(value).__name__ if not isinstance(value, str) else "a blank string"
+        if not isinstance(value, str):
+            shown = type(value).__name__
+        elif value.strip():
+            shown = "a path with a NUL character"
+        else:
+            shown = "a blank string"
         raise ValueError("qa-factory/config.json: `artifact_root` must be a non-empty folder path "
                          f"(got {shown}). Remove the key to keep the story folders in qa-factory/artifacts, "
                          "or set it to a folder path.")

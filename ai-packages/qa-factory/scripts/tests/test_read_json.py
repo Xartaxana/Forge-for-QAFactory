@@ -785,6 +785,7 @@ ROOT_EXPECT = {
 
 
 def test_the_artifact_root(scratch: Path) -> None:
+    check_eq("OF4-10 every site has a cell per state", sorted(ROOT_EXPECT), sorted(ROOT_STATES))
     for site, (name, driver) in enumerate(ROOT_SITES.items()):
         for state, content in ROOT_STATES.items():
             root = scratch / f"{name}-{state}" / "project"
@@ -794,8 +795,6 @@ def test_the_artifact_root(scratch: Path) -> None:
             elif content is not None:
                 (root / "qa-factory" / "config.json").write_bytes(content)
             check_eq(f"OF4-10 {name} x {state}", _crash(driver, root), ROOT_EXPECT[state][site])
-    check_eq("OF4-10 every site has a cell per state", [len(ROOT_EXPECT)] * len(ROOT_SITES),
-             [len(ROOT_STATES)] * len(ROOT_SITES))
     check("OF4-10 config_contract.ConfigUnreadable is hooklib.ConfigUnreadable",
           config_contract.ConfigUnreadable is hooklib.ConfigUnreadable)
     check("OF4-10 config_contract.read_config_file is hooklib.read_config_file",
@@ -805,6 +804,8 @@ def test_the_artifact_root(scratch: Path) -> None:
         exc = _locator_exc(root)[1]
         check(f"OF4-10 class split: {state}", exc is not None and (isinstance(exc, hooklib.ConfigUnreadable)
               if is_read_failure else type(exc) is ValueError))
+    nul_text = str(_locator_exc(scratch / "locator-key_nul" / "project")[1])
+    check("OF4-10 key_nul text names NUL, not blank", "blank" not in nul_text and "NUL" in nul_text)
 
 
 if __name__ == "__main__":
