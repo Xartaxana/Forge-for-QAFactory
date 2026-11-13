@@ -84,7 +84,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hooklib import project_root, load_config  # noqa: E402
+from hooklib import project_root, load_config, read_json  # noqa: E402
 import stand_access  # noqa: E402
 import config_contract  # noqa: E402  the one reader of the `test_data` block (AR-13)
 
@@ -119,6 +119,51 @@ def parse_env_file(path: Path) -> dict:
             value = value[1:-1]
         data[key] = value
     return data
+
+
+ENV_FILE_NAMES_PATH = Path(__file__).resolve().parents[1] / "references" / "env-file-names.json"
+_NAME_LIST_KEYS = ("exact", "prefixes", "suffixes", "sample_markers")
+_names_cache: dict = {}
+
+
+def _env_file_names() -> dict:
+    """`references/env-file-names.json`, the table of what a file NAME says about an env file (AR-1, axis 37): the lists
+    `exact`, `prefixes`, `suffixes`, `sample_markers` and the string `bare_stem`. The ONE loader. A table that is absent,
+    not JSON or of another shape is a damaged package copy: `ValueError` naming the file and the keys (FR-1) - never a
+    built-in list instead (that list in code is what the table replaces). Read again when the file changes."""
+    try:
+        stamp = (ENV_FILE_NAMES_PATH.stat().st_mtime_ns, ENV_FILE_NAMES_PATH.stat().st_size)
+    except OSError:
+        stamp = None
+    cached = _names_cache.get(str(ENV_FILE_NAMES_PATH))
+    if stamp is not None and cached and cached[0] == stamp:
+        return cached[1]
+    table = read_json(ENV_FILE_NAMES_PATH, None, kind=dict)
+    ok = isinstance(table, dict) and isinstance(table.get("bare_stem"), str) and all(
+        isinstance(table.get(k), list) and all(isinstance(v, str) and v for v in table[k]) for k in _NAME_LIST_KEYS)
+    if not ok:
+        raise ValueError(f"references/env-file-names.json is absent or malformed ({ENV_FILE_NAMES_PATH}): expected an object with the "
+                         f"lists {', '.join(_NAME_LIST_KEYS)} of non-empty strings and a string bare_stem; the package copy is "
+                         "damaged - reinstall the plugin")
+    _names_cache[str(ENV_FILE_NAMES_PATH)] = (stamp, table)
+    return table
+
+
+def env_file_kind(name) -> str:
+    """"env", "sample" or "" for a file NAME, by `references/env-file-names.json` (the ONE judge of a name, AR-1).
+    "env": the name matches the table's env-file rule (today's: `.env`, `.env.*`, `*.env`). "sample": an env file with a
+    dot-separated part (lower-cased, empty parts dropped) in `sample_markers`, or the bare `env.<marker>`. The marker errs
+    toward "sample": a sample is never "env". Anything else, an empty name included, is ""."""
+    table = _env_file_names()
+    text = str(name or "")
+    parts = [p for p in text.lower().split(".") if p]
+    markers = set(table["sample_markers"])
+    if len(parts) == 2 and parts[0] == table["bare_stem"].lower() and parts[1] in markers:
+        return "sample"
+    if not (text in table["exact"] or any(text.startswith(p) for p in table["prefixes"])
+            or any(text.endswith(s) for s in table["suffixes"])):
+        return ""
+    return "sample" if markers.intersection(parts) else "env"
 
 
 def load_env(cfg: dict, root=None) -> tuple:

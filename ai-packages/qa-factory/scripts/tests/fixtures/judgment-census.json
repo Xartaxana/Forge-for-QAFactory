@@ -253,6 +253,7 @@
   {"file": "device_stand.py", "function": "session_check", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "diff_pass.py", "function": "run", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "driver_timing.py", "function": "check", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "env_probe.py", "function": "_env_file_names", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "environment_preparation.py", "function": "_validate_step", "class": "safety", "roles": ["conductor"], "owner": "intent"},
   {"file": "environment_record.py", "function": "_refuse", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "environment_record.py", "function": "_story_context", "class": "shape", "roles": ["conductor"], "owner": "data"},
