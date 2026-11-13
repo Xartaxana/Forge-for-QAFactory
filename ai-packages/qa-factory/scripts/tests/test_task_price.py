@@ -1014,5 +1014,60 @@ nousage = price({"p3": doc("p3", 0, requests=[dict(req("p3", "r0", 1.0), usage={
 check("CD1-7 edge: a request with no readable usage is unknown too, but its reason does not claim an unknown rate",
       nousage["a_usd"] is None and "rate unknown for" not in nousage["why"], str(nousage))
 
+# ------------------------------------------------- FV1-21: a code move is no call (no_call_kinds is data)
+import hooklib  # noqa: E402
+
+GATE_REPAIR = {"ts": "2026-09-30T10:06:00+00:00", "kind": "gate_repair", "gate": "A", "round": 1, "moves": "pin_cases"}
+
+
+def _kinds_priced(extra_rows, kinds_file):
+    """task_price over a journal of one recorded session plus `extra_rows`, with the plugin's kinds file replaced
+    by `kinds_file` (None: absent; a str: written as is)."""
+    plugin = Path(tempfile.mkdtemp(prefix="kinds-plugin-", dir=WORK))
+    if kinds_file is not None:
+        (plugin / "references").mkdir()
+        (plugin / "references" / "driver-journal-kinds.json").write_text(kinds_file, encoding="utf-8")
+    root = disk_root({T: [jrow("a1", 1.0)] + extra_rows}, {"a1": doc("a1", 1.0)})
+    saved = hooklib.PLUGIN_ROOT
+    hooklib.PLUGIN_ROOT = plugin   # with `kinds_file` None the plugin folder has no references/: the file is absent
+    try:
+        return TP.task_price(root, T)
+    finally:
+        hooklib.PLUGIN_ROOT = saved
+        cleanup(root)
+
+
+def _shipped(rows):
+    root = disk_root({T: [jrow("a1", 1.0)] + rows}, {"a1": doc("a1", 1.0)})
+    try:
+        return TP.task_price(root, T)
+    finally:
+        cleanup(root)
+
+
+UNKNOWN_KIND = {"ts": "2026-09-30T10:07:00+00:00", "kind": "no_such_kind", "session_id": ""}
+KIND_CASES = [
+    ("gate_repair without a session, all sessions recorded", lambda: _shipped([GATE_REPAIR]), "agrees", 0),
+    ("an unknown kind without a session still counts", lambda: _shipped([UNKNOWN_KIND]), "incomplete", 1),
+    ("kind absent and not a string count as before",
+     lambda: _shipped([{"ts": "2026-09-30T10:07:00+00:00"}, {"ts": "2026-09-30T10:08:00+00:00", "kind": 7}]), "incomplete", 2),
+    ("data file absent: delivery and launched skipped, gate_repair counted",
+     lambda: _kinds_priced([{"kind": "delivery"}, {"kind": "launched"}, GATE_REPAIR], None), "incomplete", 1),
+    ("data file not an object: the fallback", lambda: _kinds_priced([{"kind": "launched"}, GATE_REPAIR], "[1]"), "incomplete", 1),
+    ("data file unreadable: the fallback", lambda: _kinds_priced([{"kind": "launched"}, GATE_REPAIR], "{broken"), "incomplete", 1),
+    ("key not a list of strings: the fallback",
+     lambda: _kinds_priced([{"kind": "launched"}, GATE_REPAIR], '{"no_call_kinds": ["delivery", 3]}'), "incomplete", 1),
+    ("key absent: the fallback", lambda: _kinds_priced([{"kind": "delivery"}, GATE_REPAIR], "{}"), "incomplete", 1),
+]
+for label, run, status, count in KIND_CASES:
+    got = run()
+    check_eq(f"FV1-21 {label}: status", got["status"], status)
+    check_eq(f"FV1-21 {label}: rows_without_session", got["rows_without_session"], count)
+check_not_in("FV1-21 gate_repair: no 'no session id' finding", "no session id", _shipped([GATE_REPAIR])["finding"])
+with_sid = _shipped([dict(GATE_REPAIR, session_id="a2", total_cost_usd=0.4)])
+check_eq("FV1-21 gate_repair WITH a session id is bound like any row (a2 has no cost file: a one-record session)",
+         sorted(r["session"] for r in with_sid["sessions"]), ["a1", "a2"])
+check_eq("FV1-21 ... and it is not a sessionless row", with_sid["rows_without_session"], 0)
+
 cleanup(WORK)
 finish("task_price")

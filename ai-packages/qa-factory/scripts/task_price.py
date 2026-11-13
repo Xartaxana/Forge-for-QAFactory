@@ -46,6 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cost_capture as CC  # noqa: E402
 import driver_journal as DJ  # noqa: E402
+import hooklib  # noqa: E402
 from hooklib import sorted_paths  # noqa: E402
 
 TOLERANCE_USD = Decimal("0.001")   # per session; below the cheapest real request ($0.0105, cmp1)
@@ -544,18 +545,37 @@ def _double_counted(rows) -> bool:
 
 # ------------------------------------------------------------------------------------ the journal
 
+NO_CALL_KINDS_FALLBACK = ("delivery", "launched")   # the two kinds the code knew before the list became data
+
+
+def _no_call_kinds() -> frozenset:
+    """The journal `kind`s whose writer launches no model call (`no_call_kinds` in references/driver-journal-kinds.json),
+    read through the package's one reference reader. The fallback is the two kinds of before, never an empty list."""
+    table = hooklib.load_ref_json("driver-journal-kinds.json")
+    kinds = table.get("no_call_kinds") if isinstance(table, dict) else None   # the reader returns any parsed value
+    if isinstance(kinds, list) and all(isinstance(k, str) for k in kinds):
+        return frozenset(kinds)
+    return frozenset(NO_CALL_KINDS_FALLBACK)
+
+
 def _rows_without_session(root, task) -> int:
     """Rows of the task's own driver journal that name no session the reader could bind: a call
     whose output was not JSON is journalled with `session_id: ""`, and its money is in neither
     record. A `delivery` row is no call at all and never counts, and neither does a `launched` row (t-363 B2):
     it is the START of a call whose end row follows it, with no session and no money of its own - counting it
-    made every driver story's price `incomplete`."""
+    made every driver story's price `incomplete`. The kinds that launch no call are DATA: `no_call_kinds` of
+    `references/driver-journal-kinds.json` (AR-1), `gate_repair` (a round of code moves) among them. A kind not listed
+    still counts when it has no session (an unknown is never "complete", FR-41). A row that carries a session id is
+    bound like any other row, whatever its kind. The list falls back to `delivery` and `launched` when the file is
+    absent, unreadable, not an object, or its key is absent or not a list of strings; never to an empty list."""
+    skipped = _no_call_kinds()
     count = 0
     for name, path in DJ._journal_paths(root):
         if name != task:
             continue
         for row in DJ.read_rows(path):
-            if row.get("kind") in ("delivery", "launched"):
+            kind = row.get("kind")
+            if isinstance(kind, str) and kind in skipped:
                 continue
             sid = row.get("session_id")
             if not (isinstance(sid, str) and sid and DJ.REPLACEMENT_CHAR not in sid):
