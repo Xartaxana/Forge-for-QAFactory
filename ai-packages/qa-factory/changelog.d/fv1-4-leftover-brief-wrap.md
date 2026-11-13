@@ -1,0 +1,1 @@
+- a person's multi-line answer with a line over 1000 characters is wrapped at the width like a one-line answer (at the last whitespace, else at 1000; no character dropped), the head line carries the every-decision pointer; the "a first-look line was clipped" fact now comes from the function that clipped the line, not from the shape of its text

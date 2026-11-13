@@ -1865,6 +1865,42 @@ def p4_long_words(base: Path) -> None:
     check_in("E-22 FV1-4 N1: ...and the entry list ends with the every-decision pointer", brief_pack.DECISIONS_ALL_LINE, shown)
     check_eq("E-22 FV1-4 N1: ...a line of the words folded equals the words", " ".join("".join(ln[2:] for ln in body).split()), big)
 
+    # L2 (Q1): a long line of a MULTI-line answer is wrapped by the one-line rule, with `<decisions>`; nothing dropped
+    def block_of(words: str) -> tuple:
+        shown, full = listed(words)
+        entry = shown[0].split("\n")
+        return entry, [ln[2:] if ln else "" for ln in entry[2:-1]], shown, full
+
+    entry, body, shown, full = block_of("a\n" + "x" * width)
+    check_eq("Q1-AT-1000: a multi-line answer whose longest line is exactly the width is not wrapped (no `<decisions>`, no pointer)",
+             (shown, any("<decisions>" in x for x in shown)), (["\n".join([lead, "  ```", "  a", "  " + "x" * width, "  ```"])], False))
+    entry, body, shown, full = block_of("a\n" + "x" * (width + 1))
+    check_eq("Q1-1001: a 1 001-character line is wrapped into 1 000 + 1, the head carries `<decisions>`",
+             (body, "<decisions>" in entry[0], shown[-1]), (["a", "x" * width, "x"], True, brief_pack.DECISIONS_ALL_LINE))
+    check_in("Q1-1001: ...the full file holds the 1 001-character line unwrapped", "x" * (width + 1), "\n".join(full))
+    entry, body, shown, full = block_of("a\n" + "x" * 200000)
+    check("Q1-200K: no line of the block is over the width", all(len(ln) <= width for ln in body), str(max(len(x) for x in body)))
+    check_eq("Q1-200K: the pieces joined equal the original line", ("".join(body[1:]), body[0]), ("x" * 200000, "a"))
+    check_in("Q1-200K: the head carries `<decisions>`", "<decisions>", entry[0])
+    long_line = "ab " * 399 + "ab"
+    entry, body, shown, full = block_of("a\n" + long_line)
+    check_eq("Q1-WHITESPACE: cut at the last whitespace within the width, kept at the end of its piece; none dropped",
+             (body[1], "".join(body[1:])), (long_line[:width - 1], long_line))
+    cyr, cyr_head = chr(0x436) * (width + 1), chr(0x42F)        # Cyrillic by code point: the package carries none (FR-30)
+    entry, body, shown, full = block_of(cyr_head + "\n" + cyr)
+    check_eq("Q1-CYR-1001: the width is in characters - 1 001 Cyrillic characters wrap at 1 000",
+             (body, "<decisions>" in entry[0]), ([cyr_head, cyr[:width], cyr[width:]], True))
+    ticks = "`" * 1500 + " tail"
+    entry, body, shown, full = block_of("a\n" + ticks)
+    fence = "  " + "`" * 1501
+    check_eq("Q1-BACKTICK-RUN: the fence (computed on the whole text) is longer than the run; the wrapped text never closes it",
+             (entry[1], entry[-1], fence in entry[2:-1], "".join(body[1:])), (fence, fence, False, ticks))
+    head_out = brief_pack._head_words("- X: ", "a\n" + "x" * (width + 1))
+    head_lines = head_out.split("\n")
+    check_eq("Q1-HEAD: the head wraps a long line with no note and no `<decisions>`",
+             (brief_pack.WORDS_WRAPPED_NOTE in head_out, "<decisions>" in head_out, max(len(x) for x in head_lines) <= width + 2,
+              "".join(x[2:] for x in head_lines[3:-1])), (False, False, True, "x" * (width + 1)))
+
 
 def p4_breakage(base: Path) -> None:
     """N7: one line only when the store says it could not read (broken line, non-object line, unreadable file)."""
@@ -2916,9 +2952,24 @@ def n2_summaries_name_their_whole() -> None:
     row = {"req": "R-1", "status": "missing"}
     short_line = brief_pack._fl_line(row, "b")
     clipped_line = brief_pack._fl_line(row, "b" * 600)
-    check_eq("_fl_line: a short line is not clipped; a 600-character body is, to FIRST_LOOK_LINE_CHARS, and says so",
-             (brief_pack._fl_line_clipped(short_line), brief_pack._fl_line_clipped(clipped_line), len(clipped_line)),
+    check_eq("_fl_line: a short line is not clipped; a 600-character body is, to FIRST_LOOK_LINE_CHARS, and says so (its type)",
+             (isinstance(short_line, brief_pack._Clipped), isinstance(clipped_line, brief_pack._Clipped), len(clipped_line)),
              (False, True, brief_pack.FIRST_LOOK_LINE_CHARS))
+    # Q6-COINCIDENCE: an UNclipped line of exactly FIRST_LOOK_LINE_CHARS ending `... [first-look:R-1]` is not marked clipped
+    base_len = len(brief_pack._fl_line(row, ""))
+    coincidence = brief_pack._fl_line(row, "b" * (brief_pack.FIRST_LOOK_LINE_CHARS - base_len - 5) + "...")      # ": " joins head and body
+    check_eq("Q6-COINCIDENCE: 180 characters, unclipped, ending `... [first-look:R-1]` - not a `_Clipped`, no `whole:` line",
+             (len(coincidence), coincidence.endswith("... [first-look:R-1]"), isinstance(coincidence, brief_pack._Clipped)),
+             (brief_pack.FIRST_LOOK_LINE_CHARS, True, False))
+    with patched(brief_pack, _fl_state=lambda task_root: ("rows", {}), _fl_body=lambda kind, task_root, got: [coincidence]):
+        got = brief_pack.first_look_lines(Path("."), "S4", "qa-case-designer")
+    check_eq("Q6-COINCIDENCE: first_look_lines adds no `whole:` line", got, [coincidence])
+    # Q6-CUT-AWAY: a clipped line past the count cap adds no `whole:` line (the `+N more:` line names the file)
+    cut_body = [short_line] * brief_pack.FIRST_LOOK_LINES_MAX + [clipped_line]
+    with patched(brief_pack, _fl_state=lambda task_root: ("rows", {}), _fl_body=lambda kind, task_root, got: list(cut_body)):
+        got = brief_pack.first_look_lines(Path("."), "S4", "qa-case-designer")
+    check_eq("Q6-CUT-AWAY: a clipped line cut away by the count cap adds no `whole:` line",
+             got, [short_line] * brief_pack.FIRST_LOOK_LINES_MAX + [f"+1 more: {brief_pack.FIRST_LOOK_FILE}"])
     for label, body, ends in (("no clipped line", [short_line], False), ("one clipped line", [short_line, clipped_line], True)):
         with patched(brief_pack, _fl_state=lambda task_root: ("rows", {}), _fl_body=lambda kind, task_root, got, _b=body: list(_b)):
             got = brief_pack.first_look_lines(Path("."), "S4", "qa-case-designer")

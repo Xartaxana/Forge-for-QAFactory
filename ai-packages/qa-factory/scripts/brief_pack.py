@@ -1569,6 +1569,10 @@ def scope_tests(task_root: Path, scope: list) -> list:
     return files
 
 
+class _Clipped(str):
+    """A line `_fl_line` shortened; `first_look_lines` ends its block naming the record (the same marker device as `_Pointer`)."""
+
+
 class _Pointer(str):
     """A line the build itself wrote that names a side file by a placeholder (`<decisions>`, `<digests>`). `render` puts the
     side file's path in a `_Pointer` only - never inside a person's text, which may hold the same characters (FV1-4)."""
@@ -1702,8 +1706,14 @@ def _words_block(head: str, words) -> str:
     broken = "\n" in text.strip()
     if not broken and len(folded) <= WORDS_LINE_WIDTH:
         return " ".join((head + folded).split())
-    wrapped = not broken
-    body = _wrapped(text.strip()) if wrapped else text.split("\n")
+    if broken:
+        body, wrapped = [], False
+        for line in text.split("\n"):
+            pieces = _wrapped(line) if len(line) > WORDS_LINE_WIDTH else [line]      # the one-line rule, per line of a multi-line text
+            wrapped = wrapped or len(pieces) > 1
+            body.extend(pieces)
+    else:
+        wrapped, body = True, _wrapped(text.strip())
     longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
     fence = "`" * max(3, longest + 1)
     block = "\n".join([head.rstrip() + (WORDS_WRAPPED_NOTE if wrapped else ""), "  " + fence]
@@ -4015,19 +4025,15 @@ def _fl_mark(req) -> str:
 
 
 def _fl_line(row: dict, body: str) -> str:
-    """`- R-n <status>[ (blocked_by)]: <body> [first-look:R-n]` - the marker is never clipped away."""
+    """`- R-n <status>[ (blocked_by)]: <body> [first-look:R-n]` - the marker is never clipped away; a clipped line is a `_Clipped`."""
     import app_card as AC
     mark = _fl_mark(row.get("req"))
     head = "- " + AC.first_look_head(row)
     text = f"{head}: {body}" if body else head
     room = FIRST_LOOK_LINE_CHARS - len(mark) - 1
-    return (text if len(text) <= room else text[:room - 3] + "...") + " " + mark
-
-
-def _fl_line_clipped(line: str) -> bool:
-    """Did `_fl_line` clip this line? A clipped line is exactly FIRST_LOOK_LINE_CHARS long and ends `... [first-look:<id>]` (the marker
-    is never clipped away); the same shape unclipped is a coincidence whose only cost is one more pointer line."""
-    return len(line) == FIRST_LOOK_LINE_CHARS and re.search(r"\.\.\. \[first-look:[^\]]*\]$", line) is not None
+    if len(text) <= room:
+        return text + " " + mark
+    return _Clipped(text[:room - 3] + "..." + " " + mark)      # the type carries the fact: `first_look_lines` reads it, never the shape
 
 
 def _fl_state(task_root) -> tuple:
@@ -4126,7 +4132,7 @@ def first_look_lines(task_root, stage: str, role: str) -> list:
         if state == "line":
             return list(got)
         lines = _fl_body(kind, task_root, got)
-        clipped = any(_fl_line_clipped(line) for line in lines[:FIRST_LOOK_LINES_MAX])
+        clipped = any(isinstance(line, _Clipped) for line in lines[:FIRST_LOOK_LINES_MAX])
         if len(lines) > FIRST_LOOK_LINES_MAX:
             lines = lines[:FIRST_LOOK_LINES_MAX] + [f"+{len(lines) - FIRST_LOOK_LINES_MAX} more: {FIRST_LOOK_FILE}"]
         return lines + ([f"whole: {FIRST_LOOK_FILE}"] if clipped else [])      # a line `_fl_line` clipped: the block ends naming the record
