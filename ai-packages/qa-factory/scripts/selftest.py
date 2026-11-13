@@ -148,6 +148,11 @@ TEST_TIMEOUTS = {
     # on canon 43316274780 shard 1 and 43316279939 shard 1, where every sibling ran 1.2-1.6x slower (test_story_run_refusals.py 288.8 s,
     # test_story_run_s0.py 277.1 s): load, not a hang. FR-31: the ceiling only keeps a green file green; the cost cut is queued (B-155 class).
     "test_story_run_s6.py": 600,
+    # 13.11: wave 2 merge, the same class: 290.5 s green on canon 43502097900 (shard 2, against the 300 s default), then PC3-1 added 88 lines
+    # of rows (c066402: the sides re-read worlds, each a seeded S0 project) and the merged tree timed out at 300.1 s on canon 43506734721 shard 1.
+    # FR-31: the ceiling only keeps a green file green; the cost cut is queued (the B-155 class). Ratchet raised: TEST_TIMEOUTS
+    # test_story_sides.py none (300 default) -> 600.
+    "test_story_sides.py": 600,
 }
 
 # A child that imports the package writes __pycache__ into it, and what lies in the package
