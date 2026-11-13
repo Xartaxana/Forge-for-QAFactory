@@ -1184,21 +1184,37 @@ def _word_passed_then_words(artifacts: Path, gap: dict) -> tuple:
     """`(to_check, how)` of a Then the person's word passed at S5 while no test is bound to it: "Then <n> of <case>: <the Then's
     own text>" and the time of the word. A text or a time that cannot be read is left out, never invented."""
     case, number = str(gap.get("case") or ""), gap.get("then")
-    text, ts = "", ""
+    text = ""
     try:
         import traceability as T
-        import waiver
         meta = C.case_index(artifacts).get(case) or {}
         if meta.get("path"):
             text = T.case_thens(Path(meta["path"])).get(number, "")
-        rows, _why = waiver.person_passes(artifacts)
-        got = waiver.word_passed_index(rows).then(case, number, cfg=C.case_config(artifacts)) if rows is not None else None
-        ts = (got or {}).get("ts", "")
     except Exception:  # noqa: BLE001
         pass
+    ts = _word_passed_ts(artifacts, case, number)
     to_check = f"Then {number} of {_bare(case) or case}" + (f": {text}" if text else "")
     how = "passed by your word at S5" + (f" ({ts})" if ts else "") + ": no test is bound to it"
     return to_check, how
+
+
+def _word_passed_ts(artifacts: Path, case: str, number) -> str:
+    """The time of the record's pass naming Then `number` of `case`, "" when it cannot be read (never invented)."""
+    try:
+        import waiver
+        index = waiver.record_word_index(artifacts)
+        got = index.then(case, number, cfg=C.case_config(artifacts)) if index is not None else None
+        return str((got or {}).get("ts") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _word_passed_mention(artifacts: Path, gap: dict) -> str:
+    """"; Then <n> of <case>: passed by your word at S5 (<ts>)" for a gate-B reason of a `word_passed:then_unbound` gap, put AFTER
+    the 120-character cut of the case detail so a long detail never loses the word (E16); no time known: no parenthesis."""
+    case, number = str(gap.get("case") or ""), gap.get("then")
+    ts = _word_passed_ts(artifacts, case, number)
+    return f"; Then {number} of {_bare(case) or case}: passed by your word at S5" + (f" ({ts})" if ts else "")
 
 
 def traceability_records(artifacts: Path, facts: dict | None = None) -> list:
@@ -1255,6 +1271,9 @@ def traceability_records(artifacts: Path, facts: dict | None = None) -> list:
                 out.append(record)
         else:
             bad = next(k for k in kinds if DV.verdict_of_kind(k, doc) != "after_checks")
+            # E16 / F4: the word mention stands OUTSIDE the 120-character cut of the detail above
+            text += "".join(_word_passed_mention(artifacts, g) for g in row.get("gaps") or []
+                            if isinstance(g, dict) and g.get("gap") == "word_passed:then_unbound")
             out.append({"text": text, "kind": bad, "case": "", "ref": row["requirement"],
                         "requirements": [row["requirement"]], "source": "traceability"})
     return out
@@ -1613,8 +1632,7 @@ def _record_word_index(facts: dict):
         artifacts = (facts or {}).get("artifacts")
         if not artifacts:
             return False
-        rows, _why = waiver.person_passes(artifacts)     # `waiver` is imported at the top: the one reader of the file
-        return waiver.word_passed_index(rows) if rows else False
+        return waiver.record_word_index(artifacts) or False     # `waiver` is imported at the top: the one composition (None -> False)
     except Exception:  # noqa: BLE001
         return False
 

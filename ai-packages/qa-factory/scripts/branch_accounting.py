@@ -1911,10 +1911,9 @@ def _word_pass_rows(task_root, scope):
     direction. `scope` is the window's cases; `UNKNOWN_SCOPE`, a string, is every case."""
     try:
         import s5_precheck as S5
-        import waiver
         cases = sorted(str(c) for c in scope) if isinstance(scope, (list, tuple, set)) else None
         root = Path(task_root)
-        return waiver.word_passed_index(list(S5.word_passes(root, cases, S5.window_dispatch(root))))
+        return S5.live_word_index(root, cases, S5.window_dispatch(root))
     except Exception:
         return None
 

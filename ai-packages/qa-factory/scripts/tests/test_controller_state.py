@@ -768,6 +768,7 @@ def fv1_30b_the_finish_reads_the_persons_word():
         ref = {"path": "s5.txt", "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}
         planned = plan_obligation_hash(root)
         counter = [0]
+        asked: list = []       # one entry per call of the live reader, reset by every `go` (F3: one precheck run per finish)
 
         def instance(name="i", **over):
             built = dict({"instance_id": name, "outcome": "passed", "input_hash": "s5",
@@ -789,13 +790,20 @@ def fv1_30b_the_finish_reads_the_persons_word():
             body = {"id": "s5critic", "status": "accepted", "stage_complete": True, "window": win, "evidence_refs": [ref],
                     "idempotency_key": f"s5-try-{counter[0]}"}
             body.update(receipt)
-            P.word_passes = (lambda *_a, **_k: (_ for _ in ()).throw(rows)) if isinstance(rows, Exception) else (lambda *_a, **_k: list(rows))
+            del asked[:]
+
+            def reader(*_a, **_k):
+                asked.append(1)
+                if isinstance(rows, Exception):
+                    raise rows
+                return list(rows)
+            P.word_passes = reader
             try:
                 c.apply("accept", body)
             except (StateConflict, ValueError) as exc:
                 return type(exc), str(exc)
             return None, ""
-        return types.SimpleNamespace(td=td, c=c, root=root, ref=ref, instance=instance, window=window, go=go)
+        return types.SimpleNamespace(td=td, c=c, root=root, ref=ref, instance=instance, window=window, go=go, asked=asked)
 
     DROP = object()
     NO_REFS = dict(obligation_refs=[], obligation_ids=[], obligation_hash="")
@@ -821,6 +829,22 @@ def fv1_30b_the_finish_reads_the_persons_word():
             cls, text = go(win(i(**NO_REFS), i("j", **stale)), [refs_word])
             check("(c) the named instance goes, the other one still gets the plan text", cls is StateConflict and PLAN_TEXT in text
                   and SHAPE_TEXT not in text and FPRINT_TEXT not in text, f"{cls} {text[:300]}")
+            # (F1) a stale or unknown ref on an instance WITH a fingerprint is a problem of the ONE named field: the word passes it;
+            # the same instance unnamed is refused with today's plan text, and the fingerprint is still owed
+            unknown = dict(obligation_refs=[{"obligation_id": "OB-NO-SUCH", "obligation_hash": "x"}], obligation_ids=["OB-NO-SUCH"])
+            unknown["obligation_hash"] = content_hash(unknown["obligation_refs"])
+            for label, bad in (("stale", stale), ("unknown", unknown)):
+                # a second instance `j`, not named, keeps the completion refused (its shape text), so this story stays open for the rows
+                # below; the named instance must add no text of its own
+                cls, text = go(win(i(**bad), i("j", **NO_REFS)), [refs_word])
+                check(f"(F1) a {label} ref with a fingerprint + a refs word naming it: no plan text, the unnamed one still refused",
+                      cls is ValueError and SHAPE_TEXT in text and PLAN_TEXT not in text and FPRINT_TEXT not in text, f"{cls} {text[:300]}")
+                cls, text = go(win(i(**bad)), [fields_word("obligation_refs", iid="zz")])
+                check(f"(F1) the same {label} ref, the word naming another instance: today's plan text", cls is StateConflict and PLAN_TEXT in text,
+                      f"{cls} {text[:300]}")
+                cls, text = go(win(i(execution_fingerprint="", **bad)), [refs_word])
+                check(f"(F1) a {label} ref let go still owes the fingerprint", cls is ValueError and FPRINT_TEXT in text and PLAN_TEXT not in text,
+                      f"{cls} {text[:300]}")
             # (d) a refs-only named instance with no fingerprint still owes it (a word about refs is not a word about the run)
             cls, text = go(win(i(**NO_REFS, execution_fingerprint="")), [refs_word])
             check("(d) a refs-only word: the fingerprint text", cls is ValueError and FPRINT_TEXT in text and SHAPE_TEXT not in text,
@@ -908,6 +932,22 @@ def fv1_30b_the_finish_reads_the_persons_word():
         try:
             cls, text = s.go(s.window(s.instance(**NO_RUN, **NO_REFS)), [run_word, refs_word], **PAIR)
             check("(g2) named under BOTH facts, with the pair: accepted (E19)", cls is None, f"{cls} {text[:400]}")
+            # tiers 2, 3 and 4 share ONE run of the live reader (`_s5_word_index` memo); the other run is the recording of the pass
+            # (`_record_s5_word_passes`, which needs the rows, not the index) - four runs before the fix
+            check("(F3) tiers 2, 3 and 4 asked ONE live reader run for the whole finish (+ the recording's own read)", len(s.asked) == 2, str(len(s.asked)))
+        finally:
+            s.td.cleanup()
+        s = story("qa-fv130b-f1-")
+        try:
+            stale_refs = dict(obligation_refs=[{"obligation_id": "OB-TS-1", "obligation_hash": "x"}], obligation_ids=["OB-TS-1"])
+            stale_refs["obligation_hash"] = content_hash(stale_refs["obligation_refs"])
+            cls, text = s.go(s.window(s.instance(**stale_refs)), [])
+            check("(F3) no word yet: the stale ref is refused with today's plan text, after ONE run of the reader",
+                  cls is StateConflict and PLAN_TEXT in text and len(s.asked) == 1, f"{cls} {text[:300]} {len(s.asked)}")
+            cls, text = s.go(s.window(s.instance(**stale_refs)), [refs_word])
+            check("(F1) a stale ref with a fingerprint + a refs word naming it, no pair: accepted", cls is None, f"{cls} {text[:400]}")
+            check("(F3) a word recorded between two completions is seen by the second (the memo lived for one call): a new index run each",
+                  len(s.asked) == 2, str(len(s.asked)))
         finally:
             s.td.cleanup()
         s = story("qa-fv130b-k-")

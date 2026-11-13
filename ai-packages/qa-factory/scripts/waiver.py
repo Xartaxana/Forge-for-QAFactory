@@ -790,8 +790,8 @@ def not_run_lets_go(path=None) -> tuple:
 
 def _split_finding_id(finding_id: str) -> tuple:
     """`(check, case, tag)` of a finding id `<check>:<case or ->:<tag>` (`s5_precheck._finding`): split on the left twice, a tag
-    carries `file.py:79`; `("", "", "")` when the text is no finding id. The ONE splitter of the package that reads the id for the
-    words (A3-E4): `s5_precheck._finding_tag` delegates here; `exit_gate._finding_tag_of` is the one other, queued."""
+    carries `file.py:79`; `("", "", "")` when the text is no finding id. The splitter the word readers use (A3-E4). Two more copies
+    of the same split stay: `s5_precheck._finding_tag` (it must work with no `waiver` import) and `exit_gate._finding_tag_of`; both queued."""
     parts = str(finding_id or "").split(":", 2)
     if len(parts) < 3:
         return "", "", ""

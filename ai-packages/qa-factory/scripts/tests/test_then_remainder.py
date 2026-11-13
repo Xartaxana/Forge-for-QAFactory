@@ -1045,6 +1045,33 @@ def fv1_30b_n2_trace_and_verdict() -> None:
         check("R2 (v1): only that gap -> one record of kind chain_broken, a `no`",
               len(recs) == 1 and recs[0]["kind"] == "chain_broken" and DVD.verdict_of_kind(recs[0]["kind"]) == "no", str(recs))
         check_eq("R2 (v1): decide reads `no` for it", DVD.decide([r["kind"] for r in recs])[0], "no")
+        # F4 / E16 (topic critic): the reason names the word and its time OUTSIDE the 120-character cut of the case detail
+        mention = "; Then 2 of TC-001: passed by your word at S5 (2026-11-13T10:00:00+00:00)"
+        check("F4: the `no` record's text ends with the word, the Then and the time", recs[0]["text"].endswith(mention), recs[0]["text"])
+        real_walk = CT.walk
+
+        def with_detail(size):
+            def walk(*args, **kwargs):
+                result = real_walk(*args, **kwargs)
+                for row in result["rows"]:
+                    if row["requirement"] == "R-1":
+                        row["detail"] = "x" * size
+                return result
+            return walk
+        try:
+            for size in (120, 121, 400):
+                CT.walk = with_detail(size)
+                text = _r1_records(task)[0]["text"]
+                check(f"F4: a case detail of {size} characters is cut at 120 and the mention stays whole",
+                      ("x" * 120 + ")" + mention) in text and ("x" * 121) not in text, text)
+            (task / "state" / "passed-by-person.jsonl").unlink()
+            _record_pass(task, ts="")
+            check_eq("F4: a pass with no time -> the mention without the parenthesis, no invented time",
+                     _r1_records(task)[0]["text"].endswith("; Then 2 of TC-001: passed by your word at S5"), True)
+        finally:
+            CT.walk = real_walk
+            (task / "state" / "passed-by-person.jsonl").unlink()
+            _record_pass(task)
         check_eq("R2 (v2): with a `red` kind beside it the word is still `no`", DVD.decide(["red", recs[0]["kind"]])[0], "no")
         # v3: the kinds file without the row (temporal world 1): the unknown gap word is a `no`
         real = CD.DV.load_kinds

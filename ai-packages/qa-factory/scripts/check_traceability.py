@@ -162,13 +162,12 @@ WORD_PASSED_THEN_GAP = "word_passed:then_unbound"
 
 
 def _word_index(artifacts: Path):
-    """FV1-30b R2: the RECORD index of the passes a person's word recorded at the S5 exit (`waiver.person_passes`, the one reader of
-    the file) - None when there is no pass to ask about (E1: no file, no change) and when the record cannot be read (an unknown is
-    never a pass, AR-28). Never raises."""
+    """FV1-30b R2: the RECORD index of the passes a person's word recorded at the S5 exit (`waiver.record_word_index`, the one
+    composition) - None when the record cannot be read (an unknown is never a pass, AR-28); an empty record is an empty index, which
+    names nobody (E1: no file, no change). Never raises."""
     try:
         import waiver
-        rows, _why = waiver.person_passes(artifacts)
-        return waiver.word_passed_index(rows) if rows else None
+        return waiver.record_word_index(artifacts)
     except Exception:  # noqa: BLE001
         return None
 

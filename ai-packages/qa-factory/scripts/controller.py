@@ -7037,6 +7037,15 @@ class Controller:
         return (previous[-1]["dispatch"], missing, moved, str(unread or "")) if missing else None
 
     def _s5_completion_problems(self, d, p, state, review):
+        """The tiers below (`_s5_completion_tiers`) with ONE live word index per call: `_s5_word_index` memoises in
+        `_s5_word_memo` for the length of this call and drops it after (a word recorded between two completions is seen by the second)."""
+        self._s5_word_memo = {}
+        try:
+            return Controller._s5_completion_tiers(self, d, p, state, review)
+        finally:
+            self._s5_word_memo = None
+
+    def _s5_completion_tiers(self, d, p, state, review):
         """Why this S5 completion, which claims the stage is done, cannot be recorded:
         `[(class, message)]`, [] when it can. `review` is the code critic's receipts item (tier 3a).
 
@@ -7360,7 +7369,9 @@ class Controller:
             no_fp = (not item.get("execution_fingerprint")
                      and item.get("outcome") not in (HANDED_OUTCOME, BLOCKED_OUTCOME))
             not_run = refs_passed = False
-            if refs_bad or no_fp:   # only then is the index consulted (FR-55); one that cannot be built names nobody (AR-28)
+            if refs_bad or ref_kinds or no_fp:   # only then is the index consulted (FR-55); one that cannot be built names nobody (AR-28)
+                # `ref_kinds` too: a stale or unknown ref is a problem of the ONE field `obligation_refs` a word may name (F6 (a));
+                # an instance the index does not name takes the refusals below unchanged.
                 if not built:
                     index, built = self._s5_word_index(d), True
                 iid = str(item.get("instance_id") or "")
@@ -7371,7 +7382,7 @@ class Controller:
             owes_fp = no_fp and not not_run
             if refs_passed:
                 # A word about refs is not a word about the run: the instance still owes its fingerprint. Its refs, ids and row hash are the
-                # fact the person passed (the window carries them empty, `passed_by_word`), so those checks are not asked of it.
+                # fact the person passed (the window carries them empty, `word_passed`), so those checks are not asked of it.
                 if owes_fp:
                     problems.append((ValueError, "coverage v2 instance requires execution_fingerprint"))
                 continue
@@ -7396,13 +7407,20 @@ class Controller:
         """The LIVE `waiver.word_passed_index` of the S5 findings a person's recorded word passes for this dispatch (the rows of
         `s5_precheck.word_passes`, the reader the exit gate and the recording share), or None on ANY exception - an import, a read
         or the reader itself: nothing is then let go on a guess (the refusing direction, AR-28, E12). The one place the finish
-        builds it; `window_record.word_let_go` and `_s5_v2_collect` read it."""
+        builds it; `window_record.word_let_go` and `_s5_v2_collect` read it. The composition is `s5_precheck.live_word_index` (it never
+        raises); inside one `_s5_completion_problems` call the answer is built once (`_s5_word_memo`, a temporal memo: None outside a call)."""
+        memo = getattr(self, "_s5_word_memo", None)
+        key = (str(d.get("id") or ""), tuple(str(c) for c in d.get("scope") or []))
+        if isinstance(memo, dict) and key in memo:
+            return memo[key]
         try:
             import s5_precheck as S5
-            import waiver
-            return waiver.word_passed_index(S5.word_passes(self.store.root, d.get("scope") or None, d.get("id")))
+            index = S5.live_word_index(self.store.root, d.get("scope") or None, d.get("id"))
         except Exception:
-            return None
+            index = None
+        if isinstance(memo, dict):
+            memo[key] = index
+        return index
 
     def _s5_gap_problems(self, d, p, window):
         """Tier 4: what `validate_window` finds, as items - the four gap checks collected."""

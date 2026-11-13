@@ -1166,9 +1166,7 @@ class Story:
         self._word_index_built, self._word_index = True, None
         try:
             import waiver
-            rows, _why = waiver.person_passes(self.artifacts)
-            if rows is not None:
-                self._word_index = waiver.word_passed_index(rows)
+            self._word_index = waiver.record_word_index(self.artifacts)
         except Exception:  # noqa: BLE001 - the refusing direction: no index, no annotation
             self._word_index = None
         return self._word_index

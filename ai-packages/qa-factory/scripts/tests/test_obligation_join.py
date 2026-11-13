@@ -136,6 +136,24 @@ def fv1_30b_n2_refs_words() -> None:
             {"obligation_id": "TS-1-O1", "instance_ids": ["test_five"], "obligation_hash": plan_hash},
             {"obligation_id": "TS-1-O2", "instance_ids": ["test_six"]}], extra_tests=[other]))
         check("R5 (c7): ... while the named one still carries them", named.get("word_passed") is True, str(named))
+        # F2 (topic critic): the row of the named instance is found by the index's own matcher - two cases that share a function name
+        # are two instances, and the words follow the refs of the row of THE named one
+        record.write_text(_word_line(iid="TC-1::test_x"), encoding="utf-8")
+        good_refs = [{"obligation_id": "TS-1-O1", "obligation_hash": plan_hash}]
+
+        def twin(own_refs, other_refs, own_first):
+            own = {"case": "TC-005", "file": "tests/t.py", "instance_id": "TC-1::test_x", "covers": ["TC-005"], "status": "green",
+                   "obligation_refs": own_refs}
+            foreign = dict(own, instance_id="TC-2::test_x", obligation_refs=other_refs)
+            binding = [{"obligation_id": "TS-1-O1", "instance_ids": ["TC-1::test_x"], "obligation_hash": plan_hash}]
+            return {"tests": [own, foreign] if own_first else [foreign, own], "obligation_bindings": binding}
+        for first in (True, False):
+            check(f"F2: TC-1::test_x has bad refs, TC-2::test_x good ones (TC-1 listed first: {first}) -> the words stand",
+                  project(task, twin([], good_refs, first)).get("word_passed") is True)
+            check(f"F2: TC-1::test_x repaired, TC-2::test_x with bad refs (TC-1 listed first: {first}) -> no words (E8)",
+                  "word_passed" not in project(task, twin(good_refs, [], first)))
+        check("F2: an empty manifest -> no words, no crash", "word_passed" not in project(task, {"tests": [], "obligation_bindings": [
+            {"obligation_id": "TS-1-O1", "instance_ids": ["TC-1::test_x"], "obligation_hash": plan_hash}]}))
         # a record for another field, or one the table does not let a word pass: no words
         record.write_text(_word_line(fields=("assertion_id",)), encoding="utf-8")
         check("R5: a pass naming another field names no `obligation_refs`", "word_passed" not in project(task, manifest()))

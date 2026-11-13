@@ -4120,9 +4120,11 @@ FINDING_THEN_RE = re.compile(r"Then (\d+) of (\S+)")
 
 
 def _finding_tag(finding: dict) -> str:
-    """The tag `_finding` appended. Split on the left twice: a tag carries `file.py:79` (the splitter is `waiver._split_finding_id`)."""
-    import waiver
-    return waiver._split_finding_id(str((finding or {}).get("id") or ""))[2]
+    """The tag `_finding` appended. Split on the left twice: a tag carries `file.py:79`. Kept local on purpose: `_passable` reads it
+    on a path that must work when the `waiver` import fails (test_s5_precheck: "no waiver"); the same split as
+    `waiver._split_finding_id` (queued with `exit_gate._finding_tag_of`)."""
+    parts = str(finding.get("id") or "").split(":", 2)
+    return parts[2] if len(parts) > 2 else ""
 
 
 def _pyfiles(parsed: dict, case: str = "") -> dict:

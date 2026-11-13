@@ -2284,11 +2284,53 @@ def row_fv130b_the_one_reader() -> None:
              (None, None, [], None))
 
 
+def row_fv130b_the_two_survivors() -> None:
+    """FV1-30b topic fix (F3, F5): `s5_precheck.live_word_index` and `waiver.record_word_index` never raise; None names nobody, an
+    empty read is an empty index (not None); the live one forwards its scope; `_finding_tag` is the waiver splitter's tag."""
+    import s5_precheck
+    root = Path(temp_dir("qa-words-door-fv30b-sv-"))
+    real, seen = s5_precheck.word_passes, []
+    named = {"finding_id": "run_mapping:TC-1:no-row-A", "check": "run_mapping", "case": "TC-1", "tag": "no-row-A", "decision": "go on",
+             "at": "t1", "subjects": [{"instance_id": "A"}]}
+    try:
+        def fake(task_root, scope=None, dispatch_id=None):
+            seen.append((str(task_root), scope, dispatch_id))
+            return [named]
+        s5_precheck.word_passes = fake
+        index = s5_precheck.live_word_index(root, ["TC-1"], "d1")
+        check_eq("live: the passes read as facts, the scope and the dispatch forwarded",
+                 (bool(index.instance("not_run", "A")), seen), (True, [(str(root), ["TC-1"], "d1")]))
+        check_eq("live: an empty scope is None (every case), as `word_passes` reads it", (s5_precheck.live_word_index(root, [])
+                 and seen[-1][1]), None)
+        s5_precheck.word_passes = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unreadable artifact"))
+        check_eq("live: a reader that raises -> None (names nobody, never a pass)", s5_precheck.live_word_index(root), None)
+    finally:
+        s5_precheck.word_passes = real
+    try:
+        check_eq("live: no live S5 word -> an empty index, not None", s5_precheck.live_word_index(root).all(), [])
+        check_eq("record: no file -> an empty index, not None", waiver.record_word_index(root).all(), [])
+        (root / "state").mkdir()
+        journal = root / "state" / "passed-by-person.jsonl"
+        journal.write_text(json.dumps({"ts": "2026-10-01T10:05:00+00:00", "stage": "S5", "dispatch": "a2", "block": "run_mapping:TC-1:no-row-A",
+                                       "decision": "short", "by": "human", "subjects": [{"instance_id": "A"}]}) + "\n", encoding="utf-8")
+        check_eq("record: a line -> the index names the instance", bool(waiver.record_word_index(root).instance("not_run", "A")), True)
+        journal.unlink()
+        journal.mkdir()
+        check_eq("record: a path that cannot be read -> None (names nobody)", waiver.record_word_index(root), None)
+        check_eq("record: a task root that is no path at all -> None, never a raise", waiver.record_word_index(object()), None)
+    finally:
+        cleanup(root)
+    check_eq("F5: `_finding_tag` is the waiver splitter's tag (a tag carries `file.py:79`), and \"\" for no id",
+             [s5_precheck._finding_tag({"id": i}) for i in ("bindings:TC-1:x.py:79", "bindings:-:t", "bindings", "")] + [s5_precheck._finding_tag({})],
+             ["x.py:79", "t", "", "", ""])
+    check_eq("F2: `waiver.same_instance` is public: an alias is the instance, another case's spelling is not",
+             [waiver.same_instance("TC-1::x", "x"), waiver.same_instance("TC-1::x", "TC-2::x")], [True, False])
+
+
 def row_fv130b_n1_the_not_run_section_and_the_field_rows() -> None:
     """FV1-30b N1 (n): `waiver.not_run_lets_go()` is `({}, why)` for a file absent / not JSON / a directory / not an object / a section
-    absent / a section that is no object (nothing is let go, E30), and the section as it is otherwise; the shipped table carries the
-    `not_run` section of the spec and the four rows N1 adds (`assertion_id`, `defect_location`, `profile_id` passable;
-    `change_basis_ref` not)."""
+    absent / a section that is no object (nothing is let go, E30), and the section as it is otherwise; the shipped `change_basis_ref` row is
+    not passable and says why."""
     tmp = Path(temp_dir("qa-words-door-fv30b-nr-"))
     try:
         absent, broken, toplist = tmp / "absent.json", tmp / "broken.json", tmp / "toplist.json"
@@ -2305,19 +2347,14 @@ def row_fv130b_n1_the_not_run_section_and_the_field_rows() -> None:
         check_eq("(n) a good file: the section as it is", waiver.not_run_lets_go(good), ({"tier4_gaps": ["product"]}, ""))
     finally:
         cleanup(tmp)
-    section, why = waiver.not_run_lets_go()
-    check_eq("(n) the shipped `not_run` section is the spec's", (section, why),
-             ({"shape_missing": ["outcome", "execution_fingerprint"], "shape_probe_missing": True, "tier4_gaps": ["product", "evidence"]}, ""))
+    # (F10: the shipped table's VALUES are data, pinned by no row here; the behaviour they drive is rows (g)/(l) and test_window_record)
     rows, _why = waiver.row_fields()
-    check_eq("the shipped rows: passable fields and their tier-4 kinds",
-             {k: (rows[k]["pass"], rows[k].get("window_keys"), rows[k].get("tier4_gaps")) for k in ("assertion_id", "defect_location", "profile_id")},
-             {"assertion_id": (True, {"assertion_id": ""}, ["assertion_identity"]), "defect_location": (True, {"defect_location": ""}, ["defect_location"]),
-              "profile_id": (True, {}, [])})
     check_eq("the shipped rows: change_basis_ref is NOT passable and says why", (rows["change_basis_ref"]["pass"], bool(rows["change_basis_ref"].get("why"))), (False, True))
 
 
 def main() -> None:
     row_fv130b_n1_the_not_run_section_and_the_field_rows()
+    row_fv130b_the_two_survivors()
     row_fv130b_the_journal_line_carries_the_subjects()
     row_fv130b_person_passes()
     row_fv130b_the_one_reader()

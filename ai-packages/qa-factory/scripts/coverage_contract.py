@@ -558,12 +558,11 @@ def _oracle_read(ctx: dict, row: dict, ob: dict) -> dict:
 
 
 def _record_word_index(task):
-    """FV1-30b: the RECORD index of what a person's word passed at S5 (`waiver.person_passes`), or False when there is nothing
-    to read (no record file, a record that cannot be read): False names nobody (AR-28). Never raises."""
+    """FV1-30b: the RECORD index of what a person's word passed at S5 (`waiver.record_word_index`, the one composition), or False
+    when it cannot be built (a record that cannot be read): False names nobody (AR-28). Never raises."""
     try:
         import waiver
-        rows, _why = waiver.person_passes(task)
-        return waiver.word_passed_index(rows) if rows else False
+        return waiver.record_word_index(task) or False
     except Exception:  # noqa: BLE001
         return False
 
@@ -577,14 +576,15 @@ def _refs_word_text(index, instance_ids, manifest, plan) -> str:
         return ""
     try:
         import contract as C
+        import waiver
         plan_map = C.obligation_map(plan)
         tests = C.manifest_tests(manifest)
         for iid in instance_ids:
             got = index.instance("row_fields_unestablished", iid, field="obligation_refs")
             if not got:
                 continue
-            aliases = {iid} | set(C.instance_id_aliases({"instance_id": iid}))
-            test = next((t for t in tests if aliases & set(C.instance_id_aliases(t))), None)
+            # the row of THIS instance by the index's own matcher (`TC-1::x` and `TC-2::x` are two), never by an alias that two share
+            test = next((t for t in tests if waiver.same_instance(iid, C.test_instance_id(t))), None)
             if test is None:
                 continue
             refs = test.get("obligation_refs")

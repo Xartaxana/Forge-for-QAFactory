@@ -1265,6 +1265,25 @@ def word_let_go(lines, window, index, lets_go=None) -> tuple:
         return lines, []
 
 
+def _word_kept_keys(identity, empty_fields, index, table) -> tuple:
+    """`(kept, entry)` for one window item: `kept` is `{key: value}` of the `window_keys` of every field the LIVE `index` says a
+    person's word passed for instance `identity` (and `table`, the `row_fields` rows, lets pass), limited to the keys `empty_fields`
+    names (the keys the item has empty); `entry` is `{finding_id, fields, at}` listing EVERY passed field (the item's `word_passed`),
+    or None when the index names nothing for the instance. An index of None names nobody: `({}, None)`. Never raises."""
+    try:
+        passed = index.passed_fields(identity) if index is not None else []
+        pass_row = index.instance("row_fields_unestablished", identity) if passed else None
+        if not passed or not pass_row:
+            return {}, None
+        kept: dict = {}
+        for field in passed:
+            keys = (table.get(field) or {}).get("window_keys")
+            kept.update({k: v for k, v in keys.items() if k in empty_fields} if isinstance(keys, dict) else {})
+        return kept, {"finding_id": pass_row["finding_id"], "fields": list(passed), "at": pass_row["at"]}
+    except Exception:
+        return {}, None
+
+
 def build(task_root: Path, dispatch_id: str) -> tuple:
     """(window record, notes) — notes are `(instance id, field, sentence)` for what was not
     on disk, so the verdict can name the artifact instead of only the missing key."""
@@ -1305,16 +1324,26 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
     word_cache: list = []     # the LIVE index of the person's recorded words (FV1-30b), built at most once per call
 
     def live_index():
-        """The `waiver.word_passed_index` of the live S5 passes of this window, or None when it cannot be built (the refusing
+        """The live S5 index of this window (`s5_precheck.live_word_index`), or None when it cannot be built (the refusing
         direction: no field and no instance is then passed)."""
         if not word_cache:
             try:
                 import s5_precheck
-                import waiver
-                word_cache.append(waiver.word_passed_index(s5_precheck.word_passes(task_root, scope or None, str(dispatch_id))))
+                word_cache.append(s5_precheck.live_word_index(task_root, scope or None, str(dispatch_id)))
             except Exception:
                 word_cache.append(None)
         return word_cache[0]
+
+    table_cache: list = []    # the `row_fields` table, read once per call
+
+    def row_table() -> dict:
+        if not table_cache:
+            try:
+                import waiver
+                table_cache.append(waiver.row_fields()[0])
+            except Exception:
+                table_cache.append({})
+        return table_cache[0]
 
     reviewed = _reviewed_identity(task_root, str(reviewer.get("id") or ""))
     # Once per build, read-only: the tests of this scope changed after their red run (t-108).
@@ -1425,35 +1454,20 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
         # A field no artifact gave is LEFT OUT, never filled with an empty string:
         # `contract.window_shape_errors` then says "<instance>: <field> is missing" and the
         # verdict names the artifact under it. An invented placeholder would read as a value.
-        # FV1-30b: a field the person's recorded word passed (the LIVE `row_fields_unestablished` pass names it, and the table
-        # `row_fields` says it is passable) keeps the `window_keys` of its row, EMPTY, so tier 2 does not stop on a key that is
-        # missing; the item says so in `passed_by_word`. `input_hash`, a field with no row and a row with `pass: false` are
-        # deleted as above. The index is built ONCE, and only when some field is empty (FR-55).
+        # FV1-30b: a field the person's recorded word passed (the LIVE `row_fields_unestablished` pass names it - only while its
+        # finding stands - and the table `row_fields` says it is passable) is listed in the item's `word_passed`, EVERY such field
+        # (a stale ref is passed too); the `window_keys` of its row stay, EMPTY, only where the item's key is empty, so tier 2 does
+        # not stop on a key that is missing. A field with no row or a row with `pass: false` (`input_hash`) is deleted as above.
+        # The index is built ONCE per call (`live_index`); the table once per build.
         loop_fields = ("input_hash", "obligation_refs", "obligation_ids", "obligation_hash", *window_text_fields())
         empty_fields = {field for field in loop_fields if not item[field]}
-        keep_keys: set = set()
-        if empty_fields:
-            word_index = live_index()
-            passed = word_index.passed_fields(identity) if word_index is not None else []
-            if passed:
-                from waiver import row_fields as _row_fields
-                table = _row_fields()[0]
-                standing = []
-                for field in passed:
-                    keys = (table.get(field) or {}).get("window_keys")
-                    keys = [k for k in keys if k in loop_fields and k != "input_hash"] if isinstance(keys, dict) else []
-                    # the fact still stands only while a key of the field is empty; a field with no window key (`profile_id`)
-                    # leaves nothing in the window to tell, so it is listed beside a standing one
-                    if not keys or any(k in empty_fields for k in keys):
-                        standing.append(field)
-                        keep_keys.update(k for k in keys if k in empty_fields)
-                pass_row = word_index.instance("row_fields_unestablished", identity)
-                if standing and pass_row:
-                    item.setdefault("passed_by_word", []).append(
-                        {"finding_id": pass_row["finding_id"], "fields": standing, "at": pass_row["at"]})
+        kept_keys, word_entry = _word_kept_keys(identity, empty_fields, live_index(), row_table())
+        if word_entry:
+            item.setdefault("word_passed", []).append(word_entry)
         for field in loop_fields:
             if not item[field]:
-                if field in keep_keys:
+                if field in kept_keys:
+                    item[field] = copy.deepcopy(kept_keys[field])
                     continue
                 del item[field]
                 if field in ORIGIN:
@@ -1515,7 +1529,7 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
             word_index = live_index()
             not_run = word_index.instance("not_run", identity) if word_index is not None else None
             if not_run:
-                item.setdefault("passed_by_word", []).append(
+                item.setdefault("word_passed", []).append(
                     {"finding_id": not_run["finding_id"], "fact": "not_run", "at": not_run["at"]})
         # The row's own `sensitivity_proof.receipt_ref` first (what `probe_by_code.py` and
         # `red_sandbox.py` both publish and delivery reads), the obligation binding as the

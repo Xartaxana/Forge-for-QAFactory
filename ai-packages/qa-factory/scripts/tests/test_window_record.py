@@ -1638,7 +1638,7 @@ def built_items_of(task: Path) -> tuple:
 
 def fv1_30b_the_window_carries_the_word_it_was_given():
     """FV1-30b N1 (R3 window record): `build` keeps the `window_keys` of a passable field the LIVE index names (empty), lists it in the
-    item's `passed_by_word`, deletes a field the table does not pass as before, and writes `passed_by_word` on the no-run item; the
+    item's `word_passed`, deletes a field the table does not pass as before, and writes `word_passed` on the no-run item; the
     index is built once per call, and a reader that raises changes nothing."""
     project = temp_project("qa-window-fv130b-")
     use_project(project)
@@ -1671,44 +1671,47 @@ def fv1_30b_the_window_carries_the_word_it_was_given():
         item = built([])
         check_eq("no word: the three obligation keys, assertion_id and defect_location are deleted, as today",
                  [k for k in (*keys, "assertion_id", "defect_location") if k in item], [])
-        check_eq("...and no `passed_by_word`", "passed_by_word" in item, False)
+        check_eq("...and no `word_passed`", "word_passed" in item, False)
         item = built([word("obligation_refs", "change_disposition")])
         check_eq("a refs word: the three keys stay, EMPTY", [item.get(k) for k in keys], [[], [], ""])
         check_eq("...assertion_id (not named) is deleted", "assertion_id" in item, False)
-        check_eq("...`passed_by_word` names the passed field only (change_disposition is not passable and is present)",
-                 item.get("passed_by_word"), [{"finding_id": "manifest:-:row-fields-missing", "fields": ["obligation_refs"], "at": "t1"}])
+        check_eq("...`word_passed` names the passed field only (change_disposition is not passable and is present)",
+                 item.get("word_passed"), [{"finding_id": "manifest:-:row-fields-missing", "fields": ["obligation_refs"], "at": "t1"}])
         item = built([word("obligation_refs", "assertion_id", "defect_location")])
         check_eq("refs + assertion_id + defect_location: all five keys stay empty",
                  [item.get(k, "ABSENT") for k in (*keys, "assertion_id", "defect_location")], [[], [], "", "", ""])
-        check_eq("...listed once, in the order named", [x["fields"] for x in item["passed_by_word"]],
+        check_eq("...listed once, in the order named", [x["fields"] for x in item["word_passed"]],
                  [["obligation_refs", "assertion_id", "defect_location"]])
         item = built([word("obligation_refs", "change_basis_ref")], change_basis_ref="")
         check_eq("a not passable field (change_basis_ref, `pass: false`) is deleted as today", "change_basis_ref" in item, False)
-        check_eq("...and is not listed", [x["fields"] for x in item["passed_by_word"]], [["obligation_refs"]])
+        check_eq("...and is not listed", [x["fields"] for x in item["word_passed"]], [["obligation_refs"]])
         item = built([word("profile_id")])
         check_eq("a profile_id word keeps no key and (the obligation keys being empty) lists profile_id",
-                 ("obligation_refs" in item, [x["fields"] for x in item.get("passed_by_word", [])]), (False, [["profile_id"]]))
+                 ("obligation_refs" in item, [x["fields"] for x in item.get("word_passed", [])]), (False, [["profile_id"]]))
         refs = [{"obligation_id": "OB-1", "obligation_hash": "oh-1"}]
         item = built([word("obligation_refs")], obligation_refs=refs)
-        check_eq("a word for refs the row now HAS: the fact no longer stands, no annotation, the keys are the row's",
-                 ("passed_by_word" in item, item["obligation_ids"]), (False, ["OB-1"]))
+        check_eq("(F1) a word for refs the row HAS (a stale ref is still the field the person passed): the entry is written, the keys are the row's",
+                 ([x["fields"] for x in item["word_passed"]], item["obligation_ids"]), ([["obligation_refs"]], ["OB-1"]))
+        item = built([word("obligation_refs", "assertion_id")], obligation_refs=refs, assertion_id="A-1")
+        check_eq("(F1) every passed field is listed, though only the empty one keeps a key",
+                 ([x["fields"] for x in item["word_passed"]], item["assertion_id"]), ([["obligation_refs", "assertion_id"]], "A-1"))
         item = built([word("obligation_refs", "input_hash")])
         check_eq("input_hash is never kept empty: it is the measured hash of the file", bool(item.get("input_hash")), True)
         # the no-run item (no run block on disk): nothing invented, the word listed
         item = built([word(fact="not_run")])
         check_eq("a not_run word: no outcome, no fingerprint, evidence_refs [] - the shape of the writer's no-run branch",
                  ("outcome" in item, "execution_fingerprint" in item, item["evidence_refs"]), (False, False, []))
-        check_eq("...`passed_by_word` says the fact", item["passed_by_word"], [{"finding_id": "run_mapping:TC-1:no-row-test_a[x]", "fact": "not_run", "at": "t1"}])
+        check_eq("...`word_passed` says the fact", item["word_passed"], [{"finding_id": "run_mapping:TC-1:no-row-test_a[x]", "fact": "not_run", "at": "t1"}])
         item = built([word("obligation_refs"), word(fact="not_run", at="t2")])
-        check_eq("named under BOTH facts: one list, the two entries", [("fields" in x, x.get("fact")) for x in item["passed_by_word"]],
+        check_eq("named under BOTH facts: one list, the two entries", [("fields" in x, x.get("fact")) for x in item["word_passed"]],
                  [(True, None), (False, "not_run")])
         check_eq("...the live index was built ONCE for the whole call", len(calls), 1)
         other = dict(word(fact="not_run"), subjects=[{"instance_id": "test_zz"}])
         item = built([other])
-        check_eq("a not_run word for another instance: nothing listed", "passed_by_word" in item, False)
+        check_eq("a not_run word for another instance: nothing listed", "word_passed" in item, False)
         item = built(RuntimeError("boom"))
         check_eq("word_passes raises: nothing kept, nothing listed (today's window)",
-                 ("passed_by_word" in item, "obligation_refs" in item), (False, False))
+                 ("word_passed" in item, "obligation_refs" in item), (False, False))
     finally:
         s5_precheck.word_passes = real
         cleanup(project)
