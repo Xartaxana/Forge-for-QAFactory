@@ -1080,30 +1080,21 @@ def _not_a_project(root, given=True):
     `given` is True when `--root` named the directory, False when the ambient project was taken (OH3-5): before
     onboarding that fallback is the git top, and nothing there may be created or read as a probe.
 
+    The words are `hooklib.not_a_project_text` (OF4-17), the same refusal every writer prints; this
+    function adds only what is the probe's own: why a probe store there is useless, and the hook fact.
     `hooklib.require_project` cannot be used: it resolves the ambient project from the
     environment and cwd and ignores the directory this CLI was told to use. The rule it
     enforces is the same: a probe store is never brought into existence under a root that
     onboarding did not make. A legacy operator pointed --root at a story artifact directory and
     got a store the real hooks, which resolve the project by its config.json, never read."""
-    from hooklib import CONFIG_PATH_NAME
-    resolved = Path(root).resolve()
-    if (resolved / "qa-factory" / CONFIG_PATH_NAME).is_file():
-        return ""
-    # Same marker the hooks use, walked up from the refused directory for the hint.
-    above = next((p for p in resolved.parents if (p / "qa-factory" / CONFIG_PATH_NAME).is_file()), None)
-    if not given and not above:
-        return (f"host_probe: this project is not onboarded yet (no qa-factory/config.json in {resolved} or above "
-                "it), so the live guard cannot be probed here: the hooks record the pair only in an onboarded "
-                "project. Nothing was written. Report the host hooks as unknown, owner factory, with this fact; "
-                "the next step is /qa-factory:qa-onboarding." + _hook_fact())
-    fix = (f"Re-run with --root {above}" if above else
-           "Re-run with --root set to the project root, or leave --root out when you run it from "
-           "inside the project; for a project that is not onboarded yet run /qa-factory:qa-onboarding first")
-    return (f"host_probe: no qa-factory/config.json under {resolved} - refusing to create a probe "
-            "store there: the real hooks read the store of a factory project only, so they would "
-            "never see it.\n"
-            "--root must be the project root: the directory that contains qa-factory/config.json "
-            "(not a story folder, and not the qa-factory folder itself). " + fix + ".")
+    from hooklib import not_a_project_text
+    detail = ("The real hooks read the store of a factory project only, so a probe store there would never be seen "
+              "and the live guard cannot be probed here.")
+    # only where no door but onboarding exists (ambient, nothing above): with a door, a re-run would probe (F2)
+    dead_end = "Report the host hooks as unknown, owner factory, with this fact."
+    text = not_a_project_text(root, given, purpose="host_probe", detail=detail, root_option=True,
+                              dead_end_detail=dead_end)
+    return text + _hook_fact() if text else ""
 
 
 def main():

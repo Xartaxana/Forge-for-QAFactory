@@ -251,6 +251,26 @@ def test_empty_and_absent_inputs_never_refuse(tmp_path):
     assert "work/flow-requests.json lists no request" in body(card_of(task), "Entry routes")
 
 
+def test_test_data_goes_through_the_reader(tmp_path):
+    """OF4-20 (AR-13): the config's `test_data` is read by `config_contract.test_data_states`: a key recorded as unknown (any
+    case, TBD, ?) is named "not set", never printed as a value; an empty list is `0 items`; an absent key prints no line;
+    `test_data` that is a list (malformed) or absent is the one "has no test_data" reason."""
+    task = make(tmp_path / "unk", config={"test_data": {"seeds": "unknown", "accounts": "TBD", "imports": "?",
+                                                         "blank": "", "nil": None,
+                                                         "fixtures": [], "note": "use the seed file"}})
+    data = body(AC.build(task) and card_of(task), "Test data")
+    assert "config test_data.seeds: not set" in data and "config test_data.accounts: not set" in data
+    assert "config test_data.imports: not set" in data
+    assert "test_data.blank: not set" in data and "test_data.nil: not set" in data   # blank / null: not an empty "value"
+    assert "test_data.seeds: unknown" not in data and "test_data.accounts: TBD" not in data
+    assert "config test_data.fixtures: 0 items" in data and "config test_data.note: use the seed file" in data
+    assert "test_data.cleanup" not in data                                  # a template key the project never wrote
+    for name, cfg in (("absent", {"environments": []}), ("list", {"test_data": []}), ("empty", {"test_data": {}})):
+        task = make(tmp_path / name, config=cfg)
+        AC.build(task)
+        assert "config.json has no test_data" in body(card_of(task), "Test data"), name
+
+
 def test_malformed_sources_cost_one_section(tmp_path):
     task = make(tmp_path)
     (task / "work" / "flow-requests.json").write_text("{not json", encoding="utf-8")

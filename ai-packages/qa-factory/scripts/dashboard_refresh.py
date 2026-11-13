@@ -22,7 +22,8 @@ def refresh_project(project):
     if os.environ.get("QA_FACTORY_SKIP_DASHBOARD_REFRESH") == "1":
         return {"status": "skipped", "reason": "QA_FACTORY_SKIP_DASHBOARD_REFRESH=1"}
     project = Path(project).resolve()
-    if not (project / "qa-factory/config.json").is_file():
+    from hooklib import _carries_project
+    if not _carries_project(project):          # the one marker reader (OF4-17); the refusal words are hooklib.not_a_project_text
         return {"status": "not_configured"}
     from hooklib import artifact_root
     cfg = json.loads((project / "qa-factory/config.json").read_text(encoding="utf-8-sig"))

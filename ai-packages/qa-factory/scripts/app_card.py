@@ -236,6 +236,7 @@ def _test_data(project_text, profile_why, cfg, cfg_why):
     """(lines, [why]): the profile's `Test data` section and the config's `test_data` keys (names; a scalar's text only when
     the key does not look like a secret)."""
     import env_probe as EP
+    from config_contract import test_data_states
     lines, whys = [], []
     if project_text is None:
         whys.append(profile_why)
@@ -244,16 +245,23 @@ def _test_data(project_text, profile_why, cfg, cfg_why):
         lines += _bounded(section, PROFILE_REL) if section else []
         if not section:
             whys.append(f"{PROFILE_REL} has no Test data section")
-    data = cfg.get("test_data") if isinstance(cfg, dict) else None
+    states = test_data_states(cfg)          # the ONE reader of the block (AR-13): absent / malformed / read, a status per key
+    data = cfg.get("test_data") if states["state"] == "read" else None
+    status_of = dict(states["keys"])
     if cfg_why:
         whys.append(cfg_why)
     elif not isinstance(data, dict) or not data:
         whys.append("config.json has no test_data")
     else:
         for key, value in list(data.items())[:PROFILE_LINES]:
+            status = status_of.get(str(key))
             key = _clip(key, 60, tokens=False)
             if EP.SECRET_NAME.search(key):
                 lines.append(f"- config test_data.{key}: (value not printed)")
+            elif status == "unknown":      # a recorded "I do not know" is not a value (AR-13): named, not printed
+                lines.append(f"- config test_data.{key}: not set (recorded as unknown)")
+            elif status == "not_recorded":  # blank or null: no value to print (AR-13)
+                lines.append(f"- config test_data.{key}: not set")
             elif isinstance(value, dict):
                 names = ", ".join(_clip(k, 40, tokens=False) for k in list(value)[:TEST_DATA_NAMES])
                 lines.append(f"- config test_data.{key}: {len(value)} entries" + (f" (names: {names})" if names else ""))

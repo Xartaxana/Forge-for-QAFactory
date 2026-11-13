@@ -84,6 +84,7 @@ class LeaseRegistry:
     """Project-level, OS-locked worker/resource registry."""
 
     def __init__(self, project_root: Path):
+        self.project_root = project_root
         self.path = project_root / "qa-factory" / "state" / "execution-leases.json"
         self.lock_path = self.path.with_suffix(".lock")
 
@@ -151,7 +152,8 @@ class LeaseRegistry:
             # Close the acquire/spawn/update race using the runner's independently durable
             # job identity.  An alive exact child is adopted; uncertainty stays blocked.
             if status == "blocked_orphan" and lease.get("task") and lease.get("idempotency_key"):
-                store = JobStore(self.path.parents[1] / "artifacts" / str(lease["task"]) /
+                import hooklib      # the job store lives under the configured artifact root (AR-13); a broken config raises
+                store = JobStore(hooklib.artifact_root(root=self.project_root) / str(lease["task"]) /
                                  "state" / "execution-jobs")
                 job = store.read(str(lease["idempotency_key"]))
                 if job and job.get("status") == "running" and _same_process(
@@ -224,12 +226,18 @@ def _with_native_workers(argv: list[str], template: list[str], workers: int) -> 
 
 
 def _project_parallel_defaults(project_root: Path) -> dict:
+    """The project's `execution.parallel` block, read through `config_contract.read_config_file` (AR-13: a BOM is tolerated). No
+    config: the effective defaults. A config the reader cannot read (unreadable, not JSON, not an object) or a block of the wrong
+    shape (`execution` or `parallel` not an object): the fixed defaults below, the move this function has always declared."""
     try:
-        from config_contract import effective_config
-        path = project_root / "qa-factory" / "config.json"
-        cfg = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-        return dict((((effective_config(cfg).get("execution") or {}).get("parallel")) or {}))
-    except (OSError, json.JSONDecodeError, ValueError):
+        from config_contract import effective_config, read_config_file
+        cfg = read_config_file(project_root) or {}
+        execution = effective_config(cfg).get("execution")
+        parallel = execution.get("parallel") if isinstance(execution, dict) else None
+        if not isinstance(parallel, dict):
+            return {"mode": "auto", "min_selected_instances": 8, "max_workers": None}
+        return dict(parallel)
+    except (OSError, ValueError, AttributeError, TypeError):
         return {"mode": "auto", "min_selected_instances": 8, "max_workers": None}
 
 
@@ -683,7 +691,14 @@ def main() -> None:
     root = args.project_root.resolve()
     try:
         if args.recover_leases:
-            result = LeaseRegistry(root).recover()
+            try:
+                result = LeaseRegistry(root).recover()
+            except ValueError as exc:  # the reader's refusal of a config it cannot use (JSONDecodeError is one)
+                print(json.dumps({"status": "config_unreadable", "error": f"qa-factory/config.json: {exc}",
+                                  "door": "The factory does not guess what it should say: fix the file by hand, or "
+                                          "move it aside (rename it, for example to config.broken.json) and run "
+                                          "onboarding again to write a new one."}), file=sys.stderr)
+                raise SystemExit(2)
         elif args.schedule:
             document = json.loads(args.schedule.read_text(encoding="utf-8"))
             result = execute_schedule(document, root, Path(__file__).with_name("run_suite.py"))

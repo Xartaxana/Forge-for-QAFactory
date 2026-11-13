@@ -55,7 +55,6 @@ VERDICT = "NOT_EXECUTED"
 SOURCE = "code"
 REPORT_REL = "work/run-report.json"
 TRIAGE_REL = "work/triage.json"
-CONTRADICTS = "contradicts_requirement"
 # The one sentence `manual_evidence.build` writes for a record's own identity (see the module docstring).
 IDENTITY_HEAD = "the stand was identified by the image it runs ("
 IDENTITY_TAIL = "), not by the sources it serves"
@@ -126,7 +125,7 @@ def contradicted(manifest) -> tuple:
     the entry."""
     cases, blanket = set(), False
     for entry in C.manifest_unresolved(manifest if isinstance(manifest, dict) else {}):
-        if CONTRADICTS not in json.dumps(entry, ensure_ascii=False):
+        if C.CONTRADICTS_REQUIREMENT not in json.dumps(entry, ensure_ascii=False):
             continue
         named = set()
         for key in ("case", "covers", "case_version_links", "case_links", "cases"):

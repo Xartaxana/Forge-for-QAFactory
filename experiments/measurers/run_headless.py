@@ -20,9 +20,22 @@ from pathlib import Path
 
 import paths
 
+sys.path.insert(0, str(paths.SCRIPTS))   # the package's env survivor, the way prepare_copy.py reaches package code
+import infra_failure  # noqa: E402
+
 ROOT = paths.BASE
 PLUGIN = str(paths.PACKAGE)
 TOOLS = "Bash,Read,Write,Edit,MultiEdit,Glob,Grep,Agent,Task,SendMessage,TaskOutput,TaskStop,Monitor,WebFetch,NotebookEdit,ListAgents"
+
+
+def child_env(base: dict) -> dict:
+    """The env of the headless child: the package's `claude -p` road (infra_failure.child_env), the background
+    ceiling at 0, and neither a run mode nor a plugin root - the desktop road. `base` is not changed."""
+    env = infra_failure.child_env(base, infra_failure.rules()[0], {})[0]
+    env["CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS"] = "0"
+    for name in ("QA_FACTORY_RUN_MODE", "CLAUDE_PLUGIN_ROOT"):
+        env.pop(name, None)
+    return env
 
 
 def main() -> int:
@@ -62,7 +75,7 @@ def main() -> int:
            "--permission-mode", "acceptEdits", "--allowedTools", TOOLS, "--output-format", "json"]
     if a.resume:
         cmd += ["--resume", a.resume]
-    env = dict(os.environ, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0")
+    env = child_env(dict(os.environ))
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.time()

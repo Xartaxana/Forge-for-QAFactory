@@ -175,19 +175,20 @@ def repairs_count(task_root: Path) -> int | None:
                 and str(r.get("verdict") or "").strip() in REPAIRABLE_VERDICTS]) or None
 
 
-# The manifest's own reason for "the test asserts the approved case's Then and the
-# implementation does something else" (contract.UNRESOLVED_REASONS). After gate A the approved
-# case is the oracle, so that red is the factory's PRODUCT: S7 decides what it is (a bug draft is one outcome).
-RED_ON_PURPOSE = "contradicts_requirement"
-
-
 def reds_on_purpose(task_root: Path) -> int:
-    """How many tests are red on purpose — counted from `unresolved[]`, never from prose."""
+    """How many tests are red on purpose — counted from `unresolved[]`, never from prose.
+
+    The manifest's own reason for "the test asserts the approved case's Then and the
+    implementation does something else" (contract.UNRESOLVED_REASONS). After gate A the approved
+    case is the oracle, so that red is the factory's PRODUCT: S7 decides what it is (a bug draft is one outcome).
+    The word has ONE home, `contract.CONTRADICTS_REQUIREMENT`; it is imported inside the functions that use it, so this
+    light status script loads no `contract` at import time."""
+    import contract
     rows = (_read_json(task_root / "work" / "automation-manifest.json", {}) or {}).get("unresolved")
     if not isinstance(rows, list):
         return 0
     return len([r for r in rows if isinstance(r, dict)
-                and str(r.get("reason") or "").strip() == RED_ON_PURPOSE])
+                and str(r.get("reason") or "").strip() == contract.CONTRADICTS_REQUIREMENT])
 
 
 def red_on_purpose_phrase(count: int) -> str:
@@ -303,10 +304,11 @@ def selftest() -> int:
 
         # A test left red on purpose is the factory's product, not an open item: the sentence
         # says so in those words, and never as "unresolved" or "concerns".
+        import contract
         (root / "work").mkdir(parents=True, exist_ok=True)
         (root / "work" / "automation-manifest.json").write_text(json.dumps({"unresolved": [
-            {"case": "TC-009", "reason": RED_ON_PURPOSE, "requirement": "R-13"},
-            {"case": "TC-014", "reason": RED_ON_PURPOSE, "requirement": "R-12"},
+            {"case": "TC-009", "reason": contract.CONTRADICTS_REQUIREMENT, "requirement": "R-13"},
+            {"case": "TC-014", "reason": contract.CONTRADICTS_REQUIREMENT, "requirement": "R-12"},
             {"case": "TC-012", "reason": "blocked_by_env"}]}), encoding="utf-8")
         case("the reds on purpose are counted from the manifest", reds_on_purpose(root), 2)
         red = line(root, "window_done", stage="S5", done=12, left=2)

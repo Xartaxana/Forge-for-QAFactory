@@ -1,0 +1,1 @@
+- install-path reader grep: text under `skills/*/evals/` is prose about the factory, not a reader of a project path, so a path named only there counts as unread (`scripts/install_paths.py`, `_corpus`); eval 16 names its probe file again (OF4-1)
