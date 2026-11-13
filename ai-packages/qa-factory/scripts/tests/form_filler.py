@@ -69,6 +69,8 @@ class FillContext:
     case_id: str = ""            # what the artifact token `<case id>` reads: set by `fill_artifact` for each id of `cases` (forms never read it)
     bug_id: str = ""             # what the artifact token `<bug id>` reads: set by `fill_artifact` for each id of `bugs`
     area: str = "general"        # what the token `<area>` reads: the area the artifact templates put their cases in
+    impl_diff: str = ""          # what the artifact token `<the diff text>` reads: the text of the merge request's diff the world holds (the story kit's
+                                 # input, no product writer); empty keeps the token unfillable (the caller names it, nothing is written)
     cases_root: str = ""         # what the token `<cases_root>` reads when the form has no plain `cases_root` field: the world's own case store, as the
                                  # product's reader (`contract.cases_root`) resolves it there; empty keeps the token unfillable (the caller names it)
 

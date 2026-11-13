@@ -1,5 +1,5 @@
 {"schema": 1,
- "note": "first row whose `match` is inside the request path answers (a file = 200); no row = 404. Raw answers only, copied from investigation-14857 (K5 corpus). Not in the world on purpose: /remotelink, /field, /comment, the merge request.",
+ "note": "first row whose `match` is inside the request path answers (a file = 200); no row = 404. Raw answers only, copied from investigation-14857 (K5 corpus). Not in the world on purpose: /remotelink, /field, /comment. The row with `serves: mr_diff` is the merge request's raw diff (mr-4566.diff, a byte copy of the K5 corpus file of TP1-15791): its `match` is a path of the dry world only, no tracker request names it; the stub role reads it through dry_world.mr_diff() as the text of work/impl-diff.txt.",
  "routes": [
   {"match": "/issue/TP1-14857?fields=", "file": "TP1-14857.json"},
   {"match": "/issue/TP1-15791?fields=", "file": "TP1-15791.json"},
@@ -8,5 +8,6 @@
   {"match": "/issue/TP1-13171?fields=", "file": "TP1-13171.json"},
   {"match": "/issue/TP1-12780?fields=", "file": "TP1-12780.json"},
   {"match": "/issue/TP1-12034?fields=", "file": "TP1-12034.json"},
-  {"match": "/issue/TP1-13289?fields=", "file": "TP1-13289.json"}
+  {"match": "/issue/TP1-13289?fields=", "file": "TP1-13289.json"},
+  {"match": "/dry-vcs/mr-4566.diff", "file": "mr-4566.diff", "serves": "mr_diff"}
  ]}

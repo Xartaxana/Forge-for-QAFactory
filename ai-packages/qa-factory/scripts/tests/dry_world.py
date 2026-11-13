@@ -151,6 +151,15 @@ class TrackerServer:
         return f"{len(self.log)} requests, {len(self.counts)} distinct, {len(missing)} without a route (404): {missing}"
 
 
+def mr_diff(row: dict) -> str:
+    """The text of the type's merge request diff: the file of the one route row that says `serves: mr_diff` (a raw VCS answer of the snapshot,
+    read as bytes so no line ending changes); "" when the type holds none - the caller says so, it never writes a stand-in."""
+    folder = (STORIES / row["input"] / row["tracker"]["routes"]).parent
+    routes = json.loads((STORIES / row["input"] / row["tracker"]["routes"]).read_text(encoding="utf-8"))["routes"]
+    served = [r for r in routes if r.get("serves") == "mr_diff"]
+    return (folder / served[0]["file"]).read_bytes().decode("utf-8") if served else ""
+
+
 def tracker_server(row: dict) -> TrackerServer:
     folder = STORIES / row["input"]
     routes = json.loads((folder / row["tracker"]["routes"]).read_text(encoding="utf-8"))
@@ -208,6 +217,8 @@ def _rewrite(root: Path, old: str, new: str) -> None:
     olds = {old.encode("utf-8"): new.encode("utf-8"), old.replace("\\", "\\\\").encode("utf-8"): new.replace("\\", "\\\\").encode("utf-8")}
     for path in root.rglob("*"):
         if ".git" in path.parts or not path.is_file() or path.stat().st_size > 5_000_000:
+            continue
+        if path.name == "events.jsonl":       # a hash chain: rewriting a path inside an event breaks the chain (`story_step: refused - corrupt event 2`), and the old path in it is only history
             continue
         data = path.read_bytes()
         changed = data
@@ -321,21 +332,32 @@ def stage_seconds(run: Run) -> dict:
     return {k: round(v, 1) for k, v in spans.items()}
 
 
-def stage_outcomes(world: World) -> dict:
-    """`stage -> one outcome line`: done, or the status with the label that explains it - `live_only` with the reason the stub logged,
-    never a red with no name (a red stage is `UNLABELLED RED` and the report asks the Lead for the row)."""
+def first_refusal(text: str) -> str:
+    """The first line the driver printed when it sent a role's work back (`resume <dispatch>: <the refusal>`), when a code step of its own refused
+    (`review --record failed ...`) or when it stopped (`story_run: stopped ...`), verbatim; "" when it printed none."""
+    return next((line for line in text.splitlines() if line.startswith(("resume ", "review --record failed", "story_run: stopped"))), "")
+
+
+def stage_outcomes(world: World, stop: str = "", refusal: str = "") -> dict:
+    """`stage -> one outcome line`: done, or the status with the label that explains it - `live_only` with the reason the stub logged (or the
+    question no row answers: `stop`), the first refusal of the driver verbatim, never a red with no name (a red stage is `UNLABELLED RED` and
+    the report asks the Lead for the row)."""
     state, rows = statuses(world), stub_rows(world)
     gaps = {}
     for row in rows:
         for item in row.get("live_only") or []:
             gaps.setdefault(row.get("stage") or "?", []).append(f"{item['output']}: {item['why']}")
     out = {}
+    stuck = next((s for s in ("S0", "S1", "S2", "S3") if state[s] != "done"), None)
     for stage in ("S0", "S1", "S2", "S3"):
+        said = f"; first refusal: {refusal}" if refusal and stage == stuck else ""
         if state[stage] == "done":
             note = f" (live_only: {len(gaps.get(stage, []))} output(s) the filler cannot write)" if gaps.get(stage) else ""
             out[stage] = "done" + note
         elif gaps.get(stage):
-            out[stage] = f"{state[stage]} - live_only: " + "; ".join(gaps[stage][:4])
+            out[stage] = f"{state[stage]} - live_only: " + "; ".join(gaps[stage][:4]) + said
+        elif stage == stuck and "has no answer in the probe rows" in stop:
+            out[stage] = f"{state[stage]} - live_only: {stop}" + said
         elif state[stage] in ("pending", "absent") and any(state[s] != "done" for s in ("S0", "S1", "S2", "S3") if s < stage):
             out[stage] = "not reached - after an earlier stage that did not close"
         else:
@@ -373,6 +395,61 @@ def run_row(world: World, row: dict) -> dict:
         harness.cleanup(copy.root)
 
 
+def closed_answers(rows: list) -> dict:
+    """`{question kind: the person's words}` the probe rows name (the first row that names a kind): the ONLY words the main pass gives a question
+    of the real driver - a closed answer a row holds, never one made up here (A1-E3). A kind no row names stops the road."""
+    words: dict = {}
+    for row in rows:
+        for kind, text in (row.get("answers") or {}).items():
+            words.setdefault(kind, text)
+    return words
+
+
+class Road:
+    """The main pass S1..S3: one driver process per turn, the real driver's own questions answered with `closed_answers`, until the stage S3 is
+    done (the next question is gate A) or the road meets a question no row answers, or the driver ends with no question."""
+
+    def __init__(self):
+        self.turns, self.stages, self.seconds, self.stop = [], {}, 0.0, ""
+        self.last_out, self.first_refusal = "", ""
+
+    def drive(self, world: World, answers: dict, max_turns: int = 12) -> "Road":
+        asked = 0
+        for turn in range(max_turns):
+            if turn == 0:
+                run = drive(world, "--until", "gate_A", "--max-boundaries", "40", timeout=600)
+            else:
+                run = drive(world, "--answer", str(world.root / "answer.md"), "--until", "gate_A", "--max-boundaries", "40", timeout=600)
+            self.seconds += run.seconds
+            self.last_out = run.out
+            self.first_refusal = self.first_refusal or first_refusal(run.out)
+            for name, secs in stage_seconds(run).items():
+                self.stages[name] = round(self.stages.get(name, 0.0) + secs, 1)
+            kinds = question_kinds(world)
+            state = statuses(world)
+            self.turns.append({"turn": turn, "rc": run.rc, "seconds": round(run.seconds, 1), "question": kinds[-1] if len(kinds) > asked else None, "stages": state})
+            for name in ("S1", "S2", "S3"):
+                if state[name] == "done" and not (world.snaps / world.row["id"] / name).is_dir():
+                    snapshot(world, name)
+            if len(kinds) <= asked:
+                self.stop = f"driver exit {run.rc} with no new question"
+                break
+            asked, kind = len(kinds), kinds[-1]
+            if kind == "gate_A" or state["S3"] == "done":
+                break
+            if kind == "conductor":      # a state the code has no move for: the road ends there and says so (a row may answer the conductor, the main pass does not)
+                self.stop = "the road met the conductor: a state the driver has no move for (stub journal and first refusal name it)"
+                break
+            words = answers.get(kind)
+            if words is None:
+                self.stop = f"question {kind!r} has no answer in the probe rows (A1-E3): the road stops there"
+                break
+            (world.root / "answer.md").write_bytes(words.encode("utf-8"))
+        else:
+            self.stop = f"{max_turns} turns without reaching gate A"
+        return self
+
+
 def gate_verdict(total: float, median: float, worst: float) -> str:
     if total > GATE["narrow"][0] or worst > GATE["narrow"][1]:
         return "stop"
@@ -404,20 +481,19 @@ def spike(type_id=None, local_label: str = "") -> int:
         print(f"S0 driver exit {s0.rc} in {s0.seconds:.1f} s; work/ticket-snapshot.json key = {key!r}")
         snapshot(world, "S0")
         snap_seconds = time.monotonic() - snap_at
-        rest = drive(world, "--until", "gate_A", "--max-boundaries", "40", timeout=600)
-        print(f"S1..S3 driver exit {rest.rc} in {rest.seconds:.1f} s; seconds per stage {stage_seconds(rest)}")
-        state = statuses(world)
-        for name in ("S1", "S2", "S3"):
-            if state[name] == "done":
-                snapshot(world, name)
-        outcomes = stage_outcomes(world)
         rows = json.loads((WALK / "seeds" / "probe.json").read_text(encoding="utf-8"))["rows"]
+        road = Road()
+        road.drive(world, closed_answers(rows))
+        for t in road.turns:
+            print(f"turn {t['turn']}: driver exit {t['rc']} in {t['seconds']} s; question {t['question']}; stages {t['stages']}")
+        print(f"S1..S3 {road.seconds:.1f} s in {len(road.turns)} driver process(es); seconds per stage {road.stages}; stop: {road.stop or 'none'}")
+        outcomes = stage_outcomes(world, road.stop, road.first_refusal)
         results = [run_row(world, r) for r in rows]
         seconds = [r["seconds"] for r in results]
         median = statistics.median(seconds) if seconds else 0.0
-        total = s0.seconds + rest.seconds
-        print("::group::driver tail (S1..S3)")
-        print(tail(rest.out, 60))
+        total = s0.seconds + road.seconds
+        print("::group::driver tail (last turn)")
+        print(tail(road.last_out, 60))
         print("::endgroup::")
         print("::group::stub log and questions")
         for r in stub_rows(world):

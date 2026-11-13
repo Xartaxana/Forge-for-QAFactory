@@ -1,10 +1,10 @@
 {"schema": 1,
  "note": "The three probe rows of node N0. Each starts from a COPY of the snapshot named in `start`, runs the real driver, and meets one question; `answers` is keyed by the question kind (driver-questions.jsonl) and holds the person's words of the row. A question of a kind with no entry is red: no answer for <kind> in type <id>.",
  "rows": [
-  {"id": "s1.review/go on", "start": "S0", "stub": {"qa-scout": {"result_text": "qa-scout S1 review"}},
+  {"id": "s1.review/go on", "start": "S0", "stub": {},
    "expect": "s1_review", "answers": {"s1_review": "go on"}},
   {"id": "questions/answers", "start": "S0", "stub": {},
-   "expect": "any", "answers": {"conductor": "stop"}},
+   "expect": "any", "answers": {"s1_review": "go on", "conductor": "stop"}},
   {"id": "halt/words", "start": "S0", "stub": {"qa-scout": {"verdict": "halt"}},
    "expect": "halt", "answers": {"halt": "go on without it"}}
  ]}

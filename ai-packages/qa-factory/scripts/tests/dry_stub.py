@@ -32,7 +32,12 @@ import story_run_common as T  # noqa: E402
 
 COMMANDS = {"context_bundle.py": ["--manifest", "{task_root}/work/context-manifest.json", "--output", "{task_root}/work/context-bundle.json",
                                       "--root", "{task_root}"]}
-MOVE_LINE = re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
+# The commands a role runs that BUILD a file code owns but that is no output of the stage (the scout's source collection: skills/qa-story/phases/s1.md
+# "Source collection", the one writer of work/source-inventory.json is ticket_adapter.py). Only a step that decides nothing is here: recording the task is
+# a read by the tracker's own client; the judging of a mentioned ticket (`assess`) is the role's and stays with no step (E13).
+ROLE_STEPS = {"qa-scout": [("work/source-inventory.json", "ticket_adapter.py",
+                            ["collect", "{task}", "--relation", "task", "--output", "{task_root}/work/source-inventory.json", "--summary"])]}
+MOVE_LINE =re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
 FORM_CONTRACT = re.compile(r"^contract:\s*(\S+)", re.M)
 FORM_STAGE = re.compile(r"^stage:\s*(\S+)", re.M)
 
@@ -66,6 +71,21 @@ def conductor_verdict(prompt: str, control: dict) -> dict:
     return {"action": "ask_person", "did": "stub: offered every open move", "question": "Which of these should happen?",
             "why_person": "access", "checked": "the refusal",
             "options": [T.seam_option(token, move) for move, token in moves]}
+
+
+def pending_judgments(inventory: Path) -> str:
+    """"" when the inventory holds no source whose relevance is still `pending`; else the live_only reason: each such source is a mentioned ticket the
+    scout must `peek` and judge (`ticket_adapter.py assess --relevance <relevant|not_relevant|unknown> --reason ...`), the role's judgment - the type
+    holds no closed answer for it, so the stub writes none (E13) and the exit gate's own refusal stands."""
+    try:
+        sources = json.loads(inventory.read_text(encoding="utf-8")).get("sources") or []
+    except (OSError, ValueError):
+        return "work/source-inventory.json is missing or unreadable after the collect step"
+    waiting = [s.get("canonical_ref") or s.get("source_id") for s in sources if isinstance(s, dict) and s.get("required") and s.get("relevance") == "pending"]
+    if not waiting:
+        return ""
+    return (f"{len(waiting)} mentioned source(s) await the scout's judgment ({', '.join(map(str, waiting[:5]))}): `ticket_adapter.py peek` then `assess "
+            "--relevance` is role judgment and the type holds no closed answer for it")
 
 
 def role_plan(role: str, stage: str, ff) -> list:
@@ -124,7 +144,8 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     row["stage"] = stage
     mine = (control.get("stub") or {}).get(role) or {}
     task = control.get("task", "")
-    ctx = FF.FillContext(task_key=task, dispatch_id=dispatch)
+    import dry_world as W
+    ctx = FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=W.mr_diff(W.type_row(control.get("type"))) if control.get("type") else "")
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
     else:
@@ -135,11 +156,21 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         else:
             form.write_bytes(filled.text.encode("utf-8"))
             row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
+    for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
+        done = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / script), *[a.format(task=task, task_root=str(task_dir)) for a in args]],
+                              cwd=str(project), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        (row["wrote"] if done.returncode == 0 else row["live_only"]).append(
+            out if done.returncode == 0 else {"output": out, "why": f"{script} exit {done.returncode}: {' '.join((done.stderr or done.stdout).split())[:400]}"})
+    gap = pending_judgments(task_dir / "work" / "source-inventory.json") if stage == "S1" and role in ROLE_STEPS else ""
+    if gap:
+        row["live_only"].append({"output": "work/source-inventory.json", "why": gap})
     for out, kind in role_plan(role, stage, FF):
         if kind == "fill":
             try:
                 FF.write_outputs(task_dir, project, FF.fill_artifact(out, ctx).require())
                 row["wrote"].append(out)
+                for where, why in (FF._row_of(out).get("synthetic") or {}).items():       # a value the row declares synthetic is named, not passed as a fact
+                    row.setdefault("synthetic", []).append({"output": out, "field": where, "why": why[:120]})
             except (FF.NotFillable, FF.Unclassified, ValueError) as exc:
                 row["live_only"].append({"output": out, "why": str(exc)[:240]})
         elif kind.startswith("command:"):
@@ -255,9 +286,24 @@ def selftest() -> int:
         server.stop()
     # E13: an output the filler has no kind for is live_only and nothing is written; a form the filler can fill is written whole
     plan = dict(role_plan("qa-scout", "S1", FF))
-    check_eq("E13: impl-diff.txt is live_only with the filler's own reason", plan.get("work/impl-diff.txt", "")[:10], "live_only:")
-    check_eq("E13: context-manifest.json is filled, the bundle is built by its command", (plan.get("work/context-manifest.json"), plan.get("work/context-bundle.json")),
-             ("fill", "command:context_bundle.py"))
+    check_eq("round 2: impl-diff.txt and context-manifest.json are filled, the bundle is built by its command",
+             (plan.get("work/impl-diff.txt"), plan.get("work/context-manifest.json"), plan.get("work/context-bundle.json")),
+             ("fill", "fill", "command:context_bundle.py"))
+    row_type = W.type_row()
+    diff = W.mr_diff(row_type)
+    check("round 2: the type's merge request diff is the raw file, byte for byte", diff.startswith("diff --git ") and diff.encode("utf-8") ==
+          (W.STORIES / row_type["input"] / "tracker" / "mr-4566.diff").read_bytes(), diff[:40])
+    check_eq("round 2: the diff lands in work/impl-diff.txt as the world holds it", FF.fill_artifact("work/impl-diff.txt", FF.FillContext(impl_diff=diff)).files["work/impl-diff.txt"], diff)
+    check_eq("E13: a world with no diff leaves impl-diff.txt unfillable, nothing is written",
+             [u.hint for u in FF.fill_artifact("work/impl-diff.txt", FF.FillContext()).unfillable], ["<the diff text>"])
+    inv = tmp / "inv.json"
+    for name, body, expect in (("a pending required mention", {"sources": [{"required": True, "relevance": "pending", "canonical_ref": "https://x/browse/A-1"}]}, "await the scout's judgment (https://x/browse/A-1)"),
+                               ("only the task, read", {"sources": [{"required": True, "relevance": "relevant"}]}, ""),
+                               ("no source", {"sources": []}, "")):
+        inv.write_text(json.dumps(body), encoding="utf-8")
+        check(f"round 2: inventory with {name}", expect in pending_judgments(inv) and bool(pending_judgments(inv)) == bool(expect), pending_judgments(inv))
+    check("round 2: an inventory that is not there is named, never read as no pending source", "missing or unreadable" in pending_judgments(tmp / "nope.json"))
+    check_eq("round 2: the answers of the road are the words of the first row naming the kind", W.closed_answers([{"answers": {"a": "x"}}, {"answers": {"a": "y", "b": "z"}}]), {"a": "x", "b": "z"})
     # the conductor stub offers every open move the prompt lists, and stops when it lists none
     prompt = "x\n## Moves open here\n\nintro\n- `retry` — token `again`; option carries no \"args\"\n- `story_fact` — yours to run, never an option\n- `stop_here` — token `stop`; option carries no \"args\"\n\n## Other\n- `no` — token `no`;"
     check_eq("conductor: the open moves of the prompt, in order", parse_moves(prompt), [("retry", "again"), ("stop_here", "stop")])
