@@ -46,6 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from content_size import content_bytes  # noqa: E402
+import hooklib  # noqa: E402  (`is_story_folder`, the one story-key leaf)
 from hooklib import PLUGIN_ROOT, artifact_root, is_one_component, project_root, read_json  # noqa: E402
 from inject_context import DISPATCH_KINDS, delivered_text, dispatch_kind, entries_for  # noqa: E402  (the one reader of `kinds`, AR-13)
 
@@ -539,7 +540,7 @@ def _task_root(project, task) -> Path:
     except (OSError, ValueError, AttributeError):
         artifacts = Path(project) / "qa-factory" / "artifacts"    # a broken config: today's folder
     root = artifacts / str(task)
-    if not is_one_component(str(task)) or not root.is_dir():
+    if not hooklib.is_story_folder(artifacts, str(task)):
         raise RoleLoadError(f"no story folder {task}")
     return root
 
