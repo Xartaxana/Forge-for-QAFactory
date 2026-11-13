@@ -7,8 +7,10 @@
   on a call)
 - A call is bookkeeping only when a Bash command INVOKES a listed script (the program an interpreter runs, or the command itself); a
   name that is only an argument (grep, cat, an editor) is not counted; a Write or Edit of a file matching a fragment pattern is its own
-  row (fragment writes). Refused calls have two rows and a total: the host's `is_error` flag, and results `classify` names while the
-  host did not flag them (`named by marker, not flagged by the host`); a call is in one of them only
+  row (fragment writes). A Bash command is read by the one shell reader (`hooklib` command segments, heredoc and here-string bodies
+  cut out first), so a body that names a script is not a call and an apostrophe in a body hides nothing. Refused calls are the host's
+  `is_error` flag and nothing else (a voluntary `--help` and a role's own text that says "is refused" are not refusals); a role session
+  whose transcript cannot be read (absent, unreadable, torn, empty) is `unknown` for every row and has no call count, never 0
 - `friction.SCRIPT` now accepts digits in a script name (`s5_precheck.py` was read as `_precheck.py`)
 - `references/friction-markers.json` gains the optional keys `bookkeeping_scripts` (the factory scripts whose calls are bookkeeping,
   one `why` each) and `bookkeeping_fragment_patterns` (file-name patterns of the fragments a role writes for the factory's own

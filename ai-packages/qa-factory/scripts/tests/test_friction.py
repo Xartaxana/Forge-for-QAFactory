@@ -591,7 +591,7 @@ def call_time_rows():
                  sorted(shipped["bookkeeping_scripts"]),
                  ["handoff_check.py", "handoff_init.py", "manifest_from_tests.py", "manifest_put.py",
                   "manifest_view.py", "s5_precheck.py"])
-        check_eq("the shipped fragment pattern list is the Lead's one pattern", shipped["fragment_patterns"],
+        check_eq("the shipped fragment pattern list is the Lead's one pattern", shipped["bookkeeping_fragment_patterns"],
                  ["*.values.yaml"])
         real_path = F.MARKERS_PATH
         F.MARKERS_PATH = root / "no-such-markers.json"
@@ -640,6 +640,25 @@ INVOCATION_SHAPES = (
      "python scripts/other.py && python scripts/s5_precheck.py", ["other.py", "s5_precheck.py"],
      "s5_precheck.py"),
     ("an empty command", "", [], None),
+    # round 3 (B1): the one shell reader (hooklib), the four real shapes the critic cited, reduced
+    ("a heredoc BODY naming scripts is text, not a command (not counted)",
+     "cat > notes.md <<'E'\nrun manifest_put.py later\npython s5_precheck.py was refused\nE", [], None),
+    ("an apostrophe inside a heredoc body does not hide the real call after it",
+     "cat > n.md <<'E'\nthe guard didn't run\nE\npython scripts/manifest_put.py --fragment f.json",
+     ["manifest_put.py"], "manifest_put.py"),
+    ("a real call with its flags after a heredoc",
+     "cat > fix.md <<'E'\nnotes: it's done\nE\npython /abs/scripts/handoff_check.py --file x.yaml --fix",
+     ["handoff_check.py"], "handoff_check.py"),
+    ("a quoted absolute path with spaces after a heredoc",
+     'cat > t.md <<EOF\ndon\'t\nEOF\npython "C:\\my dir\\scripts\\manifest_put.py" --task LOCAL-1 --fragment f.json',
+     ["manifest_put.py"], "manifest_put.py"),
+    ("a command that is only a heredoc", "python - <<'E'\nimport manifest_put.py\nE", [], None),
+    ("nested quotes in an argument of another command, then a real call",
+     "echo \"a 'b' c\" && python scripts/handoff_check.py", ["handoff_check.py"], "handoff_check.py"),
+    ("a very long command (20000 words) ending in a real call",
+     "echo " + "w " * 20000 + "&& python scripts/manifest_put.py", ["manifest_put.py"], "manifest_put.py"),
+    ("a program behind a wrapper is NOT read (a named limit in CALL_TIME_METHOD: the count is a floor)",
+     "timeout 120 python scripts/manifest_put.py", [], None),
 )
 
 
@@ -729,33 +748,36 @@ def round2_rows():
                    ("unknown", "unknown: no fragment pattern list", 0, "measured", 1))
                   for why, s in no_frag.items()]):
             check_eq(what, got_, want)
-        # answer 4: two refused rows and a total, a call never in both (timed_transcript: 3 flagged, 1 named)
+        # round 3 (B2): refused calls are the host's `is_error` flag and nothing else; no second row, no total
         tpath = root / "role.jsonl"
         write_jsonl(tpath, timed_transcript())
         spans = F.call_spans(tpath)
-        named, flagged, total = spans["named_by_marker"], spans["refused"], spans["refused_total"]
+        flagged = spans["refused"]
         by_t = {c["id"]: c for c in spans["calls"]}
-        real_path = F.MARKERS_PATH
-        F.MARKERS_PATH = root / "no-such-markers.json"
-        try:
-            lost = F.call_spans(tpath)
-        finally:
-            F.MARKERS_PATH = real_path
+        looks = root / "looks.jsonl"             # calls the host did not flag whose results LOOK like refusals
+        write_jsonl(looks, [
+            {"type": "user", "timestamp": stamp(0), "message": {"content": "go"}},
+            assistant("h1", calls=[("h1", "Bash", "python scripts/manifest_put.py --help")], ts=stamp(2)),
+            result("h1", "usage: manifest_put.py [-h] --task TASK [--fragment F]\n" + "  --x  flag\n" * 20, ts=stamp(4)),
+            assistant("h2", calls=[("h2", "Bash", "tail -5 tests/api/cart/cart_add.spec.ts")], ts=stamp(6)),
+            result("h2", "it('invalid input is refused with one error class', () => {})", ts=stamp(7)),
+            assistant("h3", calls=[("h3", "Bash", "python scripts/manifest_put.py")], ts=stamp(9)),
+            result("h3", "refused: no task", ts=stamp(10), error=True)])
+        got_looks = F.call_spans(looks)
         for what, got_, want in (
-                ("row 1 (host flag is_error) is as built: 3 calls", row_of(flagged, "calls"), dict(calls=3)),
-                ("row 2 (named by marker, not flagged): the validator result k6, its own seconds",
-                 (row_of(named, "calls", "exec_s", "turn_s", "state"), sorted(named["by_kind"])),
-                 (dict(calls=1, exec_s=2.0, turn_s=4.0, state="measured"), ["validator"])),
-                ("the total line is the two rows: 4 calls, seconds summed",
-                 row_of(total, "calls", "exec_s", "turn_s", "state"),
-                 dict(calls=4, exec_s=13.0, turn_s=18.0, state="measured")),
-                ("a call is never in both rows: a flagged guard refusal has no `named_kind`",
-                 (by_t["k2"]["is_error"], by_t["k2"]["named_kind"], by_t["k6"]["is_error"], by_t["k6"]["named_kind"]),
-                 (True, None, False, "validator")),
-                ("an unreadable markers file: row 2 unknown, the total partial and says why",
-                 (lost["named_by_marker"]["state"], lost["named_by_marker"]["calls"], lost["refused_total"]["state"],
-                  lost["refused_total"]["calls"], lost["refused_total"]["reason"][:8]),
-                 ("unknown", 0, "partial", 3, "unknown:"))):
+                ("refused: the 3 host-flagged calls of the fixture, and the key set has no second row or total",
+                 (row_of(flagged, "calls"), sorted(spans)),
+                 (dict(calls=3), ["bookkeeping", "calls", "fragment_writes", "method", "refused"])),
+                ("a flagged guard refusal is refused; the refusal-shaped result k6 with no flag is not",
+                 (by_t["k2"]["is_error"], by_t["k2"]["kind"], by_t["k6"]["is_error"], by_t["k6"]["kind"],
+                  sorted(by_t["k6"])),
+                 (True, "guard", False, None,
+                  ["bookkeeping", "exec_s", "fragment_write", "id", "is_error", "kind", "name", "script", "turn_s"])),
+                ("a voluntary --help call (argparse usage text) and a role's own text with `is refused` are NOT "
+                 "refusals; only the flagged call is",
+                 (got_looks["refused"]["calls"], [c["is_error"] for c in got_looks["calls"]],
+                  [c["kind"] for c in got_looks["calls"]]),
+                 (1, [False, False, True], [None, None, "failed, cause not recorded"]))):
             check_eq(what, got_, want)
         # answer 5: an empty bookkeeping list stays unknown (the rows of call_time_rows cover the other shapes)
         doc = dict(book_doc, bookkeeping_scripts=[])
@@ -827,21 +849,80 @@ def story_call_time_rows():
                  (3, ["crash", "failed, cause not recorded", "guard"])),
                 ("the role whose transcript is missing has no reachable session, no figure",
                  (data["roles"]["qa-scout"]["reachable"], data["roles"]["qa-scout"]["calls"],
-                  data["roles"]["qa-scout"]["bookkeeping"]["state"]), (0, 0, "unknown")),
+                  data["roles"]["qa-scout"]["bookkeeping"]["state"]), (0, None, "unknown")),
+                ("B3: that role's refused row is unknown with its reason (not 0), as the other rows are; the "
+                 "reachable role's refused row is measured",
+                 ([data["roles"]["qa-scout"][k]["state"] for k in ("bookkeeping", "fragment_writes", "refused")],
+                  data["roles"]["qa-scout"]["refused"]["reason"], auto["refused"]["state"]),
+                 (["unknown"] * 3, "unknown: no session could be read", "measured")),
                 ("the total is over the reachable session", (data["total"]["calls"],
                                                              data["total"]["bookkeeping"]["calls"]), (11, 5)),
-                ("the role's second refused row and total line: 1 named by marker, 3 + 1 in the total",
-                 (auto["named_by_marker"]["calls"], auto["refused_total"]["calls"], auto["fragment_writes"]["state"]),
-                 (1, 4, "measured")),
-                ("the unreachable role has no total line figure: unknown",
-                 (data["roles"]["qa-scout"]["refused_total"]["state"],
-                  data["roles"]["qa-scout"]["named_by_marker"]["state"]), ("unknown", "unknown")),
+                ("the role has refused, bookkeeping and fragment rows only (no named-by-marker row, no total)",
+                 (sorted(k for k in auto if isinstance(auto[k], dict)), auto["fragment_writes"]["state"]),
+                 (["bookkeeping", "fragment_writes", "refused"], "measured")),
+                ("the total of a story with one reachable role: its calls and a measured refused row",
+                 (data["total"]["calls"], data["total"]["refused"]["state"]), (11, "measured")),
                 ("stub roles with no transcript: n/a, never 0", (stub["status"], stub["reason"][:15]),
                  ("n/a", "n/a: stub roles")),
                 ("a lost real session next to a stub one is unknown, not n/a", mixed["status"], "unknown"),
                 ("a story with no driver journal is unknown", nothing["status"], "unknown")):
             check_eq(what, got, want)
         json.dumps(data)
+    finally:
+        cleanup(root)
+
+
+def unreadable_role_sessions_are_unknown_and_a_true_zero_is_zero():
+    """B3: absent, unreadable, torn and empty transcripts give `unknown` (calls None) for every row; a readable
+    transcript with no bookkeeping and no refused call gives a measured 0."""
+    root = temp_project()
+    try:
+        zero = [{"type": "user", "timestamp": stamp(0), "message": {"content": "go"}},
+                assistant("z1", calls=[("z1", "Read", "notes.md")], ts=stamp(2)), result("z1", "text", ts=stamp(3))]
+        base, troot, home, rows = build(root, [
+            ("qa-absent", "sess-absent", None, "host"), ("qa-empty", "sess-empty", None, "host"),
+            ("qa-torn", "sess-torn", None, "host"), ("qa-oserror", "sess-oserror", zero, "host"),
+            ("qa-zero", "sess-zero", zero, "host")])
+        write_journal(troot, rows)
+        folder = home / ".claude" / "projects" / cost_capture.project_slug(root)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "sess-empty.jsonl").write_text("", encoding="utf-8")
+        (folder / "sess-torn.jsonl").write_text('{"type": "assis\n{broken\nnot json at all\n', encoding="utf-8")
+        real = F.call_spans
+
+        def flaky(path, markers=None):
+            if "sess-oserror" in str(path):
+                raise PermissionError("transcript cannot be opened")
+            return real(path, markers)
+
+        F.call_spans = flaky
+        try:
+            data = F.story_calls(troot, base, root, {}, home=home)
+        finally:
+            F.call_spans = real
+        got = {role: (r["reachable"], r["calls"], [r[k]["state"] for k in ("bookkeeping", "fragment_writes", "refused")],
+                      r["refused"]["reason"]) for role, r in data["roles"].items()}
+        unknown = (0, None, ["unknown"] * 3, "unknown: no session could be read")
+        for what, got_, want in (
+                ("absent transcript: unknown, calls None", got["qa-absent"], unknown),
+                ("empty transcript file: unknown, calls None", got["qa-empty"], unknown),
+                ("torn transcript (no line is a record): unknown, calls None", got["qa-torn"], unknown),
+                ("unreadable transcript (the open fails): unknown, calls None", got["qa-oserror"], unknown),
+                ("a readable transcript with no such call: a measured 0, not unknown",
+                 got["qa-zero"], (1, 1, ["measured"] * 3, "")),
+                ("the story is partial and the total counts only the readable session",
+                 (data["status"], data["sessions_unreachable"], data["total"]["calls"],
+                  data["total"]["refused"]["state"]), ("partial", 4, 1, "measured"))):
+            check_eq(what, got_, want)
+        check_in("an empty or torn transcript says why it is unreachable", "no readable record",
+                 data["roles"]["qa-torn"]["unreachable_because"])
+        # one transcript straight through call_spans
+        for name, text in (("empty", ""), ("torn", "{broken\n")):
+            (folder / f"direct-{name}.jsonl").write_text(text, encoding="utf-8")
+            spans = F.call_spans(folder / f"direct-{name}.jsonl")
+            check_eq(f"call_spans of an {name} file: every row unknown, no call",
+                     ([spans[k]["state"] for k in ("bookkeeping", "fragment_writes", "refused")], spans["calls"]),
+                     (["unknown"] * 3, []))
     finally:
         cleanup(root)
 
@@ -881,6 +962,7 @@ def main():
     call_time_rows()
     round2_rows()
     story_call_time_rows()
+    unreadable_role_sessions_are_unknown_and_a_true_zero_is_zero()
     old_keys_of_turns_of_are_unchanged()
     classification_of_every_kind_and_its_boundaries()
     the_synthetic_transcript_is_measured()

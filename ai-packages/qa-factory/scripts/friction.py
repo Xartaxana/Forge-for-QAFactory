@@ -32,6 +32,8 @@ import json
 import re
 from pathlib import Path
 
+import hooklib
+
 MARKERS_PATH = Path(__file__).resolve().parents[1] / "references" / "friction-markers.json"
 _MARKERS_CACHE: dict = {}
 
@@ -80,7 +82,7 @@ def load_markers(path=None) -> dict:
                 "adhoc_path_regexes": [re.compile(x) for x in raw["adhoc_path_regexes"]],
                 "project_test_regex": re.compile(raw["project_test_regex"]),
                 "bookkeeping_scripts": _bookkeeping_rows(raw.get("bookkeeping_scripts")),
-                "fragment_patterns": _fragment_patterns(raw.get("bookkeeping_fragment_patterns")),
+                "bookkeeping_fragment_patterns": _fragment_patterns(raw.get("bookkeeping_fragment_patterns")),
             }
         except (OSError, ValueError, KeyError, TypeError, re.error) as exc:
             raise ValueError(
@@ -263,60 +265,35 @@ CALL_TIME_METHOD = (
     "python / python3 / py and their flags) or as the command itself; a name that is only an argument "
     "(grep, cat, an editor, another script's argument) is not counted; a command that invokes several "
     "listed scripts is one call, attributed to the first one in the command. A Write or Edit whose file "
-    "name matches `bookkeeping_fragment_patterns` is a fragment write, its own row, never in the script "
-    "row. A call is refused/failed when its `tool_result` carries `is_error: true` (row 1, split by "
-    "`classify` where it names a kind); a call the host did not flag whose result `classify` names a "
-    "kind is row 2, `named by marker, not flagged by the host`; no call is in both, and the total is the "
-    "two. A refused bookkeeping call is in both the bookkeeping and the refused row. A message with "
+    "name matches `bookkeeping_fragment_patterns` is a fragment write (Write and Edit only: a fragment "
+    "written by a Bash redirect is not counted), its own row, never in the script row. A call is "
+    "refused/failed when its `tool_result` carries `is_error: true` and for no other reason: the host's "
+    "flag, split by `classify` where it names a kind; the role's own text that merely looks like a "
+    "refusal, and a voluntary `--help` call, are not refusals. A refused bookkeeping call is in both the "
+    "bookkeeping and the refused row. A message with "
     "several calls has its window split evenly among ALL of them: a call with no result is unknown, so "
     "the sum says `at least`. A call with no result, or a line with no readable timestamp, is counted "
-    "and its seconds are unknown, never 0.")
+    "and its seconds are unknown, never 0. A transcript with no readable record (absent, unreadable, "
+    "torn, empty) is `unknown` for every row, never 0 calls. Not read, so a count is a floor: a program "
+    "behind a wrapper (`timeout`, `env`, `sudo`), a `bash -c` payload and a program held in a variable.")
 
 NO_BOOKKEEPING_LIST = "unknown: no bookkeeping list"
 NO_FRAGMENT_LIST = "unknown: no fragment pattern list"
-NO_MARKERS = "unknown: the markers file is unreadable, so no result could be named by marker"
+NO_TRANSCRIPT = "unknown: no session could be read"
 _INTERPRETER = re.compile(r"(python[0-9.]*|py)(\.exe)?")
 _ENV_ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
-def _segments(command):
-    """A shell command line as a list of token lists, one per simple command. Quote-aware: a separator
-    (`&&`, `||`, `;`, `|`, `&`, a newline, a parenthesis) inside quotes stays text; a backslash is literal
-    (Windows paths). Not a shell: only enough to tell the program of each command from its arguments."""
-    segs, toks, cur, quote, i = [], [], [], None, 0
-    text = command or ""
-
-    def end_token():
-        if cur:
-            toks.append("".join(cur))
-            cur.clear()
-
-    def end_segment():
-        end_token()
-        if toks:
-            segs.append(list(toks))
-            toks.clear()
-
-    while i < len(text):
-        ch = text[i]
-        if quote:
-            if ch == quote:
-                quote = None
-            else:
-                cur.append(ch)
-        elif ch in "\"'":
-            quote = ch
-            if not cur:
-                cur.append("")          # an empty quoted word is still a token
-        elif ch in "&|;\n()":
-            end_segment()
-        elif ch.isspace():
-            end_token()
-        else:
-            cur.append(ch)
-        i += 1
-    end_segment()
-    return segs
+def _command_words(command):
+    """The simple commands of a Bash command line as lists of words, read by the ONE shell reader (SIBLING_MAP
+    axis 11): the bodies of heredocs and here-strings are cut out first (`hooklib.scan_bodies`/`cut_bodies`: a
+    body is text a command carries, never a command, and a quote in it flips nothing after it), then
+    `hooklib.command_segments`. A word is the reader's dequoted word with substitutions deleted; its backslashes
+    stay (`cleaned_word` would delete them and a Windows path would stop being one)."""
+    text = str(command or "")
+    cut, _ = hooklib.cut_bodies(text, hooklib.scan_bodies(text))
+    return [[str(w.clean if isinstance(w, hooklib.Word) else w) for w, _quoted in seg]
+            for seg in hooklib.command_segments(cut, "bash")[0]]
 
 
 def _base(token):
@@ -328,7 +305,7 @@ def invoked_scripts(command) -> list:
     interpreter (python / python3 / py, their flags skipped; `-c` and `-m` run no file), or a command word
     that is itself a script. A name that is only an argument of another program is not invoked."""
     found = []
-    for toks in _segments(command):
+    for toks in _command_words(command):
         k = 0
         while k < len(toks) and _ENV_ASSIGN.match(toks[k]):
             k += 1
@@ -394,89 +371,95 @@ def _add(tally, call):
 
 
 def call_spans(path, markers=None):
-    """One transcript's tool calls with their time, and the two rows built on them (T9, T10).
+    """One transcript's tool calls with their time, and the rows built on them (T9, T10).
 
-    {calls: [{id, name, script, bookkeeping, fragment_write, is_error, kind, named_kind, exec_s, turn_s}],
+    {calls: [{id, name, script, bookkeeping, fragment_write, is_error, kind, exec_s, turn_s}],
      bookkeeping: {state, reason, + tally}, fragment_writes: {state, reason, + tally},
-     refused: {calls, by_kind, + tally} (`is_error` only), named_by_marker: {state, reason, by_kind,
-     + tally} (not flagged by the host, a kind named by `classify`), refused_total: {state, reason, + tally},
-     method}. A tally is {calls, exec_s, exec_unmeasured, turn_s, turn_unmeasured}: the seconds are the
-    MEASURED ones, the unmeasured count says how many calls they leave out (print with `seconds_text`).
-    With no bookkeeping list (key absent, not a list, empty, or the markers file unreadable) the
-    bookkeeping row is `state: unknown`, never 0 calls; the same for the fragment pattern list."""
+     refused: {state, reason, by_kind, + tally} (the host's `is_error` flag and nothing else), method}.
+    A tally is {calls, exec_s, exec_unmeasured, turn_s, turn_unmeasured}: the seconds are the MEASURED
+    ones, the unmeasured count says how many calls they leave out (print with `seconds_text`).
+    A row is `state: unknown`, never 0 calls, when there is no bookkeeping list (key absent, not a list,
+    empty, or the markers file unreadable; the same for the fragment pattern list) and, for every row,
+    when the transcript holds no readable record (empty, torn: `NO_TRANSCRIPT`); a readable transcript
+    with no such call is a measured 0."""
     try:
         m = markers or load_markers()
     except ValueError:
         m = None
     book = m["bookkeeping_scripts"] if m else None
-    frag = m["fragment_patterns"] if m else None
+    frag = m["bookkeeping_fragment_patterns"] if m else None
+    readable = _readable(path)
+    out = _rows(readable, book, frag)
+    out.update(calls=[], method=CALL_TIME_METHOD)
+    if not readable:
+        return out
     rows, results = turns_of(path, lambda model, usage: None, m)
-    calls, seen = [], set()
+    seen = set()
     for r in rows:
-        mine = []
-        for c in r["calls"]:
-            if c["id"] in seen:                   # the same streamed line read twice
-                continue
-            seen.add(c["id"])
-            mine.append(c)
+        mine = [c for c in r["calls"] if c["id"] not in seen and not seen.add(c["id"])]  # a streamed line read twice
         ends = [c["result_ts"] for c in mine if c["has_result"] and _when(c["result_ts"]) is not None]
         window = _seconds(r.get("prev_ts"), max(ends, key=_when)) if ends else None
         # the window is split evenly among ALL the message's calls; one with no result keeps `unknown`
         share = window / len(mine) if window is not None else None
         for c in mine:
-            script = next((n for n in invoked_scripts(c["arg"]) if book and n in book), None) \
-                if c["name"] == "Bash" else None
-            fragment = bool(frag) and c["name"] in ("Write", "Edit") and any(
-                fnmatch.fnmatchcase(_base(c["arg"]), p) for p in frag)
-            texts = results.get(c["id"], []) if m else []
-            kind = named = None
-            if c["is_error"]:
-                for txt in texts:
-                    kind = classify(txt, m) or kind
-                kind = kind or REFUSED_UNNAMED
-            else:
-                for txt in texts:
-                    named = classify(txt, m) or named
             measured = c["has_result"] and _when(c["result_ts"]) is not None
-            calls.append(dict(
-                id=c["id"], name=c["name"], script=script, bookkeeping=script is not None,
-                fragment_write=fragment, is_error=c["is_error"], kind=kind, named_kind=named,
-                exec_s=_seconds(c["ts"], c["result_ts"]) if c["has_result"] else None,
-                turn_s=share if measured else None))
-    bookkeeping = dict(_tally(), state="measured" if book else "unknown",
-                       reason="" if book else NO_BOOKKEEPING_LIST)
-    fragments = dict(_tally(), state="measured" if frag else "unknown",
-                     reason="" if frag else NO_FRAGMENT_LIST)
-    refused = dict(_tally(), by_kind={})
-    named_row = dict(_tally(), by_kind={}, state="measured" if m else "unknown",
-                     reason="" if m else NO_MARKERS)
-    for c in calls:
+            call = _classify_call(c, results.get(c["id"], []) if m else [], m, book, frag)
+            call.update(exec_s=_seconds(c["ts"], c["result_ts"]) if c["has_result"] else None,
+                        turn_s=share if measured else None)
+            out["calls"].append(call)
+    for c in out["calls"]:
         if book and c["bookkeeping"]:
-            _add(bookkeeping, c)
+            _add(out["bookkeeping"], c)
         if frag and c["fragment_write"]:
-            _add(fragments, c)
+            _add(out["fragment_writes"], c)
         if c["is_error"]:
-            _add(refused, c)
-            _add(refused["by_kind"].setdefault(c["kind"], _tally()), c)
-        elif c["named_kind"]:
-            _add(named_row, c)
-            _add(named_row["by_kind"].setdefault(c["named_kind"], _tally()), c)
-    return dict(calls=calls, bookkeeping=bookkeeping, fragment_writes=fragments, refused=refused,
-                named_by_marker=named_row, refused_total=_two_row_total(refused, named_row),
-                method=CALL_TIME_METHOD)
+            _add(out["refused"], c)
+            _add(out["refused"]["by_kind"].setdefault(c["kind"], _tally()), c)
+    return out
 
 
-def _two_row_total(refused, named):
-    """The total line of the two refused rows: the host-flagged ones plus the ones named by marker. When the
-    second row could not be measured the total is `partial` and says so: the flagged calls only."""
-    total = dict(_tally(), state="measured", reason="")
-    for row in (refused, named):
-        if row.get("state", "measured") == "measured":
-            for k in _tally():
-                total[k] += row[k]
-    if named.get("state") != "measured":
-        total.update(state="partial", reason=named.get("reason") or NO_MARKERS)
-    return total
+def _classify_call(c, texts, m, book, frag):
+    """One call's facts without its time: the listed script it invokes, whether it is a fragment write, and
+    (host-flagged calls only) the kind `classify` names for its result."""
+    script = next((n for n in invoked_scripts(c["arg"]) if book and n in book), None) \
+        if c["name"] == "Bash" else None
+    fragment = bool(frag) and c["name"] in ("Write", "Edit") and any(
+        fnmatch.fnmatchcase(_base(c["arg"]), p) for p in frag)
+    kind = None
+    if c["is_error"]:
+        for txt in texts:
+            kind = classify(txt, m) or kind
+        kind = kind or REFUSED_UNNAMED
+    return dict(id=c["id"], name=c["name"], script=script, bookkeeping=script is not None,
+                fragment_write=fragment, is_error=c["is_error"], kind=kind)
+
+
+def _row(known, reason, **extra):
+    """One row: a tally with its state; `unknown` carries the reason and its tally stays 0 (never printed)."""
+    return dict(_tally(), state="measured" if known else "unknown", reason="" if known else reason, **extra)
+
+
+def _rows(readable, book, frag):
+    """The three rows before any call is folded in. An unreadable transcript is unknown for all of them."""
+    why = None if readable else NO_TRANSCRIPT
+    return dict(bookkeeping=_row(readable and bool(book), why or NO_BOOKKEEPING_LIST),
+                fragment_writes=_row(readable and bool(frag), why or NO_FRAGMENT_LIST),
+                refused=_row(readable, NO_TRANSCRIPT, by_kind={}))
+
+
+def _readable(path) -> bool:
+    """True when at least one line of the transcript parses as a user or assistant record: an empty file and
+    a file of torn lines hold nothing to count, and `0 calls` there would be a number nobody measured (FR-41).
+    A file that cannot be opened raises OSError, as `turns_of` does."""
+    with Path(path).open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and r.get("type") in ("assistant", "user"):
+                return True
+    return False
 
 
 def package_price(cfg=None):
@@ -693,7 +676,7 @@ def _walk_sessions(role_of, state_dir, project_root, home, measure):
         if path is not None:
             try:
                 measured = measure(path)
-            except OSError as exc:
+            except (OSError, _Unreadable) as exc:
                 source = f"unreadable: {type(exc).__name__}: {exc}"
         yield sid, role, measured, source
 
@@ -728,9 +711,11 @@ def story_calls(task_root, state_dir, project_root, cfg=None, home=None):
     the story's own driver journal names (FR-24), read from the roles' transcripts through `call_spans`.
 
     {status: ok | partial | unknown | n/a, reason, roles: {role: {sessions, sessions_unreachable, reachable,
-     calls, bookkeeping, fragment_writes, refused, named_by_marker, refused_total}}, total: {the same},
+     calls, bookkeeping, fragment_writes, refused}}, total: {the same},
      sessions, sessions_unreachable, sources, method}. The rows are `call_spans` rows summed over the
-     role's reachable sessions (seconds: the measured ones, with their unmeasured count). Every session unreachable and
+     role's reachable sessions (seconds: the measured ones, with their unmeasured count). A role none of
+     whose sessions could be read has `calls: None` and every row `unknown` with its reason: never 0 calls.
+     Every session unreachable and
      every one of them a `stub-` session (the dry-story stub writes no transcript) is `n/a: stub roles`;
      any other unreachable set is `unknown`, as in `story_friction`: never 0 calls, never 0 seconds.
      `cfg` is accepted for the signature of `story_friction`; no price is needed here."""
@@ -743,25 +728,23 @@ def story_calls(task_root, state_dir, project_root, cfg=None, home=None):
         markers = None                      # call_spans then says `unknown: no bookkeeping list`
     roles, sources = {}, collections.Counter()
     for sid, role, measured, source in _walk_sessions(
-            role_of, state_dir, project_root, home, lambda p: call_spans(p, markers)):
+            role_of, state_dir, project_root, home, lambda p: _measured_spans(p, markers)):
         row = roles.setdefault(role, dict(
-            dispatches=len(dispatches[role]), sessions=0, sessions_unreachable=0, calls=0,
-            **_empty_rows()))
+            dispatches=len(dispatches[role]), sessions=0, sessions_unreachable=0, calls=None,
+            **_rows(False, None, None)))
         row["sessions"] += 1
         if measured is None:
             _unreachable(row, sources, sid, source)
             continue
         sources[source] += 1
-        row["calls"] += len(measured["calls"])
+        row["calls"] = (row["calls"] or 0) + len(measured["calls"])
         _fold(row, measured)
-    total = dict(calls=0, **_empty_rows())
+    total = dict(calls=None, **_rows(False, None, None))
     for row in roles.values():
         row["reachable"] = row["sessions"] - row["sessions_unreachable"]
-        total["calls"] += row["calls"]
+        if row["calls"] is not None:
+            total["calls"] = (total["calls"] or 0) + row["calls"]
         _fold(total, row)
-    for row in list(roles.values()) + [total]:
-        if row.get("reachable", sum(r["reachable"] for r in roles.values())):
-            row["refused_total"] = _two_row_total(row["refused"], row["named_by_marker"])
     out = {"sessions": len(role_of), "roles": roles, "total": total, "sources": dict(sources),
            "method": CALL_TIME_METHOD}
     if sources.get("unreachable") == len(role_of) and all(s.startswith("stub-") for s in role_of):
@@ -770,26 +753,29 @@ def story_calls(task_root, state_dir, project_root, cfg=None, home=None):
     return _status(out, roles, len(role_of), "counts")
 
 
-def _empty_rows():
-    """The rows of a role before any session is folded in: the three that can be unknown say so."""
-    return dict(
-        bookkeeping=dict(_tally(), state="unknown", reason=NO_BOOKKEEPING_LIST),
-        fragment_writes=dict(_tally(), state="unknown", reason=NO_FRAGMENT_LIST),
-        refused=dict(_tally(), by_kind={}),
-        named_by_marker=dict(_tally(), by_kind={}, state="unknown", reason=NO_MARKERS),
-        refused_total=dict(_tally(), state="unknown", reason="unknown: no session could be read"))
+class _Unreadable(Exception):
+    """A transcript that opens but holds no record to count (empty, torn): the session is unreachable."""
+
+
+def _measured_spans(path, markers):
+    """`call_spans` of a role session, or `_Unreadable` when the transcript holds no readable record."""
+    got = call_spans(path, markers)
+    if got["refused"]["state"] != "measured":
+        raise _Unreadable("the transcript holds no readable record (empty or torn)")
+    return got
 
 
 def _fold(into, part):
-    """Add `part`'s rows (a `call_spans` result or a role row) into `into`. A row that can be unknown
-    stays `unknown` until a measured one is folded in; `refused_total` is not folded, it is rebuilt from
-    the two refused rows."""
-    for name in ("bookkeeping", "fragment_writes", "refused", "named_by_marker"):
+    """Add `part`'s rows (a `call_spans` result or a role row) into `into`. A row stays `unknown` until a
+    measured one is folded in; while it stays unknown it carries the reason of the last unknown part (a list
+    that is absent says so, not `no session could be read`)."""
+    for name in ("bookkeeping", "fragment_writes", "refused"):
         row = part[name]
         if row.get("state", "measured") != "measured":
+            if into[name]["state"] != "measured" and row.get("reason") != NO_TRANSCRIPT:
+                into[name]["reason"] = row["reason"]
             continue
-        if "state" in row:
-            into[name].update(state="measured", reason="")
+        into[name].update(state="measured", reason="")
         for k in _tally():
             into[name][k] += row[k]
         for kind, tally in row.get("by_kind", {}).items():
