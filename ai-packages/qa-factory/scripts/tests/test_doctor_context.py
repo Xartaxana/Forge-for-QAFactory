@@ -169,12 +169,12 @@ class PacketNameLength(unittest.TestCase):
 
     def test_root_at_the_limit_writes_and_one_beyond_exceeds_the_windows_path(self):
         import native_context as N
-        self.assertEqual(N.PACKET_ROOT_LIMIT, 119)
+        self.assertEqual(N.PACKET_ROOT_LIMIT, 143)
         at = self.root_of(N.PACKET_ROOT_LIMIT)
-        N.stage(at, self.event(), 'qa-scout', 'ctx', 'QA-1')   # writes through event_store's `.<32 hex>.tmp` name
+        N.stage(at, self.event(), 'qa-scout', 'ctx', 'QA-1')   # writes through event_store's `.<8 hex>.tmp` name
         path = N.pending_path(at, 's', 'qa_scout__qa_1')
         self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['context'], 'ctx')
-        temp_name_extra = len('.' + 'f' * 32 + '.tmp')
+        temp_name_extra = len('.' + 'f' * 8 + '.tmp')
         self.assertEqual(len(str(path)) + temp_name_extra, 259)          # the longest the host path allows
         beyond = N._slot(Path('p' * (N.PACKET_ROOT_LIMIT + 1)), 's', 'qa_scout__qa_1')
         self.assertEqual(len(str(beyond)) + temp_name_extra, 260)         # the old failing length, one past the limit
@@ -201,13 +201,15 @@ class PacketNameLength(unittest.TestCase):
     def test_length_arithmetic_is_pure_and_pins_the_limits(self):
         """A1: string roots only, no disk, no TEMP."""
         import native_context as N
-        self.assertEqual((N.NAME_HEX, N.PACKET_ROOT_LIMIT, N.SUPPORTED_ROOT), (32, 119, 119))
+        self.assertEqual((N.NAME_HEX, N.PACKET_ROOT_LIMIT, N.SUPPORTED_ROOT), (32, 143, 143))
+        self.assertEqual(N.TEMP_NAME_EXTRA, 13)
         root = lambda length: 'C:\\' + 'p' * (length - 3)
-        for length, total in ((119, 259), (120, 260)):
+        for length, total in ((143, 259), (144, 260)):
             with self.subTest(root=length):
-                self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), length + 140)
+                self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), length + 116)
                 self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), total)
-        self.assertEqual(N.write_path_length(root(152), 's'), 259)
+        self.assertEqual(N.write_path_length(root(176), 's'), 259)
+        self.assertEqual(N.write_path_length(root(177), 's'), 260)
 
     def test_unwritten_facts_table(self):
         """A4: which cause text applies; string roots, explicit platform."""
@@ -222,18 +224,18 @@ class PacketNameLength(unittest.TestCase):
 
         fnf, drive = FileNotFoundError('x'), 'C:\\'
         rows = {
-            'at_limit_nt': (padded(drive, 119), fnf, 'nt', 'q', 'write_error'),
-            'over_nt': (padded(drive, 120), fnf, 'nt', 'q', 'path_limit'),
-            'over_permission': (padded(drive, 120), PermissionError('x'), 'nt', 'q', 'write_error'),
-            'over_enametoolong': (padded(drive, 120), OSError(errno.ENAMETOOLONG, 'x'), 'nt', 'q', 'path_limit'),
-            'over_winerror206': (padded(drive, 120), Winerror206('x'), 'nt', 'q', 'path_limit'),
-            'unc_over': (padded('\\\\srv\\share\\', 120), fnf, 'nt', 'q', 'path_limit'),
+            'at_limit_nt': (padded(drive, 143), fnf, 'nt', 'q', 'write_error'),
+            'over_nt': (padded(drive, 144), fnf, 'nt', 'q', 'path_limit'),
+            'over_permission': (padded(drive, 144), PermissionError('x'), 'nt', 'q', 'write_error'),
+            'over_enametoolong': (padded(drive, 144), OSError(errno.ENAMETOOLONG, 'x'), 'nt', 'q', 'path_limit'),
+            'over_winerror206': (padded(drive, 144), Winerror206('x'), 'nt', 'q', 'path_limit'),
+            'unc_over': (padded('\\\\srv\\share\\', 144), fnf, 'nt', 'q', 'path_limit'),
             'extended': (padded('\\\\?\\C:\\', 200), fnf, 'nt', 'q', 'write_error'),
             'extended_unc': (padded('\\\\?\\UNC\\srv\\share\\', 200), fnf, 'nt', 'q', 'write_error'),
             'extended_forward_slash': (padded('//?/C:/', 200), fnf, 'nt', 'q', 'write_error'),
             'posix_long': (padded('/', 300), fnf, 'posix', 'q', 'write_error'),
-            'unnamed_153': (padded(drive, 153), fnf, 'nt', None, 'path_limit'),
-            'empty_message': (padded(drive, 120), FileNotFoundError(), 'nt', 'q', 'path_limit'),
+            'unnamed_177': (padded(drive, 177), fnf, 'nt', None, 'path_limit'),
+            'empty_message': (padded(drive, 144), FileNotFoundError(), 'nt', 'q', 'path_limit'),
         }
         for name, (root, exc, platform, task, cause) in rows.items():
             with self.subTest(row=name):
@@ -241,7 +243,7 @@ class PacketNameLength(unittest.TestCase):
                 self.assertEqual(facts['cause'], cause, facts)
                 if name == 'over_nt':
                     self.assertEqual((facts['length'], facts['root_length'], facts['packet_limit'], facts['supported']),
-                                     (260, 120, 119, 119))
+                                     (260, 144, 143, 143))
                 if name == 'posix_long':
                     self.assertIsNone(facts['limit'])
                 if name == 'empty_message':
@@ -268,8 +270,8 @@ class PacketNameLength(unittest.TestCase):
         """A5: no pass road (ticket empty); the text is a machine line to the orchestrator."""
         from hooklib import TRAPPED
         cases = {
-            'path': ('C:\\' + 'p' * 117, FileNotFoundError('gone'),
-                     ('qa-scout', 'refused', '120', '260', '259', 'at most 119 characters', 'shorter is safer', 'long paths',
+            'path': ('C:\\' + 'p' * 141, FileNotFoundError('gone'),
+                     ('qa-scout', 'refused', '144', '260', '259', 'at most 143 characters', 'shorter is safer', 'long paths',
                       'if they can and want to', '(owner: environment)')),
             'write': ('C:\\' + 'p' * 20, PermissionError('locked'), ('qa-scout', 'refused', 'PermissionError', 'again once')),
         }
@@ -330,6 +332,224 @@ class PacketNameLength(unittest.TestCase):
                     self.assertEqual('waiver.py --task T --stage S1' in err.getvalue(), stage is not None)
                     if name in ('revoked', 'other_stage', 'no_pipeline'):
                         self.assertIn('--block "could not be written"', err.getvalue())
+
+
+class NativeStageRefusal(unittest.TestCase):
+    """OH6-4: a refused native launch leaves a denial row (named, or inert while a launch of its key is pending); the
+    refusal itself (stderr text, exit 2) is unchanged."""
+
+    def setUp(self):
+        import hooklib
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / 'qa-factory').mkdir()
+        (self.root / 'qa-factory/config.json').write_text('{"schema_version": 1}', encoding='utf-8')
+        self.story = self.root / 'qa-factory/artifacts/QA-1'
+        self.story.mkdir(parents=True)
+        (self.story / 'pipeline.json').write_text(json.dumps({'ticket': 'QA-1', 'stages': {'S1': {'status': 'running'}}}),
+                                                  encoding='utf-8')
+        patches = (mock.patch.dict(os.environ, {'CLAUDE_PROJECT_DIR': str(self.root)}),
+                   mock.patch.object(hooklib, '_PROJECT_ROOT_CACHE', None))
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def event(self, **drop):
+        ev = {'host': 'codex', 'cwd': str(self.root), 'session_id': 's', 'tool_use_id': 'u1', 'tool_name': 'Agent',
+              'tool_input': {'subagent_type': 'qa-scout', 'prompt': 'Dispatch id: D-1\nwork'},
+              '_qa_host': {'input': {'task_name': 'qa_scout__qa_1'}}}
+        for key in drop:
+            ev.pop(key)
+        return ev
+
+    def staged(self, ev, context='ctx'):
+        import native_context as N
+        N.stage(self.root, ev, 'qa-scout', context, 'QA-1')
+
+    def refused(self, ev, exc, ticket='QA-1'):
+        import inject_context as IC
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stop:
+            IC.refuse_native_stage(ev, ticket, 'qa-scout', self.root, exc)
+        return stop.exception.code, err.getvalue()
+
+    def raised(self, ev, context='ctx'):
+        with self.assertRaises(ValueError) as caught:
+            self.staged(ev, context)
+        return caught.exception
+
+    def rows(self, path=None):
+        path = path or self.story / 'state/dispatch-denials.jsonl'
+        if not path.is_file():
+            return []
+        return [json.loads(x) for x in path.read_text(encoding='utf-8').splitlines()]
+
+    def belongs(self):
+        from controller import Controller
+        return Controller(self.story)._denial_times({'id': 'D-1', 'role': 'qa-scout', 'stage': 'S1'}, {}, {})
+
+    def test_native_stage_refusals(self):
+        big = 'x' * 100001
+
+        def too_large():
+            return self.event(), self.raised(self.event(), big), 'QA-1'
+
+        def no_identity():
+            ev = self.event(tool_use_id=None)
+            return ev, self.raised(ev), 'QA-1'
+
+        def pending():
+            ev = self.event()
+            self.staged(ev)
+            return ev, self.raised(ev), 'QA-1'
+
+        def busy_lock():
+            from event_store import StateConflict
+            return self.event(), StateConflict('task has an active state writer'), 'QA-1'
+
+        def big_while_pending():
+            ev = self.event()
+            self.staged(ev)
+            return ev, self.raised(ev, big), 'QA-1'
+
+        def unreadable_pending():
+            import native_context as N
+            ev = self.event()
+            self.staged(ev)
+            N._slot(self.root, 's', 'qa_scout__qa_1').write_text('{broken', encoding='utf-8')
+            return ev, self.raised(ev, big), 'QA-1'
+
+        def list_pending():
+            import native_context as N
+            ev = self.event()
+            self.staged(ev)
+            N._slot(self.root, 's', 'qa_scout__qa_1').write_text('[1]', encoding='utf-8')
+            return ev, self.raised(ev, big), 'QA-1'
+
+        def no_ticket():
+            return self.event(), self.raised(self.event(), big), ''
+
+        rows = [('B-1 too_large', too_large, 'named'), ('B-2 no_identity', no_identity, 'named'),
+                ('B-3 pending', pending, 'inert'), ('B-4 busy_lock', busy_lock, 'inert'),
+                ('B-5 too_large_while_pending', big_while_pending, 'inert'),
+                ('B-6 unreadable_pending', unreadable_pending, 'inert'),
+                ('B-6b list_pending', list_pending, 'inert'), ('B-7 no_ticket', no_ticket, 'project')]
+        for name, build, kind in rows:
+            with self.subTest(row=name):
+                self.reset_story_state()
+                ev, exc, ticket = build()
+                code, err = self.refused(ev, exc, ticket)
+                self.assertEqual((code, err), (2, 'INJECT: ' + str(exc) + '\n'))
+                if kind == 'project':
+                    self.assertEqual(self.rows(), [])
+                    project = self.rows(self.root / 'qa-factory/state/dispatch-denials.jsonl')
+                    self.assertEqual([r['reason'] for r in project], ['INJECT: ' + str(exc)])
+                    continue
+                story_rows = self.rows()
+                self.assertEqual(len(story_rows), 1)
+                if kind == 'named':
+                    self.assertEqual(story_rows[0]['dispatch_id'], 'D-1')
+                    self.assertEqual(len(self.belongs()), 1)
+                else:
+                    self.assertEqual((story_rows[0]['dispatch_id'], story_rows[0]['stage']), (None, None))
+                    self.assertEqual(self.belongs(), [])
+
+    def test_native_packet_refusal_rows(self):
+        """P-1: an OSError from `stage` leaves a NAMED row, or an INERT one while a same-key packet is pending."""
+        import inject_context as IC
+        for name, pending, kind in (('P-1a nothing_pending', False, 'named'), ('P-1b pending', True, 'inert')):
+            with self.subTest(row=name):
+                self.reset_story_state()
+                ev = self.event()
+                if pending:
+                    self.staged(ev)
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stop:
+                    IC.refuse_native_packet(ev, 'QA-1', 'qa-scout', self.root, OSError('disk'), None)
+                self.assertEqual(stop.exception.code, 2)
+                story_rows = self.rows()
+                self.assertEqual(len(story_rows), 1)
+                if kind == 'named':
+                    self.assertEqual(story_rows[0]['dispatch_id'], 'D-1')
+                else:
+                    self.assertEqual((story_rows[0]['dispatch_id'], story_rows[0]['stage']), (None, None))
+                    self.assertEqual(self.belongs(), [])
+
+    def reset_story_state(self):
+        """Each row starts from an empty story state and an empty packet folder."""
+        import shutil
+        shutil.rmtree(self.story / 'state', ignore_errors=True)
+        shutil.rmtree(self.root / 'qa-factory/state', ignore_errors=True)
+
+    def test_dispatch_refusals_without_a_packet_leave_a_named_row(self):
+        """B-8 (check_override) and B-9 (rewritten_input): `dispatch` refuses, writes the row, exits 2 as before."""
+        import inject_context as IC
+        import host_adapter
+        import codex_roles
+        import stage_guard
+        (self.story / 'state').mkdir()
+        (self.story / 'state/controller.json').write_text(json.dumps({'dispatches': {'D-1': {
+            'id': 'D-1', 'role': 'qa-scout', 'stage': 'S1', 'status': 'running', 'resolved_model': {}}}}), encoding='utf-8')
+        imap = {'roles': {'qa-scout': {}}}
+        cases = [('B-8 check_override', 'check_override', True), ('B-9 rewritten_input', 'rewritten_input', False)]
+        for name, target, codex in cases:
+            with self.subTest(row=name):
+                ev = self.event()
+                if codex:
+                    ev['_qa_host']['input']['agent_type'] = 'qa_scout'
+                else:
+                    ev['host'] = 'claude'
+                (self.story / 'state/dispatch-denials.jsonl').unlink(missing_ok=True)
+                err = io.StringIO()
+                module = codex_roles if codex else host_adapter
+                with contextlib.ExitStack() as stack, contextlib.redirect_stderr(err):
+                    stack.enter_context(mock.patch.object(IC, 'load_map', return_value=imap))
+                    stack.enter_context(mock.patch.object(IC, 'run_stage_guard'))
+                    stack.enter_context(mock.patch.object(IC, 'collect_blocks', return_value=['\nblock']))
+                    stack.enter_context(mock.patch.object(stage_guard, 'requested_ticket', return_value='QA-1'))
+                    stack.enter_context(mock.patch.object(module, target, side_effect=ValueError('refused: ' + target)))
+                    if codex:
+                        import worker_lifecycle
+                        stack.enter_context(mock.patch.object(worker_lifecycle, 'guard'))
+                        stack.enter_context(mock.patch.object(host_adapter, 'role_policy'))
+                        stack.enter_context(mock.patch.object(IC, 'codex_role_instructions'))
+                    with self.assertRaises(SystemExit) as stop:
+                        IC.dispatch(ev, {'rewritten': False})
+                self.assertEqual(stop.exception.code, 2, err.getvalue())
+                self.assertEqual(err.getvalue(), 'refused: ' + target + '\n')
+                rows = self.rows()
+                self.assertEqual([(r['dispatch_id'], r['reason']) for r in rows], [('D-1', 'refused: ' + target)])
+
+    def test_launch_pending_table(self):
+        import native_context as N
+        ev = self.event()
+        self.assertFalse(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))      # absent
+        self.assertFalse(N.launch_pending(self.root, '', 'qa_scout__qa_1'))       # no session
+        self.staged(ev)
+        self.assertTrue(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))
+        self.assertFalse(N.launch_pending(self.root, 's', 'other_task'))          # another key is another launch
+        path = N._slot(self.root, 's', 'qa_scout__qa_1')
+        path.write_text(json.dumps({'status': 'delivered'}), encoding='utf-8')
+        self.assertFalse(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))
+        path.write_bytes(b'\xff\xfe')
+        self.assertTrue(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))       # undecodable counts as pending
+        with mock.patch.object(N, '_slot', side_effect=RuntimeError('boom')):
+            self.assertTrue(N.launch_pending(self.root, 's', 'qa_scout__qa_1'))   # never raises
+
+    def test_one_a24_row_per_native_refusal(self):
+        import refusal_registry as RR
+        ids = ('NC-context-too-large', 'NC-launch-identity-missing', 'NC-launch-pending')
+        entries = {e['id']: e for e in RR.REGISTRY if e['id'] in ids}
+        self.assertEqual(sorted(entries), sorted(ids))
+        live = RR.sites(RR.PLUGIN_ROOT)
+        for ident, entry in entries.items():
+            with self.subTest(entry=ident):
+                self.assertEqual((entry['file'], entry['function']), ('native_context.py', 'stage'))
+                self.assertTrue(entry['unpassable_because'])
+                covered = [s for s in live if s['file'] == 'native_context.py' and s['function'] == 'stage'
+                           and s['call'].startswith(entry['call'])]
+                self.assertEqual(len(covered), 1)
 
 
 DOOR = ('context diagnostic requires current allow/deny evidence in this host session; '

@@ -30,9 +30,9 @@ defect inside the guard freezes the story where the person's word cannot reach i
 Those entries carry `fail_closed: True`, `escalates_after: <n>` and `escalation`, and
 `--check` fails an entry that has neither a pass nor an escalation.
 
-SCOPE, and its limits. Scanned refusal by refusal: the three hook scripts that can end a
+SCOPE, and its limits. Scanned refusal by refusal: the hook scripts that can end a
 dispatch before the role does any work (`stage_guard.py`, `inject_context.py`,
-`guard_pre_tool.py`). A refusal there is `deny(...)`, `block(...)`, or a raised
+`guard_pre_tool.py`, and `native_context.py` - SubagentStart, and the packet `inject_context` stages). A refusal there is `deny(...)`, `block(...)`, or a raised
 `StateConflict`/`ValueError` that reaches the CLI. `controller.py` and `stage_done.py` are
 registered as `operation` entries instead of line by line: the controller's validator raises
 in 160+ places across every operation, and a census of those is not a registry anyone would
@@ -53,7 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hooklib import PLUGIN_ROOT  # noqa: E402
 
-SCANNED = ("stage_guard.py", "inject_context.py", "guard_pre_tool.py")
+SCANNED = ("stage_guard.py", "inject_context.py", "guard_pre_tool.py", "native_context.py")
 REFUSAL_CALLS = ("deny", "block")
 REFUSAL_RAISES = ("StateConflict", "ValueError")
 KEY_CHARS = 90
@@ -338,6 +338,32 @@ REGISTRY: list[dict] = [
      "recommendation pending the owner's word (t-203 F-1).",
      "unpassable_because": "",
      "test": "scripts/tests/test_doctor_context.py (PacketNameLength: refusal and pass rows)"},
+
+    # --- native_context.py — the native packet staged by the Agent hook ------
+    {"id": "NC-context-too-large", "file": "native_context.py", "function": "stage",
+     "call": "Native context exceeds",
+     "refuses": "a native launch whose assembled context is over 100000 characters; the denial row names the dispatch",
+     "override": "",
+     "unpassable_because": "the factory's own defect, like IC-oversized-slice: the producer bounds the slices; "
+     "nothing is wanted from the person (owner: factory)",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: row and recover rows)"},
+    {"id": "NC-launch-identity-missing", "file": "native_context.py", "function": "stage",
+     "call": "Native context requires host session",
+     "refuses": "a native launch whose host event carries no session id or tool call id; the packet cannot be keyed",
+     "override": "",
+     "unpassable_because": "no word can supply an identity the host did not send; the host is the owner "
+     "(owner: environment); relaunch once, then report a host blocker",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: row and recover rows)"},
+    {"id": "NC-launch-pending", "file": "native_context.py", "function": "stage",
+     "call": "A factory launch is awaiting SubagentStart",
+     "refuses": "a second staging under the key of a launch still pending; the same branch carries a busy native-context "
+     "lock (`task has an active state writer`, raised by `event_store`, not a site here); the row written is inert (no "
+     "dispatch id, no stage), so `recover` never closes the pending launch on it",
+     "override": "",
+     "unpassable_because": "a word would replace a live launch's context (the hazard `stage`'s comment names); the way "
+     "out is the first launch starting; a launch that never starts (a failed spawn) leaves its packet pending, and a "
+     "relaunch under a unique task name is the door - the message does not say so yet",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: row and recover rows)"},
 
     # --- guard_pre_tool.py — registered here by reading it ------
     {"id": "PT-direct-test-run", "file": "guard_pre_tool.py", "function": "runs_check",
