@@ -222,6 +222,13 @@
       "input": "--task <TICKET> (required) [--task-root <the story's folder>] --row <TS-n> --set <field>=<value>, repeatable: ONE field of ONE plan row of work/test-plan.json. `true`, `yes`, `on` and `1` are written as the boolean true, `false`, `no`, `off` and `0` as false (checked before anything else), any other whole number as a number, anything else as the string given. The row must already exist and the field must already be in it - this command changes a record, it does not invent one. To APPEND a row you wrote, --add-row <json|file>: the row's own object, with an id of its own and every field all the other rows carry; the values in it are yours, and the command refuses rather than filling one in. The plan is written whole exactly once, when it first appears; after that a row is changed through this command by whoever has a shell (the orchestrator or the driver), and by a role without Bash with Edit, one row's own lines at a time - code checks the plan when it is saved.",
       "verify": "the command prints `<row>.<field>: <before> -> <after>` and how many other rows it left untouched, or `<row>: appended after <row>`; `--show` prints the row and writes nothing. The markdown table is the human's copy of the same row: the command names the line, and you Edit that one line if the change belongs in its words too. A role that edits the row itself sees the plan's invalid rows come back when the file is saved."
     },
+    "grounding_section.py": {
+      "roles": [
+        "qa-test-strategist"
+      ],
+      "input": "--task <TICKET> (required) [--task-root <the story's folder>], and exactly one of: --show <id> (repeatable) - the part(s) of work/grounding.yaml that carry the id: a row G-n, a requirement R-n, a blast area B-n, a claim (its r), a hunk (its id or its short H-n) or a risk K-n (a risk prints the row that holds it); --requirement <R-n> - that requirement's line, the rows that name it and the claims that carry it; --map - id -> lines of every part, the text a refused whole Read carries. The command is read-only: it writes nothing, and an id the table does not have is refused whole, with the list of the ids there.",
+      "verify": "the command prints one block per id, headed `<id> (<path>, lines <first>-<last>)`, then the file's own lines: <first> is the `offset` a `Read` takes and <last> - <first> + 1 its `limit`. Exit 2 with nothing printed is a refusal, never an empty answer."
+    },
     "execution_fingerprint.py": {
       "roles": [
         "qa-automator",
