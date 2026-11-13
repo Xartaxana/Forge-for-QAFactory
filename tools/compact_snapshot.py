@@ -168,24 +168,6 @@ def run_git(args: list, root: Path):
     return rc == 0, raw.decode("utf-8", "replace")
 
 
-def parse_porcelain_z(raw: str) -> list:
-    """`git status --porcelain -z` -> [(xy, path)]. A rename/copy record
-    carries a second NUL-separated path (the origin), which is consumed."""
-    entries = []
-    parts = raw.split("\0")
-    i = 0
-    while i < len(parts):
-        rec = parts[i]
-        i += 1
-        if len(rec) < 4:
-            continue
-        xy, path = rec[:2], rec[3:]
-        if "R" in xy or "C" in xy:
-            i += 1  # origin path
-        entries.append((xy, path))
-    return entries
-
-
 def group_status(entries: list) -> dict:
     """package = tracked changes under ai-packages/, forge = tracked
     changes elsewhere, untracked = `??` entries (any path)."""
@@ -248,7 +230,7 @@ def collect_git(root: Path, total_s: float = None) -> dict:
                 info["sync"] = f"ahead {ahead}, behind {behind}"
         got = ask(["status", "--porcelain", "-z"], "UNCOMMITTED")
         if got and got[0]:
-            info["entries"] = parse_porcelain_z(got[1])
+            info["entries"] = gitcmd.parse_status_z(got[1])
         return info
     finally:
         _deadline_at = None
@@ -621,7 +603,7 @@ def prune(folder: Path, root: Path):
     if not (ok_t and ok_s):
         return 0, len(candidates)  # cannot prove committed -> delete nothing
     tracked = {Path(x).name for x in tracked_raw.split("\0") if x}
-    dirty = {Path(p).name for _, p in parse_porcelain_z(status_raw)}
+    dirty = {Path(p).name for _, p in gitcmd.parse_status_z(status_raw)}
     deleted = kept = 0
     for p in candidates:
         if p.name in tracked and p.name not in dirty:
