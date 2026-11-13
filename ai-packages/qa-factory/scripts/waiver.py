@@ -790,7 +790,8 @@ def not_run_lets_go(path=None) -> tuple:
 
 def _split_finding_id(finding_id: str) -> tuple:
     """`(check, case, tag)` of a finding id `<check>:<case or ->:<tag>` (`s5_precheck._finding`): split on the left twice, a tag
-    carries `file.py:79`; `("", "", "")` when the text is no finding id. The ONE place the id is taken apart (A3-E4)."""
+    carries `file.py:79`; `("", "", "")` when the text is no finding id. The ONE splitter of the package that reads the id for the
+    words (A3-E4): `s5_precheck._finding_tag` delegates here; `exit_gate._finding_tag_of` is the one other, queued."""
     parts = str(finding_id or "").split(":", 2)
     if len(parts) < 3:
         return "", "", ""
@@ -817,7 +818,7 @@ def _fact_rows(table) -> list:
     return out
 
 
-def _same_instance(left: str, right: str) -> bool:
+def same_instance(left: str, right: str) -> bool:
     """Do two spellings name ONE instance: equal, or one is an alias of the other (`contract.instance_id_aliases`). A parameter
     label is part of the id (`A[neg]` is not `A`) and a case prefix is not (`TC-1::x` is `x`); `TC-1::x` and `TC-2::x` are two."""
     if left == right:
@@ -868,7 +869,7 @@ class WordPasses:
         return None
 
     def instance(self, fact: str, iid, field=None):
-        """The pass of `fact` whose subjects name instance `iid` (equal or an alias, `_same_instance`), or None. With `field`: only a
+        """The pass of `fact` whose subjects name instance `iid` (equal or an alias, `same_instance`), or None. With `field`: only a
         subject whose `fields` list it AND whose `row_fields` row says `pass: true` (a field with no row is never passed)."""
         try:
             iid = str(iid or "")
@@ -877,7 +878,7 @@ class WordPasses:
             for entry in self._latest(fact):
                 for subject in entry.subjects:
                     named = subject.get("instance_id")
-                    if not isinstance(named, str) or not named or not _same_instance(named, iid):
+                    if not isinstance(named, str) or not named or not same_instance(named, iid):
                         continue
                     if field is None:
                         return dict(entry.pass_)
@@ -898,7 +899,7 @@ class WordPasses:
             for entry in self._latest(SUBJECTS_FACT_FIELDS):
                 for subject in entry.subjects:
                     named, fields = subject.get("instance_id"), subject.get("fields")
-                    if isinstance(named, str) and named and isinstance(fields, list) and _same_instance(named, iid):
+                    if isinstance(named, str) and named and isinstance(fields, list) and same_instance(named, iid):
                         out.extend(f for f in fields if self._passable(f) and f not in out)
         except Exception:
             return []
@@ -1034,6 +1035,17 @@ def person_passes(task_root) -> tuple:
         why = (f"{len(bad)} line(s) of state/{PERSON_PASSES_FILE} were skipped: " + "; ".join(bad[:_WHY_LISTED])
                + (f"; and {len(bad) - _WHY_LISTED} more" if len(bad) > _WHY_LISTED else ""))
     return list(rows.values()), why
+
+
+def record_word_index(task_root):
+    """`WordPasses | None`: THE composition of the RECORD index (`person_passes` read as facts, `word_passed_index`) every reader below S5
+    takes (AR-13, AR-15). NEVER raises. None means "names nobody": the record could not be read (`person_passes` -> None) or the
+    read raised; a caller treats None as no pass, never as a pass (AR-28). An empty record is an empty index, not None."""
+    try:
+        rows = person_passes(task_root)[0]
+        return word_passed_index(rows) if rows is not None else None
+    except Exception:
+        return None
 
 
 def listed(items: list, more, bullet: bool = False) -> str:

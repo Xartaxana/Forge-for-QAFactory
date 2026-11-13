@@ -4058,6 +4058,17 @@ def word_passes(task_root, scope=None, dispatch_id=None) -> list:
     return [row for row in rows if not row["case"] or row["case"] in cases]
 
 
+def live_word_index(task_root, scope=None, dispatch_id=None):
+    """`waiver.WordPasses | None`: THE composition of the LIVE index (`word_passes` read as facts, `waiver.word_passed_index`) every
+    reader at the S5 finish takes (AR-13, AR-15). NEVER raises. None means "names nobody": the passes could not be read (an unreadable
+    artifact raises in `word_passes`); a caller treats None as no pass, never as a pass (AR-28). No live word is an empty index."""
+    try:
+        import waiver
+        return waiver.word_passed_index(word_passes(task_root, scope or None, dispatch_id))
+    except Exception:
+        return None
+
+
 def _flag_word_passed(pairs: list, standing_ids: set) -> None:
     """`passed_by_word` on every pair: true when it had a finding and a person's word removed it.
     A pair with a record never had one (the record answered it), so it is never marked."""
@@ -4109,9 +4120,9 @@ FINDING_THEN_RE = re.compile(r"Then (\d+) of (\S+)")
 
 
 def _finding_tag(finding: dict) -> str:
-    """The tag `_finding` appended. Split on the left twice: a tag carries `file.py:79`."""
-    parts = str(finding.get("id") or "").split(":", 2)
-    return parts[2] if len(parts) > 2 else ""
+    """The tag `_finding` appended. Split on the left twice: a tag carries `file.py:79` (the splitter is `waiver._split_finding_id`)."""
+    import waiver
+    return waiver._split_finding_id(str((finding or {}).get("id") or ""))[2]
 
 
 def _pyfiles(parsed: dict, case: str = "") -> dict:
