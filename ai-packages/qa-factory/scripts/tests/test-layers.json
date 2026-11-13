@@ -70,7 +70,8 @@
     "references/code-review-rubric.md",
     "references/role-commands.json",
     "references/stages.json",
-    "tests/harness.py"
+    "tests/harness.py",
+    "tests/story_run_common.py"
    ]
   },
   "test_arch_check.py": {
