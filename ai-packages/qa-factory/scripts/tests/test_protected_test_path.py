@@ -601,7 +601,7 @@ def call(tool: str, root: Path, rel: str, role="qa-automator", ticket=TICKET, **
 
 HOW = ("If this file is a test that has to live in a place no recorded carrier of its area covers "
        "(inside the application tree, or in the test repository), do not write it another way: "
-       "name the path in your handover and halt. The person can open test files there for the automator; "
+       "name the path in your handover and halt. Inside the application tree, the person can open test files for the automator; "
        "only when they agreed to that, the orchestrator records their words as they were given: waiver.py "
        "--task <TICKET> --stage S5 --block \"protected test path: <folder/ or pattern>\" --words-file <file> "
        "(when they did not agree, nothing is recorded under this block).")
