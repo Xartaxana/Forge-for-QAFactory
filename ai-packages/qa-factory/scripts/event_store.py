@@ -164,19 +164,31 @@ def atomic_text(path, text):
     _publish(path, write, errors="replace", newline="")
 
 
+def atomic_bytes(path, data):
+    """Publish a binary file through the same publisher as `atomic_json` and `atomic_text`: the bytes on disk are
+    exactly `data` (no decoding, no BOM handling). Any failure is raised for the caller."""
+    def write(stream):
+        stream.write(data)
+    _publish(path, write, binary=True)
+
+
 def _temp_token():
     # A seam so a test can force a collision without patching the global uuid module (event ids share it).
     return uuid.uuid4().hex[:TEMP_NAME_HEX]
 
 
-def _publish(path, write, **open_options):
-    """The one temp-file-then-replace publisher behind `atomic_json` and `atomic_text`."""
+def _publish(path, write, binary=False, **open_options):
+    """The one temp-file-then-replace publisher behind `atomic_json`, `atomic_text` and `atomic_bytes`.
+
+    `open_options` are for the text stream only; with `binary=True` they would be ignored, so they are refused."""
+    if binary and open_options:
+        raise ValueError("event_store._publish: binary=True ignores open options, got " + ", ".join(sorted(open_options)))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(1, TEMP_NAME_ATTEMPTS + 1):
         tmp = path.with_name(path.name + "." + _temp_token() + ".tmp")
         try:
-            stream = tmp.open("x", encoding="utf-8", **open_options)
+            stream = tmp.open("xb") if binary else tmp.open("x", encoding="utf-8", **open_options)
         except FileExistsError:
             # Another writer's temp: never written, never unlinked here; take a fresh name.
             if attempt == TEMP_NAME_ATTEMPTS:
