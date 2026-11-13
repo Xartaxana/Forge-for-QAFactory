@@ -680,6 +680,7 @@ class BrokenReceiptTable(unittest.TestCase):
     def spied(self):
         """(calls, patcher): every `person_signal` call of kind `host_receipt_unreadable` as its `once_key`."""
         from unittest.mock import patch
+        import native_context   # imported BEFORE the patch: it binds `person_signal` by name at import, and a first import under the spy would keep the spy for every later test
         calls=[]
         def spy(event,kind,text,*,task=None,once_key=''):
             if kind==UNREADABLE: calls.append(once_key)
