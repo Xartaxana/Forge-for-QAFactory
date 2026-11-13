@@ -233,7 +233,7 @@ a rule.
    |---|---|---|
    | m | a WRITING dispatch's "given" manifest | executed as a MARKED declaration: an inline enumeration, OR a pointer to a persisted spec that itself carries the enumeration, ONE hop away — no marker, no manifest; `owns` itself is always given INLINE, never by pointer |
    | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks), `siblings:` (entries, or `none -- <why>`) and, over rule 2's threshold, `designer:` (the accepted draft's absolute path, `skip -- <reason>`, or `resubmission <task_id>`); `tools/dispatch_manifest.py` refuses it otherwise and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
-   | h | critic/designer dispatch | report path on `handoff:`, never `owns:`; `tools/handoff_gate.py` lets it write only that file |
+   | h | critic/designer dispatch | report path on `handoff:`, never `owns:`; `tools/dispatch_gate.py` refuses a dispatch whose `handoff:` names no single `.md` file in the role's folder; `tools/handoff_gate.py` lets it write only that file |
 
 11a. Question routing (question-routing rule): questions route UP, work routes DOWN; the apex of the hierarchy is the
    OPERATOR — above Lead itself. An underspecified REQUIREMENT (interpreting intent, choosing the shape of a
@@ -298,8 +298,14 @@ fields are in the SHAPES table below, and every new event also carries `feature:
 belongs to, from `plans/features.json` (`journal_validator` WARNs on a missing or unknown id for events from
 2026-10-02; `tools/forge_metrics.py` attributes by it first and by tag/files/words only when it is absent;
 unclassified work is a Forge metric, not an error). Old events are never rewritten. Issuing a task_id means
-re-reading the tail of the journal right before writing `delegated`: max(t-NNN)+1, never an id remembered earlier;
-a collision noticed later is not rewritten — it gets a note on the next event and counts as two tasks
+re-reading the tail of the journal right before writing `delegated`: the next id `python tools/journal_keys.py where`
+prints for your sequence or your band, never an id remembered earlier. Two writers of one journal file (a second
+session of the same developer), or a branch whose ids will meet another's at a merge, do not share the max+1
+sequence: the second writer opens a BAND on the first line it writes — `id_band: "t-A..t-B"` (closed, at most 1000
+ids, starting at least 50 above every id and band in the file) or `id_band: "t-A.."` (open: the file's own sequence
+goes on from t-A); `where` prints a suggested band, the gate refuses a band that reaches back or sits too close, and
+a filler line that only raises the max is not written. `journal_keys.py declare` labels are the after-the-fact road
+for an id two clones already both issued; a band is the before-issuing road. A collision noticed later is not rewritten — it gets a note on the next event and counts as two tasks
 (no-silent-reuse rule). `ts` comes from the system clock read right before writing (Get-Date or equivalent), never
 from the session's narrative; a wrong `ts` noticed later gets a note on the next event (the reference: usage
 reports / git log, calibration check 13(f)). A MISSED event noticed later is repaired by a RETRO pair: append
