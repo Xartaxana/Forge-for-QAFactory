@@ -1669,12 +1669,13 @@ def p4_lines(base: Path) -> None:
         f'- Q4 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
         f'- Q5 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
     ]
-    want_minimal = ["- Q1 answered: reading b", "- Q2 answered: reading a", "- Q3 kept open until the report; do not ask it again",
-                    "- Q4 answered: reading a", "- Q5 answered: reading a"]
+    want_minimal = [f"- Q1 answered: reading b; the person's words: {WORDS_1_ONE_LINE}",
+                    f"- Q2 answered: reading a; {SAME_AS_Q1}", "- Q3 kept open until the report; do not ask it again",
+                    f"- Q4 answered: reading a; {SAME_AS_Q1}", f"- Q5 answered: reading a; {SAME_AS_Q1}"]
     for stage, role in (("S3", "qa-test-strategist"), ("S4", "qa-case-designer")):
         shown, minimal, full = p4_decisions(root, stage, role)
         check_eq(f"K1 hf2-7 P4: {stage} - the brief names every decided question, in register order (T8), the open Q6 not", shown, want_shown)
-        check_eq(f"K1 hf2-7 P4: {stage} - the minimal list is the id and the letter, no words", minimal, want_minimal)
+        check_eq(f"K1 hf2-7 P4: {stage} - the minimal list is the id, the letter and the words (once; the kept-open line has none)", minimal, want_minimal)
         check_eq(f"K1 hf2-7 P4: {stage} - the same words are in the full file ONCE, whole (the other lines point at them)",
                  ("\n".join(full).count("Q3: until the report"), full[0].endswith("the person's words: " + TQR.WORDS_1.strip())),
                  (1, True))
@@ -1707,6 +1708,40 @@ def p4_lines(base: Path) -> None:
     check_in("K1 hf2-7 P4: without task_root the journal copy stays (today's output)", "- answer: S3 question stop:", journal_only)
 
 
+def p4_min_words(base: Path) -> None:
+    """RC2-1: the minimal line of a free-text answer carries the words cut at DECISION_CHARS_MIN by `_short`."""
+    root = TQR.write_story(base / "minwords", [TQR.q("Q1"), TQR.q("Q2")])
+    limit, pointer = brief_pack.DECISION_CHARS_MIN, brief_pack.WORDS_BY_REFERENCE
+
+    def minimal_of(*words) -> list:
+        (root / "work" / "question-answers.jsonl").unlink(missing_ok=True)
+        for qid, text in zip(("Q1", "Q2"), words):
+            QR.record(root, qid, "answered", text, "S2 stop", "person", TQR.row_hash_of(root, qid), reading="a")
+        return [m for _f, _s, m in brief_pack.question_answer_lines(root)[0]]
+
+    lead = "- Q1 answered: reading a; the person's words: "
+    check_eq("RC2-1: words shorter than the limit are whole, no pointer", minimal_of("w" * (limit - 1)), [lead + "w" * (limit - 1)])
+    check_eq("RC2-1: words of exactly the limit are whole, no pointer", minimal_of("w" * limit), [lead + "w" * limit])
+    check_eq("RC2-1: one character more is cut by `_short` and points at the side file", minimal_of("w" * (limit + 1)),
+             [lead + "w" * (limit - 3) + "...; " + pointer])
+    check_eq("RC2-1: the same words under two questions are carried once", minimal_of("same words", "same words"),
+             [lead + "same words", "- Q2 answered: reading a; the person's words: the same text as under Q1"])
+    check_eq("RC2-1: a two-line answer is folded by `_short` as the sisters fold it", minimal_of("first line\nsecond\tline\xa0end"),
+             [lead + "first line second line end"])
+
+    # words the register cannot hold (empty, blanks, not a string): the line is as it was, and nothing raises
+    real = QR.answers_for_brief
+    try:
+        for label, words in (("empty", ""), ("only blanks", " \n\t\xa0 "), ("None", None), ("a zero", 0)):
+            QR.answers_for_brief = lambda _root, w=words: {"unreadable": False, "answers": [
+                {"id": "Q1", "status": "answered", "reading": "a", "reading_text": "", "where": "S2 stop", "words": w}]}
+            lines = brief_pack.question_answer_lines(root)[0]
+            check_eq(f"RC2-1: {label} words - the minimal line is as before (id and letter)", [m for _f, _s, m in lines], ["- Q1 answered: reading a"])
+            check_in(f"RC2-1: {label} words - the full line says not recorded", "the person's words: not recorded", lines[0][0])
+    finally:
+        QR.answers_for_brief = real
+
+
 def p4_long_words(base: Path) -> None:
     root = TQR.write_story(base / "long", [TQR.q("Q1")])
     limit = brief_pack.DECISION_CHARS
@@ -1724,7 +1759,10 @@ def p4_long_words(base: Path) -> None:
     check_eq("K3 hf2-7 P4: one character beyond it points at the side file - no half of the words in the brief",
              shown, [f'- Q1 answered {STOP_WORDS}: reading a - "reading 0"; the person\'s words: the whole text is in <decisions>'])
     check_eq("K3 hf2-7 P4: ...the full file has them whole", full, [head + at + "w"])
-    check_eq("K3 hf2-7 P4: ...and the minimal line is the id and the letter, no words", minimal, ["- Q1 answered: reading a"])
+    folded = "w" * (limit - len(head) + 1)      # one line of `w`: what the minimal line cuts (RC2-1)
+    cut_words = folded[:brief_pack.DECISION_CHARS_MIN - 3] + "..."
+    check_eq("K3 hf2-7 P4: ...and the minimal line carries the words cut at DECISION_CHARS_MIN, with the pointer (RC2-1)", minimal,
+             [f"- Q1 answered: reading a; the person's words: {cut_words}; {brief_pack.WORDS_BY_REFERENCE}"])
     result = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", None, root)
     check("K3 hf2-7 P4: the pointer is what makes `build` write the side file (truncated is read from `<decisions>`)",
           any("<decisions>" in x for x in result[0]))
@@ -3458,6 +3496,7 @@ def main() -> None:
     try:
         p4_lines(base)
         p4_long_words(base)
+        p4_min_words(base)
         p4_breakage(base)
         p4_halts(base)
     finally:

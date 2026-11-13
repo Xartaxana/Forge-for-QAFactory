@@ -1620,7 +1620,8 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
     open until the report - read ONLY through `QR.answers_for_brief` (AR-13: the answers file is the carrier, not the
     journal). A decision that no longer holds (the row changed since, `with_designer`, open) has no line: the
     question is asked again. `shown` keeps the words when the line fits DECISION_CHARS and points at the side file
-    when it does not; `minimal` is the id and the letter, no words; the same words under several questions are
+    when it does not; `minimal` is the id, the letter and the words cut at DECISION_CHARS_MIN (WORDS_BY_REFERENCE
+    when cut; none for a kept-open or not-needed line); the same words under several questions are
     carried once (`said` is those texts, for `decisions` to drop the journal copies of them). One line, first, says
     the answers could not be read when the store reports it (a broken line, a non-object line, an unreadable file)."""
     view = QR.answers_for_brief(task_root)
@@ -1640,18 +1641,27 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
         else:
             head, short = f"{qid} answered {where}, in the person's own words", f"{qid} answered in the person's own words"
         key = _plain_words(item["words"])
+        # the words ride on the minimal line too (FR-8): cut at DECISION_CHARS_MIN by the sisters' helper, with the
+        # pointer when cut; a line with no words, and the kept-open / not-needed lines, stay as they were
+        minimal_clause = ""
         if not key:
             clause = "the person's words: not recorded"
         elif key in first:
             clause = f"the person's words: the same text as under {first[key]}"
+            minimal_clause = clause
         else:
             first[key] = qid
             said.append(key)
             clause = "the person's words: " + person_words_whole(key, project, holder)
+            minimal_clause = "the person's words: " + _short(key, DECISION_CHARS_MIN)
+            if len(re.sub(r"\s+", " ", key).strip()) > DECISION_CHARS_MIN:
+                minimal_clause += f"; {WORDS_BY_REFERENCE}"
+        if item["status"] == QR.DEFERRED or item["status"] == "not_needed":
+            minimal_clause = ""
         full = f"- {head}; {clause}"
         fits = len(" ".join(full.split())) <= DECISION_CHARS
         shown = " ".join(full.split()) if fits else f"- {head}; {WORDS_BY_REFERENCE}"
-        entries.append((full, shown, f"- {short}"))
+        entries.append((full, shown, f"- {short}; {minimal_clause}" if minimal_clause else f"- {short}"))
     return entries, said
 
 
