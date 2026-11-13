@@ -1344,24 +1344,22 @@ def run_block_metrics(task_root: Path) -> dict:
     dispatches = controller_state.get("dispatches") or {}
     windows: dict = {}
     executions = []
-    for bp in sorted_paths(block_dir.glob("*.json")):
-        block = read_json(bp, {})
-        if not isinstance(block, dict):
+    found_attempts, _ids, _damaged = _run_attempts(task_root)     # one reading of "a launch": a reparse is no job (SC6-2)
+    for found in found_attempts:
+        if found["chosen"] is None:
             continue
-        purpose = block.get("purpose") or (block.get("request") or {}).get("purpose")
-        if block.get("import_provenance") or purpose not in \
-                {"initial", "repair_verify", "diagnostic", "flaky_diagnostic"}:
-            continue
-        window = (dispatches.get(block.get("dispatch_id")) or {}).get("window")
+        first, block = found["first"]["data"], found["chosen"]["data"]
+        purpose = _block_purpose(first)
+        window = (dispatches.get(first.get("dispatch_id")) or {}).get("window")
         label = f"window {window}" if window is not None else "unscoped"
         windows[label] = windows.get(label, 0) + 1
-        start = block.get("attempt_started_at")
+        start = first.get("attempt_started_at")
         for row in block.get("results") or []:
             if not isinstance(row, dict):
                 continue
             executions.append({
                 "instance": row.get("instance_id"), "status": row.get("status"),
-                "fingerprint": row.get("input_fingerprint") or block.get("input_fingerprint"),
+                "fingerprint": row.get("input_fingerprint") or first.get("input_fingerprint"),
                 "started_at": start, "purpose": purpose})
     executions.sort(key=lambda r: r.get("started_at") or "")
     last_pass_fp: dict = {}
@@ -1386,7 +1384,7 @@ def run_block_metrics(task_root: Path) -> dict:
 # question (AR-13). The unit is the executed instance, the same number `run_block_metrics` prints as `executions`.
 TEST_RUN_CAUSES_FILE = Path(__file__).resolve().parents[1] / "references" / "test-run-causes.json"
 UNKNOWN_IDS_SHOWN = 10          # launch ids the retro line names before "and N more" (the JSON keeps them all)
-_BLOCK_RUN_PURPOSES = {"initial", "repair_verify", "diagnostic", "flaky_diagnostic"}   # the set run_block_metrics counts
+_BLOCK_RUN_PURPOSES = {"initial", "repair_verify", "diagnostic", "flaky_diagnostic"}   # the purposes that are runs (`_block_verdict`, read by both counters)
 
 
 def test_run_causes():
@@ -1451,47 +1449,67 @@ def _block_verdict(block: dict) -> str:
     return "ok"
 
 
-def _block_launches(task_root: Path) -> tuple:
-    """The launches the run blocks on disk make: `(launches, block ids, unreadable)`. ONE launch is ONE attempt: a
-    `--reparse-block` file keeps the attempt, the times, the dispatch and the fingerprint of the block it supersedes, so the
-    attempt's launch is its LAST readable block in `run_history.read_run_blocks` order (the deepest reparse), and a run is
-    never counted twice (SC6-2). A block whose `purpose` or `results` is not the shape the factory writes is counted in
-    `unreadable` and read no further (the attempt falls back to its previous block; an attempt with no readable block is one
-    unreadable): one story's damaged block never stops the retro or the dashboard (AR-2). A block with no purpose, an import
-    and a purpose that is no run are skipped, as `run_block_metrics` skips them. `block ids` holds every attempt id and
-    every block id."""
+def _block_purpose(block: dict):
+    request = block.get("request") if isinstance(block.get("request"), dict) else {}
+    return block.get("purpose") or request.get("purpose")
+
+
+def _run_attempts(task_root: Path) -> tuple:
+    """The ONE reading of what a launch is, shared by `_block_launches` and `run_block_metrics` (AR-13): `(attempts, block
+    ids, damaged files)`. ONE launch is ONE attempt: a `--reparse-block` file keeps the attempt, the times, the dispatch,
+    the purpose and the fingerprint of the block it supersedes (NOT its data seed or its import mark: `run_suite.
+    reparse_run_block` writes neither), so each attempt is `{"id", "first", "seed_known", "chosen"}`:
+    - `first` is the attempt's ORIGINAL block (depth 0, else the first of the chain when the original is not readable): the
+      identity of the launch (seed, fingerprint, times, dispatch, purpose) is read from it;
+    - `seed_known` is False when the original is not readable: the seed is then unknown, not absent (AR-28);
+    - `chosen` is the deepest block of the chain whose shape is readable, the one whose results and execution status
+      stand; None when the attempt is no launch: an import on ANY block of the chain (a reparse does not carry the mark), a
+      purpose that is no run, or no readable block at all.
+    `damaged files` counts every file whose JSON is not an object plus every block whose `purpose` or `results` is not the
+    shape the factory writes; a damaged file is never a second launch (AR-2). `block ids` holds every attempt id and every
+    block id."""
     import run_history as RH           # lazy: the one reader that orders blocks and knows reparses (AR-13)
-    launches, block_ids = [], set()
     items, bad = RH.read_run_blocks(task_root)
-    unreadable = len(bad)
-    attempts: dict = {}
+    damaged, block_ids = len(bad), set()
+    chains: dict = {}
     for item in items:
-        attempts.setdefault(item["attempt"] or item["name"], []).append(item)
-    for attempt, chain in attempts.items():
+        chains.setdefault(item["attempt"] or item["name"], []).append(item)
+    attempts = []
+    for attempt, chain in chains.items():
         for item in chain:
             block_ids.add(str(item["data"].get("block_id") or Path(item["name"]).stem))
         block_ids.add(str(attempt))
-        chosen, damaged = None, 0
-        for item in reversed(chain):
-            verdict = _block_verdict(item["data"])
-            if verdict == "bad":
-                damaged += 1
-                continue
-            chosen = item if verdict == "ok" else None
-            break
-        if chosen is None:
-            unreadable += 1 if damaged == len(chain) else 0
+        verdicts = [_block_verdict(item["data"]) for item in chain]
+        damaged += verdicts.count("bad")
+        first = next((item for item in chain if item["depth"] == 0), chain[0])
+        chosen = None
+        if not any(item["data"].get("import_provenance") for item in chain):
+            for item, verdict in zip(reversed(chain), reversed(verdicts)):
+                if verdict != "bad":
+                    chosen = item if verdict == "ok" else None
+                    break
+        attempts.append({"id": str(attempt), "first": first, "seed_known": first["depth"] == 0, "chosen": chosen})
+    return attempts, block_ids, damaged
+
+
+def _block_launches(task_root: Path) -> tuple:
+    """The launches the run blocks on disk make: `(launches, block ids, damaged files)`; what a launch is: `_run_attempts`.
+    A damaged block falls back to the previous block of its attempt; an attempt with no readable block is no launch (one
+    story's damaged block never stops the retro or the dashboard, AR-2)."""
+    attempts, block_ids, damaged = _run_attempts(task_root)
+    launches = []
+    for found in attempts:
+        if found["chosen"] is None:
             continue
-        block = chosen["data"]
-        request = block.get("request") if isinstance(block.get("request"), dict) else {}
-        launches.append({"id": str(attempt), "purpose": block.get("purpose") or request.get("purpose"),
-                         "dispatch_id": block.get("dispatch_id"), "status": block.get("execution_status"),
-                         "started": str(block.get("attempt_started_at") or ""), "start_raw": block.get("attempt_started_at"),
-                         "ended": block.get("attempt_ended_at"), "fingerprint": block.get("input_fingerprint"),
-                         "seed": block.get("data_seed_contract"),
+        first, block = found["first"]["data"], found["chosen"]["data"]
+        launches.append({"id": found["id"], "purpose": _block_purpose(first),
+                         "dispatch_id": first.get("dispatch_id"), "status": block.get("execution_status"),
+                         "started": first.get("attempt_started_at"), "ended": first.get("attempt_ended_at"),
+                         "fingerprint": first.get("input_fingerprint"), "seed": first.get("data_seed_contract"),
+                         "seed_known": found["seed_known"],
                          "entries": [(_instance_name(row.get("instance_id")), row) for row in block.get("results") or []
                                      if isinstance(row, dict)]})
-    return launches, block_ids, unreadable
+    return launches, block_ids, damaged
 
 
 def _job_launches(jobs: list, block_ids: set, table: dict, never_ran) -> tuple:
@@ -1527,8 +1545,7 @@ def _job_launches(jobs: list, block_ids: set, table: dict, never_ran) -> tuple:
             apart["no_totals"] += 1
         named = [str(one) for one in selected or [] if str(one).strip()]
         launches.append({"id": job_id, "purpose": purpose, "dispatch_id": request.get("dispatch_id"),
-                         "status": state, "started": str(job.get("created_at") or ""),
-                         "start_raw": job.get("created_at"), "ended": None,
+                         "status": state, "started": job.get("created_at"), "ended": None,
                          "fingerprint": request.get("input_fingerprint"),
                          "seed": (request.get("execution") if isinstance(request.get("execution"), dict) else {}
                                   ).get("data_seed_contract"),
@@ -1590,7 +1607,7 @@ def test_run_counts(task_root: Path) -> dict:
     `runs` is the number of executed instances (the number `run_block_metrics` prints as `executions`; the test pins
     them equal on 14857: "5 tests, 31 runs"); `launches` the blocks or jobs that made them; `probes` the red_probe jobs,
     which have no run block and are outside `runs`; `baselines` the `evidence_phase: baseline` jobs, which have none either.
-    `unreadable_blocks` counts run blocks whose shape is damaged. `by_cause` sums to `runs`. A launch comes from
+    `unreadable_blocks` counts the run block FILES that are damaged (not JSON, or a `purpose` / `results` of the wrong shape). `by_cause` sums to `runs`. A launch comes from
     `work/run-blocks/*.json` where the block is on disk (it names every instance that ran), else from the job in
     `state/execution-jobs` through `JobStore.jobs()` (its `selected_instance_ids`). A job that executed nothing
     (`status` not completed, or `execution_status` in `_NEVER_RAN_STATES`) is `not_executed`; a plain `not_executed`
@@ -1629,7 +1646,7 @@ def test_run_counts(task_root: Path) -> dict:
     unreadable += apart["unreadable"]
     for order, launch in enumerate(launches):
         launch["order"] = order
-    launches.sort(key=lambda item: (item["started"], item["order"]))
+    launches.sort(key=lambda item: (str(item["started"] or ""), item["order"]))
     cause_of = _cause_reader(task_root, table, jobs_by_id)
     seen: dict = {}
     by_cause: dict = {}
@@ -1695,9 +1712,10 @@ def _repeat_of(launch: dict, earlier: dict) -> tuple:
     good = [isinstance(f, str) and bool(f.strip()) for f in (one, two)]
     if all(good) and one != two:
         return "no", None
-    if launch.get("seed") != before["launch"].get("seed"):
+    known = launch.get("seed_known", True) and before["launch"].get("seed_known", True)
+    if known and launch.get("seed") != before["launch"].get("seed"):
         return "no", None
-    if not all(good) or None in names or before["unnamed"]:
+    if not known or not all(good) or None in names or before["unnamed"]:   # an unknown seed is no equal seed (AR-28)
         return "not established", None
     return "yes", before["launch"]["id"]
 
@@ -1717,7 +1735,7 @@ def _launch_rows(task_root: Path, launches: list) -> tuple:
         stage = stage or (parsed.group(1) if parsed else None) or "unattributed"
         names = [name for name, _row in launch["entries"]]
         named = frozenset(name for name in names if name)
-        seconds, why = _launch_seconds(launch.get("start_raw"), launch.get("ended"))
+        seconds, why = _launch_seconds(launch.get("started"),launch.get("ended"))
         repeat, repeat_of = _repeat_of(launch, earlier)
         rows.append({"id": launch["id"], "stage": stage, "purpose": launch["purpose"], "tests": len(named),
                      "runs": len(names), "seconds": seconds, "seconds_why": why or None,

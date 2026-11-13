@@ -986,6 +986,12 @@ def test_sc6_2_test_runs_by_stage_and_repeats() -> None:
         return [dict(name=f"b{i}", tests=ab, started=minute[2 * i], ended=minute[2 * i + 1], fingerprint=fps[i])
                 for i in range(3)]
 
+    def reparsed(attempt: str, seed, started: str) -> list:
+        """An attempt over `seed` and its reparse as `run_suite.reparse_run_block` writes it: same times and fingerprint, a null seed."""
+        return [dict(name=attempt, tests=ab, started=started, data_seed_contract=seed),
+                dict(name=f"{attempt}-reparse-x", attempt=attempt, tests=ab, started=started, block_id=f"{attempt}-r",
+                     data_seed_contract=None, reparse_of=f"work/run-blocks/{attempt}.json", supersedes_block_id=attempt)]
+
     # (id, blocks, controller, checks on the counts)
     rows = [
         ("V2", [], None, lambda c, r: (check_eq("V2 empty folder is known and has no stage", (c["known"], c["by_stage"]), (True, {})),
@@ -1003,6 +1009,32 @@ def test_sc6_2_test_runs_by_stage_and_repeats() -> None:
         ("V6", three() + [dict(name="b0-reparse-x", attempt="b0", tests=ab, started=minute[0], ended=minute[1],
                                block_id="r0")], None,
          lambda c, r: check_eq("V6 a reparse is no launch", (c["launches"], c["by_stage"]["S5"]["repeats"]), (3, 2))),
+        # B1: `reparse_run_block` writes a null seed; the identity of a launch comes from its ORIGINAL block
+        ("V6b", reparsed("a1", {"seed": "one"}, minute[0]) + reparsed("a2", {"seed": "two"}, minute[2]), None,
+         lambda c, r: check_eq("V6b other seeds, each reparsed with a null seed: no repeat", (c["launches"], r[1]["repeat"]), (2, "no"))),
+        ("V6b2", reparsed("a1", {"seed": "one"}, minute[0]) + [dict(name="a2", tests=ab, started=minute[2], data_seed_contract={"seed": "one"})],
+         None, lambda c, r: check_eq("V6b2 the same seed survives the reparse: a repeat", (c["launches"], r[1]["repeat"]), (2, "yes"))),
+        # edge (1): the original is not readable, only its reparse is: the seed is unknown, never equal
+        ("V6e", [dict(name="a1", raw="{not json"),
+                 dict(name="a1-reparse-x", attempt="a1", tests=ab, started=minute[0], block_id="r1", data_seed_contract=None,
+                      reparse_of="work/run-blocks/a1.json", supersedes_block_id="a1"),
+                 dict(name="a2", tests=ab, started=minute[2])], None,
+         lambda c, r: check_eq("V6e unknown seed: not established, the damaged file counted",
+                               (c["launches"], r[1]["repeat"], c["unreadable_blocks"]), (2, "not established", 1))),
+        # N1: a reparse does not carry the import mark; the attempt is still an import
+        ("V6c", [dict(name="i1", tests=ab, import_provenance={"receipt_sha256": "x"}),
+                 dict(name="i1-reparse-x", attempt="i1", tests=ab, block_id="ri", reparse_of="work/run-blocks/i1.json",
+                      supersedes_block_id="i1")], None,
+         lambda c, r: check_eq("V6c an imported attempt with a reparse is no launch", (c["launches"], c["runs"]), (0, 0))),
+        # N2: a damaged reparse is counted as a file, and never becomes a launch of its own
+        ("V6d", [dict(name="d1", tests=ab),
+                 dict(name="d1-reparse-x", attempt="d1", tests=ab, block_id="rd", results="oops",
+                      reparse_of="work/run-blocks/d1.json", supersedes_block_id="d1")], None,
+         lambda c, r: check_eq("V6d one launch from the readable original, one damaged file",
+                               (c["launches"], c["runs"], c["unreadable_blocks"]), (1, 2, 1))),
+        # L1: run_block_metrics reads attempts through the same grouping (checked after the loop)
+        ("V6f", three() + [dict(name="b0-reparse-x", attempt="b0", tests=ab, started=minute[0], ended=minute[1], block_id="r0")],
+         None, lambda c, r: check_eq("V6f the counter agrees", (c["launches"], c["runs"]), (3, 6))),
         ("V7", [dict(name="b0", tests=ab, started=minute[3], ended=minute[1])], None,
          lambda c, r: check_eq("V7 end before start", (r[0]["seconds"], r[0]["seconds_why"]), (None, "ends before it starts"))),
         ("V8", [dict(name="b0", tests=ab, dispatch="weird")], None,
@@ -1037,6 +1069,10 @@ def test_sc6_2_test_runs_by_stage_and_repeats() -> None:
                 (task_root / "work" / "run-blocks").mkdir(parents=True)
             for spec in blocks:
                 spec = dict(spec)
+                if "raw" in spec:             # a file that is not a JSON object
+                    (task_root / "work" / "run-blocks").mkdir(parents=True, exist_ok=True)
+                    (task_root / "work" / "run-blocks" / f"{spec['name']}.json").write_text(spec["raw"], encoding="utf-8")
+                    continue
                 _sc62_block(task_root, spec.pop("name"), spec.pop("tests"), **spec)
             if state is not None:
                 (task_root / "state" / "controller.json").write_text(json.dumps(state), encoding="utf-8")
@@ -1054,6 +1090,9 @@ def test_sc6_2_test_runs_by_stage_and_repeats() -> None:
                          for line in text.splitlines() if line.startswith("| S")}
                 check("V13 S7 cell is not 0", cells.get("S7") not in (None, "0"), cells)
                 check_eq("V13 S4 has money and no launch: 0", cells.get("S4"), "0")
+            if variant == "V6f":
+                got = retro_numbers.run_block_metrics(task_root)
+                check_eq("V6f run_block_metrics counts attempts, not blocks", (got["jobs"], got["executions"]), (3, 6))
             if variant == "V8":
                 text = retro_numbers.render({"task": "TP1-15045", "test_run_counts": counts, "by_stage": {}})
                 check_in("V8 outside the table", "**Test runs outside the stage table:**", text)
