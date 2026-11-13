@@ -175,15 +175,14 @@ def repairs_count(task_root: Path) -> int | None:
                 and str(r.get("verdict") or "").strip() in REPAIRABLE_VERDICTS]) or None
 
 
-# The manifest's own reason for "the test asserts the approved case's Then and the
-# implementation does something else" (contract.UNRESOLVED_REASONS). After gate A the approved
-# case is the oracle, so that red is the factory's PRODUCT: S7 decides what it is (a bug draft is one outcome).
-# The word has ONE home, `contract.CONTRADICTS_REQUIREMENT`; it is imported inside the functions that use it, so this
-# light status script loads no `contract` at import time.
-
-
 def reds_on_purpose(task_root: Path) -> int:
-    """How many tests are red on purpose — counted from `unresolved[]`, never from prose."""
+    """How many tests are red on purpose — counted from `unresolved[]`, never from prose.
+
+    The manifest's own reason for "the test asserts the approved case's Then and the
+    implementation does something else" (contract.UNRESOLVED_REASONS). After gate A the approved
+    case is the oracle, so that red is the factory's PRODUCT: S7 decides what it is (a bug draft is one outcome).
+    The word has ONE home, `contract.CONTRADICTS_REQUIREMENT`; it is imported inside the functions that use it, so this
+    light status script loads no `contract` at import time."""
     import contract
     rows = (_read_json(task_root / "work" / "automation-manifest.json", {}) or {}).get("unresolved")
     if not isinstance(rows, list):
