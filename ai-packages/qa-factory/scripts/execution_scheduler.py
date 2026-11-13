@@ -224,12 +224,14 @@ def _with_native_workers(argv: list[str], template: list[str], workers: int) -> 
 
 
 def _project_parallel_defaults(project_root: Path) -> dict:
+    """The project's `execution.parallel` block, read through `config_contract.read_config_file` (AR-13: a BOM is tolerated). No
+    config: the effective defaults. A config the reader cannot read (unreadable, not JSON, not an object) or a block of the wrong
+    shape: the fixed defaults below, the move this function has always declared."""
     try:
-        from config_contract import effective_config
-        path = project_root / "qa-factory" / "config.json"
-        cfg = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        from config_contract import effective_config, read_config_file
+        cfg = read_config_file(project_root) or {}
         return dict((((effective_config(cfg).get("execution") or {}).get("parallel")) or {}))
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (OSError, ValueError, AttributeError, TypeError):
         return {"mode": "auto", "min_selected_instances": 8, "max_workers": None}
 
 
