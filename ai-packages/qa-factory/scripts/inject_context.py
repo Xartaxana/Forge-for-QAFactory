@@ -454,12 +454,64 @@ def refuse_receipt(event: dict, ticket, role) -> None:
     sys.exit(2)
 
 
+NATIVE_PACKET_UNWRITTEN = ("INJECT: the factory context of {role} could not be written for its native launch, so this "
+                           "launch is refused: a role started without it would work without its rules. {cause} {door}")
+PATH_LIMIT_CAUSE = ("The context file path would be {length} characters, over the {limit} characters a path may have on "
+                    "this Windows machine, because the project folder is {root_length} characters long.")
+PATH_LIMIT_DOOR = ("Nothing in this session can shorten it: stop launching factory roles and tell the person the ways out - "
+                   "move the project to a folder of at most {supported} characters (shorter is safer), or, if they can and "
+                   "want to, turn on Windows long paths on this machine (an administrator setting for the whole machine; "
+                   "other tools may not follow it) - then launch the role again. (owner: environment)")
+WRITE_ERROR_CAUSE = "Writing it failed: {error_type}: {error}."
+WRITE_ERROR_DOOR = "Launch the role again once; if this refusal repeats, stop and tell the person this line as a factory blocker."
+PASS_DOOR = "If the person decides the role may start without its rules, record their words: {hint}"
+NATIVE_PACKET_PASS_MATCH = "could not be written"      # the words of the line a person's recorded word names
+
+
+def refuse_native_packet(event: dict, ticket, role, root, exc, stage=None) -> None:
+    """A native role's context packet could not be written (`native_context.stage` raised OSError): refuse the launch
+    (exit 2, a denial row so `recover` can close the dispatch), unless a person's recorded word names this line on this
+    dispatch's stage - read through `waiver.split_overridden`, the one reader every dispatch block uses - in which case
+    the pass is journaled (`gate_override`) and the function RETURNS: the launch goes ahead without the packet, informed.
+    A launch with no carrier for a word (no ticket, no stage, no pipeline.json) cannot be passed. `native_context`
+    only picks which cause text applies; the gate is the write failure itself."""
+    import native_context
+    from hooklib import artifacts_dir, block, read_json
+    raw = (event.get("_qa_host") or {}).get("input") or {}
+    facts = native_context.unwritten_facts(root, event.get("session_id"), raw.get("task_name"), exc)
+    cause, door = ((PATH_LIMIT_CAUSE, PATH_LIMIT_DOOR) if facts["cause"] == "path_limit"
+                   else (WRITE_ERROR_CAUSE, WRITE_ERROR_DOOR))
+    cause, door = cause.format(**facts), door.format(**facts)
+    carrier = bool(ticket) and bool(stage)
+    if carrier:
+        from stage_guard import waiver_hint
+        door += " " + PASS_DOOR.format(hint=waiver_hint(ticket, stage, NATIVE_PACKET_PASS_MATCH))
+    parts = dict(role=role, cause=cause, door=door)
+    if carrier:
+        import waiver
+        try:
+            pipeline = read_json(artifacts_dir(ticket, event) / "pipeline.json", {}, kind=dict)
+        except Exception:
+            pipeline = {}
+        _blocking, passed = waiver.split_overridden([NATIVE_PACKET_UNWRITTEN.format(**parts)], pipeline, stage)
+        if passed:
+            from stage_guard import journal_override
+            journal_override(pipeline, stage, passed, event)
+            print(f"INJECT: the factory context of {role} could not be written; the person's recorded word lets it "
+                  "start without it.", file=sys.stderr)
+            return
+    note_denial(event, ticket, None, role, NATIVE_PACKET_UNWRITTEN.format(**parts))
+    block(NATIVE_PACKET_UNWRITTEN.format(**parts))
+
+
 def main() -> None:
     """The PreToolUse hook of a dispatch. An unknown never passes silently (RH1-5 B9, AR-28): an event that cannot be
     parsed (H13) and any exception (H14) ALLOW the dispatch and leave a `hook_signal` of kind `inject` - the injection is
     not security-critical (F-11) - EXCEPT an existing controller.json that cannot be read AS A RECEIPT, which refuses as a
     missing receipt does (E24): a role never starts on a model the factory did not choose when the receipt cannot be read.
     Residual, by the owner's word (F-9/F-11): a crash AFTER the receipt was read allows the dispatch and leaves its signal.
+    EXCEPT a native context packet that cannot be written, which refuses (IC-native-packet-unwritten, t-203) unless the
+    person's recorded word passes it: on the native host the packet is the role's whole factory context.
     The advice queued on the way is delivered ONCE, at the end (on a rewrite: through `rewrite_output`)."""
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--dry-run", action="store_true")
@@ -650,6 +702,9 @@ def dispatch(event: dict, out: dict) -> None:
         context = ''.join(blocks) + injection_marker(project_root(event), event)
         try:
             stage(project_root(event), event, role, context, ticket)
+        except OSError as exc:
+            refuse_native_packet(event, ticket, role, project_root(event), exc,
+                                 last.get("stage") if isinstance(last, dict) else None)
         except ValueError as exc:
             print('INJECT: ' + str(exc), file=sys.stderr)
             sys.exit(2)

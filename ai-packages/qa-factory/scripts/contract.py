@@ -80,7 +80,9 @@ BLOCKED_BY_CHECK = "blocked_by_check"
 # The word of a test written against a side that does not exist yet (t-2181 PC-4): ONE home here; `acceptance.PENDING_OUTCOME`
 # aliases it, and the window outcomes and the probe rule take it (FR-13).
 PENDING_IMPLEMENTATION = "pending_implementation"
-UNRESOLVED_REASONS = ("impossible", "blocked_by_env", PENDING_IMPLEMENTATION, "contradicts_requirement",
+# ONE home (FR-13, AR-13); `acceptance.CONTRADICTS_REQUIREMENT` and `PROBE_NOT_APPLICABLE_REASON` alias it.
+CONTRADICTS_REQUIREMENT = "contradicts_requirement"
+UNRESOLVED_REASONS = ("impossible", "blocked_by_env", PENDING_IMPLEMENTATION, CONTRADICTS_REQUIREMENT,
                       # The person answered, at gate A or mid-S5, that THEY will run these
                       # tests: the runner of their profile does not exist in the session the
                       # factory works in (TP2-2536: Maestro/iOS, no Xcode for the
@@ -2573,7 +2575,7 @@ def _red_thens_of(manifest, case, instance, cfg=None) -> set:
     none is named."""
     out: set = set()
     for entry in manifest_unresolved(manifest):
-        if str(entry.get("reason") or "") != "contradicts_requirement":
+        if str(entry.get("reason") or "") != CONTRADICTS_REQUIREMENT:
             continue
         if not case_matches(str(entry.get("case") or ""), case, cfg=cfg):
             continue
@@ -5332,7 +5334,7 @@ PROBE_GAP_WHY_LIMIT = 300
 # block: it re-derives the red from the manifest and the run blocks under the task.
 PROBE_NOT_APPLICABLE_KEY = "probe_not_applicable"
 PROBE_NOT_APPLICABLE_WHY = ("red",)
-PROBE_NOT_APPLICABLE_REASON = "contradicts_requirement"
+PROBE_NOT_APPLICABLE_REASON = CONTRADICTS_REQUIREMENT
 
 
 def probe_gap_words(pipeline) -> dict:

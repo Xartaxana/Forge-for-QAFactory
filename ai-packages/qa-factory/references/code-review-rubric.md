@@ -71,9 +71,8 @@ Written well: 1–6, 8–9. ALL written: 7 (planned window: only the roll-call).
    a covering instance nor an `unresolved[]` entry with a closed-list reason is a fail.
 8. **Masking, closed list** — skip/xfail without reason, a deleted or commented-out
    assertion, a strong assertion weakened, an expectation adjusted toward the observed
-   behavior. Without the sanctioned path (`Known defect: BUG-n` + `red_lock`, an
-   honest failure, a `legitimate_correction` of 9, or
-   a commented-out Then with its reason, its `then_bindings` row with reason `handed_to_person` or `blocked_by_check`, and its Left with you line) → fail.
+   behavior. Without a sanctioned path (`artifact-contract-automation.md`, the list beside
+   `retracted_unresolved`) → fail.
 9. **`self_fixes` honesty** — every automator self-fix (selectors, imports, data prep) carries a
    defect explanation and evidence the product behaves per spec; a fix that changed an expected
    value is an `expectation_changes[]` row, judged by you: `legitimate_correction` (the

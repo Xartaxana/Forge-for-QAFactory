@@ -655,7 +655,7 @@ Each new finding lands, in the same move as its file in `findings/`, as a node l
 
 Open — returned to the Lead (new in t-220):
 
-- **F8 — direction of the `contract.py` queue line (M5).** The line must stand in both preambles before P1 starts.
+- **F8 — DECIDED (b): `onboarding-forge/2 → onboarding-forge/4`** (matches the lines already in both preambles on `wip/of-batch4` and `pile/onboarding-forge/batch-4`; the batch-2 line is now in batch-2's preamble) — «координатор, 13.11.2026, по t-240 PR-2, до слова владельца». Original fork text follows. Direction of the `contract.py` queue line (M5). The line must stand in both preambles before P1 starts.
   (a) `очередь: onboarding-forge/4 → onboarding-forge/2`: OF4-25 lands first; P1's builder merges `main` before
   committing. (b) `onboarding-forge/2 → onboarding-forge/4`: batch-4 waits for HF8-4's PR. The edits are disjoint by
   line, so either works textually. **Recommend (a):** batch-4's file and OF4-25 are already in flight, and batch-2's
