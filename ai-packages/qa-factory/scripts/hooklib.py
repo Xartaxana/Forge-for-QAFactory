@@ -267,9 +267,9 @@ def config_path(event: dict | None = None) -> Path:
 
 
 def is_one_component(name) -> bool:
-    """True for a name that is one path component: a non-empty string, not `.` or `..`, with no `/`, `\\` or `:`.
+    """True for a name that is one path component: a non-empty string, not `.` or `..`, with no `/`, `\\`, `:` or NUL.
     THE one filter of a story's name (AR-15): `artifacts_dir`, the story-key check below it and the controller's receipt names read it."""
-    return isinstance(name, str) and bool(name) and name not in (".", "..") and not any(c in name for c in "/\\:")
+    return isinstance(name, str) and bool(name) and name not in (".", "..") and not any(c in name for c in "/\\:\0")
 
 
 def artifacts_dir(ticket: str, event: dict | None = None, root: Path | None = None) -> Path:
@@ -314,8 +314,8 @@ def is_story_folder(parent, name) -> bool:
     The error direction is "no": a failed listing (rights, a bad byte) is False, never an exception, because a hook
     must get an answer and not a door (E-8). It may call a real story "no" (the consumer then refuses, skips or asks);
     it never calls a file, an alias or a missing folder "yes". Nothing is created, ever."""
-    if (not isinstance(name, str) or not name.strip() or name != name.strip() or name in (".", "..")
-            or any(c in name for c in "/\\:\0") or parent is None or not str(parent).strip()):
+    if (not is_one_component(name) or not name.strip() or name != name.strip()
+            or parent is None or not str(parent).strip()):
         return False
     return name in _listing(parent) and is_dir_or_no(Path(parent) / name)
 

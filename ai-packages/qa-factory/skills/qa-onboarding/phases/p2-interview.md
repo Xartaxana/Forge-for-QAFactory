@@ -145,7 +145,18 @@ one, which is what makes this rule a check rather than a hope.
    never an unconditional rebuild. Confirm authority to change the selected stand.
    When discovery found no address for a stand, **ask for it outright** — a stand with no
    reachable address is not an environment entry, and `environments.md` forbids "a
-   placeholder URL substituted because nobody answered".
+   placeholder URL substituted because nobody answered". "No address found" means no
+   `env_file_addresses` row of a non-sample file (`sample: false`; these are the `--access --json`
+   fields, and the plain render shows the same as the line `http address origins in env files:`, a
+   sample's row prefixed `sample `, `(has a path, not shown)` for `has_path`, and `only a sample:`). The stand question proposes
+   the non-sample origin with its file ("`.env`: `BASE_URL` → http://localhost:3000") and, when
+   `has_path` is true, asks the person for the base path the file's value carries; when two
+   non-sample files disagree, both are shown with their files and the person picks, you do not
+   choose silently. A row with `sample: true` is never proposed, even when it is the only address
+   found: the question then asks outright. A value shown to the person always names the file it
+   came from; a sample's value is shown, if at all, as "the sample file `<path>` shows ...", apart
+   from the stand's facts, and is never the default answer. With `env_file_is_sample` true, say
+   "the repository holds only a sample env file (`<path>`): no file of this stand was found".
    **Which env file carries the address, the account and the secrets is no longer a
    question**: phase 1 read the files and the login call sites, so those names are *shown*
    in the summary for correction like any other found fact. What is asked instead — by name,

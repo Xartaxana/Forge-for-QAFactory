@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import artifact_root, is_story_folder, project_root, state_dir, read_event, role_name, subagent_type, read_json
+import hooklib
 import contract as C
 import detector_verdict as DV
 import role_digest as RD
@@ -205,8 +206,8 @@ def _named_ticket(event: dict) -> tuple:
     if not ticket:
         return "", facts
     root = artifact_root()
-    in_text = [name for name in facts.get("named") or [] if name not in (".", "..")
-               and not any(c in name for c in "/\\:") and (root / name / "pipeline.json").is_file()]
+    in_text = [name for name in facts.get("named") or [] if hooklib.is_one_component(name)
+               and (root / name / "pipeline.json").is_file()]
     named = (ticket == facts.get("explicit") or in_text == [ticket]
              or facts.get("slug_matches") == [ticket] or facts.get("env_task") == ticket)
     return (ticket if named else ""), facts
