@@ -2003,6 +2003,12 @@ def fv1_18_selector_contract() -> None:
             prof(), root_with(), {"argv": ["python", "-m", "pytest", "tests/test_a.py::test_x"]})
         ask("R-N1-6: ...but not with a foreign env on it (the order: env first)", (False, "no_command"), py_prof, root_with(),
             {"argv": ["pytest", "x"], "env": "A=1"})
+        # FV1-18 N4 (R-N4-2): the same rows read the capability: the run-form data row, through runner_identity.
+        import launch_check as LCK
+        for argv_ in (["pytest", "<test-file>"], ["python", "-m", "pytest", "tests/test_a.py::test_x"]):
+            check_eq(f"R-N4-2: runner_identity({argv_})['node_id_selection'] is the data's True (the R-N1-6 rows' ground)",
+                     LCK.runner_identity(argv_)["node_id_selection"], True)
+        check_eq("R-N4-2: ...and a Playwright command has none", LCK.runner_identity(pw)["node_id_selection"], False)
 
         # R-N1-9: the hand literal's shapes.
         got = ask("R-N1-9: selectors.verified the string \"true\" with no record is not read as the hand: none", (False, "none"),

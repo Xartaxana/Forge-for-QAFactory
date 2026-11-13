@@ -348,8 +348,8 @@ def selector_contract(profile, root, command=None) -> dict:
     States, in this order (the hand first, then the command, then the record): `no_command` (profile not an object; no root;
     the command absent, argv empty or unreadable; a FOREIGN `env` on the judged command or on the profile's one_test - never a
     match on the argv alone against an older row), `hand_unreadable` (`selectors` is not an object), `hand_false` / `hand_true`
-    (`selectors.verified` is exactly false / true; any other literal is "not said" and the order goes on), `node_id` (a pytest
-    command: the node id IS the selection), `no_selection_form` (the run-form table has no `selection` row for it),
+    (`selectors.verified` is exactly false / true; any other literal is "not said" and the order goes on), `node_id` (a run form whose
+    data row says `selection_by_node_id`, pytest today: the node id IS the selection), `no_selection_form` (the run-form table has no `selection` row for it),
     `command_not_profile` (run road: argv words or `env` differ from the profile's one_test with placeholders dropped, or the
     profile has none), then the record: `same_command` (True), `command_changed`, `none`, `unreadable`; `error` for any
     exception. Only `hand_true`, `node_id` and `same_command` are verified.
@@ -378,7 +378,6 @@ def selector_contract(profile, root, command=None) -> dict:
         def result(verified_: bool, state: str, why: str) -> dict:
             return out(verified_, state, why + unread)
 
-        import execution_request
         import launch_check
         import onboarding_probe
         if root is None:
@@ -396,9 +395,9 @@ def selector_contract(profile, root, command=None) -> dict:
         env, problem = command_env(spec)
         if problem:
             return result(False, "no_command", problem)
-        if execution_request.is_pytest_command(words):
-            return result(True, "node_id", "a pytest command selects one test by the node id it is given")
         identity = launch_check.runner_identity(words)
+        if identity.get("node_id_selection") is True:
+            return result(True, "node_id", "this run form selects one test by the node id it is given (run-form data)")
         if not identity.get("selection"):
             return result(False, "no_selection_form",
                           "this runner form has no selection row in the run-form data"
