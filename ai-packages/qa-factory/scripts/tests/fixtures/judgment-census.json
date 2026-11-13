@@ -834,6 +834,7 @@
   {"file": "red_sandbox.py", "function": "verify", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "red_sandbox.py", "function": "write_sensitivity_receipts", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "reference_snapshot.py", "function": "_evidence_problems", "class": "xref", "roles": ["qa-runner"], "owner": "data"},
+  {"file": "refusal_registry.py", "function": "check_of", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "release_fingerprint.py", "function": "_check", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "release_fingerprint.py", "function": "_unshipped", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "release_fingerprint.py", "function": "write_release", "class": "xref", "roles": ["conductor"], "owner": "data"},

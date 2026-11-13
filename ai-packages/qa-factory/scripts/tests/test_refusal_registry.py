@@ -395,9 +395,10 @@ def part_wide_defaults() -> None:
                  [(s["file"], s["function"], s["line"]) for s in _DEFAULT_FAMILY])
         check("every wide site carries a transport and a state",
               all(s["transport"] in RR.WIDE_TRANSPORTS and s["state"] in RR.STATES for s in wide))
-        check_eq("the stderr print, the list append and the `sys.exit(str)` of `h` are the wide scan's own sites",
+        check_eq("the list append and the `sys.exit(str)` of `h` are the wide scan's own sites (its stderr print is followed by "
+                 "an assignment, so it is a note: a named blind spot, never a site)",
                  sorted(s["transport"] for s in wide if s["function"] == "h"),
-                 ["list", "stderr-print+return", "sys.exit(str)"])
+                 ["list", "sys.exit(str)"])
     finally:
         cleanup(root)
 
@@ -424,14 +425,25 @@ def part_wide_transports() -> None:
         got = [s["transport"] for s in rep["sites"]]
         check_eq(f"{transport}: one site, of that transport", got, [transport])
         check_eq(f"{transport}: no walk error", (rep["walk_errors"], rep["check_arg_errors"]), ([], []))
-    # the stderr print is a site only beside a failing return or exit; each other shape is a NAMED blind spot, with a count
-    for label, body, needle in (
-            ("no failing return", "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    return 0\n", "no failing return"),
-            ("returns an expression", "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    return len(e)\n",
-             "returns an expression")):
+    # the stderr print is a site only when the NEXT statement of its block fails (T0-gate change 1); each other shape is a NAMED
+    # blind spot, with a count (a note or a progress line is never a refusal)
+    tail = "not followed by a failing return"
+    for label, body in (
+            ("a return of zero next", "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    return 0\n"),
+            ("a return of an expression next", "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    return len(e)\n"),
+            ("a note, then a failing return two statements later",
+             "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    e = 1\n    return 2\n"),
+            ("a note in a loop, the failing return outside the block",
+             "import sys\n\ndef f(e):\n    for x in e:\n        print('a', file=sys.stderr)\n    return 2\n"),
+            ("two prints, only the second beside the return",
+             "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    print('b', file=sys.stderr)\n    return 2\n"),
+            ("nothing after it", "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n")):
         rep = _wide(body)
-        check_eq(f"stderr with {label}: not a site", rep["sites"], [])
-        check_eq(f"stderr with {label}: a named blind spot, counted", _blind(rep, needle), 1)
+        expect = 1 if label.startswith("two prints") else 0
+        check_eq(f"stderr with {label}: sites", len(rep["sites"]), expect)
+        check_eq(f"stderr with {label}: a named blind spot, counted", _blind(rep, tail), 2 - expect if label.startswith("two") else 1)
+    check_eq("stderr beside a raise: a site", [s["transport"] for s in _wide(
+        "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    raise SystemExit(2)\n")["sites"]], ["stderr-print+return"])
     for label, body in (("EXIT_ name", "EXIT_BAD = 3\n\ndef f(e):\n    print('a', file=sys.stderr)\n    return EXIT_BAD\n"),
                         ("sys.exit(2)", "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    sys.exit(2)\n"),
                         ("return -1", "import sys\n\ndef f(e):\n    print('a', file=sys.stderr)\n    return -1\n")):
@@ -608,7 +620,19 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
+def part_check_of() -> None:
+    """`check_of(entry)` is `<file stem>:<id>`, the one namespace of a check; one id per A24 entry, never two the same."""
+    check_eq("check_of: the stem of the file, a colon, the id", RR.check_of({"file": "scripts/manifest_put.py", "id": "X-y"}),
+             "manifest_put:X-y")
+    check_eq("check_of: a bare file name", RR.check_of({"file": "stage_guard.py", "id": "SG-1"}), "stage_guard:SG-1")
+    ids = [RR.check_of(entry) for entry in RR.REGISTRY]
+    check_eq("check_of: one id per A24 entry", len(set(ids)), len(ids))
+    check("check_of: every id matches the family grammar of a check id",
+          all(re.fullmatch(r"[A-Za-z0-9_]+:[A-Za-z0-9_.\[\]-]+", i) for i in ids))
+
+
 def main() -> None:
+    part_check_of()
     part_wide_defaults()
     part_wide_transports()
     part_wide_states()

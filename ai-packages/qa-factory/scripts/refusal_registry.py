@@ -69,7 +69,8 @@ KEY_CHARS = 90
 # is narrowed only by a diff (precedent: SCAN_ROOT of the judgment census). Names, one per `transport` a site carries:
 # `deny`/`block`/`refuse` calls, `raises` (the exception family), `run_guarded` (a family raise in a file that calls
 # `run_guarded`: the wrapper turns it into a refusal), `sys.exit(str)`, `SystemExit(str)`, a `print(..., file=sys.stderr)` or
-# `sys.stderr.write(...)` in a function that also has a failing `return`/`sys.exit`, and a list `.append`/`.extend`/`+= [..]`
+# `sys.stderr.write(...)` whose NEXT statement of the same block is a failing `return` / `sys.exit(<non-zero>)` / `raise` (T0-gate
+# change 1: any other stderr text is a counted blind spot, never a site), and a list `.append`/`.extend`/`+= [..]`
 # in a unit the census marks blocking (no list-name filter: over-counting is the declared safe side).
 WIDE_TRANSPORTS = ("deny", "block", "refuse", "run_guarded", "raises", "sys.exit(str)", "SystemExit(str)",
                    "stderr-print+return", "stderr-write+return", "list")
@@ -1373,16 +1374,15 @@ def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
         nodes.append((node, stack))
         inner = stack + (node.name,) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else stack
         todo.extend((child, inner) for child in ast.iter_child_nodes(node))
-    fails, returns_expr, joined, consts = set(), set(), {}, {}
+    joined, consts, followed = {}, {}, set()
     run_guarded_file, raise_exc = False, set()
     for node, stack in nodes:
         fn = stack[0] if stack else "<module>"
-        if isinstance(node, ast.Return) and node.value is not None:
-            if _failing(node.value):
-                fails.add(fn)
-            if not isinstance(node.value, ast.Constant):
-                returns_expr.add(fn)
-        elif isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+        for _field, block in ast.iter_fields(node):     # a stderr print counts only as the statement BEFORE a failing one
+            if isinstance(block, list):
+                followed.update(id(a.value) for a, b in zip(block, block[1:])
+                                if isinstance(a, ast.Expr) and isinstance(a.value, ast.Call) and _fails_stmt(b))
+        if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
             raise_exc.add(id(node.exc))
         elif isinstance(node, ast.Assign) and not stack and len(node.targets) == 1 \
                 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant) \
@@ -1392,8 +1392,6 @@ def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
             callee = _callee(node)
             if callee == "run_guarded":
                 run_guarded_file = True
-            elif callee == "exit" and _is_attr_of(node.func, "sys", "exit") and node.args and _failing(node.args[0]):
-                fails.add(fn)
             elif (callee == "join" or callee == "str") and node.args:
                 joined.setdefault(fn, set()).add(_expr_key(node.args[0]) or "")
     mods, names = set(), {}
@@ -1457,10 +1455,10 @@ def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
                     k.arg == "file" and (_is_attr_of(k.value, "sys", "stderr")
                                          or (isinstance(k.value, ast.Name) and k.value.id == "stderr"))
                     for k in node.keywords):
-                _stderr(node, stack, fn, "stderr-print+return", args[0] if args else None, fails, returns_expr, emit, count)
+                _stderr(node, stack, "stderr-print+return", args[0] if args else None, followed, emit, count)
             elif isinstance(func, ast.Attribute) and func.attr == "write" and isinstance(func.value, ast.Attribute) \
                     and _is_attr_of(func.value, "sys", "stderr"):
-                _stderr(node, stack, fn, "stderr-write+return", args[0] if args else None, fails, returns_expr, emit, count)
+                _stderr(node, stack, "stderr-write+return", args[0] if args else None, followed, emit, count)
             elif isinstance(func, ast.Attribute) and func.attr in ("append", "extend") and args and counted_list(stack):
                 emit(node, stack, "list", args[0], listname=_expr_key(func.value) or "")
         elif isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add) and isinstance(node.value, ast.List) \
@@ -1492,14 +1490,24 @@ def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
     return [rec for rec, _ in sorted(records, key=lambda r: (r[0]["line"], r[1]))], blind
 
 
-def _stderr(node, stack, fn, transport, message, fails, returns_expr, emit, count) -> None:
-    """A stderr print/write is a refusal site only in a function that also fails (a non-zero return or exit)."""
-    if fn in fails:
+def _fails_stmt(stmt) -> bool:
+    """A statement that FAILS the block: `return <non-zero int | EXIT_* name>`, `sys.exit(<non-zero>)`, any `raise`."""
+    if isinstance(stmt, ast.Raise):
+        return True
+    if isinstance(stmt, ast.Return):
+        return stmt.value is not None and _failing(stmt.value)
+    call = stmt.value if isinstance(stmt, ast.Expr) else None
+    return isinstance(call, ast.Call) and _is_attr_of(call.func, "sys", "exit") and bool(call.args) \
+        and _failing(call.args[0])
+
+
+def _stderr(node, stack, transport, message, followed, emit, count) -> None:
+    """A stderr print/write is a refusal site only when the NEXT statement of its block fails (T0-gate change 1): a note or a
+    progress line is not a refusal. Any other stderr text is a named blind spot, counted."""
+    if id(node) in followed:
         emit(node, stack, transport, message)
-    elif fn in returns_expr:
-        count("stderr text in a function that returns an expression (not a literal non-zero)")
     else:
-        count("stderr text in a function with no failing return or exit (a warning, a note)")
+        count("stderr text not followed by a failing return, sys.exit or raise in its block (a note, a progress line)")
 
 
 class CensusError(Exception):
@@ -1628,6 +1636,12 @@ def _census_blocking(root: Path, names: list):
 def _covers(entry: dict, site: dict) -> bool:
     return (entry["file"] == site["file"] and entry["function"] == site["function"]
             and site["call"].startswith(str(entry["call"])))
+
+
+def check_of(entry: dict) -> str:
+    """The check id of an A24 entry: `<file stem>:<id>` (the one namespace of a check, told-before-work §2.1). A site of the
+    entry's function may write the sub-id `<check_of>.<part>` when one sentence cannot state all of its refusals."""
+    return f"{Path(str(entry['file'])).stem}:{entry['id']}"
 
 
 def is_fail_closed(entry: dict) -> bool:
