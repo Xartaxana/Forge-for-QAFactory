@@ -46,6 +46,17 @@ def strategist_closed_s3(controller, task_root: Path) -> None:
                                 "evidence_refs": [{"path": evidence.name, "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}]})
 
 
+def tester_closed_s2(controller, task_root: Path) -> None:
+    """The S2 twin of `strategist_closed_s3`: the ticket re-run goes back over the work of the stage's author (`stages.json` `roles[0]` for
+    every stage, A1a), and `BASE.accept_stage` closes S2 with a `qa-worker` dispatch - give S2 the tester's accepted work."""
+    controller.apply("dispatch", {"id": "dS2-tester", "stage": "S2", "role": "qa-requirements-tester", "scope": ["TC-1"], "input_hash": "S2",
+                                  "budget": {}, "known_paths": {}, "idempotency_key": "dispatch-S2-tester"})
+    evidence = task_root / "S2-tester.txt"
+    evidence.write_text("S2-tester", encoding="utf-8")
+    controller.apply("accept", {"id": "dS2-tester", "status": "accepted", "stage_complete": False, "idempotency_key": "accept-S2-tester",
+                                "evidence_refs": [{"path": evidence.name, "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}]})
+
+
 def staged_driver(root: Path, env: dict, task_root: Path, accept: dict):
     """A driver whose roles are recorded, not run: `accept["on"]` says whether the stub closes the dispatch it was sent to."""
     driver = driver_for(root, env, KEY, max_boundaries=12)
@@ -87,6 +98,7 @@ def state_of(task_root: Path) -> dict:
 def k6_k7_new_text_reworks_s2_then_s3_then_reopens_gate_a() -> None:
     root, task_root, env, ticket, controller = gate_a_story(decided=True, late=True)
     try:
+        tester_closed_s2(controller, task_root)
         strategist_closed_s3(controller, task_root)
         driver, _person = asked_driver(root, env, task_root, ticket)
         accept = {"on": False}
@@ -171,6 +183,7 @@ def k6_k7_new_text_reworks_s2_then_s3_then_reopens_gate_a() -> None:
 def k7b_gate_a_not_decided_is_not_reopened() -> None:
     root, task_root, env, ticket, controller = gate_a_story(decided=False)
     try:
+        tester_closed_s2(controller, task_root)
         strategist_closed_s3(controller, task_root)
         driver, _ = asked_driver(root, env, task_root, ticket)
         accept = {"on": True}
@@ -327,6 +340,7 @@ def k7e_a_ticket_rework_finished_through_the_restart_route_is_complete() -> None
     re-run of S2/S3 must close COMPLETE there too (the plan baseline is re-captured), while every other rework still does not."""
     root, task_root, env, ticket, _controller = gate_a_story(decided=True)
     try:
+        tester_closed_s2(_controller, task_root)
         driver, _ = asked_driver(root, env, task_root, ticket)
         accept = {"on": False}
         stub = staged_driver(root, env, task_root, accept)

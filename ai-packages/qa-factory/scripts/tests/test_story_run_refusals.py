@@ -3858,7 +3858,7 @@ def refusal_s4_critic_finish_survivors():
                 form.parent.mkdir(parents=True, exist_ok=True)
                 form.write_text("header:\n  role: qa-case-critic\n  stage: S4\n  verdict: ok\n", encoding="utf-8")
             calls = []
-            driver.py = lambda script, *a, check=False, expect="": calls.append((script, [str(x) for x in a], check)) or (0, "")
+            driver.py = lambda script, *a, **kw: calls.append((script, [str(x) for x in a], kw.get("check"))) or (0, "")
             driver.stage_acceptance_write("S4", "S4-qa-case-critic-1")
             label = "form present" if present else "form file absent"
             if present:
