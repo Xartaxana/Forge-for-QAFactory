@@ -3308,9 +3308,10 @@ class DriverMachine:
         if token == "go on" and not is_mode:
             # A mismatch of the factory's own copies is a defect of ours, filed in the person's
             # words. A run-mode switch is the person's choice, not a defect: waiver + human_answer only.
+            note = _answer_note(f"owner: factory — {said}; passed on the person's words: ", words.strip())
+            kept = person_words.write_words(self.state_dir.parent, "", "journalnote", note)
             self.py_trace("log_append.py", "--event", "defect_found", "--task", self.task, "--ref", ref,
-                          "--by", "driver", "--notes", _answer_note(
-                              f"owner: factory — {said}; passed on the person's words: ", words.strip()),
+                          "--by", "driver", *(("--notes-file", str(kept.absolute())) if kept is not None else ("--notes", note)),
                           why="the pass itself is on the record (package_pass and the human_answer row above); this defect line is the "
                               "finding about it, and a defect filer cannot file its own failure")
 
@@ -3888,8 +3889,10 @@ class DriverMachine:
         self.answer_file()
         self.record_answer_row(token)
         # remains: the journal row of the person's words (FR-8); the answer is carried out whatever the row does
+        note = _answer_note(f"closed story, work that never started ({token}): ", words.strip())
+        kept = person_words.write_words(self.state_dir.parent, "", "journalnote", note)
         self.py("log_append.py", "--event", "human_answer", "--task", self.task,
-                "--notes", _answer_note(f"closed story, work that never started ({token}): ", words.strip()))
+                *(("--notes-file", str(kept.absolute())) if kept is not None else ("--notes", note)))
         if token == "stop":
             self.state["closed_held"] = record
             # remains: `stop` holds the question as every closed question does (`stop_held`, FR-7); nothing runs

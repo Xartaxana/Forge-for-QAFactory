@@ -156,6 +156,12 @@ def read(inline, path, flag, file_flag=OPTION):
     return inline
 
 
+def lf(text) -> str:
+    """A person's words with CRLF and a lone CR turned into LF, nothing else: the ONE place of that rule (AR-13).
+    Pure: no strip, no fold, no cut."""
+    return str(text if text is not None else "").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def words_file_path(task_root, dispatch_id, kind) -> Path:
     """The base of a words file's path, `<task root>/state/words/driver-<kind>[-<dispatch id>]`, no extension.
 
