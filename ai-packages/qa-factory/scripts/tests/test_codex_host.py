@@ -514,7 +514,6 @@ class NativeHostTests(unittest.TestCase):
             self.assertNotIn('stray.json',opened)
             # (A8, A8b: F-7, F-9) a side write that fails inside `deliver` never costs the child its context: it is said on
             # stderr (one line) and once in the project journal, and the context still reaches stdout.
-            import runtime_paths as RP
             def signals():
                 path=RP.configured(root,None,'journal.jsonl')
                 rows=[json.loads(x) for x in path.read_text(encoding='utf-8').splitlines()] if path.is_file() else []
