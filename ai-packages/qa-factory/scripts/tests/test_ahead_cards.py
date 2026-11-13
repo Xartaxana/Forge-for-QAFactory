@@ -393,7 +393,6 @@ def role_text_roots() -> None:
     import types
     from harness import check_not_in
     import runtime_paths as RP
-    import story_run  # noqa: F401  (the import order the driver modules need)
     import driver_dispatch as DD
     import driver_stage_s7 as DS7
     import controller as CT
