@@ -185,11 +185,17 @@ def stage(root, event, role, context, ticket):
     # inside the lock and ahead of the write, so two concurrent stagings cannot both pass it.
     path = _slot(root, session, raw.get('task_name'))
     with EventStore(path.parent).lock():
-        held = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else None
-        if path.is_file() and not isinstance(held, dict):
-            # An unreadable packet, like a corrupt one: the same exception type, which `refuse_native_stage` already takes.
-            raise json.JSONDecodeError('launch packet ' + path.name + ' is not a JSON object; relaunch the role under a '
-                                       'unique task name', '', 0)
+        held = None
+        if path.is_file():
+            try:
+                held = json.loads(path.read_text(encoding='utf-8'))
+            except ValueError:  # empty or broken JSON (JSONDecodeError and a bad encoding are both ValueError)
+                held = None
+            if not isinstance(held, dict):
+                # An unreadable packet (empty, broken, or JSON that is not an object): one named refusal with its door.
+                # A plain ValueError, which `refuse_native_stage` already takes and the A24 scanner sees.
+                raise ValueError('launch packet ' + path.name + ' cannot be read or is not a JSON object; '
+                                 'relaunch the role under a unique task name')
         if held and held.get('status') == 'pending':
             raise StateConflict('A factory launch is awaiting SubagentStart; retry after it starts, do not replace it; '
                                 'if the launch never starts, relaunch the role under a unique task name')

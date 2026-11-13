@@ -461,7 +461,7 @@ class NativeStageRefusal(unittest.TestCase):
         pending_head = 'A factory launch is awaiting SubagentStart'
         rows = [('list', '[]', 'unreadable'), ('list1', '[1]', 'unreadable'), ('number', '1', 'unreadable'),
                 ('string', '"x"', 'unreadable'), ('null', 'null', 'unreadable'),
-                ('empty file', '', 'undecodable'), ('broken', '{broken', 'undecodable'),
+                ('empty file', '', 'unreadable'), ('broken', '{broken', 'unreadable'),
                 ('empty dict', '{}', 'restaged'), ('delivered', '{"status": "delivered"}', 'restaged'),
                 ('pending', '{"status": "pending"}', 'pending')]
         for name, content, outcome in rows:
@@ -482,15 +482,15 @@ class NativeStageRefusal(unittest.TestCase):
                 self.assertEqual(isinstance(caught.exception, StateConflict), outcome == 'pending')
                 self.assertEqual(path.read_text(encoding='utf-8'), content)   # nothing was overwritten
                 if outcome == 'unreadable':
-                    self.assertIsInstance(caught.exception, json.JSONDecodeError)
+                    # never a JSONDecodeError: it hides from the A24 scanner and appends a parse position
+                    self.assertNotIsInstance(caught.exception, json.JSONDecodeError)
+                    self.assertNotIn('line 1 column', text)
                     self.assertIn(path.name, text)
-                    self.assertIn('relaunch the role under a unique task name', text)
-                elif outcome == 'pending':
-                    self.assertTrue(text.startswith(pending_head))
+                    self.assertIn('cannot be read or is not a JSON object', text)
                     self.assertIn('relaunch the role under a unique task name', text)
                 else:
-                    self.assertIsInstance(caught.exception, json.JSONDecodeError)
-                    self.assertNotIn('not a JSON object', text)
+                    self.assertTrue(text.startswith(pending_head))
+                    self.assertIn('relaunch the role under a unique task name', text)
 
     def test_native_packet_refusal_rows(self):
         """P-1: an OSError from `stage` leaves a NAMED row, or an INERT one while a same-key packet is pending."""
