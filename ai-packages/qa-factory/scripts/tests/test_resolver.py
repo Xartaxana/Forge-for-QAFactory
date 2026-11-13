@@ -1673,6 +1673,62 @@ def oh6_1_one_component_table() -> None:
                 check(f"OH6-1 {row_id}-{label} asked the survivor", name in seen, repr(seen))
 
 
+# --- OH8-3: a refused session id leaves ONE stderr line, the exit stays (FR-4, AR-28) ---------------------------------
+# (id, session id, reason fragment the line must carry; "" = a good id: reaches the scope check, no line)
+OH83_IDS = (("int", 5, "not a string (int)"), ("list", ["a"], "not a string (list)"),
+            ("nul", "a\0b", "contains a NUL character"), ("dotdot", "..", "is not one path component"),
+            ("slash", "a/b", "is not one path component"),
+            ("at80", "x" * 76 + "/b", "is not one path component"), ("beyond80", "x" * 10000 + "/b", "is not one path component"),
+            ("surrogate", "a\ud800/b", "is not one path component"), ("good", "T", ""))
+OH83_SITES = (("capture", _oh61_row_cost_capture), ("main", _oh61_row_cost_main))
+
+
+def oh8_3_session_id_refusal_line() -> None:
+    """Every id x both sites. Positive control: the good id reaches the check behind the guard and writes no line.
+    Mutation note: deleting the `print` in `cost_capture._session_id_ok` makes every refused row red (no line)."""
+    base = scratch()
+    for site, run in OH83_SITES:
+        for label, session_id, reason in OH83_IDS:
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    outcome = _oh61_outcome(lambda: run(session_id, base / f"oh83-{site}-{label}"))
+            finally:
+                restore_process()
+            lines = [ln for ln in err.getvalue().splitlines() if ln]
+            name = f"OH8-3 {site}-{label}"
+            if not reason:
+                check(f"{name} reaches the check behind the guard", outcome[0] == "value" and outcome[1][1] is True, repr(outcome)[:300])
+                check(f"{name} writes no line", lines == [], repr(lines))
+                continue
+            want = ("exit", 0) if site == "capture" else ("value", None)
+            check(f"{name} keeps its exit and reaches nothing", outcome[0] == "value" and outcome[1] == (want, False), repr(outcome)[:300])
+            check(f"{name} writes exactly one line naming the reason",
+                  len(lines) == 1 and lines[0].startswith("session id refused: ") and reason in lines[0], repr(lines)[:300])
+            check(f"{name} shows the value in at most 80 characters, no raw NUL",
+                  len(lines) == 1 and len(lines[0]) - len("session id refused: ") - len(reason) - 2 <= 80 and "\0" not in lines[0],
+                  repr(lines)[:300])
+    # an empty id never reaches a site (`event.get("session_id") or tpath.stem`); the helper itself still refuses it with a reason
+    import cost_capture
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        empty_ok = cost_capture._session_id_ok("")
+    check("OH8-3 helper-empty is refused with a reason line", not empty_ok and err.getvalue() == "session id refused: is empty\n", repr(err.getvalue()))
+
+    class ClosedStream:
+        def write(self, text):
+            raise ValueError("I/O operation on closed file")
+
+        def flush(self):
+            raise ValueError("I/O operation on closed file")
+    saved_stderr, sys.stderr = sys.stderr, ClosedStream()
+    try:
+        closed_ok = cost_capture._session_id_ok("a/b")
+    finally:
+        sys.stderr = saved_stderr
+    check("OH8-3 helper-closed-stream: a stderr write that raises is swallowed, the id is still refused", closed_ok is False)
+
+
 # the three copy shapes of "a name is one path component" (the batch row and critic t-286 fix 3)
 OH61_COPY = re.compile(r"""for \w+ in ['"]/\\\\:""")
 OH61_TUPLE = re.compile(r"""for \w+ in \(\s*['"]/['"],\s*['"]\\\\['"]""")
@@ -1726,6 +1782,7 @@ def main() -> None:
     try:
         oh6_1_one_component_table()
         oh6_1_sentinel()
+        oh8_3_session_id_refusal_line()
         b1_artifacts_dir_root()
         b2_binding_is_active()
         b3_blocking_text()
