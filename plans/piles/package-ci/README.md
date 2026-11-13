@@ -114,7 +114,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 
 ## Входящие
 
-`findings/` этой кучки; находку, не названную ни в одной пачке, называет `piles.py check` (е).
+`findings/` этой кучки; находку, не названную ни в одной пачке, называет `piles.py check --all` (е).
 По теме в других кучках: `driver-controller/findings/B-214-sosedi-b-155-testovye-fayly-paketa.md` (медленные тесты),
 `driver-controller/findings/B-293-golden-drayvera-t-301-n0-t-337.md` (golden драйвера).
 

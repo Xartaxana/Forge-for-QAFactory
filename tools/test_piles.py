@@ -333,6 +333,19 @@ def _cross_pile_dupe(tree):
     return [(("check",), 2, ["(а) placement: RED", "B-102 is in 2 finding files"], [])]
 
 
+@scope_row("xpile-unknown-id")
+def _xpile_unknown_id(tree):
+    """B.3: deleting a finding in pile B creates an unknown-id red in pile A's card (a partial member lives in another pile);
+    a commit staging only B's delete is judged, and the green control is the same world before the delete."""
+    freeze(tree)
+    put(tree, "plans/piles/report-delivery/findings/B-900-x.md", finding_text("B-900", "report-delivery"))
+    edit(tree, CARD, "| 2 | потом | B-015 |", "| 2 | потом | B-015, B-900 (часть) |")
+    commit(tree, "forge row 2 names B-900 (partial); its finding lives in report-delivery")
+    assert piles.run_check(tree, True)[0] == 0                 # the control: no unknown id while the finding exists
+    git(tree, "rm", "-q", "plans/piles/report-delivery/findings/B-900-x.md")
+    return [(("check",), 2, ["(а) placement: RED", "unknown id B-900 in the row of batch forge/2"], [])]
+
+
 @scope_row("overlap-pair-one-side")
 def _pair_one_side(tree):
     _two_developers(tree)

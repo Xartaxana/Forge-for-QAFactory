@@ -174,8 +174,9 @@ def test_take_runs_overlap_first_and_names_the_queue_door(tree, cli):
     ("dev1, 12.11.2026", "developer: dev2\n", 0,
      ("WARNING: --who reads as developer dev1, but this clone's tools/dev.config.yaml names dev2",), ()),
     ("dev1, 12.11.2026", None, 0, ("piles take: forge/2 taken by dev1",), ("WARNING: --who",)),
+    ("dev1, 12.11.2026", "developer: [dev2\n  : {broken\n", 0, ("piles take: forge/2 taken by dev1",), ("WARNING: --who",)),
 ], ids=["take-passes-own-overlaps", "take-refused-other-developer", "take-warns-who-differs-from-clone",
-        "take-no-warning-without-dev-config"])
+        "take-no-warning-without-dev-config", "take-no-warning-unreadable-dev-config"])
 def test_take_by_developer(tree, cli, holder, config, code, needles, absent):
     """D.3: batch 1 (в работе, writes tools/a.py) belongs to `holder`; batch 2 (writes the same file) is taken with --who dev1."""
     batch2(tree, writes="`tools/a.py`")
@@ -280,13 +281,21 @@ def test_take_that_fails_and_is_rolled_back_prints_no_board_word(tree, cli, monk
 
 # ---------------------------------------------------------------- status (SL-3, t-356): the one writer of сдано / принято
 
+BROKEN_TABLE = {                                # `load_pile` only appends a batch's parse errors, so such a batch loads and `status` must judge it
+    "no-table": lambda t: t.replace("## Узлы", "## Задачи", 1),
+    "no-status-column": lambda t: t.replace("| Зависит от | Статус |", "| Зависит от | Стат |", 1),
+    "empty-table": lambda t: "\n".join(l for l in t.split("\n") if not l.startswith(("| F0-3 |", "| F0-4 |"))),
+}
+
+
 def status_world(tree, cli, kind):
     """Batch 2 of the mini tree in the state `kind`; the hash used is HEAD's short hash (nothing here moves HEAD)."""
     h = head_hash(tree, short=True)
     rows = {"taken": ["ожидает"], "submitted-node": ["сдано"], "accepted-node": ["принято: %s (t-1)" % h],
             "open-nodes": ["принято", "сдано"], "all-done": ["принято", "отклонено"], "dup": ["ожидает", "ожидает"],
             "batch-accepted-fully": ["принято", "отклонено"]}.get(kind, ["ожидает"])
-    ids = ["F0-3 + F0-4"] if kind == "two-ids" else ["F0-3", "F0-3"] if kind == "dup" else ["F0-3", "F0-4"]
+    ids = ["F0-3 + F0-4"] if kind == "two-ids" else ["F0-3", "F0-3"] if kind == "dup" else ["Ф0-3", "F0-4"] if kind == "cyrillic-id" \
+        else ["F0-3", "F0-4"]
     nodes = [mk_node(i, "`tools/%s.py`" % "bc"[k], s) for k, (i, s) in enumerate(zip(ids, rows * 2))]
     put(tree, B2, batch_text("forge", 2, "ожидает", nodes, who="—", branch="—", proof=PROOF_DONE))
     git(tree, "branch", "-M", "main")
@@ -301,6 +310,8 @@ def status_world(tree, cli, kind):
         assert cli(tree, "status", "forge", "2", "--set", "сдано")[0] == 0
     if kind == "batch-accepted-fully":
         assert cli(tree, "status", "forge", "2", "--set", "принято")[0] == 0
+    if kind in BROKEN_TABLE:                                                    # a TAKEN batch whose node table was then damaged by hand
+        put(tree, B2, BROKEN_TABLE[kind](rd(tree, B2)))
     return h
 
 
@@ -365,6 +376,25 @@ STATUS_ROWS = [
     ("node-id-empty", "taken", ("", "--set", "сдано"), 2, ('node id "": expected 1-40 characters',), "none", ""),
     ("node-id-spaced", "taken", ("F0 3", "--set", "сдано"), 2, ("node id", "without spaces"), "none", ""),
     ("node-id-too-long", "taken", ("F" * 41, "--set", "сдано"), 2, ("node id", "expected 1-40 characters"), "none", ""),
+    # the node table the status reads can be missing, damaged or empty (SL-3 edge 9); an unreadable table is never an empty one
+    ("no-node-table-node", "no-table", (*NODE_SET, "сдано"), 2, ("forge/2: no node table under '## Узлы'", "expected a table with the columns"), "none", ""),
+    ("no-node-table-batch", "no-table", ("--set", "принято"), 2, ("forge/2: no node table under '## Узлы'", "its nodes are read to judge the acceptance"), "none", ""),
+    ("no-status-column-node", "no-status-column", (*NODE_SET, "сдано"), 2, ("forge/2: the node table has no Статус column",), "none", ""),
+    ("no-status-column-batch", "no-status-column", ("--set", "принято"), 2, ("forge/2: the node table has no Статус column",
+                                                                           "its nodes are read to judge the acceptance"), "none", ""),
+    ("batch-accepted-empty-table", "empty-table", ("--set", "принято"), 2, ("forge/2 has no nodes to accept (its node table has no rows)",
+                                                                           "set the batch to сдано", "piles-skip: в -- <reason>"), "none", ""),
+    ("node-in-empty-table", "empty-table", (*NODE_SET, "сдано"), 2, ('no node "F0-3" in forge/2', "none (the table has no rows)"), "none", ""),
+    # AT and BEYOND each limit of the command line (CLAUDE.md rule 11)
+    ("node-id-40-chars", "taken", ("F" * 40, "--set", "сдано"), 2, ('no node "%s" in forge/2' % ("F" * 40), "expected one of its node ids"), "none", ""),
+    ("node-id-cyrillic-exists", "cyrillic-id", ("Ф0-3", "--set", "сдано"), 0, ("forge/2 Ф0-3 set to сдано",), "node", "сдано"),
+    ("node-id-cyrillic-unknown", "taken", ("Ф9-9", "--set", "сдано"), 2, ('no node "Ф9-9" in forge/2', "expected one of its node ids: F0-3, F0-4"), "none", ""),
+    ("task-6-digits", "taken", (*NODE_SET, "принято", "--task", "t-999999"), 0, ("set to принято (t-999999)",), "node", "принято (t-999999)"),
+    ("hash-6-hex", "taken", (*NODE_SET, "принято", "--hash", "abcdef"), 2, ('--hash "abcdef": expected a commit hash (7-40 hex characters)',), "none", ""),
+    # 7 hex AT the limit: `accepted-hash` (a commit: written) and `bad-hash-not-a-commit` (deadbee: passes the shape, refused as no commit)
+    ("hash-40-hex", "taken", (*NODE_SET, "принято", "--hash", "{H}"), 0, ("set to принято: {H}. Next:",), "node", "принято: {H}"),
+    ("hash-40-hex-not-a-commit", "taken", (*NODE_SET, "принято", "--hash", "deadbeef" * 5), 2, ("%s is not a commit in this repository" % ("deadbeef" * 5),), "none", ""),
+    ("hash-41-hex", "taken", (*NODE_SET, "принято", "--hash", "a" * 41), 2, ('expected a commit hash (7-40 hex characters)',), "none", ""),
 ]
 
 
@@ -373,21 +403,22 @@ STATUS_ROWS = [
 def test_status_edges(tree, cli, world, args, code, needles, writes, cell):
     """Spec SL-3 edges 1-11 and the adversarial rows: a refusal writes nothing; a write changes ONE line per target and no other byte."""
     h = status_world(tree, cli, world)
+    full = head_hash(tree)                                                      # "{H}": the 40-hex form of the same commit
     before = {rel: rd(tree, rel) for rel in (CARD, B2)}
     state = tree_state(tree)
-    got, out = cli(tree, "status", "forge", "2", *[a.replace("{h}", h) for a in args])
+    got, out = cli(tree, "status", "forge", "2", *[a.replace("{h}", h).replace("{H}", full) for a in args])
     assert got == code, out
     for needle in needles:
-        assert needle.replace("{h}", h) in out, (needle, out)
+        assert needle.replace("{h}", h).replace("{H}", full) in out, (needle, out)
     changed = changed_lines(tree, before)
     assert changed == {"none": {CARD: 0, B2: 0}, "node": {CARD: 0, B2: 1}, "batch": {CARD: 1, B2: 1}}[writes], (changed, out)
     if writes == "none":
         assert tree_state(tree) == state
         return
-    cell = cell.replace("{h}", h)
+    cell = cell.replace("{h}", h).replace("{H}", full)
     row = next(l for l, o in zip(rd(tree, B2).split("\n"), before[B2].split("\n")) if l != o)
     if writes == "node":
-        assert row.endswith("| %s |" % cell) and row.startswith("| F0-3 |"), row
+        assert row.endswith("| %s |" % cell) and row.startswith("| %s |" % args[0]), row
     else:
         card_row = next(l for l, o in zip(rd(tree, CARD).split("\n"), before[CARD].split("\n")) if l != o)
         assert "статус: %s |" % cell in row and row.startswith("кучка:") and "| %s |" % cell in card_row, (row, card_row)
@@ -399,7 +430,8 @@ def test_status_edges(tree, cli, world, args, code, needles, writes, cell):
                                             ("Forge", "2", 'no pile "Forge"'), ("nope", "2", 'no pile "nope"'),
                                             ("forge", "0", "N must be a whole number 1-999"), ("forge", "x", 'got "x"'),
                                             ("forge", "1000", "N must be a whole number 1-999"), ("forge", "-1", "N must be"),
-                                            ("forge", "99", "no batch row 99")])
+                                            ("forge", "99", "no batch row 99"),
+                                            ("forge", "999", "no batch row 999")])        # AT the limit: a number, refused only as an unknown batch
 def test_status_slug_and_n_battery(tree, cli, slug, n, needle):
     status_world(tree, cli, "taken")
     state = tree_state(tree)
@@ -469,7 +501,6 @@ def test_status_rollback_on_failed_write(tree, cli, monkeypatch, level):
     assert code == 1 and "every file touched was put back, nothing changed" in out, out
     assert tree_state(tree) == state
 
-
-def test_status_order_is_the_one_table():
-    assert piles.STATUS_ORDER == {"ожидает": 0, "в работе": 1, "сдано": 2, "принято": 3, "закрыта": 4, "отклонено": 5}
-    assert piles.BATCH_STATUSES == ("ожидает", "в работе", "сдано", "принято", "закрыта")      # a batch never holds отклонено
+# The order of statuses has no constant-pin test: `backwards` (node сдано -> в работе), `accepted-then-rejected` (node принято, final) and
+# `batch-backwards` (batch принято -> сдано) pin the refusals of `status`; `test_status_keeps_crlf_bom_and_passes_frozen` writes every
+# forward step and (в) accepts each, so a second order table in either place would turn one of these red.

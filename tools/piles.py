@@ -602,22 +602,39 @@ class BatchFile:
     has_nodes_table: bool
     errors: list
     hod_lists: dict = dataclasses.field(default_factory=dict)   # {path: [function names]} the «## Ход» lines declare (D-0048)
+    node_cols_missing: tuple = ()      # the required node-table column labels the table lacks (empty: none, or no table at all)
 
 
 NODE_COLS = {"id": "узел", "executor": "исполнитель", "writes": "пишет в", "status": "статус", "what": "что"}
 NODE_REQUIRED = (("id", "Узел"), ("executor", "Исполнитель"), ("writes", "Пишет в"), ("status", "Статус"))   # «Что» is optional here
 
 
+def _node_table_error(has_table: bool, missing) -> str:
+    """The one text of an unreadable node table (no table, or a required column absent), or '' when it is readable."""
+    if not has_table:
+        return "no node table under '## Узлы' -- expected a table with the columns Узел / Исполнитель / Пишет в / Статус"
+    if missing:
+        return "the node table has no %s column -- expected Узел / Исполнитель / Пишет в / Статус" % ", ".join(missing)
+    return ""
+
+
+def _node_table_problem(f: BatchFile) -> str:
+    """'' when the batch's node table can be read, else its error text, judged from the structured facts the parser set
+    (`has_nodes_table`, `node_cols_missing`), never from the wording of `f.errors`."""
+    return _node_table_error(f.has_nodes_table, f.node_cols_missing)
+
+
 def _parse_nodes(lines, errors):
+    """-> (nodes, has_table, missing required column labels)."""
     table = table_after(lines, "Узлы")
     if table is None:
-        errors.append("no node table under '## Узлы' -- expected a table with the columns Узел / Исполнитель / Пишет в / Статус")
-        return [], False
+        errors.append(_node_table_error(False, ()))
+        return [], False, ()
     cols = column_map(table[0], NODE_COLS)
-    missing = [lbl for k, lbl in NODE_REQUIRED if k not in cols]
+    missing = tuple(lbl for k, lbl in NODE_REQUIRED if k not in cols)
     if missing:
-        errors.append("the node table has no %s column -- expected Узел / Исполнитель / Пишет в / Статус" % ", ".join(missing))
-        return [], True
+        errors.append(_node_table_error(True, missing))
+        return [], True, missing
     nodes = []
     for cells, ln in table[1]:
         w = _cell(cells, cols["writes"])
@@ -625,7 +642,7 @@ def _parse_nodes(lines, errors):
         paths, lists = parse_writers(w)
         nodes.append(Node(_cell(cells, cols["id"]), ln, _cell(cells, cols["executor"]), w, paths, st,
                           status_word(st, NODE_STATUSES), _cell(cells, cols.get("what")), lists))
-    return nodes, True
+    return nodes, True, ()
 
 
 def _hod_lists(lines) -> dict:
@@ -666,9 +683,9 @@ def parse_batch(text: str, rel: str, n=None) -> BatchFile:
                       % (st, ", ".join(BATCH_STATUSES)))
     cut = next((i for i, l in enumerate(lines) if l.startswith("## Узлы")), len(lines))
     queue = [(a, int(b), c, int(d)) for a, b, c, d in QUEUE_RE.findall("\n".join(lines[:cut]))]
-    nodes, has_table = _parse_nodes(lines, errors)
+    nodes, has_table, missing = _parse_nodes(lines, errors)
     return BatchFile(rel, n, title, header, st or "—", status, header.get("взял", "—"), header.get("ветка", "—"),
-                     header.get("mr", "—"), queue, nodes, has_table, errors, _hod_lists(lines))
+                     header.get("mr", "—"), queue, nodes, has_table, errors, _hod_lists(lines), missing)
 
 
 @dataclasses.dataclass
@@ -793,7 +810,6 @@ class Tree:
     root: Path
     backlog: Backlog
     piles: dict
-    untracked: list
 
     def all_views(self):
         return [v for p in self.piles.values() for v in p.views()]
@@ -869,10 +885,9 @@ def load_pile(root: Path, folder: Path, tolerant=False, skip=frozenset()):
     return Pile(slug, card, rel + "/README.md", batches, findings, errors)
 
 
-def load_tree(root, with_untracked=False, tolerant=False, skip=frozenset()) -> Tree:
+def load_tree(root, tolerant=False, skip=frozenset()) -> Tree:
     """Everything the checks and `summary` read, from the working tree. CannotRun on an unreadable file or no boundary --
-    except, with `tolerant`, a finding file (see load_pile). The untracked-file scan costs a git call, hence the flag (no
-    caller passes it since the board went). `skip`: the repo-relative paths not read (check in a commit and `take` pass the
+    except, with `tolerant`, a finding file (see load_pile). `skip`: the repo-relative paths not read (check in a commit and `take` pass the
     untracked files of other piles, B.2/B.9); the default reads everything, as every other caller does."""
     root = Path(root)
     backlog = parse_backlog_rows(read_text(root / BACKLOG_REL))
@@ -883,7 +898,7 @@ def load_tree(root, with_untracked=False, tolerant=False, skip=frozenset()) -> T
             pile = load_pile(root, folder, tolerant, skip)
             if pile is not None:
                 piles[folder.name] = pile
-    return Tree(root, backlog, piles, untracked_piles(root) if with_untracked else [])
+    return Tree(root, backlog, piles)
 
 
 # ============================================================================================
@@ -1128,14 +1143,17 @@ def closed_but_placed(tree: Tree, finds) -> dict:
     return out
 
 
-def _placement_known(tree, finds):
+def _placement_known(ctx, finds):
     reds = []
+    tree = ctx.tree
     bl = tree.backlog
     known = bl.open_ids | bl.closed_ids | set(finds)
     for v, m in tree.member_rows():
         if m.id not in known:
+            # the card names it, but deleting the id's finding in ANOTHER pile creates the red too: that pile's paths carry it (B.3)
             reds.append(Red("unknown id %s in the row of batch %s/%d (the card) -- it is in no BACKLOG row, no closed row "
-                            "and no finding; fix the id or write its finding" % (m.id, v.slug, v.n), (tree.piles[v.slug].card_rel,)))
+                            "and no finding; fix the id or write its finding" % (m.id, v.slug, v.n),
+                            (tree.piles[v.slug].card_rel,) + _a9_homes(ctx, m.id)))
     for ident in sorted(bl.open_ids & bl.closed_ids):
         reds.append(Red("%s is both open and closed in plans/BACKLOG.md -- delete the stale row" % ident, (BACKLOG_REL,)))
     for ident, homes in sorted(closed_but_placed(tree, finds).items()):
@@ -1194,7 +1212,7 @@ def _a9_homes(ctx: Ctx, ident) -> tuple:
 def check_placement(ctx: Ctx) -> ItemResult:
     tree, res = ctx.tree, ItemResult()
     finds = tree.findings_by_id()
-    res.reds += _placement_dupes(tree, finds) + _placement_known(tree, finds) + _placement_form(tree)
+    res.reds += _placement_dupes(tree, finds) + _placement_known(ctx, finds) + _placement_form(tree)
     if tree.backlog.locks:
         for r in _placement_all_placed(tree, finds):
             # a9 is carried by BACKLOG.md and by the piles that named the id at the base rev (F-3 (a))
@@ -1905,7 +1923,7 @@ def _view_reds(tree: Tree, v: View):
             reds.append(Red('%s/%d: the card says "%s", the batch file says "%s" -- the card is ahead of the file; the file is the '
                             "truth while work runs, so bring the file up (or the card back)" % (v.slug, v.n, v.row.status_raw, v.file.status_raw),
                             (v.file.path, card)))
-    if v.file is not None and v.file.has_nodes_table and not v.file.nodes and v.status in ("в работе", "сдано", "принято"):
+    if v.file is not None and v.file.has_nodes_table and not v.file.nodes and v.status in FROZEN:
         reds.append(Red("%s: a %s batch has an empty node table -- nobody works a batch without nodes; fill ## Узлы" % (v.file.path, v.status),
                         (v.file.path,)))
     for f in v.files:
@@ -2258,17 +2276,19 @@ def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None, range
     staged = None if all_ else set(range_paths(root, range_rev) if range_rev else staged_paths(root))
     commit = staged is not None and not range_rev
     tree = None
-    if staged is not None and not _relevant(staged):
-        if not any(p.endswith(".py") for p in staged):
-            return 0, nothing
-        try:                                           # a code commit: relevant only when an active batch lists that file's functions
-            tree = load_tree(root, tolerant=True, skip=frozenset(untracked_piles(root)) if commit else frozenset())
+    relevant = staged is None or _relevant(staged)
+    if not relevant and not any(p.endswith(".py") for p in staged):
+        return 0, nothing
+    untracked = untracked_piles(root) if commit or (all_ and not range_rev) else []      # one git call per run
+    skip = frozenset(untracked) if commit else frozenset()
+    if not relevant:
+        try:                                          # a code commit: relevant only when an active batch lists that file's functions
+            tree = load_tree(root, tolerant=True, skip=skip)
         except CannotRun:
             tree = None                                # safe side: the check runs, and its own load names the failure
         else:
             if not _relevant(staged, tree):
                 return 0, nothing
-    skip = frozenset(untracked_piles(root)) if commit else frozenset()
     tree = tree or load_tree(root, tolerant=True, skip=skip)
     ctx = Ctx(tree, Path(root), staged, base, frozen_ref or ORIGIN)
     doors, notes = [], []
@@ -2293,7 +2313,7 @@ def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None, range
             red_items.append(letter)
     lines += notes
     if all_ and not range_rev:
-        hidden = sorted({s for s in map(pile_of, untracked_piles(root)) if s})
+        hidden = sorted({s for s in map(pile_of, untracked) if s})
         if hidden:
             lines.append("piles check: note: the untracked pile(s) %s are judged here, a commit does not judge them (B.2)"
                          % ", ".join(hidden))
@@ -3245,9 +3265,9 @@ def _status_evidence(root, args, word: str, node_level: bool) -> str:
 
 
 def _status_node_row(f: BatchFile, where: str, node_id: str) -> Node:
-    errors = [e for e in f.errors if e.startswith(("no node table", "the node table"))]
-    if errors:
-        raise Refused("%s: %s" % (where, "; ".join(errors)))
+    problem = _node_table_problem(f)
+    if problem:
+        raise Refused("%s: %s" % (where, problem))
     rows = [nd for nd in f.nodes if node_id in _node_ids_of(nd.id)]
     if not rows:
         raise Refused('no node "%s" in %s -- expected one of its node ids: %s' % (printable(_shorten(node_id, 40)), where, _ids_text(f)))
@@ -3277,7 +3297,7 @@ def _status_node_cell(nd: Node, where: str, word: str, cell: str):
 
 def _status_batch_plan(root, tree, pile, view, f: BatchFile, where: str, word: str):
     """[(path, text)] for the header and the card row, or None when the batch already says it."""
-    if f.status not in ("в работе", "сдано", "принято"):
+    if f.status not in FROZEN:
         raise Refused('%s is "%s" -- take it first (`take %s %d --who <name>`); a waiting batch has no status to set'
                       % (where, printable(f.status_raw), where.split("/")[0], view.n))
     if view.row.status != f.status:
@@ -3290,9 +3310,13 @@ def _status_batch_plan(root, tree, pile, view, f: BatchFile, where: str, word: s
     if word == f.status:
         return None
     if word == "принято":
-        errors = [e for e in f.errors if e.startswith(("no node table", "the node table"))]
-        if errors:
-            raise Refused("%s: %s -- its nodes are read to judge the acceptance" % (where, "; ".join(errors)))
+        problem = _node_table_problem(f)
+        if problem:
+            raise Refused("%s: %s -- its nodes are read to judge the acceptance" % (where, problem))
+        if not f.nodes:
+            raise Refused('%s has no nodes to accept (its node table has no rows) -- expected at least one node row to judge; set the '
+                          'batch to сдано, or edit the header and the card row by hand and put "piles-skip: в -- <reason>" in the '
+                          "commit message ((в) masks the Статус cells)" % where)
         open_ids = [printable(_shorten(nd.id, 30)) for nd in f.nodes if nd.status not in NOT_WRITING]
         if open_ids:
             raise Refused("%s cannot be accepted while its node(s) %s are neither принято nor отклонено -- set them first "

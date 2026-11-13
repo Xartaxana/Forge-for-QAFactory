@@ -110,7 +110,7 @@ FR-42, FR-48, FR-57.
 
 ## Входящие
 
-`findings/` этой кучки; находку, не названную ни в одной пачке, называет `piles.py check` (е).
+`findings/` этой кучки; находку, не названную ни в одной пачке, называет `piles.py check --all` (е).
 Находки по теме в других кучках: `gates-and-words/findings/20261009-gate-b-pravka-avtomatizacii-bez-ispolnitelya.md`,
 `report-delivery/findings/20261009-ischerpannyy-limit-remonta-nedostatki-ne-v-otchete.md`,
 `driver-controller/findings/20261009-b-331-vopros-cheloveku-pered-relaunch.md` — узлы пачки 1 ссылаются на них.
