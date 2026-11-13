@@ -1109,10 +1109,35 @@ def one_text_says_a_root_is_not_a_project_in_every_caller():
         src = (SCRIPTS / "dashboard_refresh.py").read_text(encoding="utf-8")
         check_in("dashboard_refresh asks _carries_project", "_carries_project(project)", src)
         check_not_in("dashboard_refresh has no marker path of its own", 'project / "qa-factory/config.json").is_file()', src)
+        # the dashboard and config_view CLIs on a bare root print the shared text (OF4-17 fix round)
+        before = sorted(p.name for p in bare.rglob("*"))
+        dash = run_script("factory_dashboard.py", "--root", bare)
+        check_eq("factory_dashboard on a bare root without --read-only: exit 3", dash.returncode, hooklib.EXIT_NO_PROJECT)
+        check_in("factory_dashboard refusal says '--read-only --out'", "--read-only --out", dash.stderr)
+        check_in("factory_dashboard refusal is the shared text", "factory_dashboard: ", dash.stderr)
+        check_eq("factory_dashboard on a bare root: nothing written under the root",
+                 sorted(p.name for p in bare.rglob("*")), before)
+        cv_env = dict(os.environ, CLAUDE_PROJECT_DIR=str(bare))
+        cv = run_script("config_view.py", "--keys", env=cv_env)
+        check_eq("config_view on a bare root: exit EXIT_NO_CONFIG", cv.returncode, hooklib.EXIT_NO_PROJECT)
+        check_in("config_view on a bare root: the shared text says 'not onboarded yet'", "not onboarded yet", cv.stderr)
+        check_in("config_view on a bare root: under the caller's name", "config_view: ", cv.stderr)
+        import config_view
+        check_eq("config_view.EXIT_NO_CONFIG is the code the subprocess row expects", config_view.EXIT_NO_CONFIG, hooklib.EXIT_NO_PROJECT)
+        # the one fallback: the marker exists yet the loader raised NoConfig -> the builder gives "" and the old sentence stays
+        def _gone():
+            raise config_view.NoConfig()
+        err = io.StringIO()
+        with mock.patch.object(config_view, "_load", _gone), \
+                mock.patch.object(hooklib, "project_root", lambda *a, **k: marked), \
+                contextlib.redirect_stderr(err):
+            code = config_view.main(["--keys"])
+        check_eq("config_view fallback (marker present, loader raised NoConfig): exit EXIT_NO_CONFIG", code, config_view.EXIT_NO_CONFIG)
+        check_in("config_view fallback keeps its one sentence", "this project was never onboarded", err.getvalue())
         # the docstring is true: no other function builds the sentence "no qa-factory/config.json under"
         builders = [p.name for p in sorted(SCRIPTS.glob("*.py"))
                     if "no qa-factory/config.json under" in p.read_text(encoding="utf-8")]
-        # config_view.py holds a literal copy of its own (a sibling, reported in OF4-17, not part of this node)
+        # config_view.py keeps ONE fallback sentence (marker present, loader raised NoConfig); it is the only second text
         check("ONE builder: hooklib.py holds the sentence, and neither host_probe.py nor the dashboard writers keep a copy",
               "hooklib.py" in builders and not {"host_probe.py", "dashboard_refresh.py", "factory_dashboard.py"} & set(builders),
               str(builders))

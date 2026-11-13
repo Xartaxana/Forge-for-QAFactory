@@ -288,7 +288,9 @@ def main(argv=None) -> int:
     try:
         config = _load()
     except NoConfig:
-        print(f"config_view: no qa-factory/config.json under {hooklib.project_root()} - this project was never onboarded: run "
+        # the shared words (OF4-17); "" only when the marker is there yet the loader said NoConfig: the sentence below stays then
+        shared = hooklib.not_a_project_text(hooklib.project_root(), given=False, purpose="config_view")
+        print(shared or f"config_view: no qa-factory/config.json under {hooklib.project_root()} - this project was never onboarded: run "
               "/qa-factory:qa-onboarding; or this is the wrong project root: run the command from inside the project, or set "
               "CLAUDE_PROJECT_DIR to it.", file=sys.stderr)
         return EXIT_NO_CONFIG
