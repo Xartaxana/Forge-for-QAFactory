@@ -724,6 +724,243 @@ def s5_window_is_refused_in_one_list():
         check("the control: the window with none of those defects is accepted", cls is None, f"{cls} {text[:200]}")
 
 
+def fv1_30b_the_finish_reads_the_persons_word():
+    """FV1-30b N1 (R3, §4): a person's recorded word for a fact (the LIVE index, `s5_precheck.word_passes` replaced by rows) lets the
+    S5 finish go on at tiers 2, 3 and 4 - and only as far as the table says. Rows (a), (a2), (b)-(g3), (i)-(l) of the spec's N1 block;
+    every refusal text is the one of today. The accepted completions each need a fresh story (an accepted stage is closed)."""
+    import s5_precheck as P
+    real = P.word_passes
+    SHAPE_TEXT = "coverage v2 instance requires unique obligation_refs with exact hashes"
+    PLAN_TEXT = "instance obligation_refs do not match the current approved plan"
+    FPRINT_TEXT = "coverage v2 instance requires execution_fingerprint"
+    refs_word = {"finding_id": "manifest:-:row-fields-missing", "check": "manifest", "case": "", "tag": "row-fields-missing",
+                 "decision": "go on, the person knows", "at": "t1", "subjects": [{"instance_id": "i", "fields": ["obligation_refs"]}]}
+    run_word = {"finding_id": "run_mapping:TC-1:no-row-i", "check": "run_mapping", "case": "TC-1", "tag": "no-row-i",
+                "decision": "go on, the person knows", "at": "t2", "subjects": [{"instance_id": "i"}]}
+
+    def fields_word(*fields, iid="i"):
+        return dict(refs_word, subjects=[{"instance_id": iid, "fields": list(fields)}])
+
+    def gap_kinds(text):
+        found = re.search(r"unresolved window: ([^(]*)", text)
+        return [g.strip() for g in found.group(1).split(", ")] if found else []
+
+    def story(prefix):
+        td = tempfile.TemporaryDirectory(prefix=prefix)
+        root = mark_project(Path(td.name))
+        c = Controller(root)
+        c.apply("initialize", {"scope": ["TC-1"], "source_revision": "r", "known_paths": {"root": str(root)}, "idempotency_key": "init"})
+        for number in range(5):
+            accept_stage(c, root, f"S{number}")
+        seed_plan(root)
+        c.apply("decision", bind_gate_a(root, {"id": "A", "gate": "A", "action": "approve", "status": "approved",
+                                               "authorization_source": "human", "source_revision": "r", "scope": ["TC-1"],
+                                               "input_revision": "r", "idempotency_key": "A"}))
+        evidence = root / "s5.txt"
+        evidence.write_text("ok", encoding="utf-8")
+        with s5_window_form(c, root):
+            c.apply("dispatch", {"id": "s5", "stage": "S5", "role": "qa-automator", "scope": ["TC-1"],
+                                 "input_hash": "s5", "budget": {}, "known_paths": {}, "idempotency_key": "s5"})
+        c.apply("accept", {"id": "s5", "status": "accepted", "stage_complete": False,
+                           "evidence_refs": [evidence_ref(root, "s5-author.txt")], "idempotency_key": "s5-author"})
+        c.apply("dispatch", {"id": "s5critic", "stage": "S5", "role": "qa-code-critic", "scope": ["TC-1"],
+                             "input_hash": "s5", "budget": {}, "known_paths": {}, "idempotency_key": "s5critic"})
+        ref = {"path": "s5.txt", "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}
+        planned = plan_obligation_hash(root)
+        counter = [0]
+        asked: list = []       # one entry per call of the live reader, reset by every `go` (F3: one precheck run per finish)
+
+        def instance(name="i", **over):
+            built = dict({"instance_id": name, "outcome": "passed", "input_hash": "s5",
+                          "review": {"verdict": "approved", "input_hash": "s5"}, "change_disposition": "unchanged",
+                          "change_basis_ref": "manifest:TC-1", "evidence_refs": [ref]}, **v2_binding(obligation_hash=planned))
+            built.update(over)
+            for key in [k for k, v in over.items() if v is DROP]:
+                del built[key]
+            return built
+
+        def window(*instances, **over):
+            names = [i["instance_id"] for i in instances] or ["i"]
+            return dict({"schema_version": 2, "input_hash": "s5", "author_dispatch_id": "s5", "reviewer_dispatch_id": "s5critic",
+                         "required_quality_checks": [], "quality_receipts": [], "scope_instances": {"TC-1": names},
+                         "instances": list(instances) or [instance()]}, **over)
+
+        def go(win, rows=(), **receipt):
+            counter[0] += 1
+            body = {"id": "s5critic", "status": "accepted", "stage_complete": True, "window": win, "evidence_refs": [ref],
+                    "idempotency_key": f"s5-try-{counter[0]}"}
+            body.update(receipt)
+            del asked[:]
+
+            def reader(*_a, **_k):
+                asked.append(1)
+                if isinstance(rows, Exception):
+                    raise rows
+                return list(rows)
+            P.word_passes = reader
+            try:
+                c.apply("accept", body)
+            except (StateConflict, ValueError) as exc:
+                return type(exc), str(exc)
+            return None, ""
+        return types.SimpleNamespace(td=td, c=c, root=root, ref=ref, instance=instance, window=window, go=go, asked=asked)
+
+    DROP = object()
+    NO_REFS = dict(obligation_refs=[], obligation_ids=[], obligation_hash="")
+    PAIR = dict(unresolved=["i"], reason="the person's word passed the finding")
+    # the no-run item exactly as `window_record.build` writes it: no outcome, no fingerprint, `evidence_refs: []`
+    NO_RUN = dict(outcome=DROP, execution_fingerprint=DROP, evidence_refs=[], change_disposition="new_or_changed")
+    try:
+        s = story("qa-fv130b-refused-")
+        try:
+            i, win, go = s.instance, s.window, s.go
+            # (b) no word: today's lines. A row-field word does not give back a key the window lacks: tier 2 stands
+            cls, text = go(win(i(**{**NO_REFS, "obligation_ids": DROP, "obligation_hash": DROP, "obligation_refs": DROP})))
+            check("(b) no word, three keys absent: tier 2 lists them", "S5 window record is incomplete" in text
+                  and "i: obligation_refs is missing" in text, text[:300])
+            cls, text = go(win(i(**{**NO_REFS, "obligation_ids": DROP, "obligation_hash": DROP, "obligation_refs": DROP})), [refs_word])
+            check("(b) a refs word, the keys absent (a window not built by `build`): tier 2 still lists them",
+                  "i: obligation_refs is missing" in text, text[:300])
+            cls, text = go(win(i(**NO_REFS)))
+            check("(b) no word, the keys empty: the shape text of tier 3, a ValueError", cls is ValueError and SHAPE_TEXT in text, f"{cls} {text[:200]}")
+            # (c) a second instance NOT named, with a stale ref: its own plan text, beside the named one (which says nothing)
+            stale = dict(obligation_refs=[{"obligation_id": "OB-TS-1", "obligation_hash": "x"}], obligation_ids=["OB-TS-1"])
+            stale["obligation_hash"] = content_hash(stale["obligation_refs"])
+            cls, text = go(win(i(**NO_REFS), i("j", **stale)), [refs_word])
+            check("(c) the named instance goes, the other one still gets the plan text", cls is StateConflict and PLAN_TEXT in text
+                  and SHAPE_TEXT not in text and FPRINT_TEXT not in text, f"{cls} {text[:300]}")
+            # (F1) a stale or unknown ref on an instance WITH a fingerprint is a problem of the ONE named field: the word passes it;
+            # the same instance unnamed is refused with today's plan text, and the fingerprint is still owed
+            unknown = dict(obligation_refs=[{"obligation_id": "OB-NO-SUCH", "obligation_hash": "x"}], obligation_ids=["OB-NO-SUCH"])
+            unknown["obligation_hash"] = content_hash(unknown["obligation_refs"])
+            for label, bad in (("stale", stale), ("unknown", unknown)):
+                # a second instance `j`, not named, keeps the completion refused (its shape text), so this story stays open for the rows
+                # below; the named instance must add no text of its own
+                cls, text = go(win(i(**bad), i("j", **NO_REFS)), [refs_word])
+                check(f"(F1) a {label} ref with a fingerprint + a refs word naming it: no plan text, the unnamed one still refused",
+                      cls is ValueError and SHAPE_TEXT in text and PLAN_TEXT not in text and FPRINT_TEXT not in text, f"{cls} {text[:300]}")
+                cls, text = go(win(i(**bad)), [fields_word("obligation_refs", iid="zz")])
+                check(f"(F1) the same {label} ref, the word naming another instance: today's plan text", cls is StateConflict and PLAN_TEXT in text,
+                      f"{cls} {text[:300]}")
+                cls, text = go(win(i(execution_fingerprint="", **bad)), [refs_word])
+                check(f"(F1) a {label} ref let go still owes the fingerprint", cls is ValueError and FPRINT_TEXT in text and PLAN_TEXT not in text,
+                      f"{cls} {text[:300]}")
+            # (d) a refs-only named instance with no fingerprint still owes it (a word about refs is not a word about the run)
+            cls, text = go(win(i(**NO_REFS, execution_fingerprint="")), [refs_word])
+            check("(d) a refs-only word: the fingerprint text", cls is ValueError and FPRINT_TEXT in text and SHAPE_TEXT not in text,
+                  f"{cls} {text[:300]}")
+            # (e) a reader that raises names nobody: today's refusals at tiers 2, 3 and 4
+            cls, text = go(win(i(**NO_REFS)), RuntimeError("boom"))
+            check("(e) word_passes raises: tier 3 refuses as today", cls is ValueError and SHAPE_TEXT in text, f"{cls} {text[:200]}")
+            cls, text = go(win(i(**NO_RUN)), RuntimeError("boom"))
+            check("(e) word_passes raises: tier 2 keeps the no-run lines", "i: outcome is missing" in text
+                  and "i: execution_fingerprint is missing" in text, text[:300])
+            # (f) a word for profile_id only: the refs are not passed (E17)
+            cls, text = go(win(i(**NO_REFS)), [fields_word("profile_id")])
+            check("(f) a profile_id word: refs refused as today", cls is ValueError and SHAPE_TEXT in text, f"{cls} {text[:200]}")
+            # (g) the no-run instance: no word -> tier 2 lists its three lines; not named -> the same
+            cls, text = go(win(i(**NO_RUN)))
+            check("(g) a no-run new_or_changed instance, no word: outcome, fingerprint and probe lines",
+                  all(x in text for x in ("i: outcome is missing", "i: execution_fingerprint is missing",
+                                          "i: probe is missing for a new_or_changed instance")), text[:400])
+            other_run = dict(run_word, tag="no-row-zz", finding_id="run_mapping:TC-1:no-row-zz", subjects=[{"instance_id": "zz"}])
+            cls, text = go(win(i(**NO_RUN)), [other_run])
+            check("(g) another instance named: today's tier-2 lines", "i: outcome is missing" in text, text[:300])
+            # (g) named: tier 2 has none of its three lines, tier 3 no fingerprint line; tier 4 names the probe kinds, never product/evidence
+            cls, text = go(win(i(**NO_RUN)), [run_word])
+            kinds = gap_kinds(text)
+            check("(g) named, no pair: refused at tier 4 with the probe kinds, never `product:` / `evidence:`",
+                  cls is StateConflict and "sensitivity:i" in kinds and "product:i" not in kinds and "evidence:i" not in kinds
+                  and "is missing" not in text and "execution_fingerprint" not in text, f"{cls} {text[:400]}")
+            # (g3) E29: the same word for an item that shows a run (an outcome, no fingerprint): its lines are kept
+            cls, text = go(win(i(outcome="passed", execution_fingerprint=DROP)), [run_word])
+            check("(g3) a not_run word for an item with an outcome: the fingerprint line is kept",
+                  "i: execution_fingerprint is missing" in text, text[:300])
+            # (i) / (i2) a pass naming change_disposition / change_basis_ref: deleted by `build`, refused by tier 2, as today
+            for field in ("change_disposition", "change_basis_ref"):
+                cls, text = go(win(i(**NO_REFS, **{field: DROP})), [fields_word("obligation_refs", field)])
+                check(f"(i) a pass naming {field}: `i: {field} is missing` at tier 2", f"i: {field} is missing" in text, text[:300])
+            # (j) schema_version != 2: today's version text whatever word stands
+            cls, text = go(win(i(schema_version=1, **NO_REFS)), [refs_word])
+            check("(j) a named instance with schema_version 1: the version text", cls is ValueError and SHAPE_TEXT in text, f"{cls} {text[:200]}")
+            # (l) a passed field lets only its own gap go: assertion_id passed, defect_location (not passed) is kept
+            cls, text = go(win(i(assertion_id="", defect_location="")), [fields_word("assertion_id")])
+            check("(l) assertion_id passed: `defect_location:i` kept, `assertion_identity:i` gone",
+                  gap_kinds(text) == ["defect_location:i"], f"{cls} {text[:300]}")
+            cls, text = go(win(i(assertion_id="", defect_location="")), [fields_word("defect_location")])
+            check("(l) defect_location passed: `assertion_identity:i` kept, `defect_location:i` gone",
+                  gap_kinds(text) == ["assertion_identity:i"], f"{cls} {text[:300]}")
+            cls, text = go(win(i(assertion_id="", defect_location="")), [fields_word("change_basis_ref", "profile_id")])
+            check("(l) a field with no row / not passable lets nothing go",
+                  gap_kinds(text) == ["assertion_identity:i", "defect_location:i"], f"{cls} {text[:300]}")
+            # (a2) F12 / E28: a probed item with a refs pass: obligation_* go, semantic_sensitivity stays (the probe names ids the item lacks)
+            probe = {"verdict": "intended_failure", "input_hash": "s5", "expected_location": "a", "actual_location": "a",
+                     "expected_reason": "r", "actual_reason": "r", "failure_kind": "assertion", "mutation_kind": "assertion",
+                     "proof_level": "live", "obligation_ids": ["OB-TS-1"], "obligation_hash": "h", "assertion_id": "tests/test_one.py:2",
+                     "defect_location": "src/one.py:1", "evidence_ref": "s5.txt"}
+            cls, text = go(win(i(change_disposition="new_or_changed", probe=probe, **NO_REFS)), [refs_word])
+            kinds = gap_kinds(text)
+            check("(a2) a probed item with a refs pass: `semantic_sensitivity:i` kept, no obligation_* kind",
+                  cls is StateConflict and "semantic_sensitivity:i" in kinds
+                  and not any(k.startswith("obligation_") for k in kinds), f"{cls} {text[:400]}")
+        finally:
+            s.td.cleanup()
+        # accepted end to end: a fresh story each
+        s = story("qa-fv130b-a-")
+        try:
+            cls, text = s.go(s.window(s.instance(**NO_REFS)), [refs_word])
+            check("(a) refs absent + a refs word, no pair: accepted through tiers 3 and 4", cls is None, f"{cls} {text[:400]}")
+        finally:
+            s.td.cleanup()
+        s = story("qa-fv130b-a2-")
+        try:
+            probe = {"verdict": "intended_failure", "input_hash": "s5", "expected_location": "a", "actual_location": "a",
+                     "expected_reason": "r", "actual_reason": "r", "failure_kind": "assertion", "mutation_kind": "assertion",
+                     "proof_level": "live", "obligation_ids": ["OB-TS-1"], "obligation_hash": "h", "assertion_id": "tests/test_one.py:2",
+                     "defect_location": "src/one.py:1", "evidence_ref": "s5.txt"}
+            cls, text = s.go(s.window(s.instance(change_disposition="new_or_changed", probe=probe, **NO_REFS)), [refs_word], **PAIR)
+            check("(a2) the same with the pair: accepted (E27, E28)", cls is None, f"{cls} {text[:400]}")
+        finally:
+            s.td.cleanup()
+        s = story("qa-fv130b-g-")
+        try:
+            cls, text = s.go(s.window(s.instance(**NO_RUN)), [run_word], **PAIR)
+            check("(g) a no-run new_or_changed instance named, with the pair: accepted", cls is None, f"{cls} {text[:400]}")
+        finally:
+            s.td.cleanup()
+        s = story("qa-fv130b-g2-")
+        try:
+            cls, text = s.go(s.window(s.instance(**NO_RUN, **NO_REFS)), [run_word, refs_word], **PAIR)
+            check("(g2) named under BOTH facts, with the pair: accepted (E19)", cls is None, f"{cls} {text[:400]}")
+            # tiers 2, 3 and 4 share ONE run of the live reader (`_s5_word_index` memo); the other run is the recording of the pass
+            # (`_record_s5_word_passes`, which needs the rows, not the index) - four runs before the fix
+            check("(F3) tiers 2, 3 and 4 asked ONE live reader run for the whole finish (+ the recording's own read)", len(s.asked) == 2, str(len(s.asked)))
+        finally:
+            s.td.cleanup()
+        s = story("qa-fv130b-f1-")
+        try:
+            stale_refs = dict(obligation_refs=[{"obligation_id": "OB-TS-1", "obligation_hash": "x"}], obligation_ids=["OB-TS-1"])
+            stale_refs["obligation_hash"] = content_hash(stale_refs["obligation_refs"])
+            cls, text = s.go(s.window(s.instance(**stale_refs)), [])
+            check("(F3) no word yet: the stale ref is refused with today's plan text, after ONE run of the reader",
+                  cls is StateConflict and PLAN_TEXT in text and len(s.asked) == 1, f"{cls} {text[:300]} {len(s.asked)}")
+            cls, text = s.go(s.window(s.instance(**stale_refs)), [refs_word])
+            check("(F1) a stale ref with a fingerprint + a refs word naming it, no pair: accepted", cls is None, f"{cls} {text[:400]}")
+            check("(F3) a word recorded between two completions is seen by the second (the memo lived for one call): a new index run each",
+                  len(s.asked) == 2, str(len(s.asked)))
+        finally:
+            s.td.cleanup()
+        s = story("qa-fv130b-k-")
+        try:
+            cls, text = s.go(s.window(s.instance(**NO_REFS)), [refs_word], passed_green=True)
+            check("(k) a passed_green completion with a let-go gap: refused (E21)",
+                  cls is StateConflict and "a completed process with gaps cannot be passed_green" in text, f"{cls} {text[:300]}")
+        finally:
+            s.td.cleanup()
+    finally:
+        P.word_passes = real
+
+
 def a_case_with_no_instance_needs_the_manifest_row():
     """t-721 C2-3 (T8): a window that lists NO instance for a case (TC-2) is accepted only when the manifest carries that
     case as `handed_to_person` AND the completion names it. The pair alone, with no manifest row, is refused: the refusal
@@ -2466,6 +2703,7 @@ def main() -> int:
     portable_packets()
     rework_is_built_by_the_package_that_dispatches_it()
     s5_window_is_refused_in_one_list()
+    fv1_30b_the_finish_reads_the_persons_word()
     a_case_with_no_instance_needs_the_manifest_row()
     an_empty_case_answers_to_the_scope_key_its_manifest_cell_gives()
     s1_reacceptance_is_judged_by_one_summary()

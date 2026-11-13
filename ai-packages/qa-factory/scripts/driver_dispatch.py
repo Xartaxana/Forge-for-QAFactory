@@ -804,7 +804,7 @@ class DriverDispatch:
                 # `story_step.py` names. Only exits 0 and 1 wrote a FRESH record (2 is a crash, and the file
                 # on disk may be an older build); a missing or unreadable file is today's behaviour.
                 if not unresolved and wcode in (0, 1):
-                    found = self.window_gap(self.task_root / window, self.task_root)
+                    found = self.window_gap(self.task_root / window, self.task_root, dispatch)
                     if found:
                         unresolved = found
                         args += ["--unresolved", found[0], "--reason", found[1]]
@@ -957,7 +957,7 @@ class DriverDispatch:
     WINDOW_REASON_LIMIT = 300
 
     @classmethod
-    def window_gap(cls, path, root=None) -> tuple:
+    def window_gap(cls, path, root=None, dispatch="") -> tuple:
         """`(word, reason)` for the gaps the critic could not close in the window record at `path`, or `()`.
 
         The word is the FIRST gap kind in the record's own order (its keys as written: `instances`, then
@@ -973,7 +973,12 @@ class DriverDispatch:
         function, over the task root `root`, by default three levels above the record) and ANY gap other than
         a handed instance's own (`handed_to_person:<id>`) or one of the critic's two kinds (`could_not_judge`,
         `fitted_to_code`) gives `()`, so the controller's refusal stays reachable for that window. A record the
-        validation cannot read gives `()` too: the error direction is the refusal."""
+        validation cannot read gives `()` too: the error direction is the refusal.
+
+        FV1-30b N6: the gaps are first filtered through `window_record.word_let_go` (a person's recorded word lets some
+        go: the one predicate, over `s5_precheck.live_word_index` for `dispatch`, default the record's file stem), so a
+        handed instance beside a let-go gap derives its pair; only the KEPT gaps meet the test above. This returns a
+        tuple and prints nothing: the let-go lines are visible in `window_record.run`'s notes, not here."""
         try:
             path = Path(path)
             record = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -981,7 +986,16 @@ class DriverDispatch:
                 return ()
             from acceptance import HANDED_OUTCOME, expectation_change_gaps, validate_window
             owned = {text for text, code in expectation_change_gaps(record) if code in cls.WINDOW_GAP_KINDS}
-            for gap in validate_window(record, Path(root) if root else path.parent.parent.parent):
+            task_root = Path(root) if root else path.parent.parent.parent
+            window_gaps = list(validate_window(record, task_root))
+            if window_gaps:
+                # FV1-30b N6 (F14): the gaps a person's recorded word lets go are judged by the ONE predicate
+                # `window_record.word_let_go` over the LIVE index, BEFORE the test below; the let-go lines are not
+                # printed here (this returns a tuple; `window_record.run` prints them as notes). An index that cannot be
+                # built, or any exception, lets nothing go.
+                import window_record
+                window_gaps = window_record.word_kept(window_gaps, record, task_root, dispatch or path.stem)[0]
+            for gap in window_gaps:
                 if not (gap.startswith(HANDED_OUTCOME + ":") or gap in owned):
                     return ()
             found = {"instances": [], "expectation_changes": []}
