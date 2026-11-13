@@ -1892,7 +1892,8 @@ def s0_title_question() -> None:
         out = s0_answer(root, env, task, "go on")
         eq("K-F2: the rerun after the readiness answer finishes and does not ask about the title: exit 0", out.returncode, 0, out.stdout[-900:] + out.stderr[-400:])
         passes = [w for w in s0_pipeline(task_root)["warnings"] if "title taken from the first line" in w]
-        check_in("K-F2: the taking is a line of the story's record, once", "S0: the ticket-title check: title taken from the first line (kept without asking)", passes)
+        check_in("K-F2: the taking is a line of the story's record, once, with the taken title quoted",
+                 'S0: the ticket-title check: title taken from the first line (kept without asking): "Items can carry tags"', passes)
         eq("K-F2: the line is there once", len(passes), 1)
         eq("K-F2: and filed once as a finding (FR-4)", s0_findings(root).count("idempotency:s0-pass:QA-1:ticket_title"), 1)
         eq("K-F2: no conductor", stub_calls(root), [])
@@ -1911,17 +1912,32 @@ def fv111_title_taken_without_a_question() -> None:
     try:
         driver = driver_for(root, env, task)
         first_line = {"source": "person_pasted", "title_from": "first_line"}
+        head = "S0: the ticket-title check: title taken from the first line (kept without asking)"
+        room = driver.S0_LINE_LIMIT - len(head) - len(': ""')     # 95: the title fits whole up to here
+        cut = chr(0x2026)
         rows = (
-            # id, ticket, expected (kind, block), whether the story record carries the taken line
-            ("FIRST-LINE-TITLE", {"title": "Items can carry tags", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None), True),
-            ("FIRST-LINE-TITLE-LONG-NON-ASCII", {"title": "T" * 200 + " é中", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None), True),
+            # id, ticket, expected (kind, block), the story-record line the taken pass reads as (None: not taken)
+            ("FIRST-LINE-TITLE", {"title": "Items can carry tags", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Items can carry tags"'),
+            ("TITLE-AT-THE-LIMIT", {"title": "T" * room, "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "' + "T" * room + '"'),
+            ("TITLE-BEYOND-THE-LIMIT", {"title": "T" * (room + 1), "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "' + "T" * (room - 1) + cut + '"'),
+            ("TITLE-LONG-NON-ASCII", {"title": "T" * 200 + " é中", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "' + "T" * (room - 1) + cut + '"'),
+            ("TITLE-NON-ASCII", {"title": "Café 中文 tags", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Café 中文 tags"'),
+            ("TITLE-WITH-A-DOUBLE-QUOTE", {"title": 'Say "hi" to tags', "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Say "hi" to tags"'),
+            ("TITLE-WITH-WHITESPACE", {"title": "Items\tcan\x07 carry   tags", "acceptance_criteria": ["a"], "provenance": first_line}, ("line", None),
+             head + ': "Items can\x07 carry tags"'),
             ("TITLE-PLUS-OTHER-PROBLEM", {"title": "Acceptance criteria", "description": "prose under the heading", "acceptance_criteria": [],
-                                          "provenance": first_line}, ("stop", "ticket_incomplete"), True),
-            ("NO-TITLE", {"title": "", "acceptance_criteria": ["a"], "provenance": {"source": "person_pasted"}}, ("stop", "ticket_no_title"), False),
-            ("NO-TITLE-FROM-FIRST-LINE", {"title": "", "acceptance_criteria": ["a"], "provenance": first_line}, ("stop", "ticket_no_title"), False),
-            ("KEY-AS-TITLE", {"title": task, "acceptance_criteria": ["a"], "provenance": first_line}, ("stop", "ticket_no_title"), False),
+                                          "provenance": first_line}, ("stop", "ticket_incomplete"), head + ': "Acceptance criteria"'),
+            ("NO-TITLE", {"title": "", "acceptance_criteria": ["a"], "provenance": {"source": "person_pasted"}}, ("stop", "ticket_no_title"), None),
+            ("NO-TITLE-FROM-FIRST-LINE", {"title": "", "acceptance_criteria": ["a"], "provenance": first_line}, ("stop", "ticket_no_title"), None),
+            ("KEY-AS-TITLE", {"title": task, "acceptance_criteria": ["a"], "provenance": first_line}, ("stop", "ticket_no_title"), None),
         )
-        for name, ticket, expected, taken in rows:
+        for name, ticket, expected, phrase in rows:
             driver.state.pop("s0_block", None)
             driver.state.pop("s0_passes", None)
             driver._s0_passed = []
@@ -1934,7 +1950,9 @@ def fv111_title_taken_without_a_question() -> None:
             kept = (driver.state.get("s0_passes") or {}).get("ticket_title") or {}
             eq(f"FV1-11 {name}: the taken line is in the story record exactly when it was taken",
                (kept.get("words") == driver.S0_TAKEN_WORDS, [driver.s0_pass_phrase(b, w) for b, w in driver._s0_passed if b == "ticket_title"]),
-               (taken, ["S0: the ticket-title check: title taken from the first line (kept without asking)"] if taken else []))
+               (phrase is not None, [phrase] if phrase else []))
+            eq(f"FV1-11 {name}: the line is one line inside the limit",
+               all(len(p) <= driver.S0_LINE_LIMIT and "\n" not in p for p in [driver.s0_pass_phrase(b, w) for b, w in driver._s0_passed]), True)
         # RESUME-OLD-QUESTION: a stop stored before the change, answered `go on` after it
         driver.state.pop("s0_passes", None)
         driver._s0_passed = []
@@ -1957,6 +1975,13 @@ def fv111_title_taken_without_a_question() -> None:
         eq("FV1-11 RESUME-OLD-QUESTION: the check takes that pass (not overwritten by the factory's) and reads it as the person's word",
            [driver.s0_pass_phrase(b, w) for b, w in driver._s0_passed],
            ["S0: the ticket-title check passed by the person's word: \"go on\""])
+        # a pass the factory took BEFORE the title was stored with it (temporal): the phrase reads without the quote, never "None"
+        driver.state.update(s0_passes={"ticket_title": {"words": driver.S0_TAKEN_WORDS, "at": "x", "problems": ["title taken from the first line"], "witness": "w"}})
+        eq("FV1-11 STORED-TAKEN-PASS-WITHOUT-TITLE: the phrase is printed without the quote",
+           driver.s0_pass_phrase("ticket_title", driver.S0_TAKEN_WORDS), "S0: the ticket-title check: title taken from the first line (kept without asking)")
+        eq("FV1-11 PERSON-WORDS: the print of the person's own words is as before (unquoted, and the record line quotes them)",
+           (driver.s0_pass_phrase("ticket_title", "go on", quoted_words=False), driver.s0_pass_phrase("ticket_title", "go on")),
+           ("S0: the ticket-title check passed by the person's word", "S0: the ticket-title check passed by the person's word: \"go on\""))
     finally:
         harness.cleanup(root)
 
