@@ -639,6 +639,9 @@ def run_counters_rework_kinds() -> None:
                          (d["F1"]["resumed"]["by_kind"]["service_cut"]["calls"], d["F1"]["resumed"]["by_kind"]["unclassified"]["calls"],
                           d["U1"]["unclassified_resume_kinds"]), (1, 1, 1))
                 check_eq("D1 the rework roads are the table's, in order of the table", rw["rework_kinds"], sorted(json.loads(FIVE_REWORK)))
+                check_eq("F4 the rework line carries role seconds per class (1 s per call): rework 5, non-rework 3, unclassified 1",
+                         (rw["role_s"], rw["wall_unknown"]),
+                         ({"rework": 5.0, "non_rework": 3.0, "unclassified": 1.0}, {"rework": 0, "non_rework": 0, "unclassified": 0}))
     finally:
         DJ.RUN_RECORD_PATH = real_path
     # D5: a retried caller resume is ONE return (the retry row is not a second one), rework included
@@ -648,33 +651,59 @@ def run_counters_rework_kinds() -> None:
     d = counted(troot)
     check_eq("D5 a retried caller resume: one resume, one retry, ONE rework return",
              (d["F1"]["resumed"]["calls"], d["F1"]["retries"], d["F1"]["rework"]["returns"]), (1, 1, 1))
+    # F4: a rework call with no wall is counted in wall_unknown, never as 0 s
+    write_state(troot, "driver-runs.jsonl", [role_row(10, 10, resumed=True, resume_kind="handoff_findings"),
+                                             role_row(30, None, dispatch="S1-x-2", resumed=True, resume_kind="handoff_findings")])
+    rw = counted(troot)["F1"]["rework"]
+    check_eq("F4 a rework call with no wall: role seconds 10.0 and one wall unknown", (rw["role_s"]["rework"], rw["wall_unknown"]["rework"]), (10.0, 1))
     cleanup(root)
 
 
 def run_counters_outside_hops() -> None:
-    """D3: T5 outside the hops = window seconds minus the seconds of the role / conductor calls inside it (`ts` is a call's end, `wall_ms` its duration)."""
+    """D3 + F5: T5 outside_hops_s = window seconds minus the seconds of the role / conductor calls inside it (`ts` is a call's end,
+    `wall_ms` its duration) minus the seconds of the hops (a call's result to the next launch) inside it; an open call is unknown."""
     def late(row, **kw):
         return dict(row, **kw)
+
+    def launched(start_s, dispatch="S1-x-2") -> dict:
+        return {"ts": at(start_s), "kind": "launched", "call": "role", "role": "x", "dispatch_id": dispatch, "stage": "S1",
+                "started_at": at(start_s), "model": "m", "retry": 0}
+    timing_row = {"ts": at(60), "stage": "S1", "dispatch": "S1-x-1", "step": "finish", "seconds": 10.0}
     cases = {
+        "F5 probe (the verdict's): calls 10-50 and 70-90, one 20 s hop (10 s of step + 10 s unattributed): 100-60-20, not 40": (
+            [p_start(0), launched(10, "S1-x-1"), role_row(50, 40), launched(70), role_row(90, 20, dispatch="S1-x-2", session="b"), p_end(0, 100)],
+            ("measured", 20.0, [("measured", 20.0)], 0)),
+        "F5 a hop that crosses two windows is clipped to each (the gap between the processes is not window time)": (
+            [p_start(0), launched(10, "S1-x-1"), role_row(50, 40), p_end(0, 100), p_start(200), launched(250), role_row(290, 40, dispatch="S1-x-2", session="b"),
+             p_end(200, 300)], ("measured", 20.0, [("measured", 10.0), ("measured", 10.0)], 0)),
+        "F1 an OPEN call inside the window (Ctrl-C: end row, launched row with no outcome) is unknown, not a measured 540": (
+            [p_start(0), launched(60), p_end(0, 600)], ("unknown", None, [("unknown", None)], 0)),
+        "F1 an open call with an unreadable start and time is counted unplaced, the row total unknown": (
+            [p_start(0), late(launched(60), started_at="garbage", ts="garbage"), p_end(0, 600)], ("unknown", None, [("measured", 600.0)], 1)),
+        "F1 a call between two windows (clock skew) is counted unplaced, the row total unknown": (
+            [p_start(0), p_end(0, 100), p_start(200), p_end(200, 300), role_row(150, 10)],
+            ("unknown", None, [("measured", 100.0), ("measured", 100.0)], 1)),
         "calls inside a 100 s window": ([p_start(0), role_row(60, 40), conductor_row(90, 20), p_end(0, 100)], ("measured", 40.0, [("measured", 40.0)], 0)),
         "a call ending AT the window end is inside, one 1 s after is not": (
-            [p_start(0), role_row(100, 10), role_row(101, 10, dispatch="S1-x-2", session="b"), p_end(0, 100)], ("measured", 90.0, [("measured", 90.0)], 0)),
+            [p_start(0), role_row(100, 10), role_row(101, 10, dispatch="S1-x-2", session="b"), p_end(0, 100)],
+            ("unknown", None, [("measured", 90.0)], 1)),
         "a 0 ms call is a measurement, not unknown": ([p_start(0), role_row(60, 0), p_end(0, 100)], ("measured", 100.0, [("measured", 100.0)], 0)),
         "a window with no end row (killed) is unknown, named": ([p_start(0), role_row(60, 40)], ("unknown", None, [("unknown", None)], 0)),
         "a call inside with no duration makes the window unknown, not 0 s": ([p_start(0), role_row(60, None), p_end(0, 100)],
                                                                              ("unknown", None, [("unknown", None)], 0)),
         "negative: overlapping calls, printed as measured, never clamped": (
             [p_start(0), role_row(40, 40), role_row(45, 40, dispatch="S1-x-2", session="b"), p_end(0, 50)], ("measured", -30.0, [("measured", -30.0)], 0)),
-        "no process rows at all is n/a": ([role_row(60, 40)], ("n/a", None, [], 0)),
+        "rows but no process rows (the record predates them) is unknown, as T6 and T7": ([role_row(60, 40)], ("unknown", None, [], 0)),
         "two windows, the second killed: the row is unknown, the first window keeps its value": (
             [p_start(0), p_end(0, 100), p_start(200), role_row(250, 10)], ("unknown", None, [("measured", 100.0), ("unknown", None)], 0)),
         "a call with an unreadable time is placed in no window and counted": (
             [p_start(0), role_row(60, 40), late(role_row(70, 10, dispatch="S1-x-2", session="b"), ts="garbage"), p_end(0, 100)],
-            ("measured", 60.0, [("measured", 60.0)], 1)),
+            ("unknown", None, [("measured", 60.0)], 1)),
     }
     for label, (rows, (state, total, windows, unplaced)) in cases.items():
         root, base, troot = project()
         write_state(troot, "driver-runs.jsonl", rows)
+        write_state(troot, "driver-timings.jsonl", [timing_row])
         d = counted(troot)
         out = d["T5"]["outside_hops"]
         check_eq(f"D3 {label}: state, total, per-window (state, seconds), calls unplaced",
@@ -685,16 +714,32 @@ def run_counters_outside_hops() -> None:
         notes = [line for line in d["U1"]["lines"] if line.startswith("note: T5")]
         check_eq(f"D3 {label}: a note only for a negative window or an unplaced call", len(notes), 1 if (total is not None and total < 0) or unplaced else 0)
         cleanup(root)
+    # a term of the subtraction that is absent: no driver timings -> no hop term -> unknown, never a partial sum
+    root, base, troot = project()
+    write_state(troot, "driver-runs.jsonl", [p_start(0), role_row(60, 40), p_end(0, 100)])
+    out = counted(troot)["T5"]["outside_hops"]
+    check_eq("F5 no driver timings: the hop term is unknown, so the window and the row are unknown (not 60.0)",
+             (out["state"], out["outside_hops_s"], out["windows"][0]["state"], bool(out["windows"][0]["why"])), ("unknown", None, "unknown", True))
+    cleanup(root)
 
 
 def run_counters_no_journal() -> None:
-    """D6: no driver journal (the skill road) and an empty journal file: resume-kind, process-window and T5 lines are n/a, never 0."""
-    lines_of = {"no journal file": None, "an empty journal file": []}
-    for label, rows in lines_of.items():
+    """D6: no driver journal (the skill road) and an empty journal file: resume-kind, process-window and T5 lines are n/a, never 0;
+    F2: a journal whose lines are all unreadable is unknown. F6: the controller rounds are attached in all three."""
+    lines_of = {"no journal file": (None, "n/a"), "an empty journal file": ([], "n/a"), "a journal of only unreadable lines": ("{broken\nnot json\n", "unknown")}
+    for label, (rows, state) in lines_of.items():
         root, base, troot = project()
-        if rows is not None:
+        if isinstance(rows, str):
+            (troot / "state" / "driver-runs.jsonl").write_text(rows, encoding="utf-8")
+        elif rows is not None:
             write_state(troot, "driver-runs.jsonl", rows)
         d = counted(troot)
+        check_in(f"F6 {label}: F1 still carries the controller rounds, which are not read from the journal", "controller_rounds", d["F1"])
+        if state == "unknown":
+            check_eq(f"F2 {label}: F1 G1 T5 T6 T7 are unknown, not n/a", [d[k]["state"] for k in ("F1", "G1", "T5", "T6", "T7")], ["unknown"] * 5)
+            check_in(f"F2 {label}: the printed rework line says unknown", "F1 rework returns: unknown", RC.render(d))
+            cleanup(root)
+            continue
         check_eq(f"D6 {label}: F1 G1 T5 T6 T7 are n/a", [d[k]["state"] for k in ("F1", "G1", "T5", "T6", "T7")], ["n/a"] * 5)
         check_eq(f"D6 {label}: the time rows and G2 stay unknown, not measured 0", [d[k]["state"] for k in ("T1", "T2", "T3", "T8", "G2")], ["unknown"] * 5)
         text = RC.render(d)
@@ -705,7 +750,7 @@ def run_counters_no_journal() -> None:
     write_state(troot, "driver-runs.jsonl", [role_row(10, 10)])
     d = counted(troot)
     check_eq("D6 control: a journal with no resumed call measures 0 rework returns, not n/a",
-             (d["F1"]["rework"]["state"], d["F1"]["rework"]["returns"], d["T5"]["outside_hops"]["state"]), ("measured", 0, "n/a"))
+             (d["F1"]["rework"]["state"], d["F1"]["rework"]["returns"], d["T5"]["outside_hops"]["state"]), ("measured", 0, "unknown"))
     check_in("D6 control: the printed rework line carries the numbers", "F1 rework returns: 0; non-rework resumes: 0; unclassified resumes: 0", RC.render(d))
     cleanup(root)
 

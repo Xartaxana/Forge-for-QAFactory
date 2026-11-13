@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import driver_journal as DJ  # noqa: E402
 import driver_timing  # noqa: E402
+import cost_capture as CC  # noqa: E402
 
 PROCESS = "process"
 PASSED_NAME = "passed-by-person.jsonl"
@@ -75,18 +76,9 @@ def _naive(value) -> bool:
         return False
 
 
-def _merge(intervals) -> list:
-    out = []
-    for start, end in sorted(intervals):
-        if out and start <= out[-1][1]:
-            out[-1][1] = max(out[-1][1], end)
-        else:
-            out.append([start, end])
-    return out
-
-
-def _length(merged) -> float:
-    return sum(end - start for start, end in merged)
+def _union_s(intervals) -> float:
+    """Seconds covered by the union of `(start, end)` epoch pairs: the ONE merge is `cost_capture.merge_spans` (AR-15)."""
+    return sum(end - start for start, end in CC.merge_spans(intervals))
 
 
 def _secs(value) -> float:
@@ -212,19 +204,18 @@ def _time_rows(rows, windows, all_stamps, role_rows, conductor_rows, cut) -> dic
 
     role_spans, role_missing = spans(role_rows)
     cond_spans, cond_missing = spans(conductor_rows)
-    role_union = _merge([(s, e) for s, e, _r in role_spans])
+    role_ivals = [(s, e) for s, e, _r in role_spans]
     per_session, calls_by_session = {}, {}
     for s, e, r in role_spans:
         sid = str(r.get("session_id") or "")
         per_session[sid] = per_session.get(sid, 0.0) + (e - s)
         calls_by_session[sid] = calls_by_session.get(sid, 0) + 1
-    out["T2"] = _state("measured", union_s=_secs(_length(role_union)), sum_s=_secs(sum(per_session.values())),
+    out["T2"] = _state("measured", union_s=_secs(_union_s(role_ivals)), sum_s=_secs(sum(per_session.values())),
                        calls=len(role_rows), calls_wall_unknown=role_missing,
                        per_session_s={sid: _secs(v) for sid, v in sorted(per_session.items())})
-    cond_union = _merge([(s, e) for s, e, _r in cond_spans])
-    both = _merge([(s, e) for s, e, _r in role_spans] + [(s, e) for s, e, _r in cond_spans])
-    out["T3"] = _state("measured", not_overlapped_s=_secs(_length(both) - _length(role_union)),
-                       union_s=_secs(_length(cond_union)), calls=len(conductor_rows), calls_wall_unknown=cond_missing)
+    cond_ivals = [(s, e) for s, e, _r in cond_spans]
+    out["T3"] = _state("measured", not_overlapped_s=_secs(_union_s(role_ivals + cond_ivals) - _union_s(role_ivals)),
+                       union_s=_secs(_union_s(cond_ivals)), calls=len(conductor_rows), calls_wall_unknown=cond_missing)
     # T8: hung calls (wall exceeds the CLI's own duration by more than the one threshold)
     hung, excess, unmeasurable = 0, 0.0, 0
     for r in role_rows + conductor_rows:
@@ -344,9 +335,13 @@ def _resume_rows(role_rows: list, table: list, rework=None, rework_why: str = ""
     if rework is None:
         rework_row = _unknown(rework_why, unclassified=unclassified_n, kind_not_recorded=kind_not_recorded)
     else:
-        rework_row = _state("measured", returns=sum(1 for t, _r in kind_rows if t in rework),
-                            non_rework=sum(1 for t, _r in kind_rows if t not in rework and t != UNCLASSIFIED),
-                            unclassified=unclassified_n, kind_not_recorded=kind_not_recorded, rework_kinds=sorted(rework))
+        classes = {"rework": [r for t, r in kind_rows if t in rework],
+                   "non_rework": [r for t, r in kind_rows if t not in rework and t != UNCLASSIFIED],
+                   "unclassified": [r for t, r in kind_rows if t == UNCLASSIFIED]}
+        rework_row = _state("measured", returns=len(classes["rework"]), non_rework=len(classes["non_rework"]),
+                            unclassified=unclassified_n, kind_not_recorded=kind_not_recorded, rework_kinds=sorted(rework),
+                            role_s={k: seconds(v)[0] for k, v in classes.items()},
+                            wall_unknown={k: seconds(v)[1] for k, v in classes.items()})
     f1 = _state("measured", calls=len(role_rows), first_pass={"calls": len(first_pass), "role_s": fp_s, "wall_unknown": fp_missing},
                 resumed={"calls": len(counted), "role_s": rs_s, "wall_unknown": rs_missing, "by_kind": by_kind,
                          "kind_not_recorded": kind_not_recorded},
@@ -383,52 +378,94 @@ def _resume_rows(role_rows: list, table: list, rework=None, rework_why: str = ""
     return {"F1": f1, "G1": g1}
 
 
-def _outside_hops(windows: list, role_rows: list, conductor_rows: list, notes: list) -> dict:
-    """T5, the part outside the hops: per process window, its seconds minus the seconds of the role / conductor call rows inside it.
-    A call row gives its END in `ts` and its duration in `wall_ms` (its start is `ts` - `wall_ms`); it is inside a window when its
-    `ts` falls in [window start, window end]. The window runs from `since` to the END row's `ts`. Edges: a window with no end row
-    (a killed process), an unreadable start or end, or a call inside it with no usable `wall_ms` -> that window is `unknown` and
-    named (an unmeasured call is never 0 s); a negative result is printed as measured with a note, never clamped; no process row at
-    all -> `n/a`. A call row whose `ts` cannot be read cannot be placed in any window: it is counted in `calls_unplaced` and noted."""
+def _hop_s_in(window: dict, hops: list):
+    """Seconds of the driver hops (`driver_timing.report` hops: a call's result to the next launch) that lie inside the window; a hop
+    that crosses a window edge is clipped to it (the gap between two processes is not window time). None when a hop's stamps or wall
+    cannot be read: the term is unknown, never a partial sum."""
+    total = 0.0
+    for hop in hops:
+        begin, finish, wall = DJ.parse_ts(hop.get("from")), DJ.parse_ts(hop.get("to")), _number(hop.get("wall_s"))
+        if begin is None or finish is None or wall is None:
+            return None
+        if begin >= window["start"] and finish <= window["end"]:
+            total += wall
+        else:
+            total += min(wall, max(0.0, (min(finish, window["end"]) - max(begin, window["start"])).total_seconds()))
+    return total
+
+
+def _window_entry(window: dict, calls: list, opens: list, hops) -> dict:
+    """One process window of T5: `{state, ...}`. Unknown (named) when the window has no end row, an unreadable edge, an OPEN call
+    (a `launched` row with no outcome: its seconds are not known), a call with no `wall_ms`, or a hop term that cannot be read."""
+    entry = {"since": window["start"].isoformat() if window["start"] is not None else None}
+    if not window["end_row"]:
+        return dict(entry, state="unknown", why="the process left no end row (killed): its end is not recorded")
+    if window["start"] is None or window["end"] is None:
+        return dict(entry, state="unknown", why="the start or the end time of the window cannot be read")
+    inside = [wall for end, wall in calls if window["start"] <= end <= window["end"]]
+    open_n = sum(1 for start in opens if window["start"] <= start <= window["end"])
+    if open_n:
+        return dict(entry, state="unknown", calls=len(inside), why=f"{open_n} open call(s) (launched, no outcome row) inside the window: their seconds are not known")
+    missing = sum(1 for wall in inside if wall is None)
+    if missing:
+        return dict(entry, state="unknown", why=f"{missing} call row(s) inside the window carry no measured duration", calls=len(inside))
+    if hops is None:
+        return dict(entry, state="unknown", why="no driver timings recorded: the hop time cannot be read", calls=len(inside))
+    hop_s = _hop_s_in(window, hops)
+    if hop_s is None:
+        return dict(entry, state="unknown", why="a hop of the driver timings has no readable time", calls=len(inside))
+    window_s = (window["end"] - window["start"]).total_seconds()
+    spent = sum(wall for wall in inside) / 1000.0
+    return dict(entry, state="measured", window_s=_secs(window_s), calls=len(inside), calls_s=_secs(spent), hops_s=_secs(hop_s),
+                outside_hops_s=_secs(window_s - spent - hop_s))
+
+
+def _outside_hops(windows: list, role_rows: list, conductor_rows: list, cut: list, timing: dict, notes: list) -> dict:
+    """T5 `outside_hops_s`: the wall time of the window outside the calls and outside the hops - per process window, its seconds minus
+    the seconds of the role / conductor call rows inside it minus the seconds of the hops inside it, so it is additive with T4 (step
+    time) and the calls' time. A call row gives its END in `ts` and its duration in `wall_ms` (its start is `ts` - `wall_ms`); it is
+    inside a window when its `ts` falls in [window start, window end]; an open call by its start. The window runs from `since` to the
+    END row's `ts`. Any term unknown -> the window is `unknown` and named (an open call and a call with no `wall_ms` are never 0 s; no
+    driver timings means no hop term); a negative result is printed as measured with a note, never clamped. A call (or open call) that
+    cannot be placed in any window (unreadable time, or a time between windows) is counted in `calls_unplaced`, its seconds belong to
+    no window, so the ROW total is `unknown` (the per-window values stay listed). No process rows -> `unknown` (the record predates
+    them); `n/a` is decided by the caller (no driver journal at all)."""
     if not windows:
-        return _state("n/a", "no process rows: there is no window to measure")
-    calls, unplaced = [], 0
+        return _unknown("the record predates the process rows: there is no window to measure", outside_hops_s=None, windows=[],
+                        unknown_windows=0, calls_unplaced=0)
+    calls, opens, unplaced = [], [], 0
     for row in role_rows + conductor_rows:
         end = DJ.parse_ts(row.get("ts"))
         if end is None:
             unplaced += 1
         else:
             calls.append((end, _number(row.get("wall_ms"))))
-    per_window, total, unknown, negative = [], 0.0, 0, 0
-    for window in windows:
-        entry = {"since": window["start"].isoformat() if window["start"] is not None else None}
-        if not window["end_row"]:
-            entry.update(state="unknown", why="the process left no end row (killed): its end is not recorded")
-        elif window["start"] is None or window["end"] is None:
-            entry.update(state="unknown", why="the start or the end time of the window cannot be read")
+    for row in cut:
+        start = DJ.parse_ts(row.get("started_at")) or DJ.parse_ts(row.get("ts"))
+        if start is None:
+            unplaced += 1
         else:
-            inside = [wall for end, wall in calls if window["start"] <= end <= window["end"]]
-            missing = sum(1 for wall in inside if wall is None)
-            if missing:
-                entry.update(state="unknown", why=f"{missing} call row(s) inside the window carry no measured duration", calls=len(inside))
-            else:
-                window_s = (window["end"] - window["start"]).total_seconds()
-                spent = sum(wall for wall in inside) / 1000.0
-                value = _secs(window_s - spent)
-                entry.update(state="measured", window_s=_secs(window_s), calls=len(inside), calls_s=_secs(spent), outside_hops_s=value)
-                total += value
-                if value < 0:
-                    negative += 1
-                    entry["note"] = "negative: the calls inside overlap or the clocks disagree; printed as measured, not clamped"
-        unknown += 1 if entry["state"] == "unknown" else 0
-        per_window.append(entry)
+            opens.append(start)
+    edges = [(w["start"], w["end"]) for w in windows if w["start"] is not None and w["end"] is not None]
+    placed = lambda moment: any(a <= moment <= b for a, b in edges)  # noqa: E731
+    unplaced += sum(1 for moment in [c[0] for c in calls] + opens if not placed(moment))
+    hops = timing.get("hops") if timing.get("timed") else None
+    per_window = [_window_entry(w, calls, opens, hops) for w in windows]
+    unknown = sum(1 for e in per_window if e["state"] == "unknown")
+    negative = sum(1 for e in per_window if e["state"] == "measured" and e["outside_hops_s"] < 0)
+    for entry in per_window:
+        if entry["state"] == "measured" and entry["outside_hops_s"] < 0:
+            entry["note"] = "negative: the calls inside overlap or the clocks disagree; printed as measured, not clamped"
     if negative:
         notes.append(f"note: T5 outside the hops is negative in {negative} window(s) (overlapping calls or clock skew); printed as measured")
     if unplaced:
-        notes.append(f"note: T5 outside the hops: {unplaced} call row(s) have no readable time and are placed in no window")
-    row_state = _unknown(f"{unknown} of {len(per_window)} window(s) cannot be measured") if unknown else _state("measured")
-    row_state.update(outside_hops_s=None if unknown else _secs(total), windows=per_window, unknown_windows=unknown,
-                     calls_unplaced=unplaced)
+        notes.append(f"note: T5 outside the hops: {unplaced} call row(s) have no readable time or lie in no window; the total is unknown")
+    reasons = ([f"{unknown} of {len(per_window)} window(s) cannot be measured"] if unknown else []) + \
+              ([f"{unplaced} call(s) are placed in no window"] if unplaced else [])
+    row_state = _unknown("; ".join(reasons)) if reasons else _state("measured")
+    row_state.update(outside_hops_s=None if reasons else _secs(sum(e["outside_hops_s"] for e in per_window)),
+                     description="wall time of the window outside the calls and outside the hops", windows=per_window,
+                     unknown_windows=unknown, calls_unplaced=unplaced)
     return row_state
 
 
@@ -556,14 +593,20 @@ def counters(task_root) -> dict:
                          run_class=run_class, processes=len(windows), processes_without_end=sum(1 for w in windows if not w["end_row"]),
                          driver_journal_present=runs_present)}
     if not rows:
-        # no journal (the skill road) or a journal with no readable row: the lines that read resume kinds and process windows do not
-        # exist for this run (`n/a`, never 0); the time rows and G2 stay `unknown` as before
-        why = ("this story has no driver journal (state/driver-runs.jsonl)" if not runs_present
-               else "the driver journal has no readable row")
+        # no journal (the skill road) or an empty journal file: the lines that read resume kinds and process windows do not exist for
+        # this run (`n/a`, never 0); a journal whose lines are all unreadable is a DAMAGED record of a run that happened: `unknown`
+        # (FR-41). The time rows and G2 stay `unknown` as before.
+        if runs_bad:
+            why, kind = f"the driver journal has no readable row ({runs_bad} unreadable line(s))", "unknown"
+        elif not runs_present:
+            why, kind = "this story has no driver journal (state/driver-runs.jsonl)", "n/a"
+        else:
+            why, kind = "the driver journal is empty", "n/a"
         for key in ("T1", "T2", "T3", "T8", "G2"):
             out[key] = _unknown(why)
         for key in ("T6", "T7", "F1", "G1"):
-            out[key] = _state("n/a", why)
+            out[key] = _state(kind, why)
+        out["F1"]["controller_rounds"] = _controller_rounds(task_root)     # the controller records are a carrier of their own (AR-13)
     else:
         out.update(_time_rows(rows, windows, stamps, role_rows, conductor_rows, cut))
         out["T1"]["cut_calls"] = [{"call": str(r.get("dispatch_id") or r.get("call") or ""), "started_at": r.get("started_at"),
@@ -585,9 +628,9 @@ def counters(task_root) -> dict:
         out["T4"] = _unknown(timing.get("text") or "no timings recorded")
         out["T5"] = _unknown(timing.get("text") or "no timings recorded")
     if not rows:
-        out["T5"] = _state("n/a", out["T6"]["why"])
+        out["T5"] = _state(out["T6"]["state"], out["T6"]["why"])
     else:
-        out["T5"]["outside_hops"] = _outside_hops(windows, role_rows, conductor_rows, notes)
+        out["T5"]["outside_hops"] = _outside_hops(windows, role_rows, conductor_rows, cut, timing, notes)
     if run_class in SIMULATED:
         out["T9"] = out["T10"] = _state("n/a", "stub roles: no transcript exists for a dry or smoke run")
     else:
@@ -633,6 +676,8 @@ def render(data: dict) -> str:
     rework = (data.get("F1") or {}).get("rework")
     if rework is None and (data.get("F1") or {}).get("state") == "n/a":
         lines.append("F1 rework returns: n/a; non-rework resumes: n/a; unclassified resumes: n/a")
+    elif rework is None and (data.get("F1") or {}).get("state") == "unknown":
+        lines.append(f"F1 rework returns: unknown ({data['F1'].get('why', '')}); unclassified resumes: unknown")
     elif isinstance(rework, dict):
         if rework.get("state") == "measured":
             lines.append(f"F1 rework returns: {rework['returns']}; non-rework resumes: {rework['non_rework']}; "
