@@ -1,5 +1,11 @@
 # t-254 — OH5-2 (onboarding-hooks/5, П2): the package root is GIVEN, never a literal `${CLAUDE_PLUGIN_ROOT}` in text a role reads
 
+> **Amendment of 13.11.2026 05:15** (coordinator, «решила сама»; t-273 builder measurement). The §3.2 legend cell
+> "`references/…`, `scripts/…`, the script paths of your brief card (`python "<path>/scripts/<script>"`)" turned out 6-7
+> tokens longer than the old cell. That raised 8 roles above slack-0 ratchets, and E23/AR-20 forbid a raise. Part B
+> uses the shorter cell "`references/…`, `scripts/…`, the script paths on your card" instead, and DoD 2 reads with that
+> text.
+
 Draft by designer (t-254) for the Lead. Status: DRAFT rev 2 (resubmission after critic on plan t-257,
 `docs/tasks/specs/reviews/t-257-oh5-2-plan-review.md`; change log at the end). Findings: B-142, B-166.
 Node row: `plans/piles/onboarding-hooks/batch-5-nerazlozhennye-nakhodki.md` OH5-2 (origin/main :31, confirmed by the
