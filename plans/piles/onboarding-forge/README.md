@@ -20,6 +20,7 @@
 | 2 | хвосты онбординга, ролей и форджа, публикация КБ после обновления до текущего релиза (П3, 56 узлов) | B-161, B-169, B-444, B-447, B-452 | L | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-forge/batch-2` | — |
 | 3 | фабрика спрашивает на онбординге только стартовый набор (≤ 10 вопросов), остальное — при первой нужде стори, один раз, и помнит ответ (П1, 6 узлов — фазы 1–6 плана знаний о проекте) | — | L | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-forge/batch-3` | — |
 | 4 | хвосты онбординга и форджа после критиков пачек 1–3: читатели конфига без дыр, один предикат пути, мёртвые двери отказов, очередь спеки OF3-1 (П2, 30 узлов) | — | L | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-forge/batch-4` | — |
+| 5 | остатки HF8-4 (разбор мест `isinstance(then, int)`, один дом слов исхода и один читатель красного слова) и читатели «только имена» в таблице одного env-файла (П3, 3 узла; пачка 4 — на ветке `wip/of-batch4`, номер 4 занят) | `batch-5-ostatki-hf8-4-i-oh3-42.md` (3 находки; 3 узла) | S (3 узла) | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -178,6 +179,10 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261112-chtenie-config-mimo-chitatelya-app-card-i-scheduler.md` | находка | `app_card` читает `test_data` мимо читателя; планировщик читает конфиг прямым `utf-8` | `scripts/app_card.py`, `scripts/execution_scheduler.py` | пачка 4, OF4-20 | нет | OF3-1 c; критик t-190 Q3, Q4 |
 | `findings/20261112-brief-pack-pechataet-literaly-putej-a-ne-nastroennyj-koren.md` | находка | `brief_pack` печатает ролям литералы путей, хотя корень настраивается и имена берутся из читателя | `scripts/brief_pack.py`, `scripts/tests/test_brief_pack.py` | пачка 4, OF4-21 | нет | OF3-1 c; критик t-190 F3, FR-37 |
 | `findings/20261112-ochered-spec-of3-1-par7-uzly-of3-1d2-n-r1-n-r8.md` | находка | Очередь спеки OF3-1 §7: узлы OF3-1d2 и N-r1…N-r8 (читатели конфига, писатели, поправка стенда, `format_changed`) | `scripts/dispatch_liveness.py`, `scripts/project_knowledge.py`, `scripts/hooklib.py`, `scripts/config_contract.py`, `scripts/brief_pack.py` | пачка 4, OF4-22…OF4-30 | нет | OF3-1, критик t-190 Q2 |
+| **Остатки HF8-4 и OH3-42 (13.11.2026)** | | | | | | |
+| `findings/20261113-dyuzhina-isinstance-then-int-ne-razobrana-chitateli-ili-validatory.md` | находка, id — | места `isinstance(then, int)`: читатели номера Then или проверки формы; один скаут разбирает | `scripts/contract.py`, `scripts/planning_contract.py`, `scripts/question_register.py`, `scripts/s5_precheck.py`, `scripts/manifest_put.py`, `scripts/ledger.py` | пачка 5, OF5-1 | нет | HF2-0 п. 3; t-205 F5 |
+| `findings/20261113-odin-dom-slov-blocked-by-env-handed-to-person-probe-gap-i-chitatel-krasnogo-slova.md` | находка, id — | один дом в `contract` для слов исхода и один читатель «в строке манифеста есть красное слово» | `scripts/contract.py`, `scripts/controller.py`, `scripts/acceptance.py`, `scripts/driver_stage_s7.py`, `scripts/s7_pretriage.py` | пачка 5, OF5-2 | нет | HF2-0 п. 1; t-205 F7 |
+| `findings/20261113-chitateli-imen-klyuchej-slepy-v-tablice-odnogo-env-fajla.md` | находка, id — | таблица одного env-файла слепа для читателей «только имена» (однобуквенные имена не проходят фильтр) | `scripts/tests/test_manual_capture.py` | пачка 5, OF5-3 | нет | OH3-42; t-230 |
 
 ## Входящие
 

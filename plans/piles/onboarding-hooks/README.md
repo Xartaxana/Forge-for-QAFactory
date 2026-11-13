@@ -28,6 +28,7 @@
 | 3 | срез общего слоя ролей (запас A22 ≥ 3 000 B у каждой роли — OH2-4, остановленный на F-12) и читатели после пачки 2: маркер `application repo paths` без `add`, `sizing` читает `impact_scale` своим читателем | `batch-3-common-layer-and-readers.md` | S (3 узла) | закрыта | — | `pile/onboarding-hooks/batch-3` | `855d4e5c` |
 | 4 | имена возможностей хоста в гейте A в одном месте (хвост OH1-11) | — (находка 02.11.2026, узел OH4-1) | S | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-hooks/batch-4` | — |
 | 5 | находки кучки, не лежавшие в пачках: разбор класса `${CLAUDE_PLUGIN_ROOT}`, `readiness` читает `closed_by_run`, один носитель раскладки `state/`, переустановка со старой квитанцией, хвосты native_context и идентичности сессии; два вопроса владельцу | `batch-5-nerazlozhennye-nakhodki.md` (16 находок; 15 узлов) | L (15 узлов) | в работе | dev1 (Opus coord), 12.11.2026 | `pile/onboarding-hooks/batch-5` | — |
+| 6 | остатки t-203 и критика t-227: копии проверки «одна компонента пути» зовут одного выжившего, потолок длины компоненты, суффикс временного имени `_publish`, отказы нативного контекста видны отчёту, верный хвост текста при сбое перезаписи | `batch-6-ostatki-t-203-i-t-227.md` (4 находки; 6 узлов) | M (6 узлов) | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → release-next/1, words-gates/1, driver-hosts/1, execution-report/1, onboarding-forge/1, live-runs/2, driver-hosts/2, execution-report/2, onboarding-forge/2.
 
@@ -149,6 +150,11 @@ OH1-3…OH1-6 идут по `hooklib.py` по очереди. Стенд нуж�
 | `findings/20261031-brief-s5-avtomatora-bez-stroki-uchetki.md` | находка, id — | бриф S5 автоматора без строк об учётках стенда (t-561 Ф-9 б, Ф-13) | `scripts/brief_pack.py`, `agents/qa-automator.md` | OH3-41, ожидает | нет | OH3-40 |
 | `findings/20261031-dva-razbora-env-fajla.md` | находка, id — | три разбора env-файла читают строку по-разному (t-561 Ф-9 в) | `scripts/env_probe.py`, `scripts/manual_capture.py`, `scripts/stand_health.py` | OH3-42, ожидает | нет | OH3-40 |
 | `findings/20261102-oh1-11-imena-vozmozhnostej-v-dvuh-regulyarkah.md` | находка | имена возможностей хоста и префикс строки написаны в двух регулярных выражениях гейта A | `scripts/gate_brief.py` | пачка 4, OH4-1 | нет | t-746 m-3; OH1-11 |
+| **Остатки t-203 и критика t-227 (13.11.2026)** | | | | | | |
+| `findings/20261113-kopii-proverki-odnoj-komponenty-puti.md` | находка, id — | девять копий проверки «одна компонента пути» (одна — `recover_codex_usage.py:16` без охраны `..`) вместо `hooklib.is_one_component` | `scripts/hooklib.py`, `scripts/host_dispatch.py`, `scripts/exit_gate.py`, `scripts/stage_guard.py`, `scripts/activity_capture.py`, `scripts/cost_capture.py`, `scripts/recover_codex_usage.py` | пачка 6, OH6-1 | нет | OH5-11; t-203 §4; t-227 B-2, B-3 |
+| `findings/20261113-komponenty-puti-bez-potolka-dliny.md` | находка, id — | ключ, основа имени и id сессии растят записываемый путь без потолка; одна константа рядом с `PACKET_ROOT_LIMIT` | `scripts/native_context.py` и места скаута | пачка 6, OH6-2 | нет | скаут t-216; OH6-3; OH5-13 |
+| `findings/20261113-oh5-11-ostatki-f2-publish-temp-f6-native-valueerror.md` | находка, id — | суффикс временного имени `_publish` 32 → 8 hex (F-2); отказы нативного контекста без `note_denial` и A24 (F-6); F-5 закрыта «оставить» | `scripts/event_store.py`, `scripts/native_context.py`, `scripts/inject_context.py`, `scripts/refusal_registry.py` | пачка 6, OH6-3, OH6-4 | нет | t-203 §5-§6; OH5-10, OH5-13 |
+| `findings/20261113-t-227-q5-ochered-tekst-deliver-write-failed-i-razrez-deliver.md` | находка, id — | хвост «a shorter folder» печатается и для перезаписи F-9, где причина не длина; `deliver` ~58 строк — резать при OH5-10 | `scripts/inject_context.py` | пачка 6, OH6-5, OH6-6 | нет | t-227 Q5; OH5-10 |
 
 ## Входящие
 

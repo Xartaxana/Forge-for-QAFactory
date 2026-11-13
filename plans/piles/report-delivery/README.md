@@ -23,7 +23,7 @@
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
 | 1 | отчёт не показывает pass на красном, третий вердикт доставки, причины недоставки с владельцем, одна таблица триажа | B-303, B-308 (а), B-266 | M | закрыта | — | — | `855d4e5c` |
-| 2 | строки отчёта называют обязательство и исход исполнения, а не шаг и ответ о требовании | — (находка 02.11.2026, узел RD2-1) | S | ожидает | — | — | — |
+| 2 | строки отчёта называют обязательство и исход исполнения, а не шаг и ответ о требовании | — (находки 02.11.2026, 13.11.2026, узлы RD2-1, RD2-4) | S | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → release-next/1, words-gates/1, execution-report/1, execution-report/2.
 
@@ -130,6 +130,7 @@ RD1-3 независимы; RD1-4 и RD1-5 пишут `story_run.py`. Стенд
 | `findings/20261102-stroki-otcheta-razbity-po-shagam-i-prichina-ne-iz-ishoda.md` | находка | исключённый кейс разложен на 10 строк по шагам, «no test proves it» при красных, причина «Not proven» из ответа о требовании | `scripts/report_facts.py`, `scripts/traceability.py` | пачка 2, RD2-1 | нет | WG1-1, RD1-19, RN1-23; t-1672 П-18, П-20 |
 | `findings/20261102-slova-cheloveka-remarks-ne-dohodyat-do-otcheta.md` | находка | слова человека в `pipeline.json remarks[]` не доходят до отчёта; у стори без MR теряются | `scripts/report_facts.py`, `scripts/gate_brief.py` | пачка 2, RD2-2 | нет | t-738 B-1, GW1-3 |
 | `findings/20261102-hvosty-rd1-4-tekst-karty-output-tail-maskirovka-shag-pisarya.md` | находка | `output_tail` без читателя, `names_only` маскирует восемь форм не так, шаг 7 писаря «must» | `scripts/stand_gaps.py`, `references/conductor.md`, `agents/qa-doc-scribe.md` | пачка 2, RD2-3 | нет | t-758 m-2, m-3, m-5; RD1-4 |
+| `findings/20261113-chitateli-razdelov-otcheta-dvojniki-i-perepisannye-zagolovki.md` | находка, id — | читатели разделов отчёта — двойники; заголовки других артефактов переписаны литералами (часть F6, меняющая поведение) | `scripts/validate_artifacts.py`, `scripts/report_facts.py`, `scripts/traceability.py`, `scripts/human_text.py`, `scripts/grammar.py` | пачка 2, RD2-4 | нет | HF2-0 п. 6; t-205 F6 |
 
 ## Входящие
 
