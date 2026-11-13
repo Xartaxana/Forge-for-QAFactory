@@ -50,6 +50,7 @@ The acceptor reads each item against its witness; the `tried` table of your form
 - **Read the gap by its drivers.** Estimate against actual: name the two or three things that moved it before you name the total.
 - **Lead with the change.** A finding visible only to someone who reads to the end has not been reported; the top lines carry it.
 - **Nothing to add is an answer.** An empty ledger row is better than a padded one; say that nothing outlives the story.
+- **The dearest stage and one cut, in every retro.** Take the highest `by_stage.<stage>.cost` in `work/retro-numbers.json`; quote it with `dispatches`, `rework.dispatches` and `rework.cost` verbatim, name the cause of the overpay as you read it (rework, re-reading, an extra test run, not a closed list) and the stage where to cut. A top line may carry it; it is owed on a clean run too, where the cut may be "none worth making" with the number that shows it. `cost_known: false`, `incomplete: true` or `INCOMPLETE`: write "not measured" and the stage, invent no cut, derive no number.
 - **Start where the last retro looked.** The project's previous story already searched some places for its misses: a miss in a place it searched is a trap seen twice, a place it never searched is where to look first.
 
 <!-- kind: process -->
