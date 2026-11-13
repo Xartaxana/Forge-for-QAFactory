@@ -23,6 +23,7 @@ B-K5 a fragment that binds a Then to the id it retracts (refused by `run`, kept 
 """
 import copy
 import inspect
+import json
 import sys
 from pathlib import Path
 
@@ -749,6 +750,224 @@ def ep1_38_obligation_hash() -> None:
         check_eq("a patch that leaves the hash out is taken", stand.put({"tests": [dict(row, critic_verdict="approved")]})[0], 0)
 
 
+def _plan_file(stand, ids=("OB-1", "OB-2"), text=None) -> dict:
+    """The story's plan on disk: one schema-2 row naming `ids`; `{id: obligation}` of what it wrote. `text` writes that instead."""
+    rows = [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [{"obligation_id": i, "decision": "automate"} for i in ids]}]
+    (stand.task / "work" / "test-plan.json").write_text(text if text is not None else json.dumps({"rows": rows}), encoding="utf-8")
+    return {ob["obligation_id"]: ob for ob in rows[0]["coverage_obligations"]}
+
+
+def _row_of(stand, iid="test_ob") -> dict:
+    return next(t for t in stand.manifest()["tests"] if t["instance_id"] == iid)
+
+
+def _ob_row(**extra) -> dict:
+    return dict({"instance_id": "test_ob", "file": "tests/t.py", "covers": ["TC-018"], "case": "TC-018", "status": "green"}, **extra)
+
+
+def fv1_19_predicate() -> None:
+    """FV1-19 N1: the ONE reader of a valid obligation reference and the one stamp, pure (`contract`)."""
+    from event_store import content_hash
+    plan = {"OB-1": {"obligation_id": "OB-1", "decision": "a"}, "OB-2": {"obligation_id": "OB-2", "decision": "b"}}
+    good = lambda oid: {"obligation_id": oid, "obligation_hash": content_hash(plan[oid])}   # noqa: E731
+    check_eq("map: last occurrence wins; non-dict rows, non-list obligations, non-dict and id-less items are skipped",
+             C.obligation_map([{"coverage_obligations": [{"obligation_id": "A", "v": 1}, "x", {"v": 2}]}, "row", {"coverage_obligations": "no"},
+                               {"schema_version": 1, "coverage_obligations": [{"obligation_id": "A", "v": 3}]}]), {"A": {"obligation_id": "A", "v": 3}})
+    check_eq("map: a non-list of rows is an empty map", (C.obligation_map(None), C.obligation_map("x")), ({}, {}))
+    check_eq("predicate: valid refs and an empty list are no problem",
+             (C.obligation_ref_problems([good("OB-1"), good("OB-2")], plan, strict=True), C.obligation_ref_problems([], plan, strict=True)), ([], []))
+    kinds = lambda refs, m=plan, strict=False: [k for k, _t in C.obligation_ref_problems(refs, m, strict)]   # noqa: E731
+    bad_hashes = ["h", good("OB-1")["obligation_hash"] + " ", good("OB-1")["obligation_hash"].upper(), content_hash(plan["OB-2"])]
+    check_eq("predicate E19: a hash of another obligation, a trailing space, uppercase hex, a wrong hash are all stale",
+             [kinds([{"obligation_id": "OB-1", "obligation_hash": h}]) for h in bad_hashes], [["stale"]] * 4)
+    check_eq("predicate: an id of another case is unknown, naming the plan's ids",
+             (kinds([good("OB-1") | {"obligation_id": "ob-1"}]), C.obligation_ref_problems([good("OB-1") | {"obligation_id": "ob-1"}], plan)[0][1]
+              .endswith("(the plan names OB-1, OB-2)")), (["unknown"], True))
+    check_eq("predicate: shape problems come ALONE (a broken list never reaches the hash comparison)",
+             kinds([{"obligation_id": "OB-1", "obligation_hash": "stale"}, "junk", good("OB-2") | {"obligation_hash": None}]), ["shape", "shape"])
+    check_eq("predicate: not a list / non-dict item / non-string id or hash / twice / missing hash are shape",
+             [kinds(r) for r in ("OB-1", {"obligation_id": "OB-1"}, [1], [{"obligation_id": 7, "obligation_hash": "h"}],
+                                 [{"obligation_id": "OB-1", "obligation_hash": 123}], [good("OB-1"), good("OB-1")],
+                                 [{"obligation_id": "OB-1"}], [{"obligation_id": "OB-1", "obligation_hash": ""}])], [["shape"]] * 8)
+    check_eq("predicate: strict with an empty or missing map makes EVERY ref unknown, as the finish reads it today",
+             (kinds([good("OB-1"), good("OB-2")], {}, True), kinds([good("OB-1")], None, True)), (["unknown", "unknown"], ["unknown"]))
+    check_eq("predicate: not strict with an empty or missing map judges shape only",
+             (kinds([good("OB-1")], {}), kinds([good("OB-1")], None), kinds([{"obligation_id": "OB-1"}], None)), ([], [], ["shape"]))
+    check_eq("predicate: strict with an empty map still returns shape alone when the list is broken", kinds(["x"], {}, True), ["shape"])
+    sent = {"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])], "obligation_bindings": [{"obligation_id": "OB-1"}]}
+    frozen = copy.deepcopy(sent)
+    stamped, problems = C.stamp_obligation_refs(sent, plan)
+    check_eq("stamp: pure - the input is never edited", sent, frozen)
+    check_eq("stamp: the ref, the derived ids, the row hash and the binding hash are the code's",
+             (problems, stamped["tests"][0]["obligation_refs"], stamped["tests"][0].get("obligation_ids"), stamped["tests"][0].get("obligation_hash"),
+              stamped["obligation_bindings"]), ([], [good("OB-1")], ["OB-1"], content_hash([good("OB-1")]), [good("OB-1")]))
+    check_eq("stamp: idempotent - a stamped fragment stamps to itself", C.stamp_obligation_refs(stamped, plan), (stamped, []))
+    check_eq("(k) stamp: a binding with an id the plan does not name is left untouched",
+             C.stamp_obligation_refs({"obligation_bindings": [{"obligation_id": "OB-9", "obligation_hash": "x"}, {"obligation_id": "OB-8"}]}, plan),
+             ({"obligation_bindings": [{"obligation_id": "OB-9", "obligation_hash": "x"}, {"obligation_id": "OB-8"}]}, []))
+    check_eq("stamp: a non-string hash on a ref or a non-string id is refused as shape, never coerced",
+             [len(C.stamp_obligation_refs({"tests": [_ob_row(obligation_refs=[r])]}, plan)[1]) for r in
+              ({"obligation_id": "OB-1", "obligation_hash": 123}, {"obligation_id": 1}, {"obligation_id": ""})], [1, 1, 1])
+    check_eq("stamp: a fragment with no tests and no bindings passes through (a non-dict too)",
+             (C.stamp_obligation_refs({"unresolved": []}, plan), C.stamp_obligation_refs("x", plan)), (({"unresolved": []}, []), ("x", [])))
+
+
+def fv1_19_obligation_stamp() -> None:
+    """FV1-19 N1 rows (a)-(g), (j), (k), (l), (m), (n), (q): `manifest_put.run` stamps the hashes; a role sends ids."""
+    from event_store import content_hash
+    ref = lambda plan, oid: {"obligation_id": oid, "obligation_hash": content_hash(plan[oid])}   # noqa: E731
+    with Stand() as stand:
+        plan = _plan_file(stand)
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])]})
+        stored = _row_of(stand)
+        check_eq("(a) ids only: the stored ref carries the plan's hash, the row its ids and the hash of the stored refs",
+                 (code, err, stored["obligation_refs"], stored.get("obligation_ids"), stored.get("obligation_hash")),
+                 (0, "", [ref(plan, "OB-1")], ["OB-1"], content_hash(stored["obligation_refs"])))
+        before = (stand.journal(), stand.tree())
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-2", "obligation_hash": "zzz"}])]})
+        check_eq("(b) a wrong hash is refused before the commit: exit, journal and tree unchanged", (code, (stand.journal(), stand.tree())),
+                 (MP.EXIT_BAD_FRAGMENT, before))
+        for what, needle in (("the id", "OB-2"), ("the hash sent", "zzz"), ("the plan's hash", content_hash(plan["OB-2"])),
+                             ("the door", "leave `obligation_hash` out"), ("the repair marker", MP.REPAIR_MARKER)):
+            check_in(f"(b) ... the refusal names {what}", needle, err)
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-2", "obligation_hash": content_hash(plan["OB-2"])}])]})
+        check_eq("(b) the hash the code would write is accepted", (code, _row_of(stand)["obligation_refs"]), (0, [ref(plan, "OB-2")]))
+        before = (stand.journal(), stand.tree())
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-9"}])]})
+        check_eq("(c) an id the plan does not name is refused, naming the plan's ids", (code, (stand.journal(), stand.tree()), "the plan names OB-1, OB-2" in err),
+                 (MP.EXIT_BAD_FRAGMENT, before, True))
+        for what, refs in (("a string", "OB-1"), ("a dict", {"obligation_id": "OB-1"}), ("a list holding a non-dict", [1])):
+            code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=refs)]})
+            check_eq(f"(e) refs that are {what} are refused (shape, with the expected shape)", (code, "obligation_refs" in err and '"obligation_id": "<plan obligation id>"' in err),
+                     (MP.EXIT_BAD_FRAGMENT, True))
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}, {"obligation_id": "OB-1"}])]})
+        check_eq("(g) a duplicate id in one row is refused", (code, "OB-1 appears twice" in err), (MP.EXIT_BAD_FRAGMENT, True))
+        check_eq("(g)+(e) a non-string id is refused as shape, never coerced",
+                 stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": 1}])]})[0], MP.EXIT_BAD_FRAGMENT)
+
+        print("-- (f) null = not sent; [] clears")
+        stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}, {"obligation_id": "OB-2"}])],
+                   "obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_ob"]}]})
+        held = copy.deepcopy(_row_of(stand))
+        binding = copy.deepcopy(stand.manifest()["obligation_bindings"][0])
+        check_eq("(f) the binding was stamped", binding.get("obligation_hash"), content_hash(plan["OB-1"]))
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=None, obligation_ids=None, obligation_hash=None, status="red")],
+                                     "obligation_bindings": [{"obligation_id": "OB-1", "obligation_hash": None, "sensitivity": "proven"}]})
+        now = _row_of(stand)
+        check_eq("(f) nulls keep the stored refs, ids and row hash (the key is dropped before the merge)",
+                 (code, now["status"], {k: now[k] for k in ("obligation_refs", "obligation_ids", "obligation_hash")}),
+                 (0, "red", {k: held[k] for k in ("obligation_refs", "obligation_ids", "obligation_hash")}))
+        check_eq("(f) a binding `obligation_hash: null` keeps the stored binding hash", stand.manifest()["obligation_bindings"][0],
+                 binding | {"sensitivity": "proven"})
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[])]})
+        now = _row_of(stand)
+        check_eq("(f) [] clears refs, ids and the row hash", (code, now["obligation_refs"], now["obligation_ids"], now["obligation_hash"]), (0, [], [], ""))
+
+        print("-- (m) the ids the role sends")
+        two = [{"obligation_id": "OB-1"}, {"obligation_id": "OB-2"}]
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=two, obligation_ids=["OB-1"])]})
+        check_eq("(m) obligation_ids that differ as a set from the refs are refused", (code, "leave it out, the code writes it" in err),
+                 (MP.EXIT_BAD_FRAGMENT, True))
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=two, obligation_ids=["OB-2", "OB-1"])]})
+        check_eq("(m) the same set in another order is accepted, stored in refs order", (code, _row_of(stand)["obligation_ids"]), (0, ["OB-1", "OB-2"]))
+        code, _out, err = stand.put({"tests": [_ob_row(instance_id="test_ids_only", obligation_ids=["OB-2"])]})
+        check_eq("(m) a row sending only obligation_ids is stored as sent (today's behaviour)",
+                 (code, _row_of(stand, "test_ids_only")["obligation_ids"]), (0, ["OB-2"]))
+
+        print("-- (n) the row hash never outlives its refs")
+        h_old = _row_of(stand)["obligation_hash"]
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-2"}], fit_note="n")]})
+        now = _row_of(stand)
+        check_eq("(n) an ids-only fragment over a stored row: the row hash is the hash of the NEW stamped refs",
+                 (code, now["obligation_hash"] == content_hash(now["obligation_refs"]), now["obligation_hash"] != h_old), (0, True, True))
+
+        print("-- (k) bindings")
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-2", "instance_ids": ["test_ob"]}]})
+        check_eq("(k) a binding without a hash is stamped", (code, next(b for b in stand.manifest()["obligation_bindings"] if b["obligation_id"] == "OB-2")
+                                                              .get("obligation_hash")), (0, content_hash(plan["OB-2"])))
+        before = (stand.journal(), stand.tree())
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-2", "obligation_hash": "zzz"}]})
+        check_eq("(k) a binding with a wrong hash is refused", (code, (stand.journal(), stand.tree()), "leave `obligation_hash` out" in err),
+                 (MP.EXIT_BAD_FRAGMENT, before, True))
+        code, _out, err = stand.put({"obligation_bindings": [{"obligation_id": "OB-9"}]})
+        check_eq("(k) a binding with an id the plan does not name keeps the `obligation-id` refusal and its word road",
+                 (code, "obligation ids not in the plan: OB-9" in err, 'waiver.py --task <TICKET> --stage S5 --block "obligation-id"' in err),
+                 (MP.EXIT_BAD_FRAGMENT, True, True))
+
+    print("-- (d) an empty plan and no plan: the refs are stored as sent")
+    for what, write in (("no plan file", None), ("a plan naming no obligation", {"rows": [{"id": "TS-1", "schema_version": 2}]})):
+        with Stand() as stand:
+            if write is not None:
+                _plan_file(stand, text=json.dumps(write))
+            code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}, {"obligation_id": "OB-2", "obligation_hash": "typed"}])]})
+            now = _row_of(stand)
+            check_eq(f"(d) {what}: exit 0, no note, no hash added, ids and row hash derived",
+                     (code, err, now["obligation_refs"], now["obligation_ids"], now["obligation_hash"] == content_hash(now["obligation_refs"])),
+                     (0, "", [{"obligation_id": "OB-1"}, {"obligation_id": "OB-2", "obligation_hash": "typed"}], ["OB-1", "OB-2"], True))
+
+    print("-- (q) a plan that is not JSON")
+    with Stand() as stand:
+        _plan_file(stand, text="{not json")
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1"}])]})
+        notes = [line for line in err.splitlines() if line.startswith("manifest_put: note: the plan")]
+        check_eq("(q) exit 0, ONE note line naming what the finish will do, the refs stored as sent",
+                 (code, len(err.splitlines()), len(notes), "without hashes, and the window finish refuses them until the plan reads" in err,
+                  _row_of(stand)["obligation_refs"]), (0, 1, 1, True, [{"obligation_id": "OB-1"}]))
+
+    print("-- (l) magnitude")
+    with Stand() as stand:
+        many = {f"O-{n}": {"obligation_id": f"O-{n}"} for n in range(1000)}
+        rows = [{"id": "TS-1", "schema_version": 2, "coverage_obligations": list(many.values())}]
+        (stand.task / "work" / "test-plan.json").write_text(json.dumps({"rows": rows}), encoding="utf-8")
+        refs = [{"obligation_id": oid} for oid in many]
+        for at in (3, 500, 999):
+            refs[at]["obligation_hash"] = "typo"
+        code, _out, err = stand.put({"tests": [_ob_row(obligation_refs=refs)]})
+        check_eq("(l) 1000 refs, 3 bad: ONE refusal line naming the 3 and no more",
+                 (code, len(err.strip().splitlines()), [f"O-{n} carries hash typo" in err for n in (3, 500, 999)], err.count("carries hash")),
+                 (MP.EXIT_BAD_FRAGMENT, 1, [True] * 3, 3))
+        check_eq("(l) 1000 refs, 0 bad: one write", stand.put({"tests": [_ob_row(obligation_refs=[{"obligation_id": oid} for oid in many])]})[0], 0)
+    ceiling = 6000
+    for beyond in (0, 1):
+        with Stand() as stand:
+            def two_problems(pad):
+                ids = ["A" * 40, "B" * pad]
+                plan = _plan_file(stand, ids=ids)
+                frag = {"tests": [_ob_row(obligation_refs=[{"obligation_id": i, "obligation_hash": "zz"} for i in ids])]}
+                return frag, C.stamp_obligation_refs(frag, plan)[1]
+            pad = 40
+            while len("; ".join(two_problems(pad)[1])) < ceiling + beyond:
+                pad += 1
+            frag, problems = two_problems(pad)
+            joined = "; ".join(problems)
+            before = stand.tree()
+            code, _out, err = stand.put(frag)
+            spill = stand.task / "state" / "findings" / "manifest-put-obligation-refs.txt"
+            if not beyond:
+                check_eq("(l) AT the ceiling (joined text exactly 6000 characters): the whole list in the line, no pointer, no file",
+                         (len(joined), code, joined in err, "more problem" in err, spill.exists()), (6000, MP.EXIT_BAD_FRAGMENT, True, False, False))
+            else:
+                spilled = spill.read_text(encoding="utf-8") if spill.exists() else ""
+                check_eq("(l) BEYOND (6001): the items that fit, the pointer, and the file holding every problem",
+                         (len(joined), code, "(+1 more problem(s) — the whole list: " in err, "manifest-put-obligation-refs.txt)" in err,
+                          problems[0] in err, problems[1] in err, all(p in spilled for p in problems)),
+                         (6001, MP.EXIT_BAD_FRAGMENT, True, True, True, False, True))
+                (stand.task / "state" / "findings" / "manifest-put-obligation-refs.txt").unlink()
+                (stand.task / "state" / "findings").rmdir()
+                (stand.task / "state" / "findings").write_text("a file where the folder should be", encoding="utf-8")
+                code, _out, err = stand.put(frag)
+                check_eq("(l) the spill file that cannot be written: the refusal still prints, saying so, no crash",
+                         (code, "the whole list could not be saved" in err), (MP.EXIT_BAD_FRAGMENT, True))
+
+    print("-- (j) a journal holding old unstamped events folds unchanged; merge stays pure")
+    old = {"tests": [_ob_row(obligation_refs=[{"obligation_id": "OB-1", "obligation_hash": "stale"}, {"obligation_id": "OB-7"}],
+                             obligation_ids=["OB-1"], obligation_hash="whatever")]}
+    folded = MP.fold(journal(old))
+    check_eq("(j) the replay stores the old event as it was written: no stamp, no refusal", folded["tests"][0],
+             {**old["tests"][0], "obligation_refs": old["tests"][0]["obligation_refs"]})
+    check_eq("(j) merge itself never stamps", MP.merge({}, old)[0]["tests"][0]["obligation_refs"], old["tests"][0]["obligation_refs"])
+
+
 def t9(iid: str = "test_nine[a]", **extra) -> dict:
     return dict({"instance_id": iid, "file": "tests/test_nine.py", "case": "TC-009", "covers": ["TC-009"]}, **extra)
 
@@ -934,6 +1153,8 @@ def main() -> None:
     ep1_39_then_row_keeps_tests()
     ep1_39_critic_approval()
     ep1_38_obligation_hash()
+    fv1_19_predicate()
+    fv1_19_obligation_stamp()
     tq1_18_base_outcome()
     tq1_7_helpers()
     hf3_2_b_k1_retraction_takes_the_rows()

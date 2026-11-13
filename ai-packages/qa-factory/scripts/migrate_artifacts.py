@@ -163,6 +163,20 @@ def _is_case_shaped_id(value: str, cfg: dict | None = None) -> bool:
     return C.is_case_id(text.rsplit("/", 1)[-1], cfg=C.case_config() if cfg is None else cfg)
 
 
+def _forwardable(row: dict) -> dict:
+    """`row` as a code writer may send it back through `manifest_put` (FV1-19, AR-14): without what the one stamp
+    (`contract.stamp_obligation_refs`) writes from the CURRENT plan — each ref's `obligation_hash`, the row's or the
+    binding's `obligation_hash`, and, on a row that carries `obligation_refs`, `obligation_ids`. A hash read from a stored
+    row is never forwarded: it may be stale, and the stamp refuses a hash that differs from the plan's."""
+    out = {k: v for k, v in row.items() if k != "obligation_hash"}
+    refs = out.get("obligation_refs")
+    if isinstance(refs, list):
+        out["obligation_refs"] = [{k: v for k, v in r.items() if k != "obligation_hash"} if isinstance(r, dict) else r
+                                  for r in refs]
+        out.pop("obligation_ids", None)
+    return out
+
+
 def _retract_case_ghosts(root: Path, task_id: str, project_root: Path, manifest: dict) -> dict:
     """Retract a `tests[]` row whose `instance_id` IS a case id (`"TC-012"`, no function) —
     a 0.7.6 window's placeholder, written before per-instance rows existed. `manifest_test_keys`
@@ -212,7 +226,7 @@ def _retract_case_ghosts(root: Path, task_id: str, project_root: Path, manifest:
     for _, covering in retract:
         for row in covering:
             protect.setdefault(C.test_instance_id(row), row)
-    resend = list(protect.values())
+    resend = [_forwardable(row) for row in protect.values()]
     unresolved = [{"case": case_key} for case_key, _ in retract]
 
     ok, reason = _run_manifest_put(root, task_id, project_root,
@@ -296,7 +310,7 @@ def _retract_legacy_selector_rows(root: Path, task_id: str, project_root: Path,
     for _, _, covering in retract:
         for row in covering:
             protect.setdefault(C.test_instance_id(row), row)
-    resend = list(protect.values())
+    resend = [_forwardable(row) for row in protect.values()]
     unresolved = [{"case": case_key} for case_key, _, _ in retract]
 
     ok, reason = _run_manifest_put(root, task_id, project_root,
@@ -348,7 +362,7 @@ def _legacy_obligation_patches(manifest: dict, mapping: dict) -> tuple:
                 str(r.get("obligation_id") or ""), r.get("obligation_id"))) for r in refs]
         if ids:
             patch["obligation_ids"] = [mapping.get(i, i) for i in ids]
-        patches.append(patch)
+        patches.append(_forwardable(patch))
         spellings.append(f"{C.test_instance_id(entry)}: " + ", ".join(
             f"{i} -> {mapping[i]}" for i in sorted(legacy)))
     return patches, spellings, left
@@ -392,7 +406,7 @@ def _rename_legacy_obligations(root: Path, task_id: str, project_root: Path,
                          "reason": f"{new} already carries a binding of its own; merging the "
                                    "two is a person's decision — left as it stands"})
             continue
-        renamed.append(dict(binding, obligation_id=new))
+        renamed.append(_forwardable(dict(binding, obligation_id=new)))
         retract.append(old)
         changed.append(f"{old} -> {new}")
     patches, spellings, cited_left = _legacy_obligation_patches(manifest, {
