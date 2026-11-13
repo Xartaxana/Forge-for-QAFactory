@@ -277,4 +277,4 @@ designer: C:\QAFactory\forge-repo\docs\tasks\specs\t-290-of4-21-brief-pack-paths
 - **F1 (a) and the quarantined `test_project_approach.py`:** its pins that go red are not named in the DoD, since quarantined files are never in a DoD. The builder lists them in the report, and the quarantine watch sees them.
 - **Q1:** OH5-9 landed (journal and `brief_pack.py:295`). The batch-5 row status is a coordinator doc line for the next doc batch.
 - **Q2:** the build starts after wave 6 (OH5-2 A+B) is merged to main. The builder re-checks §2 rows #16 and #23 against main at that point.
-- **Critic on plan:** skipped. No schema or money change. The forks are recommendations with no architecture change beyond F2's survivor, which the diff critic checks (rule 3). The diff critic is mandatory.
+- **Critic on plan:** corrected at 06:40. The spec carries forks and serves as the spec for more than 30 minutes of work, so rule 3 owes a critic on the plan, and the earlier "skipped" was a coordinator error. One critic pass covers this spec and t-289 (OF4-10) together as one topic. The diff critic is still mandatory.
