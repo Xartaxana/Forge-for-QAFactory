@@ -1012,7 +1012,117 @@ def every_story_resolver_calls_the_one_rule():
           "[converted by B]", "story_root_at" in controller_calls, sorted(controller_calls & DRIVERS))
 
 
-BATTERIES = (the_resolvers_of_class_1_say_yes_no_phantom_and_refuse_an_abbreviation,
+# ---- OF4-17: ONE text for "this root is not a project" (hooklib.not_a_project_text) --------------------------------------
+
+DOOR = "--read-only --out <file outside the root>"
+BARE_ROOT = "bare"          # a folder with no marker anywhere above it
+UNDER_MARKER = "below"      # a folder whose ancestor carries the marker
+
+
+def _not_a_project_rows():
+    """(row id, setup, given, extra_door, must say, must not say). The ids of the rows that carry a pin moved from the
+    quarantined test_host_probe_shapes.py name that pin (path:line) in the report of OF4-17."""
+    return (
+        ("bare-root-given: --root on a folder with no marker above (hs.py:971-973)", BARE_ROOT, True, "",
+         ("--root", "project root", "/qa-factory:qa-onboarding", "refusing to create one"), ("or run the command from inside it",)),
+        ("bare-root-ambient: the ambient folder, nothing above (hs.py:944-948)", BARE_ROOT, False, "",
+         ("not onboarded", "/qa-factory:qa-onboarding", "or above it"),
+         ("inactive", "broken", "not firing")),
+        ("ancestor-ambient: a marker above the ambient folder (hs.py:982-984)", UNDER_MARKER, False, "",
+         ("Re-run with --root {above}",), ("or above it", "qa-onboarding", "not onboarded yet")),
+        ("ancestor-given: a marker above the --root folder", UNDER_MARKER, True, "",
+         ("Re-run with --root {above}", "refusing to create one"), ("qa-onboarding", "not onboarded yet")),
+        ("extra-door-bare: the door of the caller is added, bare root", BARE_ROOT, True, DOOR, (DOOR,), ()),
+        ("extra-door-ancestor: the door of the caller is added, marker above", UNDER_MARKER, True, DOOR, (DOOR, "Re-run with --root {above}"), ()),
+        ("extra-door-ambient: the door of the caller is added, ambient bare", BARE_ROOT, False, DOOR, (DOOR, "not onboarded"), ()),
+        ("no-door: without extra_door the text names none", BARE_ROOT, True, "", (), ("--read-only",)),
+    )
+
+
+def one_text_says_a_root_is_not_a_project_in_every_caller():
+    import host_probe
+    import session_identity
+    marked = temp_project("qa-nap-marked-")
+    bare = temp_dir("qa-nap-bare-")
+    below = marked / "sub"
+    below.mkdir()
+    above = marked.resolve()
+    try:
+        for name, setup, given, door, needles, absent in _not_a_project_rows():
+            root = below if setup == UNDER_MARKER else bare
+            text = hooklib.not_a_project_text(root, given, purpose="tool", extra_door=door)
+            check_in(f"{name}: names the caller", "tool: ", text)
+            for needle in needles:
+                check_in(f"{name}: says {needle!r}", needle.replace("{above}", str(above)), text)
+            for needle in absent:
+                check_not_in(f"{name}: does not say {needle!r}", needle.replace("{above}", str(above)), text)
+            check_not_in(f"{name}: no traceback text", "Traceback", text)
+        # a root that IS a project: no refusal, and require_project_at returns its folder
+        check_eq("a project root: require_project_at gives qa-factory/", hooklib.require_project_at(marked, "tool"),
+                 marked / "qa-factory")
+        # the three callers print / return the SAME builder text
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                hooklib.require_project_at(bare, "tool", extra_door=DOOR)
+            code = None
+        except SystemExit as exc:
+            code = exc.code
+        check_eq("require_project_at: exit 3 (keeps today's code)", code, hooklib.EXIT_NO_PROJECT)
+        check_eq("require_project_at prints exactly the builder text (stderr, one print)", err.getvalue().rstrip("\n"),
+                 hooklib.not_a_project_text(bare, True, purpose="tool", extra_door=DOOR))
+        check_in("require_project_at: today's pin survives", "refusing to create one", err.getvalue())
+        check_eq("host_probe._not_a_project: a project root is no refusal", host_probe._not_a_project(marked, given=True), "")
+        for given in (True, False):
+            for where in (bare, below):
+                text = host_probe._not_a_project(where, given=given)
+                check_in(f"host_probe._not_a_project(given={given}, {where.name}): the builder's text, under the caller's name",
+                         "host_probe: ", text)
+                check_in(f"host_probe._not_a_project(given={given}, {where.name}): a refusal of a root with no marker",
+                         "no qa-factory/config.json" if given or where == below else "not onboarded", text)
+        # hs.py:990 / :997-998 / :1008-1012 - the hook sentence is host_probe's own detail
+        real = session_identity.resolve
+        try:
+            session_identity.resolve = lambda *a, **k: {"source": "receipt", "session_id": "s"}
+            heard = host_probe._not_a_project(bare, given=False)
+            session_identity.resolve = lambda *a, **k: {"source": "none", "session_id": ""}
+            silent = host_probe._not_a_project(bare, given=False)
+
+            def boom(*a, **k):
+                raise RuntimeError("resolve is down")
+            session_identity.resolve = boom
+            plain = host_probe._not_a_project(bare, given=False)
+        finally:
+            session_identity.resolve = real
+        check_in("bare-root-ambient via host_probe (hs.py:945): hooks unknown, owner factory", "unknown, owner factory", silent)
+        check("bare-root-ambient via host_probe (hs.py:947-948): not called inactive or broken",
+              not any(w in silent for w in ("inactive", "broken", "not firing")), silent[-200:])
+        check_in("hook receipt row (hs.py:997-998): the refusal says a pre-tool hook recorded a host_probe.py call here",
+                 "A pre-tool hook of this host recorded a host_probe.py call in this folder moments ago.", heard)
+        check_not_in("no receipt row (hs.py:990): says nothing about hooks", "pre-tool hook", silent)
+        check("resolve raises row (hs.py:1011-1012): the refusal is still given and names onboarding",
+              "/qa-factory:qa-onboarding" in plain and "pre-tool hook" not in plain, plain[:200])
+        # the dashboard checks the project through the one marker reader
+        import dashboard_refresh
+        check_eq("dashboard_refresh.refresh_project on a bare root: not_configured", dashboard_refresh.refresh_project(bare),
+                 {"status": "not_configured"})
+        src = (SCRIPTS / "dashboard_refresh.py").read_text(encoding="utf-8")
+        check_in("dashboard_refresh asks _carries_project", "_carries_project(project)", src)
+        check_not_in("dashboard_refresh has no marker path of its own", 'project / "qa-factory/config.json").is_file()', src)
+        # the docstring is true: no other function builds the sentence "no qa-factory/config.json under"
+        builders = [p.name for p in sorted(SCRIPTS.glob("*.py"))
+                    if "no qa-factory/config.json under" in p.read_text(encoding="utf-8")]
+        # config_view.py holds a literal copy of its own (a sibling, reported in OF4-17, not part of this node)
+        check("ONE builder: hooklib.py holds the sentence, and neither host_probe.py nor the dashboard writers keep a copy",
+              "hooklib.py" in builders and not {"host_probe.py", "dashboard_refresh.py", "factory_dashboard.py"} & set(builders),
+              str(builders))
+    finally:
+        cleanup(marked)
+        cleanup(bare)
+
+
+BATTERIES = (one_text_says_a_root_is_not_a_project_in_every_caller,
+             the_resolvers_of_class_1_say_yes_no_phantom_and_refuse_an_abbreviation,
              the_helpers_below_the_root_create_only_under_one_that_exists,
              the_creators_refuse_a_story_that_is_not_there_and_write_under_one_that_is,
              the_hooks_never_make_a_story_folder, s0_still_creates_the_story_folder,

@@ -318,11 +318,11 @@ def k2_names_project() -> None:
 # deleted (a stale entry fails the key below), and a new walk is not added here - it calls `nearest_project`.
 OUTSIDE_WALKS = {
     ("contract.py", "_config_location"), ("gate_brief.py", "_project_root_of"),
-    ("host_probe.py", "_not_a_project"), ("launch_check.py", "_find_project_root"),
+    ("launch_check.py", "_find_project_root"),
     ("manual_capture.py", "load_config"), ("migrate_artifacts.py", "_find_project_root"), ("question_stop.py", "_find_config"),
     ("stand_gaps.py", "project_of"), ("story_progress.py", "_project_of"),
 }
-OUTSIDE_WALKS_MAX = 9
+OUTSIDE_WALKS_MAX = 8
 THE_LEAF = ("runtime_paths.py", "nearest_project")
 
 
