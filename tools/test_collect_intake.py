@@ -525,6 +525,9 @@ def test_a_card_zone_is_read_by_parse_zone_only():
     pats, errs = piles.parse_zone("`a/{b,{c}}.py`, `ok.py`, `bad name.py`")
     assert pats == ["ok.py"] and len(errs) == 2
     assert piles.parse_zone("tools/y*.py")[0] == ["tools/y*.py"]                    # a one-token zone reaches us unwrapped by header_pairs
+    for root in ("`ai-packages/qa-factory/`", "`ai-packages/qa-factory`"):          # D.6 (v): the bare package root is an error, never a pattern
+        pats, errs = piles.parse_zone(root)
+        assert pats == [] and len(errs) == 1 and "cannot be read" in errs[0] and "it matches nothing" in errs[0]
     text = (ci.REPO / "plans/piles/codex/README.md").read_text(encoding="utf-8")
     card = piles.parse_card(text, "plans/piles/codex/README.md")
     pats, errs = piles.parse_zone(card.zone)

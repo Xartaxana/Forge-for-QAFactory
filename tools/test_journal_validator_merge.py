@@ -1347,3 +1347,37 @@ def test_k7_clean_merge_the_hook_prints_the_warn_with_the_next_commit_door(tmp_p
     assert proc.returncode == 0, (proc.stdout, proc.stderr)               # a WARN never blocks
     out = proc.stdout + proc.stderr
     assert "issued by BOTH clones are not declared: t-002" in out and "stage it in the next commit" in out
+
+
+# ================================ id bands (F6-58, rule 9e): merge rows m1, m2 ================================
+
+def _band_obj(tid, ts, band=None, agent="builder", **kw):
+    extra = {"id_band": band} if band else {}
+    return _dump(_obj(agent=agent, worker_ref=f"cli:{agent}-{tid}", **_ok(task_id=tid, ts=ts), **extra, **kw))
+
+
+def test_m1_the_collision_warn_names_a_band_that_overlapped_an_id_the_other_clone_issued():
+    h = [_band_obj("t-430", "2026-07-10T09:00:00", "t-430..t-439")]
+    o = [_band_obj("t-430", "2026-07-10T09:30:00", agent="scout", category="recon")]
+    code, violations, warnings = _decide(_text(B1, *h, *o), _text(B1, *h), _text(B1, *o), jk.NO_SEGMENTS)
+    assert (code, violations) == (0, []) and len(warnings) == 1
+    w = warnings[0]
+    assert COLLISION in w and "t-430" in w
+    assert "t-430 lies inside band t-430..t-439 declared on this clone (line 2): the band overlapped ids the other " \
+           "clone had already issued" in w
+    # no band on either side: the WARN has no band clause (today's text)
+    staged, head, other, *_ = _collide(2)
+    assert "lies inside band" not in _decide(staged, head, other, jk.NO_SEGMENTS)[2][0]
+
+
+@pytest.mark.parametrize("tail_id,band,ok", [
+    ("t-401", "t-400..t-449", True), ("t-501", "t-500..t-549", True), ("t-002", None, True), ("t-450", None, False),
+    ("t-502", None, False), ("t-401", None, False), ("t-501", "t-400..t-449", False)])     # F1: a band's next id needs its band
+def test_m2_two_parents_with_bands_of_their_own_the_tail_may_take_the_next_of_either(tail_id, band, ok):
+    h = [_band_obj("t-400", "2026-07-10T09:00:00", "t-400..t-449")]
+    o = [_band_obj("t-500", "2026-07-10T09:30:00", "t-500..t-549", agent="scout", category="recon")]
+    tail = _band_obj(tail_id, "2026-07-10T11:00:00", band)
+    code, violations, _w = _decide(_text(B1, *h, *o, tail), _text(B1, *h), _text(B1, *o), jk.NO_SEGMENTS)
+    assert (code == 0) is ok, violations
+    if not ok:
+        assert any("task_id novelty violated" in v and f"got {tail_id}" in v for v in violations)

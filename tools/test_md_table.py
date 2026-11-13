@@ -175,7 +175,7 @@ def _appended(tree, rel, tail):
     put(tree, rel, (tree / rel).read_bytes().decode("utf-8") + tail)
 
 
-@pytest.mark.parametrize("command", [("check", "--all"), ("board",)])
+@pytest.mark.parametrize("command", [("check", "--all")])
 def test_a_batch_file_with_an_unclosed_fence_is_loud_names_file_and_line_and_exits_1(tree, cli, capsys, command):
     _appended(tree, B1, "\n```\n| F9-9 | hidden row |\n")
     line = _line_of(tree, B1, "```")
@@ -187,7 +187,7 @@ def test_a_batch_file_with_an_unclosed_fence_is_loud_names_file_and_line_and_exi
     assert "add it and run again" in text                                             # the door (FR-1)
 
 
-@pytest.mark.parametrize("command", [("check", "--all"), ("board",)])
+@pytest.mark.parametrize("command", [("check", "--all")])
 def test_a_finding_with_an_unclosed_fence_is_loud_names_file_and_line_and_exits_1(tree, cli, capsys, command):
     put(tree, F_REL, finding_text("—") + "\n~~~\nперенос: other/x\n")
     line = _line_of(tree, F_REL, "~~~")

@@ -770,9 +770,226 @@ def test_side_cli_needs_one_mode_and_a_stand(proj, capsys):
     assert "reality" in capsys.readouterr().err and not proj.path().exists()
 
 
+# --- SS1-11 B1: what a person taught about the stand (`lesson`, `lessons`) ---------------------------------------------------------
+
+def lesson_args(*more, subject="indexing"):
+    return ["lesson", "--task", "T-1", "--subject", subject, "--stand", "dev", *more]
+
+
+def lesson_fact(id, element, at, *, environment="dev", words="w", value=None, **extra) -> dict:
+    return dict({"id": id, "key": PK.LESSONS_KEY, "environment": environment, "element": element, "state": "known", "scope": "stand",
+                 "value": {"wait_s": None} if value is None else value,
+                 "provenance": {"source": "person", "words": words, "story": "S-1", "by": "conductor", "where": ""}, "at": at}, **extra)
+
+
+def _lesson_record_problems(element="indexing", value=None, **over):
+    args = dict(key=PK.LESSONS_KEY, environment="dev", element=element, state="known", scope="stand", words="w", source="person",
+                by="conductor", value={"wait_s": None} if value is None else value)
+    args.update(over)
+    return PK.record_problems(**args)
+
+
+@pytest.mark.parametrize("element, value, expected", [
+    ("indexing", {"wait_s": None}, ""),                                      # E32: no wait
+    ("indexing", {"wait_s": 1}, ""),
+    ("indexing", {"wait_s": 86400}, ""),
+    ("x" * 80, {"wait_s": None}, ""),                                        # E33: AT the limit
+    ("x" * 81, {"wait_s": None}, "81 characters, at most 80"),               # E33: beyond it, refused, never cut
+    (NON_ASCII + " " + chr(0x1F600), {"wait_s": None}, ""),   # E34: Cyrillic and an emoji are data
+    ("", {"wait_s": None}, "subject is empty"),
+    ("   ", {"wait_s": None}, "subject is empty"),
+    (" x", {"wait_s": None}, "space at an end"),                             # E35
+    ("x\t", {"wait_s": None}, "space at an end"),
+    ("a\x00b", {"wait_s": None}, "control character"),
+    ("indexing", {"wait_s": True}, "--wait-s <seconds from 1 to 86400>"),    # a bool is not seconds
+    ("indexing", {"wait_s": 0}, "--wait-s"),
+    ("indexing", {"wait_s": 86401}, "--wait-s"),
+    ("indexing", {"wait_s": "7"}, "--wait-s"),
+    ("indexing", {"wait_s": 1.5}, "--wait-s"),
+    ("indexing", {"wait_s": 5, "x": 1}, "--wait-s"),                         # an extra value key
+    ("indexing", {}, "--wait-s"),
+    ("indexing", None, ""),                                                  # the helper turns None into {"wait_s": None}
+], ids=lambda v: str(v)[:14])
+def test_lesson_value_faults(element, value, expected):
+    problems = _lesson_record_problems(element, value)
+    if expected:
+        assert len(problems) == 1 and expected in problems[0] and problems[0].endswith("nothing was recorded"), problems
+    else:
+        assert problems == []
+
+
+def test_lesson_subject_never_meets_the_role_rules_and_a_role_key_still_does():
+    assert _lesson_record_problems("a,b|c") == []                            # a role rule would refuse the comma and the bar
+    assert _lesson_record_problems("env:x") == []                            # and the reserved forms
+    assert PK.record_problems(PK.ROLES_KEY, "", "a,b", "known", "project", "w", "person", "conductor", value={"sign_in": "account"})
+
+
+def test_lesson_empty_words_name_the_lesson_door():
+    problems = _lesson_record_problems(words="  ")
+    assert len(problems) == 1 and "project_knowledge.py lesson --task <T> --subject <words>" in problems[0] and "role --task" not in problems[0]
+
+
+@pytest.mark.parametrize("wait, good", [
+    ("1", True), ("86400", True), ("007", True),                              # E31: AT the limits and leading zeros
+    ("0", False), ("-1", False), ("86401", False), ("abc", False), ("1.5", False), ("1e3", False), (" 7", False), ("+7", False),
+    ("1_0", False), ("٣", False), ("9" * 4301, False), ("", False),      # BEYOND them; a Unicode digit; more digits than int() reads
+], ids=lambda v: str(v)[:14])
+def test_lesson_wait_s_pattern(proj, capsys, wait, good):
+    assert run(lesson_args("--wait-s", wait, "--words-file", str(proj.words))) == (0 if good else 2)
+    err = capsys.readouterr().err
+    if good:
+        assert proj.rows()[0]["value"] == {"wait_s": int(wait)}
+    else:
+        assert "--wait-s takes whole seconds from 1 to 86400" in err and "nothing was recorded" in err and not proj.path().exists()
+
+
+def test_lesson_verb_scenario(proj, capsys, tmp_path):
+    words = str(proj.words)
+    assert run(lesson_args("--words-file", words)) == 0                                  # E32: no --wait-s
+    out = capsys.readouterr().out
+    assert out.startswith("indexing on dev: environments.stand_lessons recorded (PK-1)"), out
+    first = proj.rows()[0]
+    assert first["value"] == {"wait_s": None} and first["provenance"]["words"] == WORDS.strip() and first["provenance"]["by"] == "conductor"
+    assert first["scope"] == "stand" and first["environment"] == "dev" and first["state"] == "known"
+    assert run(lesson_args("--words-file", words)) == 0                                  # E37: the same again
+    assert "already recorded (PK-1)" in capsys.readouterr().out and len(proj.rows()) == 1
+    corrected = tmp_path / "corrected.txt"
+    corrected.write_text("it takes ten minutes, not three", encoding="utf-8")
+    assert run(lesson_args("--words-file", str(corrected))) == 0                         # E37: NEW words are a new row, never "already"
+    out = capsys.readouterr().out
+    assert "recorded (PK-2)" in out and "already" not in out
+    assert [r["provenance"]["words"] for r in proj.rows()] == [WORDS.strip(), "it takes ten minutes, not three"]
+    assert run(lesson_args("--wait-s", "600", "--words-file", str(corrected))) == 0      # a different wait is a new row too
+    assert "recorded (PK-3)" in capsys.readouterr().out
+    assert PK.lessons(proj.root, "dev")["lines"][0].startswith('indexing: "it takes ten minutes, not three" (at least 600 s)')
+    assert run(lesson_args("--words-file", str(tmp_path / "absent.txt"))) == 2          # E36: no words, no row
+    capsys.readouterr()
+    empty = tmp_path / "empty.txt"
+    empty.write_text("  \n", encoding="utf-8")
+    assert run(lesson_args("--words-file", str(empty))) == 2 and len(proj.rows()) == 3
+    capsys.readouterr()
+    assert run(["lesson", "--task", "T-1", "--subject", "indexing", "--stand", "dev"]) == 2 and len(proj.rows()) == 3   # no --words-file
+    capsys.readouterr()
+    assert run(lesson_args("--words-file", words, subject="Indexing")) == 0              # E34: compared exactly, two lessons
+    assert len(PK.lessons(proj.root, "dev")["rows"]) == 2
+    capsys.readouterr()
+    # E44: revoke the newest row of the subject: the previous live row is read again; revoke every live row: the subject is gone
+    assert run(["revoke", "--task", "T-1", "--id", "PK-3", "--words-file", words]) == 0
+    out = capsys.readouterr().out
+    assert "no longer read" in out and "an older live row of the same subject" in out and "account" not in out, out
+    assert PK.lessons(proj.root, "dev")["lines"][1].startswith('indexing: "it takes ten minutes, not three"')
+    assert "(at least" not in PK.lessons(proj.root, "dev")["lines"][1]
+    for pk in ("PK-2", "PK-1"):
+        assert run(["revoke", "--task", "T-1", "--id", pk, "--words-file", words]) == 0
+    assert [r["element"] for r in PK.lessons(proj.root, "dev")["rows"]] == ["Indexing"]
+
+
+def test_lesson_revoke_of_a_role_keeps_today_sentence(proj, capsys):
+    assert run(["role", "--task", "T-1", "--role", "auditor", "--state", "known", "--words-file", str(proj.words)]) == 0
+    capsys.readouterr()
+    assert run(["revoke", "--task", "T-1", "--id", "PK-1", "--words-file", str(proj.words)]) == 0
+    assert "it is asked again where it is needed" in capsys.readouterr().out
+
+
+def test_lesson_stand_comes_from_the_story_or_is_refused(tmp_path, monkeypatch, capsys):
+    proj = Proj(tmp_path, monkeypatch, stands=[{"name": "dev"}, {"name": "prod"}])
+    words = str(proj.words)
+    assert run(["lesson", "--task", "T-1", "--subject", "x", "--words-file", words]) == 2        # the story chose no stand
+    err = capsys.readouterr().err
+    assert "pass --stand <name>" in err and "`dev`" in err and "`prod`" in err and "nothing was recorded" in err and not proj.path().exists()
+    (proj.task / "pipeline.json").write_text(json.dumps({"ticket": "T-1", "environment": "dev"}), encoding="utf-8")
+    assert run(["lesson", "--task", "T-1", "--subject", "x", "--words-file", words]) == 0
+    assert proj.rows()[0]["environment"] == "dev"
+
+
+def test_lesson_refused_on_a_no_trace_story_with_the_door(tmp_path, monkeypatch, capsys):          # E38
+    proj = Proj(tmp_path, monkeypatch, pipeline={"ticket": "T-1", "no_trace": True})
+    assert run(lesson_args("--words-file", str(proj.words))) == 2
+    assert "an experiment leaves no trace" in capsys.readouterr().err and not proj.path().exists()
+
+
+def test_lessons_reader_and_verb(proj, capsys):
+    assert PK.lessons(proj.root, "dev") == {"lines": [], "rows": [], "problem": "", "no_stand": False, "more": 0}     # E39: no file
+    assert run(["lessons", "--stand", "dev"]) == 0 and capsys.readouterr().out.strip() == "no lesson is recorded for dev"
+    for stand in ("", PK.PLACEHOLDER_STAND):                                                              # E53
+        assert PK.lessons(proj.root, stand) == {"lines": [], "rows": [], "problem": "", "no_stand": True, "more": 0}
+    assert run(["lessons"]) == 0 and capsys.readouterr().out.strip() == "no stand is chosen; pass --stand <name>"
+    proj.facts([lesson_fact("PK-1", "B-wait", "2026-11-01T10:00:00", words="old"),
+                lesson_fact("PK-2", "B-wait", "2026-11-02T10:00:00", words="new", value={"wait_s": 90}),
+                lesson_fact("PK-3", "A-filter", "2026-11-01T10:00:00", words="narrow it"),
+                lesson_fact("PK-4", "other", "2026-11-01T10:00:00", environment="prod"),                  # E41: another stand
+                lesson_fact("PK-5", "gone", "2026-11-01T10:00:00", revoked_at="2026-11-03T10:00:00")])
+    got = PK.lessons(proj.root, "dev")
+    assert got["lines"] == ['A-filter: "narrow it" (given in S-1 on 2026-11-01)',
+                            'B-wait: "new" (at least 90 s) (given in S-1 on 2026-11-02)']
+    assert [r["id"] for r in got["rows"]] == ["PK-3", "PK-2"] and got["problem"] == ""
+    assert run(["lessons", "--stand", "dev"]) == 0 and capsys.readouterr().out.strip().splitlines() == got["lines"]
+    assert run(["lessons", "--task", "T-1", "--stand", "prod"]) == 0 and 'other: "w"' in capsys.readouterr().out
+    assert run(["lessons", "--task", "T-1"]) == 0 and capsys.readouterr().out.strip().splitlines() == got["lines"]   # the story's one stand
+    capsys.readouterr()
+    assert run(["lessons", "--task", "T-9", "--stand", "dev"]) == 2                                     # no such story
+    err = capsys.readouterr().err                                                                      # F6: a read verb never says "recorded"
+    assert "there is no story `T-9`" in err and "--stand <name>" in err and "recorded" not in err
+
+
+def test_lessons_reader_never_drops_a_hand_edited_row_and_strips_controls_in_the_display(proj):
+    esc = "\x1b[31mred\x1b[0m   and\ttabs\x00"
+    proj.facts([lesson_fact("PK-1", "str-wait", "2026-11-01T10:00:00", value={"wait_s": "9"}),               # E39a
+                lesson_fact("PK-2", "float-wait", "2026-11-01T10:00:00", value={"wait_s": 1.5}),
+                lesson_fact("PK-3", "bool-wait", "2026-11-01T10:00:00", value={"wait_s": True}),
+                lesson_fact("PK-4", "extra-key", "2026-11-01T10:00:00", value={"wait_s": 5, "x": 1}),
+                lesson_fact("PK-5", "not-dict", "2026-11-01T10:00:00", value="oops"),
+                lesson_fact("PK-6", "esc", "2026-11-01T10:00:00", words=esc)])
+    got = PK.lessons(proj.root, "dev")
+    assert len(got["lines"]) == 6 and all("(at least" not in line for line in got["lines"]), got["lines"]
+    esc_line = [line for line in got["lines"] if line.startswith("esc:")][0]
+    assert "\x1b" not in esc_line and "\x00" not in esc_line and "[31mred[0m and tabs" in esc_line
+    assert [r for r in got["rows"] if r["id"] == "PK-6"][0]["provenance"]["words"] == esc          # the store keeps them
+    proj.facts([lesson_fact("PK-1", "a\x1bb", "2026-11-01T10:00:00")])
+    assert PK.lessons(proj.root, "dev")["lines"][0].startswith('ab: ')
+
+
+def test_lessons_cap_ten_lines_and_cut_the_words_at_200(proj):          # E47, E48, E43
+    long_words = "w" * 1000
+    proj.facts([lesson_fact(f"PK-{n}", f"s{n:02d}", "2026-11-01T10:00:00", words=long_words) for n in range(1, 12)])
+    got = PK.lessons(proj.root, "dev")
+    assert len(got["lines"]) == 11 and got["lines"][-1] == '(+1 more: project_knowledge.py lessons --stand "dev")' and got["more"] == 1
+    assert got["lines"][0].startswith('s01: "' + "w" * 200 + ' ..."') and len(got["rows"]) == 11
+    assert got["rows"][0]["provenance"]["words"] == long_words                                     # stored whole, shown cut
+    assert PK.lessons(proj.root, "dev")["rows"][0]["provenance"]["words"] == long_words           # a reader never writes the cut back
+
+
+def test_lessons_at_ten_no_pointer_and_words_at_200_and_201(proj):          # E47 AT, E48 AT and BEYOND (F4)
+    proj.facts([lesson_fact(f"PK-{n}", f"s{n:02d}", "2026-11-01T10:00:00", words="w" * (200 if n == 1 else 201 if n == 2 else 5))
+                for n in range(1, 11)])
+    got = PK.lessons(proj.root, "dev")
+    assert len(got["lines"]) == 10 and got["more"] == 0 and not any("more:" in line for line in got["lines"])
+    assert got["lines"][0].startswith('s01: "' + "w" * 200 + '"') and " ..." not in got["lines"][0]       # 200: whole
+    assert got["lines"][1].startswith('s02: "' + "w" * 200 + ' ..."')                                       # 201: cut
+
+
+def test_lessons_pointer_quotes_a_stand_with_a_space(tmp_path, monkeypatch):          # F3
+    proj = Proj(tmp_path, monkeypatch, stands=[{"name": "staging eu"}])
+    proj.facts([lesson_fact(f"PK-{n}", f"s{n:02d}", "2026-11-01T10:00:00", environment="staging eu") for n in range(1, 12)])
+    got = PK.lessons(proj.root, "staging eu")
+    assert got["more"] == 1 and got["lines"][-1] == '(+1 more: project_knowledge.py lessons --stand "staging eu")'
+
+
+def test_lessons_problem_is_not_no_lesson(proj, monkeypatch):           # E40 and the unreadable registry
+    proj.path().parent.mkdir(parents=True, exist_ok=True)
+    proj.path().write_text("{not json", encoding="utf-8")
+    got = PK.lessons(proj.root, "dev")
+    assert got["lines"] == [] and got["problem"] and got["no_stand"] is False
+    monkeypatch.setattr(PK, "KEYS", {})
+    monkeypatch.setattr(PK, "CATALOGUE_PROBLEM", "the catalogue is damaged; reinstall the plugin")
+    assert PK.lessons(proj.root, "dev")["problem"] == "the catalogue is damaged; reinstall the plugin"
+    assert PK.lessons(proj.root, "")["no_stand"] is True and PK.lessons(proj.root, "")["problem"] == ""
+
+
 # --- phase 1 (OF3-1a): the catalogue and the one reader (AR-1, AR-9, AR-13, AR-28) -----------------------------------------------
 
-FIVE_KEYS = ["product.roles", "environments.credentials_by_role", "product.sides", "environments.sides", "environments.reference_for"]
+FIVE_KEYS = ["product.roles", "environments.credentials_by_role", "product.sides", "environments.sides", "environments.reference_for",
+             "environments.stand_lessons"]       # the name is kept from the five of PC-1b; SS1-11 added the sixth
 
 
 def test_keys_are_derived_from_the_catalogue_in_todays_order():
@@ -781,7 +998,8 @@ def test_keys_are_derived_from_the_catalogue_in_todays_order():
                        "environments.credentials_by_role": {"scope": "stand", "compare": "role_form"},
                        "product.sides": {"scope": "project", "compare": "exact"},
                        "environments.sides": {"scope": "stand", "compare": "exact"},
-                       "environments.reference_for": {"scope": "stand", "compare": "exact"}}
+                       "environments.reference_for": {"scope": "stand", "compare": "exact"},
+                       "environments.stand_lessons": {"scope": "stand", "compare": "exact"}}
     assert [row["key"] for row in PK.rows() if row["store"] in ("registry", "config+registry")] == FIVE_KEYS
     assert [row["key"] for row in PK.rows("artifact_root")] == ["artifact_root"] and PK.rows("no.such.key") == []
 

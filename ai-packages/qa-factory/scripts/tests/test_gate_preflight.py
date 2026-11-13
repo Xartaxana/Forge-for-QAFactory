@@ -2934,6 +2934,70 @@ def test_the_stand_limit_step_can_be_switched_off() -> None:
         cleanup(root)
 
 
+def teach_stand(root: Path, stand: str, subject: str, words: str, wait_s=None) -> None:
+    import project_knowledge as PK
+    row, problem, _created = PK.record(root, key=PK.LESSONS_KEY, environment=stand, element=subject, state=PK.KNOWN, scope="stand",
+                                       value={"wait_s": wait_s}, words=words, source="person", story="S-1", by="conductor")
+    check_eq("the lesson fixture is recorded", problem, "")
+
+
+def test_stand_lessons_are_one_note_never_a_card() -> None:
+    """B2-1, E45, E46, E49, E50, E51: the person's words about the chosen stand are ONE note; nothing else changes."""
+    import project_knowledge as PK
+    for label, prepare, want in (
+            ("no registry: no note", lambda root: None, None),
+            ("a lesson on another stand: no note", lambda root: teach_stand(root, "elsewhere", "indexing", "wait for it"), None),
+            ("one lesson: the note names the stand and carries the words whole",
+             lambda root: teach_stand(root, "localhost", "indexing", "Indexing takes minutes", 300),
+             'What you taught about localhost (the roles read it): indexing: "Indexing takes minutes" (at least 300 s) '
+             '(given in S-1 on '),
+            ("an unreadable registry: the note says so, never 'no lessons'",
+             lambda root: ((root / PK.RECORD_REL).parent.mkdir(parents=True, exist_ok=True),
+                           (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")),
+             "What you taught about localhost could not be read this time")):
+        root = cmp2_story("qa-gate-lessons-")
+        try:
+            prepare(root)
+            result = cmp2_run(root, steps=("stand_lessons",))
+            notes = info_of(result, "stand_lessons")
+            check_eq(f"{label}: never a finding", result["findings"], [])
+            if want is None:
+                check_eq(f"{label}: no note", notes, [])
+            else:
+                check_eq(f"{label}: exactly one note", len(notes), 1)
+                check(f"{label}: the wording", notes[0].startswith(want), notes[0])
+            if label.startswith("one lesson"):
+                check(f"{label}: ends with the way to change it", notes[0].endswith(". To change it, say so."), notes[0])
+            if label.startswith("an unreadable"):       # F2: plain words for the person; the problem travels in the machine field
+                row = [r for r in result["info"] if r["check"] == "stand_lessons"][0]
+                check(f"{label}: no file name, no raw text in the sentence", ".json" not in notes[0] and "Expecting" not in notes[0], notes[0])
+                check(f"{label}: the problem is in the `problem` field", bool(row.get("problem")) and "project-knowledge" in row["problem"], str(row))
+        finally:
+            cleanup(root)
+    root = cmp2_story("qa-gate-lessons-many-")       # F2: 11 lessons - the person reads words, no script name, no flag
+    try:
+        for n in range(1, 12):
+            teach_stand(root, "localhost", f"op{n:02d}", f"words {n}")
+        result = cmp2_run(root, steps=("stand_lessons",))
+        notes = info_of(result, "stand_lessons")
+        check_eq("11 lessons: one note, never a finding", (len(notes), result["findings"]), (1, []))
+        check("11 lessons: no script name and no flag in the person's note", "project_knowledge" not in notes[0] and "--stand" not in notes[0], notes[0])
+        check("11 lessons: 'and 1 more (the roles are told how to read them all)'", " and 1 more (the roles are told how to read them all)" in notes[0], notes[0])
+        check("11 lessons: ten lessons shown", notes[0].count(': "words ') == 10 and "op11" not in notes[0], notes[0])
+        check("11 lessons: the pointer line is not in the note", "(+" not in notes[0], notes[0])
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-lessons-nostand-", config=lambda cfg: cfg["environments"].append({"name": "second"}),
+                      pipeline={"environment": ""})
+    try:
+        teach_stand(root, "localhost", "indexing", "words")
+        result = cmp2_run(root, steps=("stand_lessons",))
+        check_eq("no stand chosen (two stands, none named): no note", info_of(result, "stand_lessons"), [])
+        check_eq("... and no finding", result["findings"], [])
+    finally:
+        cleanup(root)
+
+
 # --- C5: the reporter step and the e2e limit ---------------------------------------------------------
 
 # A stand-in for the project's pytest: a script NAMED `pytest` (so the profile's command is

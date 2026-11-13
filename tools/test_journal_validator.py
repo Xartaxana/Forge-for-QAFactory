@@ -987,6 +987,7 @@ def test_form_fields_vocabulary_and_pairs_cover_every_check():
         {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "builder", "category": "c", "notes": "n"},
         {"ts": "2026-07-10T08:00:00", "event": "defect_found", "agent": "a", "category": "c", "notes": "n"},
         {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "node": "F5-2"},   # t-814: rule 18
+        {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "id_band": "x"},  # F6-58: rule 9e
     ]
     seen = set()
     for obj in cases:
@@ -1499,14 +1500,14 @@ def test_k8_the_next_id_is_the_max_of_the_history_plus_one_and_only_that():
         code, violations = _k8(M_CREATED, _deleg(wrong, "2026-10-02T08:30:00"))
         assert code == 1 and violations, wrong
     code, violations = _k8(M_CREATED, _deleg("t-004", "2026-10-02T08:30:00"))
-    assert any("expected t-003 (max+1), got t-004" in v for v in violations)
+    assert any("got t-004; the next new id is t-003" in v for v in violations)
     code, violations = _k8(M_CREATED, _deleg("t-001", "2026-10-02T08:30:00"))
     assert any("CLOSED task" in v for v in violations)      # t-001 is accepted in the history
 
 
 def test_k8_without_the_seed_the_same_file_starts_at_t_001():
     code, violations = _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"), seed=None)
-    assert code == 1 and any("expected t-001 (max+1), got t-003" in v for v in violations)
+    assert code == 1 and any("got t-003; the next new id is t-001" in v for v in violations)
     assert _k8(_created("2026-10-02T08:00:00"), _deleg("t-001", "2026-10-02T08:30:00"), seed=None) == (0, [])
 
 
@@ -1555,3 +1556,115 @@ def test_k8_the_merge_mode_passes_the_seed_too():
     staged = _jtext(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"), _deleg("t-004", "2026-10-02T08:40:00"))
     code, violations, _w = jv.decide_merge(staged, head, other, _NOW8, segments=jv._jk.NO_SEGMENTS, seed_text=HISTORY_TEXT)
     assert (code, violations) == (0, [])
+
+
+# ================================ id bands (F6-58, rule 9e): rows j1-j18 ================================
+# A spec is ("d", id[, band]) for a delegated line or ("x", None[, band]) for a decomposable line that carries only a
+# band; a 3rd element, even None, writes the `id_band` field. HEAD specs are state (never judged), NEW specs are judged.
+
+def _band_lines(specs, base_hour):
+    out = []
+    for i, spec in enumerate(specs):
+        ts = (jv.datetime.datetime(2026, 7, 10, base_hour) + jv.datetime.timedelta(seconds=i)).isoformat()
+        kw = {"id_band": spec[2]} if len(spec) == 3 else {}
+        if spec[0] == "d":
+            out.append(_line(event="delegated", task_id=spec[1], model="sonnet", ts=ts, **kw))
+        else:
+            out.append(_line(event="decomposable", agent="lead", category="process", ts=ts, **kw))
+    return out
+
+
+def _band_run(head, new):
+    return jv.validate_new_lines(_band_lines(new, 9), _band_lines(head, 6), NOW)
+
+
+def _ids(a, b):
+    return [("d", f"t-{n}") for n in range(a, b + 1)]
+
+
+_B450 = ("d", "t-450", "t-450..t-499")
+_J1 = [_B450, ("d", "t-357"), ("d", "t-451", "t-450..t-499"), ("d", "t-358")]   # every band line carries its band
+_FILLED_400 = [("x", None, "t-400..t-449")] + _ids(341, 399) + [("d", "t-400", "t-400..t-449")]
+_DOOR_451 = 't-451 lies in the id band t-450..t-499 of another writer; a line issued from a band carries "id_band":"t-450..t-499"'
+_EDGE_400 = [("d", "t-340"), ("x", None, "t-400..t-449")] + _ids(341, 399)
+_HUGE = "t-" + "9" * 5000 + ".."
+_FORM_VALUES = ["t-5..t-9", "500..", "t-500 .. t-510", "t-500–t-510", "", ["t-1"], {"from": "t-1"}, 500,
+                "t-４００..t-４４９", "t-1234567890..", _HUGE]
+
+# (row, head specs, new specs, needles that must ALL appear in the violations; () = no violation at all)
+ID_BAND_ROWS = [
+    ("j1", [("d", "t-356")], _J1, ()),
+    ("j2", [("d", "t-356")], _J1 + [("d", "t-455", "t-450..t-499")],
+     ("task_id novelty violated", "got t-455", "t-452 (band t-450..t-499)")),
+    # F1 (t-402): a band's next id is issuable only by a line that carries that band in its own id_band
+    ("S1-naive-max-plus-1", [("d", "t-356")], [_B450, ("d", "t-451")],
+     ("task_id novelty violated", "got t-451", "the next new id is t-357", _DOOR_451)),
+    ("S1-band-owner-with-field", [("d", "t-356")], [_B450, ("d", "t-451", "t-450..t-499")], ()),
+    ("P10-plain-id-at-a-band-first-id", [("d", "t-356"), ("x", None, "t-500..t-549")], [("d", "t-500")],
+     ("got t-500", "the next new id is t-357",
+      't-500 lies in the id band t-500..t-549 of another writer; a line issued from a band carries "id_band":"t-500..t-549"')),
+    ("edge-main-at-a-band-edge-takes-the-next-after-it", _EDGE_400, [("d", "t-450")], ()),
+    ("edge-main-at-a-band-edge-plain-first-id-refused", _EDGE_400, [("d", "t-400")],
+     ("got t-400", "the next new id is t-450", "t-400 lies in the id band t-400..t-449")),
+    ("band-never-declared-opens-on-its-own-line-and-its-id-is-judged", [("d", "t-356")], [("d", "t-455", "t-450..t-499")],
+     ("got t-455", "or t-450 (band t-450..t-499)")),
+    ("a-line-carries-another-bands-field", [("d", "t-356"), _B450, ("x", None, "t-600..t-649")],
+     [("d", "t-600", "t-450..t-499")], ("got t-600", "lies in the id band t-600..t-649")),
+    ("a-band-line-without-a-new-id-needs-no-field-for-9d", [("d", "t-356"), _B450], [("d", "t-450")],
+     ("repeated delegated by the same agent",)),
+    ("j3", [("d", "t-356")], [("x", None, "t-300..t-310")], ("starts at or below t-356", "start it at t-450", "(rule 9e)")),
+    ("j4", [("d", "t-356"), _B450], [("x", None, "t-470..t-480")], ("starts at or below t-499", "start it at t-550")),
+    ("j5a-jump", [("d", "t-356")], [("x", None, "t-999999999..")], ("starts 999999643 ids above t-356", "at most 10000")),
+    ("j5a-nine-digits-parse", [("d", "t-999999000")], [("x", None, "t-999999100..")], ()),
+    ("j6", [("d", "t-356")], [("x", None, "t-500..t-499")], ("ends below its start", "(rule 9e)")),
+    ("j7-1000", [("d", "t-356")], [("x", None, "t-500..t-1499")], ()),
+    ("j7-1001", [("d", "t-356")], [("x", None, "t-500..t-1500")], ("holds 1001 ids", "at most 1000")),
+    ("j8-pass", [("d", "t-433")], [("x", None, "t-500.."), ("d", "t-500")], ()),
+    ("j8-novelty", [("d", "t-433")], [("x", None, "t-500.."), ("d", "t-500"), ("d", "t-434")],
+     ("task_id novelty violated", "got t-434", "the next new id is t-501")),
+    ("j9-10000", [("d", "t-100")], [("x", None, "t-10100..")], ()),
+    ("j9-10001", [("d", "t-100")], [("x", None, "t-10101..")], ("starts 10001 ids above t-100", "start it nearer, at t-150")),
+    ("j10-pass", [("d", "t-340")], _FILLED_400 + [("d", "t-450")], ()),
+    ("j10-skip-in-band", [("d", "t-340")], _FILLED_400 + [("d", "t-402")],
+     ("got t-402", "the next new id is t-450", "or t-401 (band t-400..t-449)")),
+    ("j10-skip-in-band-with-field", [("d", "t-340")], _FILLED_400 + [("d", "t-402", "t-400..t-449")],
+     ("got t-402", "or t-401 (band t-400..t-449)")),
+    ("j10-reuse",[("d", "t-340")], _FILLED_400 + [("d", "t-400")], ("repeated delegated by the same agent",)),
+    ("j11", [("d", "t-340")],
+     [("x", None, "t-400..t-402")] + _ids(341, 360) + [("d", f"t-{n}", "t-400..t-402") for n in (400, 401, 402)] + [("d", "t-403")],
+     ("got t-403", "the next new id is t-361", "band t-400..t-402 is used up -- open a new band at t-500")),
+    ("j12", [("d", "t-356", "junk")], [("d", "t-357")], ()),
+    ("j13", [("d", "t-356")], [("x", None, None), ("d", "t-357", None)], ()),
+    ("j15-near", [("d", "t-356")], [("x", None, "t-405..t-410")], ("starts 49 ids above t-356", "at least 50", "start it at t-450")),
+    ("j15-gap-50", [("d", "t-356")], [("x", None, "t-406..t-410")], ()),
+    ("j16", [("d", "t-356")], [("x", None, "t-357.."), ("d", "t-357")], ()),
+    ("j17", [("d", "t-356")], [("d", "t-300", "t-300..t-310")],
+     ("starts at or below t-356", "task_id novelty violated", "got t-300")),
+    ("j18", [("d", "t-356")], [("x", None, "t-450..t-499"), ("d", "t-450", "t-450..t-499")], ()),
+    ("j14-no-band-old-reading", [("d", "t-356")], [("d", "t-357"), ("d", "t-358")], ()),
+    ("j14-no-band-gap", [("d", "t-356")], [("d", "t-358")], ("got t-358", "the next new id is t-357")),
+] + [(f"j5-form-{i}", [("d", "t-356")], [("x", None, v)], ("is not \"t-A..t-B\"", "(rule 9e)"))
+     for i, v in enumerate(_FORM_VALUES)]
+
+
+@pytest.mark.parametrize("row,head,new,needles", ID_BAND_ROWS, ids=[r[0] for r in ID_BAND_ROWS])
+def test_id_band(row, head, new, needles):
+    violations = _band_run(head, new)
+    joined = "\n".join(violations)
+    if not needles:
+        assert violations == [], violations
+        return
+    assert violations, row
+    for needle in needles:
+        assert needle in joined, (needle, violations)
+    if row.startswith("j5-form"):
+        assert len(violations) == 1 and "id_band" in violations[0]       # one text per bad value, nothing raised
+
+
+def test_id_band_a_refused_band_never_enters_the_state_and_a_foreign_bad_band_is_clearable():
+    # the refused band of j17 does not make t-301 issuable on the next line either
+    v = _band_run([("d", "t-356")], [("x", None, "t-300..t-310"), ("d", "t-300")])
+    assert any("task_id novelty violated" in x and "got t-300" in x for x in v)
+    assert "id_band" in jv.FORM_FIELDS
+    assert [f for f, _t in jv._line_form_violations(json.loads(_line(id_band="junk", event="decomposable")), "T")] == ["id_band"]
+    assert jv._line_form_violations(json.loads(_line(event="decomposable", id_band=None)), "T") == []

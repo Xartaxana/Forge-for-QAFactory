@@ -11,16 +11,17 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NoReturn
 
 import event_store
 from event_store import atomic_json, hold_file_lock
 from execution_scheduler import _same_process, _started
 from profile_contract import validate_runtime_provenance
-from hooklib import sorted_paths
+from hooklib import read_json, sorted_paths
 
 
 class PreparationError(ValueError):
@@ -212,7 +213,7 @@ class EnvironmentJobs:
             value = json.loads(self.path(key).read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
-        except json.JSONDecodeError as exc:
+        except ValueError as exc:
             raise PreparationError(f"corrupt environment job: {exc}") from exc
         return value
 
@@ -576,25 +577,41 @@ def main() -> None:
     reconcile.add_argument("--key", required=True)
     reconcile.add_argument("--probe", required=True, type=Path)
     args = parser.parse_args()
-    if args.command in {"plan", "start"}:
-        request = json.loads(args.request.read_text(encoding="utf-8"))
-        value = (plan_environment(request) if args.command == "plan" else
-                 execute_environment(request, args.jobs))
-    elif args.command == "status":
-        value = environment_job_status(args.jobs, args.key)
-    elif args.command == "observe":
-        result = EnvironmentJobs(args.jobs).observe(args.key)
-        job = result.get("job") or {}
-        # One JSON object on stdout and nothing else: its caller parses it (FR-14). The
-        # status is lifted to the top level so the exit-code rule below reads the same
-        # field for every subcommand.
-        value = {"action": result.get("action"), "status": job.get("status"),
-                 "settled": bool(job.get("status") in TERMINAL and not job.get("uncertain_process")),
-                 "uncertain_process": bool(job.get("uncertain_process")),
-                 "job": job}
-    else:
-        probe = json.loads(args.probe.read_text(encoding="utf-8"))
-        value = reconcile_environment(args.jobs, args.key, probe)
+
+    def stop_with(why) -> NoReturn:
+        # The caller is code (driver_machine reads the text between the first "{" and the last "}" of this stream and,
+        # finding none, refuses with the tail of it): ONE plain-text line, never JSON, exit 2, never a traceback (t-420).
+        print(f"environment_preparation.py {args.command}: {why}", file=sys.stderr)
+        raise SystemExit(2)
+
+    def read_object(path: Path) -> dict:
+        value = read_json(path, None, kind=dict)
+        if value is None:
+            stop_with(f"`{path}` is absent, unreadable or not a JSON object; pass the path of a JSON file holding one object")
+        return value
+
+    try:
+        if args.command in {"plan", "start"}:
+            request = read_object(args.request)
+            value = (plan_environment(request) if args.command == "plan" else
+                     execute_environment(request, args.jobs))
+        elif args.command == "status":
+            value = environment_job_status(args.jobs, args.key)
+        elif args.command == "observe":
+            result = EnvironmentJobs(args.jobs).observe(args.key)
+            job = result.get("job") or {}
+            # One JSON object on stdout and nothing else: its caller parses it (FR-14). The
+            # status is lifted to the top level so the exit-code rule below reads the same
+            # field for every subcommand.
+            value = {"action": result.get("action"), "status": job.get("status"),
+                     "settled": bool(job.get("status") in TERMINAL and not job.get("uncertain_process")),
+                     "uncertain_process": bool(job.get("uncertain_process")),
+                     "job": job}
+        else:
+            probe = read_object(args.probe)
+            value = reconcile_environment(args.jobs, args.key, probe)
+    except PreparationError as exc:
+        stop_with(exc)
     print(json.dumps(value, ensure_ascii=False, indent=2))
     if value.get("status") in {"failed", "blocked"}:
         raise SystemExit(2)

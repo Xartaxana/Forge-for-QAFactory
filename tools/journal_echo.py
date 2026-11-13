@@ -247,6 +247,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -807,7 +808,7 @@ def build_context(violations: list, ascii_only: bool = False) -> str:
 def combine_context(violations: list, tier_events: list, witness_events: list = None,
                      ts_drift_events: list = None, escalation_events: list = None,
                      fallback_marker: str = "", *, notes_len_events: list = None,
-                     r3_events: list = None,
+                     r3_events: list = None, peer_note: str = "",
                      ascii_only: bool = False) -> str:
     """One JSON additionalContext can carry form defects, TIER ECHO
     lines, WITNESS ECHO lines, TS DRIFT lines, ESCALATION lines, NOTES
@@ -868,6 +869,8 @@ def combine_context(violations: list, tier_events: list, witness_events: list = 
     test_journal_echo_r3.py). notes_len_events/r3_events both default
     to None (not [] -- a None segment builds to "", identical to the
     parameter's absence)."""
+    # peer_note (rule 9e, F6-58; strictly keyword-only like notes_len_events/r3_events): the PARALLEL SESSION note,
+    # a static text of journal_keys.peer_note joined after the r3 segment, before fallback_marker; "" adds nothing.
     parts = []
     if violations:
         parts.append(build_context(violations, ascii_only))
@@ -889,9 +892,41 @@ def combine_context(violations: list, tier_events: list, witness_events: list = 
     r3_segment = build_r3_segment(r3_events or [], ascii_only)
     if r3_segment:
         parts.append(r3_segment)
+    if peer_note:
+        parts.append(_ascii_sanitize(peer_note, PEER_NOTE_MAX) if ascii_only else _raw_sanitize(peer_note, PEER_NOTE_MAX))
     if fallback_marker:
         parts.append(fallback_marker)
     return "; ".join(parts)
+
+
+# --- PEER NOTE at write time (rule 9e, F6-58) ----------------------------
+# Trigger: a NEW `delegated` line (echo_new_lines) while the journal file holds no closed band with a free id (once one
+# writer has a band the writers are separated and the note stops: stateless) AND another main session of this project
+# wrote its transcript within transcripts.PEER_WINDOW_S (axis 14: transcripts.peer_main_sessions, from the payload's
+# `transcript_path`). The text is journal_keys.peer_note. A NOTE, never a refusal: it does not change decide()'s
+# verdict and it errs toward SILENCE (any exception, no import, no peer -> "").
+PEER_NOTE_MAX = 700      # the note is about 520 characters with 3 stems; the cap is a guard, not a cut of the usual text
+
+
+def _peer_note_text(payload: dict, echo_new_lines: list, seed_lines: list, staged_lines: list) -> str:
+    try:
+        jk = journal_validator._jk
+        if transcripts is None:
+            return ""
+        if not any(isinstance(o, dict) and o.get("event") == "delegated"
+                   for o in map(journal_validator._try_parse_obj, echo_new_lines)):
+            return ""
+        state = jk.BandState()
+        for line in list(seed_lines) + list(staged_lines):
+            obj = journal_validator._try_parse_obj(line)
+            if obj is not None:
+                state.add(obj)
+        if jk.free_bands(state):
+            return ""
+        peers = transcripts.peer_main_sessions(payload.get("transcript_path"), time.time())
+        return jk.peer_note(peers, state)
+    except Exception:
+        return ""
 
 
 # --- PAYLOAD-SCOPED ECHO BASE -------------------------------------------
@@ -2420,9 +2455,15 @@ def main() -> int:
         except Exception:
             r3_events = []
 
+        # PEER NOTE (rule 9e): beside TS DRIFT, in its own try; a note, so it never changes `violations`
+        try:
+            peer_note_text = _peer_note_text(payload, echo_new_lines, journal_validator.split_lines(seed_text), staged_lines)
+        except Exception:
+            peer_note_text = ""
+
         if (not violations and not tier_events and not witness_visible
                 and not ts_drift_events and not escalation_events
-                and not notes_len_events and not r3_events):
+                and not notes_len_events and not r3_events and not peer_note_text):
             return 0
 
         # Fallback marker: visible ONLY when we're already
@@ -2433,11 +2474,11 @@ def main() -> int:
         context_for_stdout = combine_context(violations, tier_events, witness_events, ts_drift_events,
                                               escalation_events, fallback_marker,
                                               notes_len_events=notes_len_events, r3_events=r3_events,
-                                              ascii_only=False)
+                                              peer_note=peer_note_text, ascii_only=False)
         context_for_stderr = combine_context(violations, tier_events, witness_events, ts_drift_events,
                                               escalation_events, fallback_marker,
                                               notes_len_events=notes_len_events, r3_events=r3_events,
-                                              ascii_only=True)
+                                              peer_note=peer_note_text, ascii_only=True)
 
         sys.stderr.write(context_for_stderr + "\n")
         output = {

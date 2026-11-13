@@ -54,6 +54,7 @@ NO_CONFIG = "no qa-factory/config.json above the task root (the project is not o
 DASH = "—"
 NOT_PROVEN = f"Sign-in: not proven at gate A {DASH} sign in with fill-account"
 
+LESSON_LINE_CHARS = 400   # a stand-lesson line (words cut at 200 by `project_knowledge.lessons`) is shown whole
 LINE_CHARS = 300          # one line of a free text keeps this many characters
 PROFILE_LINES = 10        # lines of a profile section the card keeps; the rest is counted
 NOTE_LINES = 12           # the newest walker notes the card keeps; the rest is counted
@@ -161,6 +162,7 @@ def _stand_lines(task_root, project, cfg, cfg_why):
     import brief_pack as BP
     got = BP.manual_stand_lines(task_root, project, cfg, [], "", None)
     stand = [_clip(x, tokens=False) for x in got if x.startswith(("- Stand:", "- API:", "- Frontend:"))]
+    stand += [_clip(x, LESSON_LINE_CHARS, tokens=False) for x in got if x.startswith("- Stand lessons:")]    # what a person taught (the walk road)
     accounts = [_clip(x, tokens=False) for x in got if x.startswith(("- Accounts:", "- Env keys:"))]
     return stand, accounts, ""
 
@@ -445,7 +447,8 @@ def inputs_hash(task_root, project, map_file) -> str:
     except Exception:  # noqa: BLE001 - the hash must always be made; an unreadable reader changes nothing here
         h.update(b"\0first-look-stale\0-")
     if project is not None:
-        paths += [Path(project) / PROFILE_REL, Path(project) / CONFIG_REL]
+        import project_knowledge as PK
+        paths += [Path(project) / PROFILE_REL, Path(project) / CONFIG_REL, PK.record_path(project)]    # a lesson taught later rebuilds the card
     if map_file is not None:
         paths.append(map_file)
     for path in paths:

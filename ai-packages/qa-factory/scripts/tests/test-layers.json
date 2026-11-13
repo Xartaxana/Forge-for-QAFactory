@@ -74,6 +74,14 @@
     "tests/story_run_common.py"
    ]
   },
+  "test_app_card_stand_lessons.py": {
+   "layer": "table",
+   "why": "SS1-11 F5 stand lessons reach the app card and rebuild it",
+   "covers": [
+    "app_card.py",
+    "project_knowledge.py"
+   ]
+  },
   "test_arch_check.py": {
    "layer": "gate_named",
    "why": "named by plans/builder-rules.md:71 (a history or example line of the forge, read by tools/test_quarantine.py enter); not a DoD row",
@@ -1458,6 +1466,14 @@
    "covers": [
     "environment_preparation.py",
     "event_store.py"
+   ]
+  },
+  "test_import_test_receipt_refusal.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): import_test_receipt refusal cases",
+   "covers": [
+    "import_test_receipt.py",
+    "role_cli.py"
    ]
   },
   "test_environment_record.py": {
@@ -6738,7 +6754,7 @@
   },
   "test_walk_plan_fields.py": {
    "layer": "data_join",
-   "why": "process ratchet of every other role is at or below its frozen ceiling",
+   "why": "the plan row's walk_data / walk_global: shape check, carried whole into request.json, named to the strategist, release note names the raise",
    "covers": [
     "brief_pack.py",
     "judge.py",
@@ -6746,7 +6762,6 @@
     "planning_contract.py",
     "user_path_failures.py",
     "agents/qa-test-strategist.md",
-    "references/role-load.json",
     "tests/harness.py"
    ]
   },

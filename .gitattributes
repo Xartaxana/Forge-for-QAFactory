@@ -18,7 +18,6 @@
 CLAUDE.md text eol=lf
 BOOT.md text eol=lf
 tools/*.py text eol=lf
-plans/PILES.md text eol=lf
 .githooks/* text eol=lf
 # Generated file compared byte-for-byte by `tools/factory_rules_index.py --check`
 # (pre-commit): a CRLF checkout under core.autocrlf=true would read as stale forever.

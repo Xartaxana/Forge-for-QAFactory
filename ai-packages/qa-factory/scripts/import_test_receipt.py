@@ -16,6 +16,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 import shutil
+import sys
 
 from execution_request import validate_request
 from hooklib import project_root, story_cli
@@ -313,10 +314,15 @@ def main() -> None:
     root = Path(args.project_root).resolve() if args.project_root else project_root()
     request = json.loads(Path(args.request).read_text(encoding="utf-8"))
     receipt = json.loads(Path(args.receipt).read_text(encoding="utf-8"))
-    # the story must exist (CX1-18): the call's fault, nothing was written; the refusal is story_cli's (one line, exit 2)
-    output = story_cli("import_test_receipt: the request's", key=request.get("task", ""), key_flag="task") / "work"
+    # the story must exist (CX1-18): the call's fault, nothing was written; with exit=False the StoryRootError reaches
+    # role_cli.run_guarded, which prints it in the one shape of this CLI's refusals (exit 2)
+    output = story_cli("import_test_receipt: the request's", key=request.get("task", ""), key_flag="task",
+                       exit=False) / "work"
     print(json.dumps(import_receipt(request, receipt, root, output)))
 
 
 if __name__ == "__main__":
-    main()
+    # A role runs this by hand (agents/qa-automator.md): a ValueError (every ImportError, broken JSON), a missing file or
+    # a defect ends as the guard's refusal, exit 2, never a traceback (t-420; the survivor is role_cli.run_guarded, AR-15).
+    from role_cli import command_from_argv, run_guarded
+    sys.exit(run_guarded(command_from_argv("import_test_receipt.py"), main))

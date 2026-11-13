@@ -1496,3 +1496,58 @@ def test_tier_echo_reads_a_model_line_with_u2028_as_one_turn(tmp_path):
     gen = tier_echo.iter_transcript_models(str(tmp_path / "missing.jsonl"))
     with pytest.raises(OSError):
         next(gen)
+
+
+# ---- F6-58 (rule 9e): peer_main_sessions, the reader behind the PARALLEL SESSION note ----
+
+def _peer_file(folder, name, now, age):
+    f = folder / name
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("{}\n", encoding="utf-8")
+    os.utime(f, (now - age, now - age))
+    return f
+
+
+@pytest.mark.parametrize("row,sibling_age,want", [
+    ("p1-at-the-window", 600, [("peer", 600)]),
+    ("p1-beyond-the-window", 601, []),
+    ("p6-future-mtime", -3600, [("peer", 0)]),
+])
+def test_peer_main_sessions(tmp_path, row, sibling_age, want):
+    now = 1_800_000_000.0
+    own = _peer_file(tmp_path, "own.jsonl", now, 0)
+    _peer_file(tmp_path, "peer.jsonl", now, sibling_age)
+    assert transcripts.peer_main_sessions(str(own), now) == want, row
+
+
+def test_peer_main_sessions_p2_subagent_files_and_other_files_are_never_counted(tmp_path):
+    now = 1_800_000_000.0
+    own = _peer_file(tmp_path, "own.jsonl", now, 0)
+    _peer_file(tmp_path, "own/subagents/agent-x.jsonl", now, 0)
+    _peer_file(tmp_path, "notes.txt", now, 0)
+    assert transcripts.peer_main_sessions(str(own), now) == []
+
+
+@pytest.mark.parametrize("bad", [None, "", 5, ["x"], "nowhere/at/all/own.jsonl"])
+def test_peer_main_sessions_p3_absent_or_broken_input_is_silence(bad):
+    assert transcripts.peer_main_sessions(bad, 1_800_000_000.0) == []
+
+
+def test_peer_main_sessions_p4_a_thousand_peers_youngest_first_and_the_note_shows_three(tmp_path):
+    now = 1_800_000_000.0
+    own = _peer_file(tmp_path, "own.jsonl", now, 0)
+    for i in range(1000):
+        _peer_file(tmp_path, f"s{i:04d}.jsonl", now, i % 500)
+    peers = transcripts.peer_main_sessions(str(own), now)
+    assert len(peers) == 1000 and [a for _s, a in peers] == sorted(a for _s, a in peers)
+    import journal_keys
+    note = journal_keys.peer_note(peers, journal_keys.BandState())
+    assert note.count("s0") == 3 and "+997 more" in note and note.startswith("PARALLEL SESSION (a note, nothing is blocked)")
+
+
+def test_peer_main_sessions_p5_a_folder_with_spaces_and_cyrillic(tmp_path):
+    now = 1_800_000_000.0
+    folder = tmp_path / "проект with spaces"
+    own = _peer_file(folder, "own.jsonl", now, 0)
+    _peer_file(folder, "сессия.jsonl", now, 30)
+    assert transcripts.peer_main_sessions(str(own), now) == [("сессия", 30)]

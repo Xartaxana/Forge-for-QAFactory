@@ -1,5 +1,6 @@
 """Provider-neutral environment preparation acceptance checks."""
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -251,6 +252,59 @@ class ExecutionTests(unittest.TestCase):
                 holder.release()
             self.assertLess(time.monotonic() - started, 5)
             self.assertIn("claims.lock", str(raised.exception))
+
+
+class CommandLineRefusalTests(unittest.TestCase):
+    """t-420: the caller is code (driver_machine `observe`) and falls into its own "printed no readable JSON" refusal,
+    quoting stderr. A refusal is ONE plain-text line `environment_preparation.py <subcommand>: <why>` and exit 2, never a
+    traceback; a defect (not a refusal) is not swallowed."""
+
+    def run_cli(self, *args):
+        script = Path(__file__).resolve().parents[1] / "environment_preparation.py"
+        return subprocess.run([sys.executable, "-B", str(script), *map(str, args)], capture_output=True, text=True,
+                              encoding="utf-8")
+
+    def test_a_refusal_is_one_plain_line_and_exit_2(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            broken, listed = root / "broken.json", root / "list.json"
+            broken.write_text("{not json", encoding="utf-8")
+            listed.write_text("[]", encoding="utf-8")
+            jobs = root / "jobs"
+            EnvironmentJobs(jobs).path("k").write_bytes(b"\xff\xfe{}")
+            rows = {
+                "observe: unknown job key": ("observe", "--jobs", root / "jobs", "--key", "nope"),
+                "plan: broken request JSON": ("plan", "--request", broken),
+                "plan: missing request file": ("plan", "--request", root / "absent.json"),
+                "plan: request is a JSON list": ("plan", "--request", listed),
+                "observe: job record is not UTF-8": ("observe", "--jobs", jobs, "--key", "k"),
+                "start: broken request JSON": ("start", "--request", broken, "--jobs", root / "jobs"),
+                "reconcile: broken probe JSON": ("reconcile", "--jobs", root / "jobs", "--key", "k", "--probe", broken),
+                "reconcile: missing probe file": ("reconcile", "--jobs", root / "jobs", "--key", "k",
+                                                  "--probe", root / "absent.json"),
+            }
+            for name, args in rows.items():
+                with self.subTest(name):
+                    done = self.run_cli(*args)
+                    line = done.stderr.strip()
+                    self.assertEqual(done.returncode, 2, done.stderr)
+                    self.assertEqual(done.stdout, "")
+                    self.assertNotIn("Traceback", done.stderr)
+                    self.assertEqual(len(line.splitlines()), 1, done.stderr)
+                    self.assertTrue(line.startswith(f"environment_preparation.py {args[0]}: "), line)
+                    self.assertNotIn("{", line)
+
+    def test_a_success_prints_as_before_and_a_bom_request_is_accepted(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            good, bom = root / "good.json", root / "bom.json"
+            good.write_text(json.dumps(request(root)), encoding="utf-8")
+            bom.write_bytes(b"\xef\xbb\xbf" +good.read_bytes())
+            for name, path in (("plain", good), ("with a UTF-8 BOM", bom)):
+                with self.subTest(name):
+                    done = self.run_cli("plan", "--request", path)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(json.loads(done.stdout), plan_environment(request(root)))
 
 
 if __name__ == "__main__":
