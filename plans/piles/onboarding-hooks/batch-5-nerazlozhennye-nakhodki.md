@@ -50,6 +50,7 @@
 
 - 12.11 — пачка 5 собрана из 16 находок кучки без пачки (t-138, t-140)
 - 13.11 — интеграция волны 2 (t-238, ветка `conv/wave-2`): OH5-7 (8f40b43, t-202) влит и принят
+- 13.11 t-247/t-255: OH5-7's live-proof expectation is now: live reinstall over a receipt that disagrees with the map — apply completes, regenerate step reports the coverage REJECT, receipt kept (receipt is carried, OH3-9)
 
 ## Живые доказательства
 

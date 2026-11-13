@@ -67,3 +67,6 @@
 |---|---|---|---|
 
 ## Остатки
+
+- OF4-22 (073bca8, t-225): литералы пути артефактов, которые узел не тронул | перенос: onboarding-hooks/findings/B-298-klass-put-artefaktov-sobran-ot-proekta-cwd.md | обоснование: тот же класс (путь артефактов собран от проекта/cwd), места — узел OH5-12 пачки onboarding-hooks/5 | подтвердил: —
+- t-217 (`wip/task-root-siblings`, 3b2b297): `execution_scheduler.py` — остаток класса корня задачи, не закрытый t-217 | перенос: onboarding-hooks/findings/B-298-klass-put-artefaktov-sobran-ot-proekta-cwd.md | обоснование: `execution_scheduler.py:154` — место узла OH5-12, не заводится вторым узлом | подтвердил: —
