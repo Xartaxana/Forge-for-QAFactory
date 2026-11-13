@@ -477,7 +477,7 @@
    "tagged": 0
   },
   "s5_plan.py::main": {
-   "bare": 2,
+   "bare": 3,
    "tagged": 0
   },
   "s5_precheck.py::_then_ref_problems": {
@@ -513,7 +513,7 @@
    "tagged": 0
   },
   "s5_precheck.py::check_obligations": {
-   "bare": 1,
+   "bare": 2,
    "tagged": 0
   },
   "s5_precheck.py::check_open_oracle_asserted": {
