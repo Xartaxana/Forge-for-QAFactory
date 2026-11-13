@@ -975,23 +975,20 @@ the source's own number.
 33. **Piles and batches, the journal per developer (DECISIONS.md D-0036;
     CLAUDE.md rule 4a; PROJECT.md «Командная работа»).**
     Mechanism: `tools/piles.py check` in `.githooks/commit-msg` (door
-    `piles-skip: <item> -- <reason>`), `board --check` in pre-commit,
-    pre-merge-commit and CI forge-check, `piles.py close` (formerly
+    `piles-skip: <item> -- <reason>`; a commit is judged on the piles it touches, and on a staged `.py` an active batch's function list names) and `check --base` in CI forge-check (the pushed range), `piles.py take`/`status`/`close` as the only code writers of a batch's status, `piles.py close` (formerly
     `release`, now a refused alias) as the only writer of «Закрыто», `logs/journal/<dev>.jsonl` with
     `journal_validator --all --base` in CI. How to check, over the
-    window: (a) `python tools/piles.py check --all` and
-    `python tools/piles.py board --check` on `origin/main` — any red or
-    stale line is a leak past the hooks (a `--no-verify`, a rebase, a web
+    window: (a) `python tools/piles.py check --all` on `origin/main` — any red line is a leak past the hooks; (a) is THE named reader of reds in piles no commit touched (t-356 SL-2: such reds never block a commit, and CI judges only the pushed range; no CI step audits the whole tree) (a `--no-verify`, a rebase, a web
     edit, a carried red); (b) `piles-skip:` lines in
     `git log --format=%B` per item letter — the door rate; a high rate on
     one item is that item's false-red finding, a door used for a routine
     operation (closing by the owner's word, a queue line) is a missing
-    command; (c) the open set of `plans/BACKLOG.md` on `main` is a subset
+    command; (b′) `piles-skip:` lines whose reason names another session's or pile's files — after t-356 SL-2 such a red cannot block, so each is a leak of the scope rule (a finding against `run_check`); (b″) one-developer pairs: for every pair the (б) ok line of `check --all` on origin/main names as «of one developer», read the claimed slug's journal `logs/journal/<slug>.jsonl`: it must show that clone's work on BOTH batches (an event whose `node` or notes name each batch). A pair whose second batch has no trace in that journal is a false "same" — two people under one slug, or `take --who` with another's slug — and is a finding against `piles.dev_of`; (c) the open set of `plans/BACKLOG.md` on `main` is a subset
     of the open set at the freeze commit, and `open=` of the freeze line
     minus the ids moved by `close` equals the current open count — a
     row that vanished otherwise is a lost item; (d) batches `в работе`
     without a taker or a branch, findings older than 14 days with no
-    batch, a card row whose «Статус» is ahead of its batch file;
+    batch, a card row whose «Статус» is ahead of its batch file (this (d) item is the detector of `piles.py status`, t-356 SL-3);
     (d′) the D-0044 detector — `check --all` item (е) «findings placed»
     (F5-3, 15.10.2026): a red (е) on `main` is a bypass; its WARN line is
     the baseline of older orphans (dated before 2026-10-13 or undated —
@@ -1007,8 +1004,7 @@ the source's own number.
     the owner's word: the GitLab board goes off): this detector lived on
     `tools/piles_gitlab.py`, which is deleted with the mirror, so it has
     nothing left to read (rule 10 (c): the end of a mechanism ends its
-    detector in the same commit); a batch's status now lives in the batch
-    header and `plans/PILES.md` only, and (a)-(d) judge those;
+    detector in the same commit); a batch's status lives in the batch header and the card row only (written by `take`/`status`/`close`), and (a)-(d) judge those;
     (g) closed batches with an open proof row (F5-5, 15.10.2026): for
     every batch whose card row says `закрыта`, the «Живые доказательства»
     table holds only `сделано: …` / `перенос: … | обоснование: … |
@@ -1080,7 +1076,7 @@ the source's own number.
 
 38. **The conductor investigates before it asks a person (PROJECT.md P22, the owner's word 02.11.2026; release-next/1 RN1-9, spec t-722 + reviews t-727/t-764).** Mechanism: a question to a person carries a class of `references/person-owned.json` (`why_person`) and what was read (`checked`); the driver road refuses one without them once (`no_move.ClassRefused`, `story_run.Driver.waiver_road` passes `--by driver --why-person <id>` on every recorded word), the INTERACTIVE road (`waiver.py --why-person`) holds on discipline: a word without a class is recorded and counted, never refused (rule 10(d), an explicit discipline choice). The check: `python -B ai-packages/qa-factory/scripts/person_owned.py --share --task-root <root>` over every story root of the window (the stand copies, RUNBOOK §9) — read `words` (the interactive road) and `driver_words` (the driver road) SEPARATELY: `words.unclassified` above 50 % of `words.total` on any root is a finding against the interactive road (the conductor asked without naming what only a person decides); `driver_words.unclassified` above 0 is a finding against the driver (a code-raised question with no class — `person_owned.json` lacks a row or `waiver_road` was bypassed: `grep -n "waiver.py" scripts/story_run.py` must show no call without `--why-person`, positive control = the seven sites of t-767); an empty window (no story root) gets an explicit line. Detector of this check's own leak: `test_person_owned_paths.py` (the grep key over the driver's calls) and `test_conductor_investigates_first.py` K2/K4 (the texts) stay green while the share is never read — a window with story roots and no `--share` line in the calibration record is itself a finding.
 
-39. **«Остатки» items carry an executor (onboarding-forge/1 F6-30; the owner's word 21.10.2026, PROJECT.md «Командная работа» п. 9).** Mechanism: `piles.py check` (д) refuses a NEW or CHANGED «Остатки» item without `сделано:` / `узел:` / `перенос:` (commit-msg; CI `check --all --base`); the board's count line and the compact snapshot print «остатков без исполнителя: N». Check: (a) N at the window's end, by pile — each item is either older than the gate's commit (the baseline) or a leak: count the `piles-skip: д` doors in the window's commit messages; (b) `перенос: … | подтвердил: —` items older than 48 hours (`git log -S "<item text>"`) — a carry waiting for a person goes into the morning report; (c) `узел:` items whose node is still «ожидает» after its batch closed. An empty window (no item, no door) is noted explicitly.
+39. **«Остатки» items carry an executor (onboarding-forge/1 F6-30; the owner's word 21.10.2026, PROJECT.md «Командная работа» п. 9).** Mechanism: `piles.py check` (д) refuses a NEW or CHANGED «Остатки» item without `сделано:` / `узел:` / `перенос:` (commit-msg; CI `check --all --base`); `piles.py summary` (its count line) and the compact snapshot print «остатков без исполнителя: N». Check: (a) N at the window's end, by pile — each item is either older than the gate's commit (the baseline) or a leak: count the `piles-skip: д` doors in the window's commit messages; (b) `перенос: … | подтвердил: —` items older than 48 hours (`git log -S "<item text>"`) — a carry waiting for a person goes into the morning report; (c) `узел:` items whose node is still «ожидает» after its batch closed. An empty window (no item, no door) is noted explicitly.
 
 40. **BATCH CANON within the hour, always in CI (onboarding-forge/1 F6-50; the owner's words 28.10.2026 and 03.11.2026 «Канон всегда на CI»).** Mechanism: the `canon-clock` job of every `api`/`web` pipeline (`tools/canon_clock.py`) is red over 60 minutes unless the head commit carries `canon-over-hour: <reason>`. Check: for every batch and release accepted in the window, its canon pipeline id in the last `accepted` witness and that pipeline's `canon-clock` line (`python tools/ci_read.py jobs <id>`, `log <job_id> --grep "canon wall time"`); a batch or release accepted with no canon pipeline, a canon without a green `canon-clock`, every `canon-over-hour:` door and every local docker canon (with why CI could not run) are listed. An empty window is noted explicitly.
 
