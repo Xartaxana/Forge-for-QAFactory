@@ -87,6 +87,11 @@ def _settings_problems(doc: dict) -> list:
     allowances = doc.get("allowances")
     if not isinstance(allowances, dict) or not all(whole(allowances.get(k), 0) for k in ("packet", "launch")):
         problems.append("`allowances` must hold whole numbers `packet` and `launch`")
+    if isinstance(allowances, dict):
+        # FV1-4: the brief's allowance and the charter head's are optional (an older file); present, they are whole numbers
+        for key in ("brief", "brief_charter_head"):
+            if key in allowances and not whole(allowances[key], 0):
+                problems.append(f"`allowances.{key}` must be a whole number >= 0 when present")
     tolerance = doc.get("control_tolerance_percent")
     if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or tolerance < 0:
         problems.append("`control_tolerance_percent` must be a number >= 0")
