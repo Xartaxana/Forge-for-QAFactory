@@ -1060,13 +1060,36 @@ def _token_outcomes(tokens: list, now_rows: dict, before_rows: dict) -> tuple:
     return recorded, already, unread
 
 
+# GW1-47: where a line STARTS with an id, whatever follows it (a space, `-`, `.`, `)`, `:`, `=`, the end): the id is compared with the
+# register's ids by `casefold`. Known gap: a register id outside `[A-Za-z][\w-]{0,63}` (`Q-3.1`, a non-ASCII start) is seen only by the
+# `_TOKEN` road of `_stray_lines`, as before.
+_LINE_START = re.compile(r"[\s\-*•>]*[*`]*(?P<id>[A-Za-z][\w-]{0,63})(?=[\s:=.,\-)*`]|$)")
+
+
 def _stray_lines(text: str, now_rows: dict) -> list:
-    """`[(register id, the line)]`: a line outside fences and quotes that STARTS with a register id and is no token (`Q1: a Q2: a`)."""
+    """`[(register id, the line)]`: a line outside fences and quotes that STARTS with a register id and is no token (`Q1: a Q2: a`).
+    Two roads: the `_TOKEN` shape with a register id and a value that is no answer (as before), and (GW1-47) a line that starts with
+    the id in any case followed by any boundary (`q3: x`, `Q3 - x`, `Q3 is unclear`) - the error goes toward showing the person what was
+    not recorded (FR-59). A line `_TOKEN` accepts with the id EXACTLY as the register spells it and a strict value is a token, not stray.
+    The id returned is the register's spelling (an exact match, else the first key by the register's order). A BOM at a line's start is
+    not part of it. No register rows: nothing."""
     out = []
+    if not now_rows:
+        return out
     for _raw, content in _plain_lines(text):
+        content = content.lstrip(BOM)
         found = _TOKEN.fullmatch(content)
-        if found and found.group("id") in now_rows and _question_value(found.group("value")) is None:
-            out.append((found.group("id"), content))
+        if found and found.group("id") in now_rows:
+            if _question_value(found.group("value")) is None:
+                out.append((found.group("id"), content))
+            continue
+        start = _LINE_START.match(content)
+        if not start:
+            continue
+        written = start.group("id")
+        ident = written if written in now_rows else next((k for k in now_rows if str(k).casefold() == written.casefold()), None)
+        if ident is not None:
+            out.append((ident, content))
     return out
 
 

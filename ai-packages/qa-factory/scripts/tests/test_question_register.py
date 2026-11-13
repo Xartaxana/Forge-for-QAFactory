@@ -1753,6 +1753,53 @@ def test_hf2_7_p1_readiness_rules(tmp):
              [b for b in broke if b[1]], [])
 
 
+def test_gw1_47_stray_line_starts_with_an_open_register_id(tmp):
+    """GW1-47: a line outside fences and quotes that STARTS with the id of an open question (any case, any separator) and is no token is
+    read by `question_lines_unread` (over `_stray_lines`, AR-13), the id in the REGISTER's spelling; a real token is not touched."""
+    fence = "`" * 3
+    rows = [{"id": "Q3"}, {"id": "Q1"}]
+    table = [
+        ("lower-case id with colon", "q3: x", [("Q3", "q3: x")]),
+        ("dash separator", "Q3 - x", [("Q3", "Q3 - x")]),
+        ("space separator", "Q3 x", [("Q3", "Q3 x")]),
+        ("dot separator", "Q3. x", [("Q3", "Q3. x")]),
+        ("no-break space separator", "Q3\xa0x", [("Q3", "Q3 x")]),
+        ("leading BOM", "﻿Q3 - x", [("Q3", "Q3 - x")]),
+        ("leading BOM then a real token (`x` is a letter): the token rule wins", "﻿Q3: x", []),
+        ("leading BOM of a later line", "Q1: a\n﻿q3 x", [("Q3", "q3 x")]),
+        ("BOM only", "﻿", []),
+        ("closing paren", "Q3) x", [("Q3", "Q3) x")]),
+        ("id alone on the line", "Q3", [("Q3", "Q3")]),
+        ("list marker and emphasis", "- **q3** is unclear", [("Q3", "q3** is unclear")]),
+        ("prose after the id is still stray", "Q3 is unclear", [("Q3", "Q3 is unclear")]),
+        ("a real token is no stray line", "Q3: a", []),
+        ("a real token with a note is stray as before", "Q3: a (see the ticket)", [("Q3", "Q3: a (see the ticket)")]),
+        ("control: another id", "Q30: x", []),
+        ("control: a word that only starts like an id", "Quote: x", []),
+        ("control: the id in the middle of a line", "I think Q3 is unclear", []),
+        ("control: in a fence", f"{fence}\nQ3 - x\n{fence}", []),
+        ("control: in a quote", "> Q3 - x", []),
+        ("control: in a list quote", "- > Q3 - x", []),
+        ("empty text", "", []),
+        ("only whitespace", "  \n\t\n", []),
+    ]
+    for label, words, want in table:
+        got = [(x["id"], x["line"]) for x in QR.question_lines_unread(words, rows)]
+        check_eq(f"GW1-47 {label}", got, want)
+    twin = [{"id": "q3"}, {"id": "Q3"}]
+    check_eq("GW1-47 two ids that differ in case: the exact spelling wins, one row",
+             [x["id"] for x in QR.question_lines_unread("Q3 x", twin)], ["Q3"])
+    check_eq("GW1-47 two ids that differ in case: no exact one -> the first by the register's order, one row",
+             [x["id"] for x in QR.question_lines_unread("ab x", [{"id": "aB"}, {"id": "Ab"}])], ["aB"])
+    check_eq("GW1-47 an empty register sees nothing, no exception", QR.question_lines_unread("Q3 x", []), [])
+    check_eq("GW1-47 a settled question is not counted", QR.question_lines_unread("Q3 x", [{"id": "Q3", "status": "with_designer"}]), [])
+    long = "Q3 " + "w" * 400
+    shown = QR.question_lines_unread(long, rows)[0]["line"]
+    check_eq("GW1-47 a very long line is cut with the cut shown, as before", (len(shown), shown.endswith("...")), (QR.MAX_NOTICE_LINE, True))
+    check_eq("GW1-47 the gate view tells the same line (one reader)",
+             QR.stray_line("Q3", "q3 - x"), "q3 - x")
+
+
 def test_x2_6_role_questions(tmp):
     """X2-6 (t-1765): a question a role of S1-S4 raises goes into THE register (`open_questions`), idempotent by (dispatch, entry); the
     driver's `--answer ... --by driver --where "stage ran"` closes it from disk; the S4 `--raise --case-file --then` form is untouched."""
@@ -1985,7 +2032,7 @@ def test_answers_lock_busy_names_the_holder(tmp=None):
         assert "has held" not in text and "try again in a moment" not in text and "holder" not in text, text
 
 
-TESTS = [test_answers_lock_busy_names_the_holder, test_placeholder_question_row_dropped, test_x2_6_role_questions,test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,
+TESTS = [test_gw1_47_stray_line_starts_with_an_open_register_id, test_answers_lock_busy_names_the_holder, test_placeholder_question_row_dropped, test_x2_6_role_questions,test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,
          test_e6_cli_subprocess, test_e7_battery, test_edge2_fence_and_quote, test_edge3_row_hash, test_edge4_where_by,
          test_edge5_case_decisions, test_edge5_case_cli, test_edge6_words_file, test_edge7_lock, test_edge8_named,
          test_cmp1, test_t256_o6_accept_as_blocked_is_a_whole_line_case_token, test_t256_o4_raise_for_case_is_keyed_by_case_and_then,
