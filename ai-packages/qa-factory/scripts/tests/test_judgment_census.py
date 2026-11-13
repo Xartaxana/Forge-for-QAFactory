@@ -39,8 +39,9 @@ raise (OH8-7h): every WIDENED raise site creates a unit, and C1 demands its row.
 only under `scripts/tests/`, a base that is neither a plain name nor `alias.Name` (a call, a subscript, or `mod.B` where `mod`
 comes from a from-import of a module), a raise through a variable or assignment alias (`E = MyErr; raise E(...)`), `raise A`
 with no call, `raise A()` with no argument, and a raise of a call to a module FACTORY function that returns the family exception
-(`raise _held_by(...)`): the scanner does not see that form, and it measured 52 rowless functions that carry such a raise on
-097f58d (an upper bound: the scan does not subtract functions that also raise directly; `exploration.py::acquire` is one) - the
+(`raise _held_by(...)`) or of a call to a method or attribute that returns one (`raise self._reuse_refusal(...)`,
+event_store.py): the scanner does not see that form, and the Lead measured 52 module-function rowless functions that carry such a
+raise on 097f58d (spec t-346 §6b; an upper bound: the scan does not subtract functions that also raise directly; `exploration.py::acquire` is one) - the
 critic's question 11 and calibration check 41 catch them.
 
     python -B scripts/tests/test_judgment_census.py            # as a script (PASS/FAIL lines)
@@ -473,7 +474,8 @@ BLIND_SPOT = ("blind spot: class `meaning` is a hand label; a unit that judges m
               "subscript, or `mod.B` where `mod` comes from a from-import of a module), a raise through a variable or assignment "
               "alias (`E = MyErr; raise E(...)`), `raise A` with no call, `raise A()` "
               "with no argument (the scanner's key needs one), and a raise of a call to a module factory function that returns "
-              "the family exception (`raise _held_by(...)`): the scanner does not see that form, and 52 rowless functions carry "
+              "the family exception (`raise _held_by(...)`) or of a call to a method or attribute that returns one "
+              "(`raise self._reuse_refusal(...)`): the scanner does not see that form, and 52 rowless functions carry "
               "such a raise on 097f58d (an upper bound; `exploration.py::acquire` is one) - the critic's question 11 and "
               "calibration check 41 catch them")
 
@@ -769,7 +771,7 @@ SUBCLASS_ROWS = (
     ("no_binding", {"mod_a.py": "class ImportError(ValueError):\n    pass\n", "helpers_x.py": _RAISE.format("ImportError")}, 0),
     ("no_arg", {"helpers_x.py": _A + "def check_f(x):\n    raise A()\n"}, 0),
     ("cycle", {"helpers_x.py": "class A(B):\n    pass\n\n\nclass B(A):\n    pass\n\n\n" + _RAISE.format("A")}, 0),
-    ("neutral_only", {"helpers_x.py": _A + _NEUTRAL}, 0),
+    ("neutral_only", {"helpers_x.py": _A + _NEUTRAL}, 1),
 )
 
 
@@ -781,11 +783,11 @@ def test_neg_subclass_raises_flip_blocks_and_create_units() -> None:
             assert bare["totals"]["blocking_units"] == 0, (case, "a unit with no row blocks nothing", bare["totals"])
             rowed = _run(files, _census([_row("helpers_x.py", "f")]))
             assert not rowed["problems"]["C1"], (case, "with its row", rowed["problems"]["C1"])
-            assert rowed["totals"]["blocking_units"] == 1, (case, "the widened site flips the unit it creates", rowed["totals"])
+            assert rowed["totals"]["blocking_units"] == blocking, (case, "the widened site flips the unit it creates", rowed["totals"])
             continue
         r = _run(files, _census([_row("helpers_x.py", "check_f")]))
         assert r["totals"]["blocking_units"] == blocking, (case, "blocks flip", r["totals"]["blocking_units"], "want", blocking)
-        assert not _has(r["problems"]["C1"], "helpers_x.py::f is a check unit"), (case, r["problems"]["C1"])
+        assert not r["problems"]["C1"], (case, r["problems"]["C1"])
 
 
 def test_neg_the_attribute_form_and_the_family_need_raises_and_the_default_scan_is_todays() -> None:
