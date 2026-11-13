@@ -158,6 +158,51 @@
       "dir": "work/test-cases/",
       "one": true
     },
+    "manifest_row": {
+      "subkind_of": "work/automation-manifest.json",
+      "contract": "references/artifact-contract-automation.md",
+      "anchor": "## `automation-manifest.json`",
+      "format": "json",
+      "ids": "cases",
+      "one": true,
+      "dir": "work/",
+      "file_name": "automation-manifest.json",
+      "row_fields": {
+        "from": "window_record.REQUIRED_ROW_FIELDS",
+        "at": "tests",
+        "shapes": {"obligation_refs": [{"obligation_id": "<OB-n>", "obligation_hash": "<the hash of the obligation>"}]}
+      },
+      "template": {
+        "tests": [
+          {
+            "case": "<case id>",
+            "covers": ["<case id>"],
+            "file": "qa-factory/tests/<case id>_test.py",
+            "marker": "<case id>",
+            "instance_id": "test_the_case",
+            "shape": "new",
+            "status": "green",
+            "critic_verdict": "approved"
+          }
+        ],
+        "run_witness": "evidence/sanity.json exit 0 1 passed"
+      },
+      "required": ["tests", "run_witness"]
+    },
+    "test_file:<lang>": {
+      "subkind_of": "work/automation-manifest.json",
+      "contract": "references/case-markers.json",
+      "anchor": "  \"decorator_prefix\": \"@pytest.mark.\",",
+      "format": "text",
+      "markers": "references/case-markers.json",
+      "marker_key": {"python": "pytest"},
+      "ids": "cases",
+      "one": true,
+      "dir": "project:",
+      "file_name": "tests/<case id>_test.py",
+      "template": "import pytest\n\n\n{marker}(case=\"<case id>\", then=[1])\ndef test_the_case():\n    assert 1 + 1 == 2\n",
+      "required": ["body:@pytest.mark.qa"]
+    },
     "work/context-manifest.json": {
       "contract": "references/artifact-contract-grounding.md",
       "anchor": "## `context-manifest.json`",
@@ -225,9 +270,9 @@
   },
   "not_covered": {
     "work/impl-diff.txt": "no contract shape: a diff text; the story kit supplies it",
-    "work/s5-plan.json": "group N2c not landed",
-    "work/s5-notes/": "group N2c not landed",
-    "work/evidence/manual/<case>/tried.md": "group N2c not landed",
+    "work/s5-plan.json": "shape is the skeleton s5_plan.py --init writes; no contract template",
+    "work/s5-notes/": "free notes, no contract shape",
+    "work/evidence/manual/<case>/tried.md": "no contract heading; the recorder's build reads it",
     "work/triage.json": "group N2d not landed",
     "work/bug-drafts/": "group N2d not landed",
     "test-report.md": "group N2d not landed",

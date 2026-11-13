@@ -12,6 +12,7 @@ the keys is the template's).
 
 Fields code fills (`handoff_check._code_fills`) stay as the template wrote them and are named in `left_for_code`.
 """
+import importlib
 import json
 import re
 import sys
@@ -555,13 +556,126 @@ def writer_of(output: str) -> str:
     return writer
 
 
+LANG = "<lang>"
+
+
+def _key_of(output: str):
+    """The key of `artifact_templates` that shapes the output: its own name, or the one row that names a family (`test_file:<lang>`:
+    the text after the head and before the tail is the language). None when no row shapes it."""
+    templates = rules()["artifact_templates"]
+    if output in templates:
+        return output
+    for key in templates:
+        if LANG in key:
+            head, tail = key.split(LANG, 1)
+            if output.startswith(head) and output.endswith(tail) and len(output) > len(head) + len(tail):
+                return key
+    return None
+
+
+def _lang_of(output: str) -> str:
+    key = _key_of(output)
+    if not key or LANG not in key:
+        return ""
+    head, tail = key.split(LANG, 1)
+    return output[len(head):len(output) - len(tail)]
+
+
+def test_file_languages() -> list:
+    """The languages `test_file:<lang>` is walked for: every language of `references/detectors.json` (`assertion_probes`,
+    `assertion_probes_ast`: the table of languages the package already holds) and every runner key of `references/case-markers.json`
+    (an entry that is an object). A language with no marker form is walked too: it comes back `Unfillable` (E9), never skipped."""
+    names = []
+    detectors = _reference("detectors.json")
+    for section in ("assertion_probes", "assertion_probes_ast"):
+        names += list(detectors.get(section) or {})
+    try:
+        markers = json.loads((REFERENCES / "case-markers.json").read_text(encoding="utf-8"))
+        names += [k for k, v in markers.items() if isinstance(v, dict)]
+    except Exception:                                   # said by every row of the family: `marker_form` names the file
+        pass
+    return sorted(dict.fromkeys(names))
+
+
+def marker_form(lang: str, row: dict) -> tuple:
+    """`(the decorator that binds a test to its case, "")` read out of `references/case-markers.json`, or `(None, why)` naming the file and
+    the language: the file missing, not JSON, no entry for the language (`row["marker_key"]` maps a language to the runner key the
+    file names it by), an entry with an empty marker form, or an empty decorator prefix. Never a default marker (E9)."""
+    name = row.get("markers", "references/case-markers.json")
+    try:
+        data = json.loads((REFERENCES / Path(name).name).read_text(encoding="utf-8"))
+    except Exception as exc:
+        return None, f"{name} cannot be read ({type(exc).__name__}: {exc}): no marker form for the language {lang}"
+    if not isinstance(data, dict):
+        return None, f"{name} is not a JSON object: no marker form for the language {lang}"
+    key = (row.get("marker_key") or {}).get(lang, lang)
+    entry = data.get(key)
+    if not isinstance(entry, dict):
+        return None, f"{name} has no marker form for the language {lang} (no entry `{key}`)"
+    case, prefix = entry.get("case"), data.get("decorator_prefix")
+    if not isinstance(case, str) or not case.strip():
+        return None, f"{name}: the entry `{key}` has an empty marker form for the language {lang} (no `case` name)"
+    if not isinstance(prefix, str) or not prefix.strip():
+        return None, f"{name}: `decorator_prefix` is empty, so the language {lang} has no marker form"
+    return prefix + case, ""
+
+
+def row_fields(spec: dict) -> tuple:
+    """`({field: RowField}, "")` read at the call from the module the row names (`from: <module>.<attribute>`), or `(None, why)` naming
+    the module: not importable, no such attribute, not a mapping, or empty. Never a copied list (AR-13, axis 34)."""
+    module, _, attr = spec["from"].rpartition(".")
+    try:
+        found = getattr(importlib.import_module(module), attr)
+    except Exception as exc:
+        return None, f"module {module} cannot supply {spec['from']} ({type(exc).__name__}: {exc})"
+    if not isinstance(found, dict) or not found:
+        return None, f"module {module}: {spec['from']} is empty or not a mapping, so the row has no field to fill"
+    return found, ""
+
+
+def _add_row_fields(output: str, spec: dict, tree: dict, unfillable: list) -> None:
+    """Put every field of the module's list into the first row of `tree[spec["at"]]`: the value from `spec["shapes"]` for a field whose
+    shape the module cannot give (a list of objects), the first of its closed `values`, else its own `what` as a hint the rules fill.
+    A `shapes` key naming a field the module no longer has is an `Unfillable` (the table never outlives the list)."""
+    found, why = row_fields(spec)
+    if found is None:
+        unfillable.append(Unfillable(spec["from"], "", why))
+        return
+    shapes = spec.get("shapes") or {}
+    for name in shapes:
+        if name not in found:
+            unfillable.append(Unfillable(f"{spec['at']}[0].{name}", "", f"the rules give a shape for `{name}`, which {spec['from']} does not list"))
+    rows = tree.get(spec["at"])
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        unfillable.append(Unfillable(spec["at"], "", f"the template of {output} has no row at `{spec['at']}[0]` to put the fields in"))
+        return
+    for name, field_spec in found.items():
+        values = getattr(field_spec, "values", ())
+        if name in shapes:
+            rows[0][name] = json.loads(json.dumps(shapes[name]))
+        elif values:
+            rows[0][name] = values[0]
+        else:
+            rows[0][name] = f"<{getattr(field_spec, 'what', name)}>"
+
+
+def required_of(output: str) -> list:
+    """The paths the broken variant may remove, in order: the fields of the module a row names (read at the call), then the row's own
+    `required`. The first one is what the table removes (E7)."""
+    row = _row_of(output)
+    spec = row.get("row_fields")
+    found = row_fields(spec)[0] if spec else None
+    return [f"{spec['at']}[0].{name}" for name in (found or {})] + list(row.get("required") or [])
+
+
 def classify(output: str) -> str:
     """`"code"` (the writer is code), `"role"` (a role writes it and a row of `artifact_templates` shapes it) or `"not_covered"` (a role
     writes it and a row of `not_covered` says why the filler cannot); anything else raises `Unclassified`.
 
     A sub-kind (a template row with `subkind_of`: the plan row, the case, the rows a walker sends) is a thing a role writes by
     definition, whoever writes the file it lands in: it needs no writer row of its own, and its parent must be an output of the stages."""
-    if output in rules()["artifact_templates"] and rules()["artifact_templates"][output].get("subkind_of"):
+    key = _key_of(output)
+    if key and rules()["artifact_templates"][key].get("subkind_of"):
         if output in rules()["not_covered"]:
             raise Unclassified(output, "a sub-kind, and a not_covered row names it too")
         return "role"
@@ -625,6 +739,8 @@ def _json_nodes(node, path: str = "", generic: str = "") -> list:
 
 def _fill_json(output: str, row: dict, ctx: FillContext, overrides: dict, fills: list, unfillable: list) -> str:
     tree = json.loads(json.dumps(row["template"]))
+    if row.get("row_fields"):                                 # the fields of a row come from the module that owns the list
+        _add_row_fields(output, row["row_fields"], tree, unfillable)
     nodes = _json_nodes(tree)
     known = {n[0] for n in nodes} | {n[1] for n in nodes}
     for key in overrides:
@@ -742,6 +858,11 @@ def fill_artifact(output: str, ctx: FillContext, *, variant: str = VARIANT_BASE,
     row = _row_of(output)
     overrides = dict(overrides or {})
     fills, unfillable = [], []
+    if row.get("markers"):                                    # a test file: its case marker is the form `case-markers.json` holds (E9)
+        marker, why = marker_form(_lang_of(output), row)
+        if marker is None:
+            return FilledArtifact(output, {}, fills, [Unfillable("marker", _lang_of(output), why)], [])
+        row = {**row, "template": row["template"].replace("{marker}", marker)}
     if row.get("file_name"):                                  # a directory output (E24): one file per id of the context
         ids = list(getattr(ctx, row.get("ids", "cases")))[:1 if row.get("one") else None]
         if not ids:
@@ -763,7 +884,7 @@ def fill_artifact(output: str, ctx: FillContext, *, variant: str = VARIANT_BASE,
 
 def _row_of(output: str) -> dict:
     """The template row of the output; a row with `row_of` takes every key it does not write from the row it names."""
-    row = rules()["artifact_templates"][output]
+    row = rules()["artifact_templates"][_key_of(output)]
     return {**rules()["artifact_templates"][row["row_of"]], **row} if row.get("row_of") else row
 
 
@@ -783,7 +904,7 @@ def artifact_variants(output: str, ctx: FillContext) -> list:
 def _fill_text(output: str, row: dict, ctx: FillContext, overrides: dict, fills: list, unfillable: list, variant: str) -> str:
     if row["format"] == "json":
         return _fill_json(output, row, ctx, overrides, fills, unfillable)
-    if row["format"] in ("md", "yaml"):                       # a yaml template is read as lines of text, with no front matter
+    if row["format"] in ("md", "yaml", "text"):               # a yaml or text template is read as lines of text, with no front matter
         return _fill_md(output, row, ctx, overrides, fills, unfillable, variant)
     raise ValueError(f"{output}: the template format {row['format']!r} is not one the filler writes (`json`, `md`, `yaml`)")
 

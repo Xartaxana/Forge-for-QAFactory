@@ -500,6 +500,10 @@ def every_stage_output_fills_or_is_named() -> None:
         check(f"table row {name} names no output of stages.json", False, "stage_outputs() returns it")
     tables = FF.rules()
     subkinds = sorted(key for key, row in tables["artifact_templates"].items() if row.get("subkind_of"))
+    languages = FF.test_file_languages()
+    walked = [name for key in subkinds for name in ([key.replace(FF.LANG, lang) for lang in languages] if FF.LANG in key else [key])]
+    check("the table walks every language of detectors.json and every runner key of case-markers.json", len(languages) > 1 and len(walked) >= len(subkinds),
+          str(languages))
     for section in ("artifact_templates", "not_covered"):
         for key in tables[section]:
             if key in subkinds:
@@ -528,6 +532,10 @@ def every_stage_output_fills_or_is_named() -> None:
         if not (world / "qa-factory" / "config.json").is_file():
             harness.mark_project(world)
             FF.write_outputs(task_root_of(world), world, FF.fill_artifact("work/requirements-register.md", ctx).require())
+            FF.write_outputs(task_root_of(world), world, FF.fill_artifact("test_file:pytest", ctx).require())   # the file a manifest row names
+            if result.output == "manifest_row":        # a manifest row is read against the plan row it serves and the case it covers
+                FF.write_outputs(task_root_of(world), world, FF.fill_artifact("test-plan.md", ctx).require())
+                FF.write_outputs(task_root_of(world), world, FF.fill_artifact("case", ctx, variant="cite_hint:body:Plan row:").require())
         old = os.environ.get("CLAUDE_PROJECT_DIR")
         os.environ["CLAUDE_PROJECT_DIR"] = str(world)
         hooklib._PROJECT_ROOT_CACHE = None
@@ -540,7 +548,7 @@ def every_stage_output_fills_or_is_named() -> None:
                 os.environ["CLAUDE_PROJECT_DIR"] = old
             hooklib._PROJECT_ROOT_CACHE = None
     try:
-        for name in names + subkinds:
+        for name in names + walked:
             row = f"output: {name}[base]"
             try:
                 kind = FF.classify(name)
@@ -569,7 +577,7 @@ def every_stage_output_fills_or_is_named() -> None:
                 template = FF._row_of(name)
                 contract_lines = [ln.rstrip() for ln in (harness.PLUGIN_ROOT / template["contract"]).read_text(encoding="utf-8").splitlines()]
                 check(f"output: {name}[anchor]", template["anchor"] in contract_lines, f"{template['contract']} has no line {template['anchor']!r}")
-                errors = refusals(root / "base", result)
+                errors = refusals(root / ("manifest" if name == "manifest_row" else "base"), result)   # a manifest row has a world of its own: one case, its plan row
                 check(row, errors == [], "; ".join(e[:160] for e in errors[:3]))
                 for variant in FF.artifact_variants(name, ctx)[1:]:          # the citation read by its own hint (3.5)
                     cited = FF.fill_artifact(name, ctx, variant=variant)
@@ -578,7 +586,7 @@ def every_stage_output_fills_or_is_named() -> None:
                     errors = [] if cited.unfillable else refusals(root / "base", cited)
                     check(f"output: {name}[{variant}]", not cited.unfillable and errors == [] and cited.files != result.files,
                           "; ".join(e[:160] for e in errors[:3]) or "the variant wrote the same bytes as the base")
-                required = template.get("required") or []
+                required = FF.required_of(name)
                 if not required:
                     unread.append(name)            # nothing to remove: no broken variant can be built
                     continue
@@ -644,6 +652,100 @@ def every_stage_output_fills_or_is_named() -> None:
         for name in ("plan_md_row", "plan_json_row"):
             check(f"output: {name}[lands at the path of its parent]", list(FF.fill_artifact(name, ctx).files) ==
                   [FF._row_of(name)["path"]] and FF._row_of(name)["path"] == tables["artifact_templates"][name]["subkind_of"], str(list(FF.fill_artifact(name, ctx).files)))
+        # the rows of the S5-S6 group (the fields of a manifest row from the module, the case marker from its file, per-case sub-kinds)
+        import window_record as WR
+        row_name, test_name, manifest_out = "manifest_row", "test_file:pytest", "work/automation-manifest.json"
+        fields = list(WR.REQUIRED_ROW_FIELDS)
+        made = json.loads(FF.fill_artifact(row_name, ctx).files[manifest_out])["tests"][0]
+        check(f"output: {row_name}[the row holds exactly the fields of window_record.REQUIRED_ROW_FIELDS]", bool(fields) and all(f in made for f in fields)
+              and FF.required_of(row_name)[:len(fields)] == [f"tests[0].{f}" for f in fields], f"fields {fields}, row {sorted(made)}")
+        check(f"output: {row_name}[its marker and file are the ones of {test_name}]", made["marker"] == "TC-001" and made["covers"] == ["TC-001"]
+              and f"project:{made['file'].removeprefix('qa-factory/')}" in FF.fill_artifact(test_name, ctx).files, f"{made['file']} / {list(FF.fill_artifact(test_name, ctx).files)}")
+        check(f"output: {row_name}[the obligation refs are objects with an id and a hash]", isinstance(made["obligation_refs"], list)
+              and sorted(made["obligation_refs"][0]) == ["obligation_hash", "obligation_id"], str(made["obligation_refs"]))
+        for field_name in fields:                      # E20 on every field the module names: ABSENT removes exactly that key
+            got = FF.fill_artifact(row_name, ctx, overrides={f"tests[0].{field_name}": FF.ABSENT})
+            kept = json.loads(got.files[manifest_out])["tests"][0] if got.files else {}
+            check(f"output: {row_name}[ABSENT tests[0].{field_name}: the override lands]", not got.unfillable and field_name not in kept
+                  and all(f in kept for f in fields if f != field_name), str([(u.path, u.why) for u in got.unfillable]))
+        lost = FF.fill_artifact(row_name, ctx, overrides={"tests": FF.ABSENT})
+        check(f"output: {row_name}[control: the reader refuses a manifest with no tests]", not lost.unfillable and any("'tests' is missing" in e for e in refusals(root / "control", lost)),
+              "collect_errors did not refuse it")
+        saved, kept_module = dict(WR.REQUIRED_ROW_FIELDS), sys.modules.get("window_record")
+        try:
+            WR.REQUIRED_ROW_FIELDS["zz_new_field"] = WR.RowField("a field added after the rules were written", "always", (), "automator", WR.FRAGMENT_DOOR, True)
+            grown = FF.fill_artifact(row_name, ctx)
+            check(f"output: {row_name}[a field the module gains is in the row, no list is copied]", "zz_new_field" in json.loads(grown.files[manifest_out])["tests"][0]
+                  and not grown.unfillable and "tests[0].zz_new_field" in FF.required_of(row_name), str(grown.unfillable))
+            del WR.REQUIRED_ROW_FIELDS["zz_new_field"]
+            del WR.REQUIRED_ROW_FIELDS["obligation_refs"]
+            stale = FF.fill_artifact(row_name, ctx)
+            check(f"output: {row_name}[a shape for a field the module lost is unfillable]", [u.path for u in stale.unfillable] == ["tests[0].obligation_refs"], str([(u.path, u.why) for u in stale.unfillable]))
+            WR.REQUIRED_ROW_FIELDS.clear()
+            empty_list = FF.fill_artifact(row_name, ctx)
+            check(f"output: {row_name}[REQUIRED_ROW_FIELDS empty: unfillable naming the module, never an empty row]", len(empty_list.unfillable) == 1
+                  and "window_record" in empty_list.unfillable[0].why and "empty" in empty_list.unfillable[0].why, str([(u.path, u.why) for u in empty_list.unfillable]))
+            try:
+                FF.write_outputs(task_root_of(root / "emptyrow"), root / "emptyrow", empty_list)
+                check(f"output: {row_name}[REQUIRED_ROW_FIELDS empty: nothing is written]", False, "no error")
+            except FF.NotFillable:
+                check(f"output: {row_name}[REQUIRED_ROW_FIELDS empty: nothing is written]", not (root / "emptyrow").exists(), "something was written")
+            sys.modules["window_record"] = None            # an import of it now raises
+            gone = FF.fill_artifact(row_name, ctx)
+            check(f"output: {row_name}[window_record not importable: unfillable naming the module]", len(gone.unfillable) == 1 and "window_record" in gone.unfillable[0].why
+                  and "cannot supply" in gone.unfillable[0].why, str([(u.path, u.why) for u in gone.unfillable]))
+        finally:
+            WR.REQUIRED_ROW_FIELDS.clear()
+            WR.REQUIRED_ROW_FIELDS.update(saved)
+            if kept_module is None:
+                sys.modules.pop("window_record", None)
+            else:
+                sys.modules["window_record"] = kept_module
+        check(f"output: {row_name}[the module is restored for the rows after this one]", list(WR.REQUIRED_ROW_FIELDS) == fields, str(list(WR.REQUIRED_ROW_FIELDS)))
+        marker_text = FF.fill_artifact(test_name, ctx).files["project:tests/TC-001_test.py"]
+        check(f"output: {test_name}[the marker is the prefix and the name of case-markers.json]", '@pytest.mark.qa(case="TC-001", then=[1])\n' in marker_text, marker_text)
+        old_references = FF.REFERENCES
+        for name, content, language, wanted in (
+                ("the file is missing", None, "pytest", "cannot be read"), ("the file is not JSON", "{not json", "pytest", "cannot be read"),
+                ("the file is not an object", "[1]", "pytest", "not a JSON object"),
+                ("no entry for the language", '{"decorator_prefix": "@pytest.mark.", "pytest": {"case": "qa"}}', "java", "no marker form for the language java"),
+                ("the entry has no marker name", '{"decorator_prefix": "@pytest.mark.", "pytest": {}}', "pytest", "empty marker form"),
+                ("the marker name is empty", '{"decorator_prefix": "@pytest.mark.", "pytest": {"case": "  "}}', "python", "empty marker form"),
+                ("the prefix is empty", '{"decorator_prefix": "", "pytest": {"case": "qa"}}', "pytest", "`decorator_prefix` is empty"),
+                ("the name of the language is a key that is no entry", '{"decorator_prefix": "@pytest.mark.", "note": "x", "pytest": {"case": "qa"}}', "note", "no marker form for the language note")):
+            fake = harness.temp_dir()
+            try:
+                (fake / "detectors.json").write_bytes((old_references / "detectors.json").read_bytes())
+                if content is not None:
+                    (fake / "case-markers.json").write_text(content, encoding="utf-8")
+                FF.REFERENCES = fake
+                got = FF.fill_artifact(f"test_file:{language}", ctx)
+                said = got.unfillable[0].why if got.unfillable else ""
+                check(f"output: test_file:{language}[{name}: unfillable naming the file and the language]", len(got.unfillable) == 1 and not got.files
+                      and "case-markers.json" in said and language in said and wanted in said, str([(u.path, u.hint, u.why) for u in got.unfillable]))
+            finally:
+                FF.REFERENCES = old_references
+                harness.cleanup(fake)
+        for name in (row_name, test_name):             # a sub-kind per case, with no case in the context: no file, a named line (as the case directory)
+            got = FF.fill_artifact(name, empty_ctx)
+            check(f"output: {name}[no case in the context]", not got.files and len(got.unfillable) == 1 and got.unfillable[0].path == name
+                  and got.unfillable[0].why.startswith("no ids in ctx for a directory output"), str([(u.path, u.why) for u in got.unfillable]))
+            try:
+                FF.write_outputs(task_root_of(root / "nocase"), root / "nocase", got)
+                check(f"output: {name}[no case in the context: nothing is written]", False, "no error")
+            except FF.NotFillable:
+                check(f"output: {name}[no case in the context: nothing is written]", not (root / "nocase").exists(), "something was written")
+        escape = FF.fill_artifact(test_name, FF.FillContext(task_key="TP1-1", cases=["../x"]))
+        try:
+            FF.write_outputs(task_root_of(root / "e22t"), root / "e22t", escape)
+            check(f"output: {test_name}[an id that escapes the folder]", False, "write_outputs wrote it")
+        except ValueError:
+            check(f"output: {test_name}[an id that escapes the folder]", not (root / "e22t").exists() or not list((root / "e22t").rglob("x_test.py")), "a file was written")
+        for name in ("work/s5-plan.json", "work/s5-notes/", "work/evidence/manual/<case>/tried.md"):
+            got = FF.fill_artifact(name, ctx)
+            check(f"output: {name}[named, not covered]", isinstance(got, FF.NotCovered) and name in names and "not landed" not in got.why, repr(got))
+        check("output: work/evidence/manual/<case>/tried.md[the stage table writes the placeholder, the filler writes no folder of that name]",
+              not [p for p in root.rglob("*") if "<" in p.name or ">" in p.name], str([str(p) for p in root.rglob("*") if "<" in p.name]))
         # the rows of the interface itself (E20, E22, the escape of a cell, determinism)
         manifest, register, understanding = "work/context-manifest.json", "work/requirements-register.md", "understanding.md"
         for name, overrides, wanted in (
@@ -688,8 +790,8 @@ def every_stage_output_fills_or_is_named() -> None:
             check(f"output: {manifest}[a variant the output does not have raises]", True)
     finally:
         harness.cleanup(root)
-    check("the table classified every output of the stages and every sub-kind", rows == len(names) + len(subkinds), f"{rows} of {len(names)} + {len(subkinds)}")
-    print(f"outputs {len(names)}, sub-kinds {len(subkinds)}, filled {filled_count}, by code: {by_code}, not covered {len(not_covered)}")
+    check("the table classified every output of the stages and every sub-kind", rows == len(names) + len(walked), f"{rows} of {len(names)} + {len(walked)}")
+    print(f"outputs {len(names)}, sub-kinds {len(walked)}, filled {filled_count}, by code: {by_code}, not covered {len(not_covered)}")
     for name, why in not_covered:
         print(f"not covered: {name} — {why}")
     print(f"outputs no reader refuses: {', '.join(unread) if unread else 'none'}")
