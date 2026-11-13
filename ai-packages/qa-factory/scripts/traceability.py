@@ -1147,7 +1147,45 @@ class Story:
                 if partitions and then not in mine:
                     return {}
             return self.unresolved_outcome(unresolved[0], case_key, requirement)
+        # FV1-30b R1: a Then with NO binding row at all, which the person's recorded word passed at the S5 exit, is shown as a
+        # named gap - never `pass` and never silent. A Then with a binding row of any status is read by that row above (E24).
+        if not bindings:
+            word = self.word_passed_then(case_key, then)
+            if word:
+                return {"tests": [], "level": self.level_for(case_key), "shape": self.shape_for(case_key, None),
+                        "bug": "", "result": "not run", "then": [then], "word_passed": word,
+                        "basis": f"not bound to a test - passed by the person's word ({word['by']}, {word['ts']})"}
         return {}
+
+    def word_index(self):
+        """The RECORD index of the passes a person's word recorded at the S5 exit (`waiver.word_passed_index` over
+        `waiver.person_passes`), built once per Story, only when a Then with no binding asks. None when the record cannot be read:
+        an unknown is never a pass (AR-28), the reading stays as it was. Never raises."""
+        if getattr(self, "_word_index_built", False):
+            return self._word_index
+        self._word_index_built, self._word_index = True, None
+        try:
+            import waiver
+            rows, _why = waiver.person_passes(self.artifacts)
+            if rows is not None:
+                self._word_index = waiver.word_passed_index(rows)
+        except Exception:  # noqa: BLE001 - the refusing direction: no index, no annotation
+            self._word_index = None
+        return self._word_index
+
+    def word_passed_then(self, case_key: str, then: int):
+        """`{finding_id, by, ts, decision}` of the record's pass naming Then `then` of `case_key`, or None."""
+        index = self.word_index()
+        if index is None:
+            return None
+        try:
+            got = index.then(case_key, then, cfg=C.case_config(self.artifacts))
+        except Exception:  # noqa: BLE001
+            return None
+        if not got:
+            return None
+        return {"finding_id": got.get("finding_id", ""), "by": got.get("by", ""), "ts": got.get("ts", ""),
+                "decision": got.get("decision", "")}
 
     def unbound_instances(self, case_key: str) -> list:
         """Live instances of this case that no Then binding names.
@@ -1284,8 +1322,9 @@ def _signature(outcome: dict) -> tuple:
     table that gives each its own line stops being readable at the third partition."""
     functions = {(C.function_name(t.get("instance_id")), t.get("file"))
                  for t in outcome.get("tests") or []}
+    word = outcome.get("word_passed")
     return (outcome.get("result"), outcome.get("bug"), outcome.get("level"),
-            outcome.get("shape"), tuple(sorted(functions)))
+            outcome.get("shape"), tuple(sorted(functions))) + ((str(word.get("finding_id")),) if word else ())
 
 
 def case_rows(story: Story, requirement: str, case_key: str) -> list:
@@ -1352,7 +1391,8 @@ def _row(requirement: str, what: str, case_key: str, thens: list, outcome: dict)
     return {"requirement": requirement, "what": what, "case": case_key, "then": list(thens),
             "tests": outcome.get("tests") or [], "level": outcome.get("level") or "",
             "shape": outcome.get("shape") or "", "result": outcome.get("result") or "not run",
-            "bug": outcome.get("bug") or "", "basis": outcome.get("basis") or ""}
+            "bug": outcome.get("bug") or "", "basis": outcome.get("basis") or ""} | (
+        {"word_passed": outcome["word_passed"]} if outcome.get("word_passed") else {})
 
 
 def not_planned_basis(story: Story, requirement: str) -> str:

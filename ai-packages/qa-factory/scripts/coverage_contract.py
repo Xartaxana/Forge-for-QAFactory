@@ -557,6 +557,44 @@ def _oracle_read(ctx: dict, row: dict, ob: dict) -> dict:
     return read
 
 
+def _record_word_index(task):
+    """FV1-30b: the RECORD index of what a person's word passed at S5 (`waiver.person_passes`), or False when there is nothing
+    to read (no record file, a record that cannot be read): False names nobody (AR-28). Never raises."""
+    try:
+        import waiver
+        rows, _why = waiver.person_passes(task)
+        return waiver.word_passed_index(rows) if rows else False
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _refs_word_text(index, instance_ids, manifest, plan) -> str:
+    """"obligation_refs of <iid> not established - passed by the person's word (<by>, <ts>)" for the first instance of the binding
+    that the record's pass names for `obligation_refs` AND whose manifest row still has bad refs (absent, not a list, empty - an
+    empty list has no problems by `obligation_ref_problems`, so emptiness is tested first - or refs with problems against the
+    plan); "" otherwise. A repaired row reads as today (E8)."""
+    if not index:
+        return ""
+    try:
+        import contract as C
+        plan_map = C.obligation_map(plan)
+        tests = C.manifest_tests(manifest)
+        for iid in instance_ids:
+            got = index.instance("row_fields_unestablished", iid, field="obligation_refs")
+            if not got:
+                continue
+            aliases = {iid} | set(C.instance_id_aliases({"instance_id": iid}))
+            test = next((t for t in tests if aliases & set(C.instance_id_aliases(t))), None)
+            if test is None:
+                continue
+            refs = test.get("obligation_refs")
+            if not isinstance(refs, list) or not refs or C.obligation_ref_problems(refs, plan_map, strict=True):
+                return f"obligation_refs of {iid} not established - passed by the person's word ({got.get('by', '')}, {got.get('ts', '')})"
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
 def coverage_projection(task, report=None, manifest=None):
     """No executions, no positive semantic inference from green or a percentage."""
     import contract as C
@@ -570,6 +608,7 @@ def coverage_projection(task, report=None, manifest=None):
     unverified_instances = {alias for test in C.manifest_tests(manifest) if L.is_unverified(test)
                             for alias in C.instance_id_aliases(test)}
     output = []
+    word_index = None   # FV1-30b R5: the RECORD index, read at most once, only for an unverified obligation with a binding
     for row in rows:
         if row.get("schema_version", 1) != 2:
             continue
@@ -663,6 +702,13 @@ def coverage_projection(task, report=None, manifest=None):
                 item["oracle_status"] = oracle_status
                 if oracle["answers"]:
                     item["oracle_answers"] = oracle["answers"]
+            if not verified and binding:
+                # FV1-30b R5: only ADDS words - what the person's word passed is named, never `verified`, never a changed gap kind
+                word_index = word_index if word_index is not None else _record_word_index(task)
+                words = _refs_word_text(word_index, instance_ids, manifest, rows)
+                if words:
+                    item["word_passed"] = True
+                    item["gap"] = (item["gap"] + "; " if item["gap"] else "") + words
             output.append(item)
     doc = {"schema_version": 2, "status": "current" if output else "legacy_assessment_not_available",
            "obligations": output, "unique_instances": len({i for o in output for i in o["instance_ids"]})}
