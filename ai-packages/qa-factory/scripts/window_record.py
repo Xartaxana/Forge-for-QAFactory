@@ -136,11 +136,15 @@ ORIGIN = {
     "evidence_refs": ("no run block and no receipt on disk names this instance",
                       "run it with `run_suite.py --mine <case>`"),
     "obligation_refs": ("the manifest row carries no `obligation_refs`",
-                        "the automator writes the plan's obligation ids and hashes there"),
+                        "the automator sends the plan's obligation ids through `manifest_put.py --task <T> --fragment <file>`; "
+                        "the code writes the hashes"),
     "obligation_ids": ("the manifest row carries no `obligation_refs`",
-                       "the automator writes the plan's obligation ids and hashes there"),
+                       "the automator sends the plan's obligation ids through `manifest_put.py --task <T> --fragment <file>` "
+                       "in `obligation_refs`; the code writes the hashes and the ids list"),
     "obligation_hash": ("the manifest row carries no `obligation_refs` to hash",
-                        "the automator writes the plan's obligation ids and hashes there"),
+                        "the automator sends the plan's obligation ids through `manifest_put.py --task <T> --fragment <file>` "
+                        "in `obligation_refs`; the code writes the hashes; a stale binding hash is refreshed by re-sending the "
+                        "binding's `design_assessment` through the same door, and the code re-stamps the hash"),
     "assertion_id": ("the manifest row carries no `assertion_id`",
                      "the automator names the assertion that fails when the behaviour breaks"),
     "defect_location": ("the manifest row carries no `defect_location`",
@@ -166,13 +170,12 @@ ORIGIN = {
 #               (non-`manual-*`) obligation; `shared_root` - a row whose file lies under a test root that several
 #               profiles share (execution_request.profiles_owning)
 #   values      the closed set the field takes, or () for free text
-#   filled_by   `automator` - the role writes it into a fragment; `marker` - `manifest_from_tests.py` writes it from
-#               the test file's marker, a fragment would only be overwritten by the next marker run
+#   filled_by   `automator` - the role writes it into a fragment (every field here: one door for every language)
 #   origin_door the one command that produces it (FR-11: a command the role has)
-#   window      whether `build` copies it into the window's instance record
+#   window      whether `build` copies it into the window's instance record as TEXT (`obligation_refs` is a list: `build`
+#               copies it itself, so its `window` is False)
 RowField = collections.namedtuple("RowField", "what when values filled_by origin_door window")
 FRAGMENT_DOOR = "manifest_put.py --task <T> --fragment <file>"
-MARKER_DOOR = "the marker `qa(obligations=[...])` on the test, then `manifest_from_tests.py`"
 REQUIRED_ROW_FIELDS = dict(zip(
     ("assertion_id", "defect_location", "change_disposition", "change_basis_ref", "obligation_refs", "profile_id"),
     (RowField("the assertion that fails when the behaviour breaks (a file:line or an id)",
@@ -183,8 +186,8 @@ REQUIRED_ROW_FIELDS = dict(zip(
               "always", ("new_or_changed", "unchanged"), "automator", FRAGMENT_DOOR, True),
      RowField("what the disposition is read from (for example `manifest:<case>`)",
               "always", (), "automator", FRAGMENT_DOOR, True),
-     RowField("the plan's obligation ids and hashes the test proves",
-              "plan_obligation", (), "marker", MARKER_DOOR, True),
+     RowField("the plan's obligation ids the test proves, as [{\"obligation_id\": \"<plan obligation id>\"}]; the code adds each hash",
+              "plan_obligation", (), "automator", FRAGMENT_DOOR, False),
      RowField("the execution profile that runs the test; the file lies under a test root several profiles share",
               "shared_root", (), "automator", FRAGMENT_DOOR, False))))
 
@@ -223,25 +226,32 @@ def _text_problem(value, spec) -> str:
     return ""
 
 
-def _obligation_refs_problem(entry: dict, plan) -> str:
-    """'' or the problem of `obligation_refs`, read as `acceptance.validate_window` reads the item (schema 2): among the
-    dict objects every one carries a non-empty `obligation_id`, no id twice; non-dict items are skipped as `build` skips
-    them. Demanded only when `plan` (the obligations of THIS row's case, as `contract.plan_obligations` lists them)
-    holds an automated one: a `manual-*` obligation is discharged by the runner's evidence, and no plan, or a legacy
-    plan that asks for none, demands nothing - the error direction is "not demanded" (the marker refuses an id the plan
-    does not name, so a finding the role cannot fill would be a trap, FR-57)."""
+REF_REPAIR = "send the row's obligation_refs again, ids only (the code writes the hashes)"
+
+
+def _obligation_refs_problem(entry: dict, plan, known=None) -> str:
+    """'' or the problem of `obligation_refs`. Two rules, kept apart (FV1-19, AR-13):
+    DEMAND - refs absent, or holding no object that carries an `obligation_id`, are `missing` only when `plan` (the
+    obligations of THIS row's case, as `contract.plan_obligations` lists them) holds an automated one: a `manual-*`
+    obligation is discharged by the runner's evidence, and no plan, or a legacy plan that asks for none, demands
+    nothing - the error direction is "not demanded" (FR-5). It governs `missing` ALONE.
+    VALIDITY - refs that ARE there (an id-bearing object in the list) are judged on EVERY row, owed or not, by
+    `contract.obligation_ref_problems(refs, known)` (non-strict: the window finish asks the same predicate strictly):
+    shape, an id the plan does not name, a hash that is not the plan's. `known` is `contract.plan_obligation_map`; with it
+    absent or empty only shape is judged. Every verdict names the way on: send the refs again, ids only."""
+    refs = entry.get("obligation_refs")
+    if isinstance(refs, (list, tuple)) and any(isinstance(ref, dict) and ref.get("obligation_id") for ref in refs):
+        found = C.obligation_ref_problems(list(refs), known)
+        if found:
+            stale = any(kind == "stale" for kind, _text in found)
+            text = "; ".join(("stale: " if kind == "stale" else "") + text for kind, text in found)
+            return text + ((" - the plan's obligation changed after the row was written, or the hash was typed; " + REF_REPAIR
+                            + "; a stale binding hash: re-send the binding's `design_assessment` through `" + FRAGMENT_DOOR
+                            + "` and the code re-stamps the hash") if stale else " - " + REF_REPAIR)
+        return ""
     owed = [ob for ob in plan or [] if isinstance(ob, dict) and ob.get("obligation_id")
             and not str(ob.get("decision") or "").startswith("manual-")]
-    if not owed:
-        return ""
-    refs = entry.get("obligation_refs")
-    ids = [str(ref.get("obligation_id") or "") for ref in refs if isinstance(ref, dict)] \
-        if isinstance(refs, (list, tuple)) else []
-    if not any(ids):
-        return "missing"
-    if not all(ids) or len(ids) != len(set(ids)):
-        return "an `obligation_refs` object has an empty or a repeated `obligation_id`"
-    return ""
+    return "missing" if owed else ""
 
 
 def _profile_problem(entry: dict, cfg) -> str:
@@ -267,20 +277,22 @@ def _profile_problem(entry: dict, cfg) -> str:
     return ""
 
 
-def row_field_gaps(entry, cfg=None, plan=None) -> list:
+def row_field_gaps(entry, cfg=None, plan=None, known=None) -> list:
     """`[(field, problem), ...]` in the carrier's order: what a `tests[]` row still lacks of `REQUIRED_ROW_FIELDS`.
     Pure and total - a row that is no dict answers `[]`. `problem` is `missing` (key absent, `None` or `""`; for
     `obligation_refs` also a list with no object carrying an `obligation_id`), `not one of a, b` for a value outside the
-    closed set, or the text of the one reader that refused (`unknown_profile_refusal`). A key that is the field name
-    in other letters adds ` (the row carries `x`; the field is spelled `y`)` to `missing`.
+    closed set, the text of the one reader that refused (`unknown_profile_refusal`), or, for `obligation_refs` that are
+    present, the verdict of `contract.obligation_ref_problems` (shape / unknown id / stale hash). A key that is the field
+    name in other letters adds ` (the row carries `x`; the field is spelled `y`)` to `missing`.
     `cfg` is the project's config.json and `plan` the plan obligations of the row's case: without them the fields that
-    depend on them are NOT demanded (the safe side: the gates behind this check stay on their own path)."""
+    depend on them are NOT demanded (the safe side: the gates behind this check stay on their own path). `known` is the
+    plan's obligation map (`contract.plan_obligation_map`): without it present refs are judged for shape only."""
     if not isinstance(entry, dict):
         return []
     gaps = []
     for field, spec in REQUIRED_ROW_FIELDS.items():
         if spec.when == "plan_obligation":
-            problem = _obligation_refs_problem(entry, plan)
+            problem = _obligation_refs_problem(entry, plan, known)
         elif spec.when == "shared_root":
             problem = _profile_problem(entry, cfg)
         else:

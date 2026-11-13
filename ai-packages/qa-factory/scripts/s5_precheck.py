@@ -3776,19 +3776,11 @@ def _row_fields_text(gaps: list, task_name: str) -> tuple:
             groups.setdefault(problem, []).append(field)
         parts.append(f"{iid}: " + ", ".join(f"{', '.join(names)} ({problem})" for problem, names in groups.items()))
     named = list(dict.fromkeys(field for _iid, fields in gaps for field, _problem in fields))
-    by_hand = [f for f in named if WR.REQUIRED_ROW_FIELDS[f].filled_by == "automator"]
-    by_marker = [f for f in named if WR.REQUIRED_ROW_FIELDS[f].filled_by != "automator"]
     legend = "; ".join(f"`{f}`: {WR.REQUIRED_ROW_FIELDS[f].what}" for f in named)
-    fix = ""
-    if by_hand:
-        fix += ("fill " + ", ".join(f"`{f}`" for f in by_hand) + " now, in one fragment: the row form "
-                "`manifest_from_tests.py` prints for this window, or "
-                '{"tests": [{"instance_id": "<id>", "<field>": <value>}]} through '
-                f"`manifest_put.py --task {task_name} --fragment <file>`; ")
-    if by_marker:
-        fix += (", ".join(f"`{f}`" for f in by_marker) + " is written by the marker, not by hand (a hand-written value "
-                "would not carry the hash the plan's obligation has): put "
-                '`qa(obligations=["<plan obligation id>"])` on the test and run `manifest_from_tests.py` again; ')
+    fix = ("fill " + ", ".join(f"`{f}`" for f in named) + " now, in one fragment: the row form "
+           "`manifest_from_tests.py` prints for this window, or "
+           '{"tests": [{"instance_id": "<id>", "<field>": <value>}]} through '
+           f"`manifest_put.py --task {task_name} --fragment <file>`; ")
     fix += f"what each field holds - {legend}; a field present but empty counts as missing"
     message = (f"{len(gaps)} tests[] row(s) of this window miss {pairs} field(s) the S5 window record or the test run "
                "will refuse: " + "; ".join(parts))
@@ -3828,11 +3820,11 @@ def check_row_fields(task_root: Path, manifest: dict, cases: list, findings: lis
         plan_row = case_plan_row(task_root, case, "", entries) if plan and case not in handed else ""
         for entry in entries:
             owed.setdefault(id(entry), []).extend(ob for row, ob in plan or [] if plan_row and row == plan_row)
-    gaps = []
+    gaps, known = [], C.plan_obligation_map(task_root)
     for entry in C.manifest_tests(manifest):
         if id(entry) not in owed:
             continue
-        fields = WR.row_field_gaps(entry, cfg, owed[id(entry)])
+        fields = WR.row_field_gaps(entry, cfg, owed[id(entry)], known)
         if fields:
             gaps.append((C.test_instance_id(entry) or "(a row with no instance_id)", fields))
     if gaps:

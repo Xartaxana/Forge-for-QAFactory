@@ -1673,11 +1673,8 @@ def _summary(result: dict, fragment: dict) -> list:
 # --- the row form: what each `tests[]` row still lacks, printed and never sent (HF2-12, EP1-18 (a)) ------------------
 
 def _legend_line(field: str, spec, cfg: dict, rows: list) -> str:
-    """One line of what a missing field holds: the carrier's own words (`window_record.RowField.what`), the profiles that
-    can own the file for `profile_id`, the marker for a field the marker writes (no slot for it in the form: a hand value
-    would not carry the plan's hash)."""
-    if spec.filled_by != "automator":
-        return f"{spec.what}; written by the marker, not by hand: {spec.origin_door}"
+    """One line of what a missing field holds: the carrier's own words (`window_record.RowField.what`) and the profiles
+    that can own the file for `profile_id`."""
     if field != "profile_id":
         return spec.what
     import execution_request as ER
@@ -1704,6 +1701,7 @@ def _row_form(task_root: Path, view: dict, wanted: list) -> tuple:
     from s5_precheck import case_plan_row, instances_of_case
     cfg, scfg = load_config(), C.case_config(task_root)
     plan, handed = C.plan_obligations(task_root), {row["case"] for row in C.handed_tests(view)}
+    known = C.plan_obligation_map(task_root)
     form, needed, asked = {"tests": [], "legend": {}}, {}, []
     for entry in C.manifest_tests(view):
         aliases = C.instance_id_aliases(entry, scfg)
@@ -1715,7 +1713,7 @@ def _row_form(task_root: Path, view: dict, wanted: list) -> tuple:
             plan_row = case_plan_row(task_root, case, "", instances_of_case(view, case)) \
                 if plan and case not in handed else ""
             owed += [ob for row, ob in plan if plan_row and row == plan_row]
-        gaps = WR.row_field_gaps(entry, cfg, owed)
+        gaps = WR.row_field_gaps(entry, cfg, owed, known)
         for field, _problem in gaps:
             needed.setdefault(field, []).append(entry)
         slots = {f: None for f, _problem in gaps if WR.REQUIRED_ROW_FIELDS[f].filled_by == "automator"}

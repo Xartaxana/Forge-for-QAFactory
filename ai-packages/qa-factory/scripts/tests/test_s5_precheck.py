@@ -4525,7 +4525,136 @@ def a_then_row_does_not_swallow_the_thens_behind_a_red() -> None:
              M.then_remainder_problems(Path("/nonexistent-root"), {"then_bindings": [blocked], "unresolved": [then_row]}), [])
 
 
+OB_AUTO = {"obligation_id": "OB-A", "decision": "new", "text": "the limit is enforced"}
+OB_MANUAL = {"obligation_id": "OB-M", "decision": "manual-run", "text": "looked at by a person"}
+ROW_FIELDS_DONE = {"assertion_id": "tests/test_validate.py:12", "defect_location": "src/app.py:3",
+                   "change_disposition": "unchanged", "change_basis_ref": "manifest:TC-500"}
+
+
+def refs_story(root: Path, rows: list, plan_rows=None) -> Path:
+    """A story whose dispatch scope is TC-500 (its plan row owes the AUTOMATED OB-A) and TC-501 (its plan row owes only the
+    manual OB-M); `plan_rows=None` writes that plan, `[]` writes no plan file."""
+    import shutil
+    shutil.rmtree(root / "qa-factory", ignore_errors=True)    # one story per call under one root
+    task = make_story(root, {"tests": rows})
+    (task / "state").mkdir(parents=True, exist_ok=True)
+    (task / "state" / "controller.json").write_text(json.dumps({"dispatches": {"S5-qa-automator-1": {
+        "id": "S5-qa-automator-1", "stage": "S5", "role": "qa-automator", "scope": ["TC-500", "TC-501"],
+        "status": "running"}}}), encoding="utf-8")
+    if plan_rows != []:
+        (task / "work" / "test-plan.json").write_text(json.dumps({"rows": plan_rows or [
+            {"id": "TS-1", "schema_version": 2, "coverage_obligations": [OB_AUTO]},
+            {"id": "TS-2", "schema_version": 2, "coverage_obligations": [OB_MANUAL]}]}), encoding="utf-8")
+    return task
+
+
+def refs_row(instance: str, case: str, plan_row: str, **over) -> dict:
+    return {"instance_id": instance, "case": case, "covers": [case], "file": "tests/test_validate.py", "status": "green",
+            "plan_row": plan_row, **ROW_FIELDS_DONE, **over}
+
+
+def refs_finding(task: Path) -> tuple:
+    """(the one row-fields finding or None, the notes) of `check_row_fields` over the story, as the gate calls it."""
+    manifest = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
+    findings, notes = [], []
+    P.check_row_fields(task, manifest, ["TC-500", "TC-501"], findings, notes, "S5-qa-automator-1",
+                       plan=C.plan_obligations(task))
+    return (findings[0] if findings else None), notes
+
+
+def fv1_19_obligation_refs_at_the_precheck() -> None:
+    """FV1-19b N2: the precheck judges PRESENT `obligation_refs` on every row by `contract.obligation_ref_problems` and demands
+    them only of a row whose case owes an automated obligation; its texts name the fragment door for every language."""
+    from event_store import content_hash
+    import window_record as WR
+    root = temp_project("qa-fv119-n2-")
+    try:
+        h_auto, h_manual = content_hash(OB_AUTO), content_hash(OB_MANUAL)
+        # (a) an owed TS row (a file the marker never reads) with no refs: the fix names the fragment door, no marker
+        ts = refs_row("owed-ts", "TC-500", "TS-1", file="tests/cart.spec.ts")
+        found, _ = refs_finding(refs_story(root, [ts]))
+        text = found["message"] + " || " + found["fix"]
+        check_in("N2 (a): the owed row without refs is named, obligation_refs missing", "owed-ts: obligation_refs (missing)", text)
+        check_in("N2 (a): the fix names the fragment door with the task", "manifest_put.py --task QA-500 --fragment <file>", text)
+        check_in("N2 (a): ...and the shape of the field", '[{"obligation_id": "<plan obligation id>"}]', text)
+        check_in("N2 (a): ...and that the code writes the hash", "the code adds each hash", text)
+        check_not_in("N2 (a): no marker door in the finding", "marker", text)
+        check_not_in("N2 (a): no `qa(obligations` in the finding", "qa(obligations", text)
+        py = refs_row("owed-py", "TC-500", "TS-1")
+        found, _ = refs_finding(refs_story(root, [py]))
+        check_eq("N2 (a): a Python row gets the very same fix text (one text, no language branch)",
+                 found["fix"], refs_finding(refs_story(root, [ts]))[0]["fix"])
+
+        # (c)-(e), (h), (j): every input on an OWED row (OB-A, plan row TS-1) and a NON-owed row (OB-M, TS-2)
+        def refs_of(kind, oid, good, other):
+            return {"valid": [{"obligation_id": oid, "obligation_hash": good}],
+                    "missing hash": [{"obligation_id": oid}],
+                    "stale (a hash typed)": [{"obligation_id": oid, "obligation_hash": "c7ca9a5f" + "0" * 56}],
+                    "unknown id": [{"obligation_id": "OB-ZZ", "obligation_hash": good}],
+                    "hash of another obligation": [{"obligation_id": oid, "obligation_hash": other}],
+                    "hash with a trailing space": [{"obligation_id": oid, "obligation_hash": good + " "}],
+                    "uppercase hex": [{"obligation_id": oid, "obligation_hash": good.upper()}],
+                    "id in another case": [{"obligation_id": oid.lower(), "obligation_hash": good}],
+                    "id twice, two hashes": [{"obligation_id": oid, "obligation_hash": good},
+                                             {"obligation_id": oid, "obligation_hash": other}],
+                    "hash null": [{"obligation_id": oid, "obligation_hash": None}]}[kind]
+        kinds = ["valid", "missing hash", "stale (a hash typed)", "unknown id", "hash of another obligation",
+                 "hash with a trailing space", "uppercase hex", "id in another case", "id twice, two hashes", "hash null"]
+        plan_rows = [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [OB_AUTO]},
+                     {"id": "TS-2", "schema_version": 2, "coverage_obligations": [OB_MANUAL]}]
+        pmap = C.obligation_map(plan_rows)
+        rows, want = [], {}
+        for at, kind in enumerate(kinds):
+            rows.append(refs_row(f"o{at}", "TC-500", "TS-1", obligation_refs=refs_of(kind, "OB-A", h_auto, h_manual)))
+            rows.append(refs_row(f"n{at}", "TC-501", "TS-2", obligation_refs=refs_of(kind, "OB-M", h_manual, h_auto)))
+            want[f"o{at}"], want[f"n{at}"] = kind, kind
+        found, _ = refs_finding(refs_story(root, rows))
+        message = found["message"] if found else ""
+        by_row = {row["instance_id"]: row["obligation_refs"] for row in rows}
+        for iid, kind in want.items():
+            said = f"{iid}: obligation_refs (" in message
+            owed = iid.startswith("o")
+            check_eq(f"N2 (h)/(j): {'owed' if owed else 'NON-owed'} row, {kind}: refused unless valid", said, kind != "valid")
+            # (n) agreement by composition: the precheck's verdict is N1's predicate's, never the controller's
+            check_eq(f"N2 (n): {'owed' if owed else 'NON-owed'} row, {kind}: the precheck agrees with the predicate strict",
+                     said, bool(C.obligation_ref_problems(by_row[iid], pmap, strict=True)))
+        check_in("N2 (c): a ref stored before the change with no hash says `missing hash`, naming the repair",
+                 "(missing hash)", message)
+        check_in("N2 (d)/(j): a stale hash says `stale`", "stale: ", message)
+        check_in("N2 (d): ...and that the plan changed or the hash was typed, with the ids-only door",
+                 "send the row's obligation_refs again, ids only", message)
+        check_in("N2 (e): an id the plan does not name is named with the plan's ids",
+                 "OB-ZZ is not an obligation of the plan (the plan names OB-A, OB-M)", message)
+        # QB: a stale hash names the door of a stale BINDING too
+        stale_text = found["message"] + " || " + found["fix"]
+        check_in("QB: the stale finding says to re-send the binding's design_assessment through the fragment door",
+                 "re-send the binding's `design_assessment` through `manifest_put.py --task <T> --fragment <file>` and the "
+                 "code re-stamps the hash", stale_text)
+        check_in("QB: ...and the binding's own gap origin says it too", "design_assessment", WR.ORIGIN["obligation_hash"][1])
+
+        # (j) a NON-owed row with no refs, and an owed row with valid refs: nothing
+        quiet = [refs_row("q1", "TC-501", "TS-2"), refs_row("q2", "TC-500", "TS-1", obligation_refs=[
+            {"obligation_id": "OB-A", "obligation_hash": h_auto}])]
+        check_eq("N2 (j): a non-owed row with no refs, and a valid owed row -> no finding",
+                 refs_finding(refs_story(root, quiet)), (None, []))
+
+        # (f) the legacy plan / no plan: nothing demanded; present refs judged for shape only
+        legacy = [{"id": "TS-1", "coverage_obligations": []}]
+        for label, plan in (("a legacy plan", legacy), ("no plan file", [])):
+            absent = [refs_row("a1", "TC-500", "TS-1")]
+            check_eq(f"N2 (f): {label}, refs absent -> no finding", refs_finding(refs_story(root, absent, plan)), (None, []))
+            typed = [refs_row("a2", "TC-500", "TS-1", obligation_refs=[{"obligation_id": "X", "obligation_hash": "typed"}])]
+            check_eq(f"N2 (f): {label}, refs present with a hash -> no hash or id judged (empty map)",
+                     refs_finding(refs_story(root, typed, plan)), (None, []))
+            bare = [refs_row("a3", "TC-500", "TS-1", obligation_refs=[{"obligation_id": "X"}, "junk"])]
+            found, _ = refs_finding(refs_story(root, bare, plan))
+            check_in(f"N2 (f): {label}, a broken list -> the shape is still judged", "a3: obligation_refs (", found["message"] if found else "")
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
+    fv1_19_obligation_refs_at_the_precheck()
     a_then_row_does_not_swallow_the_thens_behind_a_red()
     a_relative_oracle_on_an_unasserted_base_is_refused()
     a_copy_of_existing_code_is_advice_for_the_critic()

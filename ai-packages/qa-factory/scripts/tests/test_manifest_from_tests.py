@@ -303,8 +303,9 @@ def main() -> None:
               "change_disposition" not in plain and "change_basis_ref" not in plain,
               str(sorted(plain)))
         import window_record as WR
-        by_hand = [f for f, spec in WR.REQUIRED_ROW_FIELDS.items() if spec.filled_by == "automator"]
-        check_eq("HF2-12 K7 (c): no row of the fragment carries a field the automator writes (the carrier's list, not a literal one):"
+        by_hand = [f for f, spec in WR.REQUIRED_ROW_FIELDS.items() if spec.filled_by == "automator" and f != "obligation_refs"]
+        check_eq("HF2-12 K7 (c): no row of the fragment carries a field the automator writes (the carrier's list, not a literal one;"
+                 " `obligation_refs` apart: the marker's ids-only refs of a Python row go through the stamp):"
                  " the printed form is the only place they are asked for",
                  sorted((row["instance_id"], f) for row in fragment["tests"] for f in by_hand if f in row), [])
 
@@ -1914,9 +1915,21 @@ def hf_k7() -> None:
         check("K7 (d): ...the form is there, from the merged view", len(dry["row_form"]["tests"]) == 7, str(dry["row_form"])[:300])
         check_in("K7 (d): ...with the note", "send it after the write: these rows are not in the manifest yet", dry["notes"])
         legend = dry["row_form"]["legend"]
-        check_in("K7 (obligation_refs): a marker field is in the legend and names the marker", "qa(obligations=", legend["obligation_refs"])
-        check("K7 (obligation_refs): ...and has NO slot (a hand value would not carry the plan's hash)",
-              all("obligation_refs" not in t for t in dry["row_form"]["tests"]))
+        check_eq("N2 (m): the legend for `obligation_refs` is the carrier's words (ids, the code adds the hash)",
+                 legend["obligation_refs"], WR.REQUIRED_ROW_FIELDS["obligation_refs"].what)
+        check_in("N2 (m): ...and shows the fragment shape", '[{"obligation_id": "<plan obligation id>"}]', legend["obligation_refs"])
+        check_not_in("N2 (m): ...and does not name the marker", "qa(obligations=", legend["obligation_refs"])
+        slotted = [t["instance_id"] for t in dry["row_form"]["tests"] if "obligation_refs" in t]
+        check("N2 (m): rows of owed cases WITHOUT refs now carry an `obligation_refs` slot (null)",
+              bool(slotted) and all(t["obligation_refs"] is None for t in dry["row_form"]["tests"] if "obligation_refs" in t),
+              str(dry["row_form"])[:400])
+        check_not_in("N2 (m): ...but not the row the marker gave refs", "test_limit", " ".join(slotted))
+        blank, blank_lines = MFT._blank_row_form("QA-700")
+        check_eq("N2 (b): the blank row form prints a null slot for `obligation_refs` with the legend's `what`",
+                 (blank["tests"][0]["obligation_refs"], blank["legend"]["obligation_refs"]),
+                 (None, WR.REQUIRED_ROW_FIELDS["obligation_refs"].what))
+        check_in("N2 (b): ...and the text names the fragment door with the task", "manifest_put.py --task QA-700 --fragment <file>",
+                 "\n".join(blank_lines))
         check("K7 (obligation_refs): the row that has it (the marker wrote it) asks for the four only",
               [t for t in dry["row_form"]["tests"] if t["instance_id"] == "test_limit"] == [{"instance_id": "test_limit", **dict.fromkeys(FOUR)}])
     finally:
