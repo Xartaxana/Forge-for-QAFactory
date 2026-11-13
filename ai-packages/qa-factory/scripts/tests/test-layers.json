@@ -4346,7 +4346,16 @@
     "driver_stage_s8s9.py",
     "tests/harness.py",
     "tests/state_census.py",
-    "worker_lifecycle.py"
+    "worker_lifecycle.py",
+    "activity_capture.py",
+    "cost_capture.py",
+    "estimate_record.py",
+    "exit_gate.py",
+    "host_dispatch.py",
+    "recover_codex_usage.py",
+    "red_sandbox.py",
+    "role_digest.py",
+    "stage_guard.py"
    ]
   },
   "test_resume_doors.py": {
