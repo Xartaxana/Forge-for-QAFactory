@@ -577,6 +577,16 @@ BLOCK_MESSAGE_NO_LABEL = (
 )
 
 
+def _sibling_module(name: str):
+    """A tools/ module by name, imported LAZILY with this file's directory on sys.path first, so the sibling
+    import resolves under every entry point (a script run, a test, critic_snapshot's package-style import).
+    The one prelude for every lazy sibling import here; a failed import raises."""
+    tools_dir = str(Path(__file__).resolve().parent)
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    return importlib.import_module(name)
+
+
 def _load_manifest_module():
     """The completeness-check module (tools/dispatch_manifest.py), imported
     LAZILY -- only a Task/Agent call pays for it, and dispatch_manifest
@@ -585,12 +595,7 @@ def _load_manifest_module():
     on sys.path first, the same way dispatch_manifest does it, so the
     sibling import resolves under every entry point (a script run, a test,
     critic_snapshot's package-style import). A failed import raises."""
-    tools_dir = str(Path(__file__).resolve().parent)
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    import dispatch_manifest
-
-    return dispatch_manifest
+    return _sibling_module("dispatch_manifest")
 
 
 class PathReport(NamedTuple):
@@ -714,8 +719,8 @@ HANDOFF_WRONG_FOLDER = (HANDOFF_PREFIX + "Its handoff: names {paths}, and none o
                         "there). " + HANDOFF_EXPECTED + "Door: move the path into {folder}, or add: "
                         + HANDOFF_SKIP_DOOR)
 HANDOFF_NO_PATH = (HANDOFF_PREFIX + "Its handoff: line holds no absolute path (a relative path, a placeholder and a "
-                   "quoted line are not read). " + HANDOFF_EXPECTED + "Door: move the path into {folder}, or add: "
-                   + HANDOFF_SKIP_DOOR)
+                   "quoted line are not read). " + HANDOFF_EXPECTED + "Door: write it as an absolute path inside "
+                   "{folder}, or add: " + HANDOFF_SKIP_DOOR)
 HANDOFF_MANY = (HANDOFF_PREFIX + "Its handoff: names {n} distinct .md files inside {folder}: {shown}; the worker may "
                 "write exactly one. Door: keep one path on the handoff: line.")
 HANDOFF_NOTE_UNCHECKED = ("HANDOFF CHECK: not checked ({what}) -- the dispatch went out; tools/handoff_gate.py still "
@@ -740,16 +745,15 @@ def handoff_folder_check(payload, cut, dm):
     cut) is a NOTE and a pass. No handoff line / no absolute path is a refusal (R11-h promoted to code)."""
     kind = dm.dispatch_kind(payload)
     try:
-        tools_dir = str(Path(__file__).resolve().parent)
-        if tools_dir not in sys.path:
-            sys.path.insert(0, tools_dir)
-        import handoff_gate
+        handoff_gate = _sibling_module("handoff_gate")
     except Exception:
         return 0, "", HANDOFF_NOTE_UNCHECKED.format(what="tools/handoff_gate.py did not import")
     if kind not in handoff_gate.GATED_KINDS:
         return 0, "", ""
     folder = dm.HANDOFF_DIRS[kind]
     if cut is None:
+        if dm.has_handoff_word(payload):  # the word is there but no cut came: the cut failed -- an unknown
+            return 0, "", HANDOFF_NOTE_UNCHECKED.format(what="the dispatch text could not be read")
         return 2, HANDOFF_NO_LINE.format(kind=kind, folder=folder), ""
     if cut.degraded:
         return 0, "", HANDOFF_NOTE_UNCHECKED.format(what="the dispatch text could not be read reliably")
@@ -1701,15 +1705,6 @@ TRACE_READERS = ("critic_snapshot", "owns_gate")  # today's settings.json order
 _CLAIM_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
-def _sibling_module(name: str):
-    """A tools/ module by name, imported LAZILY with this file's directory on sys.path first (the way
-    _load_manifest_module does it): only an ALLOWED dispatch pays for the readers."""
-    tools_dir = str(Path(__file__).resolve().parent)
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    return importlib.import_module(name)
-
-
 def verdict_key(payload: dict) -> tuple:
     """(key, kind) of this dispatch. The runtime's tool_use_id (kind "tool_use_id") when the payload carries
     a non-empty one; else sha256(prompt + NUL + description)[:16] + ":" + len(prompt) (kind "content": an
@@ -1853,6 +1848,10 @@ def _git_rc(args: list, cwd):
         return None
 
 
+# The one door both worktree WARNs name (P31; RUNBOOK §12 item 8, builder-rules item 20).
+WORKTREE_ADD_DOOR = "git -C <repo> worktree add <path> -b <branch> {base}"
+
+
 def _isolation_dispatch(payload: dict) -> bool:
     """True only for a Task/Agent dispatch asking the host for `isolation: worktree`."""
     if payload.get("tool_name") not in ("Task", "Agent"):
@@ -1879,8 +1878,8 @@ def push_before_launch_warn(payload: dict) -> str:
     return (
         "PUSH BEFORE LAUNCH: local main is %s, %s commit(s) ahead of origin/main %s; a worktree agent is cut "
         "from origin/main, so those commits are not in its tree. Two exits: push main first, or create the "
-        "worktree yourself from main (git worktree add <path> -b <branch> main) and dispatch without isolation."
-        % (local, ahead, remote))
+        "worktree yourself from main (%s) and dispatch without isolation."
+        % (local, ahead, remote, WORKTREE_ADD_DOOR.format(base="main")))
 
 
 # Names that are never a base to check (data, FR-13).
@@ -1896,11 +1895,12 @@ def worktree_base_warn(payload: dict, cut=None) -> str:
     if not _isolation_dispatch(payload):
         return ""
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
-    refs_out = _git_out(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], cwd)
+    refs_out = _git_out(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], cwd)
     if refs_out is None:
         return ""
-    known = set(refs_out.splitlines())
-    local = set((_git_out(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd) or "").splitlines())
+    local = {r[len("refs/heads/"):] for r in refs_out.splitlines() if r.startswith("refs/heads/")}
+    remote = {r[len("refs/remotes/"):] for r in refs_out.splitlines() if r.startswith("refs/remotes/")}
+    known = local | remote
     if cut is not None and not getattr(cut, "degraded", True):
         text = "\n".join(line for line, q in zip(cut.lines, cut.quoted) if not q)
     else:
@@ -1922,14 +1922,13 @@ def worktree_base_warn(payload: dict, cut=None) -> str:
     if not kept:
         return ""
     sha = _git_out(["rev-parse", "refs/remotes/origin/main"], cwd) or "?"
-    shown = kept
     more = " (%d more names not checked)" % unchecked if unchecked else ""
     return (
         "WORKTREE BASE: this dispatch asks for a host worktree (isolation: worktree) and names %s, which "
         "refs/remotes/origin/main (%s) does not contain; the host cuts the worktree from origin/main, so those "
-        "commits will not be in the worker's tree. Door: create the worktree yourself -- git -C <repo> worktree "
-        "add <path> -b <branch> %s -- and dispatch without isolation (RUNBOOK §12 item 8).%s"
-        % (", ".join(shown), sha, shown[0], more))
+        "commits will not be in the worker's tree. Door: create the worktree yourself -- %s -- and dispatch "
+        "without isolation (RUNBOOK §12 item 8).%s"
+        % (", ".join(kept), sha, WORKTREE_ADD_DOOR.format(base=kept[0]), more))
 
 
 def _reconfigure_stderr_utf8():

@@ -704,6 +704,15 @@ def cut_payload(payload):
     return is_builder, section_cut(prompt)
 
 
+def has_handoff_word(payload):
+    """True when the dispatch prompt holds the word 'handoff' / 'hand-off' (the cheap exit's own test, one reader).
+    A prompt without it has no handoff header; a prompt with it and no cut means the cut failed (an unknown).
+    False for a non-dict payload / tool_input / non-str prompt."""
+    tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
+    prompt = tool_input.get("prompt") if isinstance(tool_input, dict) else None
+    return isinstance(prompt, str) and bool(_HANDOFF_WORD_RE.search(prompt))
+
+
 def dispatch_kind(payload):
     """The dispatch's kind: tool_input.subagent_type stripped and lower-cased when it is a non-empty str, else
     None. The one reader of the kind (cut_payload and the handoff folder check read it here)."""

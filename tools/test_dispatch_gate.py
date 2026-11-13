@@ -105,7 +105,7 @@ _FOLDER_ROWS = [
     ("e3", "designer", "handoff: %s/t-1.md" % _REV, 2, ["docs/tasks/specs, the designer's"], ""),
     ("e4", "designer", "handoff: %s/t-1.md" % _SPEC, 0, [], ""),
     ("e5", "critic", "Review the diff.", 2, [_NO_LINE], ""),
-    ("e6", "critic", "handoff: docs/tasks/specs/reviews/t-1.md", 2, ["no absolute path"], ""),
+    ("e6", "critic", "handoff: docs/tasks/specs/reviews/t-1.md", 2, ["no absolute path", "write it as an absolute path"], ""),
     ("e7", "critic", "handoff: %s/<t>.md" % _REV, 2, ["no absolute path"], ""),
     ("e8", "critic", "handoff: %s/t-1.txt" % _REV, 2, ["none of them"], ""),
     ("e9", "critic", "handoff: %s/t-1.md %s/t-2.md" % (_REV, _REV), 2, ["2 distinct", "t-1.md", "t-2.md"], ""),
@@ -161,6 +161,25 @@ def test_handoff_folder_check_e23_an_import_failure_is_a_note_and_a_pass(monkeyp
     decision = dispatch_gate.decide_full(payload)
     assert decision.code == 0
     assert any("HANDOFF CHECK: not checked (tools/handoff_gate.py did not import)" in n for n in decision.notes)
+
+
+def test_handoff_folder_check_e25_a_failed_cut_is_a_note_and_a_pass(monkeypatch):
+    # section_cut raising leaves cut None: an UNKNOWN, not "no handoff: line" (spec A.4: an unknown is never a refusal)
+    dm = dispatch_gate._load_manifest_module()
+
+    def boom(prompt):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dm, "section_cut", boom)
+    payload = _kind_payload("critic", "Review.\n" + _CRITIC_HANDOFF)
+    decision = dispatch_gate.decide_full(payload)
+    assert decision.code == 0, decision.message
+    assert any("HANDOFF CHECK: not checked" in n for n in decision.notes), decision.notes
+    # direct call with no cut: the word is there -> note and pass; the word is absent -> still the refusal
+    code, message, note = dispatch_gate.handoff_folder_check(payload, None, dm)
+    assert code == 0 and message == "" and "HANDOFF CHECK: not checked" in note
+    code, message, note = dispatch_gate.handoff_folder_check(_kind_payload("critic", "Review."), None, dm)
+    assert code == 2 and _NO_LINE in message and "add a line:" in message
 
 
 def test_decide_full_handoff_refusal_keeps_the_label_check_behind_it():
@@ -2540,6 +2559,7 @@ def test_push_before_launch_warns_when_main_is_ahead_of_origin(monkeypatch, caps
     assert code == 0
     assert "aaa1111" in ctx and "bbb2222" in ctx and "3 commit(s) ahead" in ctx and "push main first" in ctx
     assert "create the worktree yourself from main" in ctx and "merge aaa1111 first" not in ctx
+    assert "git -C <repo> worktree add <path> -b <branch> main" in ctx  # the one door text of both WARNs (NB3)
     assert all(cwd == "Z:/repo" for _a, cwd in calls)
 
 
@@ -2580,9 +2600,9 @@ def _base_git(refs, ahead=(), rc_other=1, calls=None):
         if rest[:1] == ("for-each-ref",):
             if refs is None:
                 return subprocess.CompletedProcess(args, 128, stdout="", stderr="")
-            wanted = [r for r in refs if (not r.startswith("origin/")) == (rest[-1] == "refs/heads")] \
-                if rest[-1] in ("refs/heads", "refs/remotes") and len(rest) == 3 else list(refs)
-            return subprocess.CompletedProcess(args, 0, stdout="\n".join(wanted) + "\n", stderr="")
+            assert rest == ("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"), rest
+            full = [("refs/remotes/" if r.startswith("origin/") else "refs/heads/") + r for r in refs]
+            return subprocess.CompletedProcess(args, 0, stdout="\n".join(full) + "\n", stderr="")
         if rest[:2] == ("merge-base", "--is-ancestor"):
             if rc_other is None:
                 raise OSError("no git")
@@ -2633,6 +2653,8 @@ def test_worktree_base_warn(monkeypatch, row, prompt, refs, ahead, rc_other, exp
     if row == "b8":
         monkeypatch.setattr(dispatch_gate.subprocess, "run", _base_git(refs, rc_other=128))
     out = dispatch_gate.worktree_base_warn(_base_payload(prompt), None)
+    if row != "b8":  # one for-each-ref call serves both the known names and the local/remote split (NB1)
+        assert sum(1 for a in calls if a[1:2] == ["for-each-ref"]) == 1, (row, calls)
     if expect is None:
         assert out == "", row
     else:
