@@ -16,15 +16,19 @@ an empty `producer` is a declared gap with its reason, printed rather than hidde
 Writing this walk found two fields where the deriver existed and was wired to two of the three
 paths that ask for it (FR-17): `runtime.provenance` and `rounds[].verify.witness`.
 """
+import contextlib
+import importlib
 import json
 import os
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness  # noqa: E402
-from harness import check, check_eq, check_in, finish  # noqa: E402
+from harness import check_eq, check_in, finish  # noqa: E402
+import known_red as KR  # noqa: E402
 
 sys.path.insert(0, str(harness.SCRIPTS))
 import handoff  # noqa: E402
@@ -33,6 +37,31 @@ import hooklib  # noqa: E402
 import null_outcomes as NO  # noqa: E402
 
 PRODUCERS = harness.PLUGIN_ROOT / "references" / "field-producers.json"
+ROUNDS = harness.FIXTURES / "form-rounds.json"
+ROUNDS_REL = "scripts/tests/fixtures/form-rounds.json"
+WALK: dict = {}          # row id -> True/False for EVERY row this file checks: what `known_red.reconcile` judges (P1-a N3 item 7)
+OUTCOMES: dict = {}      # (agree label, reader row id) -> the verdict of its forward round row: what C4 compares
+_LEDGER_IDS: list = []
+
+
+def _ledger_ids() -> set:
+    if not _LEDGER_IDS:
+        try:
+            _LEDGER_IDS.append(set(KR.load(ROUNDS)))
+        except Exception:                          # the reconcile row says why the ledger cannot be read
+            _LEDGER_IDS.append(set())
+    return _LEDGER_IDS[0]
+
+
+def check(name: str, ok: bool, detail: str = "") -> bool:
+    """`harness.check`, plus the walk record the ledger is judged against. A red row the ledger names prints as KNOWN RED and is not
+    failed twice: the reconcile row at the end is its judge (it fails a row the ledger does not name, and a ledger row that is green)."""
+    WALK[name] = WALK.get(name, True) and bool(ok)
+    if not ok and name in _ledger_ids():
+        print(f"KNOWN RED {name}" + (f" — {detail}" if detail else ""))
+        harness.RESULTS.append((True, name))
+        return False
+    return harness.check(name, ok, detail)
 # Which fields need a tool - "a value no role can write out of its own prose" - is chosen by
 # `null_outcomes.tool_fields` (t-305 N0): the null-outcome detector walks the same selection, so it is ONE
 # copy, held there, and this walk only asks what produces each field it names.
@@ -903,6 +932,456 @@ def every_stage_output_fills_or_is_named() -> None:
     print(f"outputs no reader refuses: {', '.join(unread) if unread else 'none'}")
 
 
+# ------------------------------------------------------------------------------------------------ P1-a N3: writer -> reader rounds
+class _Red(Exception):
+    """A round row that is red for a stated reason (a writer that cannot write, a form that cannot be filled): never a crash."""
+
+
+def _rounds() -> dict:
+    """The registry `form-rounds.json`, read loud: a missing or broken file is a red row and an empty walk (never "nothing to read")."""
+    try:
+        data = json.loads(ROUNDS.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"the top level is {type(data).__name__}; expected an object")
+        return data
+    except Exception as exc:
+        check("form-rounds.json is readable", False, f"{ROUNDS_REL}: {type(exc).__name__}: {exc}")
+        return {}
+
+
+def _section(data: dict, name: str, kind: type):
+    """The registry section `name`, or None after a red row: an empty registry never reads as "all green" (AR-23, AR-28)."""
+    value = data.get(name)
+    if not isinstance(value, kind) or not value:
+        check(f"registry is empty: {name}", False, f"{ROUNDS_REL} has no non-empty {kind.__name__} under `{name}`")
+        return None
+    return value
+
+
+@contextlib.contextmanager
+def _in_project(world):
+    """The hook layer pointed at the world's project for the call (a case is read against the register of ITS project)."""
+    old = os.environ.get("CLAUDE_PROJECT_DIR")
+    os.environ["CLAUDE_PROJECT_DIR"] = str(world)
+    hooklib._PROJECT_ROOT_CACHE = None
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = old
+        hooklib._PROJECT_ROOT_CACHE = None
+
+
+def _round_world(FF, root):
+    """ONE world per round function: a project holding what the writers write today - the S3 form's row id (minted as the plan row id every
+    later writer cites), the register, the plan, the plan JSON, a case, the pytest test file the case names and the manifest row. Nothing
+    here is written by hand: every file is `fill_artifact`'s, from the id the S3 form's own hint gives."""
+    world = root / "world"
+    harness.mark_project(world)
+    s3 = FF.fill_form("s3-strategist-to-designer", FF.FillContext(dispatch_id="S3-w1"))
+    issued = _at(s3.data, "scope[0].id")
+    ctx = FF.FillContext(task_key="TP1-1", dispatch_id="S1-dispatch-1", cases=["TC-001"], bugs=["BUG-1"],
+                         minted={"P": [issued], "TC": ["TC-001"]})
+    task = world / "qa-factory" / "artifacts" / ctx.task_key
+    made = {}
+    for output in ("work/requirements-register.md", "test-plan.md", "work/test-plan.json", "work/test-cases/", "test_file:pytest", "manifest_row"):
+        made[output] = FF.fill_artifact(output, ctx)
+        FF.write_outputs(task, world, made[output].require())
+    case_path = next(task / rel for rel in made["work/test-cases/"].files)
+    return SimpleNamespace(root=root, world=world, task=task, ctx=ctx, s3=s3, issued=issued, made=made, case_path=case_path)
+
+
+def _writer_value(writers: dict, key: str, w, FF):
+    """The value the named writer wrote: a field of a filled form, the id a form cites (the id its source writer issued), or the value the
+    filler gave a hint of an artifact. A writer the registry does not name, or one that wrote nothing, is a `_Red`."""
+    spec = writers.get(key)
+    if not isinstance(spec, dict):
+        raise _Red(f"writer {key!r} is not a row of `writers` in {ROUNDS_REL}")
+    if spec["kind"] == "form":
+        value = _at(w.s3.data if spec["form"] == w.s3.contract else FF.fill_form(spec["form"], FF.FillContext(dispatch_id="W-w1")).data, spec["path"])
+        if not isinstance(value, str) or handoff.is_placeholder(value) or not value.strip():
+            raise _Red(f"the form {spec['form']} gave no value at {spec['path']}: {value!r}")
+        return value
+    if spec["kind"] == "cited":
+        if spec["path"] not in handoff.spec(spec["form"]):
+            raise _Red(f"the form {spec['form']} has no field {spec['path']}")
+        return _writer_value(writers, spec["from"], w, FF)
+    if spec["kind"] == "artifact_hint":
+        made = w.made.get(spec["output"])
+        value = next((f.value for f in getattr(made, "fills", []) if f.hint == spec["hint"]), None)
+        if not isinstance(value, str):
+            raise _Red(f"the output {spec['output']} has no filled hint {spec['hint']}")
+        return value
+    raise _Red(f"writer {key!r}: kind {spec['kind']!r} is not one of form, cited, artifact_hint")
+
+
+def _plan_with(w, value: str, name: str):
+    """A task root holding the plan the filler wrote, its TS column carrying `value` in place of the id the filler gave that cell."""
+    base = w.made["test-plan.md"]
+    own = next((f.value for f in base.fills if f.hint == "<TS-n>"), "")
+    if not own:
+        raise _Red("the plan the filler wrote has no <TS-n> cell to carry the id")
+    task = w.world / "qa-factory" / "artifacts" / ("EMB-" + re.sub(r"\W", "_", name))
+    task.mkdir(parents=True, exist_ok=True)
+    (task / "test-plan.md").write_text(base.files["test-plan.md"].replace(f"| {own} |", f"| {value} |", 1), encoding="utf-8")
+    return task
+
+
+def _f_pattern_whole(obj, w, value, row):
+    found = obj.search(value)
+    return bool(found) and found.group(0) == value
+
+
+def _f_form_line(obj, w, value, row):
+    found = obj.search(f"plan_row: {value}\n")
+    return found.group(1) if found else None
+
+
+def _f_case_path(obj, w, value, row):
+    return obj(w.case_path)
+
+
+def _f_s5_case(obj, w, value, row):
+    return obj(w.task, "TC-001", w.case_path.read_text(encoding="utf-8"), [])
+
+
+def _f_art_case(obj, w, value, row):
+    got = obj(HC.Artifacts(w.task), None, {"case": "TC-001"})
+    return got[0] if got else None
+
+
+def _f_plan_levels(obj, w, value, row):
+    return value in obj(_plan_with(w, value, row["rid"]))
+
+
+def _f_case_levels(obj, w, value, row):
+    return bool(obj(w.task))
+
+
+def _f_story_plan(obj, w, value, row):
+    return value in getattr(obj(w.world, _plan_with(w, value, row["rid"])), row["attr"])
+
+
+def _f_case_map(obj, w, value, row):
+    return any(r.get("ts") == value for r in obj(_plan_with(w, value, row["rid"]), {}, {})[3])
+
+
+def _f_check_plan(obj, w, value, row):
+    errors: list = []
+    obj(_plan_with(w, value, row["rid"]) / "test-plan.md", errors)
+    return errors
+
+
+def _accept_form(FF, row):
+    author = f"{row['stage']}-{row['author_role']}-1"
+    filled = FF.fill_form(row["contract"], FF.FillContext(author_dispatch=author, dispatch_id=f"{row['contract']}-w1"), verdict="concerns")
+    if filled.unfillable:
+        raise _Red(f"the form {row['contract']} cannot be filled: {[(u.path, u.why) for u in filled.unfillable][:2]}")
+    return filled, author
+
+
+def _f_accept_record(obj, w, value, row):
+    import acceptance as AC
+    filled, author = _accept_form(row["FF"], row)
+    record, problems = AC.stage_acceptance_from_form(filled.data, stage=row["stage"], role=row["author_role"], acceptor=row["acceptor"],
+                                                     reviewed_dispatch=author, witness_form=f"work/handoffs/{row['contract']}-w1.yaml",
+                                                     at="2026-11-13T00:00:00")
+    return problems if record is None else obj(record, stage_def=AC.stage_def_of(row["stage"]), author_dispatch=author)
+
+
+def _f_accept_dispatch(obj, w, value, row):
+    import acceptance as AC
+    filled, author = _accept_form(row["FF"], row)
+    row["value"] = author
+    return obj(filled.data, {"dispatches": {author: {"stage": row["stage"], "role": row["author_role"]}}}, AC.stage_def_of(row["stage"]))
+
+
+def _marker_entry(w):
+    """The manifest row `manifest_from_tests` writes from the marker of the test file the filler wrote (the real writer, run on the world)."""
+    import manifest_from_tests as MFT
+    import contract as C
+    path = next(w.world / "qa-factory" / rel for rel in ("tests/TC-001_test.py",))
+    state = w.task / "state" / "controller.json"            # the conductor's record of the dispatch the writer is run under
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps({"dispatches": {"S5-qa-automator-1": {"id": "S5-qa-automator-1", "stage": "S5", "role": "qa-automator",
+                                                                       "scope": ["TC-001"]}}}), encoding="utf-8")
+    result = MFT.build(MFT.Story(w.ctx.task_key, w.task), MFT._files([str(path)], w.world, []), "S5-qa-automator-1", project=w.world)
+    tests = (result.get("fragment") or {}).get("tests") or []
+    if not tests:
+        raise _Red(f"manifest_from_tests wrote no row from {path.name}; notes {result.get('notes')}")
+    return tests[0], [ob for _row, ob in C.plan_obligations(w.task)]
+
+
+def _f_row_fields(obj, w, value, row):
+    import contract as C
+    if row["writer_name"] == "manifest_row":
+        entry = json.loads(w.made["manifest_row"].files["work/automation-manifest.json"])["tests"][0]
+        plan = [ob for _row, ob in C.plan_obligations(w.task)]
+    else:
+        FF = row["FF"]
+        got = FF.fill_artifact(f"test_file:{row['lang']}", w.ctx)
+        if got.unfillable:
+            raise _Red(f"no writer for the language {row['lang']}: {[(u.path, u.why) for u in got.unfillable][:1]}")
+        entry, plan = _marker_entry(w)
+    return [problem for field, problem in obj(entry, None, plan) if field == row["field"]]
+
+
+def _f_tool_fields(obj, w, value, row):
+    return bool(row["producer"])
+
+
+FEEDS = {"pattern_whole": _f_pattern_whole, "form_line": _f_form_line, "case_path": _f_case_path, "s5_case": _f_s5_case,
+         "art_case": _f_art_case, "plan_levels": _f_plan_levels, "case_levels": _f_case_levels, "story_plan": _f_story_plan,
+         "case_map": _f_case_map, "check_plan": _f_check_plan, "accept_record": _f_accept_record, "accept_dispatch": _f_accept_dispatch,
+         "row_fields": _f_row_fields, "tool_fields": _f_tool_fields}
+
+
+def _verdict(predicate: str, obs, value) -> bool:
+    """The three predicates of the registry. A bare False or an empty list is a refusal; a bare True or an empty list is an accept."""
+    refused = obs is False or (isinstance(obs, (list, tuple)) and len(obs) > 0)
+    accepted = obs is True or (isinstance(obs, (list, tuple)) and len(obs) == 0)
+    if predicate == "returns_value":
+        return obs == value
+    if predicate == "accepts":
+        return accepted
+    if predicate == "refuses":
+        return refused
+    raise _Red(f"predicate {predicate!r} is not one of returns_value, accepts, refuses")
+
+
+def _load_reader(row: dict):
+    """The function or pattern `call` (`module:name`) names, or a `_Red` naming the reader when it cannot be had (module or name gone)."""
+    module, _, name = str(row.get("call") or "").partition(":")
+    try:
+        obj = getattr(importlib.import_module(module), name)
+    except Exception as exc:
+        raise _Red(f"reader {row.get('call')} cannot be loaded ({type(exc).__name__}: {exc})")
+    return obj
+
+
+def _stage_json() -> list:
+    return json.loads((harness.PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))["stages"]
+
+
+def _expand(row: dict, FF, languages: list) -> list:
+    """The (writer, reader) pairs a registry row stands for, built from the package's own tables: the stages that have an acceptor, the
+    fields of `window_record.REQUIRED_ROW_FIELDS` by the language that must carry their writer, the fields that need a tool."""
+    kind = row["expand"]
+    out = []
+    if kind == "acceptance_stages":
+        import acceptance as AC
+        stages = _stage_json()
+        for stage in stages:
+            if not stage.get("acceptance_by"):
+                continue
+            acceptor, author_role = stage["acceptance_by"], (stage.get("roles") or [""])[0]
+            sits = stage["id"] if not AC.consumer_of(stage["id"]) else next((s["id"] for s in stages if acceptor in (s.get("roles") or [])), stage["id"])
+            contract = handoff.contract_of(sits, acceptor)
+            out.append({**row, "stage": stage["id"], "author_role": author_role, "acceptor": acceptor, "contract": contract or "<none>",
+                        "rid": "accept: " + row["label"].format(contract=contract or "<none>") + " -> " + row["id"], "FF": FF})
+    elif kind == "row_fields":
+        import window_record as WR
+        for field, spec in WR.REQUIRED_ROW_FIELDS.items():
+            marker = spec.filled_by == "marker"
+            for lang in (languages if marker else ["all"]):
+                writer = "manifest_from_tests" if marker else "manifest_row"
+                out.append({**row, "field": field, "lang": lang, "writer_name": writer, "FF": FF,
+                            "rid": f"{field} <- {writer}@{lang} -> {row['id']}"})
+    elif kind == "tool_fields":
+        needs, _gaps = walk()
+        for contract, _role, path, producer in needs:
+            out.append({**row, "producer": producer, "rid": f"{contract}:{path} <- {producer or '<none>'}@all -> {row['id']}"})
+    else:
+        raise _Red(f"expand {kind!r} is not one of acceptance_stages, row_fields, tool_fields")
+    return out
+
+
+def _languages(data: dict) -> list:
+    """The languages of the reverse walk, read out of the table the registry names (`languages_source`): never a list in this file."""
+    source = _section(data, "languages_source", dict)
+    names: list = []
+    if source:
+        try:
+            table = json.loads((harness.PLUGIN_ROOT / source["file"]).read_text(encoding="utf-8"))
+            for part in source["sections"]:
+                names += list(table.get(part) or {})
+        except Exception as exc:
+            check("languages_source is readable", False, f"{source}: {type(exc).__name__}: {exc}")
+    names = sorted(dict.fromkeys(names))
+    if source and not names:
+        check("registry is empty: languages_source", False, f"{source} names no language")
+    return names
+
+
+def every_reader_takes_what_its_writer_writes() -> None:
+    """P1-a N3 item 2 (C1) and the reverse walk of item 5 (C3): every (writer, reader) pair of `form-rounds.json` is a row. The reader is
+    called on what its writer wrote, through the adapter the registry names; a refusal, a wrong value and a crash are all red rows.
+
+    Row id `<family>: <writer> -> <reader>` (an acceptance pair: `accept: <contract>[concerns].<path> -> <reader>`; a demanded field:
+    `<field> <- <writer>@<language> -> <reader>`). A reader that cannot be loaded is a red row naming it."""
+    import form_filler as FF
+    data = _rounds()
+    readers = _section(data, "readers", list)
+    writers = data.get("writers") if isinstance(data.get("writers"), dict) else {}
+    languages = _languages(data)
+    if readers is None:
+        return
+    root = harness.temp_dir()
+    walked = 0
+    try:
+        with _in_project(root / "world"):
+            w = _round_world(FF, root)
+        for row in readers:
+            try:
+                pairs = _expand(row, FF, languages) if row.get("expand") else [{**row, "rid": f"{str(row['family']).removeprefix('RR-').lower()}: "
+                                                                                       f"{row.get('writer')} -> {row['id']}", "FF": FF}]
+            except Exception as exc:
+                check(f"{row.get('id')}: its pairs cannot be built", False, f"{type(exc).__name__}: {exc}")
+                continue
+            for pair in pairs:
+                walked += 1
+                rid = pair["rid"]
+                try:
+                    obj = _load_reader(pair)
+                    if pair["feed"] not in FEEDS:
+                        raise _Red(f"feed {pair['feed']!r} is not an adapter of this file")
+                    value = _writer_value(writers, pair["writer"], w, FF) if pair.get("writer") else None
+                    pair["value"] = value
+                    with _in_project(w.world):
+                        obs = FEEDS[pair["feed"]](obj, w, value, pair)
+                    ok = _verdict(pair["predicate"], obs, pair.get("value"))
+                    detail = f"{pair['id']} was given {pair.get('value')!r} and answered {obs!r}"
+                except _Red as exc:
+                    ok, detail, obs = False, str(exc), None
+                except Exception as exc:          # E14: an exception inside one row is that row red, the loop goes on
+                    ok, detail, obs = False, f"crashed: {type(exc).__name__}: {exc}", None
+                if pair.get("agree") and pair.get("writer"):
+                    OUTCOMES[(pair["agree"], rid)] = ok
+                check(rid, ok, detail[:600])
+    finally:
+        harness.cleanup(root)
+    check("the rounds walked pairs", walked > 0, str(walked))
+    print(f"readers {len(readers)}, pairs {walked}, languages {len(languages)}")
+
+
+def every_derived_field_meets_its_deriver() -> None:
+    """P1-a N3 item 3 (E11): the form of every contract, base variant, is read with `check(fix=True)` in a world holding what the writers
+    wrote (`fill_artifact`), and every field code fills must come back filled. A deriver that returns nothing is red `derive: <contract>:<path>`;
+    a field N1 skipped as code's (`_code_fills`) and met by no deriver is red `unjudged <contract>:<path>`.
+
+    The files an `inputs_read` row names are made (one line) when the world has none: they stand for the author's earlier form."""
+    import form_filler as FF
+    index = handoff.index()
+    forms = list(dict.fromkeys([r["contract"] for r in index["handoffs"]] + [index["escalation"]["contract"]]))
+    root = harness.temp_dir()
+    met_total = 0
+    try:
+        with _in_project(root / "world"):
+            w = _round_world(FF, root)
+        with _in_project(w.world):
+            for contract in forms:
+                verdict, variant = FF.variants(contract)[0]
+                dispatch = f"{contract}-w1"
+                filled = FF.fill_form(contract, FF.FillContext(author_dispatch="S2-author-1", dispatch_id=dispatch), verdict=verdict, variant=variant)
+                for item in filled.data.get("inputs_read") or []:
+                    rel = item.get("path") if isinstance(item, dict) else None
+                    if isinstance(rel, str) and rel.strip() and "<" not in rel and not (w.task / rel).exists():
+                        (w.task / rel).parent.mkdir(parents=True, exist_ok=True)
+                        (w.task / rel).write_text("x\n", encoding="utf-8")
+                try:
+                    _d, _f, before, _j, _dv = HC.check(handoff.parse(filled.text), contract, HC.Artifacts(w.task, dispatch=dispatch), fix=False, use_judge=False)
+                    doc, _fixed, _problems, _judged, _derived = HC.check(handoff.parse(filled.text), contract, HC.Artifacts(w.task, dispatch=dispatch),
+                                                                         fix=True, use_judge=False)
+                except Exception as exc:               # E14: an exception is never a pass
+                    check(f"derive: {contract}: crashed: {type(exc).__name__}", False, str(exc))
+                    continue
+                skipped = {p.path for p in before if p.kind == "blank" and HC._code_fills(p.path)}
+                for path in sorted(set(filled.left_for_code) | skipped):
+                    now = doc.get(path)
+                    met = now is not None and not handoff.is_placeholder(now) and str(now).strip() != ""
+                    met_total += met
+                    if path in filled.left_for_code:
+                        check(f"derive: {contract}:{path}", met, f"the deriver returned nothing for {path} in a world holding the filler's outputs")
+                    else:
+                        check(f"unjudged {contract}:{path}", met, f"N1 skipped {path} as code's and no deriver of the round filled it")
+    finally:
+        harness.cleanup(root)
+    check("the deriver round walked forms", bool(forms), str(len(forms)))
+    print(f"deriver round: forms {len(forms)}, fields met {met_total}")
+
+
+def _carrier_text(carrier: dict, FF) -> str:
+    """The hint text one carrier of a fact gives its id: the hint of a form field, a line of a contract page, a line of an artifact template."""
+    kind = carrier["kind"]
+    if kind == "form":
+        return str(handoff.spec(carrier["form"])[carrier["path"]].hint)
+    if kind == "page":
+        lines = (harness.PLUGIN_ROOT / carrier["file"]).read_text(encoding="utf-8").splitlines()
+    else:
+        template = FF.rules()["artifact_templates"][carrier["output"]]["template"]
+        lines = (json.dumps(template, indent=2) if isinstance(template, dict) else template).splitlines()
+    line = next((ln for ln in lines if ln.strip().startswith(carrier["line"])), None)
+    if line is None:
+        raise _Red(f"no line starting {carrier['line']!r} in {carrier.get('file') or carrier.get('output')}")
+    return line
+
+
+def one_fact_one_form_everywhere() -> None:
+    """P1-a N3 item 4 (C2): one logical fact has one form of id in every carrier that names it. Row id `identity: <group>`; the detail
+    prints the carriers by the form they give. The layer shows both forms and judges neither (which one is right is a node of the fix)."""
+    import form_filler as FF
+    groups = _section(_rounds(), "identity_groups", list)
+    for group in groups or []:
+        carriers = group.get("carriers") if isinstance(group.get("carriers"), list) else []
+        if not carriers:
+            check(f"registry is empty: identity_groups[{group.get('id')}]", False, "the group names no carrier")
+            continue
+        by_prefix: dict = {}
+        for carrier in carriers:
+            try:
+                token = FF.ID_TOKEN.search(_carrier_text(carrier, FF))
+                prefix = token.group(1) + "-n" if token else "no id form"
+            except Exception as exc:
+                prefix = f"unread ({type(exc).__name__}: {exc})"
+            by_prefix.setdefault(prefix, []).append(f"{carrier['kind']}:{carrier['label']}")
+        check(f"identity: {group['id']}", len(by_prefix) == 1 and next(iter(by_prefix)).endswith("-n"),
+              "; ".join(f"{prefix}: {', '.join(names)}" for prefix, names in sorted(by_prefix.items())))
+
+
+def readers_of_one_field_agree() -> None:
+    """P1-a N3 item 6 (C4): the readers of one field (registry rows with the same `agree` label) are given ONE writer's value and must give
+    one verdict. Row id `agree: <label>`; it reads the verdicts of the forward round rows."""
+    rows: dict = {}
+    for (label, rid), ok in OUTCOMES.items():
+        rows.setdefault(label, {})[rid] = ok
+    check("the agreement round has readers to compare", bool(rows), "no registry row carries an `agree` label")
+    for label, verdicts in sorted(rows.items()):
+        accepted = sorted(rid for rid, ok in verdicts.items() if ok)
+        refused = sorted(rid for rid, ok in verdicts.items() if not ok)
+        check(f"agree: {label}", not accepted or not refused,
+              f"{len(accepted)} readers accept it ({', '.join(accepted[:3])}...) and {len(refused)} refuse it ({', '.join(refused[:3])}...)")
+
+
+def red_rows_equal_the_known_red_ledger() -> None:
+    """P1-a N3 item 7 (C6): every row this file checked is judged by `known_red.reconcile` against the ledger of `form-rounds.json`. A red row
+    the ledger does not name is `new red`, a ledger row that is green is `stale`, a ledger row that is no row of the walk is `unknown row`,
+    a ledger row with no `raised_by` is a load error. The helper's own words are printed, the whole of them."""
+    try:
+        ledger = KR.load(ROUNDS)
+    except KR.LedgerError as exc:
+        check("known_red: the ledger loads", False, str(exc))
+        return
+    verdict = KR.reconcile(dict(WALK), ledger, ledger_path=ROUNDS_REL)
+    for line in verdict.known:
+        print(line)
+    for problem in verdict.problems:
+        harness.check(problem.split(" — ")[0], False, problem)
+    harness.check("known_red: the red rows of the walk are exactly the ledger", verdict.ok, f"{len(verdict.problems)} problems")
+    print(f"known red rows {len(verdict.known)}, rows walked {len(WALK)}")
+
+
 def main() -> None:
     every_required_field_has_a_producer_or_a_declared_gap()
     the_two_paths_this_walk_wired()
@@ -911,6 +1390,11 @@ def main() -> None:
     form_filler_hint_cases()
     every_form_fills_from_its_own_hints()
     every_stage_output_fills_or_is_named()
+    every_reader_takes_what_its_writer_writes()
+    every_derived_field_meets_its_deriver()
+    one_fact_one_form_everywhere()
+    readers_of_one_field_agree()
+    red_rows_equal_the_known_red_ledger()
     finish("test_field_producers")
 
 
