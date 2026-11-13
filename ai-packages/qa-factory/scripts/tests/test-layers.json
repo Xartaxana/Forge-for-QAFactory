@@ -74,6 +74,14 @@
     "tests/story_run_common.py"
    ]
   },
+  "test_app_card_stand_lessons.py": {
+   "layer": "table",
+   "why": "SS1-11 F5 stand lessons reach the app card and rebuild it",
+   "covers": [
+    "app_card.py",
+    "project_knowledge.py"
+   ]
+  },
   "test_arch_check.py": {
    "layer": "gate_named",
    "why": "named by plans/builder-rules.md:71 (a history or example line of the forge, read by tools/test_quarantine.py enter); not a DoD row",

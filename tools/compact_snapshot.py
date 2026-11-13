@@ -305,12 +305,30 @@ def open_dispatches(events: list) -> list:
 
 
 def next_free_id(events: list) -> str:
+    """The next id of the file's own sequence (rule 9e: journal_keys.next_ids -- a closed band is skipped, an open
+    band raises the max). When journal_keys cannot be imported: max + 1 over the plain ids, as before."""
+    try:
+        import journal_keys
+
+        return "t-%03d" % journal_keys.next_ids(events).main
+    except Exception:
+        pass
     top = 0
     for e in events:
         m = _TID_RE.match(str(e.get("task_id") or ""))
         if m:
             top = max(top, int(m.group(1)))
     return f"t-{top + 1:03d}"  # the journal's own width: t-008, t-318
+
+
+def band_lines_of(events: list) -> list:
+    """The `band t-A..t-B: next t-N` lines of the fallback path (rule 9e): [] when journal_keys cannot be imported."""
+    try:
+        import journal_keys
+
+        return journal_keys.band_lines(journal_keys.next_ids(events))
+    except Exception:
+        return []
 
 
 # -- carriers ----------------------------------------------------------
@@ -515,14 +533,18 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None
     else:
         opens, fallback = open_dispatches_with_source(events, journal)
         n_open = len(opens)
+        band_ls: list = []
         if journal is None:
             nxt, nxt_label = next_free_id(events), "NEXT FREE ID"
+            band_ls = band_lines_of(events)
         elif not switched:
             nxt, nxt_label = journal.next_free_id(""), "NEXT FREE ID"
+            band_ls = jk.band_lines(journal.band_state(""))
         elif cur_rel is None:
             nxt, nxt_label = "unknown -- no developer slug", "NEXT FREE ID"
         else:
             nxt, nxt_label = journal.next_free_id(own_label), f"NEXT FREE ID ({cur_rel})"
+            band_ls = jk.band_lines(journal.band_state(own_label))
         if fallback:
             out.append("(note: session_context could not be imported, so this list was computed by the plain "
                        "fallback rule - a `closes:t-NNN` marker is NOT honoured here: a dispatch closed that way "
@@ -543,6 +565,7 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None
             )
         out.append("")
         out.append(f"{nxt_label}: {nxt}")
+        out.extend(band_ls)        # rule 9e: the bands with a free id, so a session keeps its band across /compact
 
     out += ["", f"## 4. Last {JOURNAL_TAIL} journal events", ""]
     if jerr:

@@ -730,6 +730,7 @@ REGISTRY: list[dict] = [
      "call": "HUMAN_WORD_MSG",
      "refuses": "a ROLE running waiver.py --stage / accept-gap / review --record / "
                 "stand_identity.py record|confirm|forget|unconfirm / environment_record.py record|revoke / report_adapt.py kind / "
+                "project_knowledge.py account|role|revoke|side|lesson / "
                 "waiver.py --carry-from (the copy of a person's words from another key, GW1-40)",
      "override": "",
      "unpassable_because": "this is the refusal that protects every other override. A role "
