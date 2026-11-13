@@ -963,7 +963,7 @@ def rules_weight(rows: list, model: str = "", cost_cfg: dict | None = None, mode
     # (`injection_role`), common (`injection_common`), brief - and `bytes` stays the sum of THOSE four, not the load's
     # `total_bytes`. A role whose layer is null or PARTLY unreadable (`measured: false` on a file layer) is unmeasured and
     # named in `unmeasured_roles` (the renderer prints it beside the total), never priced at 0 or as a whole (FR-41). The brief is
-    # a ceiling by design (`measured: false`, bytes present), so only its bytes are asked.
+    # an allowance by design (`measured: false`, bytes present), so only its bytes are asked.
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import role_load

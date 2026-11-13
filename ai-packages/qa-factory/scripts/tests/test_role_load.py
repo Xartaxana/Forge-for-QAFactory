@@ -119,9 +119,10 @@ def test_shape_and_sums() -> None:
     layers = by_name(load)
     check_eq("K-S6: packet and launch are the allowances of role-load.json, labelled", [(layers[n]["bytes"], layers[n]["measured"], layers[n]["reason"]) for n in ("packet", "launch")],
              [(5400, False, "allowance"), (2000, False, "allowance")])
-    import brief_pack
-    check_eq("K-S6: the brief counts at brief_pack.BRIEF_MAX_BYTES, labelled a ceiling", (layers["brief"]["bytes"], layers["brief"]["reason"]),
-             (brief_pack.BRIEF_MAX_BYTES, "ceiling"))
+    allowances = RL.settings(root)["allowances"]       # FV1-4 F3 (a): the brief is an allowance (a fixture settings file without the key: 6144 / 1024, E-13)
+    check_eq("K-S6: the brief counts at allowances.brief (a non-charter role: no head), labelled an allowance",
+             (layers["brief"]["bytes"], layers["brief"]["reason"], allowances["brief"], allowances["brief_charter_head"]),
+             (allowances["brief"], "allowance", 6144, 1024))
     check_eq("K-S6: the side files are not counted without a story", (layers["brief_sides"]["bytes"], layers["brief_sides"]["reason"]), (None, "per story"))
     check("K-S6: every allowance and ceiling is listed as not measured",
           {"packet", "launch", "brief", "brief_sides"} <= set(load["unmeasured"]), str(load["unmeasured"]))

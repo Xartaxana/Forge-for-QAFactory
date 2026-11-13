@@ -8,7 +8,7 @@ code does before the role starts:
 
     brief_pack.py --task T --stage S --role R --dispatch ID [--json] [--output PATH] [--dry-run]
 
-    -> <artifact root>/<T>/work/briefs/<ID>.md   (<= 6 KB)
+    -> <artifact root>/<T>/work/briefs/<ID>.md
 
 The brief carries, in this order:
   1. the scope of the dispatch and what earlier roles produced (pipeline.json digests,
@@ -24,11 +24,12 @@ The brief carries, in this order:
      (pipeline.json `warnings`, `gates`, `stage_overrides`, `halts` not `resolved`, and the questions the person
      decided, read from the answers file through question_register);
   4. for S5/S6 the repository map of the window (`repo_map.py`), linked, with its head
-     inlined while the brief has room;
+     inlined;
   5. the rule: do not search - read what is named; search only if the map is empty.
 
-A section that would push the brief over 6 KB moves to a linked side file
-(`work/briefs/<ID>-<section>.md`) instead of being cut. `story_step.py start` calls this
+The brief is rendered once and whole: nothing is cut or dropped for size inside a run (the size of each brief is a
+record, `state/brief-sizes.jsonl`, that the forge reads). Only a summary whose whole is one named file away stays a
+summary (`work/briefs/<ID>-<section>.md`). `story_step.py start` calls this
 after the dispatch is registered; a failure here is a printed note there, never a refusal.
 This script never reads the plugin's own scripts - the card is written from their
 documented interfaces, and `--help` is the door a role uses for anything beyond it.
@@ -46,22 +47,21 @@ sys.path.insert(0, str(HERE))
 import charter  # noqa: E402
 import config_contract  # noqa: E402
 import hooklib  # noqa: E402
+import person_words  # noqa: E402
 import question_register as QR  # noqa: E402
 import runtime_paths as RP  # noqa: E402
 from hooklib import sorted_paths  # noqa: E402
 from host_adapter import CODEX_DESKTOP_TOOLS, role_has_bash  # noqa: E402
 
-BRIEF_MAX_BYTES = 6 * 1024
-SD_HEAD_MAX_BYTES = 1024    # t-1765 X1 fix-3: the seven SD header lines are FORM (outside the body budget) and have their own cap
+# FV1-4: a brief is rendered once and whole. No size bounds a brief inside a run (the forge watches the size of
+# `state/brief-sizes.jsonl`); SLICE_BYTES below is the guard's whole-read limit, not a ceiling.
 SLICE_BYTES = 30_000  # guard_pre_tool's whole-read limit: above it the brief says "slice"
-DIGEST_CHARS = 200
-DISPATCH_DIGESTS = 4  # the latest dispatches of the same stage; the rest are in the side file
-DECISION_CHARS = 400
-DECISION_CHARS_MIN = 240
-# The side file carries a person's answer whole up to this many characters (FR-8); the file the
-# answers are read from (answers_of) is what a cut one points to: `RP.rel_text("journal.jsonl", project)`,
-# the path where THIS project's journal really is (the layout's `records/`, or the old `state/`, FR-37).
-PERSON_WORDS_MAX = 20000
+DIGEST_CHARS = 200    # a digest line is shortened to this; the line `- every digest in full: <digests>` then names the side file
+DISPATCH_DIGESTS = 4  # the latest dispatches of the same stage are inline; the rest are in the side file (named by the same line)
+# A person's words go whole into the brief. A one-line answer that fits this many characters keeps today's folded
+# line; a longer one-line answer is wrapped at this width inside the words' fenced block (a range read cannot split
+# one line), the side file holding the bytes as given.
+WORDS_LINE_WIDTH = 1000
 MAP_INLINE_LINES = 14
 PLAN_ROW_RE = re.compile(r"^\s*plan_row:\s*(\S+)", re.M)
 STAGE_ORDER = [f"S{i}" for i in range(10)]
@@ -1481,9 +1481,9 @@ def source_material(task: str, task_root: Path, role: str) -> list:
     `object_attributes` — the precedent's sharpest lesson — appears in no artifact of the story.
     Collected and not delivered is the same as not collected, only paid for.
 
-    B-231: what the person left out before the run is never handed on, and the cap of eight lines is applied
-    AFTER that skip - an excluded file must not take the slot of a real one. The roles that get material are
-    also told, in a line per exclusion, what was left out."""
+    B-231: what the person left out before the run is never handed on. FV1-4: every collected file is a line (no count
+    cap: a cap dropped "material the person supplied" silently). The roles that get material are also told, in a line
+    per exclusion, what was left out."""
     why = MATERIAL_READERS.get(role)
     if not why:
         return []
@@ -1512,7 +1512,7 @@ def source_material(task: str, task_root: Path, role: str) -> list:
         kind = ("merge request" if path.name.startswith("mr-") else
                 "material the person supplied" if path.name.startswith("pasted-") else "material")
         out.append(f"- {RP.story_text(task_root, rel)} ({_size(path)}) - collected {kind}: {why}")
-    return told + out[:8]
+    return told + out
 
 
 def scope_tests(task_root: Path, scope: list) -> list:
@@ -1529,10 +1529,17 @@ def scope_tests(task_root: Path, scope: list) -> list:
     return files
 
 
+class _Pointer(str):
+    """A line the build itself wrote that names a side file by a placeholder (`<decisions>`, `<digests>`). `render` puts the
+    side file's path in a `_Pointer` only - never inside a person's text, which may hold the same characters (FV1-4)."""
+
+
 def digests(pipeline: dict, controller: dict, stage: str, dispatch_id: str) -> tuple:
-    """(shown, full): each earlier stage's digest, then this stage's own dispatches - the
-    latest few inline, every one of them in the side file."""
+    """(shown, full): each earlier stage's digest, then this stage's own dispatches - the latest few inline, every one of
+    them in the side file. A digest shortened to DIGEST_CHARS, or a dispatch left out of the inline few, adds the line
+    `- every digest in full: <digests>` (a `_Pointer`): the whole is one named file away, and the side file is written."""
     shown, full = [], []
+    shortened = False
     stages = pipeline.get("stages") or {}
     for sid in STAGE_ORDER:
         if sid >= stage:
@@ -1543,28 +1550,50 @@ def digests(pipeline: dict, controller: dict, stage: str, dispatch_id: str) -> t
         digest = entry.get("digest") or entry.get("reason") or ""
         full.append(f"- {sid} {entry.get('status')}: {digest or 'no digest'}")
         shown.append(f"- {sid} {entry.get('status')}: {_short(digest, DIGEST_CHARS) or 'no digest'}")
+        shortened = shortened or len(" ".join(str(digest).split())) > DIGEST_CHARS
     same = []
     for did, d in (controller.get("dispatches") or {}).items():
         if not isinstance(d, dict) or d.get("stage") != stage or did == dispatch_id:
             continue
         if d.get("status") not in ("accepted", "running", "returned_unaccepted", "blocked"):
             continue
-        scope = ", ".join(str(c) for c in (d.get("scope") or [])[:8])
+        scope = ", ".join(str(c) for c in (d.get("scope") or []))
         digest = d.get("returned_digest") or d.get("reason") or ""
         same.append((f"- {did} ({d.get('status')}; {scope or 'story scope'}): {digest or 'no digest'}",
                      f"- {did} ({d.get('status')}; {scope or 'story scope'}): {_short(digest, DIGEST_CHARS) or 'no digest'}"))
+        shortened = shortened or len(" ".join(str(digest).split())) > DIGEST_CHARS
     full += [pair[0] for pair in same]
     shown += [pair[1] for pair in same[-DISPATCH_DIGESTS:]]
     if len(same) > DISPATCH_DIGESTS:
         shown.append(f"- {len(same) - DISPATCH_DIGESTS} earlier dispatch(es) of {stage} are in the side file")
+    if shortened or len(same) > DISPATCH_DIGESTS:
+        shown.append(_Pointer("- every digest in full: <digests>"))
     return shown, full
+
+
+# F13 (FV1-4): before FV1-4 the driver cut a journal note at 20 000 characters and ended it with this marker, which names the
+# very journal that holds the cut note. The factory's OWN marker is re-worded where it is read (never a person's wording, FR-12),
+# and only when the text before it is at least LEGACY_CUT_TEXT_MIN characters, so a short answer that happens to end with
+# such a tail is left as typed.
+LEGACY_CUT_RE = re.compile(r"\[cut: (\d+) more characters, the whole text is in [^\]\n]+\]$")
+LEGACY_CUT_TEXT_MIN = 20000
+
+
+def _legacy_cut_reworded(words: str) -> str:
+    """`words` with the factory's old cut marker at its end re-worded to say where the rest is; any other text unchanged."""
+    found = LEGACY_CUT_RE.search(words)
+    if found is None or found.start() < LEGACY_CUT_TEXT_MIN:
+        return words
+    return (words[:found.start()] + f"[cut when it was recorded, before FV1-4: {found.group(1)} more characters are not in the "
+            "journal; the whole answer is in this story's state/words/ files, named by state/driver-answers.jsonl]")
 
 
 def answers_of(task: str, project: Path | None) -> list:
     """The person's answers recorded for this story (`human_answer` events of the project
     journal), oldest first, deduplicated. The driver records the S1 source review and the
     gaps this way; without them a later role sees only gates and warnings and the standing
-    words (never write to the tracker, Draft only, a branch suffix) reach it by luck."""
+    words (never write to the tracker, Draft only, a branch suffix) reach it by luck. A note recorded before FV1-4 that ends
+    with the factory's old cut marker is re-worded (`_legacy_cut_reworded`)."""
     if project is None:
         return []
     path = RP.record(project, "journal.jsonl")
@@ -1579,7 +1608,7 @@ def answers_of(task: str, project: Path | None) -> list:
                 continue
             if record.get("event") != "human_answer" or record.get("task") != task:
                 continue
-            words = str(record.get("notes") or record.get("reason") or "").strip()
+            words = _legacy_cut_reworded(str(record.get("notes") or record.get("reason") or "").strip())
             if words and words not in seen:
                 seen.add(words)
                 out.append(words)
@@ -1589,80 +1618,96 @@ def answers_of(task: str, project: Path | None) -> list:
 
 
 def person_words_whole(words: str, project: Path | None = None, holder: str = "") -> str:
-    """The person's answer as the side file `<dispatch>-decisions.md` carries it: WHOLE (FR-8).
-    No per-line cap applies to it (cmp2 15045: a field vocabulary the person wrote reached the
-    strategist cut mid-sentence); only a text over PERSON_WORDS_MAX is cut, and the cut says so and
-    names the file that holds the whole text - the journal, or `holder` when the words live in another
-    carrier (a question's answer: the answers file) - never a silent cut. CRLF becomes LF, so one
-    answer does not carry two kinds of line end."""
-    text = str(words).replace("\r\n", "\n").replace("\r", "\n")
-    if len(text) <= PERSON_WORDS_MAX:
-        return text
-    return (text[:PERSON_WORDS_MAX]
-            + f" [cut: {len(text) - PERSON_WORDS_MAX} more characters, the whole text is in "
-              f"{holder or RP.rel_text('journal.jsonl', project)}]")
+    """The person's answer as the side file `<dispatch>-decisions.md` carries it: WHOLE, at any size (FR-8, AR-24; FV1-4: no
+    cut, no pointer). CRLF becomes LF (`person_words.lf`, the one place of that rule), so one answer does not carry two kinds
+    of line end. `project` and `holder` are kept for the callers; no cut, no pointer."""
+    return person_words.lf(words)
 
 
 UNREAD_ANSWERS_LINE = ("- the recorded answers could not be read in full, so an answer may be missing from this list; "
                        "a question that looks unanswered is asked again, not guessed")
-# A pointer stands where the words would be too long for one line of the brief (DECISION_CHARS): the whole
-# text is in the side file, never half of it in the brief (FR-8).
-WORDS_BY_REFERENCE = "the person's words: the whole text is in <decisions>"
+DECISIONS_ALL_LINE = "- every decision in full: <decisions>"
+WORDS_WRAPPED_NOTE = (f" (lines over {WORDS_LINE_WIDTH} characters are wrapped here; the text as given: <decisions>)")
 
 
 def _plain_words(words) -> str:
     """Words as the brief compares them: LF line ends, the ends stripped."""
-    return str(words or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    return person_words.lf(words or "").strip()
+
+
+def _wrapped(text: str) -> list:
+    """`text` (one line) cut into lines of at most WORDS_LINE_WIDTH characters: each cut at the last whitespace within the
+    width, kept at the end of its line; a run with no whitespace is split at exactly the width. No character is dropped:
+    the lines joined are the text."""
+    lines = []
+    while len(text) > WORDS_LINE_WIDTH:
+        window = text[:WORDS_LINE_WIDTH]
+        cut = max((i + 1 for i, ch in enumerate(window) if ch.isspace()), default=0) or WORDS_LINE_WIDTH
+        lines.append(text[:cut])
+        text = text[cut:]
+    return lines + [text]
+
+
+def _words_block(head: str, words) -> str:
+    """One renderer of a person's words in the brief (and of a gate, warning, override or halt text): `head` then the words, WHOLE.
+    - no line break and at most WORDS_LINE_WIDTH characters (folded): ONE line, `head + words` with its whitespace folded - the
+      fitting form of every brief so far;
+    - a line break: the head line, then the words as given (CRLF -> LF only) in a fenced block indented by two spaces, so a line
+      of the words that begins with `#`, `|`, `>`, `-` or a fence is literal text and never a heading or a table of the brief;
+      the fence is backticks, one more than the longest backtick run in the words (at least three);
+    - no line break and longer than the width: the same block with the text wrapped at the width (`_wrapped`), and the head line
+      ends WORDS_WRAPPED_NOTE - a `_Pointer`, so the side file with the bytes as given is written."""
+    text = person_words.lf(words).strip("\n")
+    folded = " ".join(text.split())
+    broken = "\n" in text.strip()
+    if not broken and len(folded) <= WORDS_LINE_WIDTH:
+        return " ".join((head + folded).split())
+    wrapped = not broken
+    body = _wrapped(text.strip()) if wrapped else text.split("\n")
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    block = "\n".join([head.rstrip() + (WORDS_WRAPPED_NOTE if wrapped else ""), "  " + fence]
+                      + [("  " + line) if line else "" for line in body] + ["  " + fence])
+    return _Pointer(block) if wrapped else block
 
 
 def question_answer_lines(task_root, project: Path | None = None) -> tuple:
-    """([(full, shown, minimal)], said): one line per question the person decided - answered, not needed, or kept
+    """([(full, shown)], said): one entry per question the person decided - answered, not needed, or kept
     open until the report - read ONLY through `QR.answers_for_brief` (AR-13: the answers file is the carrier, not the
     journal). A decision that no longer holds (the row changed since, `with_designer`, open) has no line: the
-    question is asked again. `shown` keeps the words when the line fits DECISION_CHARS and points at the side file
-    when it does not; `minimal` is the id, the letter and the words cut at DECISION_CHARS_MIN (when cut, the line ends
-    "; the whole text is in <decisions>", and `build` replaces `<decisions>` by the side file's path at level 1; none for
-    a kept-open or not-needed line); the same words under several questions are
+    question is asked again. `full` carries the words whole on one logical line (the side file); `shown` is the brief's form
+    (`_words_block`): the words whole, never a pointer in their place. The same words under several questions are
     carried once (`said` is those texts, for `decisions` to drop the journal copies of them). One line, first, says
     the answers could not be read when the store reports it (a broken line, a non-object line, an unreadable file)."""
     view = QR.answers_for_brief(task_root)
-    holder = RP.story_text(task_root, "/".join(QR.ANSWERS_REL))
     entries, said, first = [], [], {}
     if view["unreadable"]:
-        entries.append((UNREAD_ANSWERS_LINE, UNREAD_ANSWERS_LINE, UNREAD_ANSWERS_LINE))
+        entries.append((UNREAD_ANSWERS_LINE, UNREAD_ANSWERS_LINE))
     for item in view["answers"]:
         qid, where = item["id"], QR.where_words(item["where"])
         if item["status"] == QR.DEFERRED:
-            head, short = f"{qid} kept open until the report ({where}); do not ask it again", f"{qid} kept open until the report; do not ask it again"
+            head = f"{qid} kept open until the report ({where}); do not ask it again"
         elif item["status"] == "not_needed":
-            head, short = f"{qid} not needed ({where})", f"{qid} not needed"
+            head = f"{qid} not needed ({where})"
         elif item["reading"]:
             quoted = f' - "{item["reading_text"]}"' if item["reading_text"] else ""
-            head, short = f"{qid} answered {where}: reading {item['reading']}{quoted}", f"{qid} answered: reading {item['reading']}"
+            head = f"{qid} answered {where}: reading {item['reading']}{quoted}"
         else:
-            head, short = f"{qid} answered {where}, in the person's own words", f"{qid} answered in the person's own words"
+            head = f"{qid} answered {where}, in the person's own words"
         key = _plain_words(item["words"])
-        # the words ride on the minimal line too (FR-8): cut at DECISION_CHARS_MIN by the sisters' helper, with the
-        # pointer when cut; a line with no words, and the kept-open / not-needed lines, stay as they were
-        minimal_clause = ""
+        words = ""
         if not key:
             clause = "the person's words: not recorded"
         elif key in first:
             clause = f"the person's words: the same text as under {first[key]}"
-            minimal_clause = clause
         else:
             first[key] = qid
             said.append(key)
-            clause = "the person's words: " + person_words_whole(key, project, holder)
-            minimal_clause = "the person's words: " + _short(key, DECISION_CHARS_MIN)
-            if len(re.sub(r"\s+", " ", key).strip()) > DECISION_CHARS_MIN:
-                minimal_clause += "; the whole text is in <decisions>"      # one prefix per line; `build` puts the side file's path in
-        if item["status"] == QR.DEFERRED or item["status"] == "not_needed":
-            minimal_clause = ""
+            words = key
+            clause = "the person's words: " + person_words_whole(key, project)
         full = f"- {head}; {clause}"
-        fits = len(" ".join(full.split())) <= DECISION_CHARS
-        shown = " ".join(full.split()) if fits else f"- {head}; {WORDS_BY_REFERENCE}"
-        entries.append((full, shown, f"- {short}; {minimal_clause}" if minimal_clause else f"- {short}"))
+        shown = _words_block(f"- {head}; the person's words: ", words) if words else " ".join(full.split())
+        entries.append((full, shown))
     return entries, said
 
 
@@ -1680,22 +1725,24 @@ def _carried_by(note: str, said: list) -> bool:
 
 def decisions(pipeline: dict, stage: str, role: str, task: str = "", project: Path | None = None,
               task_root=None) -> tuple:
-    """(shown, minimal, full) lines of the person's words that concern this dispatch: the
+    """(shown, full) lines of the person's words that concern this dispatch: the
     gate decision and the warnings first, the waivers of this stage after them, then the
     answers the person gave earlier in this story - the journal's, and with `task_root` the
-    questions the person decided (`question_answer_lines`). Without `task_root` the register is not read."""
+    questions the person decided (`question_answer_lines`). Without `task_root` the register is not read.
+    Every `shown` entry carries its words WHOLE (`_words_block`; FV1-4: no cut at any length, no pointer in the words' place);
+    `full` is the side file's text, with the decisions of other stages as well. The line `- every decision in full:
+    <decisions>` (a `_Pointer`) is added when decisions of other stages exist or a one-line answer was wrapped."""
     gate_lines, warning_lines, override_lines, halt_lines, full = [], [], [], [], []
     answer_lines = []
     asked, said = question_answer_lines(task_root, project) if task_root is not None else ([], [])
     for words in answers_of(task, project):
         if _carried_by(words, said):
             continue
-        line = f"- answer: {person_words_whole(words, project)}"
-        full.append(line)
-        answer_lines.append((_short(line, DECISION_CHARS), _short(line, DECISION_CHARS_MIN)))
-    for full_line, shown_line, minimal_line in asked:
+        full.append(f"- answer: {person_words_whole(words, project)}")
+        answer_lines.append(_words_block("- answer: ", words))
+    for full_line, shown_line in asked:
         full.append(full_line)
-        answer_lines.append((shown_line, minimal_line))
+        answer_lines.append(shown_line)
     gates = pipeline.get("gates") or {}
     wanted = ["A"] if stage >= "S5" else []
     if stage == "S9" or role == "qa-bug-reporter":
@@ -1706,41 +1753,39 @@ def decisions(pipeline: dict, stage: str, role: str, task: str = "", project: Pa
         if words:
             head = f"- gate {gate} ({record.get('status') or record.get('decision') or '?'}): "
             full.append(head + str(words))
-            gate_lines.append((head + _short(words, DECISION_CHARS), head + _short(words, DECISION_CHARS_MIN)))
+            gate_lines.append(_words_block(head, str(words)))
     import gate_brief
     for warning in pipeline.get("warnings") or []:
         # A `vcs_api` / `host_hooks` / `base_slice` line whose status is `unknown` is not shown at gate A (OH1-11); the report
         # names it. The label tells the scribe which lines those are: `not established:` (it reads the same filter as gate A).
         label = "not established" if gate_brief._not_established([warning])[1] else "standing"
         full.append(f"- {label}: {warning}")
-        warning_lines.append((f"- {label}: {_short(warning, DECISION_CHARS)}",
-                              f"- {label}: {_short(warning, DECISION_CHARS_MIN)}"))
+        warning_lines.append(_words_block(f"- {label}: ", str(warning)))
     others = 0
     import contract
     for entry in contract.live_stage_overrides(pipeline):      # a revoked word is not handed to the role as a standing instruction (GW1-1)
-        line = f"- {entry.get('stage')} block \"{entry.get('match')}\" -> {entry.get('decision')}"
-        full.append(line)
+        head = f"- {entry.get('stage')} block "
+        words = f"\"{entry.get('match')}\" -> {entry.get('decision')}"
+        full.append(head + words)
         if entry.get("stage") in (stage, "*"):
-            override_lines.append((_short(line, DECISION_CHARS), _short(line, DECISION_CHARS_MIN)))
+            override_lines.append(_words_block(head, words))
         else:
             others += 1
     for halt in pipeline.get("halts") or []:
         # Open by `resolved`, as `stage_done` writes it and `archive_task`, `stage_guard` and `retro_numbers` read it (AR-13):
         # a halt the story already lifted is no line of the brief, and one with no `resolved` is open (FR-59).
         if isinstance(halt, dict) and not halt.get("resolved"):
-            line = f"- open halt {halt.get('stage') or ''}: {halt.get('reason') or halt.get('message') or json.dumps(halt)[:200]}"
-            full.append(line)
-            halt_lines.append((_short(line, DECISION_CHARS), _short(line, DECISION_CHARS_MIN)))
-    shown = [pair[0] for pair in gate_lines + warning_lines + override_lines + halt_lines + answer_lines]
-    # PC2-6 K1 (AR-24, FR-8): a waiver of THIS stage keeps its own line at level 1, in the order `shown` uses; a count line in its
-    # place would be the person's words traded for bytes. The whole text of every decision is in the side file either way.
-    minimal = [pair[1] for pair in gate_lines + warning_lines + override_lines + halt_lines + answer_lines]
-    if any(line.endswith("...") for line in shown) or others:
-        # A shortened decision is a pointer, never the decision: the whole text is one file away.
-        shown.append("- every decision in full: <decisions>")
+            head = f"- open halt {halt.get('stage') or ''}: "
+            words = str(halt.get("reason") or halt.get("message") or json.dumps(halt))
+            full.append(head + words)
+            halt_lines.append(_words_block(head, words))
+    shown = gate_lines + warning_lines + override_lines + halt_lines + answer_lines
+    if others or any(isinstance(line, _Pointer) for line in shown):
+        # A wrapped answer or a decision of another stage: the side file holds every decision as given, one named file away.
+        shown.append(_Pointer(DECISIONS_ALL_LINE))
     if others:
         shown.append(f"- {others} recorded decision(s) of other stages are in the side file")
-    return shown, minimal, full
+    return shown, full
 
 
 def judge_lines(role: str, shell: bool = True, dispatch_id: str = "") -> list:
@@ -2695,8 +2740,8 @@ def _repo_helper_lines(repo: dict) -> list:
 
 def stand_lesson_lines(project, stand) -> list:
     """What a person taught about the stand `stand` (`project_knowledge.py lesson`), one `- Stand lessons: ` line each: the ONE
-    formatter for the manual runner's `## The stand` and the S5 automator / code-critic head (axis 5). The cap and the display cut
-    live in `PK.lessons` (the one reader). An unreadable registry is one line that says so (FR-59); no lesson, or no stand
+    formatter for the manual runner's `## The stand` and the S5 automator / code-critic head (axis 5). Every lesson is a line, its
+    words whole (`PK.lessons`, the one reader). An unreadable registry is one line that says so (FR-59); no lesson, or no stand
     chosen, is []. Never raises, never blocks the brief; the words are data, never interpreted (P27)."""
     try:
         import project_knowledge as PK
@@ -2901,15 +2946,10 @@ APPROACH_LINE_CHARS = 300    # one line of the approach block; longer is cut wit
 APPROACH_DOCS_MAX = 6        # strategy documents named by file name; the rest counted
 APPROACH_RULES_DOC = "strategy/framework-rules.md"
 APPROACH_KEY_WORDS = (("recorded", "recorded"), ("unknown", "unknown"), ("none", "none"), ("not_recorded", "not recorded"))
-APPROACH_SHORT_BYTES = 200   # the one-line forms below never exceed this (pinned AT and BEYOND by test_brief_pack)
 APPROACH_NOTHING = ("- Project approach: nothing recorded at onboarding (no strategy/framework-rules.md, no config.json test_data, "
                     "no strategy documents); onboarding topic 3 records it; follow the existing tests' fixtures")
-# The two short forms are TEMPLATES: `{home}` is the project's home folder as text (`_home_text`), filled where the lines are emitted (C4).
-APPROACH_ONE_LINE = ("- Project approach (cut for room): code rules strategy/framework-rules.md, data {home}/config.json `test_data`, "
-                     "documents {home}/strategy/; read them, name a deviation with its reason")
 NO_FORM_LINE = ("Your final message: the three-part digest shape in your rules (`## Your handover`); the exit gate refuses any "
                 "other shape.")      # N4 (R5, E17): a brief with no template still points at the shape, so a role never has none
-APPROACH_POINTER = "- Project approach: not shown, the brief is full; see {home}/config.json `test_data` and {home}/strategy/"
 
 
 def _approach_injected(role: str) -> bool:
@@ -2971,26 +3011,24 @@ def _approach_documents(project: Path, config) -> tuple:
 
 
 def project_approach_lines(role: str, project: Path, task_root: Path) -> list:
-    """The full form of `approach_forms` (the three-line block, or the one line when nothing is recorded)."""
-    return approach_forms(role, project, task_root)[2]
+    """The approach block (the three-line block, or the one line when nothing is recorded): `approach_forms`."""
+    return approach_forms(role, project, task_root)
 
 
-def approach_forms(role: str, project: Path, task_root: Path) -> dict:
+def approach_forms(role: str, project: Path, task_root: Path) -> list:
     """The head lines of the S3 strategist, the automator and the code critic that NAME the approach the project recorded at
     onboarding - the code rules document, the state of each `test_data` key, the strategy documents - by path and state, never
     by content (the owner's word 24.10.2026; FR-15, AR-8). One config read (`read_config_file`) feeds both the test-data and the
     documents lines; the rules path goes through `_resolve` (AR-13). A missing document or block is said by name ("not
-    recorded"): an old project is not refused (builder-rules 9); a line is cut at APPROACH_LINE_CHARS. Never raises: the
-    brief is a courtesy.
+    recorded"): an old project is not refused (builder-rules 9); a line is cut at APPROACH_LINE_CHARS (the line names its
+    file). Never raises: the brief is a courtesy.
 
-    -> {2: the full block, 1: its one-line form, 0: the pointer line, -1: nothing}: the brief ceiling cuts the block FIRST, level
-    by level, before the map, the digests or anything of the person's words (`build`, AR-24). A project with NOTHING recorded (no rules document, no `test_data`
-    key with a value, no strategy document) gets ONE line (APPROACH_NOTHING) at levels 2 and 1: the block never costs its three
-    lines for nothing."""
+    -> the full block, always (FV1-4: no short form, no pointer form). A project with NOTHING recorded (no rules document, no
+    `test_data` key with a value, no strategy document) gets ONE line (APPROACH_NOTHING): the block never costs its three
+    lines for nothing. A role outside APPROACH_ROLES gets []."""
     if role not in APPROACH_ROLES:
-        return {2: [], 1: [], 0: [], -1: []}
+        return []
     home = _home_text(project)
-    one_line, pointer = APPROACH_ONE_LINE.replace("{home}", home), APPROACH_POINTER.replace("{home}", home)
     try:
         try:
             config = config_contract.read_config_file(project)
@@ -3001,14 +3039,12 @@ def approach_forms(role: str, project: Path, task_root: Path) -> dict:
         data, data_on = (unreadable, True) if unreadable else _approach_test_data(config, home)
         docs, docs_on = _approach_documents(project, config)
         if not (rules_on or data_on or docs_on):
-            return {2: [APPROACH_NOTHING], 1: [APPROACH_NOTHING], 0: [pointer], -1: []}
+            return [APPROACH_NOTHING]
         lines = ["Project approach (recorded at onboarding; read it, it is not copied here; a deviation is named with its reason):",
                  rules, data, docs]
-        return {2: [line if len(line) <= APPROACH_LINE_CHARS else line[:APPROACH_LINE_CHARS - 4] + " ..." for line in lines],
-                1: [one_line], 0: [pointer], -1: []}
+        return [line if len(line) <= APPROACH_LINE_CHARS else line[:APPROACH_LINE_CHARS - 4] + " ..." for line in lines]
     except Exception as exc:
-        said = f"- Project approach: not read ({type(exc).__name__}), a defect of the factory"
-        return {2: [said], 1: [said], 0: [pointer], -1: []}
+        return [f"- Project approach: not read ({type(exc).__name__}), a defect of the factory"]
 
 
 def s4_p1_area_lines(task_root: Path, stage: str, role: str) -> list:
@@ -3232,21 +3268,18 @@ def test_timeout_line(project, role: str, cfg: dict | None = None) -> str:
 
 
 PREFIX_REQ = "Flow requests: "
-MAX_REQUEST_LINES = 12      # request lines of the S3 head (6 KB ceiling: the head is never shrunk); the rest is counted, the file is whole
+MAX_REQUEST_LINES = 12      # request lines of the S3 head; the rest is counted, the file is whole
 SITE_FILES_SHOWN = 3        # other files a request line names (`also in A.tsx, B.tsx`); the rest is counted
 FUNCTIONS_SHOWN = 8         # functions the S3 head names to walk; the rest is counted, the register's function table is whole
 PREFIX_WALK = "Functions to walk: "
 
 
-def _site_note(entry: dict, names: bool) -> str:
+def _site_note(entry: dict) -> str:
     """` (also in <file>[, <file>, <file>][, +K more])` - the other FILES that make this request (a failed request is felt per page) -
-    at most SITE_FILES_SHOWN basenames, the rest counted; only the first site's own file: ` (+N more sites in this file)`; `names` False
-    (the head is over its room): the old ` (+N more sites)`."""
+    at most SITE_FILES_SHOWN basenames, the rest counted; only the first site's own file: ` (+N more sites in this file)`."""
     also = entry.get("also_at") or []
     if not also:
         return ""
-    if not names:
-        return f" (+{len(also)} more sites)"
     first = str(entry.get("path") or "")
     other = list(dict.fromkeys(str(a).rsplit(":", 1)[0] for a in also))
     other = [f for f in other if f != first]
@@ -3261,28 +3294,23 @@ def request_lines(found: dict, task_root) -> list:
     in <file>` beyond them (the cut is named, the file is whole), one `not measured: <reason>` per reason, and - only when there is at
     least one request - ONE closing line: each request gets a plan row that fails it with every kind of the perturbation table, the
     oracle the table gives, the R whose flow sends it in `requirements`; or a `request_homes` entry with a reason (RN1-6, AR-26).
-    A request line names the other files that make it; when the request lines would pass half of BRIEF_MAX_BYTES the names are
-    cut first and the counts return - the lines themselves are never shrunk (the head is never shrunk)."""
+    A request line names the other files that make it, whatever the size of the lines (FV1-4: no cut of the names for room)."""
     import user_path_failures as UPF
     path = RP.story_text(task_root, UPF.REQ_LIST_FILE)
     requests = found.get("requests") or []
-    out: list = []
-    for names in (True, False):
-        out = [f"{PREFIX_REQ}{UPF.request_key(r)} - {r['path']}:{r['line']}{_site_note(r, names)}" for r in requests[:MAX_REQUEST_LINES]]
-        if len(requests) > MAX_REQUEST_LINES:
-            out.append(f"{PREFIX_REQ}{len(requests) - MAX_REQUEST_LINES} more, the list is in {path}")
-        out += [f"{PREFIX_REQ}not measured: {reason}" for reason in found.get("unmeasured") or []]
-        if requests:
-            kinds, oracle, problem = UPF.failure_axis()
-            if problem:
-                out.append(f"{PREFIX_REQ}not measured: {problem}, a defect of the factory")
-            else:
-                out.append(f"{PREFIX_REQ}each one gets a plan row that fails it - {' and '.join(kinds)} - with the oracle \"{oracle}\"; name it in the "
-                           f"row's `requests`, and the R whose flow sends it in the row's `requirements`, or in `request_homes` with a reason. The list "
-                           f"is what code found: a request you see in the code that it misses goes in a row too. A row closes the request only "
-                           f"for the pages it names: another page that makes the same request needs its own row or a stated reason. File: {path}")
-        if sum(len(line.encode("utf-8")) + 1 for line in out) <= BRIEF_MAX_BYTES // 2:
-            break
+    out = [f"{PREFIX_REQ}{UPF.request_key(r)} - {r['path']}:{r['line']}{_site_note(r)}" for r in requests[:MAX_REQUEST_LINES]]
+    if len(requests) > MAX_REQUEST_LINES:
+        out.append(f"{PREFIX_REQ}{len(requests) - MAX_REQUEST_LINES} more, the list is in {path}")
+    out += [f"{PREFIX_REQ}not measured: {reason}" for reason in found.get("unmeasured") or []]
+    if requests:
+        kinds, oracle, problem = UPF.failure_axis()
+        if problem:
+            out.append(f"{PREFIX_REQ}not measured: {problem}, a defect of the factory")
+        else:
+            out.append(f"{PREFIX_REQ}each one gets a plan row that fails it - {' and '.join(kinds)} - with the oracle \"{oracle}\"; name it in the "
+                       f"row's `requests`, and the R whose flow sends it in the row's `requirements`, or in `request_homes` with a reason. The list "
+                       f"is what code found: a request you see in the code that it misses goes in a row too. A row closes the request only "
+                       f"for the pages it names: another page that makes the same request needs its own row or a stated reason. File: {path}")
     return out
 
 
@@ -3635,23 +3663,6 @@ def _form_line(key: str, value: str, whole: str, form: dict, keep: str = "") -> 
     return f"{key}: {value}{keep}"
 
 
-def measured_bytes(text: str, roots=None) -> int:
-    """The bytes of `text` as the BUDGET counts them: every checkout-dependent absolute root (the plugin root, which also holds the
-    scripts directory) is replaced by a fixed 8-character token first, so the same brief weighs the same on any machine (AR-4); the
-    brief TEXT itself keeps the real paths (AR-8). `roots` defaults to the plugin root; an empty root is skipped, a longer root goes
-    before a shorter one that is its prefix, and both separators are replaced."""
-    found = [HERE.parent.as_posix()] if roots is None else list(roots)
-    spelled = {r for root in found if root for r in (str(root).replace("\\", "/").rstrip("/"), str(root).replace("/", "\\").rstrip("\\")) if r}
-    for root in sorted(spelled, key=len, reverse=True):
-        text = text.replace(root, "<plugin>")
-    return len(text.encode("utf-8"))
-
-
-def head_bytes(lines: list) -> int:
-    """The bytes the SD head lines take in the brief (each line and its newline), measured as the budget measures them."""
-    return sum(measured_bytes(line) + 1 for line in lines)
-
-
 def sd_head_lines(task_root: Path, stage: str, role: str, dispatch_id: str, names: list, stage_def: dict, plan_road: bool = True,
                   first_look: bool = False) -> list:
     """The seven header lines (goal, DoD, given, owns, non-goals, handoff, questions) and a blank line, for a role whose
@@ -3675,8 +3686,8 @@ def sd_head_lines(task_root: Path, stage: str, role: str, dispatch_id: str, name
     contract = handoff.contract_of(stage, role)
     leads = charter.dod_leads(text)
     where = f"agents/{role}.md"
-    def lines_for(kept: list, shown: int) -> list:
-        given = ", ".join(names[:shown]) + (f" ... and {len(names) - shown} more" if shown < len(names) else "")
+    def lines_for(kept: list) -> list:
+        given = ", ".join(names)
         values = {
             "goal": _form_line("goal", charter.outcome_text(text), f"{where} ## Outcome", form),
             "DoD": _form_line("DoD", "; ".join(kept), f"{where} ## Good outcome", form,
@@ -3697,20 +3708,9 @@ def sd_head_lines(task_root: Path, stage: str, role: str, dispatch_id: str, name
         order = form.get("order") if isinstance(form.get("order"), list) and form.get("order") else list(values)
         return [values[key] for key in order if key in values]
 
-    # SD_HEAD_MAX_BYTES is a HARD cap (t-1765 X1 fix-4, F3): over it the DoD leads are cut first, from the end (down to one; the
-    # `witness: ... tried` suffix stays), then the `given` names from the end (`... and N more`). A head still over the cap is
-    # rendered as it is with a last line naming its size - never silently outside the budget; `build` marks the brief too.
-    # The cap counts the head as the brief carries it: the lines and the blank line after them.
-    kept, shown = list(leads), len(names)
-    lines = lines_for(kept, shown)
-    while len(kept) > 1 and head_bytes(lines + [""]) > SD_HEAD_MAX_BYTES:
-        kept.pop()
-        lines = lines_for(kept, shown)
-    while shown > 1 and head_bytes(lines + [""]) > SD_HEAD_MAX_BYTES:
-        shown -= 1
-        lines = lines_for(kept, shown)
-    if lines and head_bytes(lines + [""]) > SD_HEAD_MAX_BYTES:
-        lines = lines + [f"head: — (head over cap: {head_bytes(lines + [''])} budget B)"]
+    # FV1-4: no cap on the head. Every DoD lead and every `given` name is in it (each line is still clipped at `line_chars` by
+    # `_form_line`, with `(whole: <where>)` - the whole is one named step away).
+    lines = lines_for(list(leads))
     return lines + [""] if lines else []
 
 
@@ -4115,20 +4115,15 @@ def case_critic_roster_lines(task_root, pipeline) -> list:
 
 def _record_brief_size(task_root: Path, result: dict) -> None:
     """Append one line about the dispatched brief to `state/brief-sizes.jsonl`: a record for the forge's scoreboard
-    (`run_counters`), never read inside a run and never compared with the ceiling here. `budget_bytes` / `over_ceiling`
-    are carried as `budget_bytes` / `ceiling` + `over` when `result` has them; without them the line holds `bytes` only
-    (no zero is invented). A failure to write is one note on stderr: it never changes or fails the brief."""
+    (`run_counters`), never read inside a run and never compared with a size here. The line is exactly
+    `{ts, stage, role, dispatch, bytes}` (FV1-4; lines written before it carry extra keys, `budget_bytes`, `ceiling`, `over`,
+    which no reader in the package reads). A failure to write is one note on stderr: it never changes or fails the brief."""
     state = task_root / "state"
     try:
         if not state.is_dir():
             raise OSError(f"{state} is not a directory")
         rec = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "stage": result["stage"],
                "role": result["role"], "dispatch": result["dispatch"], "bytes": result["bytes"]}
-        if "budget_bytes" in result:
-            rec["budget_bytes"] = result["budget_bytes"]
-        if "over_ceiling" in result:
-            rec["ceiling"] = BRIEF_MAX_BYTES
-            rec["over"] = list(result["over_ceiling"])
         hooklib.append_jsonl_line(state / "brief-sizes.jsonl", json.dumps(rec, ensure_ascii=False))
     except (OSError, ValueError) as exc:
         print(f"brief_pack: note: the size of {result.get('dispatch')} was not recorded ({exc})", file=sys.stderr)
@@ -4170,7 +4165,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     if role in _lifecycle_roles():
         # Right after the scope and BEFORE any quoted role claim (the repair line below): the Factory's own
         # statement of the recorded checkout comes first, so a role's earlier halt is never the brief's only
-        # branch word. The head is never shrunk: under the 6 KB ceiling the inline map header gives way first.
+        # branch word.
         head.append(branch_check_line(task_root))
     if stage in ("S1", "S3") and not first_look and (coverage := main_coverage_line(task_root)):
         head.append(coverage)     # RG1-3: the main branch's tests are existing coverage
@@ -4239,11 +4234,11 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         if stage == "S4" and role == "qa-case-critic":
             head += case_critic_roster_lines(task_root, pipeline)
         head += first_look_lines(task_root, stage, role)
-    # X9 (F-6 a): the project's last retro looked here. In the head (never shrunk by the ceiling); no other role or stage changes.
+    # X9 (F-6 a): the project's last retro looked here. In the head; no other role or stage changes.
     if stage == "S9" and role == "qa-retro-analyst":
         head += prior_retro_lines(task_root, project)
-    # TQ1-11: every stage of the three roles (S3 strategist, S5 automator, critic). NOT in `head`: it is the first thing the
-    # ceiling cuts (render's `approach` level), before the map, the digests or any of the person's words (AR-24).
+    # TQ1-11: every stage of the three roles (S3 strategist, S5 automator, critic). NOT in `head`: `render` puts it after the
+    # person's words (FV1-4: the full block, never a shorter form).
     approach = approach_forms(role, project, task_root)
     head += [line for line in [test_timeout_line(project, role)] if line] if stage in ("S5", "S7") else []
 
@@ -4270,14 +4265,14 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         names = ["work/requirements-register.md"]       # the runner WRITES the first look: S3's other inputs are the strategist's, not its
     if stage == "S5" and role == "qa-code-critic":
         # t-1937 TR3-5: findings go one file per critic dispatch; the path is GIVEN (FR-15), the role never builds or searches it.
-        # A file line (not a head line): the head is never shrunk and the critic's brief sits at the ceiling; the form skeleton carries it too.
+        # A file line (not a head line); the form skeleton carries it too.
         import findings_path
         names.append(findings_path.per_dispatch(dispatch_id))
     names += [n for n in stage_critic_names(stage_def, role, task_root) if n not in names]      # X2-1: the stage critic's own files
     names += [n for n in tried_reader_names(stage_def, role, task_root) if n not in names]      # t-1884 M-2: the forms the retro reads
     # The seven header lines of a charter role go right after the title, so the note of a brief over the 30 KB limit (render)
-    # stays first after it and `Scope:` follows them. Invariant: placed AFTER the filters of `names` (only now are they final),
-    # and the head is never cut below them; a role whose file is not a charter gets [] and an unchanged brief.
+    # stays first after it and `Scope:` follows them. Invariant: placed AFTER the filters of `names` (only now are they final);
+    # a role whose file is not a charter gets [] and an unchanged brief.
     sd_head = sd_head_lines(task_root, stage, role, dispatch_id, names, stage_def, plan_road=s5_kind == "plan", first_look=first_look)
     head[2:2] = sd_head
     walking = False       # t-1957 N3: a manual dispatch with a walk session gets the thin walk brief
@@ -4290,16 +4285,11 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         head += exploration_lines(task_root, task, dispatch_id, briefs_dir, write and output is None)   # t-1765 X3: the first manual window explores; the head is never shrunk
     shell = role_has_bash(role)   # the one reader of the question: host_adapter.role_has_bash, which the guard also asks
     files = file_lines(names, task_root, project, shell)
-    # PC2-6 B6: the category of a line that is NOT an ordinary named input, set where the line is built (never read back from its
-    # text); the last resort pops by it. The RENDERED order of `files` is unchanged: only the pop priority uses the tags.
-    kind_of = {}
     if stage == "S5" and role == "qa-automator" and not own_file:
         # the glob that stood here named every window's findings; with no critic of this window yet the role is told so, not left to hunt
-        none_yet = "- critic findings: none yet - no critic has reviewed this dispatch's window, so there is no findings file to read"
-        files.append(none_yet)
-        kind_of[none_yet] = "none_yet"
+        files.append("- critic findings: none yet - no critic has reviewed this dispatch's window, so there is no findings file to read")
     if "work/ticket-snapshot.json" in names:
-        # Right under the snapshot's own line, where the scout reads it first, and the last to be trimmed.
+        # Right under the snapshot's own line, where the scout reads it first.
         # The person's exclusions, then what the story's text points at and nobody read (t-267): both are "not read".
         masks = snapshot_mask_lines(task_root) + reference_gap_lines(task_root) + reads_skipped_lines(task_root)
         spot = next((i for i, line in enumerate(files) if "work/ticket-snapshot.json" in line), None)
@@ -4311,31 +4301,27 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         if view and spot is not None:
             files[spot + 1 + len(masks):spot + 1 + len(masks)] = view
     if rows:
-        only = f" - only the rows {', '.join(rows[:8])}: `Grep -n` the id, then Read the range"
+        only = f" - only the rows {', '.join(rows)}: `Grep -n` the id, then Read the range"
         files = [line.split(" - slice it:")[0] + only if "test-plan.md" in line and "slice it" in line else line
                  for line in files]
     for rel in cases[:8]:
         files.append(f"- {RP.story_text(task_root, rel)} ({_size(task_root / rel)})")
-        kind_of[files[-1]] = "case"
     if len(cases) > 8:
         files.append(f"- ... and {len(cases) - 8} more case files of the scope, same folder")
-        kind_of[files[-1]] = "case"
     tests = scope_tests(task_root, scope) if role in ("qa-code-critic", "qa-runner", "qa-failure-analyst") else []
-    for rel in tests[:6]:
+    for rel in tests:
         files.append(f"- {rel} ({_size(project / rel)}) - the test file of the window")
-        kind_of[files[-1]] = "test"
-    source = source_material(task, task_root, role)
-    kind_of.update({line: "source" for line in source})
-    files += source
+    files += source_material(task, task_root, role)
     if s5_kind == "window" and role == "qa-automator" and piece is not None:
         code_text, _left = window_code_file(project, plan_doc, piece["tests"], dispatch_id, task_root)
         side_files[f"{dispatch_id}-code.md"] = code_text
+        by_range = " - over 30 000 B: read it by range" if len(code_text.encode("utf-8")) > SLICE_BYTES else ""
         plan_files = plan_files + [f"- {_rel(task_root, f'work/briefs/{dispatch_id}-code.md')}"
                                    f"{'' if write and output is None else ' (not written in this run)'} - the code you will touch: the "
-                                   "tests you extend, the fixtures, a neighbouring test per file, the fields of a manifest row"]
+                                   f"tests you extend, the fixtures, a neighbouring test per file, the fields of a manifest row{by_range}"]
     if s5_kind in ("plan", "window") and _resumed(dispatch, stage, role, s5_state):
         side_files[f"{dispatch_id}-delta.md"] = delta_lines(task_root, task, dispatch_id, dispatch, s5_state, role, scope, piece, brief_rel)
-    files = plan_files + files          # first: the trimming below takes from the end
+    files = plan_files + files
     files = list(dict.fromkeys(files))
 
     # 3. the card
@@ -4366,14 +4352,13 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     digest_form = digest_template_lines(role, stage, dispatch_id, dispatch, FIRST_LOOK_FILE if first_look else "")
 
     # 4. the person's words
-    shown, minimal, full = decisions(pipeline, stage, role, task, project, task_root)
+    shown, full = decisions(pipeline, stage, role, task, project, task_root)
 
     # 5. the map
     repo = repo_map_for(task, task_root, project, scope, write and output is None) if stage in ("S5", "S6") and not walking else None
 
     # 5a. HF5-5: the stand of a MANUAL runner block, between the files and the card. Built here, rendered in `render` itself and
-    # never in `files`/`card`: the trimming below takes files (and, first, the map and the words) - an address or an account name
-    # is not lost to make room for a file. An automated block has no section: its brief is as it was.
+    # never in `files`/`card`. An automated block has no section: its brief is as it was.
     stand = []
     if _record_kind(dispatch) == "manual" and not walking and not first_look:       # the app card holds the stand of a walk
         stand = manual_stand_lines(task_root, project, hooklib.load_config() or {},
@@ -4391,51 +4376,35 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     rule += ", and `--help` is the door." if shell else "."
     if walking:
         rule = WALK_RULE + "."
-        files, trimmed_files = [], []
+        files = []
 
-    trimmed_files = []      # the lines the last resort took off `files`, in their original order (N4: they go to <ID>-files.md)
-    map_body = repo["markdown"].splitlines()[2:] if repo and not repo.get("error") else []
+    side ={"digests": RP.story_text(task_root, f"work/briefs/{dispatch_id}-digests.md"),
+            "decisions": RP.story_text(task_root, f"work/briefs/{dispatch_id}-decisions.md")}
+    side_say = "" if write and output is None else " (side files not written in this run)"      # E-9: a pointer says so
 
-    def render(inline_map: int, dec_level: int, inline_digests: bool, side: dict, ap_level: int = 2, note: str = "",
-               over_line: str = "") -> tuple:
-        """-> (text, omitted). RC1-14 N4, the order is the priority: the head, the person's words (never cut), `Not in the brief`,
-        then what gives first-to-last from the bottom up (the map is the first under the knife); the digest template is the LAST
-        section and outside the budget (F-4). `omitted` is one line per thing the ceiling took out (E16): no silent trim.
-        `over_line` (PC2-6) is the one line that says the brief stays over its budget: the FIRST line of `Not in the brief`, which
-        it opens when nothing else did; it is not in `omitted`, and the caller never measures a text that carries it as a budget."""
-        omitted = []
-        if repo and inline_map == 0 and map_body:
-            omitted.append(f"- the repository map head - read {repo['path']}")
-        if ap_level < 2 and approach[2] and approach[2] != [APPROACH_NOTHING] and approach[ap_level] != approach[2]:
-            omitted.append(f"- the project approach in full - read {_home_text(project)}/config.json (`test_data`) and "
-                           f"{_home_text(project)}/strategy/")
-        if not inline_digests and digest_full:
-            omitted.append(f"- the digests of earlier roles - read {side['digests']}")
-        if full and dec_level < 2:
-            omitted.append(f"- every decision in full - read {side['decisions']}")
-        if trimmed_files:
-            omitted.append(f"- {len(trimmed_files)} input file(s) - read {RP.story_text(task_root, f'work/briefs/{dispatch_id}-files.md')}")
+    def pointed(line):
+        """A `_Pointer` line with its side file's path (the first line only: the words of a block never carry it); a plain line as it is."""
+        if not isinstance(line, _Pointer):
+            return line
+        first, brk, rest = str(line).partition("\n")
+        first = first.replace("<decisions>", side["decisions"]).replace("<digests>", side["digests"])
+        return first + side_say + brk + rest
+
+    def render(note: str = "") -> str:
+        """The brief, ONCE and WHOLE (FV1-4): the head, the person's words, the approach block, the digests, the files, the stand,
+        the P1 areas, the commands, the rules code will apply, the map, the rule; the digest template is the LAST section, so it
+        can never evict the person's words. Nothing is measured against a size and nothing is dropped for room. `note` is the
+        by-range line of a brief over the guard's whole-read limit."""
         parts = list(head[:2]) + ([note, ""] if note else []) + list(head[2:])
         parts += ["", "## The person's words that concern you", ""]
         if not full:
             parts.append("- none recorded: no warning, no gate decision and no waiver touches this stage")
-        elif dec_level == 2:
-            parts += [line.replace("<decisions>", side["decisions"]) for line in shown]
-        elif dec_level == 1:
-            # a cut line names the side file by its path (never the literal placeholder, FR-37); the `Not in the brief` line stays the one
-            # pointer for the rest (PC2-6 O-c)
-            parts += [line.replace("<decisions>", side["decisions"]) for line in minimal]
-        else:       # only the probe of `over_ceiling` asks for it: no brief is built at this level (N4, F-3)
-            parts.append(f"- {len(full)} recorded decision(s): {side['decisions']}")
-        if omitted or over_line:
-            parts += ["", "## Not in the brief", ""] + ([over_line] if over_line else []) + omitted
-        if approach[ap_level]:
-            parts += [""] + approach[ap_level]
-        parts += ["", "## What earlier roles produced", ""]
-        if inline_digests or not digest_full:
-            parts += digest_lines or ["- nothing yet: this is the first stage with a role"]
         else:
-            parts.append("- in the side file, see Not in the brief")
+            parts += [pointed(line) for line in shown]
+        if approach:
+            parts += [""] + approach
+        parts += ["", "## What earlier roles produced", ""]
+        parts += [pointed(line) for line in digest_lines] or ["- nothing yet: this is the first stage with a role"]
         if not walking:
             parts += ["", "## Read these files", ""] + (files or ["- the stage declares no input file"])
         if stand:
@@ -4453,104 +4422,19 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
                 parts.append(f"- full map: {repo['path']}" + ("" if repo["written"] else " (not written in this run)"))
                 if repo["doc"].get("empty"):
                     parts.append("- the map is EMPTY: searching the repository is the right move for this window")
-                if inline_map:
-                    body = repo["markdown"].splitlines()
-                    parts += body[2:2 + inline_map]
+                parts += repo["markdown"].splitlines()[2:2 + MAP_INLINE_LINES]
         parts += ["", "## Rule", "", rule]
-        # F-4 (D5-C, t-1755 B2): the digest template is the LAST section and outside the budget (`form_cost`), so it can never evict
-        # the person's words; with no template (E17, R5) the last line points at the digest shape every role's rules carry.
+        # F-4 (D5-C, t-1755 B2): the digest template is the LAST section, so it can never evict the person's words; with no template
+        # (E17, R5) the last line points at the digest shape every role's rules carry.
         parts += digest_form if digest_form else ["", NO_FORM_LINE]
-        return "\n".join(parts + [""]), omitted
+        return "\n".join(parts + [""])
 
-    side = {"digests": RP.story_text(task_root, f"work/briefs/{dispatch_id}-digests.md"),
-            "decisions": RP.story_text(task_root, f"work/briefs/{dispatch_id}-decisions.md")}
-    sides_needed = {}
-    # From the fullest brief down: the map's head goes first, then the digests move to
-    # their side file, then the person's words shrink to the gate and the warnings, then
-    # they move too. The card and the file list are the last to give.
-    # TQ1-11: the project-approach block goes BEFORE all of that (full -> one line -> a pointer line); the person's words and the
-    # gate A line are the last to give (AR-24).
-    # The pointer line itself costs bytes, so it is the last of the block to go - and it goes (level -1) before any of the words
-    # or the gate A line is shortened.
-    attempts = [(MAP_INLINE_LINES, 2, True, 2), (MAP_INLINE_LINES, 2, True, 1), (MAP_INLINE_LINES, 2, True, 0), (0, 2, True, 0),
-                (0, 2, True, -1), (0, 2, False, -1), (0, 1, False, -1)]      # N4: level 0 (words as a pointer only) is gone (F-3)
-    # N4: the budget does NOT count the digest template (F-4): it is a door like the card and goes last, whatever the ceiling.
-    form_cost = measured_bytes("\n".join(digest_form)) + (1 if digest_form else 0)
-
-    # t-1765 X1 fix-3/4: the SD head is form too, up to its own HARD cap SD_HEAD_MAX_BYTES; what it weighs beyond the cap counts
-    # against the body (never outside the budget) and is reported in `over_ceiling`. 0 for a non-charter role.
-    sd_cost = min(head_bytes(sd_head), SD_HEAD_MAX_BYTES)
-
-    def budget_of(body: str) -> int:
-        return measured_bytes(body) - form_cost - sd_cost       # path-independent (AR-4): the one measure for the number and the trim
-
-    text, omitted, chosen = "", [], attempts[-1]
-    truncated = any("<decisions>" in line for line in shown)
-    before = None       # the render of the attempt before this one (PC2-6 O-d)
-    for chosen in attempts:
-        inline_map, dec_level, inline_dig, ap_level = chosen
-        text, omitted = render(inline_map, dec_level, inline_dig, side, ap_level)
-        if dec_level == 1 and before is not None and budget_of(text) >= budget_of(before[0]):
-            # PC2-6 O-d (AR-24): the words rung is taken only when it makes the brief strictly smaller; a rung that costs the
-            # person's words and saves nothing is not taken, and the last resort below pops files from the form that is kept.
-            text, omitted, chosen = before
-            inline_map, dec_level, inline_dig, ap_level = chosen
-        sides_needed = {"decisions": bool(full) and (dec_level < 2 or truncated),
-                        "digests": not inline_dig and bool(digest_full)}
-        if budget_of(text) <= BRIEF_MAX_BYTES:
-            break
-        before = (text, omitted, chosen)
-    if budget_of(text) > BRIEF_MAX_BYTES:
-        # the last resort: the card is the one thing that cannot go, the file list is trimmed from its end - and a DOOR never
-        # goes (SC1-10). A door is a line of a `project:`/`plugin:` name in ROLE_FILES: a document the role is no longer
-        # injected, or a template it must read; trimmed away, the role would not know it exists (FR-2). The doors are
-        # computed from the same `file_lines` that produced `files`, so each door line matches its entry byte for byte.
-        # Only doors left -> the loop ends and the brief goes out over the ceiling: a long brief is a cost, a lost door a defect.
-        # `## The stand` (HF5-5) is a door of the same kind and is never in `files`: it is rendered, not trimmed (test_brief_pack_manual K3).
-        # The person's words are NOT a door to trim: they stay at their kept level (1, or 2 when level 1 is not strictly smaller) and the brief goes over (F-3, AR-24).
-        doors = set(file_lines([n for n in ROLE_FILES.get(role, []) if n.startswith(("project:", "plugin:"))],
-                               task_root, project, shell))
-        # t-1776: the S5 plan-slice lines (`plan_files`: the plan and its window slices) are doors too: the slice is what the automator acts on, so they are never trimmed.
-        # CI fix G4b (FR-2): the plan critic's review form line and its rubric pointer (`... read its section «On the plan»`) are doors as well: the form
-        # is where the critic writes, and the pointer is the ONLY place that names the section, so a role without them would not know they exist.
-        doors |= {line for line in plan_files if "s5-plan.json" in line or "-plan-w" in line
-                  or " - your review form" in line or "«On the plan»" in line}
-        # t-1765 CI fix C: the automation manifest's line carries its door (`manifest_view.py`, never a whole read), so it is a door
-        # too: the optional tail (the other input files) goes first, this line stays whatever the head weighs (FR-2).
-        doors |= {line for line in files if "work/automation-manifest.json" in line}
-        # PC2-6 O-d: `chosen` is the words form the ladder KEPT (level 1, or level 2 when level 1 was not strictly smaller).
-        # PC2-6 B6: the POP PRIORITY (first to last): the "critic findings: none yet" line, the source material, the other named
-        # inputs (their masks with them), the case files ("... and N more" first, then the last case first), the window's test file
-        # (CI fix G8: the file the critic reads and probes goes last and still yields when nothing else is left). The RENDERED
-        # order of `files` never changes, so a brief that pops nothing is byte-identical and `trimmed_files` keeps that order.
-        priority = ("none_yet", "source", "named", "case", "test")
-        rendered_order = list(files)
-        while budget_of(text) > BRIEF_MAX_BYTES:
-            last = next((i for kind in priority for i in range(len(files) - 1, -1, -1)
-                         if files[i] not in doors and kind_of.get(files[i], "named") == kind), None)
-            if last is None:
-                break
-            files.pop(last)
-            trimmed_files = [line for line in rendered_order if line not in files]
-            text, omitted = render(*chosen[:3], side, chosen[3])
-    over_ceiling = []
-    over_line = ""
-    budget_bytes = budget_of(text)      # PC2-6 B1: measured on the render WITHOUT the over line, which is outside the budget
-    if budget_bytes > BRIEF_MAX_BYTES:
-        # Which part kept the brief over: the words (at their shortest kept form) and/or the doors and the card.
-        probe = budget_of(render(chosen[0], 0, chosen[2], side, chosen[3])[0])
-        if full and chosen[1] >= 1 and budget_bytes > probe:
-            over_ceiling.append("words at level 1")
-        if probe > BRIEF_MAX_BYTES or not over_ceiling:
-            over_ceiling.append("doors only")
-        # PC2-6 (AR-22, FR-4): the brief stays over after every cut and SAYS so, first line of `Not in the brief`. No size of the
-        # brief in it (no fixed point); a run that writes no side file says so, as the code-file line does.
-        over_line = (f"- the brief stays over its {BRIEF_MAX_BYTES} B budget after every cut ({', '.join(over_ceiling)}): "
-                     "what it names is here whole or one named file away"
-                     + ("" if write and output is None else " (side files not written in this run)"))
-        text, omitted = render(*chosen[:3], side, chosen[3], over_line=over_line)
-    if head_bytes(sd_head) > SD_HEAD_MAX_BYTES:
-        over_ceiling.append("sd head")      # fix-4: the head is over its hard cap even after every cut (its overflow is in the budget)
+    # A side file is written when a pointer line of the brief names it (`_Pointer`): the words/decisions side file when a
+    # one-line answer was wrapped or decisions of other stages exist, the digests side file when a digest was shortened or
+    # a dispatch left out of the inline few.
+    sides_needed = {"decisions": any(isinstance(line, _Pointer) for line in shown),
+                    "digests": any(isinstance(line, _Pointer) for line in digest_lines)}
+    text = render()
     if len(text.encode("utf-8")) > SLICE_BYTES:
         # E15b: over the guard's whole-read limit (SLICE_BYTES) the role is told, first, to read the brief by range. The line carries
         # its own size, so the size is iterated to a fixed point (a few rounds: the digits of the number are the only moving part).
@@ -4558,13 +4442,10 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         for _ in range(4):
             note = (f"This brief is {size} B, over the 30 KB whole-read limit: read it by range (offset/limit), "
                     "the person's words first")
-            text, omitted = render(*chosen[:3], side, chosen[3], note, over_line)
+            text = render(note)
             if len(text.encode("utf-8")) == size:
                 break
             size = len(text.encode("utf-8"))
-        over_ceiling.append("over SLICE_BYTES")
-    if trimmed_files:
-        side_files[f"{dispatch_id}-files.md"] = "# Input files not in the brief - " + dispatch_id + "\n\n" + "\n".join(trimmed_files) + "\n"
 
     written = []
     if write:
@@ -4587,7 +4468,6 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
                 written.append(str(p))
     result = {"task": task, "stage": stage, "role": role, "dispatch": dispatch_id, "scope": scope,
               "path": brief_rel if output is None else str(output), "bytes": len(text.encode("utf-8")),
-              "budget_bytes": budget_bytes, "omitted": omitted, "over_ceiling": over_ceiling,
               "files": files, "sides": sides_needed, "written": written,
               "repo_map": (repo or {}).get("path"), "markdown": text}
     if write and output is None:        # the dispatched brief only: not a dry run, not a brief written elsewhere
@@ -4616,10 +4496,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0
     sides = [k for k, v in result["sides"].items() if v]
-    over = [r for r in result["over_ceiling"] if r in ("words at level 1", "doors only")]      # the budget reasons, not sd head / SLICE
     print(f"brief: {result['path']} ({result['bytes']:,} B"
-          + (f", {result['budget_bytes']:,} budget B against the ceiling" if result["budget_bytes"] != result["bytes"] else "")
-          + (f", over the {BRIEF_MAX_BYTES} budget B ceiling after every cut: {', '.join(over)}" if over else "")      # PC2-6: the conductor's note
           + (f", side files: {', '.join(sides)}" if sides else "")
           + (", not written" if ns.dry_run else "") + ")")
     return 0

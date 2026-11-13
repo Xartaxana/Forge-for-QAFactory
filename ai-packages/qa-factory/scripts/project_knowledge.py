@@ -60,8 +60,6 @@ SIDE_KEYS = (SIDES_KEY, STAND_SIDES_KEY, REFERENCE_KEY)
 LESSONS_KEY = "environments.stand_lessons"
 LESSON_SUBJECT_MAX = 80
 LESSON_WAIT_MAX_S = 86400
-LESSON_LINES_MAX = 10
-LESSON_WORDS_SHOWN = 200
 
 # S15 / phase 1: the catalogue (references/config-keys.json, section `knowledge`) is the ONE table of project facts, read through
 # `config_contract.config_keys()` (AR-13). `KEYS` is DERIVED from its registry rows, once, at import: the comparator a row names compares
@@ -435,11 +433,10 @@ def _plain(text) -> str:
 
 
 def _lesson_line(row) -> str:
-    """One display line of a lesson row. Never raises; a row of a shape it does not know is shown with its words and no wait."""
+    """One display line of a lesson row: the person's words WHOLE on one line (whitespace folded, no character dropped; a person's
+    words are never cut, AR-24). Never raises; a row of a shape it does not know is shown with its words and no wait."""
     provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
     words = _plain(" ".join(str(provenance.get("words") or "").split()))
-    if len(words) > LESSON_WORDS_SHOWN:
-        words = words[:LESSON_WORDS_SHOWN] + " ..."
     line = f"{_plain(row['element'])}: \"{words}\""
     value = row.get("value")
     if _lesson_value_ok(value) and value["wait_s"] is not None:
@@ -453,10 +450,10 @@ def lessons(root, stand) -> dict:
     """`{"lines": [...], "rows": [...], "problem": str, "no_stand": bool}`: what a person taught about the stand `stand` (exact name),
     one live subject each, the newest usable row, sorted by subject. PURE: writes nothing, never raises. The registry is loaded ONCE.
 
-    A line is `<subject>: "<their words, cut at 200 characters>"`, plus the wait and who gave it when; at most 10 lines, then one
-    `(+k more: ...)` line (the stand quoted; `more` is `k`, 0 when none); the store keeps the words whole. No stand chosen (empty or the placeholder) is `no_stand` True with no
+    A line is `<subject>: "<their words, whole>"`, plus the wait and who gave it when; every lesson is a line (no count cap, no
+    cut of the words). No stand chosen (empty or the placeholder) is `no_stand` True with no
     problem: it is not a read problem. An unreadable registry or catalogue is `problem`, never "no lessons" (FR-59)."""
-    out = {"lines": [], "rows": [], "problem": "", "no_stand": False, "more": 0}
+    out = {"lines": [], "rows": [], "problem": "", "no_stand": False}
     try:
         stand = str(stand or "")
         if not stand.strip() or stand == PLACEHOLDER_STAND:
@@ -476,14 +473,9 @@ def lessons(root, stand) -> dict:
         picked = [_latest(rows, LESSONS_KEY, stand, element) for element in elements.values()]
         picked = sorted((row for row in picked if row is not None), key=lambda row: row["element"])
         out["rows"] = copy.deepcopy(picked)
-        lines = [_lesson_line(row) for row in picked]
-        if len(lines) > LESSON_LINES_MAX:
-            extra = len(lines) - LESSON_LINES_MAX
-            lines = lines[:LESSON_LINES_MAX] + [f'(+{extra} more: project_knowledge.py lessons --stand "{stand}")']
-            out["more"] = extra
-        out["lines"] = lines
+        out["lines"] = [_lesson_line(row) for row in picked]
     except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not an empty list
-        out.update(lines=[], rows=[], more=0, problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
+        out.update(lines=[], rows=[], problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
     return out
 
 

@@ -2982,8 +2982,8 @@ def test_stand_lessons_are_one_note_never_a_card() -> None:
         notes = info_of(result, "stand_lessons")
         check_eq("11 lessons: one note, never a finding", (len(notes), result["findings"]), (1, []))
         check("11 lessons: no script name and no flag in the person's note", "project_knowledge" not in notes[0] and "--stand" not in notes[0], notes[0])
-        check("11 lessons: 'and 1 more (the roles are told how to read them all)'", " and 1 more (the roles are told how to read them all)" in notes[0], notes[0])
-        check("11 lessons: ten lessons shown", notes[0].count(': "words ') == 10 and "op11" not in notes[0], notes[0])
+        check("11 lessons: no 'and 1 more' tail (FV1-4, F9 a)", "and 1 more" not in notes[0], notes[0])
+        check("11 lessons: every lesson is in the note", notes[0].count(': "words ') == 11 and "op11" in notes[0], notes[0])
         check("11 lessons: the pointer line is not in the note", "(+" not in notes[0], notes[0])
     finally:
         cleanup(root)

@@ -249,8 +249,27 @@ def left_out_sources() -> None:
         for n in range(1, 10):
             (folder / f"mr-{n}.md").write_text(f"digest {n}", encoding="utf-8")
         before = brief_pack.source_material("QA-9", task, reader)
-        check_eq("no_record_unchanged: nine files, the cap of eight, no left-out line", len(before), 8)
+        check_eq("no_record_unchanged: nine files, nine lines (FV1-4 N1: no cap of eight), no left-out line", len(before), 9)
         check_not_in("no_record_unchanged: no word about a list", "Left out by the person", "\n".join(before))
+        # AT and BEYOND the old cap of eight: 8 files are 8 lines, 9 files are 9 lines; 12 files (4 merge requests, 8 pasted) are 12 lines
+        (folder / "mr-9.md").unlink()
+        check_eq("FV1-4 N1 AT the old cap: eight files, eight lines", len(brief_pack.source_material("QA-9", task, reader)), 8)
+        (folder / "mr-9.md").write_text("digest 9", encoding="utf-8")
+        check_eq("FV1-4 N1 BEYOND the old cap: nine files, nine lines", len(brief_pack.source_material("QA-9", task, reader)), 9)
+        for n in range(5, 10):
+            (folder / f"mr-{n}.md").unlink()
+        for n in range(1, 9):
+            (folder / f"pasted-{n}.txt").write_text(f"pasted {n}", encoding="utf-8")
+        twelve = brief_pack.source_material("QA-9", task, reader)
+        check_eq("FV1-4 N1: twelve files (4 merge requests, 8 pasted) are twelve lines, each file named once",
+                 sorted(ln.split("/")[-1].split(" ")[0] for ln in twelve),
+                 sorted([f"mr-{n}.md" for n in range(1, 5)] + [f"pasted-{n}.txt" for n in range(1, 9)]))
+        check_eq("FV1-4 N1: ... the kinds are the file's own", (sum("collected merge request" in ln for ln in twelve),
+                 sum("collected material the person supplied" in ln for ln in twelve)), (4, 8))
+        for n in range(1, 9):
+            (folder / f"pasted-{n}.txt").unlink()
+        for n in range(5, 10):
+            (folder / f"mr-{n}.md").write_text(f"digest {n}", encoding="utf-8")
         check_eq("no_record_unchanged: a role that gets no material gets nothing",
                  brief_pack.source_material("QA-9", task, "qa-scout"), [])
 
@@ -271,9 +290,8 @@ def left_out_sources() -> None:
         told = [ln for ln in lines if ln.startswith("- Left out by the person's word before the run")]
         check("excluded_material_not_in_brief: neither the digest nor the receipt of the excluded item is handed on",
               not any("mr-0." in ln for ln in lines), str(lines))
-        check_eq("excluded_material_not_in_brief: the cap of eight is applied AFTER the skip - nine real files, eight lines, "
-                 "the excluded file took no slot", [ln.split("/")[-1].split(" ")[0] for ln in material],
-                 [f"mr-{n}.md" for n in range(1, 9)])
+        check_eq("excluded_material_not_in_brief: nine real files, nine lines, the excluded file is not one of them (no cap)",
+                 [ln.split("/")[-1].split(" ")[0] for ln in material], [f"mr-{n}.md" for n in range(1, 10)])
         check_eq("left_out_line_for_readers: one line per word, before the material", len(told), 2)
         check_in("left_out_line_for_readers: the word as written and the reason", 'testproject1-ui!1924 ("Draft MR of an earlier factory run',
                  told[0])
@@ -767,10 +785,10 @@ def expectation_lines() -> None:
         register_critic(task)
         seed_changes(task, [fn_name(i) for i in range(1, 10)])
         capped = critic_brief()
-        check("10 KB of gate words: the critic's brief is still within 6 KB", capped["budget_bytes"] <= 6 * 1024,
-              f"{capped['budget_bytes']} {capped['over_ceiling']} head {brief_pack.head_bytes(capped['markdown'].split(chr(10))[2:10])} "
-              f"bytes {capped['bytes']}")
-        check_eq("the trimming really ran: the words moved to a side file", capped["sides"]["decisions"], True)
+        gate_words = "Gate A: approved. " + "Keep every UI case in scope. " * 400
+        check("10 KB of gate words: the brief carries them whole, nothing is cut (FV1-4 N1)",
+              gate_words.strip() in " ".join(capped["markdown"].split()), str(capped["bytes"]))
+        check_eq("10 KB of gate words: one line over the width, wrapped, the decisions side file written", capped["sides"]["decisions"], True)
         check_in("and the head still carries the changed-test line, with its 'more' tail",
                  ", and 1 more - the full list: " + pointer, capped["markdown"])
         check_in("and the count", "- 9 to judge: ", capped["markdown"])
@@ -870,7 +888,6 @@ def proof_lines() -> None:
         check_in("12 instances: the count", " - 12 instances (new or changed tests): ", line)
         check_in("12 instances: four more", ", and 4 more - the full list: work/automation-manifest.json (`novelty` per row)", line)
         check_eq("12 instances: eight names", line.count(TEST_FILE + "::"), 8)
-        check("12 instances: the brief stays within 6 KB", result["budget_bytes"] <= 6 * 1024, str(result["budget_bytes"]))
 
         # a name is the project's free text: clipped, the count and the tail survive
         long_name = "test_a" + "y" * 400
@@ -1463,7 +1480,7 @@ def blast_radius_lines() -> None:
     import grounding_table as GT
     import test_novelty as TN
     root = harness.temp_project("qa-brief-blast-")
-    real_git, real_ensure, real_ceiling = TN._git, BR.ensure, brief_pack.BRIEF_MAX_BYTES
+    real_git, real_ensure = TN._git, BR.ensure
     calls = []
     TN._git = lambda cwd, args, stdin=None: (calls.append(list(args)), real_git(cwd, args, stdin))[1]
     try:
@@ -1520,19 +1537,6 @@ def blast_radius_lines() -> None:
         s5 = brief(stage="S5", role="qa-automator", dispatch="S5-qa-automator-1")["markdown"]
         check_not_in("(M13) an S5 brief has no such line", "Blast radius index", s5)
 
-        # the ceiling: AT the brief's own size nothing changes; one byte BEYOND, the head keeps the line and the rest gives way
-        size = brief(write=False)["budget_bytes"]
-        try:
-            brief_pack.BRIEF_MAX_BYTES = size
-            at_ceiling = brief(write=False)
-            brief_pack.BRIEF_MAX_BYTES = size - 1
-            beyond = brief(write=False)
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real_ceiling
-        check_eq("(M13) AT the ceiling: the brief is the same, the line in the head", (at_ceiling["budget_bytes"], the_line(at_ceiling["markdown"]).startswith("Blast radius index (code;")), (size, True))
-        check("(M13) 1 byte BEYOND: the line is still in the head, the brief shrank elsewhere",
-              the_line(beyond["markdown"]).startswith("Blast radius index (code;") and beyond["markdown"] != at_ceiling["markdown"], f"{beyond['budget_bytes']} / {size}")
-
         # a failure is named in the line, never swallowed, and the brief is still written
         def boom(*args, **kwargs):
             raise RuntimeError("boom\nsecond line")
@@ -1555,7 +1559,7 @@ def blast_radius_lines() -> None:
         check_eq("(M13) source current-code and no diff: `none`, the word named, no file", (the_line(brief()["markdown"]), index.exists()),
                  ("Blast radius index: none - the implementation source is current-code.", False))
     finally:
-        TN._git, BR.ensure, brief_pack.BRIEF_MAX_BYTES = real_git, real_ensure, real_ceiling
+        TN._git, BR.ensure = real_git, real_ensure
         harness.cleanup(root)
 
 
@@ -1565,7 +1569,7 @@ def labelling_vocabulary_lines() -> None:
     (The s3.md phrases moved to design/role-rules.json.)"""
     import handoff as H
     root = harness.temp_project("qa-brief-labels-")
-    real_vocabulary, real_allowed, real_ceiling = H.vocabulary, H.allowed, brief_pack.BRIEF_MAX_BYTES
+    real_vocabulary, real_allowed = H.vocabulary, H.allowed
     try:
         harness.use_project(root)
         task = seed(root, "QA-9")
@@ -1597,18 +1601,6 @@ def labelling_vocabulary_lines() -> None:
         written = brief(write=True)
         check_in("(OH3-14) the written brief holds the line too", H.grounding_vocabulary_line(), written)
 
-        # AT and one byte BEYOND the ceiling: the head keeps the line
-        size = len(text.encode("utf-8"))
-        try:
-            brief_pack.BRIEF_MAX_BYTES = size
-            at_ceiling = brief()
-            brief_pack.BRIEF_MAX_BYTES = size - 1
-            beyond = brief()
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real_ceiling
-        check("(OH3-14) AT the ceiling and 1 byte BEYOND it the head still holds the line",
-              H.grounding_vocabulary_line() in at_ceiling and H.grounding_vocabulary_line() in beyond)
-
         # which dispatches get it: window 1 only; the exit window, a dispatch with no binding and another stage get none
         for name, extra in (("exit window (purpose absent)", {}), ("another purpose", {"request_binding": {"purpose": "other"}}),
                             ("a binding that is not a mapping", {"request_binding": "s3_labelling"})):
@@ -1635,7 +1627,7 @@ def labelling_vocabulary_lines() -> None:
         H.allowed = real_allowed
 
     finally:
-        H.vocabulary, H.allowed, brief_pack.BRIEF_MAX_BYTES = real_vocabulary, real_allowed, real_ceiling
+        H.vocabulary, H.allowed = real_vocabulary, real_allowed
         harness.cleanup(root)
 
 
@@ -1662,44 +1654,40 @@ def p4_story(base: Path, name: str, extra=()) -> Path:
 
 def p4_lines(base: Path) -> None:
     root = p4_story(base, "k1", [TQR.q("Q6")])      # Q6 is the question nobody answered
+    fenced = "\n".join(["  ```"] + ["  " + ln for ln in TQR.WORDS_1.strip().split("\n")] + ["  ```"])      # a line break: a fenced block
     want_shown = [
-        f'- Q1 answered {STOP_WORDS}: reading b - "reading 1"; the person\'s words: {WORDS_1_ONE_LINE}',
+        f'- Q1 answered {STOP_WORDS}: reading b - "reading 1"; the person\'s words:\n{fenced}',
         f'- Q2 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
         f"- Q3 kept open until the report ({STOP_WORDS}); do not ask it again; {SAME_AS_Q1}",
         f'- Q4 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
         f'- Q5 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
     ]
-    want_minimal = [f"- Q1 answered: reading b; the person's words: {WORDS_1_ONE_LINE}",
-                    f"- Q2 answered: reading a; {SAME_AS_Q1}", "- Q3 kept open until the report; do not ask it again",
-                    f"- Q4 answered: reading a; {SAME_AS_Q1}", f"- Q5 answered: reading a; {SAME_AS_Q1}"]
     for stage, role in (("S3", "qa-test-strategist"), ("S4", "qa-case-designer")):
-        shown, minimal, full = p4_decisions(root, stage, role)
+        shown, full = p4_decisions(root, stage, role)
         check_eq(f"K1 hf2-7 P4: {stage} - the brief names every decided question, in register order (T8), the open Q6 not", shown, want_shown)
-        check_eq(f"K1 hf2-7 P4: {stage} - the minimal list is the id, the letter and the words (once; the kept-open line has none)", minimal, want_minimal)
         check_eq(f"K1 hf2-7 P4: {stage} - the same words are in the full file ONCE, whole (the other lines point at them)",
                  ("\n".join(full).count("Q3: until the report"), full[0].endswith("the person's words: " + TQR.WORDS_1.strip())),
                  (1, True))
-    shown, _minimal, _full = p4_decisions(root)
+    shown, _full = p4_decisions(root)
     check_not_in("K1 hf2-7 P4: a kept-open answer is shown as kept open, not as a reading", "reading", shown[2])
     check_not_in("K1 hf2-7 P4: the raw `where` (S2 stop) never reaches the role", "S2 stop", "\n".join(shown))
-    check_eq("K1 hf2-7 P4: without task_root the register is not read - today's output", p4_decisions(None), ([], [], []))
+    check_eq("K1 hf2-7 P4: without task_root the register is not read - today's output", p4_decisions(None), ([], []))
     # FR-6: the lines a role reads go through the checker of the texts a person reads
-    for label, lines in (("shown", shown), ("minimal", p4_decisions(root)[1])):
-        check_eq(f"FR-6 hf2-7 P4: human_text.problems on the {label} T8 lines is empty",
-                 human_text.problems("\n".join(lines), kind="report"), [])
+    check_eq("FR-6 hf2-7 P4: human_text.problems on the shown T8 lines is empty",
+             human_text.problems("\n".join(shown), kind="report"), [])
     # a decision on other bytes (the row changed after the answer) and one with no record are asked again: no line
     changed = TQR.write_story(base / "k1-changed", TQR.f12586_rows(), answers=[TQR.rec("Q1", "answered", reading="a")])
-    check_eq("K1 hf2-7 P4: an answer given on other bytes is asked again, so the brief has no line for it", p4_decisions(changed), ([], [], []))
+    check_eq("K1 hf2-7 P4: an answer given on other bytes is asked again, so the brief has no line for it", p4_decisions(changed), ([], []))
     check_eq("H1 hf2-7 P4: no register and no answers file: no T8 line and no breakage line",
-             p4_decisions(base / "k1-nothing"), ([], [], []))
+             p4_decisions(base / "k1-nothing"), ([], []))
     # the journal copy of the same words: dropped when the question lines carry them, kept when other text rides with them
     project = base / "project"
     journal = project / "qa-factory" / "records" / "journal.jsonl"
     journal.parent.mkdir(parents=True)
     notes = ["S3 question stop: " + TQR.WORDS_1.strip(), "never write to Jira", "do not touch the stand\n" + TQR.WORDS_1.strip()]
     journal.write_text("".join(json.dumps({"event": "human_answer", "task": "T-1", "notes": n}) + "\n" for n in notes), encoding="utf-8")
-    _s, _m, with_register = p4_decisions(root, project=project)
-    _s, _m, journal_only = p4_decisions(None, project=project)
+    _s, with_register = p4_decisions(root, project=project)
+    _s, journal_only = p4_decisions(None, project=project)
     check_eq("K1 hf2-7 P4: with the register, the journal copy of the words is not repeated; the two other answers stay",
              len([x for x in with_register if x.startswith("- answer")]), 2)
     check_in("K1 hf2-7 P4: ...the standing answer stays", "- answer: never write to Jira", with_register)
@@ -1708,26 +1696,24 @@ def p4_lines(base: Path) -> None:
     check_in("K1 hf2-7 P4: without task_root the journal copy stays (today's output)", "- answer: S3 question stop:", journal_only)
 
 
-def p4_min_words(base: Path) -> None:
-    """RC2-1: the minimal line of a free-text answer carries the words cut at DECISION_CHARS_MIN by `_short`."""
+def p4_words_whole_short(base: Path) -> None:
+    """FV1-4 N1: a short free-text answer is carried whole on its one line (the cut of RC2-1 is gone); 239, 240 and 241 characters
+    all whole, with no pointer."""
     root = TQR.write_story(base / "minwords", [TQR.q("Q1"), TQR.q("Q2")])
-    limit, pointer = brief_pack.DECISION_CHARS_MIN, "the whole text is in <decisions>"
 
-    def minimal_of(*words) -> list:
+    def shown_of(*words) -> list:
         (root / "work" / "question-answers.jsonl").unlink(missing_ok=True)
         for qid, text in zip(("Q1", "Q2"), words):
             QR.record(root, qid, "answered", text, "S2 stop", "person", TQR.row_hash_of(root, qid), reading="a")
-        return [m for _f, _s, m in brief_pack.question_answer_lines(root)[0]]
+        return [s for _f, s in brief_pack.question_answer_lines(root)[0]]
 
-    lead = "- Q1 answered: reading a; the person's words: "
-    check_eq("RC2-1: words shorter than the limit are whole, no pointer", minimal_of("w" * (limit - 1)), [lead + "w" * (limit - 1)])
-    check_eq("RC2-1: words of exactly the limit are whole, no pointer", minimal_of("w" * limit), [lead + "w" * limit])
-    check_eq("RC2-1: one character more is cut by `_short` and points at the side file", minimal_of("w" * (limit + 1)),
-             [lead + "w" * (limit - 3) + "...; " + pointer])
-    check_eq("RC2-1: the same words under two questions are carried once", minimal_of("same words", "same words"),
-             [lead + "same words", "- Q2 answered: reading a; the person's words: the same text as under Q1"])
-    check_eq("RC2-1: a two-line answer is folded by `_short` as the sisters fold it", minimal_of("first line\nsecond\tline\xa0end"),
-             [lead + "first line second line end"])
+    lead = f'- Q1 answered {STOP_WORDS}: reading a - "reading 0"; the person\'s words: '
+    for size in (239, 240, 241):
+        check_eq(f"FV1-4 N1: {size} characters of words are whole, no pointer", shown_of("w" * size), [lead + "w" * size])
+    check_eq("FV1-4 N1: the same words under two questions are carried once", shown_of("same words", "same words"),
+             [lead + "same words", f'- Q2 answered {STOP_WORDS}: reading a - "reading 0"; the person\'s words: the same text as under Q1'])
+    check_eq("FV1-4 N1: a one-line answer that fits keeps today's folded form (no fence)", shown_of("first   line  second\t\xa0end"),
+             [lead + "first line second end"])
 
     # words the register cannot hold (empty, blanks, not a string): the line is as it was, and nothing raises
     real = QR.answers_for_brief
@@ -1736,7 +1722,8 @@ def p4_min_words(base: Path) -> None:
             QR.answers_for_brief = lambda _root, w=words: {"unreadable": False, "answers": [
                 {"id": "Q1", "status": "answered", "reading": "a", "reading_text": "", "where": "S2 stop", "words": w}]}
             lines = brief_pack.question_answer_lines(root)[0]
-            check_eq(f"RC2-1: {label} words - the minimal line is as before (id and letter)", [m for _f, _s, m in lines], ["- Q1 answered: reading a"])
+            check_eq(f"FV1-4 N1: {label} words - the shown line is the id and the letter, words not recorded",
+                     [s for _f, s in lines], [f'- Q1 answered {STOP_WORDS}: reading a; the person\'s words: not recorded'])
             check_in(f"RC2-1: {label} words - the full line says not recorded", "the person's words: not recorded", lines[0][0])
     finally:
         QR.answers_for_brief = real
@@ -1744,66 +1731,85 @@ def p4_min_words(base: Path) -> None:
 
 def p4_long_words(base: Path) -> None:
     root = TQR.write_story(base / "long", [TQR.q("Q1")])
-    limit = brief_pack.DECISION_CHARS
     head = f'- Q1 answered {STOP_WORDS}: reading a - "reading 0"; the person\'s words: '
+    lead = head.rstrip()
+    width = brief_pack.WORDS_LINE_WIDTH
 
     def listed(words: str) -> tuple:
         (root / "work" / "question-answers.jsonl").unlink(missing_ok=True)
         QR.record(root, "Q1", "answered", words, "S2 stop", "person", TQR.row_hash_of(root, "Q1"), reading="a")
         return p4_decisions(root)
 
-    at = "w" * (limit - len(head))
-    shown, minimal, full = listed(at)
-    check_eq("K3 hf2-7 P4: a line of exactly DECISION_CHARS carries the words inline", (shown, len(shown[0])), ([head + at], limit))
-    shown, minimal, full = listed(at + "w")
-    check_eq("K3 hf2-7 P4: one character beyond it points at the side file - no half of the words in the brief",
-             shown, [f'- Q1 answered {STOP_WORDS}: reading a - "reading 0"; the person\'s words: the whole text is in <decisions>'])
-    check_eq("K3 hf2-7 P4: ...the full file has them whole", full, [head + at + "w"])
-    folded = "w" * (limit - len(head) + 1)      # one line of `w`: what the minimal line cuts (RC2-1)
-    cut_words = folded[:brief_pack.DECISION_CHARS_MIN - 3] + "..."
-    check_eq("K3 hf2-7 P4: ...and the minimal line carries the words cut at DECISION_CHARS_MIN, with the pointer (RC2-1)", minimal,
-             [f"- Q1 answered: reading a; the person's words: {cut_words}; the whole text is in <decisions>"])
-    result = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", None, root)
-    check("K3 hf2-7 P4: the pointer is what makes `build` write the side file (truncated is read from `<decisions>`)",
-          any("<decisions>" in x for x in result[0]))
-    # H24: beyond PERSON_WORDS_MAX the cut names the file that holds the whole text - the answers file, not the journal
-    biggest = "x" * brief_pack.PERSON_WORDS_MAX
-    check_eq("H24 hf2-7 P4: words of exactly PERSON_WORDS_MAX are whole", listed(biggest)[2], [head + biggest])
-    cut = listed(biggest + "y")[2][0]
-    # the story folder `long` sits in no project (a bare folder): the cut names the answers file by the folder's absolute posix path (OF4-21 E4b)
-    check_in("H24 hf2-7 P4: one more is cut and the cut names the answers file", "[cut: 1 more characters, the whole text is in "
-             f"{root.resolve().as_posix()}/work/question-answers.jsonl]", cut)
-    check_not_in("H24 hf2-7 P4: ...and does not point at the journal, which holds the same cut", "journal.jsonl", cut)
+    # FV1-4 N1: no cut at any length - the words are whole in the brief, and `<decisions>` appears only for a wrapped line
+    for size in (400, 401):
+        shown, full = listed("w" * size)
+        check_eq(f"K3 FV1-4 N1: {size} characters are whole inline, no pointer, no `<decisions>`",
+                 (shown, any("<decisions>" in x for x in shown)), ([head + "w" * size], False))
+        check_eq(f"K3 FV1-4 N1: ...and the full file has them whole ({size})", full, [head + "w" * size])
+    for size in (20000, 20001, 24576):
+        words = ("ab " * size)[:size - 1] + "z"        # whitespace inside: a fitting-or-wrapped one-line text, never cut
+        shown, full = listed(words)
+        joined = "".join(ln[2:] for ln in shown[0].split("\n")[2:-1])
+        check_eq(f"H24 FV1-4 N1: {size} characters of words are whole in the brief (wrapped, none dropped)", joined, words)
+        check_eq(f"H24 FV1-4 N1: ...and whole in the full file ({size})", full, [head + words])
+    # E-23: a 3-paragraph answer is a fenced block, the words as given, a blank line kept
+    paragraphs = "first paragraph\n\nsecond paragraph\n\nthird paragraph"
+    shown, full = listed(paragraphs)
+    check_eq("E-23 FV1-4 N1: a 3-paragraph answer is the head line and the words in a two-space fence, blank lines kept",
+             shown[0], "\n".join([lead, "  ```", "  first paragraph", "", "  second paragraph", "", "  third paragraph", "  ```"]))
+    # E-24: a line that looks like a heading or a table row stays literal inside the fence
+    markup = "intro\n## Heading\n| a | b |\n- item"
+    shown, full = listed(markup)
+    check_eq("E-24 FV1-4 N1: heading, table and list lines of the words sit inside the fence, indented",
+             shown[0], "\n".join([lead, "  ```", "  intro", "  ## Heading", "  | a | b |", "  - item", "  ```"]))
+    check("E-24 FV1-4 N1: no line of the brief entry starts a section or a table", not any(
+        ln.startswith(("#", "|")) for ln in shown[0].split("\n")))
+    # E-30: a backtick run in the words makes the fence longer than any run in it
+    ticked = "see ```code```\nand more"
+    shown, full = listed(ticked)
+    check_eq("E-30 FV1-4 N1: a run of three backticks in the words gives a four-backtick fence",
+             shown[0], "\n".join([lead, "  ````", "  see ```code```", "  and more", "  ````"]))
+    # E-22: a 200 000-character one-line answer is wrapped at the width, nothing dropped, the head carries `<decisions>`
+    big = "word " * 39999 + "word"
+    shown, full = listed(big)
+    entry = shown[0].split("\n")
+    body = entry[2:-1]
+    check("E-22 FV1-4 N1: wrapped - no line of the words is over the width", all(len(ln) - 2 <= width for ln in body), str(max(len(x) for x in body)))
+    check_eq("E-22 FV1-4 N1: the lines joined are the words, none dropped", "".join(ln[2:] for ln in body), big)
+    check_in("E-22 FV1-4 N1: the head line carries the `<decisions>` pointer", "<decisions>", entry[0])
+    check_eq("E-22 FV1-4 N1: ...the full file has the words whole, on one line", full, [head + big])
+    check_in("E-22 FV1-4 N1: ...and the entry list ends with the every-decision pointer", brief_pack.DECISIONS_ALL_LINE, shown)
+    check_eq("E-22 FV1-4 N1: ...a line of the words folded equals the words", " ".join("".join(ln[2:] for ln in body).split()), big)
 
 
 def p4_breakage(base: Path) -> None:
     """N7: one line only when the store says it could not read (broken line, non-object line, unreadable file)."""
     def notice(root) -> tuple:
-        shown, minimal, full = p4_decisions(root)
-        return tuple(sum(NO_BREAKAGE_LINE in x for x in part) for part in (shown, minimal, full))
+        shown, full = p4_decisions(root)
+        return tuple(sum(NO_BREAKAGE_LINE in x for x in part) for part in (shown, full))
 
     good = lambda root: TQR.rec("Q1", "answered", reading="a", row_hash=TQR.row_hash_of(root, "Q1"))
     broken = TQR.f12586_story(base / "h2-broken")
     (broken / "work" / "question-answers.jsonl").write_text(good(broken) + "\n{ not json", encoding="utf-8")
-    check_eq("K4 hf2-7 P4: a broken line -> ONE line in each of the three lists", notice(broken), (1, 1, 1))
+    check_eq("K4 hf2-7 P4: a broken line -> ONE line in each of the two lists", notice(broken), (1, 1))
     check_in("K4 hf2-7 P4: ...and the good record is still listed", "- Q1 answered", p4_decisions(broken)[0])
     check_eq("K4 hf2-7 P4: the breakage line comes first", NO_BREAKAGE_LINE in p4_decisions(broken)[0][0], True)
     both = TQR.f12586_story(base / "h2-both")
     (both / "work" / "question-answers.jsonl").write_text(good(both) + "\n{ not json\n[1, 2]", encoding="utf-8")
-    check_eq("K4 hf2-7 P4: a broken line and a line that is no object are still ONE line", notice(both), (1, 1, 1))
+    check_eq("K4 hf2-7 P4: a broken line and a line that is no object are still ONE line", notice(both), (1, 1))
     folder = TQR.f12586_story(base / "h2-dir")
     (folder / "work" / "question-answers.jsonl").mkdir()
     check_eq("K4 hf2-7 P4: an answers file that cannot be read (a folder): one line, no answers listed",
-             (notice(folder), p4_decisions(folder)[0][1:]), ((1, 1, 1), []))
+             (notice(folder), p4_decisions(folder)[0][1:]), ((1, 1), []))
     applied = TQR.f12586_story(base / "h2-applied")
     (applied / "work" / "question-answers.jsonl").write_text(
         good(applied) + "\n" + json.dumps({"kind": "answers_applied", "id": "Q1", "at": "2026-10-26T10:00:00+00:00"}), encoding="utf-8")
-    check_eq("K4 hf2-7 P4 (N7): a file holding only `answers_applied` and valid records prints no breakage line", notice(applied), (0, 0, 0))
+    check_eq("K4 hf2-7 P4 (N7): a file holding only `answers_applied` and valid records prints no breakage line", notice(applied), (0, 0))
     odd = TQR.f12586_story(base / "h2-odd")
     (odd / "work" / "question-answers.jsonl").write_text(
         good(odd) + "\n" + TQR.rec("Q99", "answered", reading="a") + "\n" + json.dumps({"kind": "question", "id": "Q2", "status": "zzz"}),
         encoding="utf-8")
-    check_eq("K4 hf2-7 P4 (N7): an unknown id and an invalid record are no breakage either", notice(odd), (0, 0, 0))
+    check_eq("K4 hf2-7 P4 (N7): an unknown id and an invalid record are no breakage either", notice(odd), (0, 0))
     check_in("K4 hf2-7 P4: the line says what to do, in words a person could read", "asked again, not guessed", p4_decisions(broken)[0][0])
     check_eq("FR-6 hf2-7 P4: human_text.problems on the breakage line is empty",
              human_text.problems(p4_decisions(broken)[0][0], kind="report"), [])
@@ -1815,12 +1821,12 @@ def p4_halts(base: Path) -> None:
     root = p4_story(base, "halts")
 
     def open_lines(pipeline, with_register=True) -> list:
-        return [x for x in p4_decisions(root if with_register else None, "S4", "qa-case-designer", pipeline)[2] if x.startswith("- open halt")]
+        return [x for x in p4_decisions(root if with_register else None, "S4", "qa-case-designer", pipeline)[1] if x.startswith("- open halt")]
 
     lifted = {"stage": "S2", "reason": "2 blocking question(s)", "at": "2026-10-26T10:00:00+00:00", "resolved": True,
               "resolved_at": "2026-10-26T10:05:00+00:00"}
     check_eq("H10 hf2-7 P4: a halt with resolved True is no line - the questions are closed and the brief says so",
-             (open_lines({"halts": [lifted]}), len(p4_decisions(root, "S4", "qa-case-designer", {"halts": [lifted]})[2])), ([], 5))
+             (open_lines({"halts": [lifted]}), len(p4_decisions(root, "S4", "qa-case-designer", {"halts": [lifted]})[1])), ([], 5))
     check_eq("H11 hf2-7 P4: resolved False is open", open_lines({"halts": [dict(lifted, resolved=False)]}),
              ["- open halt S2: 2 blocking question(s)"])
     check_eq("H11 hf2-7 P4: no `resolved` at all is open", open_lines({"halts": [{"stage": "S2", "reason": "x"}]}), ["- open halt S2: x"])
@@ -1853,19 +1859,11 @@ def p4_build(root: Path, task: Path) -> None:
         check_in("K1 hf2-7 P4 (build): the S4 brief has the answered question, with the words", f'Q5 answered {STOP_WORDS}: reading a - "reading 0"', brief)
         check_in("K1 hf2-7 P4 (build): ...and the kept-open one", "Q3 kept open until the report", brief)
         check_not_in("H10 hf2-7 P4 (build): the lifted halt is not in the brief", "open halt", brief)
-        # t-1765 X1 fix-3: the SD head is form, outside the budget (own cap SD_HEAD_MAX_BYTES), so the 6 KB pin is on the body.
-        check("K1 hf2-7 P4 (build): the brief body is under 6 KB", built["budget_bytes"] <= 6 * 1024, str(built["budget_bytes"]))
-        # RC2-1 fix round (t-448 F3): at level 1 the cut minimal line names the side file by its path, never the literal placeholder
+        # FV1-4 N1: a 300-character answer is whole in the brief, no side file, no placeholder left over
         QR.record(task, "Q1", "answered", "w" * 300, "S2 stop", "person", TQR.row_hash_of(task, "Q1"), reading="b")
-        real_ceiling = brief_pack.BRIEF_MAX_BYTES
-        brief_pack.BRIEF_MAX_BYTES = 1       # the ladder runs to its last rung: level 1
-        try:
-            tight = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real_ceiling
-        check_in("RC2-1 (build, level 1): the Q1 line is cut and says where the whole text is",
-                 "the whole text is in qa-factory/artifacts/QA-9/work/briefs/S4-qa-case-designer-1-decisions.md", tight)
-        check_not_in("RC2-1 (build, level 1): no literal `<decisions>` placeholder is left in the brief", "<decisions>", tight)
+        whole = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)
+        check_in("FV1-4 N1 (build): the Q1 line carries its 300 characters whole", "the person's words: " + "w" * 300, whole["markdown"])
+        check_not_in("FV1-4 N1 (build): no literal `<decisions>` placeholder is left in the brief", "<decisions>", whole["markdown"])
         pipeline["halts"][0]["resolved"] = False
         pipeline_file.write_text(json.dumps(pipeline), encoding="utf-8")
         again =brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
@@ -1891,7 +1889,6 @@ def sc1_10_lines() -> None:
     from unittest.mock import patch
     stage_of = {role: st["id"] for st in hooklib.load_ref_json("stages.json")["stages"] for role in st.get("roles") or []}
     root = harness.temp_project("qa-brief-sc110-")
-    real_ceiling = brief_pack.BRIEF_MAX_BYTES
 
     def brief(role: str, name: str = "1", **kw) -> dict:
         return brief_pack.build("QA-9", stage_of[role], role, f"{stage_of[role]}-{role}-{name}", write=False, **kw)
@@ -2084,8 +2081,7 @@ def sc1_10_lines() -> None:
         check("B-K5 integration: --validate says the view is stale", stale.returncode == 0 and
               json.loads(stale.stdout).get("view") == "stale", (stale.stdout or "") + (stale.stderr or ""))
 
-        # B-K7: a door is never trimmed away. BRIEF_MAX_BYTES = 1 cannot be met: every line that is not a door goes, the
-        # doors stay and the brief goes out over the ceiling (it never refuses).
+        # B-K7: a door is never left out of the brief (FV1-4 N1: nothing is left out of it at all).
         door_names = {role: [n for n in brief_pack.ROLE_FILES[role] if n.startswith(("project:", "plugin:"))]
                       for role in ("qa-scout", "qa-requirements-tester", "qa-case-designer", "qa-retro-analyst")}
         check_eq("B-K7 the doors of the four roles are the F3 documents and the two templates (and the scout's readiness)",
@@ -2094,36 +2090,13 @@ def sc1_10_lines() -> None:
                                                          "plugin:references/templates/understanding.md"],
                               "qa-case-designer": ["project:strategy/test-strategy.md"],
                               "qa-retro-analyst": ["project:strategy/test-strategy.md"]})
-        try:
-            for role, names in door_names.items():
-                brief_pack.BRIEF_MAX_BYTES = real_ceiling
-                whole = brief(role, "12")
-                doors = brief_pack.file_lines(names, task, root, True)
-                others = [x for x in whole["files"] if x not in doors]
-                check(f"B-K7 {role} (control): the full brief holds the doors and at least one line that is not a door",
-                      all(d in whole["files"] for d in doors) and bool(others), str(whole["files"]))
-                # AT the ceiling: the full size is kept whole; ONE byte below it, exactly the LAST non-door line goes
-                brief_pack.BRIEF_MAX_BYTES = whole["budget_bytes"]
-                at = brief(role, "13")
-                check_eq(f"B-K7 {role}: AT the brief's own budget nothing is trimmed", at["files"], whole["files"])
-                brief_pack.BRIEF_MAX_BYTES = whole["budget_bytes"] - 1
-                below = brief(role, "14")
-                # N4: a trimmed file is SAID (`## Not in the brief`), and that line costs bytes, so one byte below may take more than
-                # one line; what holds is that the lines taken are the TAIL of the non-door lines, in order, and that the brief names them.
-                gone = [x for x in whole["files"] if x not in below["files"]]
-                check_eq(f"B-K7 {role}: one byte below, only the tail of the non-door lines went (at least the last one)",
-                         (bool(gone), gone == others[-len(gone):] if gone else False), (True, True))
-                check("B-K7 " + role + ": ... and the brief says so under `## Not in the brief`",
-                      f"- {len(gone)} input file(s) - read " in below["markdown"] and "-files.md" in below["markdown"])
-                brief_pack.BRIEF_MAX_BYTES = 1
-                squeezed = brief(role, "15")
-                check_eq(f"B-K7 {role}: an unmeetable ceiling leaves exactly the doors, in order, and the brief is built",
-                         squeezed["files"], doors)
-                check(f"B-K7 {role}: ... larger than the ceiling (a door is not lost to keep a number)", squeezed["bytes"] > 1)
-                for door in doors:
-                    check_in(f"B-K7 {role}: the door line is in the text itself", door, squeezed["markdown"])
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        for role, names in door_names.items():
+            whole = brief(role, "12")
+            doors = brief_pack.file_lines(names, task, root, True)
+            check(f"B-K7 {role}: every door line is in the brief's file list and in its text (nothing is left out, FV1-4 N1)",
+                  all(d in whole["files"] and d in whole["markdown"] for d in doors), str(whole["files"]))
+            check_eq(f"B-K7 {role}: every line of result['files'] is in the brief, and no `-files.md` side file exists",
+                     ([x for x in whole["files"] if x not in whole["markdown"]], list((task / "work" / "briefs").glob("*-files.md"))), ([], []))
 
         # B-K9 (spec t-1765 X1, B-D, "moved"): what the old role files said about files that are not injected is now done by the
         # brief itself - it names each door with its path, and a file that is there with its size - and by the card and the
@@ -2151,7 +2124,6 @@ def p1v_n3_brief_size_record() -> None:
     role = "qa-scout"
     stage = stage_of[role]
     root = harness.temp_project("qa-brief-n3-")
-    real_ceiling = brief_pack.BRIEF_MAX_BYTES
     try:
         harness.use_project(root)
         task = seed(root, "QA-9")
@@ -2174,12 +2146,13 @@ def p1v_n3_brief_size_record() -> None:
         got = lines()
         check_eq("N3 (a) a written brief: one line", len(got), 1)
         rec = got[0] if got else {}
-        check_eq("N3 (a) the keys of the line, exactly",
-                 sorted(rec), sorted(["ts", "stage", "role", "dispatch", "bytes", "budget_bytes", "ceiling", "over"]))
+        check_eq("N3 (a) the keys of the line, exactly (FV1-4 N1: bytes only)",
+                 sorted(rec), sorted(["ts", "stage", "role", "dispatch", "bytes"]))
         check_eq("N3 (a) the values come from the build's result",
-                 (rec.get("stage"), rec.get("role"), rec.get("dispatch"), rec.get("bytes"), rec.get("budget_bytes"),
-                  rec.get("ceiling"), rec.get("over")),
-                 (stage, role, f"{stage}-{role}-1", made["bytes"], made["budget_bytes"], real_ceiling, made["over_ceiling"]))
+                 (rec.get("stage"), rec.get("role"), rec.get("dispatch"), rec.get("bytes")),
+                 (stage, role, f"{stage}-{role}-1", made["bytes"]))
+        check_eq("N3 (a) the build result carries `bytes` and none of the removed budget keys",
+                 [k for k in ("budget_bytes", "over_ceiling", "omitted", "ceiling") if k in made], [])
         check("N3 (a) ts is an ISO time with an offset", bool(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00", str(rec.get("ts")))),
               str(rec.get("ts")))
         # (f) the text the role reads is the same with or without the record
@@ -2189,24 +2162,11 @@ def p1v_n3_brief_size_record() -> None:
         # the same brief built twice: two lines (append-only)
         make("1")
         check_eq("N3 the same brief built twice: two lines", len(lines()), 2)
-        # (d) AT the ceiling: over is empty; ONE byte below it: the budget reasons are named
-        try:
-            brief_pack.BRIEF_MAX_BYTES = made["budget_bytes"]
-            make("2")
-            brief_pack.BRIEF_MAX_BYTES = made["budget_bytes"] - 1
-            make("3")
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real_ceiling
-        at, beyond = lines()[-2:]
-        check_eq("N3 (d) AT the ceiling: over is []", (at["dispatch"], at["over"], at["ceiling"]),
-                 (f"{stage}-{role}-2", [], made["budget_bytes"]))
-        check("N3 (d) one byte BEYOND: over names the reason", beyond["over"] != [] and set(beyond["over"]) <= {
-            "words at level 1", "doors only", "sd head", "over SLICE_BYTES"}, str(beyond))
-        # (e) the world without budget_bytes / over_ceiling: bytes only, nothing invented
+        # (e) a result with bytes only: the line holds bytes only, nothing invented
         before = len(lines())
         brief_pack._record_brief_size(task, {"stage": stage, "role": role, "dispatch": "D-x", "bytes": 77})
         last = lines()[-1]
-        check_eq("N3 (e) no budget_bytes / over_ceiling: the line holds bytes only",
+        check_eq("N3 (e) a result with bytes only: the line holds bytes only",
                  (len(lines()) - before, sorted(last)), (1, ["bytes", "dispatch", "role", "stage", "ts"]))
         check_eq("N3 (e) ... with the bytes as given", last["bytes"], 77)
         # (c) a record that cannot be written: one note on stderr, the brief is still written and returned
@@ -2244,7 +2204,46 @@ def p1v_n3_brief_size_record() -> None:
                   written.is_file() and written.read_text(encoding="utf-8") == out["markdown"]
                   and out["markdown"] == make("c-" + spoil, write=False)["markdown"])
     finally:
-        brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        harness.cleanup(root)
+
+
+# FV1-4 N1 (AR-20): the dev-time ratchet of the brief of each role, in normalised bytes (`harness.normalised_bytes`: the plugin
+# root and the project root are tokens, so the number is the same on every machine). Not a runtime ceiling: nothing is cut when a
+# brief is over it; the number tells a developer that a change made a role's brief larger. To re-base: set the value to 0, run, read
+# `RATCHET ROLE_BRIEF_BYTES_MAX <role> <n>`, write n here with a named raise line, and re-run green.
+# FV1-4 N1 (AR-20): re-based from the runtime ceiling BRIEF_MAX_BYTES (6144 budget B) to normalised bytes (harness.normalised_bytes);
+# measured 2026-11-13 on Windows (the helper makes the number machine-independent).
+ROLE_BRIEF_BYTES_MAX = {
+    "qa-automator": 6863, "qa-bug-reporter": 4880, "qa-case-critic": 6130, "qa-case-designer": 5606, "qa-code-critic": 7189,
+    "qa-doc-scribe": 4910, "qa-failure-analyst": 6442, "qa-requirements-tester": 5510, "qa-retro-analyst": 4404, "qa-runner": 5670,
+    "qa-scout": 6416, "qa-test-strategist": 6375,
+}
+
+
+def role_brief_verdict(role: str, n: int) -> str:
+    """"" when `n` is within the ratchet of `role`; else the reason (a role with no entry is a red row, never a pass)."""
+    if role not in ROLE_BRIEF_BYTES_MAX:
+        return f"{role} has no entry in ROLE_BRIEF_BYTES_MAX"
+    return "" if n <= ROLE_BRIEF_BYTES_MAX[role] else f"{n} B against {ROLE_BRIEF_BYTES_MAX[role]} B"
+
+
+def role_brief_ratchet() -> None:
+    """FV1-4 N1: every role of stages.json has a brief ratchet; the verdict is pinned AT and one byte BEYOND it."""
+    stage_of = {role: st["id"] for st in hooklib.load_ref_json("stages.json")["stages"] for role in st.get("roles") or []}
+    root = harness.temp_project("qa-brief-ratchet-")
+    try:
+        harness.use_project(root)
+        seed(root, "QA-9")
+        for role, stage in sorted(stage_of.items()):
+            made = brief_pack.build("QA-9", stage, role, f"{stage}-{role}-1", write=False)
+            n = harness.normalised_bytes(made["markdown"], root)
+            print(f"RATCHET ROLE_BRIEF_BYTES_MAX {role} {n}")
+            check_eq(f"FV1-4 N1 ratchet {role}: the brief is within its ratchet (normalised bytes)", role_brief_verdict(role, n), "")
+        check_eq("FV1-4 N1 ratchet: a role with no entry is red", role_brief_verdict("qa-nobody", 1), "qa-nobody has no entry in ROLE_BRIEF_BYTES_MAX")
+        for role, limit in ROLE_BRIEF_BYTES_MAX.items():
+            check_eq(f"FV1-4 N1 ratchet {role}: AT the ratchet is green", role_brief_verdict(role, limit), "")
+            check(f"FV1-4 N1 ratchet {role}: one byte BEYOND is red", role_brief_verdict(role, limit + 1) != "")
+    finally:
         harness.cleanup(root)
 
 
@@ -2325,11 +2324,10 @@ def approach_scenario(task: Path, root: Path) -> None:
     config = root / "qa-factory/config.json"
     original = config.read_bytes()
 
-    def build(ceiling=None, write=False, scripts=None):
-        # t-1765 X1 fix-4 (K6): the S5 card prints `python "<scripts folder>/<script>"`; the pins below sit a few bytes under 6 KB, so the
-        # folder is a FIXED string (the length of a CI checkout path) - the scenario tests the cut order, not the machine it runs on.
-        real, real_scripts, real_root = brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS, brief_pack.RP.package_root
-        brief_pack.BRIEF_MAX_BYTES = ceiling or real      # N4: the REAL ceiling; the digest template is outside the budget (F-4)
+    def build(write=False, scripts=None):
+        # t-1765 X1 fix-4 (K6): the S5 card prints `python "<scripts folder>/<script>"`; the folder is a FIXED string (the length
+        # of a CI checkout path) so the brief is the same on every machine.
+        real_scripts, real_root = brief_pack.SCRIPTS, brief_pack.RP.package_root
         brief_pack.SCRIPTS = scripts or FIXED_SCRIPTS
         # OH5-2 A: the card head is spelled by `runtime_paths.script_command`, which reads `package_root` at the call: the pinned
         # scripts folder is `<package root>/scripts`, so the root is its parent.
@@ -2337,7 +2335,7 @@ def approach_scenario(task: Path, root: Path) -> None:
         try:
             return brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=write)
         finally:
-            brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS, brief_pack.RP.package_root = real, real_scripts, real_root
+            brief_pack.SCRIPTS, brief_pack.RP.package_root = real_scripts, real_root
 
     def words(text: str, label: str) -> None:
         check_in(f"{label}: the gate A word is inline", "gate A (approved): Gate A: approved.", text)
@@ -2348,18 +2346,10 @@ def approach_scenario(task: Path, root: Path) -> None:
         seed_story_for_s5(task, root, "Gate A: approved. Proceed to S5 as it stands; no split.")
         # K-nothing: a project with nothing recorded gets ONE line <= 200 B, never the 559 B block
         forms = brief_pack.approach_forms("qa-automator", root, task)
-        one = forms[2]
-        check_eq("nothing recorded -> ONE line", len(one), 1)
-        check("nothing recorded: the line says so and where it is recorded", "nothing recorded" in one[0] and "onboarding topic 3" in one[0])
-        for level in (2, 1, 0):
-            for line in forms[level]:
-                check(f"every form <= {brief_pack.APPROACH_SHORT_BYTES} B (level {level}): {len(line.encode('utf-8'))} B",
-                      len(line.encode("utf-8")) <= brief_pack.APPROACH_SHORT_BYTES)
-        check_eq("AT the limit: a 200 B line passes the predicate", len(("x" * 200).encode("utf-8")) <= brief_pack.APPROACH_SHORT_BYTES, True)
-        check_eq("BEYOND it (control): a 201 B line fails the predicate", len(("x" * 201).encode("utf-8")) <= brief_pack.APPROACH_SHORT_BYTES, False)
-        # the real brief at the normal ceiling: nothing recorded costs one short line (digests inline, map as before)
+        check_eq("nothing recorded -> ONE line (FV1-4 N1: `approach_forms` is the one form)", len(forms), 1)
+        check("nothing recorded: the line says so and where it is recorded", "nothing recorded" in forms[0] and "onboarding topic 3" in forms[0])
+        # the real brief: nothing recorded costs one short line (digests inline, map as before)
         nothing = build(write=True)
-        check("nothing recorded: the brief is under 6 KB", nothing["budget_bytes"] <= 6 * 1024)
         words(nothing["markdown"], "K6 nothing recorded")
         check_in("K6 ... and the standing warning and the S5 waiver, inline", "standing: tracker_write: no", nothing["markdown"])
         check_in("K6 ... the S5 waiver", 'S5 block "vcs-1: uncommitted changes" -> go on', nothing["markdown"])
@@ -2388,43 +2378,29 @@ def approach_scenario(task: Path, root: Path) -> None:
         config.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         for attr in [a for a in dir(hooklib) if "CACHE" in a]:
             setattr(hooklib, attr, None)
-        full = build(ceiling=64 * 1024)
-        check_in("recorded approach, roomy ceiling: the full block", "- test data: qa-factory/config.json `test_data`", full["markdown"])
-        # K-priority: the ceiling cuts the approach BEFORE the person's words, level by level
-        step = build(ceiling=full["budget_bytes"] - 1)
-        check_not_in("approach cut first: one byte short of the full brief, the full block is gone", "- test data:", step["markdown"])
-        check_in("... to its one-line form", "Project approach (cut for room)", step["markdown"])
-        words(step["markdown"], "approach cut first (one line)")
-        check_in("... and the person's words stay whole inline (the standing warning)", "standing: tracker_write: no", step["markdown"])
-        normal = build(write=True)
-        check("recorded approach at the 6 KB ceiling: under it", normal["budget_bytes"] <= 6 * 1024)
-        check_not_in("approach cut before the person's words at the ceiling: no full block at 6 KB", "- test data:", normal["markdown"])
-        words(normal["markdown"], "K6 approach cut before the person's words at 6 KB")
-        check_in("K6 ... the standing warning inline", "standing: tracker_write: no", normal["markdown"])
-        check_in("K6 ... the S5 waiver inline", 'S5 block "vcs-1: uncommitted changes" -> go on', normal["markdown"])
-        for ceiling, label in ((1, "1-byte"), (2 * 1024, "2 KB")):
-            tight = build(ceiling=ceiling)
-            check_not_in(f"{label} ceiling: the approach block is cut, never the words", "- test data:", tight["markdown"])
-            check_in(f"{label} ceiling: the person's words or their pointer are in the brief", "## The person's words that concern you", tight["markdown"])
-            check("... a words line is there: the gate A word or the pointer to the decisions file",
-                  "gate A (approved): Gate A:" in tight["markdown"] or "S5-qa-automator-1-decisions.md" in tight["markdown"])
-        # overflow with a recorded approach: the shortened gate A line is still produced
-        seed_story_for_s5(task, root, "Gate A: approved. " + "Keep every UI case in scope. " * 400)
+        full = build(write=True)
+        check_in("recorded approach: the full block, always (FV1-4 N1: nothing cuts it)", "- test data: qa-factory/config.json `test_data`", full["markdown"])
+        check_not_in("... no `cut for room` form exists", "cut for room", full["markdown"])
+        words(full["markdown"], "K6 recorded approach")
+        check_in("K6 ... the standing warning inline", "standing: tracker_write: no", full["markdown"])
+        check_in("K6 ... the S5 waiver inline", 'S5 block "vcs-1: uncommitted changes" -> go on', full["markdown"])
+        # overflow with a recorded approach: 10 KB of the person's words are whole and the approach block is still there
+        gate_words = "Gate A: approved. " + "Keep every UI case in scope. " * 400
+        seed_story_for_s5(task, root, gate_words)
         over = build(write=True)
-        check("overflow, approach recorded: under 6 KB", over["budget_bytes"] <= 6 * 1024)
-        # The approach block never changes what happens to the words: the same overflow brief of a project with NOTHING recorded
-        # (its block is the first thing cut too) shows the same words state - whatever the card of the day costs.
+        check_in("overflow, approach recorded: the approach block is still whole", "- test data: qa-factory/config.json `test_data`", over["markdown"])
+        check_in("overflow, approach recorded: the gate A words are whole in the brief", gate_words.strip(), " ".join(over["markdown"].split()))
+        check_in("overflow with a recorded approach: the Branch check line stays", f"Branch check: {CHECKOUT}", over["markdown"])
+        check_eq("... the words are one line over the width: wrapped, so the decisions side file holds them as given", over["sides"]["decisions"], True)
+        check_in("... whole in that file", gate_words.strip(),
+                 (task / "work/briefs/S5-qa-automator-1-decisions.md").read_text(encoding="utf-8"))
         config.write_bytes(original)
         for attr in [a for a in dir(hooklib) if "CACHE" in a]:
             setattr(hooklib, attr, None)
         bare = build(write=True)
-        for needle in ("gate A (approved): Gate A: approved.", "S5-qa-automator-1-decisions.md", f"Branch check: {CHECKOUT}"):
+        for needle in ("Gate A: approved.", f"Branch check: {CHECKOUT}"):
             check_eq(f"overflow: {needle[:30]!r} is there with the approach recorded exactly when it is there without", needle in over["markdown"],
                      needle in bare["markdown"])
-        check_in("overflow with a recorded approach: the Branch check line stays", f"Branch check: {CHECKOUT}", over["markdown"])
-        check_eq("... the decisions side file holds the words", over["sides"]["decisions"], True)
-        check_in("... whole", "Keep every UI case in scope. " * 400,
-                 (task / "work/briefs/S5-qa-automator-1-decisions.md").read_text(encoding="utf-8"))
     finally:
         config.write_bytes(original)
         for attr in [a for a in dir(hooklib) if "CACHE" in a]:
@@ -2438,68 +2414,23 @@ def not_established_label() -> None:
     base_slice = "base_slice: unknown x3 (docs/superpowers/a.md): repo unresolved"
     ordinary = "tracker_write: no"
     missing = "vcs_api: missing - unknown token"
-    shown, minimal, full = brief_pack.decisions({"warnings": [unknown, base_slice, ordinary, missing]}, "S5", "qa-automator", "QA-9", None)
+    shown, full = brief_pack.decisions({"warnings": [unknown, base_slice, ordinary, missing]}, "S5", "qa-automator", "QA-9", None)
     check_eq("an unknown probe line is labelled `not established:`, every other warning `standing:` (shown)",
              [l for l in shown if "established" in l or "standing" in l],
              [f"- not established: {unknown}", f"- not established: {base_slice}", f"- standing: {ordinary}", f"- standing: {missing}"])
     check_eq("...and the whole record carries the same labels", [l for l in full if l.startswith("- not established") or l.startswith("- standing")],
              [f"- not established: {unknown}", f"- not established: {base_slice}", f"- standing: {ordinary}", f"- standing: {missing}"])
-    check_in("...the minimal form too", f"- not established: {unknown}"[:40], " ".join(minimal))
-
-
-# t-747 (item 4): the margins of the S5 fixture's two ceiling pins, rebuilt to the baseline of the 0.10.9 batch tree.
-# Measured on this fixture (the smallest BRIEF_MAX_BYTES at which each holds; a bisection of `brief_pack.build`):
-#   - digests stay inline (no side file), approach block already dropped by the ladder: 6367 B, i.e. 223 B over the 6144 B ceiling;
-#   - the gate A line is still shortened rather than pointer-only, overflow words: 6269 B, i.e. 125 B over the ceiling.
-# Growth since the pins were written, per node: RH2-9 the ahead card (+~190 B, t-735 handoff); OH1-11's brief label and the rest
-# of the overshoot are not split per node (no per-node measurement was taken). The fixture has no filler to shrink that absorbs it
-# (the overflow brief has its digests in the side file already; its remaining lines are the card and the head, product text), so
-# the scenario sits AT its own measured ceiling: one byte short of it the same pin must fail (the BEYOND control).
-# t-755 item 3: re-measured on the merged tree the same way: 6168 B / 6070 B. The brief now carries TQ1-27's `Plan case budget:` line (growth), and t-755 item 1 cut the automator card by 199 B (shrink); the net is the fall from 6367 / 6269 (the gate pin is measured at its later point in the test, where the decisions side file exists).
-# The real 6 KB checks stay as they were; the product code and the card/label texts are not touched.
-# t-777 (CI red round 5, finding PC2-1): the ceilings are NOT pinned. The brief prints the task root, so its size depends on the
-# length of the path the test runs under (a long Windows temp path vs CI's short /builds/... root), and a byte constant measured
-# on one machine does not tip the BEYOND control on another. Each scenario finds its ceiling AT RUNTIME by bisecting
-# `brief_pack.build` in its own state (`s5_ceiling`), then asserts AT it and one byte BEYOND (short of) it.
-
-
-def s5_build_at(ceiling: int) -> dict:
-    real = brief_pack.BRIEF_MAX_BYTES
-    brief_pack.BRIEF_MAX_BYTES = ceiling
-    try:
-        return brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=False)
-    finally:
-        brief_pack.BRIEF_MAX_BYTES = real
-
-
-def s5_ceiling(holds) -> int:
-    """The smallest BRIEF_MAX_BYTES at which `holds(build_result)` is true; `holds` must be monotone in the ceiling."""
-    lo, hi = 512, 65536
-    assert holds(s5_build_at(hi)) and not holds(s5_build_at(lo)), "the scenario does not tip inside 512..65536 bytes"
-    while hi - lo > 1:
-        mid = (lo + hi) // 2
-        if holds(s5_build_at(mid)):
-            hi = mid
-        else:
-            lo = mid
-    return hi
 
 
 def n4_scenario(task: Path, root: Path) -> None:
-    """RC1-14 N4 (t-1757, W1-W9; t-1755 B2): the person's words first and never pushed out, the digest template last and outside
-    the budget, every trim said in `## Not in the brief`. All on the real `build` of the S5 automator fixture at the REAL ceiling
-    (a re-pin of BRIEF_MAX_BYTES is only the AT / one-byte-beyond bisect, on `budget_bytes`)."""
+    """RC1-14 N4 (t-1757, W1-W9; t-1755 B2; FV1-4 N1): the person's words first and never cut, the digest template last. All on
+    the real `build` of the S5 automator fixture: the brief is rendered once and whole, nothing is left out of it."""
     pipeline_path, config = task / "pipeline.json", root / "qa-factory/config.json"
     state_before, config_before = pipeline_path.read_bytes(), config.read_bytes()
     original = b""      # the pipeline this scenario seeds (below); `state_before` is put back at the end
-    real = brief_pack.BRIEF_MAX_BYTES
 
-    def build(ceiling=None, write=False, output=None):
-        brief_pack.BRIEF_MAX_BYTES = ceiling or real
-        try:
-            return brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=write, output=output)
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real
+    def build(write=False, output=None):
+        return brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=write, output=output)
 
     def words(count: int) -> None:
         doc = json.loads(original.decode("utf-8"))
@@ -2516,7 +2447,7 @@ def n4_scenario(task: Path, root: Path) -> None:
         config.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         for attr in [a for a in dir(hooklib) if "CACHE" in a]:
             setattr(hooklib, attr, None)
-        roomy = build(ceiling=64 * 1024)
+        roomy = build()
         text = roomy["markdown"]
         # W3: the words are the first `## ` section after the head
         check_eq("N4 W3: the words heading is the first `## ` after the head",
@@ -2525,80 +2456,43 @@ def n4_scenario(task: Path, root: Path) -> None:
                  [ln for ln in text.splitlines() if ln.startswith("## ")][-2:], ["## Rule", "## Your final message"])
         check("N4 W3: ... and the repository map sits after the card and right before the rule",
               text.index("## Commands") < text.index("## Repository map of the window") < text.index("## Rule"))
-        check_eq("N4: a roomy brief trims nothing and carries no `Not in the brief` section", (roomy["omitted"], "## Not in the brief" in text), ([], False))
-        # W4: AT the budget nothing is trimmed; ONE byte beyond exactly one rung is taken and its line is there
-        size = roomy["budget_bytes"]
-        at = build(ceiling=size)
-        check_eq("N4 W4 AT the ceiling: the brief is the roomy one, nothing omitted", (at["markdown"], at["omitted"]), (text, []))
-        one = build(ceiling=size - 1)
-        check_eq("N4 W4 ONE byte beyond: exactly one line is omitted, the approach block (the first to give)",
-                 [o.split(" - read ")[0] for o in one["omitted"]], ["- the project approach in full"])
-        check("N4 W4 ... the section names it and the brief fits", "## Not in the brief" in one["markdown"]
-              and one["budget_bytes"] <= size - 1, str(one["budget_bytes"]))
-        check_eq("N4 W4 ... and the words are exactly where they were (whole, inline)",
-                 [ln for ln in one["markdown"].splitlines() if ln.startswith("- gate A")],
-                 [ln for ln in text.splitlines() if ln.startswith("- gate A")])
-        # W9: the digests moved - the heading stays, never empty, and the line points at `Not in the brief`
-        moved = build(ceiling=real)
-        after = moved["markdown"].split("## What earlier roles produced\n\n", 1)[1].splitlines()[0]
-        check_eq("N4 W9 the digests heading is never empty: it carries the side-file line", after, "- in the side file, see Not in the brief")
-        check("N4 W9 ... and `Not in the brief` names the digests side file",
-              any(o.startswith("- the digests of earlier roles - read ") and o.endswith("S5-qa-automator-1-digests.md") for o in moved["omitted"]),
-              str(moved["omitted"]))
+        check_eq("N4: a brief carries no `Not in the brief` section and no omitted key (FV1-4 N1)", ("## Not in the brief" in text, "omitted" in roomy), (False, False))
+        # W9: the digests are inline; the heading is never empty
+        after = text.split("## What earlier roles produced\n\n", 1)[1].splitlines()[0]
+        check("N4 W9 the digests heading is never empty and never points at `Not in the brief`",
+              bool(after.strip()) and "Not in the brief" not in after, after)
         # W2 / E17: no template (patched to []) -> the templated brief minus the section, plus the R5 line
         real_form = brief_pack.digest_template_lines
         brief_pack.digest_template_lines = lambda *a, **k: []
         try:
-            bare = build(ceiling=64 * 1024)
+            bare = build()
         finally:
             brief_pack.digest_template_lines = real_form
         stem = text.split("\n\n## Your final message")[0]
         check_eq("N4 W2: with no template the brief is the templated one minus the section plus the R5 line",
                  bare["markdown"], stem + "\n\n" + brief_pack.NO_FORM_LINE + "\n")
         check_in("N4 W2: ... the R5 line points at the digest shape of the rules", "`## Your handover`", bare["markdown"])
-        check_eq("N4 W2: ... and the budget is the whole text (no form to leave out) minus the SD head, which is form too (X7-1)",
-                 brief_pack.measured_bytes(bare["markdown"]) - bare["budget_bytes"], brief_pack.head_bytes(bare["markdown"].split("\n")[2:10]))  # GM3: the budget counts the plugin root as a token
-        # W5: the trimmed files are in `<ID>-files.md`, one `Not in the brief` line names it; --output writes no side file
-        tight = build(ceiling=1, write=True)
+        # W5: every line of result["files"] is in the brief; no `-files.md` side file, with a write or with --output
+        wrote = build(write=True)
+        check_eq("N4 W5: every `result['files']` line is in the brief text",
+                 [ln for ln in wrote["files"] if ln not in wrote["markdown"]], [])
         side_files = task / "work/briefs/S5-qa-automator-1-files.md"
-        gone = [ln for ln in roomy["files"] if ln not in tight["files"]]
-        body = side_files.read_text(encoding="utf-8") if side_files.is_file() else ""
-        check("N4 W5: the side file holds EVERY trimmed line", bool(gone) and all(ln in body for ln in gone), f"{len(gone)} trimmed")
-        check_eq("N4 W5: ... and ONE line of `Not in the brief` names it",
-                 len([o for o in tight["omitted"] if o.endswith("S5-qa-automator-1-files.md")]), 1)
-        side_files.unlink()
-        build(ceiling=1, write=True, output=task / "work/out-brief.md")
-        check("N4 W5: `--output` writes no side file", not side_files.exists())
-        # W7: no level-0 line (a pointer instead of the words) in any brief this scenario builds
-        for label, got in (("roomy", roomy), ("one byte beyond", one), ("real ceiling", moved), ("squeezed to 1 byte", tight)):
-            check_not_in(f"N4 W7 {label}: no pointer-only words line (level 0 is gone)", "recorded decision(s):", got["markdown"])
-        # the empty repository map: nothing to omit, so no line says it was omitted
-        real_map = brief_pack.repo_map_for
-        brief_pack.repo_map_for = lambda *a, **k: {"path": "qa-factory/x-map.md", "written": False, "doc": {"empty": True}, "markdown": "# map\n\n"}
-        try:
-            empty_map = build(ceiling=1)
-        finally:
-            brief_pack.repo_map_for = real_map
-        check_not_in("N4 an empty repository map: no `the repository map head` line", "the repository map head", "\n".join(empty_map["omitted"]))
-        # W6: 24 KB of the person's words: level 1 (a line each, no pointer-only line), the brief goes over and SAYS it
+        build(write=True, output=task / "work/out-brief.md")
+        check("N4 W5: no `-files.md` side file is written, whole or by --output", not side_files.exists())
+        # W7: no level-0 line (a pointer instead of the words) and no `Not in the brief` in any brief this scenario builds
+        for label, got in (("roomy", roomy), ("written", wrote)):
+            check_not_in(f"N4 W7 {label}: no pointer-only words line", "recorded decision(s):", got["markdown"])
+            check_not_in(f"N4 W7 {label}: no `Not in the brief` section", "Not in the brief", got["markdown"])
+        # W6: 24 KB of the person's words (60 warnings of 380+ characters): every warning whole, nothing cut, no ceiling to name
         words(60)
         battery = build(write=True)
         lines = battery["markdown"].splitlines()
-        check_eq("N4 W6: the brief is over its ceiling and `over_ceiling` names the words", "words at level 1" in battery["over_ceiling"], True)
         kept = [ln for ln in lines if ln.startswith("- standing: standing ")]
-        check_eq("N4 W6: ... all 60 warnings keep their line", len(kept), 60)
-        check("N4 W6: ... each words text cut at the level-1 limit (DECISION_CHARS_MIN)",
-              all(len(ln) <= len("- standing: ") + brief_pack.DECISION_CHARS_MIN for ln in kept), str(max(len(ln) for ln in kept)))
-        check_in("N4 W6: ... the S5 waiver keeps its own line (PC2-6 K1: the person's waiver is not traded for a count line)",
-                 'S5 block "vcs-1: uncommitted changes" -> go on', battery["markdown"])
-        check_in("N4 W6: ... the over line is the first line of `Not in the brief` and names the words (PC2-6)",
-                 f"- the brief stays over its {brief_pack.BRIEF_MAX_BYTES} B budget after every cut (words at level 1",
-                 battery["markdown"].split("## Not in the brief\n\n", 1)[1].splitlines()[0])
-        check_not_in("N4 W6: ... and no pointer-only line", "recorded decision(s):", battery["markdown"])
-        check_in("N4 W6: `Not in the brief` names the decisions side file", "- every decision in full - read qa-factory/artifacts/QA-9/work/briefs/S5-qa-automator-1-decisions.md",
-                 battery["markdown"])
-        check_in("N4 W6: ... and that file carries the last warning whole", "standing 59: " + "w" * 380,
-                 (task / "work/briefs/S5-qa-automator-1-decisions.md").read_text(encoding="utf-8"))
+        check_eq("N4 W6: all 60 warnings keep their line", len(kept), 60)
+        check("N4 W6: ... each warning whole (a 380-character text is not cut)",
+              all(ln.endswith("w" * 380) for ln in kept), str(min(len(ln) for ln in kept)))
+        check_in("N4 W6: ... the S5 waiver keeps its own line", 'S5 block "vcs-1: uncommitted changes" -> go on', battery["markdown"])
+        check_not_in("N4 W6: ... no over line, no `Not in the brief`", "Not in the brief", battery["markdown"])
         check("N4 W6: the words come BEFORE the template and the template is still last",
               battery["markdown"].index("## The person's words") < battery["markdown"].index("## Your final message")
               and battery["markdown"].rstrip().endswith("```"))
@@ -2609,17 +2503,15 @@ def n4_scenario(task: Path, root: Path) -> None:
         check("N4 W8: the brief passes 30 000 B", huge["bytes"] > brief_pack.SLICE_BYTES, str(huge["bytes"]))
         check_eq("N4 W8: the line after the title is the by-range note, with the brief's own size",
                  top[2], f"This brief is {huge['bytes']} B, over the 30 KB whole-read limit: read it by range (offset/limit), the person's words first")
-        check_eq("N4 W8: ... `over_ceiling` names both reasons", huge["over_ceiling"], ["words at level 1", "over SLICE_BYTES"])
-        check_not_in("N4 W8 (control): a brief under the limit has no such line", "whole-read limit", battery["markdown"])
-        # the real-ceiling proof of AR-24: the gate A word is in the brief in every build above
-        for label, got in (("battery", battery), ("huge", huge), ("squeezed", tight)):
+        check_not_in("N4 W8 (control): a brief under the limit has no such line", "whole-read limit", roomy["markdown"])
+        # the proof of AR-24: the gate A word is whole in the brief in every build above
+        for label, got in (("battery", battery), ("huge", huge)):
             check_in(f"N4 {label}: the gate A word is whole in the brief", "gate A (approved): Gate A: approved. Proceed to S5 as it stands; no split.", got["markdown"])
     finally:
         pipeline_path.write_bytes(state_before)
         config.write_bytes(config_before)
         for attr in [a for a in dir(hooklib) if "CACHE" in a]:
             setattr(hooklib, attr, None)
-        brief_pack.BRIEF_MAX_BYTES = real
 
 
 # --- t-2181 PC-8: the sides of the story and the assumptions in the S5 briefs --------------------------------------------
@@ -2962,9 +2854,9 @@ def ss1_11_stand_lessons() -> None:
         check_eq("E50: a lesson on another stand is not shown", brief_pack.stand_lesson_lines(root, "localhost"), [])
         teach(root, "localhost", "indexing", "x" * 1000, 300)
         got = brief_pack.stand_lesson_lines(root, "localhost")
-        check_eq("E48: one line, the words cut at 200 with ' ...' and the wait shown",
-                 (len(got), got[0].startswith('- Stand lessons: indexing: "' + "x" * 200 + ' ..."'), "(at least 300 s)" in got[0]),
-                 (1, True, True))
+        check_eq("E48: one line, the 1 000 characters of words whole (FV1-4 N1) and the wait shown",
+                 (len(got), got[0].startswith('- Stand lessons: indexing: "' + "x" * 1000 + '"'), "(at least 300 s)" in got[0], " ..." in got[0]),
+                 (1, True, True, False))
         check_eq("E48: stored whole", PK.lessons(root, "localhost")["rows"][0]["provenance"]["words"], "x" * 1000)
         check_eq("the manual runner's stand carries the same lines",
                  [l for l in brief_pack.manual_stand_lines(task, root, cfg, [], "localhost") if "Stand lessons" in l], got)
@@ -3012,24 +2904,10 @@ def ss1_11_stand_lessons() -> None:
         check_eq("E47 AT: exactly 10 lessons are 10 lines and no pointer", (len(ten), any("more:" in l for l in ten)), (10, False))
         teach(root, "localhost", "op11", "words 11")
         many = brief_pack.stand_lesson_lines(root, "localhost")
-        check_eq("E47: 11 lessons are 10 lines and the pointer", (len(many), many[-1].startswith("- Stand lessons: (+1 more: ")), (11, True))
-        check_in("E47: the pointer quotes the stand", '--stand "localhost")', many[-1])
+        check_eq("E47 (FV1-4 N1): 11 lessons are 11 lines, no pointer line, op11 is there",
+                 (len(many), any("more:" in l for l in many), any('op11: "words 11"' in l for l in many)), (11, False, True))
         text = brief_of()
-        check_in("E54: the head holds every lesson line whole, whatever the ceiling cut", "\n".join(many), pc8_head(text))
-        # E54 (F4): ten lessons with words of 200 characters (BEYOND the cut), the brief forced over its ceiling: the lines stay whole in the head
-        for n in range(1, 12):
-            teach(root, "localhost", f"op{n:02d}", f"{n % 10}" * 200 + " tail", 60)         # a newer row per subject
-        wide = brief_pack.stand_lesson_lines(root, "localhost")
-        check_eq("E54: ten lines and the pointer, each lesson cut at 200", (len(wide), all(' ..."' in l for l in wide[:10])), (11, True))
-        real_ceiling = brief_pack.BRIEF_MAX_BYTES
-        try:
-            brief_pack.BRIEF_MAX_BYTES = 1
-            squeezed = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=False)
-            check("E54: the brief is over the ceiling", squeezed["bytes"] > brief_pack.BRIEF_MAX_BYTES, str(squeezed["bytes"]))
-            check_in("E54: the head holds every lesson line whole over the ceiling", "\n".join(wide), pc8_head(squeezed["markdown"]))
-            check_in("E54: the over-budget line stands in `Not in the brief`", "stays over its", squeezed["markdown"].split("## Not in the brief")[-1])
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        check_in("E54: the head holds every lesson line whole", "\n".join(many), pc8_head(text))
         (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
         bad = brief_pack.stand_lesson_lines(root, "localhost")
         check_eq("E46: an unreadable registry is one line that says so",
@@ -3060,10 +2938,8 @@ def of3_1c_home_strategy() -> None:
             if home != "qa-factory":
                 check_not_in(f"OF4-21 T4 ({home}): and not the literal home", "qa-factory/strategy/", line)
                 forms = brief_pack.approach_forms("qa-automator", base, base / "task")
-                check_in(f"OF4-21 T4 ({home}): the one-line form names the configured home", f"documents {home}/strategy/;", forms[1][0])
-                check_in(f"OF4-21 T4 ({home}): the pointer line names the configured home", f"see {home}/config.json `test_data` and {home}/strategy/",
-                         forms[0][0])
-                check_not_in(f"OF4-21 T4 ({home}): and neither carries the literal", "qa-factory/", forms[1][0] + forms[0][0])
+                check_in(f"OF4-21 T4 ({home}): the approach block names the configured home's strategy folder", f"{home}/strategy/", "\n".join(forms))
+                check_not_in(f"OF4-21 T4 ({home}): and does not carry the literal", "qa-factory/", "\n".join(forms))
     finally:
         RP.HOME = saved
         harness.cleanup(base)
@@ -3296,10 +3172,6 @@ def main() -> None:
         check_in("and the note says how big it is", "brief: qa-factory/artifacts/QA-9/work/briefs/S1-qa-scout-1.md",
                  started.stdout)
         scout = brief_path.read_text(encoding="utf-8")
-        # t-1765 X1 fix-3: the SD head (7 lines + blank after the title) is form, outside the body budget; the pin is on the body.
-        sd_lines = scout.split("\n")[2:9] + [""]
-        check("the S1 brief body is under 6 KB", len(scout.encode("utf-8")) - brief_pack.head_bytes(sd_lines) <= 6 * 1024)
-        check("the S1 SD head is within its own cap", brief_pack.head_bytes(sd_lines[:-1]) <= brief_pack.SD_HEAD_MAX_BYTES)
         check_in("the scout's card names the ticket adapter", "ticket_adapter.py get|children|diff", scout)
         check_in("and the diff pass instead of the diff", "diff_pass.py --diff", scout)
         check_in("the S1 brief lists the stage's input with its size", "qa-factory/artifacts/QA-9/pipeline.json (", scout)
@@ -3378,32 +3250,16 @@ def main() -> None:
         # --- the S5 automator brief ---------------------------------------------------------
         seed_story_for_s5(task, root, "Gate A: approved. Proceed to S5 as it stands; no split.")
         seed_branch(task)   # CX1-7 (k): the real run's record and manifest, so the 6 KB checks below carry the Branch check line
-        # N4 (RC1-14, t-1755 B2): the F11 re-pin is gone. The section `## Your final message` is outside the budget (F-4), so this
-        # fixture is built at the REAL ceiling and its `budget_bytes` is the number the 6 KB bound reads.
-        real_ceiling = brief_pack.BRIEF_MAX_BYTES
+        # FV1-4 N1: the brief is rendered once and whole; there is no ceiling to build at
         result = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1")
         text = result["markdown"]
         check_in("F11: the S5 brief carries the digest template of its scope", "TC-002 · <state> ·", text)
         check_in("(k) the S5 brief carries the Branch check line", f"Branch check: {CHECKOUT}", text)
-        check("(k) the S5 brief is under 6 KB (budget, the section outside it) WITH the Branch check line (the head is never shrunk)",
-              result["budget_bytes"] <= 6 * 1024, str(result["budget_bytes"]))
-        check("the S5 brief is under 6 KB (budget)", result["budget_bytes"] <= 6 * 1024)
-        # X7-1: the automator is a charter, so its brief opens with the seven SD header lines: form outside the body budget too
-        sd_head = brief_pack.head_bytes(text.split("\n")[2:10])
-        check_eq("N4 W1: the section and the SD head are outside the budget: bytes - budget_bytes is exactly their size",
-                 brief_pack.measured_bytes(text) - result["budget_bytes"], form_bytes() + sd_head)  # GM3: the budget counts the plugin root as a token
+        check_eq("N4 W1: the result's `bytes` is the length of the text", result["bytes"], len(text.encode("utf-8")))
         check_in("it names the scope", "Scope: TC-001, TC-002", text)
         check_in("and the read_first pointer", "Read first, before anything else: work/s5-notes.md", text)
-        # Source: finding 20261102 item 1 (PC2-1), "the 6144-byte brief boundary". The S5 pins below judge the LADDER at a ceiling they
-        # set themselves (s5_build_at overwrites BRIEF_MAX_BYTES and restores it in its `finally`); this check pins the VALUE.
-        check_eq("the brief ceiling is the 6144 B of the requirement", brief_pack.BRIEF_MAX_BYTES, 6144)
-        digests_ceiling = s5_ceiling(lambda r: r["sides"]["digests"] is False)
-        at_digests = s5_build_at(digests_ceiling)
-        check_in("earlier digests are inline (AT their measured ceiling)", "- S4 done: qa-case-critic S4 QA-9", at_digests["markdown"])
-        check_eq("the digests needed no side file (AT their measured ceiling)", at_digests["sides"]["digests"], False)
-        short_by_one = s5_build_at(digests_ceiling - 1)       # BEYOND control: one byte short, the digests give way
-        check_eq("BEYOND (control): one byte short, the digests moved to the side file", short_by_one["sides"]["digests"], True)
-        check_not_in("BEYOND (control): and are not inline", "- S4 done: qa-case-critic S4 QA-9", short_by_one["markdown"])
+        check_in("earlier digests are inline", "- S4 done: qa-case-critic S4 QA-9", text)
+        check_eq("the digests needed no side file", result["sides"]["digests"], False)
         check_not_in("another stage's dispatch is not listed as this stage's", "S4-qa-case-critic-1", text)
         check_in("the case files are listed with sizes", "work/test-cases/coupon/TC-001.md (", text)
         check_in("a large input is sliced to the plan rows of the cases",
@@ -3433,18 +3289,9 @@ def main() -> None:
         check_in("the repo map is linked", "full map: qa-factory/artifacts/QA-9/work/briefs/repo-map-", text)
         map_files = sorted((task / "work/briefs").glob("repo-map-*.md"))
         check_eq("and written beside the brief", len(map_files), 1)
-        # CX1-7 (F-4): the Branch check line costs the fixture brief ~0.4 KB, and at the 6 KB ceiling the map's head is
-        # the first thing to give (build's attempts: the head is never shrunk) - so "inlined while there is room" is
-        # read from a brief built with a 7 KB ceiling, and the 6 KB brief above is the proof that the line is what stays
-        # while the map stays one link away.
-        check_not_in("(F-4) at 6 KB the map's head yielded to the line, the link to the map stayed", "## Existing tests of the area", text)
-        real_ceiling = brief_pack.BRIEF_MAX_BYTES
-        brief_pack.BRIEF_MAX_BYTES = 7 * 1024      # N4: the real 7 KB budget; the section is outside it
-        try:
-            roomy = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=False)["markdown"]
-        finally:
-            brief_pack.BRIEF_MAX_BYTES = real_ceiling
-        check_in("its head is inlined while there is room", "## Existing tests of the area", roomy)
+        # FV1-4 N1: the map's head is part of the one rendering; no ceiling makes it yield, so it is inlined and the link stays
+        check_in("(F-4) the map's head is inlined in the one rendering, the link to the map stays", "## Existing tests of the area", text)
+        roomy = text
         check_in("naming the window's test file", "tests/coupon/test_coupon.py", roomy)
         check_in("the map itself knows the fixture", "coupon_session(client)", map_files[0].read_text(encoding="utf-8") if map_files else "")
         check("the brief file was written", (task / "work/briefs/S5-qa-automator-1.md").is_file())
@@ -3459,45 +3306,22 @@ def main() -> None:
                  f'python "{(PLUGIN / "scripts").resolve().as_posix()}/<script>"', text)
         check_not_in("and never by an unexpanded plugin variable", "CLAUDE_PLUGIN_ROOT", text)
         check_not_in("judge off: no judge command for the automator either", "judge_run", text)
-        # PC2-6 B6 (pop priority): the first line to go is "critic findings: none yet", while the case files are still listed
-        none_yet_ceiling = s5_ceiling(lambda r: "critic findings: none yet" in r["markdown"])
-        popped_one = s5_build_at(none_yet_ceiling - 1)
-        check("PC2-6 B6: one byte short of keeping it, the none-yet line is gone and the case files are still listed",
-              "critic findings: none yet" not in popped_one["markdown"] and "work/test-cases/coupon/TC-001.md (" in popped_one["markdown"])
-        # PC2-6 O-d: words that are all short (no S1 waiver) keep level 2, the S5 waiver inline, and the files are popped from it
-        pipeline_file = task / "pipeline.json"
-        pipeline_kept = pipeline_file.read_bytes()
-        short_doc = json.loads(pipeline_kept.decode("utf-8"))
-        short_doc["stage_overrides"] = [o for o in short_doc["stage_overrides"] if o["stage"] != "S1"]
-        pipeline_file.write_text(json.dumps(short_doc), encoding="utf-8")
-        try:
-            short_words = s5_build_at(1)
-        finally:
-            pipeline_file.write_bytes(pipeline_kept)
-        check("PC2-6 O-d: all-short words stay at level 2 (no side-file pointer, the S5 waiver inline) while the files are popped",
-              "- every decision in full - read" not in short_words["markdown"]
-              and 'S5 block "vcs-1: uncommitted changes" -> go on' in short_words["markdown"] and any("input file(s)" in o for o in short_words["omitted"]))
+        # FV1-4 N1: no pop priority, no levels: the brief carries the critic-findings line and the case files together
+        check_in("FV1-4 N1: the case files are listed and the brief is not trimmed", "work/test-cases/coupon/TC-001.md (", text)
+        check_not_in("FV1-4 N1: no `Not in the brief` section in the fixture brief", "Not in the brief", text)
 
-        # --- overflow: the person's words move to a side file, the brief stays under 6 KB -----
+        # --- 10 KB of the person's words: whole in the brief (wrapped lines), the side file holds them as given ---
         seed_story_for_s5(task, root, "Gate A: approved. " + "Keep every UI case in scope. " * 400)
         result = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1")
-        check("10 KB of gate words do not push the brief over 6 KB", result["budget_bytes"] <= 6 * 1024, str(result["budget_bytes"]))
-        check_in("(E14) BEYOND the ceiling the words give way, the Branch check line stays whole (I6)",
+        gate_text = "Gate A: approved. " + "Keep every UI case in scope. " * 400
+        check_in("10 KB of gate words are whole in the brief (wrapped, FV1-4 N1)", gate_text.strip(), " ".join(result["markdown"].split()))
+        check_in("(E14) the Branch check line stays whole (I6)",
                  f"Branch check: {CHECKOUT}; the implementation commit {HEAD12} (context-manifest) is this HEAD.", result["markdown"])
-        check_eq("the words are in a side file the moment one is shortened", result["sides"]["decisions"], True)
+        check_eq("the words are in a side file the moment one is wrapped", result["sides"]["decisions"], True)
         side = task / "work/briefs/S5-qa-automator-1-decisions.md"
         check("which exists", side.is_file())
         check_in("and carries them whole", "Keep every UI case in scope. " * 400, side.read_text(encoding="utf-8") if side.is_file() else "")
-        # N4 (F-3): level 0 (a pointer only) no longer exists. The measured tip is level 2 -> level 1, where `## Not in the brief`
-        # gains "every decision in full - read <side file>"; the gate line stays inline on BOTH sides of it, only shorter.
-        gate_ceiling = s5_ceiling(lambda r: "- every decision in full - read" not in r["markdown"])
-        at_gate = s5_build_at(gate_ceiling)
-        check_in("while the brief keeps the gate line (AT its measured ceiling)", "gate A (approved): Gate A: approved.", at_gate["markdown"])
-        below = s5_build_at(gate_ceiling - 1)
-        check_in("BEYOND (control): one byte short, the gate line is STILL inline, at level 1", "gate A (approved): Gate A: approved.", below["markdown"])
-        check_in("BEYOND (control): ... and `Not in the brief` names the side file", "- every decision in full - read qa-factory/artifacts/QA-9/work/briefs/S5-qa-automator-1-decisions.md", below["markdown"])
-        check_not_in("BEYOND (control): ... and no pointer-only line (level 0 is gone)", "recorded decision(s):", below["markdown"])
-        check_in("and links the full list", "S5-qa-automator-1-decisions.md", result["markdown"])
+        check_in("and the brief links the full list", "- every decision in full: qa-factory/artifacts/QA-9/work/briefs/S5-qa-automator-1-decisions.md", result["markdown"])
 
         # --- TQ1-11 fix 2 (B-1): the project-approach block never displaces the person's words (FR-8, AR-24) -----
         approach_scenario(task, root)
@@ -3521,19 +3345,16 @@ def main() -> None:
             side_text = side.read_text(encoding="utf-8")
             check_eq("the 2,000-character answer is in the side file whole (read back with LF line ends)",
                      vocabulary.replace("\r\n", "\n") in side_text, True)
-            _s, _m, whole = brief_pack.decisions({}, "S5", "qa-automator", "QA-9", root)
+            _s, whole = brief_pack.decisions({}, "S5", "qa-automator", "QA-9", root)
             check_not_in("the lines handed to the side file carry no CR", "\r", "\n".join(whole))
             check_eq("person_words_whole turns CRLF into LF", brief_pack.person_words_whole("a\r\nb"), "a\nb")
-            check_eq("and leaves a text of exactly the limit alone",
+            check_eq("and leaves a text of exactly 20 000 characters alone",
                      brief_pack.person_words_whole("x" * 20000), "x" * 20000)
-            check_in("one character beyond it is cut, with the pointer", "[cut: 1 more characters, the whole text is in ",
-                     brief_pack.person_words_whole("x" * 20001))
-            # the answer is the journal note as a whole: its lead words count toward the 20,000
-            check_in("the 25,000-character answer is cut at 20,000 of the note, no further",
-                     lead + "w" * (20000 - len(lead)) + f" [cut: {5000 + len(lead)} more characters", side_text)
-            check_not_in("and not a character beyond the 20,000", "w" * (20001 - len(lead)), side_text)
-            check_in("the cut names the file that holds the whole text",
-                     "the whole text is in qa-factory/records/journal.jsonl]", side_text)
+            check_eq("FV1-4 N1: one character beyond it is whole too, no cut, no pointer",
+                     brief_pack.person_words_whole("x" * 20001), "x" * 20001)
+            # FV1-4 N1: the answer is the journal note as a whole, at any size
+            check_in("the 25,000-character answer is whole in the side file", lead + "w" * 25000, side_text)
+            check_not_in("and carries no cut marker", "[cut:", side_text)
         finally:
             if journal_before is None:
                 journal_file.unlink()
@@ -3693,7 +3514,7 @@ def main() -> None:
         check_eq("answers_of: this story's human answers, deduplicated, oldest first",
                  brief_pack.answers_of("T-1", tmp), ["never write to Jira"])
         check_eq("answers_of: no journal -> no answers", brief_pack.answers_of("T-1", tmp / "none"), [])
-        shown, minimal, full = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", tmp)
+        shown, full = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", tmp)
         check("decisions: the answer is among the person's words", any("never write to Jira" in x for x in full))
         check("decisions: the answer is shown, not only in the full file", any("never write to Jira" in x for x in shown))
     finally:
@@ -3742,6 +3563,7 @@ def main() -> None:
     sc1_10_lines()
     oh3_34_p1_areas_section()
     p1v_n3_brief_size_record()
+    role_brief_ratchet()
     pc8_scenarios()
     ss1_11_stand_lessons()
 
@@ -3749,7 +3571,7 @@ def main() -> None:
     try:
         p4_lines(base)
         p4_long_words(base)
-        p4_min_words(base)
+        p4_words_whole_short(base)
         p4_breakage(base)
         p4_halts(base)
     finally:

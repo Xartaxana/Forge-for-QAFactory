@@ -127,6 +127,8 @@ def settings(plugin_root=PLUGIN_ROOT) -> dict:
     out["threshold_confirmed"] = bool(str(doc.get("threshold_confirmed_by") or "").strip())
     out["target_confirmed"] = bool(str(doc.get("target_confirmed_by") or "").strip())    # informational until the owner confirms
     out["process_ratchet_tokens"] = doc.get("process_ratchet_tokens")                     # None: an old file without the key
+    # FV1-4 (E-13): the brief's allowance and the charter head's; an older settings file without them keeps the old numbers
+    out["allowances"] = {"brief": 6144, "brief_charter_head": 1024, **doc["allowances"]}
     return out
 
 
@@ -450,18 +452,17 @@ def _static_form_layer(role, plugin_root) -> dict:
     return _layer("form", size, not gaps, f"handoffs/{contract}.yaml", ("missing: " + ", ".join(gaps)) if gaps else "")
 
 
-def _brief_ceiling(role=None, plugin_root=PLUGIN_ROOT) -> int:
-    """The brief's byte ceiling: its body cap and, for a role whose agent file is a charter, the hard cap of the SD head the
-    brief carries outside the body (t-1765 X1 fix-4, F3): the head is a layer of the load, seen by A22 / F-1."""
-    import brief_pack
+def _brief_allowance(allowances, role=None, plugin_root=PLUGIN_ROOT) -> int:
+    """The brief's byte allowance, an estimate (the brief has no size bound inside a run, FV1-4): `allowances.brief` and, for a
+    role whose agent file is a charter, `allowances.brief_charter_head` for the SD head it carries (t-1765 X1 fix-4, F3): the
+    head is a layer of the load, seen by A22 / F-1."""
     import charter
-    # the ceiling is compared in budget bytes (the brief counted with the plugin root as a token), the unit "budget B" of brief_pack's labels
-    ceiling = int(brief_pack.BRIEF_MAX_BYTES)
+    allowance = int(allowances["brief"])
     try:
         text = (Path(plugin_root) / "agents" / f"{role}.md").read_text(encoding="utf-8-sig", errors="replace")
     except (OSError, TypeError):
-        return ceiling
-    return ceiling + int(brief_pack.SD_HEAD_MAX_BYTES) if charter.is_charter(text) else ceiling
+        return allowance
+    return allowance + int(allowances["brief_charter_head"]) if charter.is_charter(text) else allowance
 
 
 def _head_layers(role, plugin_root, project, imap, kind="first") -> list:
@@ -504,7 +505,7 @@ def _check_kind(kind) -> None:
 
 def static_load(role, kind=None, plugin_root=PLUGIN_ROOT, project=None) -> dict:
     """The start load of `role` with no story: the package's own files measured, the per-story layers counted as the
-    allowances of role-load.json (packet, launch) or the brief's ceiling, each `measured: false` and said so; the brief's
+    allowances of role-load.json (packet, launch, brief), each `measured: false` and said so; the brief's
     side files are not counted (`bytes: null`, per story). `project` None leaves the project's layers unmeasured. `kind` None
     is `first`, the full text; an unknown kind is a RoleLoadError. The packet is an allowance of a fixed size whatever the
     kind: the saving of the one-`known_paths` packet is a per-story fact a static measure cannot show (N1 report, K5)."""
@@ -518,7 +519,8 @@ def static_load(role, kind=None, plugin_root=PLUGIN_ROOT, project=None) -> dict:
     layers += [
         _layer("packet", allowance["packet"], False, "allowances.packet in role-load.json", "allowance"),
         _layer("launch", allowance["launch"], False, "allowances.launch in role-load.json", "allowance"),
-        _layer("brief", _brief_ceiling(role, plugin_root), False, "brief_pack.BRIEF_MAX_BYTES (+ SD_HEAD_MAX_BYTES for a charter)", "ceiling"),
+        _layer("brief", _brief_allowance(allowance, role, plugin_root), False,
+               "allowances.brief (+ allowances.brief_charter_head for a charter) in role-load.json", "allowance"),
         _layer("brief_sides", None, False, "work/briefs/<ID>-*.md", "per story"),
         _static_form_layer(role, plugin_root),
     ]
@@ -712,7 +714,7 @@ def render_table(loads: list, ratchets: dict | None = None) -> str:
                     + [heaviest_layer(load)["name"]])
     widths = [max(len(str(r[i])) for r in [cols] + rows) for i in range(len(cols))]
     fmt = lambda r: "  ".join(str(v).ljust(widths[i]) if i in (0, len(cols) - 1) else str(v).rjust(widths[i]) for i, v in enumerate(r))
-    notes = ("* = an allowance or a ceiling, not a measure (packet, launch card, brief at BRIEF_MAX_BYTES). "
+    notes = ("* = an allowance, not a measure (packet, launch card, brief at its allowance). "
              "Not counted in static mode: project_claude_md, injection_project (no project), brief_sides (per story).")
     return "\n".join([head, fmt(cols), fmt(["-" * w for w in widths])] + [fmt(r) for r in rows] + [notes])
 

@@ -343,7 +343,7 @@
   },
   "test_brief_pack_s5_plan.py": {
    "layer": "data_join",
-   "why": "shrink-only ceiling DOORS_ONLY_BRIEF_MAX (a raise needs a named reason)",
+   "why": "shrink-only ratchet S5_PLAN_BRIEF_BYTES_MAX in normalised bytes (a raise needs a named reason)",
    "covers": [
     "brief_pack.py",
     "event_store.py",

@@ -1291,7 +1291,7 @@ def refusal_person_words_kept_whole() -> None:
                  "S1 source review: " + words, notes())
         check_eq("and the driver's own answers file holds it whole too",
                  jsonl(driver.state_dir / "driver-answers.jsonl")[-1]["words"], words)
-        _shown, _minimal, whole = brief_pack.decisions({}, "S2", "qa-case-designer", "QA-9", root)
+        _shown, whole = brief_pack.decisions({}, "S2", "qa-case-designer", "QA-9", root)
         check_in("the standing sentence at its end is in the next brief's decisions side file",
                  standing, "\n".join(whole))
         check_in("with the whole answer beside it", "S1 source review: " + words, "\n".join(whole))
@@ -1302,7 +1302,7 @@ def refusal_person_words_kept_whole() -> None:
         check_in("a question-stop answer is in its note whole, after `S2 question stop: `",
                  "S2 question stop: " + stop_words, notes())
         check_in("and its standing sentence reaches the side file too", "S2 question stop: " + stop_words,
-                 "\n".join(brief_pack.decisions({}, "S3", "qa-case-designer", "QA-9", root)[2]))
+                 "\n".join(brief_pack.decisions({}, "S3", "qa-case-designer", "QA-9", root)[1]))
 
         # (3) at and beyond the old limit (FV1-4 N0, J-1): no size cuts the note - it travels by a file, not a command line
         for size in (20000, 21000, 40000):

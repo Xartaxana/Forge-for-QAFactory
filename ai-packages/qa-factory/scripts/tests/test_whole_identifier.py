@@ -168,9 +168,9 @@ def k5_readers_skip_a_revoked_word() -> None:
     check_eq("K5 gate_brief._recorded_words: revoked", GB._recorded_words(dead), [])
 
     import brief_pack as BP
-    shown, _minimal, full = BP.decisions(live, "S8", "qa-doc-scribe")
+    shown, full = BP.decisions(live, "S8", "qa-doc-scribe")
     check_eq("K5 brief_pack.decisions: live word is handed on", any("keep TC-7 local" in line for line in full), True)
-    shown, _minimal, full = BP.decisions(dead, "S8", "qa-doc-scribe")
+    shown, full = BP.decisions(dead, "S8", "qa-doc-scribe")
     check_eq("K5 brief_pack.decisions: a revoked word is not handed on as standing", any("keep TC-7 local" in line for line in full), False)
 
     import retro_numbers as RN

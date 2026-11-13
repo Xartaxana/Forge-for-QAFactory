@@ -195,9 +195,8 @@ def k4_over_cap_and_head():
         check_eq("an over-cap window: one count line and one over-cap line, no more",
                  (len([l for l in head if l.startswith("Plan slice")]), len([l for l in head if l.startswith("This window holds")])), (1, 1))
         check_in("the over-cap line is the slice's own wording", "over the other window cap of 2", "\n".join(head))
-        check("M39: the brief stays under 6 KB with the plan lines and 10 KB of the person's words",
-              got["budget_bytes"] <= brief_pack.BRIEF_MAX_BYTES, str(got["budget_bytes"]))
-        check("M39: the plan slice line stayed under the ceiling", "S5-qa-automator-1-plan.md" in got["markdown"], got["markdown"][-300:])
+        check("M39: the plan slice line is in the brief with 10 KB of the person's words (FV1-4: no size row; §7 ratchet is the S5 plan fixture)",
+              "S5-qa-automator-1-plan.md" in got["markdown"], got["markdown"][-300:])
     finally:
         cleanup(project)
 
@@ -436,20 +435,14 @@ def k8_legacy():
         cleanup(project)
 
 
-# The doors-only overflow of the plan critic's brief, measured at G4b (t-1884 m-8, AR-20): the brief may be this large, in bytes, when the
-# trimmer reports `doors only`. SHRINK-ONLY: a raise needs a named reason in the verdict, never a quiet edit of this number.
-DOORS_ONLY_BRIEF_MAX = 6443   # CI fix G8 (AR-20, a named raise 6403 -> 6443): measured on CI (LF); a Windows run measures lower because its temp paths are shorter (the brief has no CR). Was 6401 at G4b, +2 B at m-1 (t-1884)
+# The size of the plan critic's full brief on the K7 fixture, in path-normalised bytes (`harness.normalised_bytes`; AR-4, AR-20).
+# SHRINK-ONLY: a raise needs a named reason in the verdict, never a quiet edit of this number.
+S5_PLAN_BRIEF_BYTES_MAX = 9520   # FV1-4 N1 (AR-20): re-based from DOORS_ONLY_BRIEF_MAX (6443 budget B) to normalised bytes (harness.normalised_bytes); measured 2026-11-13 on Windows (the helper makes the number machine-independent)
 
 
-def ceiling_verdict(got):
-    """(ok, note): a brief under the ceiling is ok; over it, ok ONLY when the trimmer reports `doors only` (nothing non-door is left
-    to trim: the doors are never cut, so the overflow is REPORTED) AND the size is within `DOORS_ONLY_BRIEF_MAX`; any other overflow is red."""
-    size, reasons = got["budget_bytes"], got["over_ceiling"]
-    if size <= brief_pack.BRIEF_MAX_BYTES:
-        return True, ""
-    if "doors only" in reasons and size <= DOORS_ONLY_BRIEF_MAX:
-        return True, f"doors-only overflow: {size} B over a ceiling of {brief_pack.BRIEF_MAX_BYTES} B, over_ceiling={reasons}"
-    return False, f"{size} B, over_ceiling={reasons}"
+def size_verdict(n):
+    """(ok, note): the brief's normalised size is ok at or under `S5_PLAN_BRIEF_BYTES_MAX`, red above it."""
+    return n <= S5_PLAN_BRIEF_BYTES_MAX, f"{n} B against {S5_PLAN_BRIEF_BYTES_MAX} B"
 
 
 def k9_grouping_hint_line():
@@ -494,24 +487,14 @@ def k9_grouping_hint_line():
         atomic_json(task / SP.PLAN_REL, plan)
         got = build(CRITIC, "S5-plan-critic-1")
         check_in("K7: the full brief of the plan critic carries the line in its head", "prints 1 grouping hint(s)", head_of(got["markdown"]))
-        ok, note = ceiling_verdict(got)
-        check("K7: ... and the brief stays under its ceiling (a doors-only overflow is reported, not failed)", ok, note)
-        if note:
-            print("REPORT K7:", note)
-        # CI fix G4b: the verdict itself, at and beyond the ceiling, with the negative controls
-        top = brief_pack.BRIEF_MAX_BYTES
-        check("K7 verdict: exactly at the ceiling is green", ceiling_verdict({"budget_bytes": top, "over_ceiling": []})[0], "")
-        check("K7 verdict: over with doors only is green and reported",
-              ceiling_verdict({"budget_bytes": DOORS_ONLY_BRIEF_MAX, "over_ceiling": ["doors only"]})[0] and
-              bool(ceiling_verdict({"budget_bytes": DOORS_ONLY_BRIEF_MAX, "over_ceiling": ["doors only"]})[1]), "")
-        check("K7 verdict: one byte past the pinned doors-only size stays RED (the number only shrinks)",
-              not ceiling_verdict({"budget_bytes": DOORS_ONLY_BRIEF_MAX + 1, "over_ceiling": ["doors only"]})[0], "")
-        check("K7 verdict: over with words at level 1 and doors only is green (nothing non-door is left to trim)",
-              ceiling_verdict({"budget_bytes": top + 1, "over_ceiling": ["words at level 1", "doors only"]})[0], "")
-        check("K7 verdict: one byte over with only a trimmable non-door reason (no `doors only`) stays RED",
-              not ceiling_verdict({"budget_bytes": top + 1, "over_ceiling": ["words at level 1"]})[0], "")
-        check("K7 verdict: one byte over with no reason named stays RED",
-              not ceiling_verdict({"budget_bytes": top + 1, "over_ceiling": []})[0], "")
+        measured = harness.normalised_bytes(got["markdown"], project)
+        print(f"RATCHET S5_PLAN_BRIEF_BYTES_MAX {measured}")
+        ok, note = size_verdict(measured)
+        check("K7: ... and the brief is within the S5 plan ratchet (normalised bytes)", ok, note)
+        # the verdict itself, AT and one byte BEYOND the ratchet (the number only shrinks)
+        top = S5_PLAN_BRIEF_BYTES_MAX
+        check("K7 verdict: exactly AT the ratchet is green", size_verdict(top)[0], "")
+        check("K7 verdict: one byte BEYOND the ratchet is RED", not size_verdict(top + 1)[0], "")
     finally:
         cleanup(project)
 
@@ -770,7 +753,7 @@ def k11_budget_is_path_independent():
     assert len(short) >= 20 and len(long_) == 80
     def body(root):
         return f"- {root}/references/code-review-rubric.md (9.4 KB)\nrun `python \"{root}/scripts/x.py\"`\n"
-    a, b = brief_pack.measured_bytes(body(short), [short]), brief_pack.measured_bytes(body(long_), [long_])
+    a, b = harness.normalised_bytes(body(short), short), harness.normalised_bytes(body(long_), long_)      # FV1-4: the test-side measure
     check_eq("K11: the same text at a 20-char and an 80-char root weighs the same", a, b)
     project, _task, _c = story()
     try:
@@ -779,11 +762,13 @@ def k11_budget_is_path_independent():
         check_in("K11: ... and a built brief still carries the real plugin path (the measure does not rewrite the brief)", brief_pack.SCRIPTS, built)
     finally:
         cleanup(project)
-    check_eq("K11: an empty or None root is skipped", brief_pack.measured_bytes("abc", ["", None]), 3)
+    check_eq("K11: an empty or None root is skipped", harness.normalised_bytes("abc", "", None), 3)
     check_eq("K11: a root that is the prefix of another is replaced longest first",
-             brief_pack.measured_bytes("C:/a/b/x C:/a/y", ["C:/a", "C:/a/b"]), len("<plugin>/x <plugin>/y"))
+             harness.normalised_bytes("C:/a/b/x C:/a/y", "C:/a", "C:/a/b"), len("<root>/x <root>/y"))
     check_eq("K11: a backslash spelling of the root is replaced too",
-             brief_pack.measured_bytes("C:\\a\\b\\x", ["C:/a/b"]), len("<plugin>\\x"))
+             harness.normalised_bytes("C:\\a\\b\\x", "C:/a/b"), len("<root>\\x"))
+    check_eq("K11: the plugin root is replaced without being named",
+             harness.normalised_bytes(str(harness.PLUGIN_ROOT).replace("\\", "/") + "/x"), len("<root>/x"))
 
 
 def main():

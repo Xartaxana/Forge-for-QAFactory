@@ -361,19 +361,8 @@ def main() -> None:
                 check_in(f"{role}: the brief carries the rules ahead of the work",
                          "## The rules code will apply to your handoff", result["markdown"])
                 check_in(f"{role}: and the card itself", table[role]["text"][:60], result["markdown"])
-                check(f"{role}: the brief stays under 6 KB ({result['budget_bytes']} B)",
-                      result["budget_bytes"] <= brief_pack.BRIEF_MAX_BYTES)
-                # The card is the one thing brief_pack never drops, so the question is what
-                # it cost: the same brief built without a card must list the same files.
-                real = brief_pack.ahead_card
-                brief_pack.ahead_card = lambda _role: ""
-                try:
-                    bare = brief_pack.build("QA-9", stage_id, role, dispatch, write=False)
-                finally:
-                    brief_pack.ahead_card = real
-                check(f"{role}: and the card cost the role no path from its file list",
-                      bare["files"] == result["files"],
-                      f"without the card: {bare['files']}")
+                # FV1-4: no size row here (the per-role watch is `ROLE_BRIEF_BYTES_MAX` in test_brief_pack.py), and no
+                # "the card cost no path" row (with no trimming it is trivially true; N1 DoD key (4) is the invariant)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
