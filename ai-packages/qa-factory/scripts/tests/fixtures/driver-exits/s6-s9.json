@@ -1,0 +1,76 @@
+{
+ "schema": 1,
+ "group": "s6-s9",
+ "routes": {
+  "report_check": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+  }
+ },
+ "joints": {
+  "detector:S8:qa-doc-scribe:check_coverage.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+  }
+ },
+ "kinds_without_key": {
+  "closed_held": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "raised_at": [
+    "driver_machine:closed_held_person"
+   ]
+  },
+  "delivery": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "raised_at": [
+    "driver_stage_s8s9:delivery_person"
+   ]
+  },
+  "environment": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "raised_at": [
+    "driver_stage_build:stand_check"
+   ]
+  },
+  "report_match": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "raised_at": [
+    "driver_stage_s8s9:report_match_person"
+   ]
+  },
+  "retro": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "raised_at": [
+    "driver_stage_s8s9:stage_S9"
+   ]
+  },
+  "stand_identity": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "raised_at": [
+    "driver_stage_build:again",
+    "driver_stage_build:build_person",
+    "driver_stage_build:take_build_answer"
+   ]
+  },
+  "stand_login": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "raised_at": [
+    "driver_stage_s6:stand_login_gate"
+   ]
+  }
+ },
+ "ratchet": {
+  "live_only": 0,
+  "after": 0,
+  "unwalked": 9,
+  "hook_layer": 0,
+  "raised_by": []
+ }
+}

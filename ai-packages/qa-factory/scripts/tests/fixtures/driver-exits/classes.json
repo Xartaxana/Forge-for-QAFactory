@@ -1,0 +1,12 @@
+{
+ "schema": 1,
+ "_about": "The class of a refusal row by the SOURCE of its text (P1-b spec 3.6): data, not a list in code. `by_source` maps a source id to a class word: `stage-joints` (a joint check of references/stage-joints.json), `refusal_registry:operation` (a REGISTRY record of kind operation), `refusal_registry:scanned` (a REGISTRY record of a SCANNED hook file), `question:<key>` (a closed question of a gate). A route whose move is ask_person names its source in `class_source` (a joint check, a REGISTRY id or `question:<key>`). A source with no entry here and `default: null` is `class unknown`, printed and counted by dry_exits.py - never a guessed class (FR-59).",
+ "by_source": {
+  "stage-joints": "gate",
+  "refusal_registry:operation": "gate",
+  "refusal_registry:scanned": "ban",
+  "question:gate_A": "gate",
+  "question:gate_B": "gate"
+ },
+ "default": null
+}

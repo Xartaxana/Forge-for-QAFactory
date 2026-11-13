@@ -1,0 +1,87 @@
+{
+ "schema": 1,
+ "group": "s1-s4",
+ "routes": {
+  "s1_gap": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "s1_review": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "structured_artifact": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  }
+ },
+ "joints": {
+  "exit:grounding_errors": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "exit:case_identity_errors": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "detector:S2:qa-requirements-tester:branch_accounting.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "detector:S3:qa-test-strategist:planning_contract.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "detector:S3:qa-test-strategist:branch_accounting.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "detector:S4:qa-case-critic:critic_rollcall.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  },
+  "detector:S4:qa-case-critic:branch_accounting.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+  }
+ },
+ "kinds_without_key": {
+  "conductor": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "raised_at": [
+    "driver_conductor:no_move_legacy"
+   ]
+  },
+  "questions": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:question_threshold",
+    "driver_machine:_act_wait_existing_job"
+   ]
+  },
+  "s1_gap": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:s1_person"
+   ]
+  },
+  "s1_review": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:run_role",
+    "driver_dispatch:s1_person"
+   ]
+  }
+ },
+ "ratchet": {
+  "live_only": 0,
+  "after": 0,
+  "unwalked": 14,
+  "hook_layer": 0,
+  "raised_by": []
+ }
+}

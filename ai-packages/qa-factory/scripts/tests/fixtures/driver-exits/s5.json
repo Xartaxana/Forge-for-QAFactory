@@ -1,0 +1,174 @@
+{
+ "schema": 1,
+ "group": "s5",
+ "routes": {},
+ "joints": {
+  "detector:S5:qa-automator:s5_precheck.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "detector:S5:qa-automator:branch_accounting.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:expectation_change_gaps": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:empty_scope": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:quality": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:malformed_instance": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:handed_to_person": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:handed_unconfirmed": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:stale_run": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:change_disposition": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:probe_gap": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:probe_gap_unrecorded": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:evidence": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:blocked_by_env": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:review": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:obligation_binding": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:obligation_hash": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:assertion_identity": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:defect_location": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:change_basis": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:contradicts_requirement": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:sensitivity": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:product": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:stale_review": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:semantic_sensitivity": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:probe_level": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:probe_evidence": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:mechanical_green": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
+  "window:probe_mutation_kind": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  }
+ },
+ "kinds_without_key": {
+  "code_close": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "raised_at": [
+    "driver_machine:code_close_person"
+   ]
+  },
+  "data_change": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:data_change_person"
+   ]
+  },
+  "exit_limit": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:exit_limit_person"
+   ]
+  },
+  "repair_limit": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:repair_limit_person"
+   ]
+  },
+  "walk_account": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:walk_account_person"
+   ]
+  },
+  "walk_supply": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group",
+   "raised_at": [
+    "driver_dispatch:walk_supply_person"
+   ]
+  }
+ },
+ "ratchet": {
+  "live_only": 0,
+  "after": 0,
+  "unwalked": 35,
+  "hook_layer": 0,
+  "raised_by": []
+ }
+}
