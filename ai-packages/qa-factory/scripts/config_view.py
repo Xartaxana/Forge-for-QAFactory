@@ -288,9 +288,12 @@ def main(argv=None) -> int:
     try:
         config = _load()
     except NoConfig:
-        print(f"config_view: no qa-factory/config.json under {hooklib.project_root()} - this project was never onboarded: run "
-              "/qa-factory:qa-onboarding; or this is the wrong project root: run the command from inside the project, or set "
-              "CLAUDE_PROJECT_DIR to it.", file=sys.stderr)
+        # the shared words (OF4-17); "" only when the marker is there yet the loader said NoConfig (it vanished
+        # between the two reads): then one true sentence names the file, not "never onboarded"
+        root = hooklib.project_root()
+        shared = hooklib.not_a_project_text(root, given=False, purpose="config_view")
+        print(shared or f"config_view: qa-factory/config.json under {root} is there, but the loader found no config in it "
+              "(it may have been removed while it was read). Nothing was written; run the command again.", file=sys.stderr)
         return EXIT_NO_CONFIG
     except config_contract.ConfigUnreadable as exc:
         print(f"config_view: {exc}", file=sys.stderr)

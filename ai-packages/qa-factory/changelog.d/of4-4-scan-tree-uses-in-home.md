@@ -1,0 +1,1 @@
+- install-path scan: `scan_tree` asks `in_home` whether a path is inside the factory's home folder instead of keeping its own copy of the expression, so the two can no longer disagree (`scripts/install_paths.py`; OF4-4)

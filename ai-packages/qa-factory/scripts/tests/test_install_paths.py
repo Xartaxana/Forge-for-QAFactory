@@ -897,7 +897,67 @@ def section_in_home() -> None:
         check_eq(f"OH3-9 in_home {ident}: {path!r}", I.in_home(path, TABLE, fold=fold), want)
 
 
+EVAL_TEXT = "the stale file state/probe-z.json is deleted by its class"
+CORPUS_ROWS = [
+    # ident, files of the tmp package, readers expected for the key `state/probe-z.json`
+    ("eval-text-only", {"skills/x/evals/evals.json": EVAL_TEXT}, []),
+    ("eval-and-real-reader", {"skills/x/evals/evals.json": EVAL_TEXT, "scripts/x.py": "P = 'state/probe-z.json'\n"}, ["scripts/x.py"]),
+    ("neither", {"scripts/x.py": "pass\n", "skills/x/evals/evals.json": "{}"}, []),
+    ("evals-dir-empty", {"skills/x/evals/.keep": "", "scripts/x.py": "pass\n"}, []),
+    ("evals-dir-absent", {"skills/x/SKILL.md": "pass\n"}, []),
+    ("skill-md-beside-evals-is-a-reader", {"skills/x/evals/evals.json": EVAL_TEXT, "skills/x/SKILL.md": "reads state/probe-z.json\n"},
+     ["skills/x/SKILL.md"]),
+    ("deeper-evals-folder-also-prose", {"skills/x/evals/files/case.md": EVAL_TEXT}, []),
+]
+
+
+def section_corpus_evals() -> None:
+    """OF4-1: text under skills/*/evals/ is prose about the factory, not a reader of a path."""
+    for ident, files, want in CORPUS_ROWS:
+        pkg = tmp_package(files)
+        try:
+            check_eq(f"OF4-1 corpus {ident}: readers of the key", I._grep(I._corpus(pkg), "state/probe-z.json"), want)
+        finally:
+            cleanup(pkg)
+
+
+SCAN_HOME_ROWS = [
+    # ident, tree entry (rel, is_dir), fold, listed as unrecognised inside the home
+    ("home-child", "qa-factory/own.txt", False, True), ("home-itself-as-file", "qa-factory", False, True),
+    ("sibling-common-prefix", "qa-factory-x/own.txt", False, False), ("outside-top-file", "own.txt", False, False),
+    ("other-case-fold", "QA-Factory/own.txt", True, True), ("other-case-nofold", "QA-Factory/own.txt", False, False),
+]
+
+
+def section_scan_home() -> None:
+    """OF4-4: scan_tree takes the home-folder judgment from in_home - the verdicts below are from the table of cases, and a
+    stub in_home that says yes to everything must change scan_tree's answer (one judgment, not two)."""
+    table = {"home": "qa-factory", "rules": []}
+    for ident, rel, fold, want in SCAN_HOME_ROWS:
+        root = temp_dir("qa-home-")
+        try:
+            put(root, rel)
+            scan = I.scan_tree(root, manifest=None, table=table, casefold=fold)
+            got = [i["rel_path"] for i in scan["not_ours_kept"]]
+            check_eq(f"OF4-4 scan_tree home {ident}: {rel!r}", (got == [rel], I.in_home(rel, table, fold=fold)), (want, want))
+        finally:
+            cleanup(root)
+    real = I.in_home
+    root = temp_dir("qa-home-")
+    try:
+        put(root, "own.txt")
+        I.in_home = lambda *a, **k: True
+        scan = I.scan_tree(root, manifest=None, table=table, casefold=False)
+        check_eq("OF4-4 scan_tree follows in_home: a stub that says yes lists a file outside the home",
+                 [i["rel_path"] for i in scan["not_ours_kept"]], ["own.txt"])
+    finally:
+        I.in_home = real
+        cleanup(root)
+
+
 def main() -> None:
+    section_corpus_evals()
+    section_scan_home()
     section_regenerated_basis()
     section_in_home()
     section_stand_identity()

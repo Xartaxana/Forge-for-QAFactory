@@ -863,9 +863,12 @@ def plan_row_state(row: dict, manifest: dict, report: dict, triage: dict, cases_
     for case in [c for c, r in outcomes if r in ("passed", "pass")] if open_oracles else []:
         gaps = next((g for key, g in open_oracles.items() if C.case_matches(key, case, cfg=cfg)), {})
         for binding in manifest.get("then_bindings") or []:
-            if (isinstance(binding, dict) and str(binding.get("status") or "") == "covered"
-                    and isinstance(binding.get("then"), int) and binding.get("then") in gaps and C.case_matches(str(binding.get("case") or ""), case, cfg=cfg)):
-                green_open.append((case, binding["then"], gaps[binding["then"]]))
+            if not isinstance(binding, dict):
+                continue
+            n = C.then_number(binding.get("then"))   # the ONE reading of a Then number (AR-13); a bool or junk reads 0
+            if (str(binding.get("status") or "") == "covered"
+                    and n and n in gaps and C.case_matches(str(binding.get("case") or ""), case, cfg=cfg)):
+                green_open.append((case, n, gaps[n]))
     if green_open:
         return (NOT_VERIFIED_UNCONFIRMED, "; ".join(
             f"{case} Then {then}: {green_on_open_words(oracle)}"

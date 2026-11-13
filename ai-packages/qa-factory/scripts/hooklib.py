@@ -175,23 +175,59 @@ def state_dir(event: dict | None = None) -> Path:
 EXIT_NO_PROJECT = 3
 
 
-def require_project_at(root, purpose: str) -> Path:
+def not_a_project_text(root, given: bool = True, purpose: str = "", extra_door: str = "", detail: str = "",
+                       root_option: bool = False, dead_end_detail: str = "") -> str:
+    """The ONE builder of the words "this root is not a factory project" (OF4-17, AR-9, AR-15, AR-16).
+
+    `require_project_at` prints it and `host_probe._not_a_project` returns it, so a person reads the same refusal
+    from every caller. It says what is wrong (no `qa-factory/config.json` under `root`), what is expected (the
+    folder that contains it) and the doors: with an ancestor that carries the marker (found by the one walk,
+    `_nearest_project`) `Re-run with --root <above>` when the caller HAS a root option (`root_option`, default
+    False: a door that may not exist is never named), else run from inside <above> or set CLAUDE_PROJECT_DIR;
+    onboarding when none does. `given` is True when the root was named (`--root`), False when the ambient
+    project was taken: with nothing above, the ambient root may be a project that is not onboarded yet, or the
+    wrong root, and the text says both. `purpose` is the caller's name, `extra_door` a door only that caller has
+    (the dashboard's `--read-only --out <file outside the root>`), `detail` one sentence of the caller's own,
+    `dead_end_detail` one more only for the branch with no door but onboarding (ambient, nothing above). Nothing
+    is read beyond the marker and nothing is written; a root that carries the marker gets '' (no refusal)."""
+    resolved = Path(root).resolve()
+    if _carries_project(resolved):
+        return ""
+    above = _nearest_project(resolved.parent)
+    lead = f"{purpose}: " if purpose else ""
+    more = f" {detail.strip()}" if detail.strip() else ""
+    door = f" A door that needs no project: {extra_door.strip()}." if extra_door.strip() else ""
+    if not given and not above:
+        end = f" {dead_end_detail.strip()}" if dead_end_detail.strip() else ""
+        elsewhere = ("run the command from inside the project, set CLAUDE_PROJECT_DIR to it, or pass --root <the project root>"
+                     if root_option else "run the command from inside it or set CLAUDE_PROJECT_DIR to it")
+        return (f"{lead}this project is not onboarded yet (no qa-factory/config.json in {resolved} or above it). "
+                f"Nothing was written.{more}{end} The next step is /qa-factory:qa-onboarding; if the project is "
+                f"elsewhere, {elsewhere}.{door}")
+    if above:
+        fix = (f"Re-run with --root {above}, or run the command from inside it." if root_option else
+               f"Run the command from inside {above}, or set CLAUDE_PROJECT_DIR to it.")
+    else:
+        fix = ("Re-run with --root set to the project root where the command has that option, or run it from inside "
+               "the project (or set CLAUDE_PROJECT_DIR to it); for a project that is not onboarded yet run "
+               "/qa-factory:qa-onboarding first.")
+    return (f"{lead}no qa-factory/config.json under {resolved} - refusing to create one.{more}\n"
+            "The project root is the directory that contains qa-factory/config.json "
+            f"(not a story folder, and not the qa-factory folder itself). {fix}{door}")
+
+
+def require_project_at(root, purpose: str, extra_door: str = "", root_option: bool = False) -> Path:
     """The `qa-factory/` directory of `root`, or a refusal on stderr and exit EXIT_NO_PROJECT.
 
     The ONE refusal every writer that must not bring a `qa-factory/` tree into existence uses
-    (OH3-37, AR-15); `require_project` is the same rule for the ambient root. The marker is
+    (OH3-37, AR-15): its words are `not_a_project_text`, the same ones `host_probe` returns;
+    `require_project` is the same rule for the ambient root. The marker is
     `qa-factory/config.json` (`_carries_project`): a `qa-factory/` folder without it is not a
     project. Nothing is read or written here."""
     root = Path(root)
     if _carries_project(root):
         return root / "qa-factory"
-    print(f"{purpose}: no qa-factory/config.json under {root} - refusing to create one.\n"
-          f"This is either a project that was never onboarded (run "
-          f"/qa-factory:qa-onboarding), or a wrong project root: the factory looks for "
-          f"qa-factory/config.json in the current directory and its ancestors. Run the "
-          f"command from inside the project, point --root at it where the command has that "
-          f"option, or set CLAUDE_PROJECT_DIR to it.",
-          file=sys.stderr)
+    print(not_a_project_text(root, True, purpose=purpose, extra_door=extra_door, root_option=root_option), file=sys.stderr)
     sys.exit(EXIT_NO_PROJECT)
 
 
@@ -340,10 +376,15 @@ def story_root(key: str, program: str, door: str = "", event: dict | None = None
         path = artifacts_dir(text, event)
     elif str(project).strip() and _carries_project(project):
         path = artifact_root(root=Path(project)) / text
+    elif not str(project).strip():
+        # an empty value is not a root to describe: it would be the current folder, so it is refused as itself
+        raise StoryRootError(f"{program} was given an empty project, which would be the current folder, so nothing was "
+                             f"read or written. Pass the root of the project that holds the story.{tail}")
     else:
-        raise StoryRootError(f"{program} was given the project {str(project)!r}, which is not an onboarded project "
-                             f"(no qa-factory/config.json under it; an empty value would be the current folder), so "
-                             f"nothing was read or written. Pass the root of the project that holds the story.{tail}")
+        # a named root that is not a project: the words of the one builder (OF4-17 C2), the caller's own door in `tail`
+        text_ = not_a_project_text(Path(project), True, purpose=program,
+                                   detail="Nothing was read or written. Pass the root of the project that holds the story.")
+        raise StoryRootError(f"{text_}{tail}")
     if is_story_folder(path.parent, text):
         return path
     raise _no_story(program, repr(text), f"{path} is not a folder of this project", "key", path.parent, text, tail)
@@ -654,6 +695,8 @@ def artifact_root(event: dict | None = None, root: Path | None = None) -> Path:
     # `utf-8-sig`, but the exception stays: a broken config must raise here, not become `{}` (through `read_json`) and
     # silently put the artifacts into the default root (AR-28, AR-4).
     cfg = json.loads(config.read_text(encoding="utf-8-sig")) if config.exists() else {}
+    if not isinstance(cfg, dict):
+        raise ValueError("qa-factory/config.json is not a JSON object; fix it by hand or move it aside and run onboarding again")
     value = cfg.get("artifact_root")
     if value is None:
         return project / "qa-factory" / "artifacts"

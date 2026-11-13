@@ -525,6 +525,19 @@ def notes() -> None:
           any(c["path"] == "/answers_legacy" for c in broken["conflicts"]))
 
 
+def test_locations_note_says_where_the_fallback_ends() -> None:
+    """OF4-5 (AR-10): a non-empty `test_locations` ends the usual-names fallback for the application area, and a test
+    repository is named by `tests_root` / `roots.test`, not by this key. The old text stays in the history, the new one
+    is appended and is the template's (the C8 pair, both sides updated together)."""
+    key = "test_locations_note"
+    history = KEYS["notes"][key]["note_history"]
+    check_eq("OF4-5: the table's last text IS the template's", history[-1], TEMPLATE[key])
+    check("OF4-5: the earlier text stays in the history", len(history) >= 2 and "Empty means the person has not named any" in history[0])
+    for phrase in ("non-empty list", "the usual test names no longer apply", "tests_root", "roots.test"):
+        check_in(f"OF4-5: the template note says `{phrase}`", phrase, TEMPLATE[key])
+    check("OF4-5: the earlier text did not say it", "no longer apply" not in history[0])
+
+
 def turns_note_history() -> None:
     """SC1-6 fix round (F2, t-1318): the turn-budget note lost its sentence "the same call again proceeds". The
     old text stays in `note_history` (APPENDED to, never edited), which is the only way `settle_note` knows a text as
@@ -1830,6 +1843,7 @@ def main() -> None:
     removed_dead_keys()
     reinstall_equals_fresh()
     notes()
+    test_locations_note_says_where_the_fallback_ends()
     turns_note_history()
     nested_notes()
     deep_fill()

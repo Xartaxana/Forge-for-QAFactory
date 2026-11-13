@@ -231,10 +231,6 @@ BLOCKED_OUTCOME = "blocked_by_env"
 # The word of the completion that accepts a probe gap the person named (HF1-14); the same as `acceptance.PROBE_GAP_KIND`,
 # spelled here for the same reason as BLOCKED_OUTCOME.
 PROBE_GAP_WORD = "probe_gap"
-# The word of the completion that accepts a RED window (HF2-4b): a test that failed against the requirement and whose
-# manifest row says so; the same as `acceptance.CONTRADICTS_REQUIREMENT` (held equal by test_red_window), spelled here
-# for the same reason as BLOCKED_OUTCOME.
-CONTRADICTS_WORD = "contradicts_requirement"
 # The roles that run a repair/review loop and therefore carry a repair cap.
 REPAIR_LOOP_ROLES = {"qa-automator", "qa-code-critic", "qa-case-designer", "qa-case-critic",
                      "qa-requirements-tester", "qa-test-strategist",      # X2-7: the authors of S2/S3 repair on the stage critic's word
@@ -521,12 +517,13 @@ def names_contradicts(payload) -> bool:
     the window nor the instance, so it cannot tell a pair that names the word for another case from the gap's own;
     that join is `acceptance.validate_window`'s, which re-derives each red from the manifest and the run blocks and
     never from the pair. Error direction: toward False (a payload that cannot be read names nothing)."""
+    import contract
     try:
         blob = json.dumps([(payload or {}).get("unresolved"), (payload or {}).get("reason")],
                           default=str)
     except (TypeError, ValueError, AttributeError):
         return False
-    return CONTRADICTS_WORD in blob
+    return contract.CONTRADICTS_REQUIREMENT in blob
 
 
 # The most cases one manual runner block may name (t-323 C4: the literal 5 had a second reader, `story_progress`,
@@ -7397,7 +7394,7 @@ class Controller:
             problems.append((
                 StateConflict,
                 "this window holds red tests the requirement contradicts (" + ", ".join(contradicts_gaps)
-                + "): accept it as unresolved with `unresolved` naming `" + CONTRADICTS_WORD + "` - `story_step.py finish "
+                + "): accept it as unresolved with `unresolved` naming `" + CONTRADICTS_REQUIREMENT + "` - `story_step.py finish "
                 "--task " + self._ticket() + " --dispatch-id " + str(d.get("id"))
                 + " --digest \"<digest>\"` derives that pair from the window record"))
         if other_gaps and (not p.get("unresolved") or not p.get("reason")):

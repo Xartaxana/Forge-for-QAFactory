@@ -60,12 +60,20 @@ def marked_root(raw: Path | None) -> tuple:
     found = RP.nearest_project(here)
     if found is not None and found == here:
         return here, ""
+    detail = "A folder that is no project has no coverage map to reconcile, so nothing was checked."
+    try:
+        from hooklib import not_a_project_text  # the one builder of this refusal (OF4-17 C1); check_coverage HAS --root
+    except ImportError:
+        not_a_project_text = None
+    text = not_a_project_text(here, given=raw is not None, purpose="check_coverage", detail=detail,
+                              root_option=True) if not_a_project_text else ""
+    if text:
+        return None, text
+    # hooklib is not importable (the module's own degraded path, K3): the refusal keeps its own short words
     above = f" The project above it is {found}: pass --root {found}." if found is not None else ""
-    which = "--root" if raw is not None else "the default root (the project this process works in)"
-    return None, (f"check_coverage: {which} {here} is not a factory project: it has no qa-factory/config.json, so "
-                  f"there is no coverage map to reconcile and nothing was checked.{above} Expected the project "
-                  "folder - run this from inside the project, or pass --root <the folder that contains "
-                  "qa-factory/config.json>.")
+    return None, (f"check_coverage: {here} has no qa-factory/config.json, so there is no coverage map to reconcile and "
+                  f"nothing was checked.{above} Run this from inside the project, or pass --root <the folder that "
+                  "contains qa-factory/config.json>.")
 
 
 def parse_frontmatter(text: str) -> dict:

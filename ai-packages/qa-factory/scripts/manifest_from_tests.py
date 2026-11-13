@@ -947,11 +947,8 @@ def _attach_novelty(story: Story, project, keyed: list, notes: list, helpers: li
 # --- the keys of `qa_unresolved` that name WHICH part of a case a row speaks about (HF2-12) ---------------------------
 
 def _contradicts_requirement() -> str:
-    """The reason word of a red test: ONE home, `acceptance.CONTRADICTS_REQUIREMENT` (`contract` holds no such constant).
-    Imported where it is asked: `stage_guard`, a hook, imports this module for the closed reason list, and `acceptance`
-    must not load with it."""
-    import acceptance
-    return acceptance.CONTRADICTS_REQUIREMENT
+    """The reason word of a red test: ONE home, `contract.CONTRADICTS_REQUIREMENT`."""
+    return C.CONTRADICTS_REQUIREMENT
 
 
 def preserved_reasons() -> tuple:
@@ -1593,8 +1590,10 @@ def _case_picture(story: Story, cases: list, bindings: list, whole_unresolved: l
     out = {}
     for case in cases:
         info = story.case(case, "summary")
-        covered = sorted({int(b["then"]) for b in bindings if b["case"] == case and b["status"] == "covered"})
-        unresolved = sorted({int(b["then"]) for b in bindings if b["case"] == case and b["status"] != "covered"})
+        covered = sorted({n for b in bindings if b["case"] == case and b["status"] == "covered"
+                          for n in [C.then_number(b["then"])] if n})
+        unresolved = sorted({n for b in bindings if b["case"] == case and b["status"] != "covered"
+                             for n in [C.then_number(b["then"])] if n})
         clauses = info["clauses"]
         unbound = [n for n in clauses if n not in covered and n not in unresolved]
         out[case] = {"clauses": clauses, "covered": covered, "unresolved": unresolved,
