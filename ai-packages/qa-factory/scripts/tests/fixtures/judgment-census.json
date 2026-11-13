@@ -1259,7 +1259,7 @@
   {"file": "window_files.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "T1a, F1 (a) step 4: conductor, parent 2.8 group G-free"},
   {"file": "window_record.py", "function": "_quality_data", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "window_record.py", "function": "build", "class": "shape", "roles": ["conductor"], "owner": "data"},
-  {"file": "window_record.py", "function": "run", "class": "shape", "roles": ["qa-code-critic"], "owner": "data", "note": "T1a: now blocking (wide non-list site); roles relabelled by F1 (a), step 3: `agents/qa-code-critic.md:69`"},
+  {"file": "window_record.py", "function": "run", "class": "xref", "roles": ["qa-code-critic"], "owner": "intent", "note": "T1a: now blocking (wide non-list site); roles relabelled by F1 (a), step 3: `agents/qa-code-critic.md:69`; FV1-30b N6: class xref, owner intent"},
   {"file": "window_record.py", "function": "write_review_receipt", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "window_record.py", "function": "main", "class": "shape", "roles": ["qa-code-critic"], "owner": "data", "note": "T1a, F1 (a) step 3"},
   {"file": "worker_lifecycle.py", "function": "cancellation", "class": "shape", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "data"},

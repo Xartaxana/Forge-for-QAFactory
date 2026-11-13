@@ -1264,6 +1264,27 @@ def word_let_go(lines, window, index, lets_go=None) -> tuple:
         return lines, []
 
 
+def word_kept(lines, window, task_root, dispatch_id) -> tuple:
+    """`(kept, let_go)` - the composition the S5 window judges share (FV1-30b N6, AR-13, AR-15): the LIVE index of this window
+    (`s5_precheck.live_word_index` over the window's `scope_instances` and `dispatch_id`), then `word_let_go` over `lines`. Input
+    order is kept. NEVER raises: an index that cannot be built (None) or any exception gives `(list(lines), [])`, nothing let go
+    (AR-28); empty `lines` give `([], [])` without asking for the index. Every judge calls it BEFORE its "is every gap derivable"
+    test, so only the kept lines reach that test."""
+    try:
+        lines = list(lines)
+    except Exception:
+        return [], []
+    if not lines:
+        return [], []
+    try:
+        import s5_precheck
+        scope = list((window or {}).get("scope_instances") or {}) or None
+        index = s5_precheck.live_word_index(task_root, scope, dispatch_id)
+        return word_let_go(lines, window, index)
+    except Exception:
+        return lines, []
+
+
 def _word_kept_keys(identity, empty_fields, index, table) -> tuple:
     """`(kept, entry)` for one window item: `kept` is `{key: value}` of the `window_keys` of every field the LIVE `index` says a
     person's word passed for instance `identity` (and `table`, the `row_fields` rows, lets pass), limited to the keys `empty_fields`
@@ -2131,6 +2152,14 @@ def run(task: str, dispatch_id: str, out: str = "", review_receipt: bool = False
     info.extend(_two_case_red_notes(window))
     for line in info:  # not problems: what a proof of this window rests on, said whether or not it is acceptable
         print("note: " + line)
+    # FV1-30b N6 (F14, E33): the gaps a person's recorded word lets go are judged by the ONE predicate `word_let_go` over the LIVE
+    # index (`s5_precheck.live_word_index`, asked once here, only when there is a gap), BEFORE every "is the gap derivable" test
+    # below. INVARIANT: only the kept gaps are judged; a let-go line is PRINTED, never dropped silently; an index that cannot be
+    # built (None) or any exception lets nothing go, and a kept gap gives today's listing and exit code.
+    if problems:
+        problems, let_go = word_kept(problems, window, task_root, dispatch_id)
+        for line in let_go:
+            print("note: passed by the person's word: " + line)
     # t-219 (B4, Q7): when EVERY gap is an instance the stand blocked, the critic's work is finished - the window
     # is acceptable AS UNRESOLVED. Exit 0, not 1: with 1 the driver prints the marker note that sent the cmp2
     # critic round the loop eight times. Any other gap, the blocked lines among them, keeps today's exit 1.
