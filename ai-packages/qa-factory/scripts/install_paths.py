@@ -289,7 +289,7 @@ def home_of(table: dict) -> str:
 def in_home(path, table: dict, fold: bool | None = None) -> bool:
     """True when `path` is the factory's home or lies under it (the home is the table's `home`, never a literal).
 
-    The same test as scan_tree's inline one. A path that does not normalise is NOT in the home: the
+    The one judgment: scan_tree calls it. A path that does not normalise is NOT in the home: the
     caller refuses it, the safe side (a trailing dot or space in the home segment is not the home here)."""
     rel, why = normalize_rel(path)
     if why is not None:
@@ -513,7 +513,9 @@ def _corpus(package_root: Path) -> dict:
             continue
         for current, dirs, files in os.walk(base):
             here = Path(current).relative_to(package_root).as_posix()
-            dirs[:] = [d for d in dirs if d != "__pycache__" and f"{here}/{d}" != "scripts/tests"]
+            # `scripts/tests` and `skills/<any>/evals` are not readers: the first judges, the second is prose about the factory
+            dirs[:] = [d for d in dirs if d != "__pycache__" and f"{here}/{d}" != "scripts/tests"
+                       and not (here.startswith("skills/") and here.count("/") == 1 and d == "evals")]
             for name in files:
                 path = Path(current, name)
                 rel = path.relative_to(package_root).as_posix()
@@ -1094,7 +1096,6 @@ def scan_tree(root, written=(), *, manifest="auto", context: dict | None = None,
     fold = _fold_default() if casefold is None else casefold
     table = table if table is not None else load_table(plugin_root)
     rules = _rules(table)
-    home = home_of(table)
     result = {"manifest": {"status": "absent", "reason": None, "newer": False, "package_version": None},
               "retire": [], "retire_blocked": None, "changed_since_install": [], "not_ours_kept": [],
               "locks": [], "unknown": [], "missing": [], "refused": []}
@@ -1188,16 +1189,16 @@ def scan_tree(root, written=(), *, manifest="auto", context: dict | None = None,
                     add_retire(rel, "regenerated", "table", win["generation"], win["requires"], None,
                                win["retire_mode"] or retire_modes(table)["regenerated_stale"])
             return
-        in_home = k == _key(home, fold) or k.startswith(_key(home, fold) + "/")
+        inside = in_home(rel, table, fold)                # the one judgment of "inside the home folder"
         if is_dir and not is_link:
-            if rel.endswith(".lock") and in_home:
+            if rel.endswith(".lock") and inside:
                 result["locks"].append(rel)                   # an unrecognised folder named like a lock is left alone, whole
-            elif in_home or any(_could_contain(segs, r["segs"], fold) for r in rules) or k in known_dirs:
+            elif inside or any(_could_contain(segs, r["segs"], fold) for r in rules) or k in known_dirs:
                 # Inside the factory's home an unrecognised folder is judged file by file (t-272 item 2):
                 # a folder is never retired as a whole, so each file below is its own undetermined item.
                 descend(rel)
             return
-        if in_home and k not in known:
+        if inside and k not in known:
             if rel.endswith(".lock"):
                 result["locks"].append(rel)                   # a lock nobody named is never moved aside
             else:
