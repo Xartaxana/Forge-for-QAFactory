@@ -23,13 +23,14 @@
 
 | Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
 |---|---|---|---|---|---|---|
-| PC3-1 | П2 | `sides_reread` строит записи через `_sides_entries` (как S0); запись `product` по умолчанию — из одного места (`findings/20261112-povtornoe-chtenie-storon-schitaet-product-po-odnomu-reestru.md`; критик t-057 N1, N6; FR-54; AR-13, AR-15, AR-19) | designer → builder → critic | `ai-packages/qa-factory/scripts/story_run.py (Driver.sides_reread, Driver.s0_sides_sets)`, `ai-packages/qa-factory/scripts/contract.py`, `ai-packages/qa-factory/scripts/tests/test_story_sides.py` | — | ожидает |
+| PC3-1 | П2 | `sides_reread` строит записи через `_sides_entries` (как S0); запись `product` по умолчанию — из одного места (`findings/20261112-povtornoe-chtenie-storon-schitaet-product-po-odnomu-reestru.md`; критик t-057 N1, N6; FR-54; AR-13, AR-15, AR-19) | designer → builder → critic | `ai-packages/qa-factory/scripts/story_run.py (Driver.sides_reread, Driver.s0_sides_sets)`, `ai-packages/qa-factory/scripts/contract.py`, `ai-packages/qa-factory/scripts/tests/test_story_sides.py` | — | в работе |
 
 ## Ход
 
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
 
 - 12.11 — пачка открыта: находка из критика кода t-057 (N1, N6), положена тем же ходом, что файл в `findings/` (D-0044).
+- 13.11 — PC3-1: в работе (фикс-раунд, билдер идёт); статус по слову владельца 13.11 идёт с работой.
 
 ## Живые доказательства
 
