@@ -12,7 +12,7 @@
 # is measured in the first week on GitHub (owner's word 28.10.2026, decision FK-4) and tightened or loosened from that number.
 # run-name: the list of runs shows the ref being canonised (head_branch of a dispatched run is always main).
 name: canon
-run-name: canon ${{ inputs.ref }}
+run-name: ${{ inputs.spike && 'dry-spike' || 'canon' }} ${{ inputs.ref }}
 
 on:
   workflow_dispatch:
@@ -81,7 +81,7 @@ jobs:
         run: python -B ai-packages/qa-factory/scripts/tests/dry_world.py --spike
   clock:
     needs: [start, checks, full]
-    if: always()
+    if: ${{ always() && !inputs.spike }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:

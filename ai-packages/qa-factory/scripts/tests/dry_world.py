@@ -102,22 +102,23 @@ def load_types(path=None, base=None) -> tuple:
 RELEVANCE_VALUES = ("relevant", "not_relevant", "unknown")
 
 
-def check_stub(name: str, tid: str, stub) -> None:
-    """The declared judgments of a type row (`stub`, E-R3): a row without `stub` is `{}`; `stub` is a mapping; `source_relevance` is a mapping
-    of ticket key -> `{relevance: relevant|not_relevant|unknown, reason: <non-empty>, from: <where the value was recorded>}`, a key once (case-folded).
-    A value outside the closed list never reaches the factory (AR-28): a `TypesError` naming the file, the type and the key."""
+def check_stub(name: str, tid: str, stub, what: str = "type") -> None:
+    """The declared judgments of a type row or a probe row (`stub`, E-R3; `what` names which): a row without `stub` is `{}`; `stub` is a mapping;
+    `source_relevance` is a mapping of ticket key -> `{relevance: relevant|not_relevant|unknown, reason: <non-empty>, from: <non-empty: where the value
+    was recorded>}`, a key once (case-folded). A value outside the closed list or with no provenance never reaches the factory (AR-28, AR-29): a
+    `TypesError` naming the file, the row and the key."""
     if stub is None:
         return
     if not isinstance(stub, dict):
-        raise TypesError(f"{name}: type {tid!r} `stub` is not a mapping; expected an object (role controls, `source_relevance`)")
+        raise TypesError(f"{name}: {what} {tid!r} `stub` is not a mapping; expected an object (role controls, `source_relevance`)")
     declared = stub.get("source_relevance")
     if declared is None:
         return
     if not isinstance(declared, dict):
-        raise TypesError(f"{name}: type {tid!r} `stub.source_relevance` is not a mapping; expected ticket key -> judgment")
+        raise TypesError(f"{name}: {what} {tid!r} `stub.source_relevance` is not a mapping; expected ticket key -> judgment")
     folded = set()
     for key, judgment in declared.items():
-        where = f"type {tid!r} `stub.source_relevance[{key!r}]`"
+        where = f"{what} {tid!r} `stub.source_relevance[{key!r}]`"
         if key.casefold() in folded:
             raise TypesError(f"{name}: {where} repeats a key (case-folded); expected each ticket key once")
         folded.add(key.casefold())
@@ -127,6 +128,25 @@ def check_stub(name: str, tid: str, stub) -> None:
             raise TypesError(f"{name}: {where} relevance {judgment.get('relevance')!r}; expected one of {list(RELEVANCE_VALUES)}")
         if not isinstance(judgment.get("reason"), str) or not judgment["reason"].strip():
             raise TypesError(f"{name}: {where} has no `reason`; expected a non-empty sentence")
+        if not isinstance(judgment.get("from"), str) or not judgment["from"].strip():
+            raise TypesError(f"{name}: {where} has no `from`; expected where the value was recorded (a file and line of a real run)")
+
+
+def load_rows(path=None) -> list:
+    """The probe rows (`seeds/probe.json`), each row's `stub` checked by `check_stub` BEFORE any world is built (E-R3): a bad entry is a `TypesError`
+    naming the file, the row id and the key, never a crash of the stub inside a driver turn. A row with no `stub` is unchanged."""
+    path = Path(path or WALK / "seeds" / "probe.json")
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")).get("rows")
+    except (OSError, ValueError, AttributeError) as exc:
+        raise TypesError(f"{path.name}: cannot be read as an object with `rows` ({type(exc).__name__})") from None
+    if not isinstance(rows, list):
+        raise TypesError(f"{path.name}: `rows` is not a list")
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("id"):
+            raise TypesError(f"{path.name}: a row has no id; expected a mapping with `id`")
+        check_stub(path.name, row["id"], row.get("stub"), what="row")
+    return rows
 
 
 def merge_stub(base, over) -> dict:
@@ -498,14 +518,34 @@ def gate_verdict(total: float, median: float, worst: float) -> str:
     return "continue"
 
 
-def gate_line(state: dict, outcomes: dict, total: float, median: float, worst: float) -> str:
-    """The gate line (AR-28): a numbers verdict only when S3 is `done`; a road that ended earlier is `undecided` and names the stage it ended at, the head of
-    that stage's outcome line (cut at 160, the stub journal holds the whole text) and what was measured."""
-    if state.get("S3") == "done":
-        return f"gate: {gate_verdict(total, median, worst)} (S0..S3 {total:.1f} s, row median {median:.1f} s, worst row {worst:.1f} s)"
-    stuck = next((s for s in ("S0", "S1", "S2", "S3") if state.get(s) != "done"), "S0")
-    return (f"gate: undecided -- the road ended at {stuck}: {' '.join(str(outcomes.get(stuck, '')).split())[:160]}; "
-            f"measured: S0..{stuck} {total:.1f} s, row median {median:.1f} s")
+def stage_ended(state: dict) -> str:
+    """The stage the road ended at (the first not `done`), `S3` when all are done: the last stage that actually ran."""
+    return next((s for s in ("S0", "S1", "S2", "S3") if state.get(s) != "done"), "S3")
+
+
+def row_reached(result: dict) -> bool:
+    """True when the row met the question it names AND was answered (`run_row`'s own outcome form); any other outcome measured nothing the gate may count."""
+    outcome = str(result.get("outcome", ""))
+    return outcome.startswith("asked ") and "(as expected); answered" in outcome
+
+
+def gate_line(state: dict, outcomes: dict, total: float, median: float, worst: float, results=(), reds=()) -> str:
+    """The gate line (AR-28): a numbers verdict only when S3 is `done` AND there is at least one probe row AND every row reached its question AND no
+    snapshot is red; otherwise `undecided` naming the first stage or row that fell short (its outcome cut at 160, the stub journal and the row lines hold
+    the whole text) and what was measured. A row that never reached its question never counts in a median that decides the gate."""
+    if state.get("S3") != "done":
+        stuck = stage_ended(state)
+        return (f"gate: undecided -- the road ended at {stuck}: {' '.join(str(outcomes.get(stuck, '')).split())[:160]}; "
+                f"measured: S0..{stuck} {total:.1f} s, row median {median:.1f} s")
+    measured = f"measured: S0..S3 {total:.1f} s, row median {median:.1f} s"
+    if not results:
+        return f"gate: undecided -- no probe row: the row median has nothing to rest on; {measured}"
+    short = next((r for r in results if not row_reached(r)), None)
+    if short:
+        return f"gate: undecided -- row {short['id']} did not reach its question: {' '.join(str(short.get('outcome', '')).split())[:160]}; {measured}"
+    if reds:
+        return f"gate: undecided -- {reds[0]}; {measured}"
+    return f"gate: {gate_verdict(total, median, worst)} (S0..S3 {total:.1f} s, row median {median:.1f} s, worst row {worst:.1f} s)"
 
 
 def tree_hash(root: Path) -> str:
@@ -524,9 +564,11 @@ def snapshot_red(name: str, before: str, root: Path) -> str:
 
 
 def unused_judgments(declared: dict, rows: list) -> list:
-    """The NOTE lines for declared ticket keys the main pass never judged (E-R2): a stale or mistyped key never vanishes without a line."""
-    judged = {k for r in rows for k in r.get("judged") or []}
-    return [f"NOTE: unused judgment {key} (the stub never judged a source with that key)" for key in declared if key not in judged]
+    """The NOTE lines for declared ticket keys the road never ASKED for (E-R2): a stale or mistyped key never vanishes without a line. A key whose command
+    was refused was asked for and already has its own `live_only` row (it carries the key), so it gets no note here."""
+    asked = {k for r in rows for k in r.get("judged") or []}
+    asked |= {i["key"] for r in rows for i in r.get("live_only") or [] if isinstance(i, dict) and i.get("key")}
+    return [f"NOTE: unused judgment {key} (the road never asked for a source with that key)" for key in declared if key not in asked]
 
 
 def tail(text: str, n: int = 40) -> str:
@@ -536,6 +578,7 @@ def tail(text: str, n: int = 40) -> str:
 def spike(type_id=None, local_label: str = "") -> int:
     row = type_row(type_id)
     types, gaps = load_types()
+    rows = load_rows()          # red before any world is built (E-R3)
     for gap in gaps:
         print(f"NOTE: gap {gap['id']}: {gap['note']} - {gap['why']} (waits {gap['waits']})")
     built = time.monotonic()
@@ -552,7 +595,6 @@ def spike(type_id=None, local_label: str = "") -> int:
         print(f"S0 driver exit {s0.rc} in {s0.seconds:.1f} s; work/ticket-snapshot.json key = {key!r}")
         snapshot(world, "S0")
         snap_seconds = time.monotonic() - snap_at
-        rows = json.loads((WALK / "seeds" / "probe.json").read_text(encoding="utf-8"))["rows"]
         road = Road()
         road.drive(world, closed_answers(rows))
         for t in road.turns:
@@ -589,9 +631,9 @@ def spike(type_id=None, local_label: str = "") -> int:
         for red in reds:
             print(red)
         print(f"tracker: {world.server.summary()}")
-        print(f"spike[{row['id']}]: S0..S3 {total:.1f} s; snapshot {snap_seconds:.1f} s; row median {median:.1f} s; rows {len(results)}"
+        print(f"spike[{row['id']}]: S0..{stage_ended(statuses(world))} {total:.1f} s; snapshot {snap_seconds:.1f} s; row median {median:.1f} s; rows {len(results)}"
               + (f" ({local_label})" if local_label else ""))
-        print(gate_line(statuses(world), outcomes, total, median, max(seconds or [0])))
+        print(gate_line(statuses(world), outcomes, total, median, max(seconds or [0]), results, reds))
         return 1 if reds else 0
     finally:
         world.close()

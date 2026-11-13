@@ -115,10 +115,18 @@ def pending_judgments(inventory: Path, skip=()) -> str:
 
 
 def run_script(project: Path, script: str, args: list) -> tuple:
-    """`(exit code, stdout+stderr)` of `python -B <package script> <args>` run in the project, as the role runs it."""
-    done = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / script), *args], cwd=str(project), capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+    """`(exit code, stderr or stdout)` of the ONE runner of a package script in the project, as the role runs it: `harness.run_script` (no bytecode, a
+    timeout). A script that outlives the timeout is exit -9 with that text, a failed command like any other (never a traceback)."""
+    try:
+        done = harness.run_script(script, *args, cwd=project)
+    except subprocess.TimeoutExpired:
+        return -9, f"{script} did not finish within its timeout"
     return done.returncode, (done.stderr or done.stdout)
+
+
+def cut(text: str, limit: int = 400) -> str:
+    """The head of a command's text on one line (a `live_only` carries it; the stub journal keeps the whole row)."""
+    return " ".join(text.split())[:limit]
 
 
 def judge_sources(inventory: Path, declared: dict, runner) -> tuple:
@@ -148,7 +156,7 @@ def judge_sources(inventory: Path, declared: dict, runner) -> tuple:
             after = next((s for s in read_sources(inventory)[0] if s.get("source_id") == item.get("source_id")), {})
             if after.get("relevance") != "pending" or not after.get("assessment_ref"):
                 live_only.append({"output": "work/source-inventory.json", "key": key,
-                                  "why": f"peek {key} left nothing to cite for `assess` (exit {code}): {' '.join(text.split())[:400]}"})
+                                  "why": f"peek {key} left nothing to cite for `assess` (exit {code}): {cut(text)}"})
                 continue
             code, text = runner("ticket_adapter.py", ["assess", "--output", out, "--source-id", item["source_id"], "--relevance", decl["relevance"],
                                                       "--reason", decl["reason"], "--assessment-ref", after["assessment_ref"]])
@@ -157,7 +165,7 @@ def judge_sources(inventory: Path, declared: dict, runner) -> tuple:
                 judged.append(key)
             else:
                 live_only.append({"output": "work/source-inventory.json", "key": key,
-                                  "why": f"assess {key} refused (exit {code}): {' '.join(text.split())[:400]}"})
+                                  "why": f"assess {key} refused (exit {code}): {cut(text)}"})
         for item in uncollected:
             key = source_key(item)
             if key not in judged or ("collect", key) in tried:
@@ -168,7 +176,7 @@ def judge_sources(inventory: Path, declared: dict, runner) -> tuple:
             ran.append(f"collect {key} referenced exit {code}")
             if code != 0:
                 live_only.append({"output": "work/source-inventory.json", "key": key,
-                                  "why": f"collect {key} refused (exit {code}): {' '.join(text.split())[:400]}"})
+                                  "why": f"collect {key} refused (exit {code}): {cut(text)}"})
         if not moved:
             break
     return ran, judged, live_only
@@ -243,10 +251,8 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
             form.write_bytes(filled.text.encode("utf-8"))
             row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
     for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
-        done = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / script), *[a.format(task=task, task_root=str(task_dir)) for a in args]],
-                              cwd=str(project), capture_output=True, text=True, encoding="utf-8", errors="replace")
-        (row["wrote"] if done.returncode == 0 else row["live_only"]).append(
-            out if done.returncode == 0 else {"output": out, "why": f"{script} exit {done.returncode}: {' '.join((done.stderr or done.stdout).split())[:400]}"})
+        code, text = run_script(project, script, [a.format(task=task, task_root=str(task_dir)) for a in args])
+        (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
     if stage == "S1" and role in ROLE_STEPS:
         inventory = task_dir / "work" / "source-inventory.json"
         ran, judged, failed = judge_sources(inventory, (control.get("stub") or {}).get("source_relevance") or {},
@@ -267,10 +273,8 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
                 row["live_only"].append({"output": out, "why": str(exc)[:240]})
         elif kind.startswith("command:"):
             argv = [a.format(task_root=str(task_dir)) for a in COMMANDS[kind[8:]]]
-            done = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / kind[8:]), *argv], cwd=str(project), capture_output=True,
-                                  text=True, encoding="utf-8", errors="replace")
-            (row["wrote"] if done.returncode == 0 else row["live_only"]).append(
-                out if done.returncode == 0 else {"output": out, "why": f"{kind[8:]} exit {done.returncode}: {' '.join((done.stderr or done.stdout).split())[:400]}"})
+            code, text = run_script(project, kind[8:], argv)
+            (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{kind[8:]} exit {code}: {cut(text)}"})
         else:
             row["live_only"].append({"output": out, "why": kind[len("live_only:"):]})
     default = f"{role} {stage} {task} - the stub filled the handover form of {dispatch}; nothing else to say"
@@ -448,8 +452,20 @@ def selftest() -> int:
     check_eq("round 3: judge_sources does not collect a kept source it did not judge", judge_sources(path, {}, FakeRole(path))[0], [])
     cut_gap = judge_sources(fresh("cut")[0], declared, lambda s, a: (1, "x" * 900))[2]
     check("E-R10: the command text a live_only carries is cut at 400 characters and keeps its head", "x" * 400 in cut_gap[0]["why"] and "x" * 401 not in cut_gap[0]["why"], cut_gap[0]["why"][:80])
-    check_eq("E-R2: a declared key no source took is a NOTE", W.unused_judgments({"A-1": {}, "B-2": {}}, [{"judged": ["A-1"]}, {}]),
-             ["NOTE: unused judgment B-2 (the stub never judged a source with that key)"])
+    real_run = judge_sources(fresh("real")[0], declared, lambda s, a: run_script(tmp, s, a))[2]
+    check("F4: a failing command through the one runner is a live_only with its text head kept, no retry",
+          len(real_run) == 1 and real_run[0]["why"].startswith("peek A-1 left nothing to cite for `assess` (exit 3): A-1: this project's tracker is read by its recorded route")
+          and len(real_run[0]["why"].split("): ", 1)[1]) <= 400, f"{real_run}")
+    check_eq("F4: the cut helper keeps the head, one line, at the limit", (cut("a\n b  c"), len(cut("x" * 900)), len(cut("x" * 900, 10))), ("a b c", 400, 10))
+    check_eq("E-R2 / note/unasked-key-note: a declared key the road never asked for is a NOTE",
+             W.unused_judgments({"A-1": {}, "B-2": {}}, [{"judged": ["A-1"]}, {}]),
+             ["NOTE: unused judgment B-2 (the road never asked for a source with that key)"])
+    check_eq("F7 / note/refused-key-no-note: a key whose command was refused has its live_only, no unused note",
+             W.unused_judgments({"A-1": {}, "B-2": {}}, [{"judged": [], "live_only": [{"output": "o", "key": "A-1", "why": "assess A-1 refused"}]}]),
+             ["NOTE: unused judgment B-2 (the road never asked for a source with that key)"])
+    check_eq("F7 / spike-line/stages-run: the stages named are the ones that ran",
+             (W.stage_ended({"S0": "done", "S1": "running"}), W.stage_ended({"S0": "done", "S1": "done", "S2": "done", "S3": "done"}), W.stage_ended({})),
+             ("S1", "S3", "S0"))
     check_eq("item 2: the row's own value wins over the type's, key by key; the type's other keys stay",
              W.merge_stub({"source_relevance": {"A-1": {"relevance": "relevant"}, "B-2": {"relevance": "unknown"}}, "qa-scout": {"verdict": "x"}},
                           {"source_relevance": {"A-1": {"relevance": "not_relevant"}}}),
@@ -464,15 +480,44 @@ def selftest() -> int:
             ("a value outside the closed list", {"source_relevance": {"A-1": dict(good_j, relevance="maybe")}}, "relevance 'maybe'"),
             ("an empty reason", {"source_relevance": {"A-1": dict(good_j, reason="  ")}}, "has no `reason`"),
             ("a key twice, case-folded", {"source_relevance": {"A-1": good_j, "a-1": good_j}}, "repeats a key"),
+            ("stub/no-from: a judgment with no `from`", {"source_relevance": {"A-1": {"relevance": "relevant", "reason": "r"}}}, "has no `from`"),
+            ("stub/blank-from: a judgment with a blank `from`", {"source_relevance": {"A-1": dict(good_j, **{"from": " "})}}, "has no `from`"),
             ("`source_relevance` not a mapping", {"source_relevance": []}, "is not a mapping"))):
         got = table(f"s{n}", json.dumps({"default": "a", "types": [one("a", **({} if stub is None else {"stub": stub}))], "gaps": []}), ("in-a",))
         check(f"load_types (E-R3): {name}", got == "ok" if needle == "ok" else needle in got and "'a'" in got, f"got {got!r}")
+    # F2: the probe rows' own `stub` is checked when the rows are loaded, before any world is built: the file, the row id and the key are named
+    def rows_of(name, stub, absent=False):
+        file = tmp / f"{name.replace('/', '-')}.json"
+        file.write_text(json.dumps({"rows": [{"id": "r1", "start": "S0", **({} if absent else {"stub": stub})}]}), encoding="utf-8")
+        try:
+            return W.load_rows(file)
+        except W.TypesError as exc:
+            return str(exc)
+    for name, stub, absent, needle in (
+            ("stub/row-no-reason", {"source_relevance": {"A-1": {"relevance": "relevant", "from": "f"}}}, False, "row 'r1' `stub.source_relevance['A-1']` has no `reason`"),
+            ("stub/row-not-mapping", ["x"], False, "row 'r1' `stub` is not a mapping"),
+            ("stub/row-bad-relevance", {"source_relevance": {"A-1": dict(good_j, relevance="maybe")}}, False, "relevance 'maybe'")):
+        got = rows_of(name, stub, absent)
+        check(f"load_rows (F2): {name}", isinstance(got, str) and needle in got and got.startswith(name.replace("/", "-") + ".json: "), f"got {got!r}")
+    got = rows_of("stub/row-absent", None, absent=True)
+    check_eq("load_rows (F2): stub/row-absent loads, the row has no `stub`", [r.get("stub") for r in got] if isinstance(got, list) else got, [None])
+    check_eq("load_rows (F2): the committed probe rows load (control)", [r["id"] for r in W.load_rows()], ["s1.review/go on", "questions/answers", "halt/words"])
     real = W.type_row()
     check_eq("item 1: the real type declares the recorded verdict of TP1-15791", (real["stub"]["source_relevance"]["TP1-15791"]["relevance"],
              real["stub"]["source_relevance"]["TP1-15791"]["from"].split(":")[0]), ("relevant", "investigation-14857/TP1-14857/work/source-inventory.json"))
     # AR-28: a gate verdict only when S3 is done; E-R8: a byte change in a snapshot is red
     all_done = {"S0": "done", "S1": "done", "S2": "done", "S3": "done"}
-    check("AR-28: S3 done prints the numbers verdict", W.gate_line(all_done, {}, 10, 5, 8).startswith("gate: continue ("), W.gate_line(all_done, {}, 10, 5, 8))
+    reached = {"id": "r1", "outcome": "asked s1_review (as expected); answered; next turn exit 0", "seconds": 5}
+    short = {"id": "r2", "outcome": "live_only: expected a halt question, the road meets s1_review first", "seconds": 1}
+    line = W.gate_line(all_done, {}, 10, 5, 8, [reached, reached])
+    check("F1 / gate/all-reached: S3 done, every row reached its question, no red: the numbers verdict", line.startswith("gate: continue ("), line)
+    line = W.gate_line(all_done, {}, 10, 1, 1, [reached, short])
+    check("F1 / gate/row-short-of-its-question: S3 done, one row short: undecided naming the row, never `continue`",
+          line.startswith("gate: undecided -- row r2 did not reach its question: live_only: expected a halt question") and "continue" not in line, line)
+    line = W.gate_line(all_done, {}, 10, 5, 8, [reached], ["red: snapshot changed by a row: r1"])
+    check("F1 / gate/snapshot-red: S3 done, rows reached, a snapshot red: undecided naming the red", line.startswith("gate: undecided -- red: snapshot changed by a row: r1;"), line)
+    line = W.gate_line(all_done, {}, 10, 0, 0, [])
+    check("F1 / gate/no-rows: S3 done and no probe row: undecided, `no probe row`", line.startswith("gate: undecided -- no probe row: "), line)
     early = W.gate_line(dict(all_done, S2="running", S3="absent"), {"S2": "running - live_only: " + "y" * 300}, 10, 5, 8)
     check("AR-28 / E-R7: S3 not done prints `undecided` with the stage, the cut outcome and the measured part",
           early.startswith("gate: undecided -- the road ended at S2: running - live_only: y") and "measured: S0..S2 10.0 s, row median 5.0 s" in early
