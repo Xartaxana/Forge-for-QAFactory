@@ -5,13 +5,12 @@ tools/piles_testkit.py, the fixtures `session_tree`, `tree`, `cli` in tools/conf
 Run from the repo root: python -m pytest tools/test_piles_placement.py -q
 """
 import pathlib
-import re
 import sys
 
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from piles_testkit import board_text, GIT_VARS, put, card_text, batch_text, node, finding_text, B1, needs_git, stage, commit, freeze, edit, lines_with, dup_finding  # noqa: E402
+from piles_testkit import summary_text, GIT_VARS, put, card_text, batch_text, node, finding_text, B1, needs_git, stage, commit, freeze, edit, lines_with, dup_finding  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -148,39 +147,32 @@ def test_check_a9_journal_only_commit_still_runs_nothing(tree, cli):
 def test_check_carried_red_does_not_block_unrelated_commit(tree, cli):
     dup_finding(tree)
     commit(tree, "a violation that landed through a door")
-    put(tree, "plans/piles/forge/findings/B-102-x.md", finding_text("B-102"))
-    stage(tree, "plans/piles/forge/findings/B-102-x.md")
+    put(tree, "plans/piles/third-pile/README.md", card_text("third-pile", "T"))
+    stage(tree, "plans/piles/third-pile/README.md")
     code, out = cli(tree, "check")
-    assert code == 0 and "(а) placement: carried from earlier commits (not blocking)" in out and "B-135" in out
+    assert code == 0 and "(а) placement: 1 red(s) in piles this commit does not touch (not blocking): forge" in out
     code, out = cli(tree, "check", "--all")
-    assert code == 2 and "(а) placement: RED" in out                          # --all blocks everything
-    stage(tree, "plans/piles/forge/findings/B-135-a.md")                      # touching a carrier makes it ours again
+    assert code == 2 and "(а) placement: RED" in out and "B-135" in out       # --all blocks everything
     (tree / "plans/piles/forge/findings/B-135-a.md").write_bytes(finding_text("B-135", title="Изменено").encode("utf-8"))
-    stage(tree, "plans/piles/forge/findings/B-135-a.md")
+    stage(tree, "plans/piles/forge/findings/B-135-a.md")                      # touching a pile that carries it makes it ours again
     assert cli(tree, "check")[0] == 2
 
 
-def toc_of(tree, cli, ident):
-    return dict(re.findall(r"^\| (B-\d+) \| (.*) \|$", board_text(tree, cli), re.M))[ident]
-
-
 @needs_git
-def test_check_a5_and_the_board_give_one_verdict_on_a_closed_id_that_is_still_placed(tree, cli):
-    # m-5 (t-593): B-001 is closed. Placed by a WHOLE live member or by a finding it is an error for (а)5 AND for the board;
-    # a PARTIAL member of a live batch is neither (`close --id` may close a partial member's id; (в) freezes the Строки cell).
+def test_check_a5_and_summary_agree_on_a_closed_id_that_is_still_placed(tree, cli):
+    # m-5 (t-593): B-001 is closed. Placed by a WHOLE live member or by a finding it is an error for (а)5;
+    # a PARTIAL member of a live batch is not (`close --id` may close a partial member's id; (в) freezes the Строки cell),
+    # and `summary` does not count it open.
     edit(tree, "plans/piles/forge/README.md", "| 2 | потом | B-015 |", "| 2 | потом | B-001, B-015 |")
     stage(tree, "plans/piles")
     code, out = cli(tree, "check")
     assert code == 2 and "B-001 is closed but still placed" in out
-    assert toc_of(tree, cli, "B-001") == "закрыто (хэша нет) (и открыт — ошибка)"
     edit(tree, "plans/piles/forge/README.md", "B-001, B-015", "B-001 (хвост), B-015")
     stage(tree, "plans/piles")
     code, out = cli(tree, "check")
     assert code == 0 and "closed but still placed" not in out, out
-    assert toc_of(tree, cli, "B-001") == "закрыто (хэша нет)"
-    assert "открытых id: 6 " in board_text(tree, cli)                         # a closed id is not counted open
+    assert "открытых id: 6 " in summary_text(tree, cli)                       # a closed id is not counted open
     edit(tree, "plans/piles/forge/README.md", "B-001 (хвост), B-015", "B-015")
     put(tree, "plans/piles/forge/findings/B-001-x.md", finding_text("B-001"))
     stage(tree, "plans/piles")
     assert "B-001 is closed but still placed" in cli(tree, "check")[1]
-    assert toc_of(tree, cli, "B-001") == "закрыто (хэша нет) (и открыт — ошибка)"

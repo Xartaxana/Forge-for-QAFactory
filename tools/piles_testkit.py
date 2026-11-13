@@ -191,9 +191,9 @@ def lines_with(out, tag):
     return [l for l in out.splitlines() if l.startswith(tag)]
 
 
-def board_text(tree, cli):
-    cli(tree, "board")
-    return (tree / "plans/PILES.md").read_bytes().decode("utf-8")
+def summary_text(tree, cli):
+    """The output of `piles.py summary` (the count line)."""
+    return cli(tree, "summary")[1]
 
 
 def dup_finding(tree):

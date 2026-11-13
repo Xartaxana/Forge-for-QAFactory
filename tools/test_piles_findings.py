@@ -2,12 +2,11 @@
 B-471). Run from the repo root: python -m pytest tools/test_piles_findings.py -q
 
 The helpers are in tools/piles_testkit.py, the fixtures `session_tree`, `tree`, `cli` in tools/conftest.py. A tolerant reader
-(board, check, forge_metrics, compact_snapshot) reads every finding it can and names the one it cannot; a strict one (take,
+(check, summary, forge_metrics, compact_snapshot) reads every finding it can and names the one it cannot; a strict one (take,
 close, split, the GitLab mirror) refuses to write from a tree it could not read whole.
 """
 import datetime
 import pathlib
-import re
 import sys
 
 import pytest
@@ -123,33 +122,6 @@ def test_a_directory_named_like_a_finding_is_unreadable_not_a_crash(tree):
     assert f.name == "x.md" and f.unreadable and f.errors
 
 
-# ---------------------------------------------------------------- board
-
-def test_board_exits_zero_lists_every_readable_finding_and_warns_about_the_other(tree, cli):
-    odd_findings(tree)
-    code, out = cli(tree, "board")
-    assert code == 0 and "wrote plans/PILES.md" in out, out
-    warns = [l for l in out.splitlines() if "WARNING: unreadable finding" in l]
-    assert len(warns) == 2 and any(BAD in l and "not valid UTF-8" in l for l in warns)
-    assert "-- left out of the table of contents; save it as UTF-8 and run board again" in warns[0]
-    board = (tree / "plans/PILES.md").read_text(encoding="utf-8")
-    assert "findings/B-102-good.md" in board and "findings/B-135-good.md" in board     # the siblings are not hidden
-    assert re.search(r"не разобрано находок: 2;", board), board                        # both unreadable files are counted
-
-
-def test_board_check_is_up_to_date_with_the_warning_and_exit_zero(tree, cli):
-    odd_findings(tree)
-    cli(tree, "board")
-    code, out = cli(tree, "board", "--check")
-    assert code == 0 and "up to date" in out and "WARNING: unreadable finding %s" % BAD in out, out
-
-
-def test_board_without_an_unreadable_finding_prints_no_warning(tree, cli):
-    put(tree, FDIR + "B-102-good.md", finding_text("B-102"))
-    code, out = cli(tree, "board")
-    assert code == 0 and "WARNING" not in out
-
-
 # ---------------------------------------------------------------- check (д): one red, a door, fail-closed
 
 @needs_git
@@ -164,12 +136,24 @@ def test_check_all_has_exactly_one_red_for_an_unreadable_finding_and_the_door_pa
 
 
 @needs_git
-def test_a_staged_card_alone_is_blocked_by_an_unreadable_finding_elsewhere(tree, cli):
-    bad_finding(tree)                                                      # NOT staged: the commit does not carry it
+@pytest.mark.parametrize("where,blocks", [
+    ("forge", True),                  # the unreadable finding is committed in the pile the commit touches: its own path carries it
+    ("report-delivery", False),       # ... in another pile: summarised in one line, never blocking (B.3)
+    ("report-delivery-untracked", False),     # ... or untracked in another pile: not even read (B.2)
+])
+def test_a_staged_card_is_blocked_by_an_unreadable_finding_only_in_its_own_pile(tree, cli, where, blocks):
+    pile = where.replace("-untracked", "")
+    bad_finding(tree, "plans/piles/%s/findings/20261009-bad.md" % pile)
+    if not where.endswith("-untracked"):
+        commit(tree, "a bad finding")
     edit(tree, CARD, "Текст.", "Текст!")
     stage(tree, CARD)
     code, out = cli(tree, "check")
-    assert code == 2 and "cannot read this finding" in out and "(д) form: RED" in out, out    # the carrier is every card and finding
+    if blocks:
+        assert code == 2 and "cannot read this finding" in out and "(д) form: RED" in out, out
+    else:
+        assert code == 0 and "cannot read this finding" not in out, out
+        assert ("(д) form: 1 red(s) in piles this commit does not touch (not blocking): %s" % pile in out) == (where == "report-delivery"), out
 
 
 @needs_git
@@ -304,19 +288,13 @@ def test_e_the_baseline_is_one_warn_line_with_the_count_and_the_first_five_names
 BYID = "20261014-byid.md"
 
 
-def incoming(tree, slug="forge"):
-    """The board's «Входящие» cell of a pile, from the same tree (t-771: the same predicate as (е))."""
-    t = piles.load_tree(tree, tolerant=True)
-    return piles._incoming(t.piles[slug], piles.pile_prose(t))
-
-
 def test_e_a_finding_named_only_by_its_b_id_is_placed_and_without_the_id_it_is_an_orphan(tree):
     new_finding(tree, name=BYID, ident="B-373")
-    assert len(run_e(tree).reds) == 1 and incoming(tree).startswith("1 /")      # negative: no id in any batch, no name
+    assert len(run_e(tree).reds) == 1                                           # negative: no id in any batch, no name
     name_in(tree, row("B-373 -- остаток частичного члена, узел F0-1"))            # positive: the id stands in a node row
-    assert run_e(tree).reds == [] and incoming(tree) == "0 / —"                  # the (е) count and the board count agree
+    assert run_e(tree).reds == []
     edit(tree, B1, "B-373 -- остаток", "остаток")                               # the id removed again -> an orphan again
-    assert len(run_e(tree).reds) == 1 and incoming(tree).startswith("1 /")
+    assert len(run_e(tree).reds) == 1
 
 
 @pytest.mark.parametrize("body", [
@@ -328,7 +306,7 @@ def test_e_a_finding_named_only_by_its_b_id_is_placed_and_without_the_id_it_is_a
 def test_e_a_b_id_in_a_fence_a_comment_or_a_longer_token_places_nothing(tree, body):
     new_finding(tree, name=BYID, ident="B-373")
     name_in(tree, body)
-    assert len(run_e(tree).reds) == 1 and incoming(tree).startswith("1 /")
+    assert len(run_e(tree).reds) == 1
 
 
 def test_e_a_b_id_places_in_the_pile_of_the_move_line_too_and_an_id_less_finding_is_not_placed_by_one(tree):
@@ -338,18 +316,6 @@ def test_e_a_b_id_places_in_the_pile_of_the_move_line_too_and_an_id_less_finding
     new_finding(tree, name="20261014-noid.md", ident="—")                       # no header id: nothing to match by id
     name_in(tree, row("B-373"))
     assert [r.msg for r in run_e(tree).reds if "20261014-noid.md" in r.msg]
-
-
-def test_the_board_incoming_count_and_the_e_count_come_from_one_predicate(tree):
-    new_finding(tree, name=BYID, ident="B-373")
-    new_finding(tree, name="20261014-byname.md", ident="—")
-    new_finding(tree, name="20261014-lost.md", ident="B-374")
-    name_in(tree, row("B-373 и `20261014-byname.md`"))
-    t = piles.load_tree(tree, tolerant=True)
-    prose = piles.pile_prose(t)
-    orphans = [f.name for f in t.piles["forge"].findings if not piles.finding_placed(f, "forge", prose)]
-    assert orphans == ["20261014-lost.md"] and incoming(tree) == "1 / 14.10.2026"
-    assert len(run_e(tree).reds) == 1 and "20261014-lost.md" in run_e(tree).reds[0].msg
 
 
 def test_e_a_finding_named_in_a_batch_of_another_pile_is_still_an_orphan_of_its_own(tree):
@@ -460,16 +426,6 @@ def test_e_f4_a_batch_without_the_sections_has_no_rows_and_a_renamed_finding_is_
     assert len(run_e(tree).reds) == 1 and NEW in run_e(tree).reds[0].msg
 
 
-def test_e_f4_the_board_counter_is_the_orphan_count_of_e_baseline_included(tree):
-    for name in ("20261014-row.md", "20261014-prose.md", "20261012-old-prose.md", "20261012-old-none.md"):
-        put(tree, FDIR + name, finding_text("—"))
-    name_in(tree, row("`20261014-row.md`"))
-    in_hod(tree, "- `20261014-prose.md` и `20261012-old-prose.md`")
-    res = run_e(tree)
-    base = int(re.search(r"WARN: (\d+) finding", res.notes[0]).group(1)) if res.notes else 0
-    assert (len(res.reds), base) == (1, 1) and incoming(tree).startswith("%d /" % (len(res.reds) + base))
-
-
 # ---------------------------------------------------------------- (е) at commit time: a deleted batch file carries its red (F3 of critic t-770)
 
 @needs_git
@@ -521,7 +477,7 @@ def test_e_runs_in_a_commit_only_when_a_finding_or_a_batch_file_is_staged(tree, 
     second_pile_batch(tree)                                                    # a batch of another pile: the red is only carried
     stage(tree, "plans/piles/report-delivery/batch-1-x.md")
     code, out = cli(tree, "check")                                             # (д) is red here (the fixture has no card row): not (е)'s business
-    assert "(е) findings: carried from earlier commits (not blocking)" in out and "(е) findings: RED" not in out, out
+    assert "(е) findings: 1 red(s) in piles this commit does not touch (not blocking): forge" in out and "(е) findings: RED" not in out, out
     assert "red: (д)" in out and "(е)" not in out.splitlines()[-1], out
 
 
@@ -557,7 +513,7 @@ def test_take_refuses_when_a_finding_has_an_unclosed_fence_names_file_and_line_a
     capsys.readouterr()
     code, out = cli(tree, "take", "forge", "2", "--who", "Dev1", "--today", "2026-10-08")
     text = out + capsys.readouterr().err
-    assert code == 1 and "%s:%d:" % (UNCLOSED_REL, line) in text and "writing failed" in text and "nothing changed" in text, text
+    assert code == 1 and "%s:%d:" % (UNCLOSED_REL, line) in text and "never closed" in text, text
     assert tree_state(tree) == snap
 
 

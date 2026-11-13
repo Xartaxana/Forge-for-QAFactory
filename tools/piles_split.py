@@ -316,7 +316,7 @@ def with_cards(tree: piles.Tree, plans: list) -> piles.Tree:
         old = merged.get(slug)
         merged[slug] = (dataclasses.replace(old, card=cp.card) if old
                         else piles.Pile(slug, cp.card, cp.rel, [], [], []))
-    return piles.Tree(tree.root, tree.backlog, merged, [])
+    return piles.Tree(tree.root, tree.backlog, merged)
 
 
 def build_ctx(tree: piles.Tree, features: list, index: fm.FileIndex) -> Ctx:

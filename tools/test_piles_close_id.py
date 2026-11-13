@@ -5,13 +5,13 @@ tools/piles_testkit.py, the fixtures `session_tree`, `tree`, `cli` in tools/conf
 Run from the repo root: python -m pytest tools/test_piles_close_id.py -q
 """
 import pathlib
-import re
 import sys
 
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from piles_testkit import GIT_VARS, put, needs_git, stage, freeze, rd, tree_state, board_text, head_hash, closed_rows  # noqa: E402
+import piles  # noqa: E402
+from piles_testkit import GIT_VARS, put, needs_git, stage, freeze, rd, tree_state, head_hash, closed_rows  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -61,16 +61,16 @@ def test_close_id_with_hash_and_refusals(tree, cli):
 
 
 @needs_git
-def test_close_word_cap_at_120_and_board_reads_hash_back(tree, cli):
+def test_close_word_cap_at_120_and_the_closed_row_reads_hash_back(tree, cli):
     word = "decade1 " + "w" * 112                                         # 120 characters, a hex-looking first token
     assert len(word) == 120
     assert cli(tree, "close", "--id", "B-102", "--word", word, "--today", "2026-10-08")[0] == 0   # AT the cap
     assert "; закрыто 08.10.2026 по слову: %s |" % word in closed_rows(tree)["B-102"]
     h = head_hash(tree)
     assert cli(tree, "close", "--id", "B-219", "--word", "владелец decade1", "--hash", h, "--today", "2026-10-08")[0] == 0
-    toc = dict(re.findall(r"^\| (B-\d+) \| (.*) \|$", board_text(tree, cli), re.M))
-    assert toc["B-102"] == "закрыто (хэша нет)"                            # m-4: not 'decade1' out of the word
-    assert toc["B-219"] == "закрыто `%s`" % h
+    rows = closed_rows(tree)
+    assert piles.closed_hash(rows["B-102"]) is None                        # m-4: not 'decade1' out of the word
+    assert piles.closed_hash(rows["B-219"]) == h
 
 
 @needs_git
