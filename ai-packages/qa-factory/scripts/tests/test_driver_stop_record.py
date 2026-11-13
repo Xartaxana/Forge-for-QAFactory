@@ -364,7 +364,8 @@ def refusal_checks_cases():
     class Skips(SR.Refusal):
         def __init__(self):          # skips super().__init__: the class defaults answer
             Exception.__init__(self, "x")
-    check_eq("(d) a subclass that skips `super().__init__` reads empty", (Skips().checks, Skips().checks_n), ((), {}))
+    check_eq("(d) a subclass that skips `super().__init__` reads empty", (Skips().checks, Skips().checks_n or {}), ((), {}))
+    check("(d) two refusals never share one `checks_n` dict", SR.Refusal("h").checks_n is not SR.Refusal("h").checks_n)
     many = SR.Refusal("h", findings=[_rec("s5_precheck:manifest", text=f"f{i}") for i in range(200)])
     check_eq("(h) a refusal of 200 findings of one family: one id, checks_n 200", (many.checks, many.checks_n),
              (("s5_precheck:manifest",), {"s5_precheck:manifest": 200}))
@@ -424,15 +425,17 @@ def gate_refusal_line_cases(tmp):
 
 
 def finish_refusal_cases(tmp):
-    def drive(printed, name):
+    def drive(printed, name, code=3):
         d = SR.Driver.__new__(SR.Driver)
         d.task, d.state, d.state_dir = "QA-C", {}, tmp / name / "state"
         d.timed = lambda *a, **k: contextlib.nullcontext()
-        d.py = lambda script, *args, **k: (3, printed)
+        d.py = lambda script, *args, **k: (code, printed)
+        said = io.StringIO()
         try:
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(said):
                 d.finish("S1-r-1", "digest", complete=False, role="r", stage="S1")
         except SR.Refusal as refusal:
+            refusal.said = said.getvalue()
             return refusal
         raise AssertionError("finish did not refuse")
     text = "story_step: r handed S1-r-1 off (1 finding(s))\n- one\n  [repair marker]."
@@ -442,6 +445,14 @@ def finish_refusal_cases(tmp):
     absent = drive(text, "without")
     check_eq("(e) `finish` with no line: the text is today's and the ids are `unknown`", (absent.text, absent.checks),
              (f"story_step finish S1-r-1 (exit 3):\n{text}".strip(), ("unknown",)))
+    # F2: only exit 3 has a writer of the line, so any other code keeps its text whole (a quoted `checks:` line stays), reads `unknown`, no note
+    for code in (2, 1):
+        quoted = drive(text + '\nchecks: ["x:y"]', f"exit{code}", code)
+        check_eq(f"(e) `finish` at exit {code} with a valid-looking `checks:` line: the text stays whole, `unknown`, no note",
+                 (quoted.text, quoted.checks, "note:" in quoted.said),
+                 (f"story_step finish S1-r-1 (exit {code}):\n{text}\nchecks: [\"x:y\"]".strip(), ("unknown",), False))
+    bare = drive(text, "exit2-bare", 2)
+    check_eq("(e) `finish` at exit 2 with no line at all: no note, `unknown`", (bare.checks, "note:" in bare.said), (("unknown",), False))
 
 
 def claude_rig(name, rows, tmp):

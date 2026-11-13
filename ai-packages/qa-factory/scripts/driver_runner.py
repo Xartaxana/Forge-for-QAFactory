@@ -815,7 +815,7 @@ class DriverRunner:
         original_prompt = prompt
         attempt_resume, attempt_prompt, driver_resumed = resume, prompt, False
         why = (resume_reason.strip() or "unclassified (the call named no reason)") if resume else ""
-        ids = (sorted({str(c) for c in checks}) or ["unknown"]) if checks is not None else None      # P1-v W0: the row's `checks`
+        ids = list(Refusal.id_set(checks)) if checks is not None else None     # P1-v W0: the row's `checks`
         counted = {str(k): v for k, v in (checks_n or {}).items()}
         if prior:
             if resume:

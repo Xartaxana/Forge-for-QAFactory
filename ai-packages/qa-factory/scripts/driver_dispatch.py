@@ -541,7 +541,7 @@ class DriverDispatch:
             if result["session_id"]:
                 print(f"{stage}: {dispatch} was already resumed on these findings; no second resume")
             self.exit_limit(stage, role, dispatch, self.refusal_lines(None, items=errors), sid=result["session_id"] or "", why="handoff",
-                            digest=digest, checks=tuple(sorted(Refusal.id_counts(errors))))
+                            digest=digest, checks=Refusal.id_set(Refusal.id_counts(errors)))
             return self.handoff(role, stage, dispatch, self.saved_result(dispatch))
         elif errors and result["session_id"]:
             if resume_key:
@@ -552,7 +552,7 @@ class DriverDispatch:
                                     resume=result["session_id"],
                                     resume_reason=resume_reason(errors)
                                     + (f" (not assembled by code: {not_assembled})" if not_assembled else ""),
-                                    checks=tuple(sorted(counts)), checks_n=counts)
+                                    checks=Refusal.id_set(counts), checks_n=counts)
             if again["result"].strip():
                 digest = self.digest_of(again["result"])
                 self.keep_resumed_result(dispatch, again, result)
@@ -582,7 +582,7 @@ class DriverDispatch:
                 third = self.run_claude("role", exact, role=role, dispatch=dispatch, stage=stage,
                                         resume=again.get("session_id") or result["session_id"],
                                         resume_reason="still not repaired after one resume: " + resume_reason(errors),
-                                        checks=tuple(sorted(counts)), checks_n=counts)
+                                        checks=Refusal.id_set(counts), checks_n=counts)
                 if third["result"].strip():
                     digest = self.digest_of(third["result"])
                     self.keep_resumed_result(dispatch, third, again if again["result"].strip() else result)
@@ -833,7 +833,11 @@ class DriverDispatch:
                 print(line)
         saved = self.state_dir / "driver-runs" / f"{dispatch}.json"
         if code:
-            out, checks = self.take_checks_line(out)       # P1-v W0 (F17): the machine line leaves BEFORE the text is built or read
+            # P1-v W0 (F17): the machine line leaves BEFORE the text is built or read - on exit 3 ONLY, the one exit whose writer
+            # (`story_step._gate_refusal`) prints it; any other code keeps its text whole and reads `unknown` (no note)
+            checks = None
+            if code == 3:
+                out, checks = self.take_checks_line(out)
             retry = lambda: self.finish(dispatch, digest, complete=given, role=role, stage=stage)
             if stage == "S9" and f"stage_done refused {stage}" in out:
                 # The dispatch is accepted already; only the S9 record was refused, so "again" is that
@@ -2112,7 +2116,7 @@ class DriverDispatch:
                                  resume=sid,
                                  resume_reason=reason or "the factory refused to close the dispatch: "
                                  + resume_reason(refusal.findings or refusal.text),
-                                 checks=refusal.checks, checks_n=refusal.checks_n)        # P1-v W0 (R-4): the ids the refusal carries
+                                 checks=refusal.checks, checks_n=refusal.checks_n or {})        # P1-v W0 (R-4): the ids the refusal carries
         if result.get("is_error") and not str(result.get("result") or "").strip():
             self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="session_gone",
                             error=str(result.get("stderr") or "")[-600:], text=refusal.text, checks=refusal.checks)
@@ -3632,7 +3636,7 @@ class DriverDispatch:
         rec = self.exit_record(dispatch)
         # P1-v W0 (R-7): the ids of the checks behind `lines`, which the caller read from the finding RECORDS before `refusal_lines`
         # stringified them; `exit_round` reads them back from here. A caller that names none is ONE `unknown`, never a gap.
-        rec.update(lines=lines, key=key, stage=stage, role=role, checks=sorted({str(c) for c in checks or ()}) or ["unknown"])
+        rec.update(lines=lines, key=key, stage=stage, role=role, checks=list(Refusal.id_set(checks)))
         self.state["pending_words"].pop(dispatch, None)
         self.save_state()
         bought = (rec.get("rounds") or {}).get(key) or {}

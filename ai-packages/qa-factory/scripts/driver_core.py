@@ -116,7 +116,13 @@ class Refusal(Exception):
     # P1-v W0: the ids of the checks that produced the refusal (`detector_verdict.check_id`), sorted and unique, and how many
     # findings each named where that is known. Class defaults, so a subclass that skips `super().__init__` reads empty.
     checks = ()
-    checks_n: dict = {}
+    checks_n: dict | None = None        # `None` here, a dict of its own per instance below: a reader writes `or {}`
+
+    @staticmethod
+    def id_set(ids) -> tuple:
+        """THE normal form of a set of check ids: sorted, unique, strings; ONE `unknown` when there is none (`None` and an empty
+        value alike) - never dropped, never spread (§7.12). A tuple: a caller that needs a list converts at the call."""
+        return tuple(sorted({str(i) for i in ids or ()})) or ("unknown",)
 
     @staticmethod
     def id_counts(records) -> dict:
@@ -137,10 +143,10 @@ class Refusal(Exception):
         # with no id at all is ONE `unknown` - never dropped, never spread (§7.12).
         if checks:
             named = [checks] if isinstance(checks, str) else list(checks)
-            self.checks, self.checks_n = tuple(sorted({str(c) for c in named})), {}
+            self.checks, self.checks_n = self.id_set(named), {}
         else:
             self.checks_n = self.id_counts(findings)
-            self.checks = tuple(sorted(self.checks_n)) or ("unknown",)
+            self.checks = self.id_set(self.checks_n)
         # `close` (C2-8): the mark of a refusal at a place where the CODE closes a stage with no role - `{site, stage, step, ...}`.
         # A non-empty `close` is the whole mark (no second field that could disagree); `handle_refusal` reads it.
         self.close = dict(close or {})
