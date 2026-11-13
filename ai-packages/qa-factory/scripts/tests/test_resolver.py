@@ -1830,13 +1830,26 @@ def _oh82_skip(why: str) -> None:
         print(f"SKIP OH8-2 cell: {why}")
 
 
+OH82_CASE = '---\nid: TC-1\npreconditions: [{"id": "PC-1", "kind": "env", "what": "the key", "check": {"env": "THE_KEY"}}]\n---\nbody\n'
+
+
+def _oh82_fill(folder: Path) -> None:
+    """What the 2b readers look for in a story folder: retro.md, a sealed file, a case needing `THE_KEY`."""
+    (folder / "retro.md").write_text("retro\n", encoding="utf-8")
+    (folder / "note.md").write_text("note\n", encoding="utf-8")
+    (folder / "work" / "test-cases").mkdir(parents=True)
+    (folder / "work" / "test-cases" / "TC-1.md").write_text(OH82_CASE, encoding="utf-8")
+
+
 def _oh82_world(where: Path) -> tuple:
-    """`(project, art, cells)`: story T (pipeline.json, a controller with a running qa-failure-analyst dispatch D), the long
-    story `LongStoryName-1` (for its 8.3 name), a link `TJ` to T, a 255-character story; cells are built only where the OS can."""
+    """`(project, art, cells)`: story T (pipeline.json, retro, a case, a controller with a running qa-failure-analyst dispatch D),
+    the long story `LongStoryName-1` (for its 8.3 name), a link `TJ` to T, a 255-character story; cells are built only where the OS can."""
     project, art = _oh61_project(where, ("T",))
     (art / "T" / "state").mkdir()
     (art / "T" / "state" / "controller.json").write_text(
-        json.dumps({"dispatches": {"D": {"id": "D", "role": "qa-failure-analyst", "status": "running"}}}), encoding="utf-8")
+        json.dumps({"source_revision": "r1", "dispatches": {"D": {"id": "D", "role": "qa-failure-analyst", "status": "running"}}}),
+        encoding="utf-8")
+    _oh82_fill(art / "T")
     cells = [("good", "T", "T", "T"), ("twin", "dot", "T.", "T"), ("twin", "blank-end", "T ", "T"),
              ("shape", "blank-start", " T", ""), ("twin", "dots", "T..", "T"), ("twin", "dot-blank-dot", "T. .", "T"),
              ("twin", "case", "t", "T"), ("shape", "three-dots", "...", ""), ("bad", "empty", "", ""),
@@ -1860,6 +1873,9 @@ def _oh82_world(where: Path) -> tuple:
     try:
         (art / ("k" * 255)).mkdir()
         (art / ("k" * 255) / "pipeline.json").write_text("{}", encoding="utf-8")
+        _oh82_fill(art / ("k" * 255))
+        (art / ("k" * 255) / "state").mkdir()
+        (art / ("k" * 255) / "state" / "controller.json").write_text('{"source_revision": "r1"}', encoding="utf-8")
         cells.append(("good", "at-255", "k" * 255, "k" * 255))
     except OSError as exc:
         _oh82_skip(f"a 255-character folder cannot be made here ({type(exc).__name__})")
@@ -1989,6 +2005,47 @@ def _oh82_judge_identity(kind, name, target, got):
     return got[0] == name
 
 
+def _oh82_run_estimate(project, art, name, i):
+    import estimate_record
+    return estimate_record.task_binding(project, name)["task_revision"]
+
+
+def _oh82_run_role_load(project, art, name, i):
+    import role_load
+    return role_load._task_root(project, name) == art / name
+
+
+def _oh82_archiver(call_name):
+    """(code, T's pipeline.json untouched) of `archive_task.<call_name>` on `name`: an alias reaches no story's bytes."""
+    def run(project, art, name, i):
+        import archive_task
+        before = (art / "T" / "pipeline.json").read_bytes()
+        with quiet(), contextlib.redirect_stdout(io.StringIO()):
+            code = archive_task.cmd_archive(name, "", True) if call_name == "cmd_archive" else archive_task.cmd_undo(name)
+        return code, (art / "T" / "pipeline.json").read_bytes() == before
+    return run
+
+
+def _oh82_run_a5(project, art, name, i):
+    import audit_factory as AF
+    journal = AF.RP.configured(AF.project_root(), AF.load_config().get("journal_path"), "journal.jsonl")
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    journal.write_text(json.dumps({"event": "accepted", "task": name, "ts": "2000-01-01T00:00:00+00:00"}) + "\n", encoding="utf-8")
+    found: list = []
+    with _oh61_patched(AF, FINDINGS=found), contextlib.redirect_stdout(io.StringIO()):
+        AF.a5_seal()
+    return found
+
+
+def _oh82_run_env_needs(project, art, name, i):
+    import env_probe
+    return env_probe._case_needs(name, project)
+
+
+def _oh82_judge_archive(kind, name, target, got):
+    return got[0] == "value" and (got[1][0] == 0 if kind == "good" else got[1] == (1, True))   # a story is archived, an alias is not found
+
+
 # (id, run, judge(kind, name, target, outcome), spy: the hooklib leaf the site must ask about the exact name, asked-for(kind, name))
 OH82_ROWS = (
     ("artifacts_dir_read", _oh82_run_artifacts_dir, _oh82_judge_dir, None, None),
@@ -2015,6 +2072,20 @@ OH82_ROWS = (
      # a write lands in T for an alias only where the file system reads the alias as T (nt); elsewhere it is a new folder
      lambda k, n, t, got: got == (("exit", 2) if k == "good" or (os.name == "nt" and k in ("twin", "alias8")) else ("value", None)),
      "landing_name", lambda k, n: bool(n)),
+    # 2b: the readers that joined the key unchecked. An alias is "no story" with the site's own text and exit code.
+    ("estimate_record", _oh82_run_estimate,
+     lambda k, n, t, got: got == ("value", "r1") if k == "good" else got[:2] == ("raised", "ValueError"),
+     "is_story_folder", lambda k, n: k != "bad"),
+    ("role_load_task_root", _oh82_run_role_load,
+     lambda k, n, t, got: got == ("value", True) if k == "good" else got[:2] == ("raised", "RoleLoadError"),
+     "is_story_folder", lambda k, n: True),
+    ("archive_task_archive", _oh82_archiver("cmd_archive"), _oh82_judge_archive, "is_story_folder", lambda k, n: True),
+    ("archive_task_undo", _oh82_archiver("cmd_undo"), _oh82_judge_archive, "is_story_folder", lambda k, n: True),
+    ("audit_a5_seal", _oh82_run_a5,
+     lambda k, n, t, got: got[0] == "value" and (any(f"[A5 seal] {n}/note.md:" in line for line in got[1]) if k == "good" else got[1] == []),
+     "is_story_folder", lambda k, n: bool(n)),
+    ("env_probe_preconditions", _oh82_run_env_needs,
+     lambda k, n, t, got: got == ("value", {"THE_KEY": ["TC-1"]} if k == "good" else {}), "is_story_folder", lambda k, n: bool(n)),
 )
 
 
@@ -2086,9 +2157,9 @@ def oh8_2_create_and_guard_edges() -> None:
 # shrink-only (AR-15, AR-20): lines calling `hooklib.is_one_component` per script, in the world after OH8-1 and OH8-2a. OH8-2b
 # lowers role_load.py 2 -> 1; `selftest.py` keeps a named mirror pinned by `oh6_1_mirror_agreement`, not counted here.
 OH82_CALLS = re.compile(r"(?<![\w])(?:hooklib\.)?is_one_component\(")
-OH82_ALLOWED = {"activity_capture.py": 1, "cost_capture.py": 2, "controller.py": 1, "dependency_drift.py": 1, "event_store.py": 1,
+OH82_ALLOWED = {"activity_capture.py": 1, "cost_capture.py": 1, "controller.py": 1, "dependency_drift.py": 1, "event_store.py": 1,
                 "estimate_record.py": 1, "exploration.py": 3, "exit_gate.py": 1, "hooklib.py": 3, "recover_codex_usage.py": 1,
-                "red_sandbox.py": 2, "role_digest.py": 1, "role_load.py": 2, "subagent_journal.py": 1, "waiver.py": 2}
+                "red_sandbox.py": 2, "role_digest.py": 1, "role_load.py": 1, "subagent_journal.py": 1, "waiver.py": 2}
 
 
 def oh8_2_sentinel() -> None:

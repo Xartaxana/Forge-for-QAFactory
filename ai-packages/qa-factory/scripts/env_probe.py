@@ -743,7 +743,7 @@ def _case_needs(task: str, root=None) -> dict:
     except (OSError, ValueError, AttributeError):           # a broken config: today's folder, a reader never invents (AR-28)
         artifacts = project / "qa-factory" / "artifacts"
     task_root = artifacts / task
-    if not task_root.exists():
+    if not hooklib.is_story_folder(artifacts, task):
         return out
     try:
         files = case_files(task_root)
