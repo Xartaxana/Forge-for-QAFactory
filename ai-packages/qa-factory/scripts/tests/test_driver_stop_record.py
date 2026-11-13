@@ -166,15 +166,7 @@ def no_state_dir_writes_nothing(tmp):
     d.reconcile_question = interrupt
     error, out = run_catching(d)
     check("no_state_dir_writes_nothing: re-raised", isinstance(error, KeyboardInterrupt), repr(error))
-    # P1-v N1: the start row goes through the driver's one journal writer, which makes the folder (as for any first row); so a
-    # run stopped later finds the folder there. `person_stop_record` itself still writes nothing for a folder that is absent
-    # (checked below by calling it directly on a driver that never ran `run`).
-    check_eq("no_state_dir_writes_nothing: the start row made the folder; rows: start, stop, end",
-             [r["kind"] if r["kind"] == "stopped_by_person" else r.get("event") for r in rows_of(d)], ["start", "stopped_by_person", "end"])
-    d2 = rig(tmp / "nostate-direct", with_state_dir=False)
-    d2.run_started = SR._now()
-    d2.person_stop_record()
-    check("no_state_dir_writes_nothing: `person_stop_record` alone creates no folder", not d2.state_dir.exists(), str(d2.state_dir))
+    check("no_state_dir_writes_nothing: the story's state folder is not created", not d.state_dir.exists(), str(d.state_dir))
     check_eq("no_state_dir_writes_nothing: no console line", out, "")
 
 
@@ -184,9 +176,11 @@ def before_run_no_record(tmp):
     check("before_run: a driver that never ran `run` has written no row", rows_of(d) == [], str(rows_of(d)))
     d.progress_line = lambda: (_ for _ in ()).throw(KeyboardInterrupt())    # the header line of `run` itself
     error, _out = run_catching(d)
-    check("before_run: an interrupt in the header line is re-raised and writes no stop row (no call could have been launched)",
-          isinstance(error, KeyboardInterrupt) and [r.get("event") for r in rows_of(d)] == ["start", "end"] and stops(d) == [],
-          f"{error!r} {rows_of(d)}")
+    # re-pin (Lead, t-502 fix round, option a): the row is about STOP records; the process rows that ARE there are asserted too
+    check("before_run: an interrupt in the header line is re-raised and writes no stop record (no call could have been launched)",
+          isinstance(error, KeyboardInterrupt) and stops(d) == [], f"{error!r} {rows_of(d)}")
+    check_eq("before_run: the process rows that are there: start and end with start_row_written true",
+             [(r["event"], r.get("start_row_written", "-")) for r in rows_of(d)], [("start", "-"), ("end", True)])
 
 
 def failed_write_is_one_note(tmp):
@@ -198,8 +192,6 @@ def failed_write_is_one_note(tmp):
     d.reconcile_question = interrupt
 
     def broken(path, record):
-        if record.get("kind") != "stopped_by_person":       # P1-v N1: the process rows are written; the STOP row is the one that fails
-            return real(path, record)
         raise PermissionError("denied")
     SR._append_jsonl = broken
     try:
@@ -207,9 +199,14 @@ def failed_write_is_one_note(tmp):
     finally:
         SR._append_jsonl = real
     check("failed_write_is_one_note: the KeyboardInterrupt still re-raises", isinstance(error, KeyboardInterrupt), repr(error))
+    # re-pin (Lead, t-502 fix round, option b): ONE note for the STOP record; a failed process row prints its own note, asserted too
     lines = [line for line in out.splitlines() if line.strip()]
-    check("failed_write_is_one_note: ONE `note:` line naming the error",
-          len(lines) == 1 and lines[0].startswith("note:") and "PermissionError" in lines[0], out)
+    stop_lines = [line for line in lines if "stop by the person" in line]
+    check("failed_write_is_one_note: ONE `note:` line for the stop record, naming the error",
+          len(stop_lines) == 1 and stop_lines[0].startswith("note:") and "PermissionError" in stop_lines[0], out)
+    check("failed_write_is_one_note: one note for the start row and one for the end row, each naming its row",
+          len(lines) == 3 and sum("start of the process" in line for line in lines) == 1
+          and sum("end of the process" in line for line in lines) == 1 and all(line.startswith("note:") for line in lines), out)
 
 
 def second_ctrl_c_while_writing(tmp):
@@ -236,7 +233,7 @@ def second_ctrl_c_while_writing(tmp):
 
     def write_then_interrupt(path, record):
         real_append(path, record)
-        if record.get("kind") == "stopped_by_person":       # P1-v N1: only the stop row is followed by the second Ctrl-C
+        if record.get("kind") == "stopped_by_person":       # re-pin (Lead, t-502 fix round, option a): the stub is keyed on the STOP record
             raise KeyboardInterrupt("second")
     SR._append_jsonl = write_then_interrupt
     try:
@@ -627,7 +624,8 @@ def machine_ids_cases():
 
 # --- P1-v N1 (spec §2 W1, §7.10, §7.11): the `process` start and end rows, and the run class -------------------------------------------
 START_KEYS = {"ts", "kind", "event", "since", "package", "config_sha", "answer_file", "run_class"}
-END_KEYS = {"ts", "kind", "event", "since", "process_code", "question_kind"}
+END_KEYS = {"ts", "kind", "event", "since", "process_code", "question_kind", "package", "config_sha", "answer_file", "run_class",
+            "start_row_written"}
 FORBIDDEN = ("dispatch", "dispatch_id", "session_id", "exit_code", "is_error", "infra", "call", "total_cost_usd", "cost", "cost_usd", "usd")
 
 
@@ -753,10 +751,60 @@ def process_row_cases(tmp):
             error, out = run_catching(d)
     finally:
         SR._append_jsonl = real_append
-    notes = [line for line in out.splitlines() if line.strip()]
-    check("start row unwritable: the PermissionError reaches the caller, the end row's failure is ONE note, no row on disk",
-          isinstance(error, PermissionError) and len(notes) == 1 and notes[0].startswith("note: the end of the process")
-          and rows_of(d) == [], f"{error!r} {out} {rows_of(d)}")
+    notes = note_lines(out)
+    check("start row unwritable (journal read-only): one note for the start row, one for the end row, the run goes on, no row on disk",
+          error is None and len(notes) == 2 and notes[0].startswith("note: the start of the process")
+          and notes[1].startswith("note: the end of the process") and rows_of(d) == [], f"{error!r} {out} {rows_of(d)}")
+    # only the START row fails: ONE note, the run goes on, the end row is written and says start_row_written false
+    d = rig(tmp / "p-start-fails")
+
+    def fail_start(path, record):
+        if record.get("event") == "start":
+            raise PermissionError("denied")
+        return real_append(path, record)
+    SR._append_jsonl = fail_start
+    try:
+        with _env(None):
+            error, out = run_catching(d)
+    finally:
+        SR._append_jsonl = real_append
+    notes = note_lines(out)
+    check("start row OSError: ONE note naming the start row, the run goes on, the end row says start_row_written false",
+          error is None and len(notes) == 1 and notes[0].startswith("note: the start of the process")
+          and [(r["event"], r["start_row_written"]) for r in process_rows(d)] == [("end", False)], f"{error!r} {out} {rows_of(d)}")
+
+    # the four FOLDER cases (Lead decision 2: a process row never creates the story's state folder)
+    d = rig(tmp / "f-absent-start-present-end", with_state_dir=False)
+    d.boundary_step = lambda action: d.state_dir.mkdir(exist_ok=True)          # the story's own writer makes the folder during the run
+    with _env(None):
+        error, _out = run_catching(d)
+    check_eq("folder absent at start, present at end: no start row, one end row with start_row_written false and the start time",
+             (error, [(r["event"], r.get("start_row_written", "-"), r["since"]) for r in process_rows(d)]),
+             (None, [("end", False, d.run_started)]))
+    d = rig(tmp / "f-absent-both", with_state_dir=False)
+    with _env(None):
+        error, _out = run_catching(d)
+    check("folder absent at start AND at end: no rows, and the folder does not exist after `run`",
+          error is None and not d.state_dir.exists(), f"{error!r} {d.state_dir.exists()}")
+    d = rig(tmp / "f-present-both")
+    with _env(None):
+        error, _out = run_catching(d)
+    check_eq("folder present at both: both rows, start_row_written true",
+             (error, [(r["event"], r.get("start_row_written", "-")) for r in process_rows(d)]), (None, [("start", "-"), ("end", True)]))
+    d = rig(tmp / "f-removed-before-end")
+    import shutil
+
+    real_guarded = d._run_guarded
+
+    def remove_folder():
+        code = real_guarded()
+        shutil.rmtree(d.state_dir)           # after the run's own work, right before the end row
+        return code
+    d._run_guarded = remove_folder
+    with _env(None):
+        error, _out = run_catching(d)
+    check("folder present at start, removed before the end: no end row, no exception, the folder is not re-created",
+          error is None and not d.state_dir.exists(), f"{error!r} {d.state_dir.exists()}")
 
     # the end row is the one the mutation removes: a process that is killed has a start row and no end row (what no code can fix)
     # config_sha: sha256 of the bytes; absent -> null; unreadable -> null and ONE note

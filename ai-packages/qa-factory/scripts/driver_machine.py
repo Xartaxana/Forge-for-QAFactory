@@ -1772,22 +1772,37 @@ class DriverMachine:
             "idempotency_key": f"handoff:driver:{state.get('revision', 0)}"})
 
     def run(self) -> int:
-        """Run the story. The process leaves two rows in `driver-runs.jsonl` (P1-v W1, `driver_journal.process_start_row` /
-        `process_end_row`): `start` is the FIRST thing written, `end` is written in the `finally`, after a `stopped_by_person` row
+        """Run the story. The process leaves up to two rows in `driver-runs.jsonl` (P1-v W1, `driver_journal.process_start_row` /
+        `process_end_row`). A row is written ONLY while the story's state folder exists, checked right before each write, and never
+        creates it: the start row of a fresh story is skipped, and the END row describes the process alone (start time, package,
+        config hash, answer flag, run class, `start_row_written`); no folder at the end either -> no row. `start` is the FIRST row
+        written, `end` is written in the `finally`, after a `stopped_by_person` row
         when the person stopped it, with `process_code` = the returned int, null when `run` ended by an exception (the exception
         propagates unchanged). POSITION INVARIANT: nothing that can raise sits between entry and the `try` (two assignments), so a
         process has a start row and no end row only when it was killed (no `finally` runs). A journal that cannot be written at the
-        start row raises the `OSError` of `journal_run` as for any first row (the end row is still attempted); a failed end row is one
-        `note:` line and never replaces the exception in flight. A fingerprint or class that cannot be established is null /
+        start row is ONE `note:` line and the run goes on (the end row is still attempted and says `start_row_written: false`); a
+        failed end row is one `note:` line and never replaces the exception in flight. A fingerprint or class that cannot be established is null /
         `unknown` plus one note, never a stop (P1)."""
         self.run_started = _now()       # TR4-11: when THIS process began; the stop record names it (`since`)
         code = None
+        start_row = None
+        start_written = False
+
+        def put(record) -> bool:
+            # a process row NEVER creates the story folder (Lead decision, N1 fix round): the check is made immediately before each write
+            if not self.state_dir.is_dir():
+                return False
+            self.journal_run(record)
+            return True
         try:
             notes: list = []
-            row = DJ.process_start_row(self.run_started, getattr(self, "project", None), getattr(self.flags, "answer", None), notes)
+            start_row = DJ.process_start_row(self.run_started, getattr(self, "project", None), getattr(self.flags, "answer", None), notes)
             for line in notes:
                 print(line, flush=True)
-            self.journal_run(row)
+            try:
+                start_written = put(start_row)
+            except OSError as exc:
+                print(f"note: the start of the process could not be journalled ({type(exc).__name__}); it goes on", flush=True)
             self.progress_line()            # the log header: where the story stands as this process starts
             if not self.state.get("asked"):
                 self.state.pop("stuck_pending", None)       # B-20 F6: a mark left by a process that died in the conductor belongs to no open question
@@ -1802,10 +1817,10 @@ class DriverMachine:
         finally:
             try:
                 notes = []
-                row = DJ.process_end_row(self.run_started, code, self.question_path(), notes)
+                row = DJ.process_end_row(self.run_started, code, self.question_path(), notes, start_row, start_written)
                 for line in notes:
                     print(line, flush=True)
-                self.journal_run(row)
+                put(row)
             except OSError as exc:
                 print(f"note: the end of the process could not be journalled ({type(exc).__name__}); it goes on", flush=True)
             except KeyboardInterrupt:

@@ -519,10 +519,13 @@ def process_start_row(since, project, answer_file, notes: list, environ=None) ->
             "run_class": run_class(environ, notes)}
 
 
-def process_end_row(since, code, question_path, notes: list) -> dict:
-    """The `end` row of the process (W1): kind, event, since, process_code, question_kind. `process_code` is the int `run` returns,
-    null when it ended by an exception; `question_kind` is the `kind:` line of the open question file, null when none is posted
-    (a file that is there with no readable kind line: null and one note). Never raises."""
+def process_end_row(since, code, question_path, notes: list, start_row=None, start_row_written=False) -> dict:
+    """The `end` row of the process (W1): kind, event, since, process_code, question_kind, the identifying fields of the start row
+    (package, config_sha, answer_file, run_class; null when `start_row` is None) and `start_row_written`. The end row describes its
+    process ALONE: the start row of a fresh story is never written (a row never creates the story folder), so a reader (the N4
+    scoreboard) works from the end row. `process_code` is the int `run` returns, null when it ended by an exception; `question_kind`
+    is the `kind:` line of the open question file, null when none is posted (a file that is there with no readable kind line: null
+    and one note). Never raises."""
     kind = None
     try:
         text = Path(question_path).read_text(encoding="utf-8", errors="replace")
@@ -540,4 +543,8 @@ def process_end_row(since, code, question_path, notes: list) -> dict:
             notes.append("note: the open question file has no `kind:` line; the process row names no question kind")
     if isinstance(code, bool) or not isinstance(code, int):
         code = None
-    return {"kind": "process", "event": "end", "since": since, "process_code": code, "question_kind": kind}
+    start_row = start_row if isinstance(start_row, dict) else {}
+    return {"kind": "process", "event": "end", "since": since, "process_code": code, "question_kind": kind,
+            "package": start_row.get("package"), "config_sha": start_row.get("config_sha"),
+            "answer_file": start_row.get("answer_file"), "run_class": start_row.get("run_class"),
+            "start_row_written": bool(start_row_written)}
