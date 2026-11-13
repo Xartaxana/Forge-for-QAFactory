@@ -284,12 +284,13 @@ def _identity(event: dict, agent: str) -> tuple[str, dict]:
         # Compatibility fallback for hosts that do not yet send input_fingerprint. File
         # metadata makes an actual repair a new check while repeated identical events
         # remain fused. Explicit task IDs keep parallel stories isolated.
-        art_root = artifact_root()
-        scan_root = art_root / task if task != "unknown-task" else art_root
-        if slug:
-            scan_root = exploration.root(slug, project_root(event))
         file_state = []
         try:
+            if slug:
+                scan_root = exploration.root(slug, project_root(event))
+            else:
+                art_root = artifact_root()      # a broken config raises here: no file state, never a traceback (AR-28)
+                scan_root = art_root / task if task != "unknown-task" else art_root
             file_state = [(str(p.relative_to(scan_root)), p.stat().st_size, p.stat().st_mtime_ns)
                           for p in sorted_paths(scan_root.rglob("*")) if p.is_file()
                           # the whole list this gate saves itself is not the role's work: writing it must not
@@ -1516,10 +1517,10 @@ def awaiting_source_review(agent: str, task: str) -> bool:
     """S1 only: every source carries the factory's decision and no person has seen them."""
     if _stage_id(agent, task) != "S1":
         return False
-    ticket = task if task and task != "unknown-task" else _ticket_for_stage("S1")
-    if not ticket:
-        return False
     try:
+        ticket = task if task and task != "unknown-task" else _ticket_for_stage("S1")
+        if not ticket:
+            return False
         from source_preflight import check_source_inventory
         task_root = artifact_root() / ticket
         return bool(check_source_inventory(task_root, _read_json(task_root / "pipeline.json"))
@@ -1557,10 +1558,14 @@ def grounding_errors(agent: str, task: str = "") -> list:
     runs whose tester read the diff) were missing, and nothing said so."""
     if role_name(agent) != "qa-requirements-tester":
         return []
-    ticket = task if task and task != "unknown-task" else _ticket_for_stage("S2")
-    if not ticket:
-        return []
-    root = artifact_root() / ticket / "work"
+    try:
+        ticket = task if task and task != "unknown-task" else _ticket_for_stage("S2")
+        if not ticket:
+            return []
+        root = artifact_root() / ticket / "work"
+    except (OSError, ValueError) as exc:
+        return [unreadable_record("grounding_errors", f"the story folders could not be found ({exc})",
+                                  "requirements-register.md")]
     register = root / "requirements-register.md"
     if not register.is_file():
         return []

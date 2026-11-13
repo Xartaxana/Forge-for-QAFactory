@@ -40,6 +40,7 @@ vcs_evidence.collect = fake_collect
 def story(root: Path, task: str, list_text: str = "") -> Path:
     task_root = root / "qa-factory" / "artifacts" / task
     (task_root / "work").mkdir(parents=True)
+    (task_root / "pipeline.json").write_text("{}", encoding="utf-8")     # S0 writes it: the marker of a real story
     if list_text:
         entries, problems = SE.parse_bytes(list_text.encode("utf-8"), task)
         assert not problems, problems
@@ -164,31 +165,46 @@ def root_story(base: Path, task: str, marker: bool = True, list_text: str = "") 
         SE.write_record(base / task, entries, "list.txt", list_text.encode("utf-8"))
 
 
-ROOT_ROWS = (  # (id, config text, root folder of the stories, marker on S-2, output under project, old folder also holds S-2, exit)
+ROOT_ROWS = (  # (id, config text, root folder of the stories, marker on S-2, output under project, old folder also holds S-2, exit, needle)
     ("output inside a story folder of the configured root names its story", '{"artifact_root": "stories"}', "stories", True,
-     "stories/S-2/work/x.json", False, 0),
+     "stories/S-2/work/x.json", False, 0, ""),
     ("output under the old default folder with a root configured elsewhere still names its story", '{"artifact_root": "stories"}',
-     "stories", True, "qa-factory/artifacts/S-2/work/x.json", True, 0),
+     "stories", True, "qa-factory/artifacts/S-2/work/x.json", True, 0, ""),
     ("output under a configured root but not in a story folder: every story consulted", '{"artifact_root": "."}', ".", True,
-     "tmp/x.json", False, 2),
+     "tmp/x.json", False, 2, ""),
     ("a story folder without pipeline.json under a configured root: every story consulted", '{"artifact_root": "stories"}',
-     "stories", False, "stories/S-2/work/x.json", False, 2),
+     "stories", False, "stories/S-2/work/x.json", False, 2, ""),
     ("a file directly in the configured root: every story consulted", '{"artifact_root": "stories"}', "stories", True,
-     "stories/x.json", False, 2),
+     "stories/x.json", False, 2, ""),
     ("an output with .. out of the story: every story consulted", '{"artifact_root": "stories"}', "stories", True,
-     "stories/S-2/../tmp/x.json", False, 2),
+     "stories/S-2/../tmp/x.json", False, 2, ""),
     # (a case variant is not a row: a case-blind file system resolves it to the real story, a case-sensitive one to a name
     # absent from the listing - the leaf's exact-name rule is pinned in the hooklib tests)
     ("a name that is not in the listing: every story consulted", '{"artifact_root": "stories"}', "stories", True,
-     "stories/S-3/work/x.json", False, 2),
+     "stories/S-3/work/x.json", False, 2, ""),
     ("a name with a trailing blank: every story consulted", '{"artifact_root": "stories"}', "stories", True,
-     "stories/S-2 /work/x.json", False, 2),
+     "stories/S-2 /work/x.json", False, 2, ""),
     ("broken config (bad JSON): today's recognition, no traceback", "{not json", "qa-factory/artifacts", True,
-     "qa-factory/artifacts/S-2/work/x.json", False, 0),
+     "qa-factory/artifacts/S-2/work/x.json", False, 0, ""),
     ("broken config (a JSON list): today's recognition, no traceback", "[]", "qa-factory/artifacts", True,
-     "qa-factory/artifacts/S-2/work/x.json", False, 0),
+     "qa-factory/artifacts/S-2/work/x.json", False, 0, ""),
+    # --- OF4-10: an output file in `artifacts/` is no story; a broken config is a refusal that names its door, not a traceback ---
+    ("V1 an output file directly in the old default folder: every story consulted", "{}", "qa-factory/artifacts", True,
+     "qa-factory/artifacts/x.json", False, 2, ""),
+    ("V2 a folder of the old default folder without pipeline.json: every story consulted", "{}", "qa-factory/artifacts", False,
+     "qa-factory/artifacts/S-2/work/x.json", False, 2, ""),
+    ("V3 a real story of the old default folder is still named", "{}", "qa-factory/artifacts", True,
+     "qa-factory/artifacts/S-2/work/x.json", False, 0, ""),
+    ("V4 broken config (bad JSON), output outside every story: refused, the config named", "{not json", "qa-factory/artifacts",
+     True, "tmp/x.json", False, 2, "config.json"),
+    ("V5 broken config (a JSON list), output outside every story", "[]", "qa-factory/artifacts", True, "tmp/x.json", False, 2,
+     "config.json"),
+    ("V6 empty artifact_root, output outside every story", '{"artifact_root": ""}', "qa-factory/artifacts", True, "tmp/x.json",
+     False, 2, "artifact_root"),
+    ("V7 broken config, probe-only", "{not json", "qa-factory/artifacts", True, None, False, 2, "config.json"),
+    ("V8 an empty config file, probe-only", "", "qa-factory/artifacts", True, None, False, 2, "config.json"),
 )
-for label, config, stories_at, marker, output, old_too, want in ROOT_ROWS:
+for label, config, stories_at, marker, output, old_too, want, needle in ROOT_ROWS:
     root = temp_project("qa-vcs-evidence-root-")
     harness.use_project(root)
     try:
@@ -201,11 +217,18 @@ for label, config, stories_at, marker, output, old_too, want in ROOT_ROWS:
         if old_too:
             root_story(root / "qa-factory" / "artifacts", "S-2")
         try:
-            code, _out, err = run(root, "--url", URL_1924, "--output", str(root / output))
+            argv = ["--url", URL_1924] + (["--output", str(root / output)] if output else [])
+            code, _out, err = run(root, *argv)
             seen = (code, "Traceback" in err)
         except Exception as exc:                      # a traceback is a failure of the row, not of the run
+            code, _out, err = None, "", ""
             seen = (type(exc).__name__, True)
         check_eq(f"item 7 story named by --output: {label}", seen, (want, False))
+        if needle:
+            check_in(f"{label}: stderr names the door", needle, err)
+            check_not_in(f"{label}: stderr names no default story folder", "qa-factory/artifacts/", err)
+            check_eq(f"{label}: stdout says unknown, nothing fetched",
+                     ((json.loads(_out)["status"] if _out.strip() else None), calls), ("unknown", []))
     finally:
         cleanup(root)
 
