@@ -7,7 +7,7 @@ where it is built, measured and fixed.
 
 - `ai-packages/qa-factory/` — the package itself (English); its own README, INSTALL and CHANGELOG.
 - `PROJECT.md` — how work on the factory is done here: principles, layout, acceptance, release.
-- `plans/PILES.md` — the list of what to do in the factory (generated from the piles); `plans/BACKLOG.md` is
+- `plans/piles/` — the list of what to do in the factory (cards, batches, findings; the «Бэклог» pane shows the open batches via `tools/backlog_tree.py`); `plans/BACKLOG.md` is
   frozen and holds the old rows until they close.
 - `docs/RUNBOOK.md` — the MyBooks stand, release hygiene, CI on GitHub and the canon, updating the installed plugin,
   the night run.
@@ -59,7 +59,7 @@ where it is built, measured and fixed.
    `release_repo_root` (the folder of your `QAFactory` clone), and `github_token_env` (the NAME of the environment
    variable that holds your GitHub token, never the token). `python tools/dev_config.py` prints what was read and
    whether the token variable is SET.
-2. Open `plans/PILES.md` and pick a batch with status "ожидает" whose "стенд" you can satisfy
+2. Open the «Бэклог» pane (or run `python -B tools/backlog_tree.py`) and pick a batch with status "ожидает" whose "стенд" you can satisfy
    (a batch marked "не нужен" is proved by CI alone).
 3. Take it: `python tools/piles.py take <pile> <N> --who <your-slug>`. Work on the branch
    `pile/<slug>/batch-<N>`, cut from `origin/main`.
