@@ -1392,7 +1392,29 @@ def pc3_provisional_beside_the_other_lists() -> None:
              ("unprojected_events" in bad, [(r["id"], r["status"]) for r in bad["provisional"]]), (False, [("P-1", "open")]))
 
 
+def fv1_19e_projection_reads_the_currency() -> None:
+    """FV1-19e table T2 row p-proj: the coverage projection reads a binding through `contract.binding_currency` - after the
+    r2 steps (re-plan, ONLY design_assessment re-sent) the design counts and the code validity does not."""
+    import coverage_contract as CC
+    ob = lambda d: {"obligation_id": "OB-1", "decision": d, "execution_scope": "current_task"}   # noqa: E731
+    plan_of = lambda d: json.dumps({"rows": [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [ob(d)]}]})   # noqa: E731
+    judged = {"obligation_id": "OB-1", "design_assessment": "sufficient", "code_validity": "valid"}
+    with Stand() as stand:
+        _plan_file(stand, text=plan_of("automate"))
+        check_eq("p-proj setup: the first write lands", stand.put({"obligation_bindings": [judged]})[0], 0)
+        item = CC.coverage_projection(stand.task, {"current_results": []}, stand.manifest())["obligations"][0]
+        check_eq("p-proj before the re-plan: both judgments count", (item["design_assessment"], item["code_validity"]),
+                 ("sufficient", "valid"))
+        _plan_file(stand, text=plan_of("new"))
+        check_eq("p-proj re-plan: the design re-send lands",
+                 stand.put({"obligation_bindings": [{"obligation_id": "OB-1", "design_assessment": "sufficient"}]})[0], 0)
+        item = CC.coverage_projection(stand.task, {"current_results": []}, stand.manifest())["obligations"][0]
+        check_eq("p-proj (r2): the design counts, the validity judged on the old text reads unverified",
+                 (item["design_assessment"], item["code_validity"]), ("sufficient", "unverified"))
+
+
 def main() -> None:
+    fv1_19e_projection_reads_the_currency()
     pc3_provisional_beside_the_other_lists()
     ep1_39_then_row_keeps_tests()
     ep1_39_critic_approval()

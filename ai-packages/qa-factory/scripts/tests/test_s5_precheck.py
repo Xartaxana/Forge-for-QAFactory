@@ -3226,8 +3226,10 @@ def a_qualified_scope_case_binds_its_obligation() -> None:
     root, task = obligation_story()
     try:
         manifest = {"tests": [OB3_ROW], "obligation_bindings": [OB3_BINDING]}
-        check_eq("OB-3: the real 2406 shape (qualified scope, qualified covers) leaves no OB-3 finding",
-                 obligation_findings(task, manifest, OB3_SCOPE), [])
+        # FV1-19e F5 (b): OB3_BINDING carries a counting design_assessment and NO hash, so the STALE finding is owed
+        # (p8); this row speaks of the UNBOUND finding only
+        check_eq("OB-3: the real 2406 shape (qualified scope, qualified covers) leaves no unbound OB-3 finding",
+                 [f for f in obligation_findings(task, manifest, OB3_SCOPE) if f["id"].endswith("obligation-id-OB-3")], [])
         check_eq("OB-3: instances_of_case finds the row of the qualified case",
                  [e["instance_id"] for e in P.instances_of_case(manifest, "feedback-api/TC-003")],
                  [OB3_INSTANCE])
@@ -3263,6 +3265,98 @@ def a_qualified_scope_case_binds_its_obligation() -> None:
                      obligation_findings(task, bound, ["TC-003"]), [])
         check_eq("OB-3: and a qualified ask picks only its own area's row",
                  [e["instance_id"] for e in P.instances_of_case(both, "beta/TC-003")], ["test_b"])
+    finally:
+        cleanup(root)
+
+
+def a_stale_binding_is_named_before_the_finish() -> None:
+    """FV1-19e table T2 rows p1-p9, p11, p12 (the binding-currency finding of `check_obligations`; p10 is the QB row of
+    `fv1_19_obligation_refs_at_the_precheck`, p-proj lives in test_manifest_put_merge.py)."""
+    from event_store import content_hash
+    root, task = obligation_story()
+    plan_file = task / "work" / "test-plan.json"
+    try:
+        plan_hash = content_hash(C.plan_obligation_map(task)["OB-3"])
+
+        def stale_of(binding, manifest_extra=None, scope=OB3_SCOPE):
+            manifest = {"tests": [OB3_ROW], "obligation_bindings": [] if binding is None else [binding]}
+            return [f for f in obligation_findings(task, manifest, scope) if f["id"].endswith("binding-stale-OB-3")]
+
+        base = dict(OB3_BINDING, design_assessment="sufficient", code_validity="valid", obligation_hash="hb")
+        both = stale_of(base)
+        check_eq("p1: a stale hash with two counting judgments -> ONE finding", len(both), 1)
+        text = both[0]["message"] if both else ""
+        fix = both[0]["fix"] if both else ""
+        check_in("p1: names design_assessment", "`design_assessment`", text)
+        check_in("p1: names code_validity", "`code_validity`", text)
+        check_in("p1: says another text", "written against another text", text)
+        check_in("p1: the fix names the fragment door", "manifest_put.py --task <T> --fragment <file>", fix)
+        check_in("p1: the example carries both fields", '"design_assessment": "<sufficient|partial|unknown>", '
+                 '"code_validity": "<valid|unverified>"', fix)
+        check_in("p1: never send the hash or judged_on", "you never send `obligation_hash` or `judged_on`", fix)
+        check_eq("p1: the family is `obligations`", both[0]["check"] if both else "", "obligations")
+
+        check_eq("p2: a current binding (hash and judged_on equal the plan's) -> no stale finding",
+                 stale_of(dict(base, obligation_hash=plan_hash, judged_on={"code_validity": plan_hash})), [])
+        check_eq("p2: a legacy-current binding (hash equals the plan's, no judged_on) -> none",
+                 stale_of(dict(base, obligation_hash=plan_hash)), [])
+
+        unknown_words = dict(base, design_assessment="unknown", code_validity="unverified", sensitivity="missing")
+        absent = {"obligation_id": "OB-3", "instance_ids": [OB3_INSTANCE], "obligation_hash": "hb"}
+        check_eq("p7/B3: a stale hash with only unknown words -> none", stale_of(unknown_words), [])
+        check_eq("p7/B2: a stale hash with the judgment fields absent -> none", stale_of(absent), [])
+        check_eq("B3: a null judgment is not a counting one -> none",
+                 stale_of(dict(absent, design_assessment=None, code_validity=None)), [])
+
+        no_hash = stale_of(OB3_BINDING)
+        check_eq("p8/B1 (F5 b): OB3_BINDING (no hash, design sufficient) -> one finding", len(no_hash), 1)
+        check_in("p8: naming design_assessment", "`design_assessment`", no_hash[0]["message"] if no_hash else "")
+        check_not_in("p8: and not the unknown code_validity", "code_validity", no_hash[0]["message"] if no_hash else "")
+
+        renamed = dict(base, judged_on={"code_validity": "hb"})
+        post = stale_of(renamed)
+        check_eq("p12: the post-rename shape -> one finding", len(post), 1)
+        check_in("p12: it names both fields", "`design_assessment`, `code_validity`", post[0]["message"] if post else "")
+        check_in("p12: and both causes, the rename included", "renamed to this id", post[0]["message"] if post else "")
+
+        check_eq("p6: no binding -> only the unbound finding",
+                 [f["id"].rsplit(":", 1)[1] for f in obligation_findings(
+                     task, {"tests": [OB3_ROW], "obligation_bindings": []}, OB3_SCOPE)], ["obligation-id-OB-3"])
+
+        # p9: ONE binding reached by TWO scoped cases is ONE finding (the first case)
+        second = {"instance_id": "test_two", "case": "TC-004", "covers": ["TC-004"], "file": "tests/t.py", "status": "green"}
+        shared = dict(base, instance_ids=[OB3_INSTANCE, "test_two"])
+        findings: list = []
+        P.check_obligations(task, {"tests": [OB3_ROW, second], "obligation_bindings": [shared]},
+                            ["feedback-api/TC-003", "TC-004"],
+                            {"feedback-api/TC-003": "Plan row: TS-3\n", "TC-004": "Plan row: TS-3\n"}, set(), findings)
+        check_eq("p9: one binding, two scoped cases -> ONE stale finding",
+                 len([f for f in findings if f["id"].endswith("binding-stale-OB-3")]), 1)
+
+        # p11: composition - the finding's field list is the fields where binding_currency is False and counting_value True
+        states = {"r2-state": dict(base, obligation_hash=plan_hash, judged_on={"code_validity": "hb"}),
+                  "r5-P2 (legacy, old hash)": dict(base),
+                  "r6 (materialized)": dict(base, obligation_hash=plan_hash, judged_on={"code_validity": "hb"}),
+                  "r7 (back to the old text)": dict(base, obligation_hash="h2", judged_on={"code_validity": plan_hash}),
+                  "current": dict(base, obligation_hash=plan_hash, judged_on={"code_validity": plan_hash})}
+        for label, binding in states.items():
+            cur = C.binding_currency(binding, plan_hash)
+            expected = {f for f in ("design_assessment", *C.JUDGED_FIELDS) if C.counting_value(binding, f) and not cur[f]}
+            found = stale_of(binding)
+            message = found[0]["message"] if found else ""
+            said = {f for f in ("design_assessment", "code_validity") if f in message}
+            check_eq(f"p11: {label}: the finding's fields are the predicate's", said, expected)
+            check_eq(f"p11: {label}: a finding exists exactly when a field is stale", len(found), 1 if expected else 0)
+
+        # p3 / p4 / p5: nothing is asked of a legacy plan, no plan, a manual obligation
+        ob = {"obligation_id": "OB-3", "decision": "new", "execution_scope": "current_task"}
+        plan_file.write_text(json.dumps({"rows": [{"id": "TS-3", "coverage_obligations": [ob]}]}), encoding="utf-8")
+        check_eq("p3: a legacy schema-1 plan -> none", stale_of(base), [])
+        plan_file.write_text(json.dumps({"rows": [{"id": "TS-3", "schema_version": 2,
+                                                   "coverage_obligations": [dict(ob, decision="manual-agent")]}]}), encoding="utf-8")
+        check_eq("p5: a manual-* obligation -> none", stale_of(base), [])
+        plan_file.unlink()
+        check_eq("p4: no plan file -> none", stale_of(base), [])
     finally:
         cleanup(root)
 
@@ -4625,11 +4719,10 @@ def fv1_19_obligation_refs_at_the_precheck() -> None:
                  "send the row's obligation_refs again, ids only", message)
         check_in("N2 (e): an id the plan does not name is named with the plan's ids",
                  "OB-ZZ is not an obligation of the plan (the plan names OB-A, OB-M)", message)
-        # QB: a stale hash names the door of a stale BINDING too
+        # QB (FV1-19e p10, AR-15): the stale-binding door lives in ONE text, the binding finding; the row-refs finding no
+        # longer names the binding's `design_assessment` at all
         stale_text = found["message"] + " || " + found["fix"]
-        check_in("QB: the stale finding says to re-send the binding's design_assessment through the fragment door",
-                 "re-send the binding's `design_assessment` through `manifest_put.py --task <T> --fragment <file>` and the "
-                 "code re-stamps the hash", stale_text)
+        check_not_in("QB/p10: the stale ROW-refs finding no longer carries the binding clause", "design_assessment", stale_text)
 
         # (j) a NON-owed row with no refs, and an owed row with valid refs: nothing
         quiet = [refs_row("q1", "TC-501", "TS-2"), refs_row("q2", "TC-500", "TS-1", obligation_refs=[
@@ -4667,6 +4760,7 @@ def main() -> None:
     an_unresolved_row_is_found_by_the_qualified_scope_case()
     a_qualified_ask_finds_the_binding_rows_that_name_it()
     a_qualified_scope_case_binds_its_obligation()
+    a_stale_binding_is_named_before_the_finish()
     check_manifest_sees_the_qualified_scope_case()
     the_merged_record_keeps_its_note()
     the_refusal_prints_the_pairs_own_door_or_none()
