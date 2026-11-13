@@ -32,8 +32,8 @@ heading it ends the section instead of being an item. A text with no such headin
 
 EMPTY IS NOT THE SAME AS MISSING. What the reader looks for: a title on a line that starts with `# `, the criteria
 section above, a `## Comments` section with one line per comment. A text with no `# ` line takes its FIRST
-non-empty line as the title (cut at 200 characters; `provenance.title_from` says `first_line`) and the person is
-asked once whether that will do (`go on` keeps it; or add a `# ` title line and answer `retry`). That first line
+non-empty line as the title (cut at 200 characters; `provenance.title_from` says `first_line`) and that line is
+kept without a question, recorded; gate A shows the line. That first line
 still takes part in the criteria scan: a text that opens with the heading itself gives that title and those
 criteria. An empty text (no characters, or only white space) is no ticket: the reader refuses it. A text with no
 criteria is not refused: the person is asked, the question names the headings that were looked for, and `go on`

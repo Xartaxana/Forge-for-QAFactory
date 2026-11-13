@@ -102,8 +102,7 @@ project's `direct_api.acceptance_headings`): any list marker (`-`, `*`, `+`, `1.
 starts with `# ` is a heading, and a heading-less text has no criteria. A text with any `h2.`-style line is
 WIKI (`provenance.markup`; the rest is `markdown`): there `# ` is a list item. The title is the first `# ` line
 (wiki: the header's `title:`, else the first line that is no heading, no item and not blank); a text with none
-takes its first non-empty line (cut at 200 characters), says so in `provenance.title_from` (`first_line`) and
-the driver asks the person once. Only the title line leaves the description: text above it stays. With `--raw-dir` and no tracker
+takes its first non-empty line (cut at 200 characters), says so in `provenance.title_from` (`first_line`; the driver keeps it without a question, recorded). Only the title line leaves the description: text above it stays. With `--raw-dir` and no tracker
 read, the person's text (title and body) is scanned for references and `work/ticket-references.json` is
 written in the parent of the raw folder: ticket rows `unproven` ("no tracker read at S0"), the null result as
 an empty list.
@@ -466,7 +465,7 @@ def split_body(body: str, first_line_title: bool = False, markup: str = "markdow
     over - the first line that is neither a heading, nor a list item, nor blank. `first_line_title` (a text the
     person handed over): when no title was found by those rules the first non-empty line is the title, cut at
     TITLE_LIMIT characters, and `title_from` says `first_line` (F2: a ticket copied from a browser has no title
-    line, and the driver asks the person once). Only the title LINE leaves the description (t-287 item 1: text
+    line, and the driver keeps it without a question, recorded). Only the title LINE leaves the description (t-287 item 1: text
     above a `# ` title stays, P4); a line cut at the limit stays whole at its place, and a title from the header
     consumes no line."""
     # ticket_light.split_lines, not str.splitlines (C7): that also cuts at U+2028, U+0085 and form
@@ -684,7 +683,8 @@ def read_ticket_file(path: Path, ticket: str = "", pasted: bool = False) -> dict
     if parsed is None:
         if pasted and not text.strip():
             # An empty text is no ticket: the title would be the key and nothing else would be there. (Until t-281
-            # the driver caught it at the title; the driver no longer refuses a title-less text, it asks.)
+            # the driver caught it at the title; the driver no longer refuses a text with no `# ` line: it takes the first
+            # line as the title and records that without a question, and stops only when there is no title at all.)
             fail(EXIT_NOT_FOUND, f"ticket file {path} is empty: expected the ticket as text - the title on a line that "
                  "starts with `# ` (or on the first line), then the description. Put the ticket text in the file "
                  "and read it again.", owner="person", file=str(path))

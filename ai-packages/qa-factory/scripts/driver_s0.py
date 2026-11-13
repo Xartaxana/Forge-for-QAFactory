@@ -792,11 +792,7 @@ class DriverS0:
             if block == "ticket_read":              # P01: the earlier `not needed` is dropped, the ticket is read again. ONLY at the
                 answers.pop("ticket_read", None)    # ticket's own question: at any other block it is a word that must survive (G19)
         elif door == "go on":
-            self.state.setdefault("s0_passes", {})[block] = {
-                "words": words, "at": _now(), "problems": list(ask.get("problems") or []),
-                # What the person was shown, cut to 300 characters on one line: the finding's
-                # witness. Kept here so that it is the same text every time the pass is applied.
-                "witness": " ".join(str(ask.get("text") or "").split())[:300] or f"S0 {block}"}
+            self.s0_record_pass(block, words, ask.get("problems"), ask.get("text"))
         elif block == "source_list" and door in ("read", "skip"):
             # The two words of one person that disagree (t-172 C5b): `read` drops the line of the list,
             # `skip` drops the flag (kept apart from `keep`, which chooses among --mr/--branch/--commit).
@@ -1149,6 +1145,44 @@ class DriverS0:
                   if isinstance(e, dict) and e.get("name")}
         return one not in self.S0_DOOR_WORDS and one not in stands
 
+    # The words of a pass the factory took itself (FV1-11): a title read from the first line is kept without a question.
+    S0_TAKEN_WORDS = "title taken from the first line"
+
+    def s0_taken(self, words: str) -> bool:
+        """Is this pass the factory's own taking (`S0_TAKEN_WORDS`)? The ONE comparison with the sentinel."""
+        return words == self.S0_TAKEN_WORDS
+
+    def s0_record_pass(self, block: str, words: str, problems, shown, title: str = "") -> None:
+        """The ONE writer of an S0 pass record (`s0_passes[block]`): the person's `go on` (`s0_read_word`) and a reading the
+        factory took itself (`s0_criteria`, `S0_TAKEN_WORDS`) write the same shape, so every reader sees one. `title` is the
+        title the factory took (absent in a pass the person gave, and in one stored before FV1-11)."""
+        self.state.setdefault("s0_passes", {})[block] = {
+            "words": words, "at": _now(), "problems": list(problems or []),
+            # What the person was shown, cut to 300 characters on one line: the finding's
+            # witness. Kept here so that it is the same text every time the pass is applied.
+            "witness": " ".join(str(shown or "").split())[:300] or f"S0 {block}"}
+        if title:
+            self.state["s0_passes"][block]["title"] = title
+
+    def s0_pass_phrase(self, block: str, words: str, quoted_words: bool = True) -> str:
+        """How a pass reads in a line of the story's record: the person's word (quoted unless `quoted_words` is False), or the
+        factory's own taking of the title with the title quoted, read from the stored pass, so gate A shows WHICH line was
+        taken. The whole line fits `S0_LINE_LIMIT` (the title is cut, with the ellipsis); a stored pass with no title
+        (written before FV1-11) reads without the quote."""
+        name = self.S0_PASS_NAMES.get(block, block)
+        if self.s0_taken(words):
+            head = f"S0: {name}: {words} (kept without asking)"
+            title = self.s0_quote(((self.state.get("s0_passes") or {}).get(block) or {}).get("title"))
+            if not title:
+                return head
+            room = self.S0_LINE_LIMIT - len(head) - len(': ""')
+            if len(title) > room:
+                title = title[:max(room - len(self.CUT), 0)] + self.CUT
+            return f'{head}: "{title}"'
+        if not quoted_words:
+            return f"S0: {name} passed by the person's word"
+        return f"S0: {name} passed by the person's word: \"{self.s0_quote(words)}\""
+
     def s0_passed(self, block: str, problems: list | None = None) -> bool:
         """Has the person's word already passed this block? A pass belongs to ONE block: `go on`
         on the incomplete ticket does not pass the readiness check, and a `go on` on readiness is
@@ -1162,7 +1196,7 @@ class DriverS0:
         self._s0_passed.append((block, saved["words"]))
         if not saved.get("recorded"):
             self.s0_file_pass(block, saved)
-        print(f"S0: {self.S0_PASS_NAMES.get(block, block)} passed by the person's word")
+        print(self.s0_pass_phrase(block, saved["words"], quoted_words=False))
         return True
 
     def s0_file_pass(self, block: str, saved: dict, *, essence: str = "", key: str = "") -> None:
@@ -1178,7 +1212,8 @@ class DriverS0:
         # (the ladder writes it again before the next brief; it ends in the seam's question, never in a print).
         self.owe_row(
             "project_decisions.py", "--root", str(self.project), "add-finding",
-            "--essence", essence or f"S0 {block} passed by the person's word: {self.s0_quote(saved['words'])}",
+            "--essence", essence or (f"S0 {block} passed by the person's word: {self.s0_quote(saved['words'])}"
+                                     if not self.s0_taken(saved["words"]) else f"S0 {block}: {saved['words']}, kept without asking"),
             "--scope", "local-calibration", "--witness", saved.get("witness") or f"S0 {block}",
             "--idempotency-key", key or f"s0-pass:{self.task}:{block}",
             what=f"the finding about {'the lost read' if key else 'the pass'} at the start of the story")
@@ -1193,8 +1228,9 @@ class DriverS0:
     # (`ticket_read`, FR-50's three answers); a login the tracker stopped accepting is an infrastructure
     # stop (exit 5, the door named), never a question about a ticket the person did nothing to. What the
     # parser found in what came back is judged by ONE structural check, `s0_criteria`: a title the reader took
-    # from the first line and a criteria section the reader lost (a heading with text under it and no criteria
-    # read, D-0050) are the person's questions (F2, F5), an empty title from the tracker is a refusal; a ticket
+    # from the first line is kept without a question, recorded (gate A shows the line); a criteria section the reader
+    # lost (a heading with text under it and no criteria read, D-0050) is the person's question (F2, F5), an empty
+    # title from the tracker is a refusal; a ticket
     # with no criteria section at all is a line in the story's record, never a question (P23); nothing reads the
     # words of the ticket for a phrase (FR-12).
     # A read that fails has one of FOUR owners, said by the adapter's exit code and error object (t-281 F3, t-287):
@@ -1525,8 +1561,8 @@ class DriverS0:
 
     def s0_criteria(self, ticket: dict, how: str, source_file=None) -> str | None:
         """The ONE structural check of the ticket (F2, F4, F5): a title the reader took from the FIRST LINE of a
-        text (no `# ` line in it) is the person's question once - `go on` keeps it, `retry` reads the file again
-        after they added a title line - and the pass is written down (FR-4); a ticket read with no title at all
+        text (no `# ` line in it) is kept without a question (FV1-11): the pass is written down (FR-4) as "title taken
+        from the first line" and gate A shows it; a stop answered `go on` before that change is still read; a ticket read with no title at all
         (an empty summary from the tracker, a ticket file with none) is a refusal. Criteria (D-0050, P23): a ticket
         that read criteria goes on; one with NO criteria section goes on too and the return value is the line for
         the story's record (`pipeline.warnings`, the FIRST of them - gate A shows five), never a question; the only
@@ -1539,41 +1575,21 @@ class DriverS0:
         the driver stored (`driver-tmp/ticket-<T>.md`) - so that the question names the file the answer is read
         from, relative to the project; None when nothing was read from a file (the tracker, a kept snapshot)."""
         title = str((ticket.get("title") or "")).strip()
-        where = f" (the file `{self.s0_rel_path(source_file)}`)" if source_file else ""
         read = f"from the ticket file `{self.s0_rel_path(source_file)}`" if source_file else how
-        at_top = f"at the top of the file `{self.s0_rel_path(source_file)}`" if source_file else "at the top of your text"
-        if (ticket.get("provenance") or {}).get("title_from") == "first_line":
+        if (ticket.get("provenance") or {}).get("title_from") == "first_line" and title and title != self.task:
             problems = ["title taken from the first line"]
-            wiki = (ticket.get("provenance") or {}).get("markup") == "wiki"
-            if wiki:
-                # a text with `h2.`-style headings: `# ` is a list item there, so the title is a `title:` line of the header
-                found = ("its header has no `title:` line, and a line that starts with `# ` is a list item in this kind "
-                         "of text, never a title. I took this line as the title")
-                put = (f"in a header {at_top}: a line `title: <the title>` between two lines of three dashes")
-                seen = "no `title:` line in the header; this line was taken as the title: "
-            else:
-                found = "no line starts with `# `. I took its first line as the title"
-                put = f"on a line that starts with `# ` {at_top}"
-                seen = "no line starting with `# `; the first line was taken as the title: "
-            if not self.s0_passed("ticket_title", problems):
-                self.s0_stop(
-                    "ticket_title", "halt",
-                    self.closed_question(
-                        "s0.ticket_title",
-                        f"I read the ticket you gave me for {self.task}{where} and could not find a title in it: "
-                        f"{found}: \"{self.s0_quote(title)}\". Nothing in "
-                        "your text was changed, and the criteria and the comments are read from it as they stand."
-                        "\n\nWhat I need from you is one of these:",
-                        [{"answer": "go on", "token": "go on",
-                          "says": "that line will do as the title; the story then carries a line saying that you accepted it"},
-                         {"answer": "retry", "token": "retry", "says": f"put the title {put}, and I read it again",
-                          "slots": {"what": "put the title in the ticket"}},
-                         {"answer": "paste", "says": "paste the ticket again with a title - I use that instead",
-                          "slots": {"what": "paste the ticket with a title"}},
-                         self.STOP_OPTION]),
-                    {"retry": "retry", "go on": "go on"},
-                    details=f"Ticket {self.task}, read {read}.\nWhat the reader found:\n- {seen}{title}",
-                    problems=problems, paste=True)
+            # FV1-11: the title the reader found is a line of the record, never a stop. It is the only problem this check holds
+            # (the list is this one constant, so a stored pass always covers it), so the factory writes the pass itself, in the
+            # shape `go on` writes (`s0_record_pass`), unless the person's own `go on` (a stop of an older run, answered after
+            # this change) is stored already; `s0_passed` then reads it into the story's record. The stored question is still
+            # answered by `s0_read_word`.
+            if "ticket_title" not in (self.state.get("s0_passes") or {}):
+                found = ("its header has no `title:` line, and a line that starts with `# ` is a list item in this kind of text, "
+                         "never a title. I took this line as the title"
+                         if (ticket.get("provenance") or {}).get("markup") == "wiki"
+                         else "no line starts with `# `. I took its first line as the title")
+                self.s0_record_pass("ticket_title", self.S0_TAKEN_WORDS, problems, f"{found}: {title}", title=title)
+            self.s0_passed("ticket_title", problems)
         elif not title or title == self.task:
             # P05 (C1-3 F2 a): a ticket with no title at all is the person's question - the paste door reads the ticket, which a
             # seam-raised refusal question would not (no `s0_block` is set there) - never "run the story again".
@@ -2208,8 +2224,7 @@ class DriverS0:
             # The pipeline is written already, so the pass joins its warnings through the one command that
             # appends one (it never records the same line twice): gate A shows it. A refused line is owed (FR-4, C1-7a).
             self.owe_row("stage_done.py", "--task", self.task, "--warn",
-                         f"S0: {self.S0_PASS_NAMES.get(block, block)} passed by the person's word: "
-                         f"\"{self.s0_quote(words)}\"", what="the warning about the pass you gave at the start of the story", stage="S0")
+                         self.s0_pass_phrase(block, words), what="the warning about the pass you gave at the start of the story", stage="S0")
 
     def s0(self) -> None:
         self.boundary = "S0"
@@ -2405,8 +2420,7 @@ class DriverS0:
                          if line.strip().startswith("data_cleanup") and "available" not in line]
         # Each block the person's word passed is a line of the story's own record, and gate A
         # shows the warnings: a pass is never a silent one (FR-4).
-        warnings += [f"S0: {self.S0_PASS_NAMES.get(block, block)} passed by the person's word: "
-                     f"\"{self.s0_quote(words)}\"" for block, words in self._s0_passed]
+        warnings += [self.s0_pass_phrase(block, words) for block, words in self._s0_passed]
         # SS1-13: the person's `current code` answer (kept in `launch` by `s0_read_word`) is the story's `implementation_source` (a value
         # `stage_done.py` allows) and a line of its record: gate A shows the first five warnings, and this one goes right after the criteria line.
         source = (self.state.get("launch") or {}).get("implementation_source") or None
