@@ -89,5 +89,5 @@
 |---|---|---|---|
 
 ## Остатки
-- OH3-6 (233577c, t-207), критик t-223 O3: производитель шагов `readiness.py` (`remedy.steps`, docstring :96) и тексты `qa-onboarding`/`qa-story` с `*.py` для человека | перенос: onboarding-forge/findings/20261113-readiness-remedy-steps-nesut-stroki-skriptov-i-puti-dlya-cheloveka.md | обоснование: производная сторона OH3-6, вне его `owns`; узел OF5-9 пачки 5 | подтвердил: —
+- OH3-6 (233577c, t-207), критик t-223 O3: производитель шагов `readiness.py` (`remedy.steps`, docstring :96) и тексты `qa-onboarding`/`qa-story` с `*.py` для человека | перенос: onboarding-forge/findings/20261113-readiness-remedy-steps-nesut-stroki-skriptov-i-puti-dlya-cheloveka.md | обоснование: производная сторона OH3-6, вне его `owns`; узел OF5-9 пачки 5 | подтвердил: владелец, 13.11.2026
 - PC1-3: B-333 п. 1, 34 файла пакета с голым `os.replace` (узел D5-F спеки t-1701; D5-E сделан, dff4bde15) | перенос: пачка 2 | обоснование: первый узел 0.11.0 | подтвердил: владелец, 04.11.2026 (выбор оставлен Lead, рекомендация «перенос в 0.11.0»)
