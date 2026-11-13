@@ -39,6 +39,7 @@
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
 
 - 13.11 — пачка открыта: пять находок t-203/t-227 положены тем же ходом, что файлы в `findings/` (D-0044, t-233)
+- 13.11 — OH6-1 owns widened by spec t-282 fix round t-291: estimate_record.py, red_sandbox.py, role_digest.py, test-layers.json (covers only); builder t-294 (Lead dev1, 2026-11-13)
 
 ## Живые доказательства
 
