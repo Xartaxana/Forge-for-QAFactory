@@ -217,7 +217,6 @@ def a_blank_field_code_fills_is_not_refused_by_values_report() -> None:
         check_not_in("K-A20: values_report does not name it", "review.findings_file", _paths(problems))
         check_in("K-A20: but a blank field code does NOT fill still is a problem", "review.outcome", _paths(problems))
         check_eq("K-A20: and the good line is kept", kept, ["header.verdict: ok"])
-        # the one answer
         # the one answer, by contract and full path (FV2-2): `(row id, path, contract, expected)`
         s3, s4c, s4r, s8 = ("s3-strategist-to-designer", "s4-designer-to-case-critic", "s4-designer-to-runner",
                             "s8-bug-reporter-to-scribe")
@@ -231,6 +230,7 @@ def a_blank_field_code_fills_is_not_refused_by_values_report() -> None:
             ("unknown contract", "scope[0].requirements", "", False),
             ("absent contract", "scope[0].requirements", None, False),
             ("case-different contract", "scope[0].requirements", s4c.upper(), False),
+            ("empty path", "", s4c, False),
             ("bare leaf", "requirements", s4c, False),
             ("extra nesting", "scope[0][1].requirements", s4c, False),
             ("path the form lacks", "inputs_read[0].requirements", s4c, False),
@@ -262,7 +262,9 @@ def a_blank_field_code_fills_is_not_refused_by_values_report() -> None:
                 ("s3 inputs_read requirements refused", s3, "inputs_read[0].requirements", True, ""),
                 ("s8 filed requirements optional, not refused", s8, "filed[0].requirements", False, "filed[0].draft: D-1\n"),
                 ("s4c requirements forgiven (code's)", s4c, "scope[0].requirements", False, "scope[0].id: TC-1\n"),
-                ("s4c plan_row forgiven (code's)", s4c, "scope[0].plan_row", False, "scope[0].id: TC-1\n")]:
+                ("s4c plan_row forgiven (code's)", s4c, "scope[0].plan_row", False, "scope[0].id: TC-1\n"),
+                ("s4r requirements forgiven (code's)", s4r, "scope[0].requirements", False, "scope[0].id: TC-1\n"),
+                ("s4r plan_row forgiven (code's)", s4r, "scope[0].plan_row", False, "scope[0].id: TC-1\n")]:
             tform = art / "work" / "handoffs" / f"{contract}-fv22.yaml"
             tform.parent.mkdir(parents=True, exist_ok=True)
             tform.write_text(handoff.template(contract).text(), encoding="utf-8")
@@ -270,7 +272,7 @@ def a_blank_field_code_fills_is_not_refused_by_values_report() -> None:
             check_eq(f"K-A20 guard: {row_id}", path in named, refused)
             if not refused:
                 check_in(f"K-A20 guard: {row_id}: the row was opened (the control)", f"{path.split('.')[0]}.state"
-                         if contract == s4c else f"{path.split('.')[0]}.bug", named)
+                         if contract in (s4c, s4r) else f"{path.split('.')[0]}.bug", named)
         check("K-A20: a Problem says its kind structurally: 'not filled' is blank, a wrong word is not",
               {p.path: p.kind for p in control if p.path in ("review.findings_file", "review.outcome")}
               == {"review.findings_file": "blank", "review.outcome": "blank"}
