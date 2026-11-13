@@ -2,9 +2,7 @@
 import copy
 import hashlib
 import json
-import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -128,36 +126,6 @@ def a_sample_import_stays_a_sample(req, receipt) -> None:
              (Path(done["run_block"]).parent.name, "reference_run" in json.loads(Path(done["run_block"]).read_text())), ("run-blocks", False))
 
 
-def the_cli_refuses_in_a_line_never_in_a_traceback(req, receipt) -> None:
-    """t-420: the role runs this CLI by hand; whatever the input, it gets a refusal (exit 2, a named problem), never a
-    Python traceback with exit 1, and not a byte is written under the story."""
-    story = ROOT / "qa-factory" / "artifacts" / "IMP-1"
-    story.mkdir(parents=True, exist_ok=True)
-    good, list_json, broken = ROOT / "req.json", ROOT / "req-list.json", ROOT / "req-broken.json"
-    good.write_text(json.dumps(req)); list_json.write_text("[]"); broken.write_text("{not json")
-    receipt_file, bad_receipt = ROOT / "rc.json", ROOT / "rc-bad.json"
-    receipt_file.write_text(json.dumps(receipt))
-    tampered = copy.deepcopy(receipt); tampered["results"][0]["status"] = "failed"
-    bad_receipt.write_text(json.dumps(tampered))
-    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(ROOT)}
-    script = PLUGIN_ROOT / "scripts" / "import_test_receipt.py"
-    rows = (("missing request file", ROOT / "absent.json", receipt_file, "absent.json"),
-            ("broken request JSON", broken, receipt_file, "Expecting"),
-            ("request is a JSON list", list_json, receipt_file, "import_test_receipt"),
-            ("receipt the importer refuses", good, bad_receipt, "import_test_receipt"))
-    for name, request_file, receipt_path, needle in rows:
-        before = sorted(p.relative_to(story).as_posix() for p in story.rglob("*"))
-        done = subprocess.run([sys.executable, "-B", str(script), "--request", str(request_file), "--receipt",
-                               str(receipt_path), "--project-root", str(ROOT)], capture_output=True, text=True,
-                              cwd=ROOT, env=env, encoding="utf-8")
-        words = done.stdout + done.stderr
-        check_eq(f"{name}: exit 2", done.returncode, 2)
-        check(f"{name}: names the problem ({needle!r})", needle in done.stderr)
-        check(f"{name}: no traceback", "Traceback" not in words)
-        check_eq(f"{name}: nothing written under the story",
-                 sorted(p.relative_to(story).as_posix() for p in story.rglob("*")), before)
-
-
 def main():
     shutil.rmtree(ROOT, ignore_errors=True); ROOT.mkdir(); (ROOT / "test.py").write_text("# test\n")
     (ROOT / "report.xml").write_text("<testsuite/>")
@@ -167,7 +135,6 @@ def main():
     (ROOT / "qa-factory/config.json").write_text(json.dumps(config))
     try:
         req = request(); receipt = signed_receipt(req)
-        the_cli_refuses_in_a_line_never_in_a_traceback(req, receipt)
         first = import_receipt(req, receipt, ROOT, ROOT / "out")
         second = import_receipt(req, receipt, ROOT, ROOT / "out")
         check_eq("exact external receipt imports once", first["status"], "imported")

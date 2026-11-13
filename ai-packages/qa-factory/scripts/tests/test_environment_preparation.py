@@ -270,10 +270,14 @@ class CommandLineRefusalTests(unittest.TestCase):
             broken, listed = root / "broken.json", root / "list.json"
             broken.write_text("{not json", encoding="utf-8")
             listed.write_text("[]", encoding="utf-8")
+            jobs = root / "jobs"
+            EnvironmentJobs(jobs).path("k").write_bytes(b"\xff\xfe{}")
             rows = {
                 "observe: unknown job key": ("observe", "--jobs", root / "jobs", "--key", "nope"),
                 "plan: broken request JSON": ("plan", "--request", broken),
                 "plan: missing request file": ("plan", "--request", root / "absent.json"),
+                "plan: request is a JSON list": ("plan", "--request", listed),
+                "observe: job record is not UTF-8": ("observe", "--jobs", jobs, "--key", "k"),
                 "start: broken request JSON": ("start", "--request", broken, "--jobs", root / "jobs"),
                 "reconcile: broken probe JSON": ("reconcile", "--jobs", root / "jobs", "--key", "k", "--probe", broken),
                 "reconcile: missing probe file": ("reconcile", "--jobs", root / "jobs", "--key", "k",
@@ -290,18 +294,17 @@ class CommandLineRefusalTests(unittest.TestCase):
                     self.assertTrue(line.startswith(f"environment_preparation.py {args[0]}: "), line)
                     self.assertNotIn("{", line)
 
-    def test_a_defect_is_not_swallowed_and_a_success_prints_as_before(self):
+    def test_a_success_prints_as_before_and_a_bom_request_is_accepted(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            listed, good = root / "list.json", root / "good.json"
-            listed.write_text("[]", encoding="utf-8")
+            good, bom = root / "good.json", root / "bom.json"
             good.write_text(json.dumps(request(root)), encoding="utf-8")
-            done = self.run_cli("plan", "--request", listed)
-            self.assertNotEqual(done.returncode, 0)
-            self.assertIn("Traceback", done.stderr)
-            done = self.run_cli("plan", "--request", good)
-            self.assertEqual(done.returncode, 0, done.stderr)
-            self.assertEqual(json.loads(done.stdout), plan_environment(request(root)))
+            bom.write_bytes(b"\xef\xbb\xbf" +good.read_bytes())
+            for name, path in (("plain", good), ("with a UTF-8 BOM", bom)):
+                with self.subTest(name):
+                    done = self.run_cli("plan", "--request", path)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(json.loads(done.stdout), plan_environment(request(root)))
 
 
 if __name__ == "__main__":

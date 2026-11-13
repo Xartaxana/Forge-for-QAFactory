@@ -314,8 +314,10 @@ def main() -> None:
     root = Path(args.project_root).resolve() if args.project_root else project_root()
     request = json.loads(Path(args.request).read_text(encoding="utf-8"))
     receipt = json.loads(Path(args.receipt).read_text(encoding="utf-8"))
-    # the story must exist (CX1-18): the call's fault, nothing was written; the refusal is story_cli's (one line, exit 2)
-    output = story_cli("import_test_receipt: the request's", key=request.get("task", ""), key_flag="task") / "work"
+    # the story must exist (CX1-18): the call's fault, nothing was written; with exit=False the StoryRootError reaches
+    # role_cli.run_guarded, which prints it in the one shape of this CLI's refusals (exit 2)
+    output = story_cli("import_test_receipt: the request's", key=request.get("task", ""), key_flag="task",
+                       exit=False) / "work"
     print(json.dumps(import_receipt(request, receipt, root, output)))
 
 
