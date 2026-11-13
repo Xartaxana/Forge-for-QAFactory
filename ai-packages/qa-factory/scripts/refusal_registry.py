@@ -926,6 +926,28 @@ def escalations() -> list:
     return [e for e in REGISTRY if is_fail_closed(e)]
 
 
+HOST_ROOT_VARIABLE = "claude_plugin_root"
+
+
+def _host_root_lines(root: Path) -> list:
+    """`<file>:<line>` of every string constant of a SCANNED file naming the host root variable, in any case and spelling.
+
+    A refusal source never ships the unexpanded variable (FR-15, FR-37): nothing expands it in text a role reads.
+    Error direction: a docstring that mentions the name is flagged too (the safe side). Accepted miss: a token split
+    across a concatenation; comments are not constants and never reach a role."""
+    out = []
+    for name in SCANNED:
+        path = Path(root) / "scripts" / name
+        if not path.is_file():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                    and HOST_ROOT_VARIABLE in node.value.lower():
+                out.append(f"{name}:{getattr(node, 'lineno', 0)}")
+    return sorted(set(out))
+
+
 def findings(plugin_root: Path | None = None) -> list:
     """A24's violations: a refusal with no entry, an entry pointing at a refusal that is gone,
     an entry with no test named, and a fail-closed refusal with neither a pass nor an
@@ -933,7 +955,8 @@ def findings(plugin_root: Path | None = None) -> list:
     root = Path(plugin_root or PLUGIN_ROOT)
     scanned = sites(root)
     line_entries = [e for e in REGISTRY if e.get("kind") != "operation"]
-    errors = []
+    errors = [f"{where}: a refusal source names the unexpanded host root variable; build the path "
+              "with runtime_paths.script_command" for where in _host_root_lines(root)]
     for site in scanned:
         if not any(_covers(e, site) for e in line_entries):
             errors.append(f"{site['file']}:{site['line']} ({site['function']}): the refusal "

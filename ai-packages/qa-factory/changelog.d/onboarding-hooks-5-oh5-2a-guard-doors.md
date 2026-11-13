@@ -1,0 +1,1 @@
+- Guard doors and the brief command card now print absolute script paths of the plugin copy that is running, spelled by one function (`runtime_paths.script_command`), so a role runs the scripts of the same copy as the driver. A root containing `$` is single-quoted; a script missing from the copy is named with a qa-doctor repair hint instead of a path.

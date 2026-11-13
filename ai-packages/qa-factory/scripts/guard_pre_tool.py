@@ -767,8 +767,9 @@ def _config_door(path_raw: str, event) -> str:
         return ""
     text = ("This is the project config: it is read by key, not whole. `Grep -n \"<the key>\" "
             f"{path_raw.replace(chr(92), '/')}` gives the line, and `Read` with `offset`/`limit` takes that part.")
-    if _has_bash(event) and (PLUGIN_ROOT / "scripts" / "config_view.py").is_file():
-        text += (" `python \"${CLAUDE_PLUGIN_ROOT}/scripts/config_view.py\" --keys` lists its keys and "
+    import runtime_paths as RP
+    if _has_bash(event) and RP.script_path("config_view.py") is not None:
+        text += (f" `{RP.script_command('config_view.py')} --keys` lists its keys and "
                  "`config_view.py --get <key>` prints one.")
     return text
 
@@ -820,7 +821,7 @@ def _section_door(path_raw: str, event) -> str:
                 task = story.group(1) if story else "<TICKET>"
                 script = "plan_row.py" if kind == "plan_rows" else "grounding_section.py"
                 shape = "--show --row <TS-n> [--row ...]" if kind == "plan_rows" else "--show <id> [--show ...] | --requirement <R-n>"
-                door += f"\nWith a shell: python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/{script}\" --task {task} {shape}"
+                door += f"\nWith a shell: {_door_command(script)} --task {task} {shape}"
             return door
     except Exception:  # noqa: BLE001 - see the docstring
         return ""
@@ -872,7 +873,7 @@ def big_read_check(ti: dict, cfg: dict, event: dict | None = None) -> None:
         door = ("This is a picture: it cannot be read in parts. If it is a ticket attachment, record it as unread with cause "
                 "`too_large` so the person sees it with its size; do not try `offset`/`limit`.")
         if _has_bash(event):
-            door += ("\nWith a shell: python \"${CLAUDE_PLUGIN_ROOT}/scripts/ticket_adapter.py\" inspect --output <work/source-inventory.json> "
+            door += (f"\nWith a shell: {_door_command('ticket_adapter.py')} inspect --output <work/source-inventory.json> "
                      "--source-id <source id> --attachment-id <attachment id> --evidence-ref <path of the evidence you wrote> "
                      "--inspection-status unavailable --reason \"too_large: <what you saw: the size and the limit>\"")
         else:
@@ -1083,7 +1084,7 @@ def handoff_write_check(event: dict, cfg: dict) -> None:
         block(f"PRE-TOOL GUARD: {waiting} is waiting to be applied to this form, and it is applied over it at the "
               f"next check - an Edit here would be lost. Put the field into {waiting} (rewrite it whole, with the "
               f"field added): {values}"
-              + (f"\nor apply it first: python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/handoff_check.py\" --file {raw} --fix,"
+              + (f"\nor apply it first: {_door_command('handoff_check.py')} --file {raw} --fix,"
                  " then Edit" if "Bash" in role_ways(event) else ""))
         return
     if kind == ".values" and ext == "yaml":
@@ -1104,11 +1105,18 @@ def handoff_write_check(event: dict, cfg: dict) -> None:
           f"  Write {values}\n"
           "      (every field you own as `path: value` lines, in one Write; a row of a list by its index, "
           "\"<list>[0].<field>\": value; the next check applies them)\n"
-          + ((f"  or, in one call:\npython \"${{CLAUDE_PLUGIN_ROOT}}/scripts/handoff_check.py\" --file {raw} --fix --values - <<'EOF'\n"
+          + ((f"  or, in one call:\n{_door_command('handoff_check.py')} --file {raw} --fix --values - <<'EOF'\n"
               "<path>: <value>\nEOF\n"
               "      (the same lines; --fix also derives everything code can, then names what is left)\n")
              if "Bash" in ways else "")
           + (f"  Edit   (one field's own lines; refused while {waiting} waits for this form)" if "Edit" in ways else ""))
+
+
+def _door_command(name: str) -> str:
+    """The door command of a package script, spelled for the copy that runs this guard (`runtime_paths.script_command`).
+    Built only on the way to a block: a call that passes pays no stat and no import (E10)."""
+    import runtime_paths as RP
+    return RP.script_command(name)
 
 
 def handoff_values_check(event: dict) -> None:
@@ -1228,7 +1236,7 @@ def artifact_rewrite_check(event: dict, cfg: dict) -> None:
         # from, and the guard must not be a dead end then. Named only to a role that can run it.
         story = _STORY_RE.search(raw)
         door = ("\nIf a run of yours was cut off and left this file with nothing in it to continue from, set it "
-                "aside and write it again:\n  python \"${CLAUDE_PLUGIN_ROOT}/scripts/artifact_supersede.py\" "
+                f"aside and write it again:\n  {_door_command('artifact_supersede.py')} "
                 f"--task {story.group(1) if story else '<TICKET>'} --path {str(key).lstrip('/')} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in role_ways(event) else ""
@@ -1270,9 +1278,9 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         if not ids:
             return  # no rows yet: this Write is still the plan's first shape
         ways = role_ways(event)
-        shell = ("  python \"${CLAUDE_PLUGIN_ROOT}/scripts/plan_row.py\" --task <TICKET> "
+        shell = (f"  {_door_command('plan_row.py')} --task <TICKET> "
                  "--row <TS-n> --set <field>=<value>   (one field; repeatable)\n"
-                 "  python \"${CLAUDE_PLUGIN_ROOT}/scripts/plan_row.py\" --task <TICKET> "
+                 f"  {_door_command('plan_row.py')} --task <TICKET> "
                  "--add-row <json|file>                (one new row you wrote)\n") if "Bash" in ways else ""
         editor = ("  Edit                                                                  "
                   "        (one row's own lines; several Edit calls in one turn)") if "Edit" in ways else ""
@@ -1283,7 +1291,7 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         door = ("\nA run of yours that was cut off may have left this plan half written: continue it - keep the "
                 "rows that parse and pass their check, repair a stale row with `plan_row.py --set`, add the "
                 "rest with `--add-row`. Only when nothing in it is usable, set it aside and write the plan "
-                "again:\n  python \"${CLAUDE_PLUGIN_ROOT}/scripts/artifact_supersede.py\" --task "
+                f"again:\n  {_door_command('artifact_supersede.py')} --task "
                 f"{story.group(1) if story else '<TICKET>'} --path {raw.split(story.group(0), 1)[1] if story else 'work/test-plan.json'} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in ways else ""
@@ -1296,7 +1304,7 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         story = _STORY_RE.search(raw)
         ways = role_ways(event)
         door = ("\nIf a run of yours was cut off and left this file with nothing in it to continue from, set it "
-                "aside and write it again:\n  python \"${CLAUDE_PLUGIN_ROOT}/scripts/artifact_supersede.py\" "
+                f"aside and write it again:\n  {_door_command('artifact_supersede.py')} "
                 f"--task {story.group(1) if story else '<TICKET>'} --path "
                 f"{raw.split(story.group(0), 1)[1] if story else 'work/test-plan.md'} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
@@ -1613,7 +1621,7 @@ def _window_refusal(WF, task_root, rel: str, owner: str, count: int) -> str:
     text = (f"PRE-TOOL GUARD: this test file belongs to window {WF.cases_of(owner) if owner else 'another window'} until that "
             f"window closes. Put your test in a new file in the same directory: {directory}. Where a test lives stays your "
             "choice (P17); a test in a new file is judged the same.")
-    free = (f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/window_files.py" --task "{Path(task_root).as_posix()}" '
+    free = (f'{_door_command("window_files.py")} --task "{Path(task_root).as_posix()}" '
             "--release ")
     if owner:
         text += f" If the file must change hands, the conductor frees the claim with: {free}\"{owner}\""

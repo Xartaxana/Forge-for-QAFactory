@@ -2172,13 +2172,16 @@ def approach_scenario(task: Path, root: Path) -> None:
     def build(ceiling=None, write=False, scripts=None):
         # t-1765 X1 fix-4 (K6): the S5 card prints `python "<scripts folder>/<script>"`; the pins below sit a few bytes under 6 KB, so the
         # folder is a FIXED string (the length of a CI checkout path) - the scenario tests the cut order, not the machine it runs on.
-        real, real_scripts = brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS
+        real, real_scripts, real_root = brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS, brief_pack.RP.package_root
         brief_pack.BRIEF_MAX_BYTES = ceiling or real      # N4: the REAL ceiling; the digest template is outside the budget (F-4)
         brief_pack.SCRIPTS = scripts or FIXED_SCRIPTS
+        # OH5-2 A: the card head is spelled by `runtime_paths.script_command`, which reads `package_root` at the call: the pinned
+        # scripts folder is `<package root>/scripts`, so the root is its parent.
+        brief_pack.RP.package_root = lambda: Path(brief_pack.SCRIPTS).parent
         try:
             return brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=write)
         finally:
-            brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS = real, real_scripts
+            brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS, brief_pack.RP.package_root = real, real_scripts, real_root
 
     def words(text: str, label: str) -> None:
         check_in(f"{label}: the gate A word is inline", "gate A (approved): Gate A: approved.", text)
@@ -2206,7 +2209,7 @@ def approach_scenario(task: Path, root: Path) -> None:
         check_in("K6 ... the S5 waiver", 'S5 block "vcs-1: uncommitted changes" -> go on', nothing["markdown"])
         # K6 fix-4: the card is checkout-path independent. The scenario's own build pins the folder; a build that does NOT pin it
         # (the negative control) prints the running copy's path and differs.
-        for running in ("/s", "/" + "x" * 150):               # the running copy at a short and at a long checkout path
+        for running in ("/s/scripts", "/" + "x" * 150 + "/scripts"):     # the running copy at a short and at a long checkout path
             was = brief_pack.SCRIPTS
             brief_pack.SCRIPTS = running
             try:
@@ -2214,13 +2217,14 @@ def approach_scenario(task: Path, root: Path) -> None:
             finally:
                 brief_pack.SCRIPTS = was
             check_eq(f"K6 path independence: the scenario build at a {len(running)}-char running path is the same brief", at_path, nothing["markdown"])
-        real_scripts = brief_pack.SCRIPTS
-        brief_pack.SCRIPTS = "/" + "x" * 150
+        real_scripts, real_root = brief_pack.SCRIPTS, brief_pack.RP.package_root
+        brief_pack.SCRIPTS = "/" + "x" * 150 + "/scripts"
+        brief_pack.RP.package_root = lambda: Path(brief_pack.SCRIPTS).parent
         try:
             unpinned = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=True)["markdown"]
         finally:
-            brief_pack.SCRIPTS = real_scripts
-        check("K6 negative control: an unpinned build at a 150-char folder prints that folder in its card, the pinned brief does not", f'python "/{"x" * 150}/<script>"' in unpinned and "x" * 150 not in nothing["markdown"])
+            brief_pack.SCRIPTS, brief_pack.RP.package_root = real_scripts, real_root
+        check("K6 negative control: an unpinned build at a 150-char folder prints that folder in its card, the pinned brief does not", f'python "/{"x" * 150}/scripts/<script>"' in unpinned and "x" * 150 not in nothing["markdown"])
         # a project that recorded its approach
         cfg = json.loads(original.decode("utf-8"))
         cfg["test_data"] = {"accounts_by_role": "created per test through the admin API", "seeds": "factories in tests/factories.py",
