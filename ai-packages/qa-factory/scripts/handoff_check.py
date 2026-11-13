@@ -427,17 +427,24 @@ def _requirements_of(art, doc, row=None):
 
 
 def _plan_row_of(art, doc, row=None):
-    """The plan row this case answers — the case file's own front matter says it (`plan_row:`).
+    """The plan row this case answers, read by the contract's one reader (`contract.case_plan_row`: the body line `Plan row: TS-n`).
 
     Not from the plan: the plan is written before the cases exist and names none of them, so the
-    only place this fact lives is the case the designer wrote."""
+    only place this fact lives is the case the designer wrote. A front-matter key `plan_row:` is not the contract's
+    carrier and is never read, not even as a fallback: a case holding both answers by the body line. An absent or
+    unreadable case file, or a case with no body line, gives None (no value), never a raise."""
+    from s5_precheck import case_files_named  # the one strict-by-name lookup (t-911): lazy, as in `_case_front_matter`
     case = str((row or {}).get("case") or (row or {}).get("id") or "")
     bare = C.split_case_key(case, art.root)[1]
     if not C.is_case_id(bare, art.root):
         return None
-    value = _case_front_matter(art, bare).get("plan_row") or ""
-    found = re.search(r"TS-\d+", value)
-    return (found.group(0), f"{case}.md front matter `plan_row`") if found else None
+    for path in case_files_named(art.root / "work" / "test-cases", bare):
+        try:
+            value = C.case_plan_row(path)
+        except OSError:
+            return None
+        return (value, f"{case}.md `Plan row:` line") if value else None
+    return None
 
 
 def _delivery_ready(art, doc, row=None):
