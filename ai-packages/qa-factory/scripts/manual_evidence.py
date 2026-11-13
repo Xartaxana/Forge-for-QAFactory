@@ -17,7 +17,7 @@ from event_store import atomic_json
 from profile_contract import (ACCEPTS, CONTENT_FILES_FALLBACK, SHORT_SHA, acceptable_provenance, no_changed_file, refusal_text,
                               say_refusal, shown_files, validate_runtime_provenance)
 from profile_contract import refusal_words as refusal_sentences   # this module has a `refusal_words(exc)` of its own
-from role_cli import command_from_argv, epilog, refuse, run_guarded
+from role_cli import RefusingParser, command_from_argv, epilog, refuse, run_guarded
 import hooklib
 from detector_verdict import compound, one_of
 from hooklib import sorted_paths
@@ -2123,8 +2123,8 @@ def _read_json(path) -> dict:
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(epilog=epilog("manual_evidence.py"),
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = RefusingParser(command=command_from_argv("manual_evidence.py"), epilog=epilog("manual_evidence.py"),
+                           formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=("prepare", "validate", "write-block", "write-baseline", "export",
                                             "build", "rejudge", "unprepared"))
     parser.add_argument("--task-root", required=True)

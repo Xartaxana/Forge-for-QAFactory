@@ -110,7 +110,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from role_cli import epilog, run_guarded  # noqa: E402
+from role_cli import RefusingParser, command_from_argv, epilog, refuse, run_guarded  # noqa: E402
 import hooklib  # noqa: E402
 import local_keys  # noqa: E402
 import runtime_paths as RP  # noqa: E402
@@ -869,7 +869,6 @@ def record_result(proposal_path: Path, external_id: str, url: str, remote_revisi
         ticket = next(parent.name for parent in proposal_path.resolve().parents
                       if (parent / "pipeline.json").is_file())
     except Exception:
-        from role_cli import refuse
         return refuse("external_writes.py --record",
                       f"{proposal_path} is not inside a story: no pipeline.json in any parent, "
                       "so the ticket this proposal belongs to cannot be derived")
@@ -881,13 +880,15 @@ def record_result(proposal_path: Path, external_id: str, url: str, remote_revisi
               f"({data['result'].get('external_id')})")
         return 0
     if not external_id:
-        print("REJECT: --external-id is required — an agent that cannot name the id it "
-              "created has not created anything we can account for", file=sys.stderr)
-        return 1
+        refuse("external_writes.py --record",
+               "--external-id is required - an agent that cannot name the id it created has not created anything "
+               "we can account for")
+        return 1                # the exit code this refusal always had; `refuse` returns EXIT_REFUSED
 
     if (data.get("publication_key") or data.get("lifecycle_key")) and not remote_revision:
-        print("REJECT: a published case receipt needs --remote-revision; reconcile unknown outcome")
-        return 1
+        refuse("external_writes.py --record",
+               "a published case receipt needs --remote-revision; reconcile unknown outcome")
+        return 1                # the exit code this refusal always had
     kind = data.get("kind")
     artifact_key = "bug_file" if kind == "bug" else "case_file"
     rel = data.get(artifact_key)
@@ -1393,7 +1394,8 @@ def selftest() -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
+    ap = RefusingParser(
+        command=command_from_argv("external_writes.py"),
         description="External-writes executor — bugs and cases, after gate B",
         epilog=epilog("external_writes.py"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1416,8 +1418,7 @@ def main() -> int:
                            lambda: record_result(Path(args.record), args.external_id.strip(),
                                                 args.url.strip(), args.remote_revision.strip()))
     if not args.ticket:
-        print("a ticket id is required (or --selftest)", file=sys.stderr)
-        return 2
+        return refuse(command_from_argv("external_writes.py"), "a ticket id is required (or --selftest)")
     try:
         return run(args.ticket, load_config(), args.yes, args.preview, args.phase)
     except Exception as e:
