@@ -684,7 +684,8 @@ def read_ticket_file(path: Path, ticket: str = "", pasted: bool = False) -> dict
     if parsed is None:
         if pasted and not text.strip():
             # An empty text is no ticket: the title would be the key and nothing else would be there. (Until t-281
-            # the driver caught it at the title; the driver no longer refuses a title-less text, it asks.)
+            # the driver caught it at the title; the driver no longer refuses a text with no `# ` line: it takes the first
+            # line as the title and records that without a question, and stops only when there is no title at all.)
             fail(EXIT_NOT_FOUND, f"ticket file {path} is empty: expected the ticket as text - the title on a line that "
                  "starts with `# ` (or on the first line), then the description. Put the ticket text in the file "
                  "and read it again.", owner="person", file=str(path))
