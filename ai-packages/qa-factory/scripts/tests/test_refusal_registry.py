@@ -620,6 +620,53 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
+def part_passthrough() -> None:
+    """T1c, F7 (a): a def listed in `CHECK_PASSTHROUGH` hands its `check` parameter to `with_check`: the ids are the literals at
+    its bare-name call sites in the scope where it is visible (matched by the INNERMOST def); every other shape stays a walk
+    error. The ids travel as `check_id` records (state `walk_error`: a scan fact, never a unit or a total)."""
+    head = "import detector_verdict as DV\n\n"
+    inner = "    def own(records, check):\n        return [DV.with_check(r, check) for r in records]\n"
+
+    def scan(body: str, name: str = "exit_gate.py") -> tuple:
+        root = _wide_package({name: head + body})
+        try:
+            found = RR.sites(root, [name], raises=RR.raise_family(root, [name], wide=True))
+            rep = RR.wide_report(root, [name])
+        finally:
+            cleanup(root)
+        return sorted(s["check"] for s in found if s["transport"] == "check_id"), rep
+
+    ids, rep = scan(f"def all_errors():\n{inner}    return own(f(), 'x:a') + own(g(), 'x:b')\n")
+    check_eq("pass/literal-at-call: the ids are the literals at the call sites and there is no walk error",
+             (ids, rep["check_arg_errors"], rep["walk_errors"]), (["x:a", "x:b"], [], []))
+    check_eq("pass/literal-at-call: a check_id record is no site and no unit of the report",
+             (rep["totals"]["sites"], rep["units"]), (0, []))
+    ids, rep = scan(f"def all_errors():\n{inner}    return own(f(), 'x:a') + own(g(), name)\n")
+    check_eq("pass/non-literal-at-call: a call that gives no literal is a walk error, at the CALL; the literal one still gives its id",
+             (ids, [(w["transport"], w["line"]) for w in rep["check_arg_errors"]]), (["x:a"], [("check_arg", 6)]))
+    check_in("pass/non-literal-at-call: and it says what to do", "name the check with a literal", rep["check_arg_errors"][0]["why"])
+    ids, rep = scan(f"def all_errors():\n{inner.replace('own', 'own2')}    return own2(f(), 'x:a')\n")
+    check_eq("pass/unlisted: the same shape under a name that is not listed is a walk error at the with_check call, and gives no id",
+             (ids, [w["transport"] for w in rep["check_arg_errors"]]), ([], ["check_arg"]))
+    ids, rep = scan(f"def build():\n{inner}    return own(f(), 'x:n')\n")
+    check_eq("pass/nested-def: the listed def nested in ANOTHER def is matched by its innermost def (the outer name is not listed)",
+             (ids, rep["check_arg_errors"]), (["x:n"], []))
+    ids, rep = scan(f"def all_errors():\n{inner}    return own(f(), 'x:a') + m.own(g(), name)\n")
+    check_eq("pass/attr-call-same-name-ignored: `m.own(x)` is no call site (no id, no walk error)",
+             (ids, rep["check_arg_errors"]), (["x:a"], []))
+    ids, rep = scan(f"def all_errors():\n{inner}    return []\n")
+    check_eq("pass/E8: a listed def with no call that gives a literal is a walk error naming the list",
+             (ids, [w["why"] for w in rep["check_arg_errors"]]),
+             ([], ["`own` is listed in CHECK_PASSTHROUGH and has no call with a literal check"]))
+    ids, rep = scan(f"def own(records, check):\n    return [DV.with_check(r, check) for r in records]\n\n\ndef run():\n    return own(f(), 'x:m')\n")
+    check_eq("pass/module-level: a module-level listed def is read at the calls of the module", (ids, rep["check_arg_errors"]), (["x:m"], []))
+    ids, rep = scan(f"def all_errors():\n{inner}    return own(f(), 'x:a')\n", name="other.py")
+    check_eq("pass/file-listed: the list names (file, def): the same def in another file is not passed through",
+             (ids, len(rep["check_arg_errors"])), ([], 1))
+    real = RR.wide_report(PLUGIN_ROOT, ["exit_gate.py"])
+    check_eq("pass/real-tree: exit_gate.py has no check_arg walk error (its `own` is listed)", real["check_arg_errors"], [])
+
+
 def part_check_of() -> None:
     """`check_of(entry)` is `<file stem>:<id>`, the one namespace of a check; one id per A24 entry, never two the same."""
     check_eq("check_of: the stem of the file, a colon, the id", RR.check_of({"file": "scripts/manifest_put.py", "id": "X-y"}),
@@ -633,6 +680,7 @@ def part_check_of() -> None:
 
 def main() -> None:
     part_check_of()
+    part_passthrough()
     part_wide_defaults()
     part_wide_transports()
     part_wide_states()

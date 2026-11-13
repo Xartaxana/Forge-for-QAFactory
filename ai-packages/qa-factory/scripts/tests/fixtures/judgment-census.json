@@ -1073,6 +1073,7 @@
   {"file": "stage_joints.py", "function": "_reach_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "stage_joints.py", "function": "_row_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "stage_joints.py", "function": "_shape_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "stage_joints.py", "function": "check_ids", "class": "xref", "roles": ["conductor"], "owner": "data", "note": "T1c: the check ids the wide scan's records carry (K1 direction B); reads the scanner, judges nothing"},
   {"file": "stage_status.py", "function": "line", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "stage_status.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "T1a, F1 (a) step 4: conductor, parent 2.8 group G-free"},
   {"file": "stand_gaps.py", "function": "collect", "class": "shape", "roles": ["conductor"], "owner": "data"},

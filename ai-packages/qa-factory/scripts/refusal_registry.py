@@ -78,6 +78,10 @@ WIDE_TRANSPORTS = ("deny", "block", "refuse", "run_guarded", "raises", "sys.exit
 # constructor `detector_verdict.refusal` arrives with T2: until then no site of the package is `sourced`.
 RECORD_SINKS = ("block", "deny", "refuse", "run_guarded")
 RECORD_CALLS = {"refusal": 0, "with_check": 1}      # the call -> the position of its check argument
+# A def that hands its own `check` parameter on to `with_check(...)`/`refusal(...)` (told-before-work T1c, F7 (a)): `(file, def
+# name) -> the position of that parameter in the def's signature`. A closed vocabulary of OUR code (precedent: RECORD_CALLS).
+# The id is then the str literal each bare-name call of the def passes at that position, in the scope where the def is visible.
+CHECK_PASSTHROUGH = {("exit_gate.py", "own"): 1}
 STATES = ("sourced", "tagged", "bare")
 QUOTE_HEAD_RE = re.compile(r"^[a-zA-Z]{0,2}(\"\"\"|'''|\"|')")
 
@@ -1360,6 +1364,50 @@ def _walk_error(name: str, function: str, call: str, line: int, transport: str) 
             "state": "walk_error"}
 
 
+def _passthrough(name: str, nodes: list, stack: tuple, call: ast.Call, kind: str, consts: dict):
+    """The records of a `with_check`/`refusal` call whose check argument is the listed parameter of the INNERMOST enclosing def
+    (`CHECK_PASSTHROUGH`), or None when the call is not that shape (the caller then reports its walk error as before).
+
+    The ids are the str literals (or module str constants) that the bare-name calls of the def pass at the listed position,
+    read in the scope where the def is visible: its enclosing def's body for a nested def, the module for a module-level one.
+    An attribute call of the same name (`m.own(x)`) is no call site. One record per literal, `transport: "check_id"` with
+    `check: <id>`; its `state` is `walk_error` ON PURPOSE: a record of this kind is a fact of the scan, not a refusal site, and
+    that state is the one filter every reader (`wide_report`, the census `units_of`) already applies to keep a record out of
+    every unit and total. A non-literal at a call site is a `check_arg` walk error there; a listed def with no call that gives a
+    literal is a walk error at the `with_check` call (it must never hide a check argument)."""
+    index = CHECK_PASSTHROUGH.get((name, stack[-1])) if stack else None
+    if index is None:
+        return None
+    where = next((n for n, s in nodes if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and s + (n.name,) == stack), None)
+    pos = RECORD_CALLS.get(kind)
+    arg = call.args[pos] if pos is not None and len(call.args) > pos else next(
+        (k.value for k in call.keywords if k.arg == "check"), None)
+    params = [a.arg for a in where.args.posonlyargs + where.args.args] if where is not None else []
+    if index >= len(params) or not (isinstance(arg, ast.Name) and arg.id == params[index]):
+        return None
+    scope, out = stack[:-1], []
+    for n, s in nodes:
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == stack[-1]
+                and s[:len(stack)] != stack and s[:len(scope)] == scope):
+            continue
+        given = n.args[index] if len(n.args) > index else next((k.value for k in n.keywords if k.arg == params[index]), None)
+        if isinstance(given, ast.Constant) and isinstance(given.value, str):
+            literal = given.value
+        elif isinstance(given, ast.Name) and given.id in consts:
+            literal = consts[given.id]
+        else:
+            out.append((_walk_error(name, s[0] if s else "<module>", _expr_key(n) or "", n.lineno, "check_arg") | {
+                "why": f"the check argument given to {stack[-1]}(...) is not a literal or a module constant: name the check "
+                       "with a literal"}, n.col_offset))
+            continue
+        out.append(({"file": name, "function": s[0] if s else "<module>", "call": literal[:KEY_CHARS], "line": n.lineno,
+                     "transport": "check_id", "state": "walk_error", "check": literal}, n.col_offset))
+    if not out:
+        out.append((_walk_error(name, stack[0], _expr_key(call) or "", call.lineno, "check_arg") | {
+            "why": f"`{stack[-1]}` is listed in CHECK_PASSTHROUGH and has no call with a literal check"}, call.col_offset))
+    return out
+
+
 def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
     """(records, blind) for one file: the wide scan. A file that cannot be read or parsed gives ONE walk_error record."""
     try:
@@ -1434,7 +1482,10 @@ def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
             callee = _callee(node)
             if _record_kind(node, bind):
                 _, why = _record_id(node, consts, _record_kind(node, bind))
-                if why:
+                passed = _passthrough(name, nodes, stack, node, _record_kind(node, bind), consts) if why else None
+                if passed is not None:                  # a listed pass-through def: its ids are the literals at its call sites
+                    records.extend(passed)
+                elif why:
                     records.append((_walk_error(name, fn, _expr_key(node) or "", node.lineno, "check_arg") | {"why": why},
                                     node.col_offset))
             func = node.func

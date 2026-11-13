@@ -50,7 +50,7 @@ KEY = "same_class_gate_blocks"
 FRICTION_MIN = 2
 SCHEMA = 2                                          # the one schema this reader reads; a file of another is `(None, why)`
 TOP_KEYS = ("schema_version", "note", "friction", "joints", "ratchet", "when_kinds", "when_exclusive", "told_ratchet")
-TOLD_RATCHET_KEYS = ("hand_cards", "legacy_legs")   # the counters of this node; `unsited` joins with its check (T1c)
+TOLD_RATCHET_KEYS = ("hand_cards", "legacy_legs", "unsited")   # the counters of the data file; `audit` measures and compares each
 KIND_EXIT, KIND_DETECTOR, KIND_WINDOW = "exit", "detector", "window"
 KINDS = (KIND_EXIT, KIND_DETECTOR, KIND_WINDOW)     # set by the member function that produced a key, never read from its text
 EXIT_NAMESPACE = "exit_gate"                        # the namespace of a family the exit gate names itself
@@ -65,6 +65,15 @@ COMMANDS_CARRIER = "role-commands.json"
 PHASE_KEYS_CARRIER = "validate_artifacts.PHASE_JSON_KEYS"
 FORM_TEXT = "every `required` field of your handoff form (section `Handoff form` of this page)"
 ROW_KEYS = ("check", "stages", "producers", "joint")
+OPTIONAL_ROW_KEYS = ("requirement", "requirement_from", "carrier_key", "door", "door_needs", "when", "role_rule")   # K3, K7
+REQUIREMENT_CARRIERS = (FORM_CARRIER, PHASE_KEYS_CARRIER, ROW_FIELDS_CARRIER, COMMANDS_CARRIER)   # the closed `requirement_from`
+DOOR_NEEDS = ("shell", "none")
+PAGE_ITEM = {"page": True}                          # a told item: the row is on the role's generated key page (K2, gated)
+PAGE_RENDERER = "requirement_section"               # the attribute of `contract_slices` whose presence turns the page leg on
+KEY_PAGE = "references/slices/{role}/handoff-keys.md"
+AHEAD_CARDS = "references/ahead-cards.json"
+FALLBACK_NAME = "unlabelled"                        # `<stem>:unlabelled` and `unknown` are the ids code gives a record with no check
+FALLBACK_ID = "unknown"
 ENTRY_KEYS = ("roles", "code", "field", "told", "demands", "demands_from", "gap", "role_leg")
 ENTRY_REQUIRED = ("field", "told")
 TOLD_KEYS = ("path", "anchor")
@@ -258,6 +267,60 @@ def universe(exit_src=None, stages=None, acceptance_src=None, names=None) -> tup
     out.update(detector_members(stages))
     out.update(w_keys)
     return out, errors + w_errors
+
+
+# --------------------------------------------------------------------------- the ids code writes (K1 direction B, K12)
+_IDS_CACHE = {}
+
+
+def is_fallback(check) -> bool:
+    """`<stem>:unlabelled` and `unknown`: the ids code gives a record that carries no check. They need no row, and a fallback
+    id never stands for coverage of a row (E2)."""
+    check = str(check)
+    return check == FALLBACK_ID or check.split(":", 1)[-1] == FALLBACK_NAME
+
+
+def check_ids(plugin=None, records=None, errors=None) -> dict:
+    """`{id: (file, function, line)}` of every check id that `refusal(...)` / `with_check(...)` write as a literal, and of every
+    literal a listed pass-through def is called with (`refusal_registry.CHECK_PASSTHROUGH`). It reads the RECORDS of the one
+    wide scan (`refusal_registry.sites`); this module has no AST walk of its own for ids (AR-13). The scan runs over the files
+    whose text names `detector_verdict` and `with_check(` or `refusal(` (the scanner binds those calls to that module; a text
+    pre-filter, never a reading of the code), once per plugin root.
+    `records` injects the scan's answer; `errors`, a list, receives one sentence per walk error of that scan (a check
+    argument that is no literal, a file that does not parse) - an id nobody could read is never silently absent (AR-28)."""
+    import refusal_registry
+    root = Path(plugin) if plugin else PLUGIN
+    if records is None:
+        key = str(root)
+        if key not in _IDS_CACHE:
+            def mentions(name):             # the scanner binds these calls to `detector_verdict`, so a file that never names it has none
+                text = (root / "scripts" / name).read_text(encoding="utf-8", errors="replace")
+                return "detector_verdict" in text and any(w in text for w in ("with_check(", "refusal("))
+            names = [n for n in refusal_registry.package_files(root) if mentions(n)]
+            _IDS_CACHE[key] = refusal_registry.sites(root, names, raises=refusal_registry.raise_family(root, names, wide=True))
+        records = _IDS_CACHE[key]
+    found = {}
+    for rec in records:
+        if rec.get("transport") in ("check_arg", "parse"):
+            if errors is not None:
+                errors.append(f"cannot read the check at {rec.get('file')}:{rec.get('line')} - "
+                              f"{rec.get('why') or 'the file does not parse'}")
+        elif rec.get("check"):
+            found.setdefault(str(rec["check"]), (rec.get("file"), rec.get("function"), rec.get("line")))
+    return found
+
+
+def sited_ids(uni, ids=None) -> set:
+    """Every id a row may be keyed by and still have a site in code: the keys of the v1-derived universe, the check id of every
+    A24 entry (`refusal_registry.check_of(e) for e in REGISTRY`) and every literal id of the scanner (`check_ids`)."""
+    import refusal_registry
+    return (set(uni) | {refusal_registry.check_of(e) for e in refusal_registry.REGISTRY}
+            | set(check_ids() if ids is None else ids))
+
+
+def _is_sited(key, sited) -> bool:
+    """A key is sited when it is in the set, or is a sub-id `<id>.<part>` of a sited id (C14)."""
+    return key in sited or any(str(key).startswith(f"{i}.") for i in sited)
 
 
 # --------------------------------------------------------------------------------------------- the world
@@ -605,8 +668,47 @@ def _expand(rel: str, role: str) -> str:
     return rel.replace("<role>", role)
 
 
-def _told_leg(entry: dict, env: Env) -> list:
-    """What is wrong with the told leg. An empty `told` is its own sentence, so a gap can name it."""
+def _is_page(item) -> bool:
+    """`{"page": true}` exactly (`True`, not `1`): the row is told on the role's generated key page."""
+    return isinstance(item, dict) and set(item) == set(PAGE_ITEM) and item["page"] is True
+
+
+def _page_leg(entry: dict, row, env: Env) -> list:
+    """K2, GATED (E6): a page item is refused with "the page renderer is not present" while `contract_slices` has no
+    `requirement_section`, so no row is green on a page nothing renders. With the renderer present the leg is real: for every
+    role the row names, whose capability the row's `when` admits, `rows_for` returns the row and the role's injection list
+    holds its key page (for `conductor`: the `when` holds `conductor_answer` or a `move:<id>` token). Prose is never a leg."""
+    if entry.get("code"):
+        return ["a code producer is told where it is CALLED; a page has no meaning here"]
+    import contract_slices
+    if getattr(contract_slices, PAGE_RENDERER, None) is None:
+        return [f"told by the page: the page renderer is not present (`contract_slices.{PAGE_RENDERER}` does not exist yet), "
+                "so this row cannot be told on a page"]
+    if not isinstance(row, dict):
+        return ["told by the page: the page leg is judged with its row, and none was given"]
+    roles = entry.get("roles") if isinstance(entry.get("roles"), list) else []
+    if ANY in roles:
+        roles = sorted(env.load_map.get("roles") or {})
+    whens = [str(t) for t in row.get("when") or ["always"]]
+    out = []
+    for role in roles:
+        if role == "conductor":
+            if "conductor_answer" not in whens and not any(t.startswith(MOVE_PREFIX) for t in whens):
+                out.append("told by the page: the conductor's section is selected by `conductor_answer` or a `move:<id>` token "
+                           "and the row's `when` holds neither")
+        elif _row_holds(row, role, None):
+            page = KEY_PAGE.format(role=role)
+            if not env.reaches(role, page):
+                out.append(f"told by the page: {role} does not receive {page} (not in its inject-map.json list)")
+            elif row not in rows_for(role, row.get("stages") or [], None, data={"joints": [row]}):
+                out.append(f"told by the page: rows_for({role}) does not return this row (state one requirement, name the role "
+                           "in a producer, run at a stage)")
+    return out
+
+
+def _told_leg(entry: dict, env: Env, row=None) -> list:
+    """What is wrong with the told leg. An empty `told` is its own sentence, so a gap can name it. A page item is the K2 leg
+    (`_page_leg`); `row` is the row the entry belongs to (the page leg reads its stages and `when`)."""
     told = entry.get("told")
     if not isinstance(told, list):
         return ["`told` is not a list"]
@@ -614,6 +716,9 @@ def _told_leg(entry: dict, env: Env) -> list:
         return ["the told leg is missing"]
     out = []
     for item in told:
+        if _is_page(item):
+            out += _page_leg(entry, row, env)
+            continue
         if not isinstance(item, dict) or not set(item) <= set(TOLD_KEYS) or "path" not in item:
             out.append(f"a told entry is not an object of path and anchor: {item!r}")
             continue
@@ -679,7 +784,7 @@ def _demands_leg(check: str, entry: dict, env: Env) -> list:
     return out
 
 
-def _entry_problems(check: str, index: int, entry, env: Env) -> tuple:
+def _entry_problems(check: str, index: int, entry, env: Env, row=None) -> tuple:
     """`(problems, has_gap)` of one producer entry: the sentences, and a bool - True when the entry declares a well-formed
     gap on a leg of LEGS (counted against the ratchet). A gap lets its leg be incomplete, once and by name."""
     label = f"{check} producer[{index}]"
@@ -697,7 +802,7 @@ def _entry_problems(check: str, index: int, entry, env: Env) -> tuple:
         out.append(f"stage-joints: {label}: `field` is shorter than {FIELD_MIN} characters - say what is produced")
     legs = {"producer": _producer_leg(entry, env)}
     if not legs["producer"]:
-        legs["told"] = _told_leg(entry, env)
+        legs["told"] = _told_leg(entry, env, row)
         if entry.get("told"):            # a missing told leg is said once; the tokens are judged against files that exist
             legs["demands"] = _demands_leg(check, entry, env)
     declared = gap.get("leg") if isinstance(gap, dict) else None
@@ -720,13 +825,84 @@ def _entry_problems(check: str, index: int, entry, env: Env) -> tuple:
 
 
 # --------------------------------------------------------------------------------------- one row, the rows
-def _row_problems(row, env: Env, stage_ids: set, detectors: dict) -> tuple:
+def _stash(env: Env, name: str, make):
+    """One read per `Env` of a table the row checks consult (a cache on the object, never a second reader of the table)."""
+    cache = env.__dict__.setdefault("_told_cache", {})
+    if name not in cache:
+        cache[name] = make()
+    return cache[name]
+
+
+def _row_requirement(check: str, row: dict, env: Env, kinds) -> list:
+    """K3, K7, E4: the fields a row tells a receiver by. A row states a requirement one way (`requirement` XOR
+    `requirement_from`, closed carriers), names a `door`, keeps `door_needs: "shell"` for a `when` that holds `shell`, takes
+    `when` tokens from `when_kinds` or `move:<id>` of a real move, and joins a `role_rule` that exists. A row with neither
+    requirement field is told by its v1 legs and is red only when it claims a page (E2). `kinds` None: `when_kinds` is unknown
+    and the token list is not judged."""
+    out = []
+    own, carrier = row.get("requirement"), row.get("requirement_from")
+    producers = [e for e in row.get("producers") or [] if isinstance(e, dict)] if isinstance(row.get("producers"), list) else []
+    pages = any(_is_page(t) for e in producers for t in (e.get("told") if isinstance(e.get("told"), list) else []))
+    for key, value in (("requirement", own), ("requirement_from", carrier), ("door", row.get("door")), ("carrier_key", row.get("carrier_key")),
+                       ("role_rule", row.get("role_rule"))):
+        if key in row and not isinstance(value, str):
+            out.append(f"{key} is not a text")
+    if isinstance(own, str) and own.strip() and isinstance(carrier, str) and carrier.strip():
+        out.append("states its requirement two ways, `requirement` and `requirement_from`: keep one")
+    stated = _states_requirement(row)
+    if pages and not stated:
+        out.append("is told by the page but states no requirement (`requirement` or `requirement_from`)")
+    if stated:
+        if isinstance(carrier, str) and carrier.strip():
+            if carrier not in REQUIREMENT_CARRIERS:
+                out.append(f"`requirement_from` {carrier!r} is not one of {', '.join(REQUIREMENT_CARRIERS)}")
+            else:
+                try:
+                    _text, why = _carrier_expected(row)
+                except Exception as exc:  # noqa: BLE001 - a carrier that cannot be read is a finding, not a crash
+                    _text, why = "", f"{type(exc).__name__} while reading it"
+                if why:
+                    out.append(f"`requirement_from` {carrier}: {why}")
+        if not isinstance(row.get("door"), str) or not row["door"].strip():
+            out.append("states a requirement and names no `door`: say where the receiver fixes it")
+        if not any(isinstance(e.get("roles"), list) and e["roles"] for e in producers) or any(e.get("roles") == [] for e in producers):
+            out.append("a requirement nobody is told - name the roles or remove the row")
+    whens = row.get("when")
+    if "when" in row and (not isinstance(whens, list) or not whens or not all(isinstance(t, str) and t.strip() for t in whens)):
+        out.append("`when` is not a non-empty list of tokens")
+    else:
+        for token in whens or []:
+            if token.startswith(MOVE_PREFIX):
+                import no_move
+                if token[len(MOVE_PREFIX):] not in _stash(env, "moves", lambda: set(no_move.move_ids())):
+                    out.append(f"`when` token `{token}` names a move that is not in conductor-actions.json")
+            elif kinds is not None and token not in kinds:
+                out.append(f"`when` token `{token}` is not in `when_kinds` or a `move:<id>`")
+    if "door_needs" in row:
+        needs = row["door_needs"]
+        if needs not in DOOR_NEEDS:
+            out.append(f"`door_needs` {needs!r} is not one of {', '.join(DOOR_NEEDS)}")
+        elif needs == "shell" and "shell" not in (whens if isinstance(whens, list) else []):
+            out.append("`door_needs` is shell but `when` does not hold `shell`: a door a role without a shell cannot open (FR-2)")
+    rule = row.get("role_rule")
+    if isinstance(rule, str) and rule.strip():
+        import role_rules
+        known, why = _stash(env, "role_rules", lambda: (lambda r, p: ({str(x.get("id")) for x in r if isinstance(x, dict)}, p))(*role_rules.load(env.plugin)))
+        if why:
+            out.append(f"`role_rule` {rule} cannot be checked: design/role-rules.json cannot be read")
+        elif rule not in known:
+            out.append(f"`role_rule` {rule} is no id of design/role-rules.json")
+    return [f"stage-joints: {check}: {text}" for text in out]
+
+
+def _row_problems(row, env: Env, stage_ids: set, detectors: dict, kinds=None) -> tuple:
     """`(problems, [declared gap legs])` of one row. `detectors` is `detector_members(env.model)`: a row keyed by one of
-    its members runs at exactly the stages the model gives that member (the key's text names no stage)."""
+    its members runs at exactly the stages the model gives that member (the key's text names no stage); `kinds` is the
+    file's `when_kinds` (K3)."""
     if not isinstance(row, dict):
         return ["stage-joints: a joint row is not an object"], []
     check = str(row.get("check"))
-    unknown = [k for k in row if k not in ROW_KEYS]
+    unknown = [k for k in row if k not in ROW_KEYS + OPTIONAL_ROW_KEYS]
     lacking = [k for k in ROW_KEYS if k not in row]
     out = [f"stage-joints: {check}: unknown key `{k}`" for k in unknown]
     out += [f"stage-joints: {check}: lacks `{k}`" for k in lacking]
@@ -741,13 +917,14 @@ def _row_problems(row, env: Env, stage_ids: set, detectors: dict) -> tuple:
     elif check in detectors and stages != detectors[check]["stages"]:
         out.append(f"stage-joints: {check}: `stages` is {stages}, a detector row runs at the stages whose detectors list its "
                    f"script: {', '.join(detectors[check]['stages'])}")
+    out += _row_requirement(check, row, env, kinds)
     producers, gaps = row["producers"], []
     if not isinstance(producers, list) or not producers:
         out.append(f"stage-joints: {check}: `producers` is empty - an entry for each writer, or an entry whose gap "
                    "declares the producer leg")
         return out, gaps
     for index, entry in enumerate(producers):
-        problems, has_gap = _entry_problems(check, index, entry, env)
+        problems, has_gap = _entry_problems(check, index, entry, env, row)
         out += problems
         if has_gap:
             gaps.append(entry["gap"]["leg"])
@@ -775,22 +952,26 @@ def _joint_problems(check: str, joint, env: Env) -> list:
     return out
 
 
-def _direction_a(rows: list, uni: dict) -> list:    # uni: {key: member}, member = {"kind", "where", "stages"}
-    """Every check in code has exactly one row; a row for a check the walk does not meet is stale."""
-    out, seen = [], {}
+def _direction_a(rows: list, uni: dict, sited=None) -> tuple:    # uni: {key: member}, member = {"kind", "where", "stages"}
+    """`(problems, unsited keys)`. Direction A: every check of the v1-derived universe has exactly one row (two rows for one id
+    are red, E7: a `<stem>:*` row twice too). Direction B: a row whose key is not sited (`sited_ids`: the universe, the A24
+    ids, the scanner's literal ids; or a sub-id of one) is UNSITED - returned, counted and compared to
+    `told_ratchet.unsited` by `_ratchet`, never judged here. `sited` None: the universe alone."""
+    out, seen, unsited = [], {}, []
+    sited = set(uni) if sited is None else sited
     for row in rows:
         key = row.get("check") if isinstance(row, dict) else None
         seen[key] = seen.get(key, 0) + 1
     for key, n in seen.items():
         if n > 1:
             out.append(f"stage-joints: {key} has two rows")
-        if key not in uni:
-            out.append(f"stage-joints: row {key}: stale - the walk does not meet this check; remove the row or fix its key")
+        if not _is_sited(key, sited):
+            unsited.append(key)
     for key, member in uni.items():
         if key not in seen:
             out.append(f"stage-joints: {key} is a check in code ({member['where']}) and has no row in references/stage-joints.json - "
                        "add its producer and where the role is told (FR-38, AR-10)")
-    return out
+    return out, unsited
 
 
 def _pins(uni: dict, pins: dict) -> list:
@@ -802,12 +983,63 @@ def _pins(uni: dict, pins: dict) -> list:
     return out
 
 
-def _ratchet(data: dict, gaps: int) -> list:
+DENSE_COUNTERS = ("hand_cards",)      # a counter that is red BELOW its stored number too (§3.5a: audit (dense <=))
+COUNTER_WORDS = {"hand_cards": "hand cards in references/ahead-cards.json",
+                 "legacy_legs": "legacy told legs (a role entry told by a path other than its key page)"}
+
+
+def _told_counters(data: dict, measured: dict) -> list:
+    """The told counters of the data file against what `audit` measured (AR-20): measured over the stored number is red
+    (named: counter, measured, stored); a dense counter below it is red too ("lower <counter> to N"). `unsited` is a list of row
+    keys: with a stored 0 each is a stale row (E11 after the closing), above the stored number it is red as a count. A stored
+    number that is absent or no count is the shape check's finding and is never read as 0."""
+    told, out = data.get("told_ratchet"), []
+    for name, got in measured.items():
+        stored = told.get(name) if isinstance(told, dict) else None
+        if not _is_count(stored):
+            continue
+        if name == "unsited":
+            if got and stored == 0:
+                out += [f"stage-joints: row {key}: stale - the walk does not meet this check; remove the row or fix its key"
+                        for key in got]
+            elif len(got) > stored:
+                out.append(f"stage-joints: told_ratchet.unsited is {stored} but {len(got)} rows have no site in code "
+                           f"({', '.join(got)}): a raise is named in the verdict (AR-20); write the site or remove the row")
+        elif got > stored:
+            out.append(f"stage-joints: told_ratchet.{name} is {stored} but the walk counts {got} {COUNTER_WORDS[name]}: a raise is "
+                       "named in the verdict (AR-20); move the leg to a row instead")
+        elif got < stored and name in DENSE_COUNTERS:
+            out.append(f"stage-joints: lower told_ratchet.{name} to {got}: the walk counts {got} {COUNTER_WORDS[name]}, the "
+                       f"ratchet says {stored} (a ratchet falls to what is measured)")
+    return out
+
+
+def _hand_cards(env: Env) -> tuple:
+    """`(count | None, why)`: the cards of `references/ahead-cards.json` (`cards` is an object); None with a reason when the
+    file cannot be counted (never 0)."""
     import null_outcomes
+    data, why = null_outcomes.load_data(env.plugin / AHEAD_CARDS)
+    if data is None:
+        return None, why
+    cards = data.get("cards")
+    return (len(cards), "") if isinstance(cards, dict) else (None, f"{Path(AHEAD_CARDS).name} `cards` is not an object")
+
+
+def _legacy_legs(rows: list) -> int:
+    """Told items of role entries (not `code` entries) that name a path other than the role's own key page: the legs a row
+    keeps by hand until it is told by `{"page": true}`."""
+    return sum(1 for r in rows if isinstance(r, dict) for e in r.get("producers") or [] if isinstance(e, dict) and not e.get("code")
+               for t in (e.get("told") if isinstance(e.get("told"), list) else [])
+               if isinstance(t, dict) and "path" in t and t["path"] != KEY_PAGE.format(role="<role>"))
+
+
+def _ratchet(data: dict, gaps: int, measured=None) -> list:
+    import null_outcomes
+    out = _told_counters(data, measured or {})
     rows = data.get("ratchet")
     if not isinstance(rows, list):
-        return []
-    return [f"stage-joints: {sentence}" for sentence in null_outcomes.ratchet_problems(
+        return out
+    return out + [f"stage-joints: {sentence}" for sentence in null_outcomes.ratchet_problems(
         rows, gaps, key="gaps", node_re=RATCHET_NODE, node_words="F6-51 (the node that keeps this ratchet)",
         rise="a raise is named in the verdict (AR-20); close a gap instead, or declare none", noun="gaps",
         unit="declared gaps", drift="a gap declared without raising the ratchet in the open, or closed without lowering it")]
@@ -820,7 +1052,7 @@ class Report:
     def __init__(self):
         self.problems = []
         self.counts = {"exit": 0, "detector": 0, "window": 0, "rows": 0, "gaps": 0, "producer": 0, "told": 0,
-                       "demands": 0, "held": 0, "role_leg": 0}
+                       "demands": 0, "held": 0, "role_leg": 0, "hand_cards": 0, "legacy_legs": 0, "unsited": 0}
         self.no_detector = []
 
     @property
@@ -833,15 +1065,19 @@ class Report:
                 f"{c['rows']}, gaps {c['gaps']} (producer {c['producer']}, told {c['told']}, demands {c['demands']}), "
                 f"joints held {c['held']} of {c['rows']} | role leg not walked (code-to-code rows): {c['role_leg']} | "
                 f"stages with no detector: "
-                f"{', '.join(self.no_detector) or 'none'}")
+                f"{', '.join(self.no_detector) or 'none'} | told counters: hand_cards {c['hand_cards']}, "
+                f"legacy_legs {c['legacy_legs']}, unsited {c['unsited']}")
 
 
-def audit(data=None, uni=None, pins=None, env=None, path=None) -> Report:
+def audit(data=None, uni=None, pins=None, env=None, path=None, sited=None) -> Report:
     """Walk the registry against the package and say what has no home. Everything is injectable; the defaults are the
     real tree. `data` may be a str (the reason the file could not be read) - red, never an empty registry (E8).
 
     uni   `universe()`'s answer: ({key: {"kind", "where", "stages"}}, [walk errors]);  env   an `Env`;  pins  {kind: size}
-    (red in both directions);  path  the data file to read when `data` is None (through `load_rows`)."""
+    (red in both directions);  path  the data file to read when `data` is None (through `load_rows`);  sited  `sited_ids`' answer.
+    The counters of `told_ratchet` (`hand_cards`, `legacy_legs`, `unsited`) are measured here from the package and the rows and
+    compared in `_ratchet`; this function never opens the census or the told fixture (the census-needing counters are the
+    test's, FR-44)."""
     report = Report()
     red = report.problems.append
     if data is None:
@@ -861,16 +1097,28 @@ def audit(data=None, uni=None, pins=None, env=None, path=None) -> Report:
     report.problems.extend(f"stage-joints: {e}" for e in walk_errors)
     report.problems.extend(f"stage-joints: {p}" for p in _pins(uni, pins))
     rows = data["joints"]
-    report.problems.extend(_direction_a(rows, uni))
+    if sited is None:
+        id_errors = []
+        sited = sited_ids(uni, check_ids(env.plugin, errors=id_errors))
+        report.problems.extend(f"stage-joints: {e}" for e in id_errors)
+    problems, unsited = _direction_a(rows, uni, sited)
+    report.problems.extend(problems)
     stage_ids = {str(s.get("id")) for s in env.model.get("stages") or [] if isinstance(s, dict)}
     detectors = detector_members(env.model)          # from the model, not from the injectable `uni`
     declared = []
     for row in rows:
-        problems, legs = _row_problems(row, env, stage_ids, detectors)
+        problems, legs = _row_problems(row, env, stage_ids, detectors, data.get("when_kinds"))
         report.problems.extend(problems)
         declared += legs
-    report.problems.extend(_ratchet(data, len(declared)))
+    measured = {"legacy_legs": _legacy_legs(rows), "unsited": unsited}
+    cards, why = _hand_cards(env)
+    if cards is None:
+        red(f"stage-joints: the hand cards cannot be counted ({why})")
+    else:
+        measured["hand_cards"] = cards
+    report.problems.extend(_ratchet(data, len(declared), measured))
     c = report.counts
+    c.update({"hand_cards": cards, "legacy_legs": measured["legacy_legs"], "unsited": len(unsited)})
     c.update({kind: sum(1 for member in uni.values() if member["kind"] == kind) for kind in KINDS})
     c.update({"rows": len(rows), "gaps": len(declared), "held": sum(1 for r in rows if isinstance(r, dict) and r.get("joint")),
               "role_leg": sum(1 for r in rows if isinstance(r, dict) for e in r.get("producers") or []

@@ -15,14 +15,16 @@ import contextlib
 import copy
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, finish, run_script, temp_dir  # noqa: E402
+from harness import FIXTURES, PLUGIN_ROOT, check, check_eq, check_in, check_not_in, cleanup, finish, run_script, temp_dir  # noqa: E402
 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 import null_outcomes as NO  # noqa: E402
+import refusal_registry as RR  # noqa: E402
 import stage_joints as SJ  # noqa: E402
 
 # The walk sizes. A change of any is a change of the factory's checks and the Lead's question: the walker is not adjusted
@@ -110,7 +112,7 @@ def k4_k5_directions() -> None:
     check_in("K4: naming where the code meets it", "(exit_gate.py::all_errors:1)", out)
     check_in("K4: and saying what to add", "has no row in references/stage-joints.json", out)
     stale = text_of(audit(data=mutated(lambda d: d["joints"].append(
-        {**copy.deepcopy(d["joints"][0]), "check": "exit_gate:gone"}))))
+        {**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"}))))
     check_in("K5/E3: a row whose check the walk does not meet is stale", "row exit_gate:gone: stale", stale)
     two = text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(d["joints"][0])))))
     check_in("K5/E4: two rows for one check", "exit_gate:scoped has two rows", two)
@@ -290,9 +292,10 @@ def k10_data_file() -> None:
     check_in("K10: schema 1", "schema_version is 1, this reader reads 2", text_of(audit(data=mutated(lambda d: d.update(schema_version=1)))))
     for key, bad, said in (("when_kinds", [], "`when_kinds` is not a non-empty list"), ("when_exclusive", [["plan"]], "`when_exclusive` is not a list of lists"),
                            ("when_exclusive", [["plan", "zz"]], "names `zz`, which is not in `when_kinds`"),
-                           ("told_ratchet", {"hand_cards": 12}, "`told_ratchet` is not an object holding exactly hand_cards, legacy_legs"),
-                           ("told_ratchet", {"hand_cards": 12, "legacy_legs": -1}, "told_ratchet.legacy_legs is -1, a count"),
-                           ("told_ratchet", {"hand_cards": True, "legacy_legs": 9}, "told_ratchet.hand_cards is True, a count")):
+                           ("told_ratchet", {"hand_cards": 12}, "`told_ratchet` is not an object holding exactly hand_cards, legacy_legs, unsited"),
+                           ("told_ratchet", {"hand_cards": 12, "legacy_legs": -1, "unsited": 0}, "told_ratchet.legacy_legs is -1, a count"),
+                           ("told_ratchet", {"hand_cards": 12, "legacy_legs": 9, "unsited": -1}, "told_ratchet.unsited is -1, a count"),
+                           ("told_ratchet", {"hand_cards": True, "legacy_legs": 9, "unsited": 0}, "told_ratchet.hand_cards is True, a count")):
         check_in(f"K10/v2-shape: {key} = {bad!r} is red", said, text_of(audit(data=mutated(lambda d, key=key, bad=bad: d.update({key: bad})))))
     for key in ("when_kinds", "when_exclusive", "told_ratchet"):
         check_in(f"K10/v2-shape: a lost {key} is red", f"lacks `{key}`", text_of(audit(data=mutated(lambda d, key=key: d.pop(key)))))
@@ -639,6 +642,368 @@ def exit_gate_sites() -> None:
              DV.check_id(DV.Record("t", script="exit_gate_text_end", check="exit_gate:text_end_after_handback")), "exit_gate:text_end_after_handback")
 
 
+# ----------------------------------------------------------------------------------------------------------------------
+# T1c: the counters that need the census (FR-44: the census is a test fixture, so they are computed and compared HERE; `audit`
+# never opens it, `told/audit-shape`). Two worlds (TEMPORAL): before the T1c commit nothing reads `told-ratchet.json` and no row
+# is judged against it; after it, an absent or unreadable file is red ("told-ratchet.json cannot be read"), never zeros.
+TOLD_FIXTURE = FIXTURES / "told-ratchet.json"
+CENSUS = FIXTURES / "judgment-census.json"
+GROUP_RE = re.compile(r"parent 2\.8 group (G-[a-z]+)")
+UNGROUPED = "ungrouped"
+GROUP_REASONS = {      # parent spec 2.8: why a conductor-only unit is outside K2/K5/K6 (a group is read off the census row's note)
+    "G-dispatch": "the caller is the driver's code or the interactive main session; a launch makes no dispatch the conductor could be told of",
+    "G-free": "a command the conductor chose inside its launch; no open move's run names it",
+    "G-main": "met by the interactive main session acting as conductor; it is no launch for one problem",
+    "G-code": "a controller/story_step refusal answered by a code move with no resume and no conductor launch",
+    UNGROUPED: "the census row names no 2.8 group (T4/T9a/T9c label them as they relabel)"}
+_WORLD = {}
+
+
+def reachable(roles) -> bool:
+    """A unit a role can meet: its census roles hold a role other than the conductor."""
+    return bool(set(roles or []) - {"conductor"})
+
+
+def load_told(path=None) -> tuple:
+    """`(data, "")` of the told fixture, or `(None, why)`: absent, unreadable or not of its shape is red, never zero counts (E4)."""
+    path = Path(path or TOLD_FIXTURE)
+    data, why = NO.load_data(path)
+    if data is None:
+        return None, f"{path.name} cannot be read ({why})"
+    units = data.get("units")
+    good = (all(isinstance(data.get(k), int) and not isinstance(data.get(k), bool) and data[k] >= 0 for k in ("rowless", "untold"))
+            and isinstance(units, dict) and all(isinstance(u, dict) and set(u) == {"bare", "tagged"} and all(
+                isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in u.values()) for u in units.values()))
+    return (data, "") if good else (None, f"{path.name} cannot be read (it holds `rowless`, `untold` and `units` of bare/tagged counts)")
+
+
+def covered(check_id: str, data: dict) -> bool:
+    """An id is covered by exactly one row: its own, else its namespace's `<stem>:*`, else a sub-id row `<id>.<part>` (C14)."""
+    row, _why = SJ.row_for(check_id, data)
+    return row is not None or any(str(r.get("check")).startswith(f"{check_id}.") for r in data["joints"])
+
+
+def rowless_of(ids: dict, unit_roles: dict, data: dict) -> list:
+    """K1-A24/literal: the ids a role can meet (`ids` is {id: unit}) that no row covers. E5: the fallback exemption runs BEFORE
+    the row lookup, so a fallback id is never counted and never makes a row look sited."""
+    out = []
+    for check_id, unit in sorted(ids.items()):
+        if SJ.is_fallback(check_id) or not reachable(unit_roles.get(unit)):
+            continue
+        if not covered(check_id, data):
+            out.append(check_id)
+    return out
+
+
+def rowless_problems(ids: list, baseline: int) -> list:
+    """`rowless` is dense: over is red naming the ids, under is red saying what to lower it to."""
+    if len(ids) > baseline:
+        return [f"rowless is {len(ids)}, baseline {baseline}: add a row for {', '.join(ids)}"]
+    return [f"lower `rowless` to {len(ids)} (baseline {baseline})"] if len(ids) < baseline else []
+
+
+def untold_problems(got: int, baseline: int) -> list:
+    return [f"untold is {got}, baseline {baseline}: a blocking unit with a role has no sourced or tagged site"] if got > baseline else []
+
+
+def unit_problems(measured: dict, baseline: dict) -> list:
+    """K4: per `file::function` of a role-reachable unit, `bare` and `tagged` stay at or under their baseline; a unit with a bare
+    site and no baseline row is red (E7)."""
+    out = []
+    for key, now in sorted(measured.items()):
+        base = baseline.get(key)
+        if base is None:
+            if now["bare"]:
+                out.append(f"{key}: {now['bare']} bare site(s) in a role-reachable unit with no baseline row in told-ratchet.json")
+            continue
+        out += [f"{key}: {state} is {now[state]}, baseline {base[state]}" for state in ("bare", "tagged") if now[state] > base[state]]
+    return out
+
+
+def measure_untold(units: dict, rows: dict, found: list) -> int:
+    """K6: blocking census units (a row's `blocks_override: false` lifts it) with a role that hold no sourced/tagged site."""
+    count = 0
+    for key, unit in units.items():
+        row = rows.get(key) or {}
+        if not (unit["blocks"] and row.get("blocks_override") is not False and reachable(row.get("roles"))):
+            continue
+        told = any(s["state"] in ("sourced", "tagged") and s["file"] == key[0]
+                   and (s["function"] == key[1] or any(a <= s["line"] <= b for a, b in unit["spans"])) for s in found)
+        count += 0 if told else 1
+    return count
+
+
+def role_set(rows: list, mapped: set) -> set:
+    return {r for row in rows for e in row.get("producers") or [] for r in (e.get("roles") or []) if r != SJ.ANY} | (
+        mapped if any(SJ.ANY in (e.get("roles") or []) for row in rows for e in row.get("producers") or []) else set())
+
+
+def k5_problems(unit_roles: dict, unit_rows: dict, mapped: set) -> list:
+    """K5: the roles of a unit (census roles minus the conductor) are a subset of the roles of its told rows."""
+    out = []
+    for unit, rows in sorted(unit_rows.items()):
+        missing = (set(unit_roles.get(unit) or []) - {"conductor"}) - role_set(rows, mapped)
+        if missing:
+            out.append(f"{unit[0]}::{unit[1]} is met by {', '.join(sorted(missing))}, which no row of it names")
+    return out
+
+
+def conductor_only(units: list, rows: dict) -> dict:
+    """The conductor-only join units counted per group (the group is the `parent 2.8 group G-x` token of the census row's note)."""
+    groups = {}
+    for u in units:
+        if u["roles"] is None or reachable(u["roles"]):
+            continue
+        found = GROUP_RE.search(str((rows.get((u["file"], u["function"])) or {}).get("note") or ""))
+        group = found.group(1) if found and found.group(1) in GROUP_REASONS else UNGROUPED
+        groups[group] = groups.get(group, 0) + 1
+    return groups
+
+
+def conductor_line(groups: dict) -> str:
+    return f"conductor_only {sum(groups.values())}: " + "; ".join(f"{g} {n} ({GROUP_REASONS[g]})" for g, n in sorted(groups.items()))
+
+
+def told_world() -> dict:
+    """The census-side measurement of the real tree, computed once: the wide scan with the census's blocking set (the CLI's own
+    road), the join, and the four counters of the told fixture."""
+    if _WORLD:
+        return _WORLD
+    import test_judgment_census as CT
+    names = RR.package_files(PLUGIN_ROOT)
+    rows = {(r["file"], r["function"]): r for r in json.loads(CENSUS.read_text(encoding="utf-8"))["rows"]}
+    units = CT.units_of(PLUGIN_ROOT, names)["units"]
+    rep = RR.wide_report(PLUGIN_ROOT, names, RR.load_census(CENSUS), {k for k, u in units.items() if u["blocks"]})
+    joined = rep["units"]
+    ids = {RR.check_of(e): (Path(e["file"]).name, e["function"]) for e in RR.REGISTRY}
+    ids.update({i: (f, fn) for i, (f, fn, _line) in SJ.check_ids().items()})
+    unit_roles = {k: r.get("roles") for k, r in rows.items()}
+    _WORLD.update(
+        rep=rep, rows=rows, units=units, ids=ids, unit_roles=unit_roles,
+        by_unit={f"{u['file']}::{u['function']}": {"bare": u["states"].get("bare", 0), "tagged": u["states"].get("tagged", 0)}
+                 for u in joined if reachable(u["roles"])},
+        rowless=rowless_of(ids, unit_roles, REAL), untold=measure_untold(units, rows, rep["sites"]),
+        groups=conductor_only(joined, rows))
+    return _WORLD
+
+
+def told_baselines(world: dict) -> dict:
+    """What the told fixture holds: the measurement of `told_world`, printed key by key in the report of the node that wrote it."""
+    return {"rowless": len(world["rowless"]), "untold": world["untold"], "units": dict(sorted(world["by_unit"].items()))}
+
+
+def told_real() -> None:
+    world, (told, why) = told_world(), load_told()
+    check_eq("told/fixture-present: the told fixture is read", (told is not None, why), (True, ""))
+    totals = world["rep"]["totals"]
+    print(f"told: units_no_row {totals['units_no_row']}, join_share {totals['join_share']}, role_reachable_units "
+          f"{totals['role_reachable_units']}, rowless {len(world['rowless'])} {world['rowless']}, untold {world['untold']}")
+    print(conductor_line(world["groups"]))
+    check_eq("K1: every join unit has a census row (100 %)", (totals["units_no_row"], totals["join_share"]), (0, 1.0))
+    check_eq("K1: no check argument the scanner cannot read (`own` is a listed pass-through)", totals["check_arg_errors"], 0)
+    check_eq("K1-A24/at-baseline: the A24 and literal ids a role can meet and no row covers equal the baseline",
+             rowless_problems(world["rowless"], told["rowless"]), [])
+    check_in("K1-lit/adviser-counted: `exit_gate:adviser` (a literal id of a role-reachable unit, no row yet) is counted until T1r",
+             "exit_gate:adviser", " ".join(world["rowless"]))
+    check_eq("K6/untold-counted: the blocking units with a role and no sourced/tagged site are at their baseline",
+             untold_problems(world["untold"], told["untold"]), [])
+    check_eq("K4/at-baseline: bare/tagged of every role-reachable unit at or under its baseline",
+             unit_problems(world["by_unit"], told["units"]), [])
+    check_eq("K4/baseline-covers-join: the baseline names every role-reachable unit of the join, and the join's count is the fixture's",
+             (sorted(world["by_unit"]), totals["role_reachable_units"]), (sorted(told["units"]), len(told["units"])))
+    check_eq("K5/real: no row of the real file states a requirement yet, so K5 judges no unit (T1r makes it live)",
+             k5_problems(world["unit_roles"], {}, set()), [])
+    check_eq("conductor-only/printed-per-group: every conductor-only join unit sits in exactly one named group with its reason",
+             (sum(world["groups"].values()), set(world["groups"]) <= set(GROUP_REASONS), totals["conductor_only_units"]),
+             (totals["conductor_only_units"], True, totals["conductor_only_units"]))
+
+
+def told_variants() -> None:
+    """The cases of the counters on synthetic input: at / over / under the baseline, the empty and absent inputs, the order."""
+    u, roles = ("f.py", "g"), {("f.py", "g"): ["qa-runner"], ("f.py", "h"): ["conductor"]}
+    data = a_rows_file(a_row("stage_guard:SG-1.shape"), a_row("s:*"), a_row("t:one"))
+    check_eq("K1-A24/at-baseline: AT the baseline is green", rowless_problems(["a:x", "b:y"], 2), [])
+    over = rowless_problems(["a:x", "b:y", "c:z"], 2)
+    check("K1-A24/plus-one: one over is red and names the id", len(over) == 1 and "c:z" in over[0], str(over))
+    check_eq("K1-A24/minus-one: one under is red, saying what to lower it to", rowless_problems(["a:x"], 2), ["lower `rowless` to 1 (baseline 2)"])
+    check_eq("K1-A24/conductor-only-not-counted: an id whose unit only the conductor meets is not counted",
+             rowless_of({"a:x": ("f.py", "h")}, roles, data), [])
+    check_eq("K1-lit/fallback-no-row: `<stem>:unlabelled` and `unknown` need no row (the exemption runs before the lookup)",
+             rowless_of({"s2:unlabelled": u, "unknown": u, "a:x": u}, roles, data), ["a:x"])
+    check_eq("K1-lit/sub-id: a row `<id>.<part>` covers the id (C14)", rowless_of({"stage_guard:SG-1": u}, roles, data), [])
+    check_eq("K1-lit/star-covers: `<stem>:x` is covered by `<stem>:*`, an exact row by itself, an id with neither is not",
+             rowless_of({"s:x": u, "t:one": u, "q:z": u}, roles, data), ["q:z"])
+    check_eq("K1-lit/absent-unit: an id whose unit has no census row is not role-reachable and not counted",
+             rowless_of({"a:x": ("zz.py", "g")}, roles, data), [])
+    missing = text_of(audit(data=mutated(lambda d: d["joints"].remove(row_of(d, "exit_gate:digest")))))
+    check_in("K1/missing-row: a v1-derived check (an exit family) with no row is red, naming it and where code meets it",
+             "exit_gate:digest is a check in code (exit_gate.py::all_errors:", missing)
+    fallback = text_of(audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:unlabelled"}))))
+    check_in("K1-lit/fallback-no-row: a row keyed by a fallback id is not sited by it (E5)", "row exit_gate:unlabelled: stale", fallback)
+    first = RR.check_of(RR.REGISTRY[0])
+    check_eq("B/row-keyed-by-any-entry-not-stale: a row keyed by the check id of an A24 entry has a site",
+             audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": first}))).problems, [])
+    check_eq("B/row-keyed-by-literal-not-stale: a row keyed by a literal id of the scanner (`exit_gate:adviser`) has a site",
+             audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:adviser"}))).problems, [])
+    check_eq("B/row-keyed-by-literal-not-stale: and a sub-id of a sited id too",
+             audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": f"{first}.part"}))).problems, [])
+    gone = lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"})
+    check_in("E11/stale-when-baseline-0: an unsited row with the baseline at 0 is a stale row, red", "row exit_gate:gone: stale",
+             text_of(audit(data=mutated(gone))))
+    one = lambda d: (gone(d), d["told_ratchet"].update(unsited=1))
+    check_eq("E11/unsited-at-baseline: AT the baseline (1 row, baseline 1) is green", audit(data=mutated(one)).problems, [])
+    two = lambda d: (gone(d), d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone2"}), d["told_ratchet"].update(unsited=1))
+    check_in("E11/unsited-over: over the baseline is red naming the counter, both numbers and the rows",
+             "told_ratchet.unsited is 1 but 2 rows have no site in code (exit_gate:gone, exit_gate:gone2)", text_of(audit(data=mutated(two))))
+    check_eq("K12/unsited-cap: the real tree measures the stored number; a cap above the measurement is allowed (<=)",
+             (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=3))).problems),
+             (0, 0, []))
+    for counter, up, down in (("hand_cards", True, True), ("legacy_legs", True, False)):
+        stored = REAL["told_ratchet"][counter]
+        dash = counter.replace("_", "-")
+        report = audit()
+        check_eq(f"told/{dash}-at-baseline: the walk counts the stored number and is green", (report.counts[counter], report.problems), (stored, []))
+        check_in(f"told/{dash}-plus-one: one more than the stored number is red naming the counter, the measured and the stored value",
+                 f"told_ratchet.{counter} is {stored - 1} but the walk counts {stored}", text_of(audit(data=mutated(
+                     lambda d, counter=counter: d["told_ratchet"].update({counter: stored - 1})))))
+        low = text_of(audit(data=mutated(lambda d, counter=counter: d["told_ratchet"].update({counter: stored + 1}))))
+        check_eq(f"told/{dash}-minus-one: {'dense: below is red, saying what to lower it to' if down else 'not dense (the table says audit only): below is green'}",
+                 f"lower told_ratchet.{counter} to {stored}" in low, down)
+    cards = copy.copy(ENV)
+    cards.plugin = Path("no-such-plugin-root")
+    check_in("told/hand-cards-unreadable: cards that cannot be counted are red, never 0", "the hand cards cannot be counted",
+             text_of(SJ.audit(copy.deepcopy(REAL), UNI, None, cards, sited=set(UNI[0]))))
+    # K4 / K6 / K5 on synthetic input
+    base = {"a.py::f": {"bare": 2, "tagged": 1}}
+    check_eq("K4/at-baseline: AT the baseline is green, and under it too", (unit_problems({"a.py::f": {"bare": 2, "tagged": 1}}, base),
+             unit_problems({"a.py::f": {"bare": 1, "tagged": 0}}, base)), ([], []))
+    plus = unit_problems({"a.py::f": {"bare": 3, "tagged": 1}}, base)
+    check("K4/plus-one: one more bare site is red, naming the unit", len(plus) == 1 and "a.py::f: bare is 3, baseline 2" in plus[0], str(plus))
+    check_in("K4/plus-one: and a tagged one too", "a.py::f: tagged is 2, baseline 1", " ".join(unit_problems({"a.py::f": {"bare": 2, "tagged": 2}}, base)))
+    check_in("K4/new-unit-no-baseline: a role-reachable bare site in a unit with no baseline row is red", "a.py::new: 1 bare site(s)",
+             " ".join(unit_problems({"a.py::new": {"bare": 1, "tagged": 0}}, base)))
+    check_eq("K4/new-unit-no-baseline: a unit with no bare site and no row is not red", unit_problems({"a.py::new": {"bare": 0, "tagged": 1}}, base), [])
+    check_eq("K6/untold-counted: at / over / under the baseline", [untold_problems(n, 5) == [] for n in (5, 6, 4)], [True, False, True])
+    blocking = {"blocks": True, "spans": [(1, 9)]}
+    units = {("a.py", "f"): blocking, ("a.py", "c"): blocking, ("a.py", "o"): blocking, ("a.py", "n"): {"blocks": False, "spans": []}}
+    rows = {("a.py", "f"): {"roles": ["qa-runner"]}, ("a.py", "c"): {"roles": ["conductor"]}, ("a.py", "o"): {"roles": ["qa-runner"], "blocks_override": False},
+            ("a.py", "n"): {"roles": ["qa-runner"]}}
+    site = lambda state, line=3: {"file": "a.py", "function": "f", "line": line, "state": state}
+    check_eq("K6/untold-counted: a blocking unit with a role and a bare site only is untold; a sourced or a tagged site tells it; a conductor-only, "
+             "an overridden and a non-blocking unit are not counted",
+             [measure_untold(units, rows, found) for found in ([site("bare")], [site("sourced")], [site("tagged")], [])], [1, 0, 0, 1])
+    check_eq("K5/roles-subset: a unit's roles minus the conductor must all be named by its rows (`*` is every mapped role)",
+             [k5_problems({u: r}, {u: [a_row("x:y", roles=rr)]}, {"qa-runner", "qa-scout"}) for r, rr in (
+                 (["qa-runner", "conductor"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("*",)))],
+             [[], ["f.py::g is met by qa-scout, which no row of it names"], []])
+    groups = conductor_only([{"file": "f.py", "function": n, "roles": r} for n, r in (("a", ["conductor"]), ("b", ["conductor"]), ("c", ["conductor"]),
+                                                                                     ("d", ["qa-runner"]), ("e", None))],
+                            {("f.py", "a"): {"note": "x, parent 2.8 group G-free"}, ("f.py", "b"): {"note": "parent 2.8 group G-zzz"}, ("f.py", "c"): {}})
+    check_eq("conductor-only/printed-per-group: the groups of the census notes, an unnamed or unknown group is `ungrouped`, a role unit and a rowless unit are not counted",
+             groups, {"G-free": 1, UNGROUPED: 2})
+    check_in("conductor-only/printed-per-group: the line names each group with its reason", "G-free 1 (a command the conductor chose inside its launch",
+             conductor_line(groups))
+    tmp = temp_dir("qa-told-")
+    try:
+        gone_path = tmp / "told-ratchet.json"
+        data_none, why = load_told(gone_path)
+        check_eq("told/fixture-absent: an absent fixture is red with the file named, never zero counts", (data_none, why.startswith("told-ratchet.json cannot be read")), (None, True))
+        gone_path.write_text("{not json", encoding="utf-8")
+        check_eq("told/fixture-absent: an unreadable fixture is the same", load_told(gone_path)[0], None)
+        for label, body in (("a fixture with no `units`", {"rowless": 1, "untold": 1}), ("a bool count", {"rowless": True, "untold": 1, "units": {}}),
+                            ("a unit with a missing key", {"rowless": 1, "untold": 1, "units": {"a.py::f": {"bare": 1}}})):
+            gone_path.write_text(json.dumps(body), encoding="utf-8")
+            check_eq(f"told/fixture-absent: {label} is not read as counts", load_told(gone_path)[0], None)
+    finally:
+        cleanup(tmp)
+
+
+def told_leg_and_rows() -> None:
+    """K2 (gated), K3, K7, E4, E7 on synthetic rows; `told/audit-shape`."""
+    import contract_slices
+    import no_move
+    import role_rules
+    kinds = list(REAL["when_kinds"])
+    stage_ids = {str(s.get("id")) for s in ENV.model.get("stages") or []}
+    asks = lambda row, **extra: SJ._row_requirement("a:x", {**row, **extra}, ENV, kinds)
+    full = a_row("a:x", requirement="Say it.", door="edit <ID>")
+    move = no_move.move_ids()[0]
+    check_eq("K3/move-token: a `move:<id>` of a real move, a `when_kinds` token and `always` are green",
+             [asks(full, when=[w]) for w in (f"move:{move}", "plan", "always")], [[], [], []])
+    check_in("K3/move-token: a `move:<id>` that is no move is red", "names a move that is not in conductor-actions.json", " ".join(asks(full, when=["move:zz_nope"])))
+    check_in("K3/move-token: a token that is no kind is red", "`when` token `zz_kind` is not in `when_kinds`", " ".join(asks(full, when=["zz_kind"])))
+    check_in("K3/move-token: an empty `when` is red", "`when` is not a non-empty list of tokens", " ".join(asks(full, when=[])))
+    check_eq("K3/shell-door: `door_needs: shell` with `shell` in `when` is green, with no shell in `when` red, an unknown value red",
+             [bool(asks(full, door_needs="shell", when=w)) for w in (["shell"], ["always"])] + [bool(asks(full, door_needs="zz"))], [False, True, True])
+    check_in("K3/shell-door: the sentence names the door a role cannot open", "a door a role without a shell cannot open", " ".join(asks(full, door_needs="shell")))
+    check_in("K3/page-without-requirement: a row told by the page that states no requirement is red", "is told by the page but states no requirement",
+             " ".join(asks(a_row("a:x"))))
+    check_eq("K3/page-without-requirement: a row with neither field and no page is the legacy row, not red (E2)",
+             asks({**a_row("a:x"), "producers": [{"roles": ["qa-runner"], "field": "f", "told": [{"path": "agents/<role>.md", "anchor": "x"}], "demands": []}]}), [])
+    check_in("K3: both fields is red", "states its requirement two ways", " ".join(asks(full, requirement_from="handoff_form")))
+    check_in("K3: no door is red", "names no `door`", " ".join(SJ._row_requirement("a:x", a_row("a:x", requirement="r"), ENV, kinds)))
+    check_in("K3: an unknown carrier is red", "`requirement_from` 'my.table' is not one of",
+             " ".join(SJ._row_requirement("a:x", a_row("a:x", requirement_from="my.table", door="d"), ENV, kinds)))
+    rule = role_rules.load(PLUGIN_ROOT)[0][0]["id"]
+    check_eq("K7/role-rule: an id of design/role-rules.json is green, an id that is not there is red",
+             [bool(asks(full, role_rule=r)) for r in (rule, "no-such-rule-zz")], [False, True])
+    check_in("K7/role-rule: the sentence names the id", "`role_rule` no-such-rule-zz is no id of design/role-rules.json", " ".join(asks(full, role_rule="no-such-rule-zz")))
+    check_in("E4/empty-roles: a requirement nobody is told is red", "a requirement nobody is told - name the roles or remove the row",
+             " ".join(asks({**full, "producers": [{"roles": [], "field": "f", "told": [], "demands": []}]})))
+    check_in("E4/empty-roles: one entry with no roles beside one with roles is red too", "a requirement nobody is told",
+             " ".join(asks({**full, "producers": full["producers"] + [{"roles": [], "field": "f", "told": [], "demands": []}]})))
+    check_in("E7/two-rows: two rows for one id are red", "exit_gate:scoped has two rows",
+             text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(row_of(d, "exit_gate:scoped")))))))
+    check_in("E7/two-star-rows: two `<stem>:*` rows for one stem are red", "branch_accounting:* has two rows",
+             text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(row_of(d, "branch_accounting:*")))))))
+    # K2: the page leg is gated on the renderer
+    env = copy.copy(ENV)
+    env.load_map = {"common": [], "roles": {"qa-runner": [f"plugin:{SJ.KEY_PAGE.format(role='qa-runner')}"], "qa-scout": []}}
+    row = a_row("a:x", roles=("qa-runner", "qa-scout"), requirement="Say it.", door="d")
+    entry = row["producers"][0]
+    check_in("K2/gated-off: while `contract_slices` has no `requirement_section` a page item is refused", "the page renderer is not present",
+             " ".join(SJ._told_leg(entry, env, row)))
+    check_in("K2/gated-off: through the audit of a whole row", "the page renderer is not present", " ".join(SJ._row_problems(row, env, stage_ids, {}, kinds)[0]))
+    check_eq("K2/gated-off: the attribute is absent in the real package today", hasattr(contract_slices, SJ.PAGE_RENDERER), False)
+    setattr(contract_slices, SJ.PAGE_RENDERER, lambda *a, **k: "")
+    try:
+        said = " ".join(SJ._told_leg(entry, env, row))
+        check_in("K2/gated-on: with the renderer present the leg is real: a role whose list lacks its key page is red", "qa-scout does not receive", said)
+        check_eq("K2/gated-on: and the role whose list holds it is green", "qa-runner" in said, False)
+        check_eq("K2/gated-on: a role whose capability the row's `when` does not admit owes no page",
+                 SJ._told_leg({**entry, "roles": ["qa-case-critic"]}, env, {**row, "when": ["shell"]}), [])
+        check_in("K2/gated-on: the conductor's section needs `conductor_answer` or a `move:<id>` in `when`", "selected by `conductor_answer`",
+                 " ".join(SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["always"]})))
+        check_eq("K2/gated-on: and holds with it", SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["conductor_answer"], "stages": ["*"]}), [])
+    finally:
+        delattr(contract_slices, SJ.PAGE_RENDERER)
+    check_in("K2/gated-off: a code producer is not told by a page", "a code producer is told where it is CALLED",
+             " ".join(SJ._told_leg({"code": "x.py::f", "told": [{"page": True}]}, env, row)))
+    check_in("K2: `page: 1` is no page item", "a told entry is not an object of path and anchor", " ".join(SJ._told_leg({**entry, "told": [{"page": 1}]}, env, row)))
+    # told/audit-shape: audit never opens the census or the told fixture (the proof is the list of every file it opened)
+    import builtins
+    opened, real_read, real_open, real_builtin = [], Path.read_text, Path.open, builtins.open
+    def read_text(self, *a, **k):
+        opened.append(str(self))
+        return real_read(self, *a, **k)
+    def path_open(self, *a, **k):
+        opened.append(str(self))
+        return real_open(self, *a, **k)
+    def builtin_open(file, *a, **k):
+        opened.append(str(file))
+        return real_builtin(file, *a, **k)
+    SJ._IDS_CACHE.clear()
+    Path.read_text, Path.open, builtins.open = read_text, path_open, builtin_open
+    try:
+        shaped = SJ.audit(copy.deepcopy(REAL), UNI, PINS, ENV)
+    finally:
+        Path.read_text, Path.open, builtins.open = real_read, real_open, real_builtin
+    check_eq("told/audit-shape: control - the patched readers saw the files audit reads (the scanner's sources, the cards)",
+             (len(opened) > 3, any(p.endswith("ahead-cards.json") for p in opened), any(p.endswith("exit_gate.py") for p in opened)), (True, True, True))
+    check_eq("told/audit-shape: audit opened neither the census nor the told fixture, and its answer is the real tree's",
+             ([p for p in opened if "judgment-census" in p or "told-ratchet" in p], shaped.problems), ([], []))
+
+
 def main() -> None:
     k1_real_tree()
     k2_k3_pins()
@@ -659,6 +1024,9 @@ def main() -> None:
     rename()
     merges()
     exit_gate_sites()
+    told_variants()
+    told_leg_and_rows()
+    told_real()
     finish("test_stage_joints")
 
 

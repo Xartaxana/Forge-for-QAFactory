@@ -1140,6 +1140,7 @@
   ],
   "told_ratchet": {
     "hand_cards": 12,
-    "legacy_legs": 9
+    "legacy_legs": 9,
+    "unsited": 0
   }
 }

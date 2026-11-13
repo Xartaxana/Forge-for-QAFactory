@@ -1,0 +1,888 @@
+{
+ "schema_version": 1,
+ "note": "T1c baselines of the told-before-work counters that need the census (FR-44); read only by test_stage_joints.py. rowless is dense (red above AND below it); untold and every unit's bare/tagged are ceilings.",
+ "rowless": 55,
+ "untold": 253,
+ "units": {
+  "artifact_producer.py::main": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "branch_accounting.py::_case_entry_problems": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "branch_accounting.py::_patch_rung_problems": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "branch_accounting.py::_stage_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "branch_accounting.py::_walk_problems": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "branch_accounting.py::attachment_check": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "branch_accounting.py::code_says_check": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "branch_accounting.py::decided_question_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "branch_accounting.py::s2_check": {
+   "bare": 9,
+   "tagged": 0
+  },
+  "branch_accounting.py::s3_problems": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "branch_accounting.py::s4_problems": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "branch_accounting.py::s5_problems": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "case_versions.py::_empty_answer": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "case_versions.py::main": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "check_coverage.py::main": {
+   "bare": 12,
+   "tagged": 0
+  },
+  "check_delivery.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "critic_rollcall.py::_level_errors": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "critic_rollcall.py::_merge_concern_errors": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "critic_rollcall.py::_merge_form_errors": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "critic_rollcall.py::_owed_pair_errors": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "critic_rollcall.py::findings_errors": {
+   "bare": 13,
+   "tagged": 0
+  },
+  "critic_rollcall.py::fix_errors": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "critic_rollcall.py::main": {
+   "bare": 10,
+   "tagged": 0
+  },
+  "diff_pass.py::main": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "env_probe.py::main": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "exit_gate.py::case_identity_errors": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "exit_gate.py::collect_errors": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "exit_gate.py::detector_errors": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "exit_gate.py::grounding_errors": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "exit_gate.py::judge_words": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "exit_gate.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "exit_gate.py::scoped_errors": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "exit_gate.py::witness_errors": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "external_writes.py::main": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "external_writes.py::record_result": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "first_look.py::_cli": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "guard_app_under_test.py::check": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "guard_app_under_test.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_app_under_test.py::stand_gap_pass": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::_guard": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::artifact_rewrite_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::big_read_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::case_store_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::config_write_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::git_config_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::handoff_values_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::handoff_write_check": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::human_word_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::logs_check": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::manifest_write_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::owner_check": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::plan_write_check": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::plugin_read_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::runs_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::size_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::stand_record_write_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::walker_refusal": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::window_file_check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "guard_pre_tool.py::writes_check": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "guard_secrets.py::check": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "guard_secrets.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "handoff_check.py::_apply_one": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "handoff_check.py::_blocked_row_problems": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "handoff_check.py::check": {
+   "bare": 17,
+   "tagged": 0
+  },
+  "handoff_check.py::check_findings": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "hooklib.py::append_jsonl_line": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "hooklib.py::artifact_root": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "hooklib.py::artifacts_dir": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "hooklib.py::block": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "hooklib.py::read_config_file": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "hooklib.py::require_project_at": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "hooklib.py::story_cli": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "hooklib.py::story_of": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "hooklib.py::story_root": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "hooklib.py::story_root_at": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "inject_context.py::collect_blocks": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "inject_context.py::map_problems": {
+   "bare": 8,
+   "tagged": 0
+  },
+  "inject_context.py::refuse_native_packet": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "judge.py::load_registry": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "manifest_from_tests.py::<module>": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "manifest_put.py::_seed_from_legacy": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "manifest_put.py::recover": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "manifest_put.py::run": {
+   "bare": 15,
+   "tagged": 0
+  },
+  "manual_capture.py::_blocked": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "manual_capture.py::error": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "manual_capture.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "manual_evidence.py::write_unprepared": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "place_answers.py::_cli": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "place_answers.py::_refuse": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "plan_row.py::add_row": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "plan_row.py::main": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "plan_row.py::put_row": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "plan_row.py::row_map": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "plan_row.py::set_fields": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "plan_row.py::show_rows": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "planning_contract.py::_request_findings": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "planning_contract.py::_validate_coverage_delta": {
+   "bare": 16,
+   "tagged": 0
+  },
+  "planning_contract.py::_validate_walk_fields": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "planning_contract.py::branch_patch_keys": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "planning_contract.py::contradiction_errors": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "planning_contract.py::coverage_revision_errors": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "planning_contract.py::fit_words_with_target": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "planning_contract.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "planning_contract.py::publication_manifest": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "planning_contract.py::validate_case_actions": {
+   "bare": 8,
+   "tagged": 0
+  },
+  "planning_contract.py::validate_plan": {
+   "bare": 20,
+   "tagged": 0
+  },
+  "planning_contract.py::variant_errors": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "probe_by_code.py::_judge_cli": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "probe_by_code.py::_read_model_file": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "probe_by_code.py::_unrestored_exit": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "probe_by_code.py::load_models": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "project_decisions.py::_record_finding": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "project_decisions.py::_refusal_as_line": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "red_sandbox.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "retro_numbers.py::main": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "run_suite.py::_refuse_phantom_story": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "run_suite.py::collect_only": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "s5_plan.py::main": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "s5_precheck.py::_then_ref_problems": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_bindings": {
+   "bare": 9,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_case_is_oracle": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_copies": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_env_evidence": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_environment": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_expectation_changes": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_manifest": {
+   "bare": 10,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_obligations": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_open_oracle_asserted": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_parameterization": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_plan_conformance": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_relative_oracle": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_row_fields": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_run_mapping": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_sides": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_smells": {
+   "bare": 10,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_then_remainders": {
+   "bare": 10,
+   "tagged": 0
+  },
+  "s5_precheck.py::check_window": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "s5_precheck.py::passed_by_judge": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "s5_precheck.py::run": {
+   "bare": 8,
+   "tagged": 0
+  },
+  "stage_done.py::coerce_value": {
+   "bare": 10,
+   "tagged": 0
+  },
+  "stage_done.py::main": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "stage_done.py::parse_sets": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "stage_done.py::record_acceptance": {
+   "bare": 10,
+   "tagged": 0
+  },
+  "stage_done.py::record_computed_size": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "stage_done.py::report_problems": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "stage_done.py::run": {
+   "bare": 9,
+   "tagged": 0
+  },
+  "stage_done.py::set_facts": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "stage_guard.py::_check_exploration": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "stage_guard.py::_unidentified_resume": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "stage_guard.py::check": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "stage_guard.py::check_command": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "stage_guard.py::check_dispatch": {
+   "bare": 9,
+   "tagged": 0
+  },
+  "stage_guard.py::check_resume": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "stage_guard.py::dispatch_errors": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "stage_guard.py::explain": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "stage_guard.py::rule_order": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "stage_guard.py::rule_pathspec": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "stage_guard.py::rule_typed_runner": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "ticket_adapter.py::_accept_gap_kind": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "ticket_adapter.py::_query": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "ticket_adapter.py::fail": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_behaviour_claims": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_bug": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_bug_filing_header": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_bug_form": {
+   "bare": 15,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_case": {
+   "bare": 12,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_case_form": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_cell_counts": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_charter": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_charter_form": {
+   "bare": 12,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_config": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_context_manifest_v0": {
+   "bare": 9,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_delta_column": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_escape_ledger": {
+   "bare": 6,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_estimation_ledger": {
+   "bare": 9,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_legacy_report_sections": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_manifest_invariants": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_manifest_reuse": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_manifest_v0": {
+   "bare": 8,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_marker_in_file": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_nfr_report": {
+   "bare": 18,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_phase_json": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_pipeline": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_pipeline_v0": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_plan": {
+   "bare": 17,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_plan_v0": {
+   "bare": 15,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_ptr_readiness": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_register": {
+   "bare": 16,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_remedy_rows": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_blocks": {
+   "bare": 8,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_coverage": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_forbidden": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_gate_b": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_human_text": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_ledger_and_readiness": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_left_with_you": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_sections": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_test_marks": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_report_traceability": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_requirements_review": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_result_rows": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_run_report_coverage": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_run_report_empty": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_run_report_head": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_run_report_v0": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_self_fixes": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_test_report": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_then_oracles": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_triage_v0": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "validate_artifacts.py::check_understanding": {
+   "bare": 3,
+   "tagged": 0
+  },
+  "validate_artifacts.py::collect_errors": {
+   "bare": 4,
+   "tagged": 0
+  },
+  "validate_artifacts.py::main": {
+   "bare": 8,
+   "tagged": 0
+  },
+  "walk_session.py::call": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "walk_session.py::main": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "walk_session.py::open_walk": {
+   "bare": 7,
+   "tagged": 0
+  },
+  "window_record.py::main": {
+   "bare": 1,
+   "tagged": 0
+  },
+  "window_record.py::run": {
+   "bare": 2,
+   "tagged": 0
+  },
+  "worker_lifecycle.py::cancellation": {
+   "bare": 5,
+   "tagged": 0
+  },
+  "worker_lifecycle.py::guard": {
+   "bare": 3,
+   "tagged": 0
+  }
+ }
+}
