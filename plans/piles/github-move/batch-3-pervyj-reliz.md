@@ -12,6 +12,7 @@
 очередь: onboarding-forge/2 → github-move/3
 очередь: onboarding-hooks/5 → github-move/3
 очередь: github-move/3 → onboarding-forge/4
+очередь: github-move/3 → onboarding-hooks/8
 Скоуп свидетеля: уточняется спекой GM3-n; полный канон — workflow `canon` на GitHub.
 
 ## Бриф

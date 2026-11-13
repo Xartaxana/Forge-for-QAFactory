@@ -12,6 +12,7 @@
 очередь: onboarding-forge/2 → onboarding-hooks/6
 очередь: onboarding-forge/4 → onboarding-hooks/6
 очередь: onboarding-hooks/6 → onboarding-hooks/7
+очередь: onboarding-hooks/6 → onboarding-hooks/8
 Порядок по общим файлам: `hooklib.py`, `stage_guard.py`, `cost_capture.py`, `native_context.py`, `inject_context.py`: после OH5-10, OH5-11, OH5-13 (`onboarding-hooks/5`) и слияния веток `wip/oh5-11`, `wip/oh3-36` (`onboarding-forge/1`); `stage_guard.py` — со списком функций в `owns` диспатча (OH6-1: `story_named_by_text`, `resolve_ticket`, `_recipient_receipts`).
 Скоуп свидетеля: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <пути узла>`; BATCH CANON — CI интегратора.
 Общий бриф дизайнерам: находка узла (раздел «Что именно менять»); `design/factory-rules.md`; `docs/tasks/specs/t-203-native-context-long-root.md`; вернуть спеку в `docs/tasks/specs/t-nnn-oh6-n.md`, развилки — наверх.

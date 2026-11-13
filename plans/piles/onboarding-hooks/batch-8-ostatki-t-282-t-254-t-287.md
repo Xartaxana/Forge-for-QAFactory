@@ -1,6 +1,6 @@
 # Онбординг, установка, хуки и гард — пачка 8: остатки t-282, t-254 и t-287 (копии проверки компоненты пути вне OH6-1, псевдонимы NTFS, тихий пропуск id сессии, литерал корня плагина в текстах других модулей, аналоги пачки 7)
 
-кучка: `onboarding-hooks` | статус: ожидает | взял: — | ветка: `pile/onboarding-hooks/batch-8` | MR: — | стенд: не нужен (CI) | приоритет: П3
+кучка: `onboarding-hooks` | статус: в работе | взял: dev1 (Opus coord), 13.11.2026 | ветка: `pile/onboarding-hooks/batch-8` | MR: — | стенд: не нужен (CI) | приоритет: П3
 
 Открыта 13.11.2026 (задача t-298, D-0044): находки спек t-282 (§2.4, F-3, F-8), t-254 (§4: OH5-2d, OH5-2e) и критика диффа пачки 7 t-287 легли в следующую пачку, потому что пачки 6 и 7 взяты.
 
@@ -10,6 +10,13 @@
 Порядок по общим файлам: `event_store.py` — после слияния OH6-3 (`onboarding-hooks/6`); `selftest.py` — строка `очередь:` к `onboarding-forge/2` или список функций по D-0048; `cost_capture.py`, `hooklib.py` — после OH6-1; `refusal_registry.py` — после OH7-2 (`onboarding-hooks/7`); `story_step.py`, `driver_*` — горячие файлы, строка `очередь:` перед взятием.
 очередь: onboarding-hooks/6 → onboarding-hooks/8
 очередь: onboarding-hooks/7 → onboarding-hooks/8
+очередь: onboarding-forge/1 → onboarding-hooks/8
+очередь: onboarding-forge/2 → onboarding-hooks/8
+очередь: onboarding-forge/3 → onboarding-hooks/8
+очередь: onboarding-forge/4 → onboarding-hooks/8
+очередь: github-move/3 → onboarding-hooks/8
+очередь: onboarding-hooks/4 → onboarding-hooks/8
+очередь: onboarding-hooks/5 → onboarding-hooks/8
 Скоуп свидетеля: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <пути узла>`; BATCH CANON — CI интегратора.
 
 ## Бриф

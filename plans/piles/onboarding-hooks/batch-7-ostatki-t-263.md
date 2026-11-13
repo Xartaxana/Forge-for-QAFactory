@@ -13,6 +13,7 @@
 очередь: onboarding-forge/2 → onboarding-hooks/7
 очередь: onboarding-hooks/5 → onboarding-hooks/7
 очередь: onboarding-forge/4 → onboarding-hooks/7
+очередь: onboarding-hooks/7 → onboarding-hooks/8
 Скоуп свидетеля: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <пути узла>`; BATCH CANON — CI интегратора.
 
 ## Бриф
