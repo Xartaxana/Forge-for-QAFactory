@@ -93,6 +93,11 @@ def _sorted_paths(paths) -> list:
     """mirror of hooklib.sorted_paths (key=Path.as_posix) - the runner does not import hooklib (it runs it in a subprocess)"""
     return sorted(paths, key=lambda p: p.as_posix())
 
+
+def _is_one_component(name) -> bool:
+    """mirror of hooklib.is_one_component - the runner does not import hooklib (it runs it in a subprocess); test_resolver pins the two to agree"""
+    return isinstance(name, str) and bool(name) and name not in (".", "..") and not any(c in name for c in "/\\:\0")
+
 # The list of slow test files is a data file, scripts/slow_tests.json (FR-13), read by
 # slow_tests() in the --slow-tests section below.
 SLOW_TESTS_FILE = SCRIPTS_DIR / "slow_tests.json"
@@ -979,7 +984,7 @@ def _slow_tests_problem(raw) -> str | None:
     if not isinstance(files, dict):
         return '"files" must be an object: test file name -> measured seconds or null'
     for name, secs in files.items():
-        if not name or name != Path(name).name:
+        if not _is_one_component(name):
             return f'"files" key {name!r} is not a test file name'
         if secs is not None and not _is_seconds(secs):
             return f'"files" value for {name} must be seconds (a number) or null'
