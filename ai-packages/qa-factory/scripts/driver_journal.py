@@ -23,8 +23,10 @@ Error direction (this reader is used in a gate role): it may fail to bind and it
 "unknown"; it never binds a session the journal does not literally name and, but for that one
 blind spot, never returns a wrong number.
 """
+import hashlib
 import json
 import math
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from hooklib import sorted_paths
@@ -416,3 +418,126 @@ def parse_driver_runs(root) -> tuple:
         by_session[sid] = {"task": task, "rows": per_task[task], "journals": sorted(per_task),
                            "no_timestamps": no_timestamps, "multi_journal": len(per_task) > 1}
     return by_session, spread
+
+
+# --------------------------------------------------------------------------------- process rows
+
+# P1-v W1: the driver's own process is two rows of the journal, `start` and `end`. They carry NO `dispatch`, `dispatch_id`,
+# `session_id`, `exit_code`, `is_error`, `infra` and no money key, so every reader that binds sessions, prices or outcomes
+# passes them by (the same shape as `stopped_by_person`); the end key is `process_code`, never `exit_code`.
+RUN_RECORD_PATH = Path(__file__).resolve().parent.parent / "references" / "run-record.json"
+RUN_CLASS_ENV = "STORY_RUN_CLASS"
+CLASS_LIVE = "live"          # the meaning of "the variable is not set": a default, not a value to set
+CLASS_UNKNOWN = "unknown"    # a value the table does not name, or a table that cannot be read: never `live`
+CLASS_NOTE_CHARS = 60        # how much of a refused value the note quotes
+
+
+def run_record(path=None) -> tuple:
+    """(data, note) of `references/run-record.json`: the ONE loader of that file (AR-13, AR-14). `data` is the JSON object, or {}
+    when the file is absent, unreadable or not an object; `note` is "" then and one `note:` line otherwise. Never raises."""
+    path = Path(path) if path is not None else Path(RUN_RECORD_PATH)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        return {}, f"note: the run record {path.name} could not be read ({type(exc).__name__}); what it names is unknown until it is repaired"
+    if not isinstance(data, dict):
+        return {}, f"note: the run record {path.name} is not a JSON object; what it names is unknown until it is repaired"
+    return data, ""
+
+
+def run_class(environ=None, notes=None) -> str:
+    """The ONE reader of the run class (W1; AR-1, AR-28): `live`, `dry`, `smoke` or `unknown`.
+
+    Reads `STORY_RUN_CLASS` from `environ` (default: the process environment) against the table `run_classes` of
+    `references/run-record.json`. Variable absent, or empty after strip -> `live` (the default). Exactly a name of the table
+    (no case folding, no trimming) -> that name. ANY other value (`DRY`, ` dry `, `live`, `test`, a 10 KB string, non-ASCII)
+    -> `unknown` and one note quoting at most 60 characters. A table that is missing, unreadable or without the key ->
+    `unknown` and one note, for every value: no class is guessed. The error goes toward "not comparable", never toward `live`
+    (a mistyped dry run must not count as a live measurement). A note is appended to `notes` when it is a list, else printed."""
+    found = []
+    environ = os.environ if environ is None else environ
+    raw = environ.get(RUN_CLASS_ENV)
+    data, why = run_record()
+    table = data.get("run_classes")
+    if why:
+        found.append(why)
+        answer = CLASS_UNKNOWN
+    elif not isinstance(table, list) or not all(isinstance(name, str) for name in table):
+        found.append("note: the run record has no `run_classes` list of names; the run class is unknown until it is repaired")
+        answer = CLASS_UNKNOWN
+    elif raw is None or not str(raw).strip():
+        answer = CLASS_LIVE
+    elif str(raw) in table:
+        answer = str(raw)
+    else:
+        text = str(raw)
+        cut = f" (the first {CLASS_NOTE_CHARS} of {len(text)} characters)" if len(text) > CLASS_NOTE_CHARS else ""
+        found.append(f"note: {RUN_CLASS_ENV} {text[:CLASS_NOTE_CHARS]!r}{cut} is not a run class of the run record; "
+                     f"the run is marked {CLASS_UNKNOWN}, never {CLASS_LIVE}")
+        answer = CLASS_UNKNOWN
+    for line in found:
+        if isinstance(notes, list):
+            notes.append(line)
+        else:
+            print(line, flush=True)
+    return answer
+
+
+def _package_stamp(notes: list):
+    """The package fingerprint of THIS process: the value `runtime_paths` hashes once per process, or None and one note."""
+    try:
+        import runtime_paths
+        value = runtime_paths._package_fingerprint(runtime_paths.package_root())
+    except Exception as exc:  # noqa: BLE001 - a courtesy row never stops the run (P1)
+        notes.append(f"note: the package fingerprint could not be read ({type(exc).__name__}); the process row names none")
+        return None
+    if not isinstance(value, str) or not value.strip():
+        notes.append("note: the package fingerprint is empty; the process row names none")
+        return None
+    return value
+
+
+def _config_stamp(project, notes: list):
+    """sha256 of `<project>/qa-factory/config.json` bytes; None when the file is absent (a fact), None and one note when it cannot be read."""
+    if project is None:
+        return None
+    path = Path(project) / "qa-factory" / "config.json"
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        notes.append(f"note: the project config could not be read ({type(exc).__name__}); the process row names no config hash")
+        return None
+
+
+def process_start_row(since, project, answer_file, notes: list, environ=None) -> dict:
+    """The `start` row of the process (W1): kind, event, since, package, config_sha, answer_file, run_class. The caller adds `ts`
+    (`journal_run`) and prints `notes`. Never raises; nothing is truncated."""
+    return {"kind": "process", "event": "start", "since": since, "package": _package_stamp(notes),
+            "config_sha": _config_stamp(project, notes), "answer_file": bool(answer_file),
+            "run_class": run_class(environ, notes)}
+
+
+def process_end_row(since, code, question_path, notes: list) -> dict:
+    """The `end` row of the process (W1): kind, event, since, process_code, question_kind. `process_code` is the int `run` returns,
+    null when it ended by an exception; `question_kind` is the `kind:` line of the open question file, null when none is posted
+    (a file that is there with no readable kind line: null and one note). Never raises."""
+    kind = None
+    try:
+        text = Path(question_path).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        text = None
+    except OSError as exc:
+        text = None
+        notes.append(f"note: the open question could not be read ({type(exc).__name__}); the process row names no question kind")
+    if text is not None:
+        for line in text.splitlines()[:12]:
+            if line.startswith("kind:") and line[5:].strip():
+                kind = line[5:].strip()
+                break
+        else:
+            notes.append("note: the open question file has no `kind:` line; the process row names no question kind")
+    if isinstance(code, bool) or not isinstance(code, int):
+        code = None
+    return {"kind": "process", "event": "end", "since": since, "process_code": code, "question_kind": kind}

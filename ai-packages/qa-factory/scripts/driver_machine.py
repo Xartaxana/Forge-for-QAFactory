@@ -11,6 +11,7 @@ from driver_chains import once_on
 from role_cli import PERSON_MARKER, REPAIR_MARKER
 from question_register import EARLIER_ANSWER_MARK
 import detector_verdict as DV
+import driver_journal as DJ
 import human_text
 import no_move as NM
 import person_owned as PO
@@ -1771,17 +1772,44 @@ class DriverMachine:
             "idempotency_key": f"handoff:driver:{state.get('revision', 0)}"})
 
     def run(self) -> int:
+        """Run the story. The process leaves two rows in `driver-runs.jsonl` (P1-v W1, `driver_journal.process_start_row` /
+        `process_end_row`): `start` is the FIRST thing written, `end` is written in the `finally`, after a `stopped_by_person` row
+        when the person stopped it, with `process_code` = the returned int, null when `run` ended by an exception (the exception
+        propagates unchanged). POSITION INVARIANT: nothing that can raise sits between entry and the `try` (two assignments), so a
+        process has a start row and no end row only when it was killed (no `finally` runs). A journal that cannot be written at the
+        start row raises the `OSError` of `journal_run` as for any first row (the end row is still attempted); a failed end row is one
+        `note:` line and never replaces the exception in flight. A fingerprint or class that cannot be established is null /
+        `unknown` plus one note, never a stop (P1)."""
         self.run_started = _now()       # TR4-11: when THIS process began; the stop record names it (`since`)
-        self.progress_line()            # the log header: where the story stands as this process starts
-        if not self.state.get("asked"):
-            self.state.pop("stuck_pending", None)       # B-20 F6: a mark left by a process that died in the conductor belongs to no open question
-        # TR4-11 (F-3): the OUTER try. Ctrl-C reaches here from the loop AND from the run-level handlers of the inner try (a `Refusal` handed
-        # to `funnel` can be a paid conductor call): a sibling `except` of the inner try would not see the second kind.
+        code = None
         try:
-            return self._run_guarded()
-        except KeyboardInterrupt:
-            self.person_stop_record()
-            raise
+            notes: list = []
+            row = DJ.process_start_row(self.run_started, getattr(self, "project", None), getattr(self.flags, "answer", None), notes)
+            for line in notes:
+                print(line, flush=True)
+            self.journal_run(row)
+            self.progress_line()            # the log header: where the story stands as this process starts
+            if not self.state.get("asked"):
+                self.state.pop("stuck_pending", None)       # B-20 F6: a mark left by a process that died in the conductor belongs to no open question
+            # TR4-11 (F-3): the OUTER try. Ctrl-C reaches here from the loop AND from the run-level handlers of the inner try (a `Refusal`
+            # handed to `funnel` can be a paid conductor call): a sibling `except` of the inner try would not see the second kind.
+            try:
+                code = self._run_guarded()
+                return code
+            except KeyboardInterrupt:
+                self.person_stop_record()
+                raise
+        finally:
+            try:
+                notes = []
+                row = DJ.process_end_row(self.run_started, code, self.question_path(), notes)
+                for line in notes:
+                    print(line, flush=True)
+                self.journal_run(row)
+            except OSError as exc:
+                print(f"note: the end of the process could not be journalled ({type(exc).__name__}); it goes on", flush=True)
+            except KeyboardInterrupt:
+                pass
 
     def person_stop_record(self) -> None:
         """TR4-11: the person stopped the run (Ctrl-C, either road): ONE row of `driver-runs.jsonl`, through `journal_run`, so that the

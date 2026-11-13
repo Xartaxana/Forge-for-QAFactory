@@ -166,7 +166,15 @@ def no_state_dir_writes_nothing(tmp):
     d.reconcile_question = interrupt
     error, out = run_catching(d)
     check("no_state_dir_writes_nothing: re-raised", isinstance(error, KeyboardInterrupt), repr(error))
-    check("no_state_dir_writes_nothing: the story's state folder is not created", not d.state_dir.exists(), str(d.state_dir))
+    # P1-v N1: the start row goes through the driver's one journal writer, which makes the folder (as for any first row); so a
+    # run stopped later finds the folder there. `person_stop_record` itself still writes nothing for a folder that is absent
+    # (checked below by calling it directly on a driver that never ran `run`).
+    check_eq("no_state_dir_writes_nothing: the start row made the folder; rows: start, stop, end",
+             [r["kind"] if r["kind"] == "stopped_by_person" else r.get("event") for r in rows_of(d)], ["start", "stopped_by_person", "end"])
+    d2 = rig(tmp / "nostate-direct", with_state_dir=False)
+    d2.run_started = SR._now()
+    d2.person_stop_record()
+    check("no_state_dir_writes_nothing: `person_stop_record` alone creates no folder", not d2.state_dir.exists(), str(d2.state_dir))
     check_eq("no_state_dir_writes_nothing: no console line", out, "")
 
 
@@ -176,8 +184,9 @@ def before_run_no_record(tmp):
     check("before_run: a driver that never ran `run` has written no row", rows_of(d) == [], str(rows_of(d)))
     d.progress_line = lambda: (_ for _ in ()).throw(KeyboardInterrupt())    # the header line of `run` itself
     error, _out = run_catching(d)
-    check("before_run: an interrupt in the header line is re-raised and writes nothing (no call could have been launched)",
-          isinstance(error, KeyboardInterrupt) and rows_of(d) == [], f"{error!r} {rows_of(d)}")
+    check("before_run: an interrupt in the header line is re-raised and writes no stop row (no call could have been launched)",
+          isinstance(error, KeyboardInterrupt) and [r.get("event") for r in rows_of(d)] == ["start", "end"] and stops(d) == [],
+          f"{error!r} {rows_of(d)}")
 
 
 def failed_write_is_one_note(tmp):
@@ -189,6 +198,8 @@ def failed_write_is_one_note(tmp):
     d.reconcile_question = interrupt
 
     def broken(path, record):
+        if record.get("kind") != "stopped_by_person":       # P1-v N1: the process rows are written; the STOP row is the one that fails
+            return real(path, record)
         raise PermissionError("denied")
     SR._append_jsonl = broken
     try:
@@ -225,7 +236,8 @@ def second_ctrl_c_while_writing(tmp):
 
     def write_then_interrupt(path, record):
         real_append(path, record)
-        raise KeyboardInterrupt("second")
+        if record.get("kind") == "stopped_by_person":       # P1-v N1: only the stop row is followed by the second Ctrl-C
+            raise KeyboardInterrupt("second")
     SR._append_jsonl = write_then_interrupt
     try:
         error, _out = run_catching(d)
@@ -613,9 +625,254 @@ def machine_ids_cases():
              (out, runs[0]["checks"] if runs else None), ("retry", ("unknown",)))
 
 
+# --- P1-v N1 (spec §2 W1, §7.10, §7.11): the `process` start and end rows, and the run class -------------------------------------------
+START_KEYS = {"ts", "kind", "event", "since", "package", "config_sha", "answer_file", "run_class"}
+END_KEYS = {"ts", "kind", "event", "since", "process_code", "question_kind"}
+FORBIDDEN = ("dispatch", "dispatch_id", "session_id", "exit_code", "is_error", "infra", "call", "total_cost_usd", "cost", "cost_usd", "usd")
+
+
+class _env:
+    """STORY_RUN_CLASS set (or removed with None) for the block, restored after."""
+    def __init__(self, value):
+        self.value, self.had = value, None
+
+    def __enter__(self):
+        import os
+        self.had = os.environ.get(DJ.RUN_CLASS_ENV)
+        if self.value is None:
+            os.environ.pop(DJ.RUN_CLASS_ENV, None)
+        else:
+            os.environ[DJ.RUN_CLASS_ENV] = self.value
+
+    def __exit__(self, *exc):
+        import os
+        if self.had is None:
+            os.environ.pop(DJ.RUN_CLASS_ENV, None)
+        else:
+            os.environ[DJ.RUN_CLASS_ENV] = self.had
+
+
+def note_lines(out):
+    """The `note:` lines of a run's console output (the run's own pause line is not one)."""
+    return [line for line in out.splitlines() if line.startswith("note:")]
+
+
+def process_rows(d):
+    return [r for r in rows_of(d) if r.get("kind") == "process"]
+
+
+def process_row_cases(tmp):
+    # (a) a scenario run writes exactly ONE start row and ONE end row; keys exactly as §2 W1 lists; the rows frame the run's other rows
+    d = rig(tmp / "p-normal")
+    with _env(None):
+        error, out = run_catching(d)
+    rows = rows_of(d)
+    kinds = [r.get("event") or r["kind"] for r in rows]
+    check_eq("(a) a normal run: exactly one start row then one end row, nothing else", (error, kinds), (None, ["start", "end"]))
+    start, end_row = rows[0], rows[-1]
+    check_eq("(a) start row: keys exactly the listed ones", set(start), START_KEYS)
+    check_eq("(a) end row: keys exactly the listed ones", set(end_row), END_KEYS)
+    check_eq("(a) both rows name the process start in `since`", (start["since"], end_row["since"]), (d.run_started, d.run_started))
+    check("(a) start row values: answer_file false, run_class live, config_sha null (no project), a package fingerprint string",
+          start["answer_file"] is False and start["run_class"] == "live" and start["config_sha"] is None
+          and isinstance(start["package"], str) and start["package"], str(start))
+    check("(a) end row values: process_code is the int `run` returned, no question posted", isinstance(end_row["process_code"], int)
+          and not isinstance(end_row["process_code"], bool) and end_row["question_kind"] is None, str(end_row))
+    check_eq("(a) no note on a clean start and end", note_lines(out), [])
+    # (b) none of the forbidden keys, each asserted absent by name; the end key is process_code, never exit_code
+    for key in FORBIDDEN:
+        check(f"(b) no `{key}` key in either process row", key not in start and key not in end_row, f"{start} {end_row}")
+    check("(b) a process row is no outcome row of the collector", not CS._is_outcome(start) and not CS._is_outcome(end_row), str(rows))
+    # (b) collect_stall K3 gives the same verdict on a journal with process rows as without
+    old = {"kind": "launched", "call": "role", "role": "r", "dispatch_id": "S5-dead-1", "stage": "S5",
+           "started_at": "2020-01-01T00:00:00+00:00", "ts": "2020-01-01T00:00:00+00:00"}
+    plain = [old]
+    framed = [dict(start, ts="2020-01-01T00:00:00+00:00"), old, dict(end_row, ts="2020-01-01T00:00:01+00:00")]
+    verdicts = [CS.judge({"closed": True, "unreadable": [], "driver_runs": got}, None, 1_900_000_000, 0) for got in (plain, framed)]
+    check_eq("(b) collect_stall K3: the same signals, ignored rows and unreadable reasons with and without process rows",
+             [(v["signals"], v["ignored"], v["unreadable_reasons"]) for v in verdicts][0],
+             [(v["signals"], v["ignored"], v["unreadable_reasons"]) for v in verdicts][1])
+    check("(b) K3 positive control: the dead launch is a signal in both journals", all(len(v["signals"]) == 1 for v in verdicts), str(verdicts))
+
+    # (c) the fingerprint cannot be read / is absent / is not JSON: package null, ONE note, the run goes on
+    import runtime_paths as RP
+    real = RP._package_fingerprint
+
+    def raising(exc):
+        def fail(plugin):
+            raise exc
+        return fail
+    for n, (label, seam) in enumerate((("an OSError (cannot be read)", raising(OSError("denied"))),
+                                       ("a ValueError (not JSON)", raising(ValueError("Expecting value"))),
+                                       ("an empty value (absent)", lambda plugin: ""), ("None", lambda plugin: None))):
+        d = rig(tmp / f"p-fp-{n}")
+        RP._package_fingerprint = seam
+        try:
+            with _env(None):
+                error, out = run_catching(d)
+        finally:
+            RP._package_fingerprint = real
+        notes = note_lines(out)
+        check("(c) fingerprint failure, " + label + ": package null, ONE note line, the run goes on and ends",
+              error is None and process_rows(d)[0]["package"] is None and len(notes) == 1 and notes[0].startswith("note:")
+              and "fingerprint" in notes[0] and [r["event"] for r in process_rows(d)] == ["start", "end"], f"{error!r} {out} {process_rows(d)}")
+
+    # (d) Ctrl-C: the stopped_by_person row first, then the end row with process_code null
+    d = rig(tmp / "p-ctrl-c")
+
+    def interrupt():
+        raise KeyboardInterrupt()
+    d.reconcile_question = interrupt
+    with _env(None):
+        error, _out = run_catching(d)
+    rows = rows_of(d)
+    check_eq("(d) Ctrl-C: start, stopped_by_person, end - in this order", [r.get("event") or r["kind"] for r in rows], ["start", "stopped_by_person", "end"])
+    check("(d) Ctrl-C: the end row's process_code is null and the interrupt is re-raised", rows[-1]["process_code"] is None
+          and isinstance(error, KeyboardInterrupt), f"{error!r} {rows[-1]}")
+
+    # an exception other than Ctrl-C: the end row is written, process_code null, the exception propagates unchanged
+    d = rig(tmp / "p-error")
+    boom = RuntimeError("a bug nobody planned for")
+
+    def explode(action):
+        raise boom
+    d.boundary_step = explode
+    with _env(None):
+        error, _out = run_catching(d)
+    check("an exception other than Ctrl-C propagates unchanged (the same object)", error is boom, repr(error))
+    check_eq("an exception: start row then end row with process_code null",
+             [(r["event"], r.get("process_code", "-")) for r in process_rows(d)], [("start", "-"), ("end", None)])
+
+    # the journal cannot be written at the start row: the OSError of the one writer reaches the caller (as for a first `launched`
+    # row today); the end row is still attempted, its failure is ONE note and never replaces the error in flight
+    d = rig(tmp / "p-readonly")
+    real_append = SR._append_jsonl
+    SR._append_jsonl = lambda path, record: (_ for _ in ()).throw(PermissionError("read-only"))
+    try:
+        with _env(None):
+            error, out = run_catching(d)
+    finally:
+        SR._append_jsonl = real_append
+    notes = [line for line in out.splitlines() if line.strip()]
+    check("start row unwritable: the PermissionError reaches the caller, the end row's failure is ONE note, no row on disk",
+          isinstance(error, PermissionError) and len(notes) == 1 and notes[0].startswith("note: the end of the process")
+          and rows_of(d) == [], f"{error!r} {out} {rows_of(d)}")
+
+    # the end row is the one the mutation removes: a process that is killed has a start row and no end row (what no code can fix)
+    # config_sha: sha256 of the bytes; absent -> null; unreadable -> null and ONE note
+    import hashlib
+    project = tmp / "p-project"
+    (project / "qa-factory").mkdir(parents=True)
+    config = project / "qa-factory" / "config.json"
+    config.write_bytes(b'{"driver": {}}\r\n')
+    d = rig(tmp / "p-config")
+    d.project = project
+    with _env(None):
+        run_catching(d)
+    check_eq("config_sha is the sha256 of the config bytes", process_rows(d)[0]["config_sha"], hashlib.sha256(b'{"driver": {}}\r\n').hexdigest())
+    config.unlink()
+    config.mkdir()                 # a folder where the file should be: not absent, not readable
+    d = rig(tmp / "p-config-bad")
+    d.project = project
+    with _env(None):
+        _error, out = run_catching(d)
+    check("config_sha unreadable: null and ONE note", process_rows(d)[0]["config_sha"] is None
+          and len(note_lines(out)) == 1, out)
+    d = rig(tmp / "p-config-none")
+    d.project = tmp / "p-no-such-project"
+    with _env(None):
+        _error, out = run_catching(d)
+    check("config_sha absent file: null, no note", process_rows(d)[0]["config_sha"] is None and note_lines(out) == [], out)
+
+    # question_kind: the `kind:` line of the posted question file; none posted -> null; a file with no kind line -> null and ONE note
+    d = rig(tmp / "p-question")
+    (d.state_dir / "driver-question.md").write_text("# Driver question - X\nkind: gate_b\nstage: S9\n", encoding="utf-8")
+    with _env(None):
+        run_catching(d)
+    check_eq("question_kind names the kind of the open question", process_rows(d)[1]["question_kind"], "gate_b")
+    d = rig(tmp / "p-question-bad")
+    (d.state_dir / "driver-question.md").write_text("no head here\n", encoding="utf-8")
+    with _env(None):
+        _error, out = run_catching(d)
+    check("question file with no kind line: null and ONE note", process_rows(d)[1]["question_kind"] is None
+          and len(note_lines(out)) == 1, out)
+    d = rig(tmp / "p-answer")
+    d.flags = SimpleNamespace(answer="answer.txt")
+    d.take_answer = lambda path: None
+    with _env(None):
+        run_catching(d)
+    check_eq("answer_file is true when --answer was given", process_rows(d)[0]["answer_file"], True)
+    # TEMPORAL: a journal written before this node has no process rows - the readers read it as before
+    check("a journal with no process rows is read whole by the readers that exist (DJ.read_rows, CS.judge)",
+          len(DJ.read_rows(d.state_dir / NAME)) == len(rows_of(d)) and len(verdicts[0]["signals"]) == 1, "")
+
+
+RUN_CLASS_ROWS = (   # (what the variable holds, None = absent, the class, notes)
+    (None, "live", 0), ("", "live", 0), ("   ", "live", 0), ("\t\n", "live", 0),
+    ("dry", "dry", 0), ("smoke", "smoke", 0),
+    ("DRY", "unknown", 1), ("Dry ", "unknown", 1), (" dry ", "unknown", 1), ("live", "unknown", 1), ("test", "unknown", 1),
+    ("x" * 10240, "unknown", 1), ("".join(map(chr, (0x434, 0x440, 0x430, 0x439))), "unknown", 1), ("dry\nsmoke", "unknown", 1), ("dry\x00", "unknown", 1),
+    ("d" * 60, "unknown", 1), ("d" * 61, "unknown", 1),
+)
+
+
+def run_class_cases(tmp):
+    # (e) one variant row per input of §7.10; an input outside the table is `unknown` with ONE note; the others have none
+    for value, want, n_notes in RUN_CLASS_ROWS:
+        notes: list = []
+        got = DJ.run_class({} if value is None else {DJ.RUN_CLASS_ENV: value}, notes)
+        label = "absent" if value is None else repr(value[:20]) + (f" (+{len(value) - 20} chars)" if len(value) > 20 else "")
+        check_eq(f"(e) run_class {label}: the class and the number of notes", (got, len(notes)), (want, n_notes))
+        if n_notes:
+            check(f"(e) run_class {label}: the note is one line and quotes at most 60 characters of the value",
+                  "\n" not in notes[0] and "\x00" not in notes[0] and notes[0].startswith("note:") and ("x" * 61) not in notes[0]
+                  and ("d" * 61) not in notes[0], notes[0][:200])
+    # AT and BEYOND the 60-character quote: 60 characters are quoted whole and say nothing of a cut; 61 are cut and say so
+    at, beyond = [], []
+    DJ.run_class({DJ.RUN_CLASS_ENV: "d" * 60}, at)
+    DJ.run_class({DJ.RUN_CLASS_ENV: "d" * 61}, beyond)
+    check("(e) AT 60 characters: quoted whole, no cut remark", ("d" * 60) in at[0] and "characters)" not in at[0], at[0])
+    check("(e) BEYOND (61): 60 quoted, the cut and the full length named", ("d" * 60) in beyond[0] and ("d" * 61) not in beyond[0]
+          and "of 61 characters" in beyond[0], beyond[0])
+    # a note is printed when no list is given
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        DJ.run_class({DJ.RUN_CLASS_ENV: "bogus"})
+    check("(e) without a notes list the one note is printed", out.getvalue().count("note:") == 1, out.getvalue())
+    # the table is data: the real file names dry and smoke; the loader is the one reader of the file
+    data, why = DJ.run_record()
+    check_eq("(e) run_record: the real table and no note", (data.get("run_classes"), why), (["dry", "smoke"], ""))
+    # run-record.json missing / unreadable / without the key / wrong shape -> unknown plus ONE note, for every value, never a crash, never live
+    bad = tmp / "run-record-bad"
+    bad.mkdir()
+    cases = {"absent": None, "not JSON": "{not json", "not an object": "[1, 2]", "no key": '{"schema_version": 1}',
+             "key is not a list": '{"run_classes": "dry"}', "list of numbers": '{"run_classes": [1, 2]}'}
+    real_path = DJ.RUN_RECORD_PATH
+    try:
+        for label, text in cases.items():
+            path = bad / (label.replace(" ", "-") + ".json")
+            if text is not None:
+                path.write_text(text, encoding="utf-8")
+            DJ.RUN_RECORD_PATH = path
+            for value in (None, "dry", "bogus"):
+                notes = []
+                got = DJ.run_class({} if value is None else {DJ.RUN_CLASS_ENV: value}, notes)
+                check_eq(f"(e) run-record.json {label}, variable {value!r}: unknown and ONE note, never live", (got, len(notes)), ("unknown", 1))
+    finally:
+        DJ.RUN_RECORD_PATH = real_path
+    # the process start row carries the class; a dry run and an unknown class end up in the row, and a mistyped one never reads live
+    for n, (value, want) in enumerate((("dry", "dry"), ("smoke", "smoke"), ("DRY", "unknown"), (None, "live"))):
+        d = rig(tmp / f"p-class-{n}")
+        with _env(value), contextlib.redirect_stdout(io.StringIO()):
+            run_catching(d)
+        check_eq(f"(e) the start row's run_class for STORY_RUN_CLASS={value!r}", process_rows(d)[0]["run_class"], want)
+
+
 def main():
     tmp = temp_dir("qa-stop-record-")
     try:
+        process_row_cases(tmp)
+        run_class_cases(tmp)
         refusal_checks_cases()
         take_checks_line_cases()
         gate_refusal_line_cases(tmp)
