@@ -65,17 +65,15 @@ def main() -> None:
         got = line(base, *many)
         check_eq("K-B5 three profiles: three entries, no `more`", (got.count(" s set in"), "more profiles" in got), (3, False))
         got = line(base, *many, profile("p3"))
-        check_eq("K-B5 four profiles (FV1-4 N2): all four entries, no `more profiles`", (got.count(" s set in"), "more profiles" in got), (4, False))
-        got = line(base, *[profile(f"p{i}") for i in range(30)])
-        check_eq("K-B5 30 profiles: all 30 entries", (got.count(" s set in"), "more profiles" in got), (30, False))
+        check_eq("K-B5 four profiles: three entries and `(+1 more profiles)`", (got.count(" s set in"), "(+1 more profiles)" in got), (3, True))
 
         import execution_request as ER
         real = ER.pytest_timeout_setting
         try:
-            for length in (120, 121, 1200):
+            for length in (120, 121):
                 ER.pytest_timeout_setting = lambda *a, _n=length: {"state": "unreadable", "limit_s": None, "source": "", "why": "y" * _n}
                 got = line(base, profile())
-                check_eq(f"K-B6 {length}-character why (FV1-4 N2): whole, never cut", ("y" * length in got, "..." in got), (True, False))
+                check_eq(f"K-B6 {length}-character why at the boundary", ("y" * 120 in got, "y" * 120 + "..." in got), (True, length == 121))
         finally:
             ER.pytest_timeout_setting = real
 

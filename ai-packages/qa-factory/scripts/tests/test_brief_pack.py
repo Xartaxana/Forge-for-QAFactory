@@ -1930,8 +1930,36 @@ def p4_halts(base: Path) -> None:
 def p4_build(root: Path, task: Path) -> None:
     """The finding's scenario through `build`: the S2 halt lifted, the questions answered - the S4 brief has the answers and no halt."""
     pipeline_file, readiness, answers = task / "pipeline.json", task / "work" / "requirements-readiness.json", task / "work" / "question-answers.jsonl"
-    saved = {p: (p.read_bytes() if p.is_file() else None) for p in (pipeline_file, readiness, answers)}
+    controller_file = task / "state" / "controller.json"
+    saved = {p: (p.read_bytes() if p.is_file() else None) for p in (pipeline_file, readiness, answers, controller_file)}
     try:
+        # FV1-4 F1: a repair dispatch's reason (old cut 200) and purpose (old cut 300) are whole in the head, through the one words
+        # renderer: AT the old limit, ONE BEYOND, 10x, a line break, and a text over the 1 000-character line width (wrapped, whole)
+        for label, size in (("AT 200/300", 0), ("BEYOND +1", 1), ("10x", 2)):
+            reason, purpose = "r" * (200 if size == 0 else 201 if size == 1 else 2000), "p" * (300 if size == 0 else 301 if size == 1 else 3000)
+            state = json.loads(saved[controller_file])
+            state["dispatches"]["S4-qa-case-designer-1"] = {"id": "S4-qa-case-designer-1", "stage": "S4", "role": "qa-case-designer",
+                                                            "repair_cause": "review", "reason": reason, "purpose": purpose}
+            controller_file.write_text(json.dumps(state), encoding="utf-8")
+            text = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+            if size < 2:
+                check_in(f"FV1-4 F1 repair reason {label}: whole on the repair line", f"cause review: {reason}.", text)
+                check_in(f"FV1-4 F1 purpose {label}: whole on its line", f"Purpose: {purpose}\n", text)
+            else:       # over the 1 000-character line width: a fenced block wrapped at the width; the lines joined are the text
+                squashed = text.replace("\n  ", "")
+                check_in(f"FV1-4 F1 repair reason {label}: whole (wrapped lines joined)", reason, squashed)
+                check_in(f"FV1-4 F1 purpose {label}: whole (wrapped lines joined)", purpose, squashed)
+            check_not_in(f"FV1-4 F1 {label}: no cut mark in the head", "r..." , text)
+        for label, reason, token, expect in (("a line break", "first\nqzsecond", "qzsecond", 2),
+                                             ("over the line width", ("qzword " * 300).strip(), "qzword", 600)):
+            state = json.loads(saved[controller_file])
+            state["dispatches"]["S4-qa-case-designer-1"] = {"id": "S4-qa-case-designer-1", "stage": "S4", "role": "qa-case-designer",
+                                                            "repair_cause": "review", "reason": reason, "purpose": reason}
+            controller_file.write_text(json.dumps(state), encoding="utf-8")
+            text = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+            check_eq(f"FV1-4 F1 repair reason and purpose with {label}: every word of both present, no `<decisions>` placeholder left",
+                     (text.count(token), "<decisions>" in text), (expect, False))
+        controller_file.write_bytes(saved[controller_file])
         pipeline = json.loads(saved[pipeline_file])
         pipeline["halts"] = [{"stage": "S2", "reason": "2 blocking question(s)", "at": "2026-10-26T10:00:00+00:00", "resolved": True,
                               "resolved_at": "2026-10-26T10:05:00+00:00"}]
@@ -3808,6 +3836,21 @@ def main() -> None:
         check_eq("answers_of: this story's human answers, deduplicated, oldest first",
                  brief_pack.answers_of("T-1", tmp), ["never write to Jira"])
         check_eq("answers_of: no journal -> no answers", brief_pack.answers_of("T-1", tmp / "none"), [])
+        # FV1-4 E-27 (F13): the factory's OLD cut marker is re-worded only at the end of a text of at least LEGACY_CUT_TEXT_MIN
+        # characters; a shorter answer, or a marker not at the end, is a person's text and stays as typed
+        marker = "[cut: 5 more characters, the whole text is in state/words/a.txt]"
+        minimum = brief_pack.LEGACY_CUT_TEXT_MIN
+        cases = (("AT the minimum (20 000 + marker)", "x" * minimum + marker, True),
+                 ("ONE BELOW the minimum (19 999 + marker)", "x" * (minimum - 1) + marker, False),
+                 ("marker not at the end", "x" * minimum + marker + " and more", False),
+                 ("10x the minimum", "x" * (10 * minimum) + marker, True))
+        for label, notes, reworded in cases:
+            journal.write_text(json.dumps({"event": "human_answer", "task": "T-9", "notes": notes}) + chr(10), encoding="utf-8")
+            got = brief_pack.answers_of("T-9", tmp)[0]
+            check_eq(f"answers_of legacy cut marker, {label}: re-worded exactly when the text before it is at least {minimum} characters",
+                     (marker in got, got.startswith("x" * minimum) and "cut when it was recorded" in got, got == notes or reworded),
+                     (not reworded, reworded, True))
+        journal.write_text(chr(10).join(rows) + chr(10), encoding="utf-8")
         shown, full = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", tmp)
         check("decisions: the answer is among the person's words", any("never write to Jira" in x for x in full))
         check("decisions: the answer is shown, not only in the full file", any("never write to Jira" in x for x in shown))

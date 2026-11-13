@@ -1711,6 +1711,16 @@ def _words_block(head: str, words) -> str:
     return _Pointer(block) if wrapped else block
 
 
+def _head_words(head: str, words, end: str = "") -> str:
+    """A dispatch record's text in the brief's head, WHOLE, through the one renderer `_words_block`. The head has no side file
+    for the text as given, so a wrapped text carries no pointer note (no character is dropped: the lines joined are the text);
+    `end` closes the one-line form only (a fenced block ends with its fence)."""
+    out = str(_words_block(head, words))
+    if "\n" not in out:
+        return out + end
+    return out.replace(WORDS_WRAPPED_NOTE, "", 1)
+
+
 def question_answer_lines(task_root, project: Path | None = None) -> tuple:
     """([(full, shown)], said): one entry per question the person decided - answered, not needed, or kept
     open until the report - read ONLY through `QR.answers_for_brief` (AR-13: the answers file is the carrier, not the
@@ -4209,8 +4219,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     if dispatch.get("read_first"):
         head.append(f"Read first, before anything else: {', '.join(map(str, dispatch['read_first']))}.")
     if dispatch.get("repair_cause") or dispatch.get("parent_retry"):
-        head.append(f"This is a repair dispatch - cause {dispatch.get('repair_cause') or 'unnamed'}"
-                    + (f": {_short(dispatch.get('reason'), 200)}" if dispatch.get("reason") else "") + ".")
+        cause_head = f"This is a repair dispatch - cause {dispatch.get('repair_cause') or 'unnamed'}"
+        head.append(_head_words(cause_head + ": ", dispatch["reason"], ".") if dispatch.get("reason") else cause_head + ".")
     if dispatch.get("rework_of"):
         # TP2-2406 S3-3, 15.10.2026: a rework packet named TS-1..TS-4 and TS-8 and the brief of that
         # dispatch held none of them (FR-49: what the packet says reaches the role). Only for a rework: a
@@ -4219,7 +4229,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         if dispatch.get("plan_rows"):
             head.append("Plan rows of this dispatch: " + ", ".join(str(row) for row in dispatch["plan_rows"]) + ".")
     if dispatch.get("purpose"):
-        head.append(f"Purpose: {_short(dispatch['purpose'], 300)}")
+        head.append(_head_words("Purpose: ", dispatch["purpose"]))
     if first_look:
         head += first_look_runner_lines(task_root)      # t-2277 FL-3: in the head, which is never shrunk
     # SC1-14 C2 / SC1-15: the plan (its dispatch), or its slice (a window of the plan form). At most two lines added to the head.
