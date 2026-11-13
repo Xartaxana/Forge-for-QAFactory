@@ -585,12 +585,31 @@ def s5_window_rounds_are_capped() -> None:
         check_in("said as it is", "the cap of 2 rounds is spent — the person is asked", said)
         handle(driver_at("S5-qa-code-critic-4"), refusal("S5-qa-code-critic-4", g3))
         check_eq("the cap stop is recorded once", [r["outcome"] for r in held()], ["to_conductor", "same_set", "to_conductor", "cap"])
+        # CL4-1 W1: the driver journal mirrors the series, one row per record (the person's repeats at the two re-asks added none)
+        runs_path = task_root / "state" / "driver-runs.jsonl"
+        window_rows = [json.loads(line) for line in runs_path.read_text(encoding="utf-8").splitlines()
+                       if line.strip() and json.loads(line).get("kind") == "window_round"]
+        check_eq("CL4-1 W1: one window_round row per series record, the same stage, key, dispatch, round, cause, outcome and count",
+                 [(r["stage"], r["key"], r["dispatch"], r["round"], r["cause"], r["outcome"], r["findings"]) for r in window_rows],
+                 [("S5", key, h["dispatch"], i, h["cause"], h["outcome"], len(h["set"])) for i, h in enumerate(held(), 1)])
         # the closing role's ACCEPTED completion ends the series, and the set is welcome again afterwards
         closer = driver_at("S5-qa-code-critic-5")
         closer.py = lambda script, *args, **kw: (0, "ok") if script == "window_record.py" else (0, "accepted x")
         with contextlib.redirect_stdout(io.StringIO()):
             closer.finish("S5-qa-code-critic-5", "qa-code-critic S5 W ok", complete=True, role="qa-code-critic", stage="S5")
         check_eq("an accepted critic completion pops the series (in memory and on disk)", (key in closer.state["window_rounds"], held()), (False, []))
+        # CL4-1 W4: the pop emptied the state's series, yet the real collector still sees the capped window through the journal row
+        import collect_stall as CS
+        verdict = CS.judge({"closed": True, "unreadable": [], "driver_runs": CS._jsonl_rows(runs_path, "driver-runs.jsonl", []),
+                            "driver_state": dict(closer.state), "driver_state_present": True}, None, 1_900_000_000, 0, CS.load_loops())
+        check_eq("CL4-1 W4: the collector reads the cap and the repeat from the journal after the pop",
+                 sorted(s["where"] for s in verdict["loop_signals"] if s["where"].startswith("driver-runs.jsonl window_round")),
+                 ["driver-runs.jsonl window_round row cap", "driver-runs.jsonl window_round row same_set"])
+        check_eq("CL4-1 W4: and the story is looped", verdict["looped"], True)
+        # CL4-1 W5: the row is bookkeeping: never an outcome, never a session
+        check("CL4-1 W5: no window_round row is an outcome or carries a session",
+              all(not CS._is_outcome(r) and not any(k in r for k in ("is_error", "exit_code", "infra", "session_id")) for r in window_rows),
+              repr(window_rows))
         outcome, _said = handle(driver_at("S5-qa-code-critic-5"), refusal("S5-qa-code-critic-5", g1))
         check_eq("and the set starts a new series", (outcome, len(conductor)), ("continue", 3))
         # a refused completion pops nothing

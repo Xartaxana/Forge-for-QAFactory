@@ -333,7 +333,10 @@ class DriverMachine:
         DC1-21: the round's kind (`cause`) is `window` when the set is the window record's gap lines
         (`window_findings`), else `refusal` (the factory's own refusal of the call); each kind has its own cap of
         `WINDOW_ROUND_CAP`; `same_set` is judged across both; a record with no or an unknown `cause` counts as
-        `window` (an unknown is never free: FR-59)."""
+        `window` (an unknown is never free: FR-59).
+        Every series record is mirrored by a `window_round` row of the driver journal (`journal_run`), which
+        outlives the pop at acceptance; `collect_stall` reads it through `references/collect-loops.json` (L2), and
+        `task_price` passes it by (`references/driver-journal-kinds.json`)."""
         if stage not in WINDOW_ROUND_STAGES:
             return
         dispatch = self.refusal_dispatch(refusal)
@@ -363,6 +366,8 @@ class DriverMachine:
             if not any(isinstance(r, dict) and r.get("set") == found and r.get("outcome") == reason for r in series):
                 series.append({"at": _now(), "dispatch": dispatch, "set": found, "outcome": reason, "cause": cause})
                 self.save_state()
+                self.journal_run({"kind": "window_round", "stage": stage, "key": key, "dispatch": dispatch,
+                                  "round": len(series), "cause": cause, "outcome": reason, "findings": len(found)})
             if reason == "same_set":
                 print(f"{stage} window {scope}: round {len(rounds) + 1} came back with the same {len(found)} "
                       f"finding(s) as round {same} — no further rework; the person is asked")
@@ -404,6 +409,8 @@ class DriverMachine:
             self.no_move(state)
         series.append({"at": _now(), "dispatch": dispatch, "set": found, "outcome": "to_conductor", "cause": cause})
         self.save_state()
+        self.journal_run({"kind": "window_round", "stage": stage, "key": key, "dispatch": dispatch,
+                          "round": len(series), "cause": cause, "outcome": "to_conductor", "findings": len(found)})
         number = len(mine) + 1
         if cause == "refusal":
             print(f"{stage} window {scope}: refusal round {number} of {WINDOW_ROUND_CAP} goes to the conductor - the "
