@@ -817,8 +817,7 @@ def _section_door(path_raw: str, event) -> str:
                     "`offset=<first line>` `limit=<last line - first line + 1>`; after your own Edit the lines below it move - "
                     "a whole Read of the file gives the map again.")
             if _has_bash(event):
-                story = _STORY_RE.search(raw)
-                task = story.group(1) if story else "<TICKET>"
+                task = _path_story(raw, event) or "<TICKET>"
                 script = "plan_row.py" if kind == "plan_rows" else "grounding_section.py"
                 shape = "--show --row <TS-n> [--row ...]" if kind == "plan_rows" else "--show <id> [--show ...] | --requirement <R-n>"
                 door += f"\nWith a shell: {_door_command(script)} --task {task} {shape}"
@@ -930,8 +929,7 @@ def case_store_check(event: dict, cfg: dict) -> None:
         return  # a path the guard cannot resolve is not the guard's business
     if target == allowed or allowed in target.parents:
         return
-    ticket = _STORY_RE.search(raw)
-    sample = case_forms.example(ticket.group(1) if ticket else "", cfg or load_config())
+    sample = case_forms.example(_path_story(raw, event), cfg or load_config())
     block(f"PRE-TOOL GUARD: this project keeps its test cases in `{store}` "
           f"(config.json, cases_root), and this write goes to {raw}. Write it as "
           f"`{store}/<area>/{sample}.md` instead — the coverage map, the traceability check "
@@ -959,6 +957,24 @@ OWNED_ARTIFACTS = {
 # file; the role is who is dispatched to produce it, which is what this guard asks about.
 REGISTRY_ROLE_BY_SCRIPT = {"manifest_put.py": "qa-automator", "finalize_task.py": "qa-runner"}
 _STORY_RE = re.compile(r"/artifacts/([^/]+)/")
+
+
+def _path_story(raw: str, event: dict | None = None) -> str:
+    """The story key a path under `/artifacts/` names, as the folder a write LANDS in (OH8-2, F4): the key the path
+    spells, replaced by the listed folder the OS opens for it (`hooklib.landing_name`: case, trailing dot, 8.3 name,
+    junction alias), so the owner rule judges the story whose files change, never the absent-story pass. "" when the
+    path names no story. NEVER raises: any failure (a broken project config among them) leaves the raw key, which is
+    today's answer. The match is on a literal `/artifacts/` (a custom artifact root is not matched, as before)."""
+    key = ""
+    try:
+        match = _STORY_RE.search(str(raw))
+        key = match.group(1) if match else ""
+        if key:
+            from hooklib import artifact_root, landing_name
+            key = landing_name(artifact_root(event), key) or key
+    except Exception:  # noqa: BLE001 - a guard helper never raises (P1)
+        pass
+    return key
 
 
 def owned_artifacts() -> dict:
@@ -1161,13 +1177,13 @@ def dispatched_role(event: dict) -> str:
     windows); a session that carries its dispatch's name (`dispatch_identity.named`) gets that dispatch's role. None open, or no
     controller, means the caller decides what to assume."""
     raw = str(((event or {}).get("tool_input") or {}).get("file_path") or "").replace("\\", "/")
-    story = _STORY_RE.search(raw)
-    if not story:
+    key = _path_story(raw, event)
+    if not key:
         return ""
     import json
     from hooklib import artifacts_dir
     try:
-        controller = json.loads((artifacts_dir(story.group(1), event) / "state" / "controller.json")
+        controller = json.loads((artifacts_dir(key, event) / "state" / "controller.json")
                                 .read_text(encoding="utf-8"))
     except Exception:
         return ""
@@ -1234,10 +1250,9 @@ def artifact_rewrite_check(event: dict, cfg: dict) -> None:
         cost = str(entry.get("rewrite_cost") or "").strip()
         # The door of a ban (FR-57): a run that was cut off may leave a file nothing can be continued
         # from, and the guard must not be a dead end then. Named only to a role that can run it.
-        story = _STORY_RE.search(raw)
         door = ("\nIf a run of yours was cut off and left this file with nothing in it to continue from, set it "
                 f"aside and write it again:\n  {_door_command('artifact_supersede.py')} "
-                f"--task {story.group(1) if story else '<TICKET>'} --path {str(key).lstrip('/')} "
+                f"--task {_path_story(raw, event) or '<TICKET>'} --path {str(key).lstrip('/')} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in role_ways(event) else ""
         block(f"PRE-TOOL GUARD: {name} already exists, and a Write replaces it whole"
@@ -1292,7 +1307,7 @@ def plan_write_check(event: dict, cfg: dict) -> None:
                 "rows that parse and pass their check, repair a stale row with `plan_row.py --set`, add the "
                 "rest with `--add-row`. Only when nothing in it is usable, set it aside and write the plan "
                 f"again:\n  {_door_command('artifact_supersede.py')} --task "
-                f"{story.group(1) if story else '<TICKET>'} --path {raw.split(story.group(0), 1)[1] if story else 'work/test-plan.json'} "
+                f"{_path_story(raw, event) or '<TICKET>'} --path {raw.split(story.group(0), 1)[1] if story else 'work/test-plan.json'} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in ways else ""
         block(f"PRE-TOOL GUARD: this plan already holds {len(ids)} rows ({', '.join(ids[:6])}"
@@ -1305,7 +1320,7 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         ways = role_ways(event)
         door = ("\nIf a run of yours was cut off and left this file with nothing in it to continue from, set it "
                 f"aside and write it again:\n  {_door_command('artifact_supersede.py')} "
-                f"--task {story.group(1) if story else '<TICKET>'} --path "
+                f"--task {_path_story(raw, event) or '<TICKET>'} --path "
                 f"{raw.split(story.group(0), 1)[1] if story else 'work/test-plan.md'} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in ways else ""
@@ -1452,7 +1467,7 @@ def owner_check(event: dict, cfg: dict) -> None:
     story = _STORY_RE.search(raw)
     if not story and not outside_story:
         return
-    ticket = story.group(1) if story else ""
+    ticket = _path_story(raw, event) if story else ""
     if role_name(subagent_type(event)) == owner:
         return  # the host's own event says this IS the owning role writing
     if not ticket:

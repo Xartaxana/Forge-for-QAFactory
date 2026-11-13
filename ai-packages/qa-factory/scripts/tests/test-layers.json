@@ -4359,7 +4359,13 @@
     "stage_guard.py",
     "event_store.py",
     "selftest.py",
-    "dependency_drift.py"
+    "dependency_drift.py",
+    "bug_records.py",
+    "guard_pre_tool.py",
+    "role_load.py",
+    "archive_task.py",
+    "audit_factory.py",
+    "env_probe.py"
    ]
   },
   "test_resume_doors.py": {

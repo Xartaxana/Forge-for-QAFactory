@@ -636,4 +636,218 @@ class NativeHostTests(unittest.TestCase):
             self.assertEqual(usage['r1'][1],{'input_tokens':40,'cache_read_input_tokens':60,'output_tokens':20})
             self.assertEqual(receipt['status'],'recorded')
 
+def _load_old_scripts():
+    """RED PROBE (OH8-6): with `OH86_OLD_SRC=<folder>` holding the pre-change `host_dispatch.py`, `activity_capture.py` and
+    `cost_capture.py`, the table below runs against THOSE files (loaded under the package names) and must go red in the
+    C1, C2, C3, C3', C5 and C6 cells. Unset (the normal run) this does nothing."""
+    folder=os.environ.get('OH86_OLD_SRC')
+    if not folder: return
+    import importlib.util
+    for name in ('host_dispatch','activity_capture','cost_capture'):
+        spec=importlib.util.spec_from_file_location(name,Path(folder)/(name+'.py'))
+        module=importlib.util.module_from_spec(spec); sys.modules[name]=module; spec.loader.exec_module(module)
+
+
+_load_old_scripts()
+FIXTURE_START_TURN=Path(__file__).resolve().parent/'fixtures'/'synthetic-start-turn'
+# the contents a receipt or controller file can carry: (label, bytes, broken?). `{}` and a valid object are the controls.
+BROKEN_CONTENTS=[('empty',b'',True),('open brace',b'{',True),('json list',b'[]',True),('json null',b'null',True),
+                 ('non-utf8 bytes',b'\xff',True),('nesting beyond the parser',b'['*100000,True),
+                 ('empty object',b'{}',False),('valid object',b'{"agent_id":"AG1"}',False)]
+UNREADABLE='host_receipt_unreadable'
+
+
+class BrokenReceiptTable(unittest.TestCase):
+    """OH8-6: a broken receipt, controller file, activity spool or host binding is named through `hooklib.person_signal`
+    and skipped, never a traceback out of the hook (I5); `{}` stays silent. One table: contents x columns."""
+
+    def project(self,tmp,config='{"schema_version":1}'):
+        import hooklib
+        root=Path(tmp); qf=root/'qa-factory'; (qf/'state').mkdir(parents=True)
+        (qf/'config.json').write_text(config)
+        state=qf/'artifacts'/'TP2-2406'/'state'; state.mkdir(parents=True)
+        (state.parent/'pipeline.json').write_text(json.dumps({'ticket':'TP2-2406'}))
+        (state/'controller.json').write_text(json.dumps({'dispatches':{
+            'S7-qa-failure-analyst-4':{'id':'S7-qa-failure-analyst-4','role':'qa-failure-analyst','status':'running'}}}))
+        hooklib.pin_project_root(root)
+        return root
+
+    def spawn(self,root,tool_use_id='spawn-4'):
+        return normalize({'tool_name':'collaboration.spawn_agent','cwd':str(root),'session_id':'parent','tool_use_id':tool_use_id,
+            'tool_input':{'task_name':'qa_failure_analyst__tp2_2406_s7_4','message':'opaque'},
+            'tool_response':{'task_path':'/root/qa_failure_analyst__tp2_2406_s7_4'}})
+
+    def spied(self):
+        """(calls, patcher): every `person_signal` call of kind `host_receipt_unreadable` as its `once_key`."""
+        from unittest.mock import patch
+        calls=[]
+        def spy(event,kind,text,*,task=None,once_key=''):
+            if kind==UNREADABLE: calls.append(once_key)
+            return True
+        return calls,patch('hooklib.person_signal',spy)
+
+    def test_receipt_and_controller_readers_skip_and_say_so(self):
+        import hooklib, host_dispatch
+        for label,content,broken in BROKEN_CONTENTS:
+            with self.subTest(column='C1 SubagentStop mark',content=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp); path=host_dispatch.binding_path(root,'AG1'); path.parent.mkdir(parents=True)
+                path.write_bytes(content); calls,patcher=self.spied()
+                with patcher:
+                    host_dispatch.record({'hook_event_name':'SubagentStop','session_id':'parent','agent_id':'AG1',
+                                          '_exit_gate_released':True,'cwd':str(root)})
+                self.assertEqual(calls,[str(path)] if broken else [])
+                if broken or content==b'{}': self.assertEqual(path.read_bytes(),content)
+                else: self.assertEqual(json.loads(path.read_text())['status'],'terminal')
+            with self.subTest(column='C2 launch scan, broken file sorted first',content=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp); folder=root/'qa-factory/state/host-dispatches'; folder.mkdir(parents=True)
+                bad=folder/'0-broken.json'; bad.write_bytes(content)
+                good=folder/'good.json'
+                good.write_text(json.dumps({'agent_id':'old','task_path':'old','tool_use_id':'spawn-4','parent_session_id':'parent'}))
+                calls,patcher=self.spied()
+                with patcher: host_dispatch.record(self.spawn(root))
+                self.assertEqual(calls,[str(bad)] if broken else [])
+                self.assertEqual(bad.read_bytes(),content)
+                self.assertEqual(json.loads(good.read_text())['task_path'],'/root/qa_failure_analyst__tp2_2406_s7_4',
+                                 'the good receipt of the same launch is rebound')
+            with self.subTest(column='C3 controller file',content=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp); controller=root/'qa-factory/artifacts/TP2-2406/state/controller.json'
+                controller.write_bytes(content); calls,patcher=self.spied()
+                with patcher: host_dispatch.record(self.spawn(root))
+                receipt=json.loads(host_dispatch.binding_path(root,'/root/qa_failure_analyst__tp2_2406_s7_4').read_text())
+                self.assertEqual((receipt['dispatch_id'],receipt['task_id']),(None,'TP2-2406'))
+                self.assertEqual(calls,[str(controller)] if broken else [])
+                self.assertEqual(controller.read_bytes(),content)
+
+    def test_subagent_stop_with_host_binding_says_one_path_once(self):
+        """F5: both identities of a SubagentStop read the SAME host_binding path: one signal for it."""
+        import hooklib, host_dispatch
+        with tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+            root=self.project(tmp); path=root/'bound.json'; path.write_bytes(b'{')
+            calls,patcher=self.spied()
+            with patcher:
+                host_dispatch.record({'hook_event_name':'SubagentStop','session_id':'parent','agent_id':'AG1','host_binding':str(path),
+                                      '_exit_gate_released':True,'cwd':str(root)})
+            self.assertEqual(calls,[str(path)])
+
+    def test_non_object_activity_spool_never_stops_the_receipt(self):
+        """F3: a spool that is no object, or whose entries are no objects, names no activity; the receipt is written."""
+        import hooklib, host_dispatch
+        for label,content in (('a list',b'[]'),('a number entry beside a stack',b'{"activities":[5],"active_stack":["x"]}'),
+                              ('activities is no list',b'{"activities":5,"active_stack":["x"]}'),
+                              ('stack is no list',b'{"activities":[{"activity_id":"x"}],"active_stack":5}')):
+            with self.subTest(column='C5 activity spool shape',content=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp); event=self.spawn(root)
+                import activity_capture
+                spool=activity_capture.activity_path(event,'parent'); spool.parent.mkdir(parents=True,exist_ok=True); spool.write_bytes(content)
+                host_dispatch.record(event)
+                receipt=json.loads(host_dispatch.binding_path(root,'/root/qa_failure_analyst__tp2_2406_s7_4').read_text())
+                self.assertEqual((receipt['activity'],receipt['activity_id']),({},None))
+                self.assertEqual(spool.read_bytes(),content)
+        with tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+            root=self.project(tmp); spool=Path(tmp)/'spool.json'; spool.write_bytes(b'[]')
+            self.assertEqual(activity_capture.load(spool,'s')['activities'],[],'close_pending reads the default doc')
+
+    def test_controller_shapes_name_no_dispatch(self):
+        import hooklib, host_dispatch
+        run={'id':'S7-1','role':'qa-failure-analyst','status':'running'}
+        table=[('dispatches is a list',{'dispatches':[]},None,True),('dispatches is a number',{'dispatches':5},None,True),
+               ('no dispatches key',{},None,False),('empty dispatches',{'dispatches':{}},None,False),
+               ('only a non-dict entry',{'dispatches':{'a':5}},None,True),
+               ('a non-dict entry beside the match',{'dispatches':{'a':5,'b':run}},'S7-1',True),
+               ('match without an id',{'dispatches':{'a':dict(run,id=None)}},None,True),
+               ('match with a number id',{'dispatches':{'a':dict(run,id=7)}},None,True),
+               ('the plain match',{'dispatches':{'a':run}},'S7-1',False)]
+        for label,state,expected,said in table:
+            with self.subTest(shape=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp); controller=root/'qa-factory/artifacts/TP2-2406/state/controller.json'
+                controller.write_text(json.dumps(state)); calls,patcher=self.spied()
+                with patcher: host_dispatch.record(self.spawn(root))
+                receipt=json.loads(host_dispatch.binding_path(root,'/root/qa_failure_analyst__tp2_2406_s7_4').read_text())
+                self.assertEqual(receipt['dispatch_id'],expected)
+                self.assertEqual(calls,[str(controller)] if said else [])
+
+    def test_broken_project_config_names_no_story_and_still_writes_the_receipt(self):
+        import hooklib, host_dispatch
+        for label,config in (('artifact_root is a number','{"artifact_root": 5}'),('artifact_root is blank','{"artifact_root": " "}')):
+            with self.subTest(column="C3' resolve_ticket and C3 lookup, broken config",config=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp,config); calls,patcher=self.spied()
+                with patcher: host_dispatch.record(self.spawn(root))
+                receipt=json.loads(host_dispatch.binding_path(root,'/root/qa_failure_analyst__tp2_2406_s7_4').read_text())
+                self.assertEqual((receipt['task_id'],receipt['dispatch_id']),('',None))
+                self.assertEqual(calls,[str(root/'qa-factory/config.json')],'one signal for the one broken path')
+
+    def test_receipt_files_reports_what_it_skipped(self):
+        import host_dispatch
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)/'qa-factory/state/host-dispatches'; folder.mkdir(parents=True)
+            for index,(label,content,broken) in enumerate(BROKEN_CONTENTS): (folder/f'{index}.json').write_bytes(content)
+            skipped=[]; found=host_dispatch.receipt_files(tmp,skipped=skipped)
+            self.assertEqual(sorted(p.name for p in skipped),sorted(f'{i}.json' for i,(l,c,b) in enumerate(BROKEN_CONTENTS) if b))
+            self.assertEqual([p.name for p,_ in found],['7.json'],'`{}` is no skip and no receipt')
+            self.assertEqual([p.name for p,_ in host_dispatch.receipt_files(tmp)],['7.json'],'the default call is unchanged')
+
+    def test_legacy_activity_spool(self):
+        import hooklib, activity_capture
+        from unittest.mock import patch
+        for label,content,broken in BROKEN_CONTENTS:
+            with self.subTest(column='C5 legacy activity spool',content=label), tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+                root=self.project(tmp); event={'cwd':str(root),'session_id':'sess-oh86'}
+                import hashlib
+                identity=hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
+                temp=Path(tmp)/'tmpdir'; legacy=temp/'qa-factory-activities'/identity/'sess-oh86.json'; legacy.parent.mkdir(parents=True)
+                legacy.write_bytes(content)
+                with patch('tempfile.gettempdir',lambda:str(temp)):
+                    target=activity_capture.activity_path(event,'sess-oh86')
+                self.assertEqual(target,hooklib.state_dir(event)/'state'/'activities'/'sess-oh86.json')
+                if broken:
+                    self.assertEqual((legacy.read_bytes(),target.exists()),(content,False),'left where it is, not migrated')
+                else:
+                    self.assertEqual((legacy.exists(),target.read_bytes()==content or json.loads(target.read_text())==json.loads(content)),(False,True))
+
+    def cost(self,root,session,binding_bytes):
+        import cost_capture
+        transcript=root/'transcripts'/f'{session}.jsonl'; transcript.parent.mkdir(exist_ok=True)
+        shutil.copy(FIXTURE_START_TURN/'chat-story.jsonl',transcript)
+        activities=root/'qa-factory/state/activities'; activities.mkdir(parents=True,exist_ok=True)
+        shutil.copy(FIXTURE_START_TURN/'chat-story.activities.json',activities/f'{session}.json')
+        event={'hook_event_name':'Stop','session_id':session,'transcript_path':str(transcript),'cwd':str(root)}
+        if binding_bytes is not None:
+            bound=root/'transcripts'/f'{session}.binding.json'; bound.write_bytes(binding_bytes); event['host_binding']=str(bound)
+        cost_capture._capture(event)
+        return json.loads((root/'qa-factory/state/cost'/f'{session}.json').read_text(encoding='utf-8')),event.get('host_binding')
+
+    def test_cost_capture_marks_incomplete_attribution_and_keeps_the_total(self):
+        import hooklib
+        story=json.loads((FIXTURE_START_TURN/'chat-story.activities.json').read_text())['activities'][0]
+        with tempfile.TemporaryDirectory() as tmp, hooklib.selftest_root_restored():
+            root=self.project(tmp)
+            control,_=self.cost(root,'oh86-control',None)
+            total=sum(v['tokens'] for v in control['by_activity'].values())
+            self.assertEqual(total,1430); self.assertNotIn('attribution',control['telemetry_coverage'])
+            unreadable=[(l,c) for l,c,b in BROKEN_CONTENTS if b]
+            shapes=[('activity is a number',b'{"activity":5}','has no usable activity'),
+                    ('segments is empty',b'{"activity":{"segments":[]}}','has no usable activity'),
+                    ('segments is no list',b'{"activity":{"segments":"x"}}','has no usable activity'),
+                    ('a segment is no object',b'{"activity":{"segments":[5]}}','has no usable activity')]
+            cells=[(l,c,'unreadable') for l,c in unreadable]+shapes
+            first_unreadable=unreadable[0][1]
+            _,patcher=self.spied()
+            with patcher: reference,_=self.cost(root,'oh86-reference',first_unreadable)
+            for index,(label,content,gap) in enumerate(cells):
+                with self.subTest(column='C6 cost capture',binding=label):
+                    calls,patcher=self.spied()
+                    with patcher: doc,binding=self.cost(root,f'oh86-{index}',content)
+                    self.assertEqual(sum(v['tokens'] for v in doc['by_activity'].values()),total,'the session total is unchanged')
+                    self.assertEqual(doc['priced_subtotal_exact_usd'],control['priced_subtotal_exact_usd'],'the money total is unchanged')
+                    self.assertEqual(doc['by_activity'],reference['by_activity'],'nothing inherited is ONE road (F4): the same attribution as an unreadable receipt')
+                    marker=doc['telemetry_coverage'].get('attribution','')
+                    self.assertTrue(marker.startswith('incomplete: host_binding ') and (marker.endswith(gap) or gap=='unreadable' and marker.endswith('unreadable')),marker)
+                    self.assertEqual(calls,[binding])
+            for label,content in (('empty object',b'{}'),('valid activity',json.dumps({'activity':story}).encode())):
+                with self.subTest(column='C6 cost capture control',binding=label):
+                    calls,patcher=self.spied()
+                    with patcher: doc,_=self.cost(root,'oh86-ok-'+label.split()[0],content)
+                    self.assertNotIn('attribution',doc['telemetry_coverage']); self.assertEqual(calls,[])
+
+
 if __name__=='__main__': unittest.main()

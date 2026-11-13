@@ -6,6 +6,7 @@ sources (a refusal nobody registered is caught; a registered refusal that was de
 caught) and then runs it against the real package, which is the regression that matters: a
 refusal added to a hook without an entry fails here before it fails a live story.
 """
+import re
 import sys
 import textwrap
 from pathlib import Path
@@ -278,11 +279,47 @@ def part_fail_closed() -> None:
     check_in("carried by waiver.py", "waiver.py", entry["override"])
 
 
+_SCOPE_START, _SCOPE_END = "Scanned refusal by refusal", "A refusal there is"
+
+
+def _scope_gap(doc: str, scanned) -> tuple:
+    """(missing, extra): the `SCANNED` modules the SCOPE span of `doc` does not name, and the `x.py` names it carries that
+    `SCANNED` does not hold. The span runs from `Scanned refusal by refusal` to `A refusal there is`; a marker that is not
+    there is reported as a missing item (never a silent pass)."""
+    start = doc.find(_SCOPE_START)
+    end = doc.find(_SCOPE_END, start + 1) if start >= 0 else -1
+    if start < 0 or end < 0:
+        absent = [m for m, at in ((_SCOPE_START, start), (_SCOPE_END, end)) if at < 0]
+        return ["marker: " + m for m in absent], []
+    named = set(re.findall(r"`([\w]+\.py)`", doc[start:end]))
+    return sorted(set(scanned) - named), sorted(named - set(scanned))
+
+
+def part_scope_docstring() -> None:
+    """the SCOPE paragraph of the module docstring names every `SCANNED` module and no other `x.py` (AR-22: a docstring
+    followed 4 of 6 names for a release; the carrier is `SCANNED`, the prose follows it)."""
+    doc, scanned = RR.__doc__, RR.SCANNED
+    check_eq("all six scanned modules are in SCANNED", len(scanned), 6)
+    check_eq("the SCOPE span names every scanned module and nothing else", _scope_gap(doc, scanned), ([], []))
+    for name in ("stage_guard.py", "inject_context.py", "guard_pre_tool.py", "native_context.py",
+                 "codex_roles.py", "host_adapter.py"):
+        check_in(f"{name} is scanned", name, scanned)
+        check_eq(f"removing {name} from the span turns the gap on",
+                 _scope_gap(doc.replace(f"`{name}`", "", 1), scanned), ([name], []))
+    check_eq("a module added to SCANNED and not to the prose is missing",
+             _scope_gap(doc, scanned + ("x.py",)), (["x.py"], []))
+    check_eq("a `foo.py` added in the span is extra",
+             _scope_gap(doc.replace(_SCOPE_START, _SCOPE_START + " `foo.py`", 1), scanned), ([], ["foo.py"]))
+    check("a missing start marker is reported", _scope_gap(doc.replace(_SCOPE_START, "X", 1), scanned)[0])
+    check("a missing end marker is reported", _scope_gap(doc.replace(_SCOPE_END, "X", 1), scanned)[0])
+
+
 def main() -> None:
     part_scanner()
     part_door_texts()
     part_live_package()
     part_fail_closed()
+    part_scope_docstring()
     finish("test_refusal_registry")
 
 
