@@ -363,8 +363,17 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "a word would replace a live launch's context (the hazard `stage`'s comment names); the way "
      "out is the first launch starting; a launch that never starts (a failed spawn) leaves its packet pending, and a "
-     "relaunch under a unique task name is the door - the message does not say so yet",
+     "relaunch under a unique task name is the door, and the message names it",
      "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: row and recover rows)"},
+    {"id": "NC-launch-packet-not-object", "file": "native_context.py", "function": "stage",
+     "call": "launch packet ' + path.name + ' cannot be read",
+     "refuses": "a staging whose key already holds a file that is empty, broken JSON, or JSON that is not an object "
+     "(list, string, number, null); nothing is overwritten",
+     "override": "",
+     "unpassable_because": "the file cannot be read as a launch, so nothing can be passed over it; the row written is "
+     "inert (launch_pending is True for it); the door is a relaunch under a unique task name, named in the text "
+     "(owner: environment)",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: stage over an existing packet file table)"},
 
     # --- codex_roles.py and host_adapter.py — raises registered where they stand (OH7-2, t-263 F-6 form D) ----
     # `inject_context.dispatch` turns the first two into a refusal (`note_denial`, exit 2); the others are caught

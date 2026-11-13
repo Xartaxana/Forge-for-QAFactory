@@ -571,7 +571,7 @@
   {"file": "migrate_coverage.py", "function": "migrate", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "migrate_coverage.py", "function": "plan", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "module_facade.py", "function": "_prepare", "class": "shape", "roles": ["conductor"], "owner": "data"},
-  {"file": "native_context.py", "function": "stage", "class": "shape", "roles": ["conductor"], "owner": "data", "ref": "A24:NC-context-too-large, A24:NC-launch-identity-missing, A24:NC-launch-pending"},
+  {"file": "native_context.py", "function": "stage", "class": "shape", "roles": ["conductor"], "owner": "data", "ref": "A24:NC-context-too-large, A24:NC-launch-identity-missing, A24:NC-launch-pending, A24:NC-launch-packet-not-object"},
   {"file": "no_move.py", "function": "check_args", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "no_move.py", "function": "site_check", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "no_move.py", "function": "validate_options", "class": "shape", "roles": ["conductor"], "owner": "data"},

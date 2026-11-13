@@ -455,6 +455,43 @@ class NativeStageRefusal(unittest.TestCase):
                     self.assertEqual((story_rows[0]['dispatch_id'], story_rows[0]['stage']), (None, None))
                     self.assertEqual(self.belongs(), [])
 
+    def test_stage_over_an_existing_packet_file_table(self):
+        """OH7-3 / OH7-4: what `stage` does with the content of a file already under its key."""
+        import native_context as N
+        pending_head = 'A factory launch is awaiting SubagentStart'
+        rows = [('list', '[]', 'unreadable'), ('list1', '[1]', 'unreadable'), ('number', '1', 'unreadable'),
+                ('string', '"x"', 'unreadable'), ('null', 'null', 'unreadable'),
+                ('empty file', '', 'unreadable'), ('broken', '{broken', 'unreadable'),
+                ('empty dict', '{}', 'restaged'), ('delivered', '{"status": "delivered"}', 'restaged'),
+                ('pending', '{"status": "pending"}', 'pending')]
+        for name, content, outcome in rows:
+            with self.subTest(row=name):
+                self.reset_story_state()
+                ev = self.event()
+                self.staged(ev)
+                path = N._slot(self.root, 's', 'qa_scout__qa_1')
+                path.write_text(content, encoding='utf-8')
+                if outcome == 'restaged':
+                    self.staged(ev)
+                    self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['status'], 'pending')
+                    continue
+                from event_store import StateConflict
+                with self.assertRaises(ValueError) as caught:
+                    self.staged(ev)
+                text = str(caught.exception)
+                self.assertEqual(isinstance(caught.exception, StateConflict), outcome == 'pending')
+                self.assertEqual(path.read_text(encoding='utf-8'), content)   # nothing was overwritten
+                if outcome == 'unreadable':
+                    # never a JSONDecodeError: it hides from the A24 scanner and appends a parse position
+                    self.assertNotIsInstance(caught.exception, json.JSONDecodeError)
+                    self.assertNotIn('line 1 column', text)
+                    self.assertIn(path.name, text)
+                    self.assertIn('cannot be read or is not a JSON object', text)
+                    self.assertIn('relaunch the role under a unique task name', text)
+                else:
+                    self.assertTrue(text.startswith(pending_head))
+                    self.assertIn('relaunch the role under a unique task name', text)
+
     def test_native_packet_refusal_rows(self):
         """P-1: an OSError from `stage` leaves a NAMED row, or an INERT one while a same-key packet is pending."""
         import inject_context as IC
