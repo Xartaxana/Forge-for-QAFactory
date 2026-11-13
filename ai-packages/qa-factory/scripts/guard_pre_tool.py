@@ -1737,9 +1737,12 @@ HUMAN_WORD_MSG = ("PRE-TOOL GUARD: a person's word is recorded by the orchestrat
                   "(`show` and `validate` are open to you). "
                   "`environment_record.py record` and `revoke` store what the person accepted as a property of the environment, "
                   "or took back; a role running them would be excusing its own gap (`show` is open to you). "
-                  "`project_knowledge.py account`, `role` and `revoke` store what the person said about the product's roles and "
-                  "the stand's accounts, or take it back; a role running them would turn its own inference into a project fact "
-                  "(`show` is open to you). "
+                  "`project_knowledge.py account`, `role`, `revoke`, `remember` and `kind` store what the person said (the product's "
+                  "roles, the stand's accounts, a lasting setting, a kind of knowledge the project keeps), or take it back; a role "
+                  "running them would turn its own inference into a project fact (`show` and `lessons` are open to you). "
+                  "`config_contract.py --record-approval` / `--apply` and `onboard_apply.py --apply` record and apply what the "
+                  "person approved at onboarding; a role running them would approve its own configuration "
+                  "(`--migration-plan`, `--validate` and `--preflight` are open to you). "
                   "`project_knowledge.py side` stores what the person said about the product's sides (which are real on a stand, "
                   "whose they are, which stand runs the old version); a role running it would declare its own substitute real or "
                   "its own gap someone else's (`show` is open to you). "
@@ -1786,7 +1789,13 @@ def human_word_check(event: dict, cfg: dict) -> None:
                or re.search(r"environment_record\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|revoke)(?![\w-])", low)
                # What the person said about the product's roles and the stand's accounts, and taking it back (PK0-8): the same door shape;
                # `show` stays open
-               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side|lesson)(?![\w-])", low)
+               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side|lesson|remember|kind)(?![\w-])", low)
+               # OF3-2 K6 (B-294 (a)): the person's approval at onboarding and its application. argparse resolves any prefix of an
+               # option that is unique (`--re` is only `--record-approval`, `--appl` only `--apply`), so every such spelling is the
+               # door; the plan and read options (`--migration-plan`, `--validate`, `--preflight`, `--approval-ref`) stay open.
+               or re.search(r"config_contract\.py[\s\S]*?--(?:re(?:c(?:o(?:r(?:d(?:-(?:a(?:p(?:p(?:r(?:o(?:v(?:a(?:l)?)?)?)?)?)?)?)?)?)?)?)?)?"
+                            r"|appl(?:y)?)(?=[\s=]|$)", low)
+               or re.search(r"onboard_apply\.py[\s\S]*?--appl(?:y)?(?=[\s=]|$)", low)
                # B-416 M10: `report_adapt.py kind` writes the config's report kind and `forget` takes the helper's row back (it would
                # reset the one-turn bound); `config_write_check` reacts only to a `config.json` path word, and this script names none,
                # so the role door is closed here for both. `understood` and `show` stay open.
