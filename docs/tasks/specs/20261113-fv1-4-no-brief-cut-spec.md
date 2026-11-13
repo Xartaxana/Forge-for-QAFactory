@@ -117,7 +117,19 @@ Result table — columns (one row per primary brief, then one totals row per sou
 
 | source | dispatch | stage | role | recorded_bytes | recorded_longest_line | rebuilt_bytes | rebuilt_longest_line | words_longest_line | over_6144 | over_30000 | build_error |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| (pending — N0m) | | | | | | | | | | | |
+| (rows: N0m report t-513, 13.11.2026, in the journal's `accepted t-513` witness and the session scratch folder `fv1-4-n0m`) | | | | | | | | | | | |
+
+Totals measured 13.11.2026 (t-513; tree `wip/p1v-n0` bea0bb0; an estimate — no N2 changes, no fenced words, no F10 wrap):
+
+| source | n | median rebuilt_bytes | max rebuilt_bytes | over_6144 | over_30000 | max words_longest_line | build_error |
+|---|---|---|---|---|---|---|---|
+| cart-1 | 26 | 13 129 | 15 382 | 26 | 0 | 259 | 0 |
+| LR2-1 | 41 | 28 838 | 36 468 | 41 | 17 | 556 | 0 |
+
+Read by the Lead: every uncut primary brief is over the 6 144 ceiling (the ladder cut every one of them); 17 of LR2-1's 41 (all S5:
+automator 33 K, code critic 35–36 K) pass 30 000; the longest line of a person's words is 556, so F10's width of 1 000 stands.
+The spec's negative control is a miscall: `build` does not raise on a dispatch id the story does not have (`brief_pack.py:4122` reads
+it as an empty dispatch) — a finding of its own (a wrong id yields a plausible brief), not part of N1.
 
 Totals row per source: `n`, median and max `rebuilt_bytes`, count `over_6144`, count `over_30000`, max `words_longest_line`.
 Label: the rebuild approximates N1 (it does not apply N2's class-C changes, the fenced words rendering or F10's wrap): an estimate,
