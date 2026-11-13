@@ -588,7 +588,7 @@
       "unknown_branch": "refuse_with_door", "on_no_answer": "refuse_with_door", "waits_at": null,
       "closed_by": [], "addressee": ["role:qa-code-critic"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
-      "test": "scripts/tests/test_probe_by_code_languages.py",
+      "test": "scripts/tests/test_probe_by_code_languages_plan.py",
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
