@@ -3124,6 +3124,35 @@ def main() -> None:
         prompt = story_step._prompt("QA-9", story_step._stages()["S1"], "qa-scout", "S1-qa-scout-9", [], "")
         check_not_in("the prompt then carries no brief line", "Read qa-factory/artifacts/QA-9/work/briefs", prompt)
 
+        # RC2-2: the note is the helper's own `brief: ` line, not the last line of stdout + stderr
+        brief_file = task / story_step.BRIEF_REL.format(dispatch_id="S1-qa-scout-10")
+        brief_file.parent.mkdir(parents=True, exist_ok=True)
+        brief_file.write_text("# brief\n", encoding="utf-8")
+
+        def note_for(code: int, out: str) -> tuple:
+            story_step._run = lambda script, *a: (code, out) if script == "brief_pack.py" else real_run(script, *a)
+            try:
+                return story_step._brief("QA-9", "S1", "qa-scout", "S1-qa-scout-10", task)
+            finally:
+                story_step._run = real_run
+
+        try:
+            check_eq("RC2-2: a stderr-like line after the brief line does not replace it",
+                     note_for(0, "brief: wrote 3 KB\nwarning: something on stderr")[1], "brief: wrote 3 KB")
+            check_eq("RC2-2: two brief lines - the last one", note_for(0, "brief: first\nbrief: second\nnoise")[1], "brief: second")
+            check_eq("RC2-2: control - no prefix at code 0: the last line, as before", note_for(0, "one\ntwo")[1], "two")
+            check_eq("RC2-2: empty output at code 0: an empty note, as before", note_for(0, "")[1], "")
+            check_eq("RC2-2: leading blanks before the prefix still count", note_for(0, "  brief: padded\nnoise")[1], "brief: padded")
+            check_eq("RC2-2: another case is no prefix: the last line", note_for(0, "Brief: x\nnoise")[1], "noise")
+            refused = note_for(3, "brief: wrote 3 KB\nboom")
+            check_eq("RC2-2: a non-zero code stays a refusal even with a brief line (no path, the last line as before)",
+                     (refused[0], refused[1]),
+                     ("", "brief_pack: no brief for S1-qa-scout-10 (boom) - the role works from the inputs above"))
+            check_eq("RC2-2: a non-zero code and no output: `exit <code>`, as before", note_for(3, "")[1],
+                     "brief_pack: no brief for S1-qa-scout-10 (exit 3) - the role works from the inputs above")
+        finally:
+            brief_file.unlink(missing_ok=True)
+
         # --- the S5 automator brief ---------------------------------------------------------
         seed_story_for_s5(task, root, "Gate A: approved. Proceed to S5 as it stands; no split.")
         seed_branch(task)   # CX1-7 (k): the real run's record and manifest, so the 6 KB checks below carry the Branch check line
