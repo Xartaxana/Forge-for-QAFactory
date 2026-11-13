@@ -1297,6 +1297,11 @@ def test_d3_the_default_mode_without_journal_keys_exits_2_and_says_to_pass_a_jou
     assert _run_main(capsys, "--journal", str(p))[0] == 0
 
 
+def _skip_text(path):
+    """The FG7-21 table block main prints after the report of `path` (its own content is tested below)."""
+    return cc.render_skip_table(cc.skip_table([pl for pl in cc.load_journal(str(path)) if pl.data is not None]))
+
+
 def _two_journals(tmp_path):
     a, b = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
     write_journal(a, [ev("2026-07-08T00:00:00", "journal_created", agent="lead", category="infra", notes="init")])
@@ -1316,14 +1321,15 @@ def test_d3_the_summary_appears_only_with_more_than_one_report_and_after_every_r
     by_since = parse_ts(cc.DEFAULT_BY_SINCE)
     reports = [analyze_journal(str(x), None, None, by_since) for x in (a, b)]
     code, out, _ = _run_main(capsys, "--journal", str(a))
-    assert code == 0 and "SUMMARY" not in out and out == cc.render_text(reports[0]) + "\n"
+    assert code == 0 and "SUMMARY" not in out and out == cc.render_text(reports[0]) + "\n" + _skip_text(a) + "\n"
     code, out, _ = _run_main(capsys, "--journal", str(a), "--journal", str(b))
     summary = ("\n=== SUMMARY across all journals ===\n\n"
                f"  {a}: rejected=0, rule6_candidates=0, field_violations=0, by_violations=0, "
                "duplicate_delegates=0, ts_anomalies=0, unparsable=0\n"
                f"  {b}: rejected=2, rule6_candidates=1, field_violations=0, by_violations=2, "
                "duplicate_delegates=0, ts_anomalies=0, unparsable=1\n")
-    assert code == 0 and out == "".join(cc.render_text(r) + "\n" for r in reports) + summary
+    assert code == 0 and out == "".join(cc.render_text(r) + "\n" + _skip_text(x) + "\n"
+                                        for r, x in zip(reports, (a, b))) + summary
 
 
 def test_d3_json_prints_the_reports_only_never_the_summary(tmp_path, capsys):
@@ -1546,3 +1552,83 @@ def test_t852_without_journal_validator_the_marker_is_not_read_and_the_reading_i
     dups = _repeats(tmp_path, [_rw("2026-07-08T00:00:00", "agent:dead"),
                                _rw("2026-07-08T01:00:00", "agent:new", notes="replaces_worker:agent:dead")])
     assert _branch_and_reason(dups[0]) == ("other", None) and "replaces_worker" not in dups[0]
+
+
+# ---------------------------------------------------------------------
+# FG7-21: the table "dispatch_skipped by agent and session/window" -- candidate repeats, printed as chains
+# ---------------------------------------------------------------------
+def _sk(ts, agent="designer", notes="n", **kw):
+    d = ev(ts, "dispatch_skipped", category="spec", **kw)
+    if agent is not None:
+        d["agent"] = agent
+    if notes is not None:
+        d["notes"] = notes
+    return d
+
+
+_D = "2026-07-08T"
+_LONG = "x" * 100
+
+
+@pytest.mark.parametrize("lines, agents, candidates", [
+    pytest.param([_sk(_D + "01:00:00")], [("designer", 1, 0)], [], id="one-skip-no-candidate"),
+    pytest.param([_sk(_D + "01:00:00"), _sk(_D + "02:00:00", agent="builder")],
+                 [("builder", 1, 0), ("designer", 1, 0)], [], id="two-agents-no-candidate"),
+    pytest.param([_sk(_D + "01:00:00", task_id="t-1"), _sk(_D + "02:00:00", task_id="t-2")],
+                 [("designer", 2, 0)], [("designer", 2, 0)], id="two-same-agent-unmarked-candidate"),
+    pytest.param([_sk(_D + "01:00:00"), _sk(_D + "02:00:00", notes="again, repeat: same class")],
+                 [("designer", 2, 1)], [], id="second-marked-no-candidate"),
+    pytest.param([_sk(_D + "01:00:00"), ev(_D + "01:30:00", "compact", agent="lead", category="infra", notes="n"),
+                  _sk(_D + "02:00:00")],
+                 [("designer", 2, 0)], [], id="compact-between-no-candidate"),
+    pytest.param([_sk(_D + "01:00:00"), _sk(_D + "01:10:00"), _sk(_D + "01:20:00", notes="repeat: third")],
+                 [("designer", 3, 1)], [("designer", 3, 1)], id="only-third-marked-still-candidate"),
+    pytest.param([_sk(_D + "01:00:00"), _sk("2026-07-09T01:00:00")],
+                 [("designer", 2, 0)], [], id="two-calendar-days-no-candidate"),
+    pytest.param([_sk(_D + "01:00:00"), _sk(_D + "02:00:00", notes="Repeat: capital does not count")],
+                 [("designer", 2, 0)], [("designer", 2, 0)], id="capital-Repeat-is-not-the-marker"),
+    pytest.param([_sk(_D + "01:00:00", agent=None), _sk(_D + "02:00:00", agent="", notes=None),
+                  _sk(_D + "03:00:00", agent=None, notes=["repeat:"])],
+                 [("(no agent)", 3, 0)], [("(no agent)", 3, 0)], id="no-agent-empty-or-non-string-notes-one-row"),
+    pytest.param([_sk("not-a-ts"), _sk(_D + "01:00:00"), _sk("")],
+                 [("designer", 3, 0)], [("designer", 2, 0)], id="bad-ts-kept-in-its-own-window"),
+    pytest.param([_sk(_D + "01:00:00"), _sk(_D + "02:00:00", notes=_LONG + " repeat: past the cut")],
+                 [("designer", 2, 1)], [], id="marker-past-the-cut-is-still-read"),
+    pytest.param([_sk(_D + f"{h:02d}:00:00") for h in range(12)],
+                 [("designer", 12, 0)], [("designer", 12, 0)], id="long-chain-is-not-capped"),
+])
+def test_fg7_21_skip_table_cases(tmp_path, lines, agents, candidates):
+    p = tmp_path / "j.jsonl"
+    write_journal(p, lines)
+    table = cc.skip_table([pl for pl in cc.load_journal(str(p)) if pl.data is not None])
+    assert [(a["agent"], a["events"], a["marked"]) for a in table["agents"]] == agents
+    assert [(c["agent"], len(c["chain"]), c["marked"]) for c in table["candidates"]] == candidates
+
+
+def test_fg7_21_chain_prints_ts_task_id_and_cut_notes_and_the_header_names_the_door(tmp_path):
+    p = tmp_path / "j.jsonl"
+    write_journal(p, [_sk(_D + "01:00:00", task_id="t-024", notes=_LONG), _sk(_D + "02:00:00", notes="short")])
+    text = cc.render_skip_table(cc.skip_table([pl for pl in cc.load_journal(str(p)) if pl.data is not None]))
+    assert "mark a repeat with `repeat:` in notes" in text and "`Repeat:` does not count" in text
+    assert "  candidate repeat: designer, window 2026-07-08: 2 events, marked=0" in text
+    assert f"    ts={_D}01:00:00 task_id=t-024 notes={'x' * 80}..." in text
+    assert f"    ts={_D}02:00:00 notes=short" in text and "script run recorded as skip" in text
+
+
+def test_fg7_21_without_skips_the_table_prints_its_header_and_none(tmp_path):
+    p = tmp_path / "j.jsonl"
+    write_journal(p, [ev(_D + "00:00:00", "journal_created", notes="init")])
+    text = cc.render_skip_table(cc.skip_table(cc.load_journal(str(p))))
+    assert text.startswith(f"\n=== {cc.SKIP_TITLE} ===\n") and text.endswith("\n  none")
+
+
+def test_fg7_21_compact_windows_split_by_compact_and_the_cli_prints_the_table_and_json_key(tmp_path, capsys):
+    p = tmp_path / "j.jsonl"
+    write_journal(p, [_sk(_D + "01:00:00"), _sk(_D + "02:00:00"),
+                      ev(_D + "03:00:00", "compact", agent="lead", category="infra", notes="n"), _sk(_D + "04:00:00")])
+    code, out, _ = _run_main(capsys, "--journal", str(p))
+    assert code == 0 and "candidate repeat: designer, window compact window 0: 2 events" in out
+    assert out.count("candidate repeat:") == 1
+    code, out, _ = _run_main(capsys, "--journal", str(p), "--json")
+    assert json.loads(out)["journals"][0]["dispatch_skipped"]["agents"] == [
+        {"agent": "designer", "events": 3, "marked": 0}]

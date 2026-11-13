@@ -821,6 +821,85 @@ def render_text(report: Dict[str, Any]) -> str:
     return "\n".join(out)
 
 
+# FG7-21: the repeat marker of a dispatch_skipped (rule 8 of CLAUDE.md: from the SECOND self-execution of a class
+# in a session the event is marked). A CLOSED token, matched as this exact lowercase literal in the whole notes;
+# the code never reads the wording of a reason (FR-12, P27) and never guesses the class: it prints the chains.
+REPEAT_MARKER = "repeat:"
+NO_AGENT = "(no agent)"
+BAD_TS_WINDOW = "(bad ts)"
+NOTES_CUT = 80
+SKIP_TITLE = "dispatch_skipped by agent and session/window"
+SKIP_HEADER = (
+    "  Door form: mark a repeat with `repeat:` in notes (the exact lowercase literal, read in the whole notes; "
+    "`Repeat:` does not count).\n"
+    "  Window: between `compact` events by ts, a calendar day when the journal has none. A candidate repeat is an "
+    "agent with 2 or more events in one window where any event after the first carries no marker; its chain is "
+    "printed whole for the Lead to judge the class.\n"
+    "  Row \"script run recorded as skip\": not printed -- no closed field of the event tells a script-run skip "
+    "from another one (the Lead's question, FG7-21)."
+)
+
+
+def _skip_window_of(ts: Optional[datetime], compacts: List[datetime]) -> str:
+    """The window of one event: its calendar day, or (when the journal has `compact` events) the index of the
+    interval between consecutive compacts; an unparsable ts is the window BAD_TS_WINDOW."""
+    if ts is None:
+        return BAD_TS_WINDOW
+    if not compacts:
+        return ts.date().isoformat()
+    return f"compact window {sum(1 for c in compacts if c <= ts)}"
+
+
+def _skip_entry(pl: ParsedLine) -> Dict[str, Any]:
+    notes = pl.data.get("notes")
+    text = " ".join(notes.split()) if isinstance(notes, str) else ""
+    tid = pl.data.get("task_id")
+    return {"ts": pl.data.get("ts"), "task_id": tid if isinstance(tid, str) and tid else None,
+            "notes": text if len(text) <= NOTES_CUT else text[:NOTES_CUT] + "...",
+            "marked": isinstance(notes, str) and REPEAT_MARKER in notes}
+
+
+def skip_table(parsed_lines: List[ParsedLine], window_start: Optional[datetime] = None,
+               window_end: Optional[datetime] = None) -> Dict[str, Any]:
+    """FG7-21: dispatch_skipped per agent ({"agents": [{agent, events, marked}]}) and the candidate repeats
+    ({"candidates": [{agent, window, marked, chain}]}). Candidates, not verdicts: a window is a compact interval
+    (all `compact` events of the file count as boundaries, not only those in the --window range) or a calendar day."""
+    compacts = sorted(pl.ts for pl in parsed_lines if pl.data.get("event") == "compact" and pl.ts is not None)
+    groups: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    for pl in parsed_lines:
+        if pl.data.get("event") != "dispatch_skipped" or not _in_window(pl, window_start, window_end):
+            continue
+        agent = pl.data.get("agent")
+        name = agent if isinstance(agent, str) and agent else NO_AGENT
+        groups.setdefault(name, {}).setdefault(_skip_window_of(pl.ts, compacts), []).append(_skip_entry(pl))
+    agents, candidates = [], []
+    for name in sorted(groups):
+        chains = groups[name]
+        agents.append({"agent": name, "events": sum(len(c) for c in chains.values()),
+                       "marked": sum(e["marked"] for c in chains.values() for e in c)})
+        for window in sorted(chains):
+            chain = chains[window]
+            if len(chain) >= 2 and not all(e["marked"] for e in chain[1:]):
+                candidates.append({"agent": name, "window": window,
+                                   "marked": sum(e["marked"] for e in chain), "chain": chain})
+    return {"agents": agents, "candidates": candidates}
+
+
+def render_skip_table(table: Dict[str, Any]) -> str:
+    out = [_fmt_section(SKIP_TITLE) + SKIP_HEADER]
+    if not table["agents"]:
+        out.append("  none")
+    for a in table["agents"]:
+        out.append(f"  {a['agent']}: events={a['events']}, with `{REPEAT_MARKER}` marker={a['marked']}")
+    for c in table["candidates"]:
+        out.append(f"  candidate repeat: {c['agent']}, window {c['window']}: {len(c['chain'])} events, "
+                   f"marked={c['marked']}")
+        for e in c["chain"]:
+            tid = f" task_id={e['task_id']}" if e["task_id"] else ""
+            out.append(f"    ts={e['ts']}{tid} notes={e['notes']}")
+    return "\n".join(out)
+
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
     p.add_argument("--journal", action="append", default=None,
@@ -932,14 +1011,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         if reports is None:
             return 2
 
+    tables = [skip_table([pl for pl in load_journal(r["journal"]) if pl.data is not None], window_start, window_end)
+              for r in reports]                                  # FG7-21: beside the report, the report dict stays as it was
+
     if args.json:
-        print(json.dumps({"journals": reports}, ensure_ascii=False, indent=2))
+        print(json.dumps({"journals": [dict(r, dispatch_skipped=t) for r, t in zip(reports, tables)]},
+                         ensure_ascii=False, indent=2))
         return 0
 
     if not args.journal:
         _print_loaded(reports)         # the explicit --journal output stays byte-identical: its files are the ones named
-    for report in reports:
+    for report, table in zip(reports, tables):
         print(render_text(report))
+        print(render_skip_table(table))
 
     if len(reports) > 1:
         _print_summary(reports)
