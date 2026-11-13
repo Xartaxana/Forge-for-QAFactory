@@ -32,6 +32,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -264,6 +265,21 @@ def script_command(name, root=None, *, must_exist: bool = True) -> str:
                     f"it holds characters a shell expands)")
         return f"python '{full}'"
     return f'python "{full}"'
+
+
+# `{script:<name>}`: a data file's way to name a package script it cannot spell itself (the stand-answers table). One path
+# component, `.py` only - never a slash or a dot-dot, so a token cannot resolve outside `<root>/scripts/`. It is a COMMAND
+# spelling resolved through `script_command`; `PLUGIN_TOKEN` below is a different action (a stored-path hint resolved in
+# leading position to a bare path). Two actions, each with one road.
+SCRIPT_TOKEN_RE = re.compile(r"\{script:([A-Za-z0-9_]+\.py)\}")
+
+
+def expand_script_tokens(text, root=None):
+    """`text` with every `{script:<name>.py}` replaced by `script_command(name, root)` (a missing script gives the gap text,
+    FR-59). A non-string, a text with no token and a malformed token come back unchanged. Never reads the environment."""
+    if not isinstance(text, str) or "{script:" not in text:
+        return text
+    return SCRIPT_TOKEN_RE.sub(lambda m: script_command(m.group(1), root), text)
 
 
 def _repository_roots(project, cfg) -> dict:

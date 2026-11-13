@@ -168,6 +168,10 @@ ON_CARD_RE = re.compile(r"`([A-Za-z0-9_]+\.py)[^`]*`\s*(?:\([^)]*on your card[^)
 CHARTER_CARD_SCRIPTS = {("qa-runner", "manual_evidence.py"), ("qa-failure-analyst", "bug_records.py"),
                         ("qa-failure-analyst", "bug_snapshot.py"), ("qa-doc-scribe", "report_facts.py"),
                         ("qa-retro-analyst", "retro_numbers.py")}
+# the data files a role reads raw or through the table's one reader (OH8-4 Part 2), and the two scripts they name by marker
+DATA_CARRIERS = ("references/templates/requirements-register.md", "handoffs/s0-setup-to-scout.yaml",
+                 "references/stand-answers.json")
+DATA_CARD_SCRIPTS = {("qa-requirements-tester", "branch_accounting.py"), ("qa-scout", "ticket_adapter.py")}
 
 
 def charter_card_join() -> None:
@@ -186,9 +190,42 @@ def charter_card_join() -> None:
             check(f"{role}: {name} is named 'on your card' and is on the card", name in flat)
     check("the join finds exactly the five scripts the charters name (not vacuous)", found == CHARTER_CARD_SCRIPTS,
           str(sorted(found ^ CHARTER_CARD_SCRIPTS)))
-    carriers = sorted((PLUGIN / "agents").glob("*.md")) + sorted((PLUGIN / "references" / "slices").rglob("*.md"))
+    carriers = (sorted((PLUGIN / "agents").glob("*.md")) + sorted((PLUGIN / "references" / "slices").rglob("*.md"))
+                + [PLUGIN / rel for rel in DATA_CARRIERS])
     bad = [str(p.relative_to(PLUGIN)) for p in carriers if "claude_plugin_root" in p.read_text(encoding="utf-8").lower()]
-    check("no charter and no slice carries the host root variable", not bad, str(bad))
+    check("no charter, no slice and no data carrier a role reads carries the host root variable", not bad, str(bad))
+
+    # data files a role reads RAW name a script with the card marker; the role that reads each has it on its card (OH8-4 Part 2)
+    import handoff as handoff_form
+    readers = {
+        "references/templates/requirements-register.md":
+            {role for role, entry in brief_pack.ROLE_FILES.items()
+             if "plugin:references/templates/requirements-register.md" in json.dumps(entry)},
+        "handoffs/s0-setup-to-scout.yaml": {str(handoff_form.template("s0-setup-to-scout").data.get("to_role") or "")},
+    }
+    data_found = set()
+    for rel, roles_reading in readers.items():
+        check(f"{rel}: a role reads it", bool(roles_reading - {""}), str(roles_reading))
+        text = (PLUGIN / rel).read_text(encoding="utf-8")
+        for role in sorted(roles_reading - {""}):
+            flat = "\n".join(list(brief_pack.TOOLING.get(role, [])) + list(brief_pack.TOOLING_MANUAL.get(role, [])))
+            for name in dict.fromkeys(ON_CARD_RE.findall(text)):
+                data_found.add((role, name))
+                check(f"{rel}: {role} is told {name} 'on your card' and it is on the card", name in flat)
+    check("the data join finds exactly the two scripts the data files name (not vacuous)", data_found == DATA_CARD_SCRIPTS,
+          str(sorted(data_found ^ DATA_CARD_SCRIPTS)))
+
+    # the stand-answers table reaches its readers with the script spelled, never as a token
+    import env_probe
+    import runtime_paths as RP
+    env_probe.reload_stand_answers()
+    table = env_probe.stand_answers()
+    check("login_recheck starts with the survivor's command for env_probe.py",
+          table["login_recheck"].startswith(RP.script_command("env_probe.py")), table["login_recheck"][:90])
+    l3 = next((r for r in table["login_remedies"] if r.get("id") == "L3"), {})
+    check("the L3 remedy holds the survivor's command for stand_health.py",
+          RP.script_command("stand_health.py") in str(l3.get("remedy")), str(l3.get("remedy")))
+    check("no string of the loaded table holds a script token", "{script:" not in json.dumps(table))
 
 
 def main() -> None:
